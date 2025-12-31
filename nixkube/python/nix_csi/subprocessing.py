@@ -88,7 +88,8 @@ async def run_console(*args, log_level: int = logging.DEBUG):
             f"Command executed in {elapsed_time} seconds: {shlex.join([str(arg) for arg in args[:5]])}"
         )
 
-    assert proc.returncode is not None
+    if proc.returncode is None:
+        raise RuntimeError("Process returncode is None after wait()")
     return SubprocessResult(
         proc.returncode,
         "\n".join(stdout_data).strip(),
