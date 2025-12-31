@@ -254,6 +254,7 @@ When making file changes, follow this pattern to keep AI and human changesets se
 - **Working-copy is always a commit**: Changes are never lost unless explicitly abandoned
 - **Operations are recorded**: `jj op log` tracks every action for easy undo
 - **Colocated repos**: In repos with both jj and git, prefer jj for write operations
+- **Sacred bookmarks**: Never automatically advance `main`, `master`, or `trunk` bookmarks - these are managed by humans only
 
 ## Repository-Specific Conventions
 
