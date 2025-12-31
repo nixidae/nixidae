@@ -18,12 +18,19 @@ class SubprocessResult(NamedTuple):
     elapsed: float
 
 
+def _format_command_preview(args, max_args=5):
+    """Format command for error messages, truncating if too long."""
+    cmd_preview = shlex.join([str(arg) for arg in args[:max_args]])
+    suffix = f" ... ({len(args)} total args)" if len(args) > max_args else ""
+    return f"{cmd_preview}{suffix}"
+
+
 async def try_captured(*args):
     result = await run_captured(*args)
     if result.returncode != 0:
         raise GRPCError(
             Status.INTERNAL,
-            f"{shlex.join([str(arg) for arg in args[:5]])}... failed: {result.returncode=}",
+            f"{_format_command_preview(args)} failed: {result.returncode=}",
             result.combined
         )
     return result
@@ -34,7 +41,7 @@ async def try_console(*args, log_level: int = logging.DEBUG):
     if result.returncode != 0:
         raise GRPCError(
             Status.INTERNAL,
-            f"{shlex.join([str(arg) for arg in args[:5]])}... failed: {result.returncode=}",
+            f"{_format_command_preview(args)} failed: {result.returncode=}",
             result.combined
         )
     return result
