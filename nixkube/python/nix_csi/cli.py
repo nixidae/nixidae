@@ -32,7 +32,11 @@ async def async_main():
 
     logging.getLogger("nix-csi").setLevel(getattr(logging, args.loglevel))
 
-    await service.serve()
+    try:
+        await service.serve()
+    except Exception as e:
+        logger.critical(f"CSI service failed: {e}", exc_info=True)
+        raise
 
 
 def main():
