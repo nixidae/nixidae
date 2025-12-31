@@ -378,9 +378,10 @@ class NodeServicer(csi_grpc.NodeBase):
         request: csi_pb2.NodeGetInfoRequest | None = await stream.recv_message()
         if request is None:
             raise ValueError("NodeGetInfoRequest is None")
-        reply = csi_pb2.NodeGetInfoResponse(
-            node_id=str(os.environ.get("KUBE_NODE_NAME")),
-        )
+        node_name = os.environ.get("KUBE_NODE_NAME")
+        if not node_name:
+            raise GRPCError(Status.FAILED_PRECONDITION, "KUBE_NODE_NAME environment variable not set")
+        reply = csi_pb2.NodeGetInfoResponse(node_id=node_name)
         await stream.send_message(reply)
 
     async def NodeGetVolumeStats(self, stream):
