@@ -279,7 +279,11 @@ class NodeServicer(csi_grpc.NodeBase):
             reply = csi_pb2.NodePublishVolumeResponse()
             await stream.send_message(reply)
 
-            asyncio.create_task(copyToCache(packagePath))
+            task = asyncio.create_task(copyToCache(packagePath))
+            task.add_done_callback(
+                lambda t: logger.error(f"copyToCache failed: {t.exception()}")
+                if t.exception() else None
+            )
 
     @staticmethod
     async def IsMount(path: Path):

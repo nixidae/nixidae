@@ -11,6 +11,14 @@ copyLock: defaultdict[Path, Semaphore] = defaultdict(Semaphore)
 
 
 async def copyToCache(packagePath: Path):
+    # TODO: Rewrite this entire copy process to support user-supplied copy scripts.
+    # This will allow end-users to copy to arbitrary destinations (S3, GCS, custom caches, etc.)
+    # rather than hard-coding ssh-ng://nix@nix-cache.
+    #
+    # TODO: Building should be moved to separate builder pods rather than happening
+    # within the CSI daemonset. The daemonset should only handle mounting pre-built paths.
+    # This will improve separation of concerns and allow dedicated builder infrastructure.
+
     # Only run one copy per path per time
     async with copyLock[packagePath]:
         paths = [str(packagePath)]
@@ -30,12 +38,17 @@ async def copyToCache(packagePath: Path):
         # Filter derivation files
         paths = {p for p in paths if not p.endswith(".drv")}
         if len(paths) > 0:
-            for _ in range(6):
-                await sleep(5)
+            for attempt in range(6):
+                if attempt > 0:
+                    backoff = min(5 * (2 ** (attempt - 1)), 60)
+                    logger.warning(f"Retry {attempt}/6 copying to cache after {backoff}s: {packagePath}")
+                    await sleep(backoff)
+
                 nixCopy = await run_captured(
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
                 )
                 if nixCopy.returncode == 0:
-                    logger.debug(nixCopy.combined)
+                    logger.debug(f"Successfully copied to cache: {packagePath}")
                     break
-                await sleep(5)
+            else:
+                logger.error(f"Failed to copy to cache after 6 attempts: {packagePath}")
