@@ -23,6 +23,7 @@ logger = logging.getLogger("nix-csi")
 CSI_PLUGIN_NAME = "nix.csi.store"
 CSI_VENDOR_VERSION = metadata.version("nix-csi")
 
+# Exit code from mount command when target is already mounted
 MOUNT_ALREADY_MOUNTED = 32
 
 # Paths we base everything on.
