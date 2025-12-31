@@ -280,6 +280,9 @@ class NodeServicer(csi_grpc.NodeBase):
             if mount.returncode == MOUNT_ALREADY_MOUNTED:
                 logger.debug(f"Mount target {targetPath} was already mounted")
             elif mount.returncode != 0:
+                # Clean up resources on mount failure
+                gcPath.unlink(missing_ok=True)
+                shutil.rmtree(volumeRoot, ignore_errors=True)
                 raise GRPCError(
                     Status.INTERNAL,
                     f"Failed to mount {mount.returncode=} {mount.stderr=}",
