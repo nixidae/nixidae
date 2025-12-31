@@ -43,9 +43,9 @@ async def copyToCache(packagePath: Path):
         if len(paths) > 0:
             for attempt in range(6):
                 if attempt > 0:
-                    backoff = min(5 * (2 ** (attempt - 1)), 60)
-                    logger.warning(f"Retry {attempt}/6 copying to cache after {backoff}s: {packagePath}")
-                    await sleep(backoff)
+                    exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
+                    logger.warning(f"Retry {attempt}/6 copying to cache after {exp_backoff}s: {packagePath}")
+                    await sleep(exp_backoff)
 
                 nixCopy = await run_captured(
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
