@@ -32,7 +32,9 @@ CSI_ROOT = NIX_ROOT / "nix/var/nix-csi"
 CSI_VOLUMES = CSI_ROOT / "volumes"
 CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
-RSYNC_CONCURRENCY = Semaphore(1)
+# TODO: Make RSYNC_CONCURRENCY configurable from kubenix modules (deployment config)
+# rather than only via environment variable
+RSYNC_CONCURRENCY = Semaphore(int(os.environ.get("RSYNC_CONCURRENCY", "1")))
 
 
 async def get_current_system():
