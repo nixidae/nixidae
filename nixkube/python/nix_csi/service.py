@@ -240,7 +240,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 gcPath.unlink(missing_ok=True)
                 # Remove what we were working on
                 shutil.rmtree(volumeRoot, True)
-                raise ex
+                raise
 
             targetPath.mkdir(parents=True, exist_ok=True)
             mountCommand = []
