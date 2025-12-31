@@ -2,6 +2,7 @@ import logging
 import shlex
 import asyncio
 import time
+import os
 from typing import NamedTuple
 
 from grpclib import GRPCError
@@ -36,8 +37,8 @@ async def try_captured(*args):
     return result
 
 
-async def try_console(*args, log_level: int = logging.DEBUG):
-    result = await run_console(*args, log_level=log_level)
+async def try_console(*args, log_level: int = logging.DEBUG, timeout: float | None = None):
+    result = await run_console(*args, log_level=log_level, timeout=timeout)
     if result.returncode != 0:
         raise GRPCError(
             Status.INTERNAL,
@@ -48,12 +49,15 @@ async def try_console(*args, log_level: int = logging.DEBUG):
 
 
 # Run async subprocess, capture output and returncode
-async def run_captured(*args):
-    return await run_console(*args, log_level=logging.NOTSET)
+async def run_captured(*args, timeout: float | None = None):
+    return await run_console(*args, log_level=logging.NOTSET, timeout=timeout)
 
 
 # Run async subprocess, forward output to console and return returncode
-async def run_console(*args, log_level: int = logging.DEBUG):
+async def run_console(*args, log_level: int = logging.DEBUG, timeout: float | None = None):
+    # TODO: Make NIX_BUILD_TIMEOUT configurable from easykubenix modules
+    if timeout is None:
+        timeout = float(os.environ.get("NIX_BUILD_TIMEOUT", "3600"))  # 1 hour default
     start_time = time.perf_counter()
     log_command(*args, log_level=log_level)
     proc = await asyncio.create_subprocess_exec(
@@ -77,11 +81,20 @@ async def run_console(*args, log_level: int = logging.DEBUG):
             logger.error(f"Error reading subprocess stream: {e}")
             # Continue - proc.wait() will still complete and we'll get returncode
 
-    await asyncio.gather(
-        stream_output(proc.stdout, stdout_data),
-        stream_output(proc.stderr, stderr_data),
-        proc.wait(),
-    )
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                stream_output(proc.stdout, stdout_data),
+                stream_output(proc.stderr, stderr_data),
+                proc.wait(),
+            ),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise GRPCError(Status.DEADLINE_EXCEEDED, f"Command timed out after {timeout}s: {_format_command_preview(args)}")
+
     elapsed_time = time.perf_counter() - start_time
     if elapsed_time > 5:
         logger.info(
