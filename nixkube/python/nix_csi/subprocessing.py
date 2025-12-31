@@ -60,11 +60,15 @@ async def run_console(*args, log_level: int = logging.DEBUG):
     combined_data = []
 
     async def stream_output(stream, buffer):
-        async for line in stream:
-            decoded = line.decode().strip()
-            buffer.append(decoded)
-            combined_data.append(decoded)
-            logger.log(log_level, decoded)
+        try:
+            async for line in stream:
+                decoded = line.decode().strip()
+                buffer.append(decoded)
+                combined_data.append(decoded)
+                logger.log(log_level, decoded)
+        except Exception as e:
+            logger.error(f"Error reading subprocess stream: {e}")
+            # Continue - proc.wait() will still complete and we'll get returncode
 
     await asyncio.gather(
         stream_output(proc.stdout, stdout_data),
