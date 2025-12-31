@@ -78,7 +78,7 @@ async def run_console(*args, log_level: int = logging.DEBUG):
     elapsed_time = time.perf_counter() - start_time
     if elapsed_time > 5:
         logger.info(
-            f"Comamnd executed in {elapsed_time} seconds: {shlex.join([str(arg) for arg in args[:5]])}"
+            f"Command executed in {elapsed_time} seconds: {shlex.join([str(arg) for arg in args[:5]])}"
         )
 
     assert proc.returncode is not None
