@@ -2,6 +2,7 @@
 
 import kr8s
 import logging
+import os
 
 logger = logging.getLogger("nix-csi")
 
@@ -19,8 +20,9 @@ async def get_builder_ips(namespace: str) -> list[str]:
                 logger.debug(f"Node {node.name} missing nix.csi/builder label")
 
         builder_ips = []
+        node_label = os.environ.get("NODE_LABEL_APP", "nix-csi-node")
         pods = kr8s.asyncio.get(
-            "pods", namespace=namespace, label_selector={"app": "nix-csi-node"}
+            "pods", namespace=namespace, label_selector={"app": node_label}
         )
         async for pod in pods:
             try:
