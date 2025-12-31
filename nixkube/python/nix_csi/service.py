@@ -417,10 +417,15 @@ async def serve():
     )
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.bind(sock_path)
-    sock.listen(128)
-    sock.setblocking(False)
+    try:
+        sock.bind(sock_path)
+        sock.listen(128)
+        # setblocking(False) is redundant - async IO handles this
 
-    await server.start(sock=sock)
-    logger.info(f"CSI driver (grpclib) listening on unix://{sock_path}")
-    await server.wait_closed()
+        await server.start(sock=sock)
+        logger.info(f"CSI driver (grpclib) listening on unix://{sock_path}")
+        await server.wait_closed()
+    except Exception:
+        sock.close()
+        Path(sock_path).unlink(missing_ok=True)
+        raise
