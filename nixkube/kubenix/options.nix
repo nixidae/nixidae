@@ -76,14 +76,6 @@ in
       default = "nix-builders";
     };
 
-    cachePackage = lib.mkOption {
-      type = lib.types.attrsOf lib.types.package;
-      internal = true;
-    };
-    nodePackage = lib.mkOption {
-      type = lib.types.attrsOf lib.types.package;
-      internal = true;
-    };
     pkgs = lib.mkOption {
       type = lib.types.path;
       default = inputs.nixpkgs;
@@ -102,41 +94,36 @@ in
   };
   config =
     let
-      x86 = "x86_64-linux";
-      arm = "aarch64-linux";
+      mkPkgs =
+        system:
+        import cfg.pkgs {
+          inherit system;
+          overlays = [
+            (import ../pkgs)
+            (self: pkgs: {
+              nix-csi-node-env = import ../environments/node {
+                inherit pkgs;
+                inherit (cfg) dinix;
+              };
+              nix-csi-cache-env = import ../environments/cache {
+                inherit pkgs;
+                inherit (cfg) dinix;
+              };
+            })
+          ];
+        };
 
-      x86Pkgs = import cfg.pkgs {
-        system = x86;
-        overlays = [ (import ../pkgs) ];
-      };
-      armPkgs = import cfg.pkgs {
-        system = arm;
-        overlays = [ (import ../pkgs) ];
-      };
-      cachePackage = {
-        ${x86} = import ../environments/cache {
-          pkgs = x86Pkgs;
-          inherit (cfg) dinix;
-        };
-        ${arm} = import ../environments/cache {
-          pkgs = armPkgs;
-          inherit (cfg) dinix;
-        };
-      };
-      nodePackage = {
-        ${x86} = import ../environments/node {
-          pkgs = x86Pkgs;
-          inherit (cfg) dinix;
-        };
-        ${arm} = import ../environments/node {
-          pkgs = armPkgs;
-          inherit (cfg) dinix;
-        };
-      };
+      maybePush = pkg: if cfg.push then pkg else builtins.unsafeDiscardStringContext pkg;
+
     in
     lib.mkIf cfg.enable {
-      nix-csi.cachePackage = cachePackage;
-      nix-csi.nodePackage = nodePackage;
+      # Provide helpers to all modules via _module.args
+      _module.args = {
+        inherit maybePush;
+        x86Pkgs = mkPkgs "x86_64-linux";
+        armPkgs = mkPkgs "aarch64-linux";
+      };
+
       nix-csi.authorizedKeys = [ cfg.pubKey ];
     };
 }

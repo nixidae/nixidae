@@ -2,6 +2,9 @@
   config,
   pkgs,
   lib,
+  maybePush,
+  x86Pkgs,
+  armPkgs,
   ...
 }:
 let
@@ -48,16 +51,9 @@ in
                     env =
                       lib.mkNamedList {
                         CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                        amd64.value =
-                          if cfg.push then
-                            cfg.nodePackage.x86_64-linux
-                          else
-                            builtins.unsafeDiscardStringContext cfg.nodePackage.x86_64-linux;
-                        arm64.value =
-                          if cfg.push then
-                            cfg.nodePackage.aarch64-linux
-                          else
-                            builtins.unsafeDiscardStringContext cfg.nodePackage.aarch64-linux;
+                        # Apply push logic at point of use
+                        amd64.value = maybePush x86Pkgs.nix-csi-node-env;
+                        arm64.value = maybePush armPkgs.nix-csi-node-env;
                       }
                       // lib.optionalAttrs (lib.stringLength (builtins.getEnv "GITHUB_KEY") > 0) {
                         NIX_CONFIG.value = "access-tokens = github.com=${builtins.getEnv "GITHUB_KEY"}";

@@ -1,7 +1,9 @@
 {
   config,
-  pkgs,
   lib,
+  maybePush,
+  x86Pkgs,
+  armPkgs,
   ...
 }:
 let
@@ -104,17 +106,10 @@ in
                   };
                   init-store.csi = {
                     driver = "nix.csi.store";
+                    # Apply push logic at point of use
                     volumeAttributes = {
-                      x86_64-linux =
-                        if cfg.push then
-                          cfg.cachePackage.x86_64-linux
-                        else
-                          builtins.unsafeDiscardStringContext cfg.cachePackage.x86_64-linux;
-                      aarch64-linux =
-                        if cfg.push then
-                          cfg.cachePackage.aarch64-linux
-                        else
-                          builtins.unsafeDiscardStringContext cfg.cachePackage.aarch64-linux;
+                      x86_64-linux = maybePush x86Pkgs.nix-csi-cache-env;
+                      aarch64-linux = maybePush armPkgs.nix-csi-cache-env;
                     };
                   };
                 };
