@@ -155,3 +155,26 @@ The `config-reconciler` service runs continuously to sync SSH keys and Nix confi
 - `python/nix_csi/service.py`: CSI NodeServicer gRPC implementation
 - `python/nix_cache/cli.py`: Cache service that maintains Nix machines file
 - `liximage.nix`: Builds the Lix container used by initContainers
+
+## Code Review Standards
+
+**The code should be approachable for both AI and beginners.** When reviewing or modifying code, follow these guidelines for comments:
+
+### When Comments Are Useful
+- ✅ **Non-obvious design decisions**: Why a particular approach was chosen over alternatives
+- ✅ **Complex algorithms**: Explain the logic when it's not immediately clear from the code
+- ✅ **Protocol requirements**: CSI interface requirements, Kubernetes API quirks, Nix behavior
+- ✅ **Error handling philosophy**: Why fail-fast vs. graceful degradation (see `NodeUnpublishVolume` for good example)
+- ✅ **Performance implications**: Why bind mounts vs. overlayfs, concurrency limits, retry strategies
+- ✅ **Footguns and gotchas**: Things that could easily be misunderstood or break
+
+### When Comments Are Noise (Avoid These)
+- ❌ **Restating what's already obvious**: Variable names, function names, and code structure should be self-documenting
+- ❌ **Duplicating log messages**: Log messages serve as inline documentation - don't repeat them in comments
+- ❌ **Explaining standard patterns**: `exp_backoff`, `async with lock`, walrus operators, set comprehensions - trust the reader
+- ❌ **Obvious control flow**: for-else with clear error logging, early returns, simple conditionals
+
+### Testing Philosophy
+- **Integration tests over unit tests**: This project orchestrates subprocess calls to Nix, rsync, mount, etc. Unit testing these would require excessive mocking and wouldn't catch real issues.
+- **Test in real environments**: Use the GitHub Actions integration tests on actual Kind clusters to validate behavior.
+- Unit tests are only valuable for pure business logic isolated from subprocess orchestration.
