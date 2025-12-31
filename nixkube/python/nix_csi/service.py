@@ -385,20 +385,16 @@ class NodeServicer(csi_grpc.NodeBase):
         reply = csi_pb2.NodeGetInfoResponse(node_id=node_name)
         await stream.send_message(reply)
 
-    async def NodeGetVolumeStats(self, stream):
-        del stream  # typechecker
+    async def NodeGetVolumeStats(self, _stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeGetVolumeStats not implemented")
 
-    async def NodeExpandVolume(self, stream):
-        del stream  # typechecker
+    async def NodeExpandVolume(self, _stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeExpandVolume not implemented")
 
-    async def NodeStageVolume(self, stream):
-        del stream  # typechecker
+    async def NodeStageVolume(self, _stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeStageVolume not implemented")
 
-    async def NodeUnstageVolume(self, stream):
-        del stream  # typechecker
+    async def NodeUnstageVolume(self, _stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeUnstageVolume not implemented")
 
 

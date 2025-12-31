@@ -77,9 +77,13 @@ Jujutsu can colocate with git repositories:
 | `git status` | `jj status` | Shows working-copy changes |
 | `git log` | `jj log` | Visual graph of commits |
 | `git log --oneline` | `jj log -r ::@` | Ancestors of working-copy |
-| `git show <commit>` | `jj show <commit>` | Show commit details |
-| `git diff` | `jj diff` | Working-copy changes |
+| `git log --stat` | `jj log --summary` | Show commits with modified files |
+| `git show` | `jj show` | Show current commit with full diff |
+| `git show <commit>` | `jj show <commit>` | Show specific commit with diff |
+| `git show --format=fuller` | `jj show --git` | Show commit in git diff format (clearer) |
+| `git diff` | `jj diff` | Changes in @ (defaults to `-r @`) |
 | `git diff <commit>` | `jj diff -r <commit>` | Changes in a specific commit |
+| `git diff HEAD` | `jj diff --from @ --to @` | Working copy vs @ (usually empty) |
 
 ### Creating and Editing Changes
 
@@ -181,7 +185,20 @@ jj log                      # Visual graph of all commits
 jj log -r ::@              # Ancestors of working-copy
 jj log -r @-               # Parent commit
 jj log -r 'bookmarks()'    # All bookmarked commits
+jj log --summary           # Show commits with list of modified files
 ```
+
+### Reviewing Commit Changes
+
+```bash
+jj show                    # Show current commit (@) with description and full diff
+jj show --git              # Same but in clearer git diff format (recommended)
+jj show <revision>         # Show specific commit with changes
+jj diff -r @               # Show changes in current commit (same as jj diff)
+jj diff -r <revision>      # Show changes in specific revision
+```
+
+**Important**: `jj diff` by default shows changes IN the current commit @, NOT uncommitted working copy changes (since the working copy IS the commit @ in jujutsu).
 
 ### Undoing Mistakes
 
