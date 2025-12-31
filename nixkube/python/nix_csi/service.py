@@ -70,11 +70,15 @@ class NodeServicer(csi_grpc.NodeBase):
             flakeRef = request.volume_context.get("flakeRef", None)
             nixExpr = request.volume_context.get("nixExpr", None)
 
+            # Using sentinel path instead of None to avoid Optional type and None checks everywhere.
+            # The if/elif blocks below should set this to a real path; the exists() check at line ~157
+            # will fail if none of the branches executed (sentinel path doesn't exist).
             packagePath: Path = Path("/nonexistent/path/that/should/never/exist")
             gcPath = CSI_GCROOTS / request.volume_id
 
             extraArgs = []
             try:
+                # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
                 if os.environ.get("CACHE_ENABLED", "false") == "true":
                     # Try cache connectivity with retries
                     for attempt in range(3):
@@ -96,6 +100,11 @@ class NodeServicer(csi_grpc.NodeBase):
             except (GRPCError, OSError, asyncio.TimeoutError) as e:
                 logger.warning(f"Cache connectivity check failed: {e}")
 
+            # Source selection order (intentional, documented in README):
+            # 1. storePath - if present, use directly
+            # 2. flakeRef - if storePath not present, build flake
+            # 3. nixExpr - if neither above present, evaluate expression
+            # Users can specify multiple; first non-None in priority order is used.
             if storePath is not None:
                 async with self.volumeLocks[storePath]:
                     logger.debug(f"{storePath=}")
@@ -302,6 +311,11 @@ class NodeServicer(csi_grpc.NodeBase):
 
         async with self.volumeLocks[request.volume_id]:
             targetPath = Path(request.target_path)
+
+            # Cleanup operations are intentionally fail-fast (not wrapped in individual try/except).
+            # Kubelet will retry NodeUnpublishVolume indefinitely on failure, so we want to
+            # stop at the first error and let the retry start from scratch. This is safer than
+            # attempting partial cleanup, as each retry re-attempts all steps in order.
 
             # Unmount
             if await NodeServicer.IsMount(targetPath):

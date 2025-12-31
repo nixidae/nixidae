@@ -22,7 +22,8 @@ async def copyToCache(packagePath: Path):
     # Only run one copy per path per time
     async with copyLock[packagePath]:
         paths = [str(packagePath)]
-        # Get all paths recursively++
+        # Try to get derivation paths recursively. This may fail if we only have
+        # store paths without .drv files (e.g., fetched from substituters), which is normal.
         pathInfoDrv = await run_captured(
             "nix",
             "path-info",
@@ -32,11 +33,13 @@ async def copyToCache(packagePath: Path):
         )
         if pathInfoDrv.returncode == 0:
             paths += pathInfoDrv.stdout.splitlines()
+        else:
+            logger.debug(f"No derivation paths found for {packagePath} (normal if fetched from substituters)")
 
-        # Unique the paths since we're running path-info twice
-        paths = list(set(paths))
-        # Filter derivation files
+        # Filter out .drv files and deduplicate (path-info runs return overlapping results)
+        # Set comprehension {x for x in ...} creates a set with unique values
         paths = {p for p in paths if not p.endswith(".drv")}
+
         if len(paths) > 0:
             for attempt in range(6):
                 if attempt > 0:
