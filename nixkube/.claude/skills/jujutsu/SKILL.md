@@ -13,6 +13,20 @@ This skill ensures Claude uses jujutsu (jj) as the primary version control syste
 
 When users reference version control operations using git terminology, automatically translate them to jujutsu equivalents. Only fall back to git if jujutsu is unavailable and the user explicitly approves.
 
+## AI Transparency
+
+When Claude creates commits in this repository:
+
+**Commit Attribution**: Every AI-generated commit should include `@claude` in the commit title for immediate transparency.
+- Format: `Add feature X @claude` or `Fix bug in Y @claude`
+- You can omit ", thanks" if it flows better - just `@claude` is sufficient
+- This makes it obvious which commits involved AI assistance
+
+**Examples**:
+- Good: `Add jujutsu skill documentation @claude`
+- Good: `Fix timeout handling @claude`
+- Also good: `Refactor service.py @claude`
+
 ## When This Skill Activates
 
 This skill activates when users mention:
@@ -76,6 +90,7 @@ Jujutsu can colocate with git repositories:
 | `git add <file>` | (automatic) | Changes are auto-tracked in `@` |
 | `git reset <file>` | `jj restore <file>` | Discard working-copy changes |
 | `git commit --fixup` | `jj squash` | Squash working-copy into parent |
+| (AI workflow) | `jj status` → check @ → commit existing → edit → commit @claude | Separate user/AI changesets |
 
 ### Movement and History Editing
 
@@ -176,13 +191,62 @@ jj undo                     # Undo last operation
 jj op restore <op-id>      # Restore to specific operation
 ```
 
+### Recommended Pre-Edit Workflow
+
+When making file changes, follow this pattern to keep AI and human changesets separate:
+
+1. **Check current working-copy status**:
+   ```bash
+   jj status                # Check if @ has changes
+   jj log -r @              # Check description and @claude tag
+   ```
+
+2. **If @ has changes**:
+
+   **Case A: Description contains @claude** (previous AI work)
+   ```bash
+   # Commit previous AI work to keep changesets separate
+   jj commit
+   ```
+
+   **Case B: Description does NOT contain @claude** (user work)
+   ```bash
+   # If no description set: auto-describe from diff
+   jj diff                                    # Review changes
+   jj describe -m "<description from diff>"  # Describe user's changes
+   jj commit                                  # Commit user work
+
+   # If description already exists: ASK user before proceeding
+   # Don't auto-change existing descriptions - verify first
+   ```
+
+3. **Make your new changes** (Edit/Write files)
+
+4. **Describe and commit the new AI changes**:
+   ```bash
+   jj describe -m "Your change description @claude"
+   jj commit
+   ```
+
+**Key Principles**:
+- The working-copy commit (@) is essentially jj's "staging area"
+- Always separate AI and human commits using @claude tag
+- Commit more often rather than less (Claude can't split commits interactively)
+- If user's commit already has a description, ask before modifying it
+- Humans manually squash/refine history later if needed
+
+**When to use**: Recommended for all tasks involving file edits.
+
 ## Best Practices for This Repository
 
-1. **Create frequent commits**: Jujutsu makes history editing easy, so commit often with reasonable changesets
-2. **Use descriptive commit messages**: Follow the style from `jj log` output
-3. **Leverage operation log**: `jj op log` is your safety net - you can always undo
-4. **Don't worry about "perfect" commits**: History is mutable and easy to refine
-5. **Use `jj bookmark set`**: Remember to move bookmarks when needed (they don't auto-advance)
+1. **Use `@claude` attribution in all AI-generated commit titles**: Makes AI involvement immediately obvious in history
+2. **Check `jj status` before making edits**: Handle existing changes cleanly by committing them first
+3. **Separate AI and human changesets**: Never mix user work and AI work in the same commit
+4. **Create frequent commits**: Jujutsu makes history editing easy, so commit often with reasonable changesets
+5. **Use descriptive commit messages**: Follow the style from `jj log` output
+6. **Leverage operation log**: `jj op log` is your safety net - you can always undo
+7. **Don't worry about "perfect" commits**: History is mutable and easy to refine
+8. **Use `jj bookmark set`**: Remember to move bookmarks when needed (they don't auto-advance)
 
 ## Safety Notes
 
