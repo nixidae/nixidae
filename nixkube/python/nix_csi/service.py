@@ -35,7 +35,11 @@ CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
 # TODO: Make RSYNC_CONCURRENCY configurable from kubenix modules (deployment config)
 # rather than only via environment variable
-RSYNC_CONCURRENCY = Semaphore(int(os.environ.get("RSYNC_CONCURRENCY", "1")))
+try:
+    RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
+except Exception:
+    logger.error("RSYNC_CONCURRENCY is invalid, must be a positive integer")
+    RSYNC_CONCURRENCY = Semaphore(1)
 
 
 async def get_current_system():
@@ -87,7 +91,8 @@ class NodeServicer(csi_grpc.NodeBase):
                     for attempt in range(3):
                         try:
                             await asyncio.wait_for(
-                                try_console("ssh", "nix@nix-cache", "--", "true"), timeout=2.0
+                                try_console("ssh", "nix@nix-cache", "--", "true"),
+                                timeout=2.0,
                             )
                             extraArgs = [
                                 "--extra-substituters",
@@ -97,9 +102,13 @@ class NodeServicer(csi_grpc.NodeBase):
                             break
                         except (GRPCError, OSError, asyncio.TimeoutError) as e:
                             if attempt < 2:
-                                logger.debug(f"Cache check attempt {attempt + 1}/3 failed, retrying: {e}")
+                                logger.debug(
+                                    f"Cache check attempt {attempt + 1}/3 failed, retrying: {e}"
+                                )
                             else:
-                                logger.warning(f"Cache unavailable after 3 attempts, building without cache")
+                                logger.warning(
+                                    f"Cache unavailable after 3 attempts, building without cache"
+                                )
             except (GRPCError, OSError, asyncio.TimeoutError) as e:
                 logger.warning(f"Cache connectivity check failed: {e}")
 
@@ -297,7 +306,8 @@ class NodeServicer(csi_grpc.NodeBase):
             task = asyncio.create_task(copyToCache(packagePath))
             task.add_done_callback(
                 lambda t: logger.error(f"copyToCache failed: {t.exception()}")
-                if t.exception() else None
+                if t.exception()
+                else None
             )
 
     @staticmethod
@@ -381,7 +391,10 @@ class NodeServicer(csi_grpc.NodeBase):
             raise ValueError("NodeGetInfoRequest is None")
         node_name = os.environ.get("KUBE_NODE_NAME")
         if not node_name:
-            raise GRPCError(Status.FAILED_PRECONDITION, "KUBE_NODE_NAME environment variable not set")
+            raise GRPCError(
+                Status.FAILED_PRECONDITION,
+                "KUBE_NODE_NAME environment variable not set",
+            )
         reply = csi_pb2.NodeGetInfoResponse(node_id=node_name)
         await stream.send_message(reply)
 
