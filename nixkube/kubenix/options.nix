@@ -101,12 +101,10 @@ in
           overlays = [
             (import ../pkgs)
             (self: pkgs: {
-              nix-csi-node-env = import ../environments/node {
-                inherit pkgs;
+              nix-csi-node-env = pkgs.callPackage ../environments/node {
                 inherit (cfg) dinix;
               };
-              nix-csi-cache-env = import ../environments/cache {
-                inherit pkgs;
+              nix-csi-cache-env = pkgs.callPackage ../environments/cache {
                 inherit (cfg) dinix;
               };
             })
