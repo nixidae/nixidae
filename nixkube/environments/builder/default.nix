@@ -134,6 +134,8 @@ let
     name = "builderEnv";
     paths = with pkgs; [
       dinixEval.config.containerWrapper
+      attic-client
+      cachix
       bash
       coreutils
       fishMinimal
