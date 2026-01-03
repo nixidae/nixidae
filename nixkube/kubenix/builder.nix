@@ -51,7 +51,7 @@ in
                     };
                   };
                 };
-                containers = lib.mkNumberedList {
+                containers = lib.mkNamedList {
                   nix-builder = {
                     command = [
                       "dinit"
@@ -112,7 +112,7 @@ in
           };
         };
 
-        # ConfigMap for builder nix.conf
+        # ConfigMap for builder nix.conf and logging config
         ConfigMap.nix-builder.data = {
           "nix.conf" = ''
             # Builder nix configuration
@@ -120,6 +120,7 @@ in
             max-jobs = auto
             trusted-users = root
           '';
+          "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
     };
