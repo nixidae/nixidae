@@ -172,6 +172,7 @@ class NodeServicer(csi_grpc.NodeBase):
                             "--out-link",
                             gcPath,
                             packagePath,
+                            timeout=NIX_BUILD_TIMEOUT,
                         )
             elif flakeRef is not None:
                 async with self.volumeLocks[flakeRef]:
@@ -186,6 +187,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         "--out-link",
                         gcPath,
                         flakeRef,
+                        timeout=NIX_BUILD_TIMEOUT,
                     )
                     packagePath = Path(result.stdout.splitlines()[0])
             elif nixExpr is not None:
@@ -205,6 +207,7 @@ class NodeServicer(csi_grpc.NodeBase):
                             gcPath,
                             "--file",
                             tmp.name,
+                            timeout=NIX_BUILD_TIMEOUT,
                         )
                         packagePath = Path(result.stdout.splitlines()[0])
             else:
