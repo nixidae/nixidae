@@ -75,9 +75,7 @@ async def get_builder_uris():
         # kr8s.asyncio.get() returns an async generator, iterate with async for
         uris = []
         async for pod in kr8s.asyncio.get(
-            "pods",
-            namespace=NAMESPACE,
-            label_selector="app.kubernetes.io/name=builder"
+            "pods", namespace=NAMESPACE, label_selector="app.kubernetes.io/name=builder"
         ):
             if pod.status.phase == "Running":
                 pod_name = pod.metadata.name
@@ -211,12 +209,14 @@ class NodeServicer(csi_grpc.NodeBase):
                         )
                         packagePath = Path(result.stdout.splitlines()[0])
             else:
+                logger.error(f"Volume doesn't have correct volumeAttributes for {self.system=}")
                 raise GRPCError(
                     Status.INVALID_ARGUMENT,
-                    f"Volume doesn't have correct volumeAttributes for {self.system}",
+                    f"Volume doesn't have correct volumeAttributes for {self.system=}",
                 )
 
             if not packagePath.exists():
+                logger.error("packagePath doesn't exist after building")
                 raise GRPCError(
                     Status.INVALID_ARGUMENT,
                     "packagePath turned out invalid",
@@ -245,7 +245,14 @@ class NodeServicer(csi_grpc.NodeBase):
                 # extra steps. (Hardlinking instead of dumbcopying)
 
                 # Install CSI gcroots
-                await try_captured("nix", "build", "--out-link", gcPath, packagePath, timeout=NIX_BUILD_TIMEOUT)
+                await try_captured(
+                    "nix",
+                    "build",
+                    "--out-link",
+                    gcPath,
+                    packagePath,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
 
                 # Copy closure to substore, rsync saves a lot of implementation
                 # headache here. --archive keeps all attributes, --hard-links
@@ -293,7 +300,8 @@ class NodeServicer(csi_grpc.NodeBase):
                     volumeRoot / "nix/var/result",
                     packagePath,
                 )
-            except Exception as ex:
+            except Exception:
+                logger.exception("Failed to build volume")
                 # Remove gcroots if we failed something else
                 gcPath.unlink(missing_ok=True)
                 # Remove what we were working on
