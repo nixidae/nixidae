@@ -7,6 +7,7 @@
     ./csidriver.nix
     ./config.nix
     ./cache.nix
+    ./builder.nix
     ./rbac.nix
     ./ctest.nix
     ./undeploy.nix

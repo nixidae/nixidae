@@ -124,6 +124,28 @@ in
         };
       };
     };
+    builders = {
+      enable = lib.mkEnableOption "builder pods";
+      replicas = lib.mkOption {
+        description = "Number of builder pod replicas";
+        type = lib.types.ints.positive;
+        default = 1;
+      };
+      resources = lib.mkOption {
+        description = "Resource requests/limits for builder pods";
+        type = lib.types.attrs;
+        default = {
+          requests = {
+            cpu = "1";
+            memory = "2Gi";
+            ephemeral-storage = "5Gi";
+          };
+          limits = {
+            ephemeral-storage = "5Gi";
+          };
+        };
+      };
+    };
 
     pkgs = lib.mkOption {
       type = lib.types.path;
@@ -154,6 +176,9 @@ in
                 inherit (cfg) dinix;
               };
               nix-csi-cache-env = pkgs.callPackage ../environments/cache {
+                inherit (cfg) dinix;
+              };
+              nix-csi-builder-env = pkgs.callPackage ../environments/builder {
                 inherit (cfg) dinix;
               };
             })

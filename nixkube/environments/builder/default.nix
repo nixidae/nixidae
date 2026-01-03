@@ -1,0 +1,130 @@
+# Builder environment for distributed builds
+# Runs openssh for accepting build requests from CSI pods
+# Monitors ValidPaths and pushes new builds to cache
+{
+  pkgs,
+  dinix,
+}:
+let
+  lib = pkgs.lib;
+  dinixEval = import dinix {
+    inherit pkgs;
+    modules = [
+      {
+        config = {
+          users = {
+            enable = true;
+            users.root = {
+              shell = pkgs.runtimeShell;
+              homeDir = "/nix/var/nix-csi/root";
+            };
+            users.nix = {
+              uid = 1000;
+              gid = 1000;
+              comment = "Nix worker user";
+            };
+            groups.nix.gid = 1000;
+            groups.nixbld.gid = 30000;
+            users.sshd = {
+              uid = 993;
+              gid = 992;
+              comment = "SSH privilege separation user";
+            };
+            groups.sshd.gid = 992;
+          };
+          env-file.variables = {
+            PYTHONUNBUFFERED = "1";
+            NIXPKGS_ALLOW_UNFREE = "1";
+          };
+          services.openssh = {
+            type = "process";
+            command = "${lib.getExe' pkgs.openssh "sshd"} -D -f /etc/ssh/sshd_config -e";
+            depends-on = [ "setup" ];
+            log-type = "file";
+            logfile = "/var/log/ssh.log";
+          };
+          services.nix-daemon = {
+            command = "${lib.getExe pkgs.lruLix} daemon --store local";
+            depends-on = [ "setup" ];
+            log-type = "file";
+            logfile = "/var/log/nix-daemon.log";
+          };
+          services.setup = {
+            type = "scripted";
+            log-type = "file";
+            logfile = "/var/log/setup.log";
+            command =
+              pkgs.writeScriptBin "setup" # bash
+                ''
+                  #! ${pkgs.runtimeShell}
+                  set -euo pipefail
+                  set -x
+                  export PATH=${
+                    lib.makeBinPath (
+                      with pkgs;
+                      [
+                        rsync
+                        coreutils
+                        lruLix
+                      ]
+                    )
+                  }
+                  mkdir --parents {/tmp,/var/tmp}
+                  chmod -R 1777 {/tmp,/var/tmp}
+                  mkdir --parents {/var/log,/nix/var/nix-csi}
+                  chmod -R 0755 {/var/log}
+                  # Copy in "well-known paths" into container root
+                  rsync --archive ${pkgs.dockerTools.binSh}/ /
+                  rsync --archive ${pkgs.dockerTools.caCertificates}/ /
+                  rsync --archive ${pkgs.dockerTools.usrBinEnv}/ /
+                  # Fix gcroots for /nix/var/result if it exists
+                  if [ -e /nix/var/result ]; then
+                    nix build --store local --out-link /nix/var/result /nix/var/result
+                  fi
+                '';
+          };
+          # Umbrella service for builder
+          services.builder = {
+            type = "scripted";
+            options = [ "starts-rwfs" ];
+            command =
+              pkgs.writeScriptBin "builder" # bash
+                ''
+                  #! ${pkgs.runtimeShell}
+                  mkdir --parents /run
+                  mkdir --parents /var/log
+                '';
+            depends-on = [
+              "builder-gc"
+              "openssh"
+            ];
+          };
+          services.builder-logger = {
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow /var/log/nix-daemon.log /var/log/dinit.log /var/log/ssh.log";
+            options = [ "shares-console" ];
+            depends-on = [ "nix-daemon" ];
+          };
+          services.builder-gc = {
+            type = "scripted";
+            command =
+              pkgs.writeScriptBin "builder-gc" # bash
+                ''
+                  #! ${pkgs.runtimeShell}
+                  # Fix gcroots for /nix/var/result if it exists
+                  if [ -e /nix/var/result ]; then
+                    nix build --out-link /nix/var/result /nix/var/result
+                  fi
+                  # Collect old shit (daily GC - 86400s)
+                  ${lib.getExe pkgs.nix-timegc} 86400
+                '';
+            log-type = "file";
+            logfile = "/var/log/builder-gc.log";
+            depends-on = [ "setup" ];
+            depends-ms = [ "nix-daemon" ];
+          };
+        };
+      }
+    ];
+  };
+in
+dinixEval.config.system.build.dinit-dist
