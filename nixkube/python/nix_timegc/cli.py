@@ -56,7 +56,7 @@ def delete_paths(paths: list[str], dry_run: bool = False) -> None:
     # Let nix-store handle checks for live GC roots.
     # check=False allows the command to continue even if some paths are live.
     result = subprocess.run(
-        ["nix-store", "--delete", *paths],
+        ["nix", "store", "delete", "--skip-live", *paths],
         check=False,
         capture_output=True,
         text=True,
