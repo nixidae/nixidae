@@ -136,33 +136,24 @@ class NodeServicer(csi_grpc.NodeBase):
                 extraArgs.append("--builders-use-substitutes")
                 logger.info(f"Using {len(builder_uris)} builder pods for builds")
 
-            try:
-                # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
-                if os.environ.get("CACHE_ENABLED", "false") == "true":
+            # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
+            if os.environ.get("CACHE_ENABLED", "false") == "true":
+                try:
                     # Try cache connectivity with retries
-                    for attempt in range(3):
-                        try:
-                            await asyncio.wait_for(
-                                try_console("ssh", "nix@nix-cache", "--", "true"),
-                                timeout=2.0,
-                            )
-                            extraArgs.extend([
-                                "--extra-substituters",
-                                "ssh-ng://nix@nix-cache?trusted=1&priority=20",
-                            ])
-                            logger.debug("Cache connectivity check succeeded")
-                            break
-                        except (GRPCError, OSError, asyncio.TimeoutError) as e:
-                            if attempt < 2:
-                                logger.debug(
-                                    f"Cache check attempt {attempt + 1}/3 failed, retrying: {e}"
-                                )
-                            else:
-                                logger.warning(
-                                    f"Cache unavailable after 3 attempts, building without cache"
-                                )
-            except (GRPCError, OSError, asyncio.TimeoutError) as e:
-                logger.warning(f"Cache connectivity check failed: {e}")
+                    await asyncio.wait_for(
+                        try_console("ssh", "nix@nix-cache", "--", "true"),
+                        timeout=2.0,
+                    )
+                    extraArgs.extend(
+                        [
+                            "--extra-substituters",
+                            "ssh-ng://nix@nix-cache?trusted=1&priority=20",
+                        ]
+                    )
+                    logger.debug("Cache connectivity check succeeded")
+                except (GRPCError, OSError, asyncio.TimeoutError):
+                    logger.exception("Cache connectivity check failed, adding fallback")
+                    extraArgs.extend(["--fallback"])
 
             # Source selection order (intentional, documented in README):
             # 1. storePath - if present, use directly
