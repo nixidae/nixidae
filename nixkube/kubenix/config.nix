@@ -135,9 +135,11 @@ in
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.nix-node.data = {
         "nix.conf" = builtins.readFile (cfg.nixNodeConfig.nixConf);
+        "logging.json" = builtins.toJSON cfg.loggingConfig;
       };
       ConfigMap.nix-cache.data = {
         "nix.conf" = builtins.readFile (cfg.nixCacheConfig.nixConf);
+        "logging.json" = builtins.toJSON cfg.loggingConfig;
       };
     };
   };

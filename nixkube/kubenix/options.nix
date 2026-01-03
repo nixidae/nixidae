@@ -91,6 +91,39 @@ in
       type = lib.types.ints.positive;
       default = 300; # 5 minutes
     };
+    loggingConfig = lib.mkOption {
+      description = ''
+        Python logging configuration dict for nix-csi service.
+        See https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
+      '';
+      type = (pkgs.formats.json { }).type;
+      default = {
+        version = 1;
+        formatters = {
+          standard = {
+            format = "%(asctime)s %(levelname)s [%(name)s] %(message)s";
+          };
+        };
+        handlers = {
+          console = {
+            class = "logging.StreamHandler";
+            formatter = "standard";
+            stream = "ext://sys.stdout";
+          };
+        };
+        loggers = {
+          "nix-csi" = {
+            level = "INFO";
+            handlers = [ "console" ];
+            propagate = false;
+          };
+        };
+        root = {
+          level = "WARN";
+          handlers = [ "console" ];
+        };
+      };
+    };
 
     pkgs = lib.mkOption {
       type = lib.types.path;
