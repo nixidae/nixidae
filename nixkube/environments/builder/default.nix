@@ -75,7 +75,7 @@ let
                   mkdir --parents {/tmp,/var/tmp}
                   chmod -R 1777 {/tmp,/var/tmp}
                   mkdir --parents {/var/log,/nix/var/nix-csi}
-                  chmod -R 0755 {/var/log}
+                  chmod -R 0755 {/var/log,/nix/var/nix-csi}
                   # Copy in "well-known paths" into container root
                   rsync --archive ${pkgs.dockerTools.binSh}/ /
                   rsync --archive ${pkgs.dockerTools.caCertificates}/ /
