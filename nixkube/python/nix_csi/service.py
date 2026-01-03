@@ -72,14 +72,13 @@ async def get_builder_uris():
 
     try:
         # Use kr8s to query pods with label selector
-        api = await kr8s.asyncio.api()
-        pods = await api.get("pods",
-                             namespace=NAMESPACE,
-                             label_selector="app.kubernetes.io/name=builder")
-
-        # Build SSH URIs: ssh://nix@pod-name.nix-builders.namespace.svc.cluster.local
+        # kr8s.asyncio.get() returns an async generator, iterate with async for
         uris = []
-        for pod in pods:
+        async for pod in kr8s.asyncio.get(
+            "pods",
+            namespace=NAMESPACE,
+            label_selector="app.kubernetes.io/name=builder"
+        ):
             if pod.status.phase == "Running":
                 pod_name = pod.metadata.name
                 uri = f"ssh://nix@{pod_name}.{BUILDERS_SERVICE}.{NAMESPACE}.svc.cluster.local"
