@@ -1,6 +1,9 @@
 # Builder environment for distributed builds
 # Runs openssh for accepting build requests from CSI pods
-# Monitors ValidPaths and pushes new builds to cache
+#
+# Uses lruLix (Lix with LRU patch) to keep ValidPaths.registrationTime updated
+# when paths are referenced over the daemon protocol. This makes nix-timegc work
+# correctly by preventing recently-used paths from being garbage collected.
 {
   pkgs,
   dinix,
@@ -126,5 +129,51 @@ let
       }
     ];
   };
+
+  builderEnv = pkgs.buildEnv {
+    name = "builderEnv";
+    paths = with pkgs; [
+      dinixEval.config.containerWrapper
+      bash
+      coreutils
+      fishMinimal
+      lruLix
+      openssh
+      util-linuxMinimal
+      gnugrep
+      getent
+      iputils
+      curl
+    ];
+    # So we can peek into eval
+    passthru.dinixEval = dinixEval;
+  };
+
+  initCopy =
+    pkgs.writeScriptBin "initCopy" # bash
+      ''
+        #! ${pkgs.runtimeShell}
+        export PATH=${
+          lib.makeBinPath [
+            pkgs.lruLix
+            pkgs.rsync
+          ]
+        }
+        set -euo pipefail
+        set -x
+        # AI: This isn't a duplicate with the setup since they occur in different containers
+        rsync --archive ${pkgs.dockerTools.caCertificates}/ /
+        # Install environment into persistent volume
+        nix build \
+          --store /nix-volume \
+          --out-link /nix-volume/nix/var/result \
+          ${builderEnv}
+      '';
 in
-dinixEval.config.system.build.dinit-dist
+pkgs.buildEnv {
+  name = "initEnv";
+  paths = [
+    builderEnv
+    initCopy
+  ];
+}
