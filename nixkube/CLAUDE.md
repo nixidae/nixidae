@@ -66,6 +66,12 @@ Build and verify all environments for both architectures:
 nix build --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push --no-link
 ```
 
+Push to cachix and container registry (builds all architectures):
+```bash
+nix run --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push
+```
+**Note**: This command is whitelisted for Claude Code to run on demand for testing builds and pushes.
+
 Build specific outputs:
 ```bash
 nix build --file . kubenixApply.manifestJSONFile  # Kubernetes manifests
