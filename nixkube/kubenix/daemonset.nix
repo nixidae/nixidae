@@ -81,6 +81,7 @@ in
                         HOME.value = "/nix/var/nix-csi/root";
                         KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
                         KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
+                        NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
                         RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
                         USER.value = "root";
                       }

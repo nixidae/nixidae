@@ -41,6 +41,14 @@ except ValueError:
     logger.exception("RSYNC_CONCURRENCY is invalid, must be a positive integer")
     RSYNC_CONCURRENCY = Semaphore(1)
 
+# Configurable via kubenix option: nodeBuildTimeout (default: 300)
+# Set via NIX_BUILD_TIMEOUT environment variable
+try:
+    NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
+except ValueError:
+    logger.exception("NIX_BUILD_TIMEOUT is invalid, must be a number")
+    NIX_BUILD_TIMEOUT = 300.0
+
 
 async def get_current_system():
     return (
@@ -199,7 +207,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 # extra steps. (Hardlinking instead of dumbcopying)
 
                 # Install CSI gcroots
-                await try_captured("nix", "build", "--out-link", gcPath, packagePath)
+                await try_captured("nix", "build", "--out-link", gcPath, packagePath, timeout=NIX_BUILD_TIMEOUT)
 
                 # Copy closure to substore, rsync saves a lot of implementation
                 # headache here. --archive keeps all attributes, --hard-links

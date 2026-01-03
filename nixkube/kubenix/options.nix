@@ -83,6 +83,14 @@ in
       type = lib.types.ints.positive;
       default = 1;
     };
+    nodeBuildTimeout = lib.mkOption {
+      description = ''
+        Timeout in seconds for Nix build operations on node pods.
+        Builds exceeding this timeout will be terminated.
+      '';
+      type = lib.types.ints.positive;
+      default = 300; # 5 minutes
+    };
 
     pkgs = lib.mkOption {
       type = lib.types.path;
