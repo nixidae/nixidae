@@ -4,6 +4,7 @@
   hatchling, # Build system
   coreutils, # ln
   csi-proto-python, # CSI GRPC bindings
+  googleapis-common-protos, # Google Errors
   gitMinimal, # Lix requires Git since it doesn't use libgit2
   kr8s, # Kubernetes API
   lix, # We need a Nix implementation.... :)
@@ -23,6 +24,7 @@ let
     dependencies = [
       coreutils
       csi-proto-python
+      googleapis-common-protos
       gitMinimal
       kr8s
       lix
