@@ -31,7 +31,6 @@ in
     in
     lib.mkIf (cfg.enable && cfg.cache.enable) {
       kubernetes.resources.${cfg.namespace} = {
-        ConfigMap.authorized-keys.data.authorized_keys = lib.concatLines cfg.authorizedKeys;
         StatefulSet.nix-cache = {
           spec = {
             serviceName = "nix-cache";
@@ -81,7 +80,6 @@ in
                     };
                     ports = lib.mkNamedList {
                       ssh.containerPort = 22;
-                      http.containerPort = 80;
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
@@ -106,7 +104,6 @@ in
                   };
                   init-store.csi = {
                     driver = "nix.csi.store";
-                    # Apply push logic at point of use
                     volumeAttributes = {
                       x86_64-linux = maybePush x86Pkgs.nix-csi-cache-env;
                       aarch64-linux = maybePush armPkgs.nix-csi-cache-env;

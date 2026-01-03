@@ -102,6 +102,9 @@ in
   options.nix-csi.nixCacheConfig = lib.mkOption {
     type = nixSubmodule;
   };
+  options.nix-csi.nixBuilderConfig = lib.mkOption {
+    type = nixSubmodule;
+  };
 
   config = lib.mkIf cfg.enable {
     nix-csi =
@@ -132,6 +135,9 @@ in
         nixCacheConfig.settings = sharedSettings // {
           max-jobs = lib.mkDefault 0;
         };
+        nixBuilderConfig.settings = sharedSettings // {
+          max-jobs = "auto";
+        };
       };
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.nix-node.data = {
@@ -140,6 +146,10 @@ in
       };
       ConfigMap.nix-cache.data = {
         "nix.conf" = builtins.readFile (cfg.nixCacheConfig.nixConf);
+        "logging.json" = builtins.toJSON cfg.loggingConfig;
+      };
+      ConfigMap.nix-builder.data = {
+        "nix.conf" = builtins.readFile (cfg.nixBuilderConfig.nixConf);
         "logging.json" = builtins.toJSON cfg.loggingConfig;
       };
     };

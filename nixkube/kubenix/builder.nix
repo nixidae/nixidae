@@ -111,17 +111,6 @@ in
             };
           };
         };
-
-        # ConfigMap for builder nix.conf and logging config
-        ConfigMap.nix-builder.data = {
-          "nix.conf" = ''
-            # Builder nix configuration
-            experimental-features = nix-command flakes
-            max-jobs = auto
-            trusted-users = root
-          '';
-          "logging.json" = builtins.toJSON cfg.loggingConfig;
-        };
       };
     };
 }
