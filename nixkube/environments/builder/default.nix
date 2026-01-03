@@ -98,7 +98,8 @@ let
                   mkdir --parents /var/log
                 '';
             depends-on = [
-              "builder-gc"
+              "logger"
+              "gc"
               "openssh"
             ];
           };
@@ -106,10 +107,10 @@ let
             command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/nix-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/gc.log";
             options = [ "shares-console" ];
           };
-          services.builder-gc = {
+          services.gc = {
             type = "scripted";
             command =
-              pkgs.writeScriptBin "builder-gc" # bash
+              pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
                   # Fix gcroots for /nix/var/result if it exists
@@ -120,7 +121,7 @@ let
                   ${lib.getExe pkgs.nix-timegc} 86400
                 '';
             log-type = "file";
-            logfile = "/var/log/builder-gc.log";
+            logfile = "/var/log/gc.log";
             depends-on = [ "setup" ];
             depends-ms = [ "nix-daemon" ];
           };

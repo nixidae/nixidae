@@ -94,7 +94,7 @@ let
                 '';
             depends-on = [
               "csi-daemon"
-              "csi-logger"
+              "logger"
               "openssh"
             ];
           };
@@ -104,7 +104,7 @@ let
             logfile = "/var/log/csi-daemon.log";
             depends-on = [
               "setup"
-              "csi-gc"
+              "gc"
               "nix-daemon"
             ];
           };
@@ -112,10 +112,10 @@ let
             command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/csi-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/gc.log";
             options = [ "shares-console" ];
           };
-          services.csi-gc = {
+          services.gc = {
             type = "scripted";
             command =
-              pkgs.writeScriptBin "csi-gc" # bash
+              pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
                   # Fix gcroots for /nix/var/result
@@ -124,7 +124,7 @@ let
                   ${lib.getExe pkgs.nix-timegc} 3600
                 '';
             log-type = "file";
-            logfile = "/var/log/csi-gc.log";
+            logfile = "/var/log/gc.log";
             depends-on = [
               "nix-daemon"
               "setup"

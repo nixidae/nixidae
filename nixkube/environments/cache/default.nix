@@ -98,8 +98,8 @@ let
                 '';
             depends-on = [
               "cache-daemon"
-              "cache-logger"
-              "cache-gc"
+              "logger"
+              "gc"
               "openssh"
             ];
           };
@@ -114,10 +114,10 @@ let
             command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/cache-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log";
             options = [ "shares-console" ];
           };
-          services.cache-gc = {
+          services.gc = {
             type = "scripted";
             command =
-              pkgs.writeScriptBin "cache-gc" # bash
+              pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
                   # Fix gcroots for /nix/var/result
@@ -126,7 +126,7 @@ let
                   ${lib.getExe pkgs.nix-timegc} 86400
                 '';
             log-type = "file";
-            logfile = "/var/log/cache-gc.log";
+            logfile = "/var/log/gc.log";
             depends-on = [
               "nix-daemon"
               "setup"
