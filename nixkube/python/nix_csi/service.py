@@ -17,6 +17,7 @@ from collections import defaultdict
 from .identityservicer import IdentityServicer
 from .copytocache import copyToCache
 from .subprocessing import run_captured, run_console, try_captured, try_console
+import kr8s.asyncio
 
 logger = logging.getLogger("nix-csi")
 
@@ -49,6 +50,12 @@ except ValueError:
     logger.exception("NIX_BUILD_TIMEOUT is invalid, must be a number")
     NIX_BUILD_TIMEOUT = 300.0
 
+# Builder configuration
+# Set via environment variables from kubenix when builders are enabled
+BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
+NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
+BUILDERS_SERVICE = "nix-builders"
+
 
 async def get_current_system():
     return (
@@ -56,6 +63,33 @@ async def get_current_system():
             "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
         )
     ).stdout
+
+
+async def get_builder_uris():
+    """Query k8s API for builder pods, return list of SSH URIs for --builders flag."""
+    if not BUILDERS_ENABLED:
+        return []
+
+    try:
+        # Use kr8s to query pods with label selector
+        api = await kr8s.asyncio.api()
+        pods = await api.get("pods",
+                             namespace=NAMESPACE,
+                             label_selector="app.kubernetes.io/name=builder")
+
+        # Build SSH URIs: ssh://nix@pod-name.nix-builders.namespace.svc.cluster.local
+        uris = []
+        for pod in pods:
+            if pod.status.phase == "Running":
+                pod_name = pod.metadata.name
+                uri = f"ssh://nix@{pod_name}.{BUILDERS_SERVICE}.{NAMESPACE}.svc.cluster.local"
+                uris.append(uri)
+
+        logger.debug(f"Discovered {len(uris)} builder pods: {uris}")
+        return uris
+    except Exception as e:
+        logger.warning(f"Failed to discover builder pods: {e}")
+        return []
 
 
 def initialize():
@@ -92,6 +126,17 @@ class NodeServicer(csi_grpc.NodeBase):
             gcPath = CSI_GCROOTS / request.volume_id
 
             extraArgs = []
+
+            # Discover builder pods when builders are enabled
+            # CSI pods run with --max-jobs 0 to delegate all builds to builder pods
+            builder_uris = await get_builder_uris()
+            if builder_uris:
+                extraArgs.extend(["--max-jobs", "0"])
+                for uri in builder_uris:
+                    extraArgs.extend(["--builders", uri])
+                extraArgs.append("--builders-use-substitutes")
+                logger.info(f"Using {len(builder_uris)} builder pods for builds")
+
             try:
                 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
                 if os.environ.get("CACHE_ENABLED", "false") == "true":
@@ -102,10 +147,10 @@ class NodeServicer(csi_grpc.NodeBase):
                                 try_console("ssh", "nix@nix-cache", "--", "true"),
                                 timeout=2.0,
                             )
-                            extraArgs = [
+                            extraArgs.extend([
                                 "--extra-substituters",
                                 "ssh-ng://nix@nix-cache?trusted=1&priority=20",
-                            ]
+                            ])
                             logger.debug("Cache connectivity check succeeded")
                             break
                         except (GRPCError, OSError, asyncio.TimeoutError) as e:

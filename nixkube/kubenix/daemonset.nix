@@ -77,8 +77,10 @@ in
                     securityContext.privileged = true;
                     env =
                       lib.mkNamedList {
+                        BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                         CSI_ENDPOINT.value = "unix:///csi/csi.sock";
                         HOME.value = "/nix/var/nix-csi/root";
+                        KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                         KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
                         KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
                         NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
