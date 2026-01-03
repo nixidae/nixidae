@@ -11,6 +11,28 @@ let
   nsRes = config.kubernetes.resources.${cfg.namespace};
 in
 {
+  options.nix-csi.builders = {
+    enable = lib.mkEnableOption "builder pods";
+    replicas = lib.mkOption {
+      description = "Number of builder pod replicas";
+      type = lib.types.ints.positive;
+      default = 1;
+    };
+    resources = lib.mkOption {
+      description = "Resource requests/limits for builder pods";
+      type = lib.types.attrs;
+      default = {
+        requests = {
+          cpu = "1";
+          memory = "2Gi";
+          ephemeral-storage = "5Gi";
+        };
+        limits = {
+          ephemeral-storage = "5Gi";
+        };
+      };
+    };
+  };
   config =
     let
       labels = {

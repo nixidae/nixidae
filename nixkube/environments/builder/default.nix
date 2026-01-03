@@ -80,10 +80,13 @@ let
                   rsync --archive ${pkgs.dockerTools.binSh}/ /
                   rsync --archive ${pkgs.dockerTools.caCertificates}/ /
                   rsync --archive ${pkgs.dockerTools.usrBinEnv}/ /
-                  # Fix gcroots for /nix/var/result if it exists
-                  if [ -e /nix/var/result ]; then
-                    nix build --store local --out-link /nix/var/result /nix/var/result
-                  fi
+                  # Fix gcroots for /nix/var/result. The one created by initCopy
+                  # points to invalid symlinks in the chain
+                  # (auto -> /nix-volume/var/result) rather than
+                  # (auto -> /nix/var/result). The link back to store works
+                  # though so this just fixes gcroots.
+                  # /nix/var/result will always exist, else the initContainer will fail
+                  nix build --store local --out-link /nix/var/result /nix/var/result
                 '';
           };
           # Umbrella service for builder
