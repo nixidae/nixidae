@@ -54,7 +54,7 @@ except ValueError:
 # Set via environment variables from kubenix when builders are enabled
 BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
 NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
-BUILDERS_SERVICE = "nix-builders"
+BUILDERS_SERVICE = "nix-csi-builders"
 
 
 async def get_current_system():

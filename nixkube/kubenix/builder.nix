@@ -102,7 +102,7 @@ in
         };
 
         # Headless service for DNS discovery of individual builder pods
-        Service.nix-builders = {
+        Service.nix-csi-builders = {
           spec = {
             clusterIP = "None";
             selector = labels;
