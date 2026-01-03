@@ -37,8 +37,8 @@ CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 # rather than only via environment variable
 try:
     RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
-except Exception:
-    logger.error("RSYNC_CONCURRENCY is invalid, must be a positive integer")
+except ValueError:
+    logger.exception("RSYNC_CONCURRENCY is invalid, must be a positive integer")
     RSYNC_CONCURRENCY = Semaphore(1)
 
 
