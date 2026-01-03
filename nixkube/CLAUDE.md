@@ -106,11 +106,6 @@ The development environment (`repoenv`) includes:
 
 ### Testing
 
-Run integration tests on a Kind cluster:
-```bash
-nix run --file . integrationTest
-```
-
 The integration test:
 1. Verifies ctest pods are running with CSI volumes mounted
 2. Checks `/nix/store` is accessible in test pods
