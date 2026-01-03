@@ -116,6 +116,7 @@ in
             "nix-command"
             "flakes"
             "auto-allocate-uids"
+            "read-only-local-store"
           ];
           auto-allocate-uids = true;
           builders-use-substitutes = true;
