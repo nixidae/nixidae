@@ -26,8 +26,8 @@ def _format_command_preview(args, max_args=5):
     return f"{cmd_preview}{suffix}"
 
 
-async def try_captured(*args):
-    result = await run_captured(*args)
+async def try_captured(*args, timeout: float | None = None):
+    result = await run_captured(*args, timeout=timeout)
     if result.returncode != 0:
         raise GRPCError(
             Status.INTERNAL,
