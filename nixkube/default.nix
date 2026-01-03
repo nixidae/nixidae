@@ -30,6 +30,7 @@ rec {
       ./kubenix/ci
       {
         nix-csi.cache.enable = true;
+        nix-csi.builders.enable = true;
       }
     ];
   };
@@ -38,6 +39,7 @@ rec {
       ./kubenix/ci
       {
         nix-csi.cache.enable = false;
+        nix-csi.builders.enable = false;
       }
     ];
   };
