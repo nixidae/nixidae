@@ -110,8 +110,8 @@ let
             depends-on = [ "setup" ];
             depends-ms = [ "nix-daemon" ];
           };
-          services.cache-logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow /var/log/cache-daemon.log /var/log/dinit.log /var/log/ssh.log";
+          services.logger = {
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/cache-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log";
             options = [ "shares-console" ];
             depends-on = [ "cache-daemon" ];
           };

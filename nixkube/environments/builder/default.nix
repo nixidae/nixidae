@@ -102,8 +102,8 @@ let
               "openssh"
             ];
           };
-          services.builder-logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow /var/log/nix-daemon.log /var/log/dinit.log /var/log/ssh.log";
+          services.logger = {
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/nix-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/gc.log";
             options = [ "shares-console" ];
             depends-on = [ "nix-daemon" ];
           };

@@ -108,8 +108,8 @@ let
               "nix-daemon"
             ];
           };
-          services.csi-logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow /var/log/csi-daemon.log /var/log/dinit.log /var/log/ssh.log";
+          services.logger = {
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/csi-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/gc.log";
             options = [ "shares-console" ];
             depends-on = [ "csi-daemon" ];
           };
