@@ -111,6 +111,8 @@ in
           ];
         };
 
+      # If we haven't set cfg.push we discard context, this means we don't build the package locally, just render the storePath
+      # this works as long as you evaluate to something that's passed through CI and pushed to nix-csi cachix.
       maybePush = pkg: if cfg.push then pkg else builtins.unsafeDiscardStringContext pkg;
 
     in
