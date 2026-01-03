@@ -75,6 +75,14 @@ in
       type = lib.types.str;
       default = "nix-builders";
     };
+    rsyncConcurrency = lib.mkOption {
+      description = ''
+        Maximum number of concurrent rsync operations when copying store paths.
+        Higher values can improve performance but increase I/O load.
+      '';
+      type = lib.types.ints.positive;
+      default = 1;
+    };
 
     pkgs = lib.mkOption {
       type = lib.types.path;

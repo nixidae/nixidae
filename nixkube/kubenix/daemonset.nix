@@ -81,6 +81,7 @@ in
                         HOME.value = "/nix/var/nix-csi/root";
                         KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
                         KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
+                        RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
                         USER.value = "root";
                       }
                       // lib.optionalAttrs (lib.stringLength (builtins.getEnv "GITHUB_KEY") > 0) {

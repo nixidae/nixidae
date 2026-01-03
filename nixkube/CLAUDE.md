@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Always use Jujutsu (jj) instead of Git** for all version control operations in this repository.
 
+**Format Nix files before committing**: Run `nixfmt **/*.nix` before any commit to ensure all Nix files are formatted correctly.
+
 ## Project Overview
 
 nix-csi is a Kubernetes CSI (Container Storage Interface) driver that mounts `/nix` stores into pods using ephemeral volumes. The system consists of:

@@ -239,7 +239,12 @@ When making file changes, follow this pattern to keep AI and human changesets se
 
 3. **Make your new changes** (Edit/Write files)
 
-4. **Describe and commit the new AI changes**:
+4. **Format Nix files if modified**:
+   ```bash
+   nixfmt **/*.nix         # Format all Nix files before committing
+   ```
+
+5. **Describe and commit the new AI changes**:
    ```bash
    jj describe -m "Your change description @claude"
    jj commit
@@ -257,13 +262,14 @@ When making file changes, follow this pattern to keep AI and human changesets se
 ## Best Practices for This Repository
 
 1. **Use `@claude` attribution in all AI-generated commit titles**: Makes AI involvement immediately obvious in history
-2. **Check `jj status` before making edits**: Handle existing changes cleanly by committing them first
-3. **Separate AI and human changesets**: Never mix user work and AI work in the same commit
-4. **Create frequent commits**: Jujutsu makes history editing easy, so commit often with reasonable changesets
-5. **Use descriptive commit messages**: Follow the style from `jj log` output
-6. **Leverage operation log**: `jj op log` is your safety net - you can always undo
-7. **Don't worry about "perfect" commits**: History is mutable and easy to refine
-8. **Use `jj bookmark set`**: Remember to move bookmarks when needed (they don't auto-advance)
+2. **Format Nix files before committing**: Run `nixfmt **/*.nix` before any commit to ensure consistent formatting
+3. **Check `jj status` before making edits**: Handle existing changes cleanly by committing them first
+4. **Separate AI and human changesets**: Never mix user work and AI work in the same commit
+5. **Create frequent commits**: Jujutsu makes history editing easy, so commit often with reasonable changesets
+6. **Use descriptive commit messages**: Follow the style from `jj log` output
+7. **Leverage operation log**: `jj op log` is your safety net - you can always undo
+8. **Don't worry about "perfect" commits**: History is mutable and easy to refine
+9. **Use `jj bookmark set`**: Remember to move bookmarks when needed (they don't auto-advance)
 
 ## Safety Notes
 

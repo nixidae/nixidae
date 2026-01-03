@@ -33,8 +33,8 @@ CSI_ROOT = NIX_ROOT / "nix/var/nix-csi"
 CSI_VOLUMES = CSI_ROOT / "volumes"
 CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
-# TODO: Make RSYNC_CONCURRENCY configurable from kubenix modules (deployment config)
-# rather than only via environment variable
+# Configurable via kubenix option: rsyncConcurrency (default: 1)
+# Set via RSYNC_CONCURRENCY environment variable
 try:
     RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
 except ValueError:
