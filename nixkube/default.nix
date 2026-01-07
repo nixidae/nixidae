@@ -91,8 +91,11 @@ rec {
     paths = [
       python
       xonsh
+      pkgs.python3Packages.python-lsp-server
+      pkgs.python3Packages.python-lsp-ruff
+      pkgs.python3Packages.pylsp-rope
+      pkgs.python3Packages.pylsp-mypy
       pkgs.cachix
-      pkgs.pyright
       pkgs.ruff
       pkgs.kluctl
       pkgs.stern
