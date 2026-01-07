@@ -3,6 +3,7 @@
   buildPythonApplication, # Builder
   hatchling, # Build system
   coreutils, # ln
+  cryptography, # ssh-keygen Python
   csi-proto-python, # CSI GRPC bindings
   googleapis-common-protos, # Google Errors
   gitMinimal, # Lix requires Git since it doesn't use libgit2
@@ -23,6 +24,7 @@ let
     build-system = [ hatchling ];
     dependencies = [
       coreutils
+      cryptography
       csi-proto-python
       googleapis-common-protos
       gitMinimal

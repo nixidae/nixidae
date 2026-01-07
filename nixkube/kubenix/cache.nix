@@ -18,6 +18,7 @@ in
       description = "nix.conf for cache pod";
       type = (import ./nixOptions.nix) pkgs;
     };
+
     storageClassName = lib.mkOption {
       description = "Which SC to use, defaults to null which will use default SC";
       type = lib.types.nullOr lib.types.str;
@@ -48,10 +49,7 @@ in
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-cache";
                 configHash = lib.hashAttrs (
-                  { }
-                  // nsRes.ConfigMap.nix-cache or { }
-                  // nsRes.Secret.ssh-config or { }
-                  // nsRes.Secret.authorized-keys or { }
+                  { } // nsRes.ConfigMap.nix-cache or { } // nsRes.ConfigMap.ssh-config or { }
                 );
               };
               spec = {
@@ -60,13 +58,19 @@ in
                   "1" = {
                     name = "initcopy";
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
+
                     command = [ "initCopy" ];
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
+
                     volumeMounts = lib.mkNamedList {
                       init-store.mountPath = "/nix";
                       nix-store.mountPath = "/nix-volume";
                       nix-config.mountPath = "/etc/nix";
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
                     };
                   };
                 };
@@ -90,31 +94,38 @@ in
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
-                      ssh-config.mountPath = "/etc/ssh";
-                      authorized-keys.mountPath = "/etc/authorized_keys";
                       nix-store = {
                         mountPath = "/nix";
                         subPath = "nix";
                       };
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
                     };
                   };
                 };
                 volumes = lib.mkNamedList {
                   nix-config.configMap.name = "nix-cache";
-                  ssh-config.secret = {
-                    secretName = "ssh-config";
-                    defaultMode = 256; # 400
-                  };
-                  authorized-keys.secret = {
-                    secretName = "authorized-keys";
-                    defaultMode = 292; # 444
-                  };
                   init-store.csi = {
                     driver = "nix.csi.store";
                     volumeAttributes = {
                       x86_64-linux = maybePush x86Pkgs.nix-csi-cache-env;
                       aarch64-linux = maybePush armPkgs.nix-csi-cache-env;
                     };
+                  };
+
+                  ssh-config.configMap = {
+                    name = "ssh-config";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-dynauth.configMap = {
+                    name = "ssh-dynauth";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-key.secret = {
+                    secretName = "ssh-key";
+                    defaultMode = 256; # 400
                   };
                 };
               };

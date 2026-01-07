@@ -41,7 +41,9 @@ in
               metadata.labels = labels;
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-node";
-                configHash = lib.hashAttrs ({ } // nsRes.ConfigMap.nix-node or { });
+                configHash = lib.hashAttrs (
+                  { } // nsRes.ConfigMap.nix-node or { } // nsRes.configMap.ssh-config or { }
+                );
               };
               spec = {
                 serviceAccountName = "nix-csi";
@@ -61,6 +63,10 @@ in
                     volumeMounts = lib.mkNamedList {
                       nix-store.mountPath = "/nix-volume";
                       nix-config.mountPath = "/etc/nix";
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-key.mountPath = "/etc/ssh-key";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                     };
                   };
                 };
@@ -103,6 +109,10 @@ in
                         mountPropagation = "Bidirectional";
                         subPath = "nix";
                       };
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
                     };
                   };
                   csi-node-driver-registrar = {
@@ -144,6 +154,21 @@ in
                   kubelet.hostPath = {
                     path = "/var/lib/kubelet";
                     type = "Directory";
+                  };
+
+                  ssh-config.configMap = {
+                    name = "ssh-config";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-dynauth.configMap = {
+                    name = "ssh-dynauth";
+                    defaultMode = 292; # 444
+                    optional = true;
+                  };
+                  ssh-key.secret = {
+                    secretName = "ssh-key";
+                    defaultMode = 256; # 400
+                    optional = true;
                   };
                 };
               };

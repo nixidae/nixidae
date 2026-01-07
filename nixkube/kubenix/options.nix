@@ -33,20 +33,14 @@ in
     authorizedKeys = lib.mkOption {
       description = "SSH public keys that can connect to cache and builders";
       type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
-      apply = lib.map (x: lib.strings.strip (if lib.typeOf x == "path" then builtins.readFile x else x));
+      apply = lib.map (v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = [ ];
     };
-    pubKey = lib.mkOption {
-      description = "Public SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
-      type = lib.types.either lib.types.str lib.types.path;
-      apply = x: if lib.typeOf x == "path" then builtins.readFile x else x;
-      default = "hardcoded";
-    };
-    privKey = lib.mkOption {
-      description = "Private SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
-      type = lib.types.either lib.types.str lib.types.path;
-      apply = x: if lib.typeOf x == "path" then builtins.readFile x else x;
-      default = "hardcoded";
+    knownHosts = lib.mkOption {
+      description = "SSH host keys to accept when connecting";
+      type = lib.types.attrsOf (lib.types.either lib.types.str lib.types.path);
+      apply = lib.mapAttrs (n: v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
+      default = { };
     };
     version = lib.mkOption {
       type = lib.types.str;
@@ -105,8 +99,13 @@ in
           };
         };
         loggers = {
-          "nix-csi" = {
+          nix-csi = {
             level = "INFO";
+            handlers = [ "console" ];
+            propagate = false;
+          };
+          httpx = {
+            level = "WARNING";
             handlers = [ "console" ];
             propagate = false;
           };
@@ -169,9 +168,6 @@ in
         armPkgs = mkPkgs "aarch64-linux";
       };
 
-      nix-csi = {
-        pubKey = ../pkgs/cluster-keys/id_ed25519.pub;
-        privKey = ../pkgs/cluster-keys/id_ed25519;
-      };
+      nix-csi = { };
     };
 }

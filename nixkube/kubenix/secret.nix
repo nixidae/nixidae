@@ -9,28 +9,32 @@ in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.${cfg.namespace} = {
-      Secret.authorized-keys.stringData = {
-        # Get rid of pubKey, generate SSH keys in-cluster on startup. This is unsafe
-        "authorized_keys" = lib.concatLines (cfg.authorizedKeys ++ [ cfg.pubKey ]);
-      };
-      Secret.ssh-key.stringData = {
-        "id_ed25519.pub" = cfg.pubKey;
-        "id_ed25519" = cfg.privKey;
-      };
-      Secret.ssh-config.stringData = {
+      ConfigMap.ssh-config.data = {
+        # Keys that can connect to us
+        "authorized_keys" = lib.concatLines cfg.authorizedKeys;
+        # Keys that we can connect to
+        "ssh_known_hosts" = lib.concatLines (lib.mapAttrsToList (n: v: "${n} ${v}") cfg.knownHosts);
+        # Client configuration
         "ssh_config" = ''
+          GlobalKnownHostsFile /etc/ssh/ssh_known_hosts /etc/ssh-dynauth/ssh_known_hosts
+
           Host nix-cache
               User nix
-              IdentityFile /etc/ssh/id_ed25519
+              IdentityFile /etc/ssh-key/id_ed25519
               IdentitiesOnly yes
-              # UserKnownHostsFile /etc/ssh/known_hosts
+              StrictHostKeyChecking yes
+
+          Host nix-builder
+              User nix
+              IdentityFile /etc/ssh-key/id_ed25519
+              IdentitiesOnly yes
               StrictHostKeyChecking yes
         '';
-        "ssh_known_hosts" = "* ${cfg.pubKey}";
+        # Server configuration
         "sshd_config" = ''
           Port 22
           AddressFamily Any
-          HostKey /etc/ssh/id_ed25519
+          HostKey /etc/ssh-key/id_ed25519
           SyslogFacility DAEMON
           SetEnv PATH=/nix/var/result/bin
           PermitRootLogin no
@@ -43,7 +47,7 @@ in
           Subsystem sftp internal-sftp
 
           Match User nix
-              AuthorizedKeysFile /etc/authorized_keys/authorized_keys
+              AuthorizedKeysFile /etc/ssh/authorized_keys /etc/ssh-dynauth/authorized_keys
         '';
       };
     };

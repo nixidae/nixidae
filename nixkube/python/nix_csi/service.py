@@ -1,23 +1,25 @@
 import asyncio
+import kr8s
 import logging
 import os
 import shutil
 import socket
-import math
+import sys
 import tempfile
 
+from .copytocache import copyToCache
+from .identityservicer import IdentityServicer
+from .subprocessing import run_captured, run_console, try_captured, try_console
+from asyncio import Semaphore, sleep
+from collections import defaultdict
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server
 from importlib import metadata
 from pathlib import Path
-from asyncio import Semaphore, sleep
-from collections import defaultdict
-from .identityservicer import IdentityServicer
-from .copytocache import copyToCache
-from .subprocessing import run_captured, run_console, try_captured, try_console
-import kr8s.asyncio
 
 logger = logging.getLogger("nix-csi")
 
@@ -57,7 +59,93 @@ NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
 BUILDERS_SERVICE = "nix-csi-builders"
 
 
+async def generate_keypair() -> tuple[bytes, bytes]:
+    """Generate ED25519 SSH keypair.
+
+    Returns:
+        Tuple of (private_key_bytes, public_key_bytes) in OpenSSH format.
+    """
+
+    def _generate():
+        private_key = ed25519.Ed25519PrivateKey.generate()
+
+        private_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.OpenSSH,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        public_key = private_key.public_key()
+        public_bytes = public_key.public_bytes(
+            encoding=serialization.Encoding.OpenSSH,
+            format=serialization.PublicFormat.OpenSSH,
+        )
+
+        return private_bytes, public_bytes
+
+    return await asyncio.to_thread(_generate)
+
+
+async def init_secrets(
+    namespace: str,
+    private_key: bytes,
+    public_key: bytes,
+) -> None:
+    """Create Kubernetes secret with SSH keypair."""
+    secret = await kr8s.asyncio.objects.Secret(
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": "ssh-key",
+                "namespace": namespace,
+            },
+            "stringData": {
+                "id_ed25519": private_key.decode("utf-8"),
+                "id_ed25519.pub": public_key.decode("utf-8"),
+            },
+            "type": "Opaque",
+        }
+    )
+    await secret.create()
+    logger.info(f"Created Secret {namespace}/ssh-key")
+
+    cm = await kr8s.asyncio.objects.ConfigMap(
+        {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": "ssh-dynauth",
+                "namespace": namespace,
+            },
+            "data": {
+                "ssh_known_hosts": f"* {public_key.decode('utf-8')}",
+                "authorized_keys": f"{public_key.decode('utf-8')}",
+            },
+            "type": "Opaque",
+        }
+    )
+    await cm.create()
+    logger.info(f"Created ConfigMap {namespace}/ssh-dynauth")
+
+
+async def init_ssh() -> None:
+    """Generate SSH keypair and create Kubernetes secret if /etc/ssh-key doesn't exist"""
+
+    if Path("/etc/ssh-key/id_ed25519").exists():
+        logger.info("/etc/ssh-key/id_ed25519 found, not generating new key")
+        return
+
+    logger.info("Generating SSH key")
+    private_key, public_key = await generate_keypair()
+    logger.info("Pushing SSH key")
+    await create_ssh_secret("ssh-key", NAMESPACE, private_key, public_key)
+    logger.info("Exiting")
+    sys.exit(1)
+
+
 async def get_current_system():
+    """Get system string evaluated by nix"""
     return (
         await try_captured(
             "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
@@ -87,6 +175,7 @@ async def get_builder_uris():
     except Exception as e:
         logger.warning(f"Failed to discover builder pods: {e}")
         return []
+
 
 def initialize():
     logger.info("Initializing NodeServicer")
@@ -166,6 +255,7 @@ class NodeServicer(csi_grpc.NodeBase):
                             "nix",
                             "build",
                             *extraArgs,
+                            "--print-out-paths",
                             "--out-link",
                             gcPath,
                             packagePath,
@@ -207,12 +297,6 @@ class NodeServicer(csi_grpc.NodeBase):
                             timeout=NIX_BUILD_TIMEOUT,
                         )
                         packagePath = Path(result.stdout.splitlines()[0])
-            else:
-                logger.error(f"Volume doesn't have correct volumeAttributes for {self.system=}")
-                raise GRPCError(
-                    Status.INVALID_ARGUMENT,
-                    f"Volume doesn't have correct volumeAttributes for {self.system=}",
-                )
 
             if not packagePath.exists():
                 logger.error("packagePath doesn't exist after building")
@@ -471,6 +555,7 @@ async def serve():
     identityServicer = IdentityServicer()
     nodeServicer = NodeServicer(await get_current_system())
     initialize()
+    await init_ssh()
 
     server = Server(
         [

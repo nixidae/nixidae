@@ -58,8 +58,7 @@ in
                 configHash = lib.hashAttrs (
                   { }
                   // nsRes.ConfigMap.nix-builder or { }
-                  // nsRes.Secret.ssh-config or { }
-                  // nsRes.Secret.authorized-keys or { }
+                  // nsRes.ConfigMap.ssh-config or { }
                 );
               };
               spec = {
@@ -75,6 +74,10 @@ in
                       init-store.mountPath = "/nix";
                       nix-store.mountPath = "/nix-volume";
                       nix-config.mountPath = "/etc/nix";
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
                     };
                   };
                 };
@@ -95,25 +98,19 @@ in
                     resources = cfg.builders.resources;
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
-                      ssh-config.mountPath = "/etc/ssh";
-                      authorized-keys.mountPath = "/etc/authorized_keys";
                       nix-store = {
                         mountPath = "/nix";
                         subPath = "nix";
                       };
+
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
                     };
                   };
                 };
                 volumes = lib.mkNamedList {
                   nix-config.configMap.name = "nix-builder";
-                  ssh-config.secret = {
-                    secretName = "ssh-config";
-                    defaultMode = 256; # 400
-                  };
-                  authorized-keys.secret = {
-                    secretName = "authorized-keys";
-                    defaultMode = 292; # 444
-                  };
                   init-store.csi = {
                     driver = "nix.csi.store";
                     volumeAttributes = {
@@ -122,6 +119,19 @@ in
                     };
                   };
                   nix-store.emptyDir = { };
+
+                  ssh-config.configMap = {
+                    name = "ssh-config";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-dynauth.configMap = {
+                    name = "ssh-dynauth";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-key.secret = {
+                    secretName = "ssh-key";
+                    defaultMode = 256; # 400
+                  };
                 };
               };
             };
