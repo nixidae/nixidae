@@ -38,12 +38,14 @@ in
     };
     pubKey = lib.mkOption {
       description = "Public SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
-      type = lib.types.str;
+      type = lib.types.either lib.types.str lib.types.path;
+      apply = x: if lib.typeOf x == "path" then builtins.readFile x else x;
       default = "hardcoded";
     };
     privKey = lib.mkOption {
       description = "Private SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
-      type = lib.types.str;
+      type = lib.types.either lib.types.str lib.types.path;
+      apply = x: if lib.typeOf x == "path" then builtins.readFile x else x;
       default = "hardcoded";
     };
     version = lib.mkOption {
@@ -168,8 +170,8 @@ in
       };
 
       nix-csi = {
-        pubKey = builtins.readFile "${pkgs.cluster-keys}/id_ed25519.pub";
-        privKey = builtins.readFile "${pkgs.cluster-keys}/id_ed25519";
+        pubKey = ../pkgs/cluster-keys/id_ed25519.pub;
+        privKey = ../pkgs/cluster-keys/id_ed25519;
       };
     };
 }

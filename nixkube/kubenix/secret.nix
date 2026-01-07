@@ -9,15 +9,15 @@ in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.${cfg.namespace} = {
-      Secret.authorized-keys-internal.stringData = {
+      Secret.authorized-keys.stringData = {
+        # Get rid of pubKey, generate SSH keys in-cluster on startup. This is unsafe
         "authorized_keys" = lib.concatLines (cfg.authorizedKeys ++ [ cfg.pubKey ]);
       };
-      Secret.authorized-keys-public.stringData = {
-        "authorized_keys" = lib.concatLines cfg.authorizedKeys;
-      };
-      Secret.ssh-config.stringData = {
+      Secret.ssh-key.stringData = {
         "id_ed25519.pub" = cfg.pubKey;
         "id_ed25519" = cfg.privKey;
+      };
+      Secret.ssh-config.stringData = {
         "ssh_config" = ''
           Host nix-cache
               User nix
