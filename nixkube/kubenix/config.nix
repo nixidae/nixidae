@@ -46,19 +46,23 @@ let
           checkConfig = mkOption {
             type = types.bool;
             default = true;
+            internal = true;
           };
 
           checkAllErrors = mkOption {
             type = types.bool;
             default = true;
+            internal = true;
           };
 
           extraOptions = mkOption {
+            description = "Extra lines to add to nix.conf";
             type = types.lines;
             default = "";
           };
 
           settings = mkOption {
+            description = "Settings rendered to nix.conf";
             type = types.submodule {
               freeformType = semanticConfType;
               options = { };
@@ -97,12 +101,15 @@ let
 in
 {
   options.nix-csi.nixNodeConfig = lib.mkOption {
+    description = "nix.conf for CSI/mounter/DaemonSet pods";
     type = nixSubmodule;
   };
   options.nix-csi.nixCacheConfig = lib.mkOption {
+    description = "nix.conf for cache pod";
     type = nixSubmodule;
   };
   options.nix-csi.nixBuilderConfig = lib.mkOption {
+    description = "nix.conf for builder pods";
     type = nixSubmodule;
   };
 

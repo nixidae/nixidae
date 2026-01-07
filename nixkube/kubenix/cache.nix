@@ -14,10 +14,12 @@ in
   options.nix-csi.cache = {
     enable = lib.mkEnableOption "cache";
     storageClassName = lib.mkOption {
+      description = "Which SC to use, defaults to null which will use default SC";
       type = lib.types.nullOr lib.types.str;
       default = null;
     };
     loadBalancerPort = lib.mkOption {
+      description = "Port to run public SSH on for Nix cache";
       type = lib.types.int;
       default = 2222;
     };

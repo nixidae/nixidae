@@ -36,7 +36,7 @@ in
       default = false;
     };
     namespace = lib.mkOption {
-      description = "Which namespace to deploy cknix resources too";
+      description = "Which namespace to deploy nix-csi to";
       type = lib.types.str;
       default = "nix-csi";
     };
@@ -64,7 +64,7 @@ in
         pyproject.project.version;
     };
     hostMountPath = lib.mkOption {
-      description = "Where on the host to put cknix store";
+      description = "Where on the host to put nix-csi store, / is untested and not recommended";
       type = lib.types.path;
       default = "/var/lib/nix-csi";
     };
