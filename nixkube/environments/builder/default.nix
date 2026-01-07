@@ -111,22 +111,22 @@ let
             options = [ "shares-console" ];
           };
           services.gc = {
-            type = "scripted";
             command =
               pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
-                  # Fix gcroots for /nix/var/result if it exists
-                  if [ -e /nix/var/result ]; then
-                    nix build --out-link /nix/var/result /nix/var/result
-                  fi
-                  # Collect old shit (daily GC - 86400s)
-                  ${lib.getExe pkgs.nix-timegc} 86400
+                  # Collect old paths occasionally
+                  # TODO: Copy to cache here too
+                  while :; do
+                    ${lib.getExe pkgs.nix-timegc} 86400
+                    SLEEP=$(shuf -i 1800-3600 -n 1)
+                    echo Sleeping for $SLEEP seconds
+                    sleep $SLEEP
+                  done
                 '';
             log-type = "file";
             logfile = "/var/log/gc.log";
-            depends-on = [ "setup" ];
-            depends-ms = [ "nix-daemon" ];
+            depends-on = [ "setup" "nix-daemon" ];
           };
         };
       }
@@ -136,15 +136,18 @@ let
   builderEnv = pkgs.buildEnv {
     name = "builderEnv";
     paths = with pkgs; [
+      # Required
       dinixEval.config.containerWrapper
-      attic-client
-      cachix
       bash
       coreutils
-      fishMinimal
+      gitMinimal
       lruLix
       openssh
-      util-linuxMinimal
+      # Commonly used
+      attic-client
+      cachix
+      # Not required
+      fishMinimal
       gnugrep
       getent
       iputils
