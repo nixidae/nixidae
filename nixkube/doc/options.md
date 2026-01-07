@@ -191,53 +191,6 @@ null or string
 
 
 
-## nix-csi\.ctest\.enable
-
-
-
-Whether to enable ctest\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` false `
-
-
-
-*Example:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/ctest\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/ctest.nix)
-
-
-
-## nix-csi\.ctest\.replicas
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-signed integer
-
-
-
-*Default:*
-` 10 `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/ctest\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/ctest.nix)
-
-
-
 ## nix-csi\.hostMountPath
 
 

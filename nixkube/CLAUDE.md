@@ -107,7 +107,6 @@ The development environment (`repoenv`) includes:
 ### Testing
 
 The integration test:
-1. Verifies ctest pods are running with CSI volumes mounted
 2. Checks `/nix/store` is accessible in test pods
 3. Validates CSI driver registration
 4. Confirms cache and node pods are operational

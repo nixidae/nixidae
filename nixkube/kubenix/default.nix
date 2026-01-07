@@ -9,7 +9,6 @@
     ./cache.nix
     ./builder.nix
     ./rbac.nix
-    ./ctest.nix
     ./undeploy.nix
     ./secret.nix
   ];
