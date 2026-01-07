@@ -31,7 +31,7 @@ SSH public keys that can connect to cache and builders
 
 
 *Type:*
-list of string
+list of (string or absolute path)
 
 
 
@@ -63,6 +63,64 @@ boolean
 
 *Example:*
 ` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.nixConfig
+
+
+
+nix\.conf for builder pods
+
+
+
+*Type:*
+submodule
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.nixConfig\.extraOptions
+
+
+
+Extra lines to add to nix\.conf
+
+
+
+*Type:*
+strings concatenated with “\\n”
+
+
+
+*Default:*
+` "" `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.nixConfig\.settings
+
+
+
+Settings rendered to nix\.conf
+
+
+
+*Type:*
+open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
+
+
+
+*Default:*
+` { } `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
@@ -153,7 +211,7 @@ boolean
 
 
 
-This option has no description\.
+Port to run public SSH on for Nix cache
 
 
 
@@ -170,11 +228,69 @@ signed integer
 
 
 
+## nix-csi\.cache\.nixConfig
+
+
+
+nix\.conf for cache pod
+
+
+
+*Type:*
+submodule
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
+
+
+
+## nix-csi\.cache\.nixConfig\.extraOptions
+
+
+
+Extra lines to add to nix\.conf
+
+
+
+*Type:*
+strings concatenated with “\\n”
+
+
+
+*Default:*
+` "" `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
+
+
+
+## nix-csi\.cache\.nixConfig\.settings
+
+
+
+Settings rendered to nix\.conf
+
+
+
+*Type:*
+open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
+
+
+
 ## nix-csi\.cache\.storageClassName
 
 
 
-This option has no description\.
+Which SC to use, defaults to null which will use default SC
 
 
 
@@ -195,7 +311,7 @@ null or string
 
 
 
-Where on the host to put cknix store
+Where on the host to put nix-csi store, / is untested and not recommended
 
 
 
@@ -291,7 +407,7 @@ JSON value
 
 
 
-Which namespace to deploy cknix resources too
+Which namespace to deploy nix-csi to
 
 
 
@@ -308,11 +424,37 @@ string
 
 
 
-## nix-csi\.nixBuilderConfig
+## nix-csi\.node\.enable
 
 
 
-This option has no description\.
+Whether to enable cache\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+` true `
+
+
+
+*Example:*
+` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
+
+
+
+## nix-csi\.node\.nixConfig
+
+
+
+nix\.conf for CSI/mounter/DaemonSet pods
 
 
 
@@ -320,57 +462,15 @@ This option has no description\.
 submodule
 
 *Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
+ - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
-## nix-csi\.nixBuilderConfig\.checkAllErrors
+## nix-csi\.node\.nixConfig\.extraOptions
 
 
 
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixBuilderConfig\.checkConfig
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixBuilderConfig\.extraOptions
-
-
-
-This option has no description\.
+Extra lines to add to nix\.conf
 
 
 
@@ -383,15 +483,15 @@ strings concatenated with “\\n”
 ` "" `
 
 *Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
+ - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
-## nix-csi\.nixBuilderConfig\.settings
+## nix-csi\.node\.nixConfig\.settings
 
 
 
-This option has no description\.
+Settings rendered to nix\.conf
 
 
 
@@ -404,207 +504,7 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 ` { } `
 
 *Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixCacheConfig
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-submodule
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixCacheConfig\.checkAllErrors
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixCacheConfig\.checkConfig
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixCacheConfig\.extraOptions
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-strings concatenated with “\\n”
-
-
-
-*Default:*
-` "" `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixCacheConfig\.settings
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
-
-
-
-*Default:*
-` { } `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixNodeConfig
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-submodule
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixNodeConfig\.checkAllErrors
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixNodeConfig\.checkConfig
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixNodeConfig\.extraOptions
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-strings concatenated with “\\n”
-
-
-
-*Default:*
-` "" `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
-
-
-
-## nix-csi\.nixNodeConfig\.settings
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
-
-
-
-*Default:*
-` { } `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/config\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/config.nix)
+ - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
@@ -634,7 +534,7 @@ positive integer, meaning >0
 
 
 
-Private SSH key used for in-cluster SSH communication
+Private SSH key used for in-cluster SSH communication, note that this will go into Nix store!
 
 
 
@@ -644,18 +544,7 @@ string
 
 
 *Default:*
-
-```
-''
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-  QyNTUxOQAAACCUV5k813onHJaerrZpjgy/2pzX3iDGTGo6FNJ4Wlm1JgAAAKBjqJ2wY6id
-  sAAAAAtzc2gtZWQyNTUxOQAAACCUV5k813onHJaerrZpjgy/2pzX3iDGTGo6FNJ4Wlm1Jg
-  AAAEBnkqzHbwaxtZnHdnJ+OCLKtYWgyHunZ3Ym/GkqYXKKT5RXmTzXeicclp6utmmODL/a
-  nNfeIMZMajoU0nhaWbUmAAAAGW5peC1jc2ktZmFsbGJhY2staW5zZWN1cmUBAgME
-  -----END OPENSSH PRIVATE KEY-----
-''
-```
+` "hardcoded" `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
@@ -666,7 +555,7 @@ string
 
 
 
-Public SSH key used for in-cluster SSH communication
+Public SSH key used for in-cluster SSH communication, note that this will go into Nix store!
 
 
 
@@ -676,12 +565,7 @@ string
 
 
 *Default:*
-
-```
-''
-  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJRXmTzXeicclp6utmmODL/anNfeIMZMajoU0nhaWbUm nix-csi-fallback-insecure
-''
-```
+` "hardcoded" `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
