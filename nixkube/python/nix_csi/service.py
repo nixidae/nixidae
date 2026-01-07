@@ -171,7 +171,7 @@ class NodeServicer(csi_grpc.NodeBase):
                             packagePath,
                             timeout=NIX_BUILD_TIMEOUT,
                         )
-            elif flakeRef is not None:
+            if flakeRef is not None and not packagePath.exists():
                 async with self.volumeLocks[flakeRef]:
                     logger.debug(f"{flakeRef=}")
 
@@ -187,7 +187,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         timeout=NIX_BUILD_TIMEOUT,
                     )
                     packagePath = Path(result.stdout.splitlines()[0])
-            elif nixExpr is not None:
+            if nixExpr is not None and not packagePath.exists():
                 async with self.volumeLocks[nixExpr]:
                     logger.debug(f"{nixExpr=}")
                     with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
