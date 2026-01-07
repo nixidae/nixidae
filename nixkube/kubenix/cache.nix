@@ -2,6 +2,7 @@
   config,
   lib,
   maybePush,
+  pkgs,
   x86Pkgs,
   armPkgs,
   ...
@@ -13,6 +14,10 @@ in
 {
   options.nix-csi.cache = {
     enable = lib.mkEnableOption "cache";
+    nixConfig = lib.mkOption {
+      description = "nix.conf for cache pod";
+      type = (import ./nixOptions.nix) pkgs;
+    };
     storageClassName = lib.mkOption {
       description = "Which SC to use, defaults to null which will use default SC";
       type = lib.types.nullOr lib.types.str;

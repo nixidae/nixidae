@@ -2,6 +2,7 @@
   config,
   lib,
   maybePush,
+  pkgs,
   x86Pkgs,
   armPkgs,
   ...
@@ -13,6 +14,10 @@ in
 {
   options.nix-csi.builders = {
     enable = lib.mkEnableOption "builder pods";
+    nixConfig = lib.mkOption {
+      description = "nix.conf for builder pods";
+      type = (import ./nixOptions.nix) pkgs;
+    };
     replicas = lib.mkOption {
       description = "Number of builder pod replicas";
       type = lib.types.ints.positive;

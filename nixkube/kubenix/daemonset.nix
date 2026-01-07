@@ -1,8 +1,8 @@
 {
   config,
-  pkgs,
   lib,
   maybePush,
+  pkgs,
   x86Pkgs,
   armPkgs,
   ...
@@ -12,6 +12,15 @@ let
   nsRes = config.kubernetes.resources.${cfg.namespace};
 in
 {
+  options.nix-csi.node = {
+    enable = (lib.mkEnableOption "cache") // {
+      default = true;
+    };
+    nixConfig = lib.mkOption {
+      description = "nix.conf for CSI/mounter/DaemonSet pods";
+      type = (import ./nixOptions.nix) pkgs;
+    };
+  };
   config =
     let
       labels = {
