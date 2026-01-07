@@ -88,7 +88,6 @@ async def get_builder_uris():
         logger.warning(f"Failed to discover builder pods: {e}")
         return []
 
-
 def initialize():
     logger.info("Initializing NodeServicer")
     # Create directories we operate in

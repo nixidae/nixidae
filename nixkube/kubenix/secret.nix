@@ -1,6 +1,5 @@
 {
   config,
-  pkgs,
   lib,
   ...
 }:
@@ -10,7 +9,10 @@ in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.${cfg.namespace} = {
-      Secret.authorized-keys.stringData = {
+      Secret.authorized-keys-internal.stringData = {
+        "authorized_keys" = lib.concatLines (cfg.authorizedKeys ++ [ cfg.pubKey ]);
+      };
+      Secret.authorized-keys-public.stringData = {
         "authorized_keys" = lib.concatLines cfg.authorizedKeys;
       };
       Secret.ssh-config.stringData = {

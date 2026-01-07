@@ -36,4 +36,10 @@ self: pkgs: {
   kr8s = pkgs.python3Packages.callPackage ./kr8s.nix { inherit (self) python-jsonpath; };
 
   nix-csi-validpaths-monitor = pkgs.callPackage ./nix-csi-validpaths-monitor { };
+
+  cluster-keys =
+    pkgs.runCommand "cluster-keys" { } # bash
+      ''
+        cp -R ${./cluster-keys} $out
+      '';
 }

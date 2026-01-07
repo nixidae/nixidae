@@ -17,16 +17,6 @@ let
       in
       flake-compatish ../.
     ).inputs;
-
-  keyDrv =
-    pkgs.runCommand "nix-csi-ssh-keys"
-      {
-        nativeBuildInputs = [ pkgs.openssh ];
-      }
-      ''
-        mkdir -p $out
-        ssh-keygen -t ed25519 -N "" -f $out/id_ed25519 -C "nix-csi-fallback-insecure"
-      '';
 in
 {
   options.nix-csi = {
@@ -42,18 +32,19 @@ in
     };
     authorizedKeys = lib.mkOption {
       description = "SSH public keys that can connect to cache and builders";
-      type = lib.types.listOf lib.types.str;
+      type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
+      apply = lib.map (x: lib.strings.strip (if lib.typeOf x == "path" then builtins.readFile x else x));
       default = [ ];
     };
     pubKey = lib.mkOption {
-      description = "Public SSH key used for in-cluster SSH communication";
+      description = "Public SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
       type = lib.types.str;
-      default = builtins.readFile "${keyDrv}/id_ed25519.pub";
+      default = "hardcoded";
     };
     privKey = lib.mkOption {
-      description = "Private SSH key used for in-cluster SSH communication";
+      description = "Private SSH key used for in-cluster SSH communication, note that this will go into Nix store!";
       type = lib.types.str;
-      default = builtins.readFile "${keyDrv}/id_ed25519";
+      default = "hardcoded";
     };
     version = lib.mkOption {
       type = lib.types.str;
@@ -176,6 +167,9 @@ in
         armPkgs = mkPkgs "aarch64-linux";
       };
 
-      nix-csi.authorizedKeys = [ cfg.pubKey ];
+      nix-csi = {
+        pubKey = builtins.readFile "${pkgs.cluster-keys}/id_ed25519.pub";
+        privKey = builtins.readFile "${pkgs.cluster-keys}/id_ed25519";
+      };
     };
 }

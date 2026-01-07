@@ -43,16 +43,12 @@ in
                     image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.lixPackageSets.lix_2_93.lix.version}";
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
-                    env =
-                      lib.mkNamedList {
-                        CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                        # Apply push logic at point of use
-                        amd64.value = maybePush x86Pkgs.nix-csi-node-env;
-                        arm64.value = maybePush armPkgs.nix-csi-node-env;
-                      }
-                      // lib.optionalAttrs (lib.stringLength (builtins.getEnv "GITHUB_KEY") > 0) {
-                        NIX_CONFIG.value = "access-tokens = github.com=${builtins.getEnv "GITHUB_KEY"}";
-                      };
+                    env = lib.mkNamedList {
+                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
+                      # Apply push logic at point of use
+                      amd64.value = maybePush x86Pkgs.nix-csi-node-env;
+                      arm64.value = maybePush armPkgs.nix-csi-node-env;
+                    };
                     volumeMounts = lib.mkNamedList {
                       nix-store.mountPath = "/nix-volume";
                       nix-config.mountPath = "/etc/nix";

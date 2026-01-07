@@ -3,6 +3,7 @@
 ## Better SSH key management
 * Split server and client configuration
 * SSH certificates?
+* Use pregenerated ssh-keys for in-cluster configuration 
 
 ## Support Nix signing
 * Implement signing all paths in the cache (when?)
@@ -18,6 +19,3 @@
 
 ## Controller
 * Rename cache to controller, integrate Kopf for additional future features.
-
-## OverlayFS
-* Implement OverlayFS write quota with eviction
