@@ -33,13 +33,6 @@ let
             PYTHONUNBUFFERED = "1"; # If something ends up print logging
             NIXPKGS_ALLOW_UNFREE = "1"; # Allow building anything
           };
-          services.openssh = {
-            type = "process";
-            command = "${lib.getExe' pkgs.openssh "sshd"} -D -f /etc/ssh/sshd_config -e";
-            depends-on = [ "setup" ];
-            log-type = "file";
-            logfile = "/var/log/ssh.log";
-          };
           services.nix-daemon = {
             command = "${lib.getExe pkgs.lixPackageSets.lix_2_93.lix} daemon --store local";
             depends-on = [ "setup" ];
@@ -95,7 +88,6 @@ let
             depends-on = [
               "csi-daemon"
               "logger"
-              "openssh"
             ];
           };
           services.csi-daemon = {

@@ -32,12 +32,7 @@ in
               metadata.labels = labels;
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-node";
-                configHash = lib.hashAttrs (
-                  { }
-                  // nsRes.ConfigMap.nix-node or { }
-                  // nsRes.Secret.ssh-config or { }
-                  // nsRes.Secret.authorized-keys or { }
-                );
+                configHash = lib.hashAttrs ({ } // nsRes.ConfigMap.nix-node or { });
               };
               spec = {
                 serviceAccountName = "nix-csi";
@@ -94,8 +89,6 @@ in
                       csi-socket.mountPath = "/csi";
                       nix-config.mountPath = "/etc/nix";
                       registration.mountPath = "/registration";
-                      ssh-config.mountPath = "/etc/ssh";
-                      authorized-keys.mountPath = "/etc/authorized_keys";
                       kubelet = {
                         mountPath = "/var/lib/kubelet";
                         mountPropagation = "Bidirectional";
@@ -146,14 +139,6 @@ in
                   kubelet.hostPath = {
                     path = "/var/lib/kubelet";
                     type = "Directory";
-                  };
-                  ssh-config.secret = {
-                    secretName = "ssh-config";
-                    defaultMode = 256; # 400
-                  };
-                  authorized-keys.secret = {
-                    secretName = "authorized-keys";
-                    defaultMode = 292; # 444
                   };
                 };
               };
