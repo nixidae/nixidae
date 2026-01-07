@@ -138,4 +138,24 @@ rec {
         buildah manifest add ${scratchManifest} ${scratchUrl "aarch64-linux"}
         buildah manifest push ${scratchManifest}
       '';
+  genModDoc =
+    let
+      optionsDocs = pkgs.nixosOptionsDoc {
+        inherit (kubenixCI1.eval) options;
+        warningsAreErrors = false;
+        transformOptions =
+          opt:
+          opt
+          // {
+            # Remove internal options, modify declarations, etc.
+            visible = opt.visible or true && lib.hasPrefix "nix-csi" opt.name;
+          };
+      };
+    in
+    pkgs.writeScriptBin "genModDoc" # bash
+      ''
+        #! ${pkgs.runtimeShell}
+        cp --no-preserve=mode ${optionsDocs.optionsCommonMark} $GIT_ROOT/doc/options.md
+      '';
+
 }
