@@ -7,7 +7,7 @@ in
     kubernetes.resources.${cfg.namespace} = {
       ServiceAccount.nix-csi = { };
 
-      ClusterRole.nix-csi = {
+      Role.nix-csi = {
         rules = [
           # Cache maintains up2date /etc/machines
           {
@@ -50,15 +50,12 @@ in
       };
 
       # Binds the Role to the ServiceAccount.
-      ClusterRoleBinding.nix-csi = {
+      RoleBinding.nix-csi = {
         subjects = lib.mkNamedList {
-          nix-csi = {
-            kind = "ServiceAccount";
-            namespace = cfg.namespace;
-          };
+          nix-csi.kind = "ServiceAccount";
         };
         roleRef = {
-          kind = "ClusterRole";
+          kind = "Role";
           name = "nix-csi";
           apiGroup = "rbac.authorization.k8s.io";
         };
