@@ -559,7 +559,7 @@ async def serve():
     identityServicer = IdentityServicer()
     nodeServicer = NodeServicer(await get_current_system())
     initialize()
-    await init_ssh()
+    # await init_ssh()
 
     server = Server(
         [

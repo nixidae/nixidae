@@ -25,6 +25,10 @@ in
       type = lib.types.bool;
       default = false;
     };
+    deploySecrets = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+    };
     namespace = lib.mkOption {
       description = "Which namespace to deploy nix-csi to";
       type = lib.types.str;
