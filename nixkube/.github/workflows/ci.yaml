@@ -30,16 +30,16 @@ jobs:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and push environments
+        run: |
+          nix build --file default.nix push --out-link nix-envs
+          ./nix-envs/bin/push
+
       # Build and push all components sequentially to reuse Nix store
       - name: Build and push Lix image
         run: |
           nix build --file liximage.nix push --out-link nix-images
           ./nix-images/bin/push
-
-      - name: Build and push environments
-        run: |
-          nix build --file default.nix push --out-link nix-envs
-          ./nix-envs/bin/push
 
       - name: Build and push scratch image
         run: |
