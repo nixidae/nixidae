@@ -101,8 +101,8 @@ async def init_secrets(
                 "namespace": namespace,
             },
             "stringData": {
-                "id_ed25519": private_key.decode("utf-8"),
-                "id_ed25519.pub": public_key.decode("utf-8"),
+                "id_ed25519": f"{private_key.decode("utf-8")}\n",
+                "id_ed25519.pub": f"{public_key.decode("utf-8")}\n",
             },
             "type": "Opaque",
         }
@@ -119,8 +119,8 @@ async def init_secrets(
                 "namespace": namespace,
             },
             "data": {
-                "ssh_known_hosts": f"* {public_key.decode('utf-8')}",
-                "authorized_keys": f"{public_key.decode('utf-8')}",
+                "ssh_known_hosts": f"* {public_key.decode('utf-8')}\n",
+                "authorized_keys": f"{public_key.decode('utf-8')}\n",
             },
             "type": "Opaque",
         }
