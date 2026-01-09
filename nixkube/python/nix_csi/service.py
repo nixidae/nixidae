@@ -90,8 +90,10 @@ async def init_secrets(
     namespace: str,
     private_key: bytes,
     public_key: bytes,
-) -> None:
+) -> bool:
     """Create Kubernetes secret with SSH keypair."""
+
+    created = False
     secret = await kr8s.asyncio.objects.Secret(
         {
             "apiVersion": "v1",
@@ -107,8 +109,10 @@ async def init_secrets(
             "type": "Opaque",
         }
     )
-    await secret.create()
-    logger.info(f"Created Secret {namespace}/ssh-key")
+    if not await secret.exists():
+        await secret.create()
+        logger.info(f"Created Secret {namespace}/ssh-key")
+        created = True
 
     cm = await kr8s.asyncio.objects.ConfigMap(
         {
@@ -125,23 +129,23 @@ async def init_secrets(
             "type": "Opaque",
         }
     )
-    await cm.create()
-    logger.info(f"Created ConfigMap {namespace}/ssh-dynauth")
+    if not await cm.exists():
+        await cm.create()
+        logger.info(f"Created ConfigMap {namespace}/ssh-dynauth")
+        created = True
+
+    return created
 
 
 async def init_ssh() -> None:
     """Generate SSH keypair and create Kubernetes secret if /etc/ssh-key doesn't exist"""
 
-    if Path("/etc/ssh-key/id_ed25519").exists():
-        logger.info("/etc/ssh-key/id_ed25519 found, not generating new key")
-        return
-
     logger.info("Generating SSH key")
     private_key, public_key = await generate_keypair()
     logger.info("Pushing SSH key")
-    await create_ssh_secret("ssh-key", NAMESPACE, private_key, public_key)
-    logger.info("Exiting")
-    sys.exit(1)
+    if await init_secrets(NAMESPACE, private_key, public_key):
+        logger.info("Exiting")
+        sys.exit(1)
 
 
 async def get_current_system():
