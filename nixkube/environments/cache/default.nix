@@ -31,10 +31,6 @@ let
             };
             groups.sshd.gid = 992;
           };
-          env-file.variables = {
-            PYTHONUNBUFFERED = "1"; # If something ends up print logging
-            NIXPKGS_ALLOW_UNFREE = "1"; # Allow building anything
-          };
           services.openssh = {
             type = "process";
             command = "${lib.getExe' pkgs.openssh "sshd"} -D -f /etc/ssh/sshd_config -e";
@@ -48,6 +44,11 @@ let
             log-type = "file";
             logfile = "/var/log/nix-daemon.log";
           };
+          # services.nix-serve-ng = {
+          #   command = "${lib.getExe pkgs.lixPackageSets.lix_2_93.nix-serve-ng}";
+          #   log-type = "file";
+          #   logfile = "/var/log/nix-serve-ng.log";
+          # };
           services.setup = {
             type = "scripted";
             log-type = "file";
@@ -100,10 +101,11 @@ let
               "logger"
               "gc"
               "openssh"
+              # "nix-serve-ng"
             ];
           };
           services.logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log";
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log /var/log/nix-serve-ng.log";
             options = [ "shares-console" ];
           };
           services.gc = {
