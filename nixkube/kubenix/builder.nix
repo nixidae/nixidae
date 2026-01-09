@@ -5,6 +5,7 @@
   pkgs,
   x86Pkgs,
   armPkgs,
+  mkNCSI,
   ...
 }:
 let
@@ -47,7 +48,7 @@ in
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
       kubernetes.resources.${cfg.namespace} = {
-        Deployment.nix-builder = {
+        Deployment.nix-builder = mkNCSI {
           spec = {
             replicas = cfg.builders.replicas;
             selector.matchLabels = labels;
@@ -139,7 +140,7 @@ in
         };
 
         # Headless service for DNS discovery of individual builder pods
-        Service.nix-csi-builders = {
+        Service.nix-csi-builders = mkNCSI {
           spec = {
             clusterIP = "None";
             selector = labels;

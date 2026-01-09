@@ -1,21 +1,23 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  mkNCSI,
+  ...
+}:
 let
   cfg = config.nix-csi;
 in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.${cfg.namespace} = {
-      ServiceAccount.nix-csi = { };
+      ServiceAccount.nix-csi = mkNCSI { };
 
-      Role.nix-csi = {
+      Role.nix-csi = mkNCSI {
         rules = [
           # Cache maintains up2date /etc/machines
           {
             apiGroups = [ "" ];
-            resources = [
-              "nodes"
-              "pods"
-            ];
+            resources = [ "pods" ];
             verbs = [
               "get"
               "list"
@@ -40,7 +42,7 @@ in
       };
 
       # Binds the Role to the ServiceAccount.
-      RoleBinding.nix-csi = {
+      RoleBinding.nix-csi = mkNCSI {
         subjects = lib.mkNamedList {
           nix-csi.kind = "ServiceAccount";
         };

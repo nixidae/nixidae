@@ -1,4 +1,9 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  mkNCSI,
+  ...
+}:
 let
   cfg = config.nix-csi;
 in
@@ -15,7 +20,7 @@ in
       }
     ];
 
-    kubernetes.resources.${cfg.namespace}.DaemonSet.nix-csi-cleanup = {
+    kubernetes.resources.${cfg.namespace}.DaemonSet.nix-csi-cleanup = mkNCSI {
       spec.selector.matchLabels.app = "nix-csi-cleanup";
       spec.template = {
         metadata.labels.app = "nix-csi-cleanup";

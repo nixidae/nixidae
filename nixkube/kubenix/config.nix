@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  mkNCSI,
   ...
 }:
 let
@@ -44,17 +45,23 @@ in
         };
       };
     kubernetes.resources.${cfg.namespace} = {
-      ConfigMap.nix-node.data = {
-        "nix.conf" = builtins.readFile (cfg.node.nixConfig.nixConf);
-        "logging.json" = builtins.toJSON cfg.loggingConfig;
+      ConfigMap.nix-node = mkNCSI {
+        data = {
+          "nix.conf" = builtins.readFile (cfg.node.nixConfig.nixConf);
+          "logging.json" = builtins.toJSON cfg.loggingConfig;
+        };
       };
-      ConfigMap.nix-cache.data = {
-        "nix.conf" = builtins.readFile (cfg.cache.nixConfig.nixConf);
-        "logging.json" = builtins.toJSON cfg.loggingConfig;
+      ConfigMap.nix-cache = mkNCSI {
+        data = {
+          "nix.conf" = builtins.readFile (cfg.cache.nixConfig.nixConf);
+          "logging.json" = builtins.toJSON cfg.loggingConfig;
+        };
       };
-      ConfigMap.nix-builder.data = {
-        "nix.conf" = builtins.readFile (cfg.builders.nixConfig.nixConf);
-        "logging.json" = builtins.toJSON cfg.loggingConfig;
+      ConfigMap.nix-builder = mkNCSI {
+        data = {
+          "nix.conf" = builtins.readFile (cfg.builders.nixConfig.nixConf);
+          "logging.json" = builtins.toJSON cfg.loggingConfig;
+        };
       };
     };
   };

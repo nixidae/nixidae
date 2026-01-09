@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  mkNCSI,
   ...
 }:
 let
@@ -21,7 +22,7 @@ in
 {
   config = {
     kubernetes.resources.${cfg.namespace} = {
-      Job.flake-hello = {
+      Job.flake-hello = mkNCSI {
         spec = {
           template = {
             spec = {
@@ -37,7 +38,7 @@ in
           };
         };
       };
-      Job.expr-hello = {
+      Job.expr-hello = mkNCSI {
         spec = {
           template = {
             spec = {
@@ -65,7 +66,7 @@ in
           };
         };
       };
-      Job.path-hello = {
+      Job.path-hello = mkNCSI {
         spec = {
           template = {
             spec = {

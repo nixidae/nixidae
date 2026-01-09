@@ -1,10 +1,10 @@
-{ config, lib, ... }:
+{ config, lib, mkNCSI, ... }:
 let
   cfg = config.nix-csi;
   namespace = cfg.namespace;
 in
 {
   config = lib.mkIf cfg.enable {
-    kubernetes.resources.none.Namespace.${namespace} = { };
+    kubernetes.resources.none.Namespace.${namespace} = mkNCSI { };
   };
 }

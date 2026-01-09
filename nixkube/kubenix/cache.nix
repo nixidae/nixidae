@@ -5,6 +5,7 @@
   pkgs,
   x86Pkgs,
   armPkgs,
+  mkNCSI,
   ...
 }:
 let
@@ -39,7 +40,7 @@ in
     in
     lib.mkIf (cfg.enable && cfg.cache.enable) {
       kubernetes.resources.${cfg.namespace} = {
-        StatefulSet.nix-cache = {
+        StatefulSet.nix-cache = mkNCSI {
           spec = {
             serviceName = "nix-cache";
             replicas = 1;
@@ -143,7 +144,7 @@ in
           };
         };
 
-        Service.nix-cache = {
+        Service.nix-cache = mkNCSI {
           spec = {
             selector = labels;
             ports = lib.mkNamedList {
@@ -155,7 +156,7 @@ in
             type = "ClusterIP";
           };
         };
-        Service.nix-cache-lb = {
+        Service.nix-cache-lb = mkNCSI {
           spec = {
             selector = labels;
             ports = lib.mkNamedList {

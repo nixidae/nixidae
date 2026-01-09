@@ -5,6 +5,7 @@
   pkgs,
   x86Pkgs,
   armPkgs,
+  mkNCSI,
   ...
 }:
 let
@@ -30,7 +31,7 @@ in
     in
     lib.mkIf cfg.enable {
       kubernetes.resources.${cfg.namespace} = {
-        DaemonSet.nix-node = {
+        DaemonSet.nix-node = mkNCSI {
           spec = {
             updateStrategy = {
               type = "RollingUpdate";
@@ -176,11 +177,13 @@ in
           };
         };
         # DNS for pods
-        Service.${cfg.internalServiceName}.spec = {
-          clusterIP = "None";
-          selector = labels;
-          ports = lib.mkNamedList {
-            ssh.port = 22;
+        Service.${cfg.internalServiceName} = mkNCSI {
+          spec = {
+            clusterIP = "None";
+            selector = labels;
+            ports = lib.mkNamedList {
+              ssh.port = 22;
+            };
           };
         };
       };

@@ -46,6 +46,11 @@ in
       apply = lib.mapAttrs (n: v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = { };
     };
+    metadata = lib.mkOption {
+      description = "Labels added to nix-csi resources";
+      type = (pkgs.formats.json {}).type;
+      default = { };
+    };
     version = lib.mkOption {
       type = lib.types.str;
       default =
@@ -170,6 +175,11 @@ in
         inherit maybePush;
         x86Pkgs = mkPkgs "x86_64-linux";
         armPkgs = mkPkgs "aarch64-linux";
+        mkNCSI =
+          attrs:
+          lib.recursiveUpdate {
+            inherit (cfg) metadata;
+          } attrs;
       };
 
       nix-csi = { };
