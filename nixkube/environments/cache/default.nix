@@ -97,21 +97,13 @@ let
                   mkdir --parents /var/log
                 '';
             depends-on = [
-              "cache-daemon"
               "logger"
               "gc"
               "openssh"
             ];
           };
-          services.cache-daemon = {
-            command = "${lib.getExe pkgs.nix-cache} --loglevel DEBUG";
-            log-type = "file";
-            logfile = "/var/log/cache-daemon.log";
-            depends-on = [ "setup" ];
-            depends-ms = [ "nix-daemon" ];
-          };
           services.logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/cache-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log";
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log";
             options = [ "shares-console" ];
           };
           services.gc = {
