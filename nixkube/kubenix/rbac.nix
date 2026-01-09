@@ -27,23 +27,13 @@ in
             apiGroups = [ "" ];
             resources = [
               "secrets"
+              "configmaps"
             ];
             verbs = [
               "get"
               "list"
               "create"
               "patch"
-            ];
-          }
-          # Read authorized-keys
-          {
-            apiGroups = [ "" ];
-            resources = [
-              "configmaps"
-            ];
-            verbs = [
-              "get"
-              "list"
             ];
           }
         ];
