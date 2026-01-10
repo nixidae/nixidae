@@ -149,8 +149,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     )
                     logger.debug("Cache connectivity check succeeded")
                 except (GRPCError, OSError, asyncio.TimeoutError):
-                    logger.exception("Cache connectivity check failed, adding fallback")
-                    extraArgs.extend(["--fallback"])
+                    logger.warning("Cache connectivity check failed")
 
             # Source selection order (intentional, documented in README):
             # 1. storePath - if present, use directly
