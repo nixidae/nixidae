@@ -54,8 +54,8 @@ let
               text = # bash
                 ''
                   while :; do
-                    pkill -HUP -o sshd
                     sleep 30
+                    pkill -HUP -o sshd
                   done
                 '';
             };
