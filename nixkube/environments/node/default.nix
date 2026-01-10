@@ -7,58 +7,34 @@ let
   dinixEval = import dinix {
     inherit pkgs;
     modules = [
+      ../modules/gc.nix
+      ../modules/users.nix
+      ../modules/nix-daemon.nix
       {
         config = {
-          users = {
-            enable = true;
-            users.root = {
-              shell = pkgs.runtimeShell;
-              homeDir = "/nix/var/nix-csi/root";
-            };
-            users.nix = {
-              uid = 1000;
-              gid = 1000;
-              comment = "Nix worker user";
-            };
-            groups.nix.gid = 1000;
-            groups.nixbld.gid = 30000;
-            users.sshd = {
-              uid = 993;
-              gid = 992;
-              comment = "SSH privilege separation user";
-            };
-            groups.sshd.gid = 992;
+          gc = {
+            retainSeconds = 3600;
+            intervalSeconds = 3600;
           };
           env-file.variables = {
             PYTHONUNBUFFERED = "1"; # If something ends up print logging
             NIXPKGS_ALLOW_UNFREE = "1"; # Allow building anything
           };
-          services.nix-daemon = {
-            command = "${lib.getExe pkgs.lixPackageSets.lix_2_93.lix} daemon --store local";
-            depends-on = [ "setup" ];
-            log-type = "file";
-            logfile = "/var/log/nix-daemon.log";
-          };
           services.setup = {
             type = "scripted";
             log-type = "file";
             logfile = "/var/log/setup.log";
-            command =
-              pkgs.writeScriptBin "setup" # bash
+            command = pkgs.writeShellApplication {
+              name = "setup";
+              runtimeInputs = [
+                pkgs.rsync
+                pkgs.coreutils
+                pkgs.lruLix
+              ];
+              text = # bash
                 ''
-                  #! ${pkgs.runtimeShell}
                   set -euo pipefail
                   set -x
-                  export PATH=${
-                    lib.makeBinPath (
-                      with pkgs;
-                      [
-                        rsync
-                        coreutils
-                        lixPackageSets.lix_2_93.lix
-                      ]
-                    )
-                  }
                   mkdir --parents {/tmp,/var/tmp}
                   chmod -R 1777 {/tmp,/var/tmp}
                   mkdir --parents {/var/log,/nix/var/nix-csi}
@@ -73,18 +49,20 @@ let
                   # though so this just fixes gcroots.
                   nix build --store local --out-link /nix/var/result /nix/var/result
                 '';
+            };
           };
           # Umbrella service for CSI
           services.csi = {
             type = "scripted";
             options = [ "starts-rwfs" ];
-            command =
-              pkgs.writeScriptBin "csi" # bash
+            command = pkgs.writeShellApplication {
+              name = "csi";
+              text = # bash
                 ''
-                  #! ${pkgs.runtimeShell}
                   mkdir --parents /run
                   mkdir --parents /var/log
                 '';
+            };
             depends-on = [
               "csi-daemon"
               "logger"
@@ -104,30 +82,6 @@ let
             command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/csi-daemon.log /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/gc.log";
             options = [ "shares-console" ];
           };
-          services.gc = {
-            command =
-              pkgs.writeScriptBin "gc" # bash
-                ''
-                  #! ${pkgs.runtimeShell}
-                  while :; do
-                    # Copy everything to cache
-                    if test "$CACHE_ENABLED" = "true"; then
-                      nix copy --all --to ssh-ng://nix@nix-cache
-                    fi
-                    # Garbage collect
-                    ${lib.getExe pkgs.nix-timegc} 3600
-                    SLEEP=$(shuf -i 1800-3600 -n 1)
-                    echo Sleeping for $SLEEP seconds
-                    sleep $SLEEP
-                  done
-                '';
-            log-type = "file";
-            logfile = "/var/log/gc.log";
-            depends-on = [
-              "setup"
-              "nix-daemon"
-            ];
-          };
         };
       }
     ];
@@ -139,7 +93,7 @@ let
       bash # Used for build and upload scripts
       coreutils
       fishMinimal
-      lixPackageSets.lix_2_93.lix
+      lruLix
       openssh
       util-linuxMinimal
       gnugrep

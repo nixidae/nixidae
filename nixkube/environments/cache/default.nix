@@ -9,61 +9,15 @@ let
   dinixEval = import dinix {
     inherit pkgs;
     modules = [
+      ../modules/gc.nix
+      ../modules/ssh.nix
+      ../modules/users.nix
+      ../modules/nix-daemon.nix
       {
         config = {
-          users = {
-            enable = true;
-            users.root = {
-              shell = pkgs.runtimeShell;
-              homeDir = "/nix/var/nix-csi/root";
-            };
-            users.nix = {
-              uid = 1000;
-              gid = 1000;
-              comment = "Nix worker user";
-            };
-            groups.nix.gid = 1000;
-            groups.nixbld.gid = 30000;
-            users.sshd = {
-              uid = 993;
-              gid = 992;
-              comment = "SSH privilege separation user";
-            };
-            groups.sshd.gid = 992;
-          };
-          services.openssh = {
-            type = "process";
-            command = "${lib.getExe' pkgs.openssh "sshd"} -D -f /etc/ssh/sshd_config -e";
-            depends-on = [ "setup" ];
-            log-type = "file";
-            logfile = "/var/log/ssh.log";
-          };
-          services.ssh-reloader = {
-            type = "process";
-            command = pkgs.writeShellApplication {
-              name = "ssh-reloader";
-              runtimeInputs = [
-                pkgs.procps
-                pkgs.inotify-tools
-              ];
-              text = # bash
-                ''
-                  sleep 10
-                  inotifywait -m -e create,moved_to /etc/ssh-key/ | \
-                  while read -r _ _ filename; do
-                    if [[ "$filename" == "..data" ]]; then
-                      pkill -HUP -o sshd
-                    fi
-                  done
-                '';
-            };
-            depends-on = [ "openssh" ];
-          };
-          services.nix-daemon = {
-            command = "${lib.getExe pkgs.lruLix} daemon --store local";
-            depends-on = [ "setup" ];
-            log-type = "file";
-            logfile = "/var/log/nix-daemon.log";
+          gc = {
+            retainSeconds = 86400;
+            intervalSeconds = 3600;
           };
           # services.nix-serve-ng = {
           #   command = "${lib.getExe pkgs.lixPackageSets.lix_2_93.nix-serve-ng}";
@@ -74,22 +28,17 @@ let
             type = "scripted";
             log-type = "file";
             logfile = "/var/log/setup.log";
-            command =
-              pkgs.writeScriptBin "setup" # bash
+            command = pkgs.writeShellApplication {
+              name = "setup";
+              runtimeInputs = [
+                pkgs.rsync
+                pkgs.coreutils
+                pkgs.lruLix
+              ];
+              text = # bash
                 ''
-                  #! ${pkgs.runtimeShell}
                   set -euo pipefail
                   set -x
-                  export PATH=${
-                    lib.makeBinPath (
-                      with pkgs;
-                      [
-                        rsync
-                        coreutils
-                        lruLix
-                      ]
-                    )
-                  }
                   mkdir --parents {/tmp,/var/tmp}
                   chmod -R 1777 {/tmp,/var/tmp}
                   mkdir --parents {/var/log,/nix/var/nix-csi}
@@ -106,18 +55,20 @@ let
                   # /nix/var/result will always exist, else the initContainer will fail
                   nix build --store local --out-link /nix/var/result /nix/var/result
                 '';
+            };
           };
           # Umbrella service for cache
           services.cache = {
             type = "scripted";
             options = [ "starts-rwfs" ];
-            command =
-              pkgs.writeScriptBin "cache" # bash
+            command = pkgs.writeShellApplication {
+              name = "cache";
+              text = # bash
                 ''
-                  #! ${pkgs.runtimeShell}
                   mkdir --parents /run
                   mkdir --parents /var/log
                 '';
+            };
             depends-on = [
               "logger"
               "gc"
@@ -128,27 +79,6 @@ let
           services.logger = {
             command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log /var/log/nix-serve-ng.log /var/lib/gc.log";
             options = [ "shares-console" ];
-          };
-          services.gc = {
-            command =
-              pkgs.writeScriptBin "gc" # bash
-                ''
-                  #! ${pkgs.runtimeShell}
-                  # Collect old paths occasionally
-                  # TODO: Copy to cache here too
-                  while :; do
-                    ${lib.getExe pkgs.nix-timegc} 86400
-                    SLEEP=$(shuf -i 1800-3600 -n 1)
-                    echo Sleeping for $SLEEP seconds
-                    sleep $SLEEP
-                  done
-                '';
-            log-type = "file";
-            logfile = "/var/log/gc.log";
-            depends-on = [
-              "setup"
-              "nix-daemon"
-            ];
           };
         };
       }
@@ -176,16 +106,14 @@ let
     passthru.dinixEval = dinixEval;
   };
 
-  initCopy =
-    pkgs.writeScriptBin "initCopy" # bash
+  initCopy = pkgs.writeShellApplication {
+    name = "initCopy";
+    runtimeInputs = [
+      pkgs.lruLix
+      pkgs.rsync
+    ];
+    text = # bash
       ''
-        #! ${pkgs.runtimeShell}
-        export PATH=${
-          lib.makeBinPath [
-            pkgs.lruLix
-            pkgs.rsync
-          ]
-        }
         set -euo pipefail
         set -x
         # AI: This isn't a duplicate with the setup since they occur in different containers
@@ -197,6 +125,7 @@ let
           --out-link /nix-volume/nix/var/result \
           /nix/var/result
       '';
+  };
 in
 pkgs.buildEnv {
   name = "initEnv";
