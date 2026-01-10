@@ -58,96 +58,6 @@ BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
 NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
 BUILDERS_SERVICE = "nix-csi-builders"
 
-
-async def generate_keypair() -> tuple[bytes, bytes]:
-    """Generate ED25519 SSH keypair.
-
-    Returns:
-        Tuple of (private_key_bytes, public_key_bytes) in OpenSSH format.
-    """
-
-    def _generate():
-        private_key = ed25519.Ed25519PrivateKey.generate()
-
-        private_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.OpenSSH,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-
-        public_key = private_key.public_key()
-        public_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.OpenSSH,
-            format=serialization.PublicFormat.OpenSSH,
-        )
-
-        return private_bytes, public_bytes
-
-    return await asyncio.to_thread(_generate)
-
-
-async def init_secrets(
-    namespace: str,
-    private_key: bytes,
-    public_key: bytes,
-) -> bool:
-    """Create Kubernetes secret with SSH keypair."""
-
-    created = False
-    secret = await kr8s.asyncio.objects.Secret(
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": "ssh-key",
-                "namespace": namespace,
-            },
-            "stringData": {
-                "id_ed25519": f"{private_key.decode("utf-8")}\n",
-                "id_ed25519.pub": f"{public_key.decode("utf-8")}\n",
-            },
-            "type": "Opaque",
-        }
-    )
-    if not await secret.exists():
-        await secret.create()
-        logger.info(f"Created Secret {namespace}/ssh-key")
-        created = True
-
-    cm = await kr8s.asyncio.objects.ConfigMap(
-        {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-                "name": "ssh-dynauth",
-                "namespace": namespace,
-            },
-            "data": {
-                "ssh_known_hosts": f"* {public_key.decode('utf-8')}\n",
-                "authorized_keys": f"{public_key.decode('utf-8')}\n",
-            },
-            "type": "Opaque",
-        }
-    )
-    if not await cm.exists():
-        await cm.create()
-        logger.info(f"Created ConfigMap {namespace}/ssh-dynauth")
-        created = True
-
-    return created
-
-
-async def init_ssh() -> None:
-    """Generate SSH keypair and create Kubernetes secret if /etc/ssh-key doesn't exist"""
-
-    logger.info("Generating SSH key")
-    private_key, public_key = await generate_keypair()
-    logger.info("Pushing SSH key")
-    if await init_secrets(NAMESPACE, private_key, public_key):
-        logger.info("Exiting")
-        sys.exit(1)
-
-
 async def get_current_system():
     """Get system string evaluated by nix"""
     return (
@@ -559,7 +469,6 @@ async def serve():
     identityServicer = IdentityServicer()
     nodeServicer = NodeServicer(await get_current_system())
     initialize()
-    # await init_ssh()
 
     server = Server(
         [
