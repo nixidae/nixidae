@@ -26,29 +26,34 @@ rec {
     let
       pkgs = import inputs.nixpkgs { inherit system; };
       inherit (pkgs) lib;
-      initCopy =
-        pkgs.writeScriptBin "initCopy" # bash
+
+      fakeNss = pkgs.dockerTools.fakeNss.override {
+        extraGroupLines = [
+          "nixbld:x:30000:"
+        ];
+      };
+      runtimeInputs = [
+        pkgs.coreutils
+        pkgs.gitMinimal
+        pkgs.lixPackageSets.lix_2_93.lix
+        pkgs.rsync
+        pkgs.openssh
+        pkgs.kubectl
+      ];
+
+      # TODO: consolidate init-copy and init-secrets into the same file (not same script)
+      # ConfigMap or OCI? I think ConfigMap?
+      init-copy = pkgs.writeShellApplication {
+        name = "init-copy";
+        inherit runtimeInputs;
+        text = # bash
           ''
-            #! ${pkgs.runtimeShell}
-            export PATH=${
-              lib.makeBinPath [
-                pkgs.coreutils
-                pkgs.gitMinimal
-                pkgs.lixPackageSets.lix_2_93.lix
-                pkgs.rsync
-                pkgs.openssh
-              ]
-            }
+            set -euo pipefail
             set -x
-            rsync --archive ${
-              pkgs.dockerTools.fakeNss.override {
-                extraGroupLines = [
-                  "nixbld:x:30000:"
-                ];
-              }
-            }/ /
             mkdir /tmp
-            export ARCH=$(nix eval --raw --impure --expr builtins.currentSystem)
+            rsync --archive ${fakeNss}/ /
+            ARCH=$(nix eval --raw --impure --expr builtins.currentSystem)
+            export ARCH
             case "$ARCH" in
               "x86_64-linux")
                 export ARCH=amd64
@@ -64,8 +69,24 @@ rec {
                 --store /nix-volume \
                 --out-link /nix-volume/nix/var/result \
                 --fallback \
-                ''${!ARCH}
+                "''${!ARCH}"
           '';
+      };
+
+      init-secrets = pkgs.writeShellApplication {
+        name = "init-secrets";
+        inherit runtimeInputs;
+        text = # bash
+          ''
+            set -euo pipefail
+            set -x
+            mkdir /tmp
+            rsync --archive ${fakeNss}/ /
+            # shellcheck source=/dev/null
+            source /opt/bin/init-secrets
+          '';
+      };
+
     in
     pkgs.dockerTools.streamLayeredImage {
       name = "${repo}/lix";
@@ -78,13 +99,12 @@ rec {
         pkgs.dockerTools.usrBinEnv
       ];
       config = {
-        Entrypoint = [ (lib.getExe initCopy) ];
+        Entrypoint = [ (lib.getExe init-copy) ];
         Env = [
           "PATH=${
             lib.makeBinPath [
-              initCopy
-              pkgs.gitMinimal
-              pkgs.lixPackageSets.lix_2_93.lix
+              init-copy
+              init-secrets
             ]
           }"
         ];

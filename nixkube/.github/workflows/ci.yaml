@@ -105,6 +105,9 @@ jobs:
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1 || true
 
+          echo "=== Init pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --all-containers --tail -1 || true
+
           echo "=== Events ==="
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'
 
@@ -161,6 +164,9 @@ jobs:
 
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1 || true
+
+          echo "=== Init pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --all-containers --tail -1 || true
 
           echo "=== Events ==="
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'

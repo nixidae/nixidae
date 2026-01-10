@@ -36,6 +36,7 @@ in
               "list"
               "create"
               "patch"
+              "delete"
             ];
           }
         ];
