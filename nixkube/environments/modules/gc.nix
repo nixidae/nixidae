@@ -14,6 +14,9 @@
     };
   };
   config = {
+    logger.files = [
+      "gc.log"
+    ];
     services.gc = {
       command = pkgs.writeShellApplication {
         name = "gc";

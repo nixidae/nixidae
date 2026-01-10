@@ -5,6 +5,9 @@
 }:
 {
   config = {
+    logger.files = [
+      "nix-daemon.log"
+    ];
     services.nix-daemon = {
       command = "${lib.getExe pkgs.lruLix} daemon --store local";
       depends-on = [ "setup" ];

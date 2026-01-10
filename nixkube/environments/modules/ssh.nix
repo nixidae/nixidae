@@ -1,6 +1,9 @@
 { pkgs, lib, ... }:
 {
   config = {
+    logger.files = [
+      "ssh.log"
+    ];
     services.openssh = {
       type = "process";
       command = "${lib.getExe' pkgs.openssh "sshd"} -D -f /etc/ssh/sshd_config -e";
