@@ -15,6 +15,11 @@ in
 {
   options.nix-csi.builders = {
     enable = lib.mkEnableOption "builder pods";
+    privilegedSandboxedBuilds = lib.mkOption {
+      description = "To set up the sanbox Nix must run with privileges, without the sandbox Nix builds can run unprivileged";
+      type = lib.types.bool;
+      default = true;
+    };
     nixConfig = lib.mkOption {
       description = "nix.conf for builder pods";
       type = (import ./nixOptions.nix) pkgs;
@@ -47,6 +52,7 @@ in
       };
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
+      nix-csi.builders.nixConfig.settings.sandbox = cfg.builders.privilegedSandboxedBuilds;
       kubernetes.resources.${cfg.namespace} = {
         Deployment.nix-builder = mkNCSI {
           spec = {
@@ -57,9 +63,7 @@ in
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-builder";
                 configHash = lib.hashAttrs (
-                  { }
-                  // nsRes.ConfigMap.nix-builder or { }
-                  // nsRes.ConfigMap.ssh-config or { }
+                  { } // nsRes.ConfigMap.nix-builder or { } // nsRes.ConfigMap.ssh-config or { }
                 );
               };
               spec = {
@@ -70,7 +74,7 @@ in
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     command = [ "initCopy" ];
                     imagePullPolicy = "Always";
-                    securityContext.privileged = true; # chroot store
+                    securityContext.capabilities.add = [ "SYS_CHROOT" ]; # chroot store
                     volumeMounts = lib.mkNamedList {
                       init-store.mountPath = "/nix";
                       nix-store.mountPath = "/nix-volume";
@@ -108,6 +112,7 @@ in
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
                     };
+                    securityContext.privileged = cfg.builders.privilegedSandboxedBuilds;
                   };
                 };
                 volumes = lib.mkNamedList {

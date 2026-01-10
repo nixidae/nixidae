@@ -59,11 +59,9 @@ in
                   "1" = {
                     name = "initcopy";
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
-
                     command = [ "initCopy" ];
                     imagePullPolicy = "Always";
-                    securityContext.privileged = true; # chroot store
-
+                    securityContext.capabilities.add = [ "SYS_CHROOT" ]; # chroot store
                     volumeMounts = lib.mkNamedList {
                       init-store.mountPath = "/nix";
                       nix-store.mountPath = "/nix-volume";
