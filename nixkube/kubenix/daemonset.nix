@@ -93,9 +93,6 @@ in
                         NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
                         RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
                         USER.value = "root";
-                      }
-                      // lib.optionalAttrs (lib.stringLength (builtins.getEnv "GITHUB_KEY") > 0) {
-                        NIX_CONFIG.value = "access-tokens = github.com=${builtins.getEnv "GITHUB_KEY"}";
                       };
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
