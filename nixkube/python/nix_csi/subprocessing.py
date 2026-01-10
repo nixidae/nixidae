@@ -2,7 +2,6 @@ import logging
 import shlex
 import asyncio
 import time
-import os
 from typing import NamedTuple
 
 from grpclib import GRPCError
@@ -19,7 +18,7 @@ class SubprocessResult(NamedTuple):
     elapsed: float
 
 
-def _format_command_preview(args, max_args=5):
+def _format_command_preview(args, max_args=20):
     """Format command for error messages, truncating if too long."""
     cmd_preview = shlex.join([str(arg) for arg in args[:max_args]])
     suffix = f" ... ({len(args)} total args)" if len(args) > max_args else ""

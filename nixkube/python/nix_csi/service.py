@@ -4,16 +4,13 @@ import logging
 import os
 import shutil
 import socket
-import sys
 import tempfile
 
 from .copytocache import copyToCache
 from .identityservicer import IdentityServicer
 from .subprocessing import run_captured, run_console, try_captured, try_console
-from asyncio import Semaphore, sleep
+from asyncio import Semaphore
 from collections import defaultdict
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
 from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
@@ -139,7 +136,7 @@ class NodeServicer(csi_grpc.NodeBase):
             # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
             if os.environ.get("CACHE_ENABLED", "false") == "true":
                 try:
-                    # Try cache connectivity with retries
+                    logger.debug("Trying to connect to cache")
                     await asyncio.wait_for(
                         try_console("ssh", "nix@nix-cache", "--", "true"),
                         timeout=2.0,
