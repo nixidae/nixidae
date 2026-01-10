@@ -38,6 +38,21 @@ let
             log-type = "file";
             logfile = "/var/log/ssh.log";
           };
+          services.ssh-reloader = {
+            type = "process";
+            command = pkgs.writeShellApplication {
+              name = "ssh-reloader";
+              runtimeInputs = [ pkgs.procps ];
+              text = # bash
+                ''
+                  while :; do
+                    killall -SIGHUP sshd
+                    sleep 30
+                  done
+                '';
+            };
+            depends-on = [ "openssh" ];
+          };
           services.nix-daemon = {
             command = "${lib.getExe pkgs.lruLix} daemon --store local";
             depends-on = [ "setup" ];
@@ -101,7 +116,7 @@ let
               "logger"
               "gc"
               "openssh"
-              # "nix-serve-ng"
+              "ssh-reloader"
             ];
           };
           services.logger = {
@@ -136,6 +151,7 @@ let
     paths = with pkgs; [
       dinixEval.config.containerWrapper
       bash # Used for build and upload scripts
+      psmisc # killall (sshd reloader)
       coreutils
       fishMinimal
       lruLix

@@ -46,6 +46,21 @@ let
             log-type = "file";
             logfile = "/var/log/ssh.log";
           };
+          services.ssh-reloader = {
+            type = "process";
+            command = pkgs.writeShellApplication {
+              name = "ssh-reloader";
+              runtimeInputs = [ pkgs.procps ];
+              text = # bash
+                ''
+                  while :; do
+                    killall -SIGHUP sshd
+                    sleep 30
+                  done
+                '';
+            };
+            depends-on = [ "openssh" ];
+          };
           services.nix-daemon = {
             command = "${lib.getExe pkgs.lruLix} daemon --store local";
             depends-on = [ "setup" ];
@@ -104,6 +119,7 @@ let
               "logger"
               "gc"
               "openssh"
+              "ssh-reloader"
             ];
           };
           services.logger = {
@@ -143,6 +159,7 @@ let
       gitMinimal
       lruLix
       openssh
+      psmisc # killall
       # Commonly used
       attic-client
       cachix
