@@ -161,12 +161,10 @@ in
                   ssh-dynauth.configMap = {
                     name = "ssh-dynauth";
                     defaultMode = 292; # 444
-                    optional = true;
                   };
                   ssh-key.secret = {
                     secretName = "ssh-key";
                     defaultMode = 256; # 400
-                    optional = true;
                   };
                 };
               };
