@@ -56,7 +56,6 @@ in
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
                     env = lib.mkNamedList {
-                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
                       # Apply push logic at point of use
                       amd64.value = maybePush x86Pkgs.nix-csi-node-env;
                       arm64.value = maybePush armPkgs.nix-csi-node-env;
@@ -85,6 +84,7 @@ in
                     env =
                       lib.mkNamedList {
                         BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
+                        CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
                         CSI_ENDPOINT.value = "unix:///csi/csi.sock";
                         HOME.value = "/nix/var/nix-csi/root";
                         KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
