@@ -54,7 +54,7 @@ let
               text = # bash
                 ''
                   while :; do
-                    killall -SIGHUP sshd
+                    pkill -HUP -o sshd
                     sleep 30
                   done
                 '';
@@ -159,7 +159,7 @@ let
       gitMinimal
       lruLix
       openssh
-      psmisc # killall
+      procps # pgrep
       # Commonly used
       attic-client
       cachix

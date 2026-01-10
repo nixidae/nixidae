@@ -46,7 +46,7 @@ let
               text = # bash
                 ''
                   while :; do
-                    killall -SIGHUP sshd
+                    pkill -HUP -o sshd
                     sleep 30
                   done
                 '';
@@ -151,7 +151,7 @@ let
     paths = with pkgs; [
       dinixEval.config.containerWrapper
       bash # Used for build and upload scripts
-      psmisc # killall (sshd reloader)
+      procps # pkill
       coreutils
       fishMinimal
       lruLix
