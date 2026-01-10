@@ -24,26 +24,26 @@ rec {
   images = lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (
     system:
     let
-      pkgs = import inputs.nixpkgs { inherit system; };
-      inherit (pkgs) lib;
+      sysPkgs = import inputs.nixpkgs { inherit system; };
+      inherit (sysPkgs) lib;
 
-      fakeNss = pkgs.dockerTools.fakeNss.override {
+      fakeNss = sysPkgs.dockerTools.fakeNss.override {
         extraGroupLines = [
           "nixbld:x:30000:"
         ];
       };
       runtimeInputs = [
-        pkgs.coreutils
-        pkgs.gitMinimal
-        pkgs.lixPackageSets.lix_2_93.lix
-        pkgs.rsync
-        pkgs.openssh
-        pkgs.kubectl
+        sysPkgs.coreutils
+        sysPkgs.gitMinimal
+        sysPkgs.lixPackageSets.lix_2_93.lix
+        sysPkgs.rsync
+        sysPkgs.openssh
+        sysPkgs.kubectl
       ];
 
       # TODO: consolidate init-copy and init-secrets into the same file (not same script)
       # ConfigMap or OCI? I think ConfigMap?
-      init-copy = pkgs.writeShellApplication {
+      init-copy = sysPkgs.writeShellApplication {
         name = "init-copy";
         inherit runtimeInputs;
         text = # bash
@@ -73,7 +73,7 @@ rec {
           '';
       };
 
-      init-secrets = pkgs.writeShellApplication {
+      init-secrets = sysPkgs.writeShellApplication {
         name = "init-secrets";
         inherit runtimeInputs;
         text = # bash
@@ -90,13 +90,19 @@ rec {
     in
     pkgs.dockerTools.streamLayeredImage {
       name = "${repo}/lix";
-      tag = "${pkgs.lixPackageSets.lix_2_93.lix.version}-${pkgs.stdenv.hostPlatform.system}";
+      tag = "${sysPkgs.lixPackageSets.lix_2_93.lix.version}-${sysPkgs.stdenv.hostPlatform.system}";
+      architecture =
+        {
+          "aarch64-linux" = "arm64";
+          "x86_64-linux" = "amd64";
+        }
+        .${sysPkgs.stdenv.hostPlatform.system};
       maxLayers = 125;
       includeNixDB = true;
       contents = [
-        pkgs.dockerTools.binSh
-        pkgs.dockerTools.caCertificates
-        pkgs.dockerTools.usrBinEnv
+        sysPkgs.dockerTools.binSh
+        sysPkgs.dockerTools.caCertificates
+        sysPkgs.dockerTools.usrBinEnv
       ];
       config = {
         Entrypoint = [ (lib.getExe init-copy) ];
