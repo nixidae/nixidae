@@ -202,9 +202,10 @@ let
         rsync --archive ${pkgs.dockerTools.caCertificates}/ /
         # Install environment into persistent volume
         nix build \
+          --extra-substituters local?trusted=true \
           --store /nix-volume \
           --out-link /nix-volume/nix/var/result \
-          ${builderEnv}
+          /nix/var/result
       '';
 in
 pkgs.buildEnv {
