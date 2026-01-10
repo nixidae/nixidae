@@ -42,12 +42,18 @@ let
             type = "process";
             command = pkgs.writeShellApplication {
               name = "ssh-reloader";
-              runtimeInputs = [ pkgs.procps ];
+              runtimeInputs = [
+                pkgs.procps
+                pkgs.inotify-tools
+              ];
               text = # bash
                 ''
-                  while :; do
-                    sleep 30
-                    pkill -HUP -o sshd
+                  sleep 10
+                  inotifywait -m -e create,moved_to /etc/ssh-key/ | \
+                  while read -r _ _ filename; do
+                    if [[ "$filename" == "..data" ]]; then
+                      pkill -HUP -o sshd
+                    fi
                   done
                 '';
             };
