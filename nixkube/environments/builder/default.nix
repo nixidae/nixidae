@@ -137,9 +137,12 @@ let
               pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
-                  # Collect old paths occasionally
-                  # TODO: Copy to cache here too
                   while :; do
+                    # Copy everything to cache
+                    if test "$CACHE_ENABLED" = "true"; then
+                      nix copy --all --to ssh-ng://nix@nix-cache
+                    fi
+                    # Garbage collect
                     ${lib.getExe pkgs.nix-timegc} 3600
                     SLEEP=$(shuf -i 1800-3600 -n 1)
                     echo Sleeping for $SLEEP seconds
