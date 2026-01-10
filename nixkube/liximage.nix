@@ -118,25 +118,25 @@ rec {
         "${images.${arch}} | gzip --fast | skopeo copy docker-archive:/dev/stdin docker://${imageRef arch}";
       imageRef = arch: "${images.${arch}.imageName}:${images.${arch}.imageTag}"; # AI: imageName and imageTag exists
     in
-    pkgs.writeScriptBin "push" # bash
-      ''
-        #! ${pkgs.runtimeShell}
-        export PATH=${
-          lib.makeBinPath [
-            pkgs.regctl
-            pkgs.skopeo
-            pkgs.gzip
-          ]
-        }:$PATH
-        skopeo login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
-        regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
-        ${copyToRegistry "aarch64-linux"}
-        ${copyToRegistry "x86_64-linux"}
-        regctl index create ${repo}/lix:${pkgs.lixPackageSets.lix_2_93.lix.version} \
-          --ref ${imageRef "aarch64-linux"} \
-          --ref ${imageRef "x86_64-linux"}
-        regctl index create ${repo}/lix:latest \
-          --ref ${imageRef "aarch64-linux"} \
-          --ref ${imageRef "x86_64-linux"}
-      '';
+    pkgs.writeShellApplication {
+      name = "push";
+      runtimeInputs = [
+        pkgs.regctl
+        pkgs.skopeo
+        pkgs.gzip
+      ];
+      text = # bash
+        ''
+          skopeo login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
+          regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
+          ${copyToRegistry "aarch64-linux"}
+          ${copyToRegistry "x86_64-linux"}
+          regctl index create ${repo}/lix:${pkgs.lixPackageSets.lix_2_93.lix.version} \
+            --ref ${imageRef "aarch64-linux"} \
+            --ref ${imageRef "x86_64-linux"}
+          regctl index create ${repo}/lix:latest \
+            --ref ${imageRef "aarch64-linux"} \
+            --ref ${imageRef "x86_64-linux"}
+        '';
+    };
 }
