@@ -79,6 +79,15 @@ rec {
       ];
       config = {
         Entrypoint = [ (lib.getExe initCopy) ];
+        Env = [
+          "PATH=${
+            lib.makeBinPath [
+              initCopy
+              pkgs.gitMinimal
+              pkgs.lixPackageSets.lix_2_93.lix
+            ]
+          }"
+        ];
       };
     }
   );
