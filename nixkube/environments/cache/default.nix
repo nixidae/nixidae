@@ -126,25 +126,28 @@ let
             ];
           };
           services.logger = {
-            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log /var/log/nix-serve-ng.log";
+            command = "${lib.getExe' pkgs.coreutils "tail"} --retry --follow=name /var/log/dinit.log /var/log/ssh.log /var/log/setup.log /var/log/setup.log /var/log/nix-serve-ng.log /var/lib/gc.log";
             options = [ "shares-console" ];
           };
           services.gc = {
-            type = "scripted";
             command =
               pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
-                  # Fix gcroots for /nix/var/result
-                  nix build --out-link /nix/var/result /nix/var/result
-                  # Collect old shit
-                  ${lib.getExe pkgs.nix-timegc} 86400
+                  # Collect old paths occasionally
+                  # TODO: Copy to cache here too
+                  while :; do
+                    ${lib.getExe pkgs.nix-timegc} 86400
+                    SLEEP=$(shuf -i 1800-3600 -n 1)
+                    echo Sleeping for $SLEEP seconds
+                    sleep $SLEEP
+                  done
                 '';
             log-type = "file";
             logfile = "/var/log/gc.log";
             depends-on = [
-              "nix-daemon"
               "setup"
+              "nix-daemon"
             ];
           };
         };

@@ -140,7 +140,7 @@ let
                   # Collect old paths occasionally
                   # TODO: Copy to cache here too
                   while :; do
-                    ${lib.getExe pkgs.nix-timegc} 86400
+                    ${lib.getExe pkgs.nix-timegc} 3600
                     SLEEP=$(shuf -i 1800-3600 -n 1)
                     echo Sleeping for $SLEEP seconds
                     sleep $SLEEP

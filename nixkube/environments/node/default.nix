@@ -105,21 +105,24 @@ let
             options = [ "shares-console" ];
           };
           services.gc = {
-            type = "scripted";
             command =
               pkgs.writeScriptBin "gc" # bash
                 ''
                   #! ${pkgs.runtimeShell}
-                  # Fix gcroots for /nix/var/result
-                  nix build --out-link /nix/var/result /nix/var/result
-                  # Collect old shit
-                  ${lib.getExe pkgs.nix-timegc} 3600
+                  # Collect old paths occasionally
+                  # TODO: Copy to cache here too
+                  while :; do
+                    ${lib.getExe pkgs.nix-timegc} 3600
+                    SLEEP=$(shuf -i 1800-3600 -n 1)
+                    echo Sleeping for $SLEEP seconds
+                    sleep $SLEEP
+                  done
                 '';
             log-type = "file";
             logfile = "/var/log/gc.log";
             depends-on = [
-              "nix-daemon"
               "setup"
+              "nix-daemon"
             ];
           };
         };
