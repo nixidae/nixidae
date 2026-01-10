@@ -28,6 +28,12 @@
         in
         {
           inherit (pkgs) hello;
+          helloEnv = pkgs.buildEnv {
+            name = "helloEnv";
+            paths = [
+              pkgs.hello
+            ];
+          };
         }
       );
     };
