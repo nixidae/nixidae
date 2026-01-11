@@ -47,6 +47,7 @@ in
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
                   driver = "nix.csi.store";
+                  readOnly = true;
                   volumeAttributes.nixExpr = # nix
                     ''
                       let
@@ -75,6 +76,7 @@ in
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
                   driver = "nix.csi.store";
+                  readOnly = true;
                   volumeAttributes.${system} = pkgs.hello;
                 };
               };

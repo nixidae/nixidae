@@ -109,6 +109,7 @@ in
                   nix-config.configMap.name = "nix-cache";
                   init-store.csi = {
                     driver = "nix.csi.store";
+                    readOnly = true;
                     volumeAttributes = {
                       x86_64-linux = maybePush x86Pkgs.nix-csi-cache-env;
                       aarch64-linux = maybePush armPkgs.nix-csi-cache-env;

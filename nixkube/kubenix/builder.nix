@@ -150,6 +150,7 @@ in
                 nix-config.configMap.name = "nix-builder";
                 init-store.csi = {
                   driver = "nix.csi.store";
+                  readOnly = true;
                   volumeAttributes = {
                     x86_64-linux = maybePush x86Pkgs.nix-csi-builder-env;
                     aarch64-linux = maybePush armPkgs.nix-csi-builder-env;
