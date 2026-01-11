@@ -32,6 +32,7 @@ in
           narinfo-cache-negative-ttl = 0;
           narinfo-cache-positive-ttl = 0;
           warn-dirty = false;
+          store = "daemon";
         };
       in
       {
