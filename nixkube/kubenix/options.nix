@@ -48,7 +48,7 @@ in
     };
     metadata = lib.mkOption {
       description = "Labels added to nix-csi resources";
-      type = (pkgs.formats.json {}).type;
+      type = (pkgs.formats.json { }).type;
       default = { };
     };
     version = lib.mkOption {
@@ -150,17 +150,22 @@ in
           inherit system;
           overlays = [
             (import ../pkgs)
-            (self: pkgs: {
-              nix-csi-node-env = pkgs.callPackage ../environments/node {
-                inherit (cfg) dinix;
-              };
-              nix-csi-cache-env = pkgs.callPackage ../environments/cache {
-                inherit (cfg) dinix;
-              };
-              nix-csi-builder-env = pkgs.callPackage ../environments/builder {
-                inherit (cfg) dinix;
-              };
-            })
+            (
+              self: pkgs:
+              let
+                callPackage =
+                  pp:
+                  pkgs.callPackage pp {
+                    inherit (cfg) dinix;
+                  };
+              in
+              {
+                nix-csi-node-env = callPackage ../environments/node;
+                nix-csi-cache-env = callPackage ../environments/cache;
+                nix-csi-builder-env = callPackage ../environments/builder;
+                nix-csi-proxy-env = callPackage ../environments/proxy;
+              }
+            )
           ];
         };
 
