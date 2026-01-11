@@ -7,6 +7,9 @@ inputs:
   github_token:
     description: "GitHub Token for API access"
     required: true
+  cache_key:
+    description: "Cache key"
+    required: true
 
 runs:
   using: "composite"
@@ -26,11 +29,11 @@ runs:
     - name: Restore and save Nix store
       uses: nix-community/cache-nix-action@main
       with:
-        primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
-        restore-prefixes-first-match: nix-${{ runner.os }}-
+        primary-key: nix-${{ runner.os }}-${{ inputs.cache_key }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+        restore-prefixes-first-match: nix-${{ runner.os }}-${{ inputs.cache_key }}
         gc-max-store-size-linux: 1G
-        purge: false
-        purge-prefixes: nix-${{ runner.os }}-
+        purge: true
+        purge-prefixes: nix-${{ runner.os }}-${{ inputs.cache_key }}
         purge-created: 0
         purge-last-accessed: 0
         purge-primary-key: never

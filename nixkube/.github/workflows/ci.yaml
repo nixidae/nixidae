@@ -29,6 +29,7 @@ jobs:
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: build
 
       - name: Build and push environments
         run: |
@@ -58,6 +59,7 @@ jobs:
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: test-kind-cache
 
       - name: Create Kind cluster
         uses: helm/kind-action@main
@@ -73,15 +75,15 @@ jobs:
 
       - name: Wait for nix-csi node daemonset
         run: |
-          kubectl rollout status daemonset/nix-node -n nix-csi --timeout=120s
+          kubectl rollout status daemonset/nix-node -n nix-csi --timeout=60s
 
       - name: Wait for nix-csi cache pod
         run: |
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cache -n nix-csi --timeout=120s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cache -n nix-csi --timeout=60s
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete --timeout=300s job/flake-hello job/expr-hello job/path-hello -n nix-csi
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
@@ -91,7 +93,7 @@ jobs:
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1
+          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1
 
       - name: Debug on failure
         if: failure()
@@ -100,13 +102,13 @@ jobs:
           kubectl get all -A
 
           echo "=== Cache pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --tail -1 || true
 
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1 || true
 
           echo "=== Init pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --tail -1 || true
 
           echo "=== Events ==="
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'
@@ -123,6 +125,7 @@ jobs:
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: test-kind-nocache
 
       - name: Create Kind cluster
         uses: helm/kind-action@main
@@ -141,7 +144,7 @@ jobs:
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete --timeout=300s job/flake-hello job/expr-hello job/path-hello -n nix-csi
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
@@ -151,7 +154,7 @@ jobs:
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1
+          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1
 
       - name: Debug on failure
         if: failure()
@@ -160,13 +163,13 @@ jobs:
           kubectl get all -A
 
           echo "=== Cache pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --tail -1 || true
 
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1 || true
 
           echo "=== Init pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --all-containers --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=init -n nix-csi --tail -1 || true
 
           echo "=== Events ==="
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'

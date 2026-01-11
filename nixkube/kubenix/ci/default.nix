@@ -21,6 +21,37 @@ let
 in
 {
   config = {
+    nix-csi.loggingConfig = {
+      version = 1;
+      formatters = {
+        standard = {
+          format = "%(levelname)s [%(name)s] %(message)s";
+        };
+      };
+      handlers = {
+        console = {
+          class = "logging.StreamHandler";
+          formatter = "standard";
+          stream = "ext://sys.stdout";
+        };
+      };
+      loggers = {
+        nix-csi = {
+          level = "DEBUG";
+          handlers = [ "console" ];
+          propagate = false;
+        };
+        httpx = {
+          level = "WARNING";
+          handlers = [ "console" ];
+          propagate = false;
+        };
+      };
+      root = {
+        level = "INFO";
+        handlers = [ "console" ];
+      };
+    };
     kubernetes.resources.${cfg.namespace} = {
       Job.flake-hello = mkNCSI {
         spec = {
