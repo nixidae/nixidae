@@ -35,4 +35,5 @@ buildPythonApplication {
     rsync
     util-linuxMinimal
   ];
+  meta.mainProgram = "nix-csi";
 }
