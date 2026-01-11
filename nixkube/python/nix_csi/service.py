@@ -35,23 +35,16 @@ CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
 # Configurable via kubenix option: rsyncConcurrency (default: 1)
 # Set via RSYNC_CONCURRENCY environment variable
-try:
-    RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
-except ValueError:
-    logger.exception("RSYNC_CONCURRENCY is invalid, must be a positive integer")
-    RSYNC_CONCURRENCY = Semaphore(1)
+RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
 
 # Configurable via kubenix option: nodeBuildTimeout (default: 300)
 # Set via NIX_BUILD_TIMEOUT environment variable
-try:
-    NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
-except ValueError:
-    logger.exception("NIX_BUILD_TIMEOUT is invalid, must be a number")
-    NIX_BUILD_TIMEOUT = 300.0
+NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
 
 # Builder configuration
 # Set via environment variables from kubenix when builders are enabled
 BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
+
 NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
 BUILDERS_SERVICE = "nix-csi-builders"
 
@@ -86,15 +79,6 @@ async def get_builder_uris():
     except Exception as e:
         logger.warning(f"Failed to discover builder pods: {e}")
         return []
-
-
-def initialize():
-    logger.info("Initializing NodeServicer")
-    # Create directories we operate in
-    CSI_ROOT.mkdir(parents=True, exist_ok=True)
-    CSI_VOLUMES.mkdir(parents=True, exist_ok=True)
-    CSI_GCROOTS.mkdir(parents=True, exist_ok=True)
-
 
 class NodeServicer(csi_grpc.NodeBase):
     volumeLocks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
@@ -464,7 +448,6 @@ async def serve():
 
     identityServicer = IdentityServicer()
     nodeServicer = NodeServicer(await get_current_system())
-    initialize()
 
     server = Server(
         [
