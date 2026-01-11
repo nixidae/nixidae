@@ -56,9 +56,9 @@ in
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
                     env = lib.mkNamedList {
-                      # Apply push logic at point of use
-                      amd64.value = maybePush x86Pkgs.nix-csi-node-env;
-                      arm64.value = maybePush armPkgs.nix-csi-node-env;
+                      # Use GOARCH instead of system since system is not valid bash variable identifier
+                      ${x86Pkgs.go.GOARCH}.value = maybePush x86Pkgs.nix-csi-node-env;
+                      ${armPkgs.go.GOARCH}.value = maybePush armPkgs.nix-csi-node-env;
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-store.mountPath = "/nix-volume";
