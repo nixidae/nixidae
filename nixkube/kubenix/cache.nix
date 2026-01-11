@@ -54,6 +54,7 @@ in
               };
               spec = {
                 serviceAccountName = "nix-csi";
+                priorityClassName = "system-cluster-critical";
                 initContainers = lib.mkNumberedList {
                   "1" = {
                     name = "initcopy";
@@ -69,6 +70,12 @@ in
                       ssh-config.mountPath = "/etc/ssh";
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "64Mi";
+                        cpu = "100m";
+                      };
                     };
                   };
                 };
@@ -101,6 +108,12 @@ in
                       ssh-config.mountPath = "/etc/ssh";
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "64Mi";
+                        cpu = "100m";
+                      };
                     };
                   };
                 };

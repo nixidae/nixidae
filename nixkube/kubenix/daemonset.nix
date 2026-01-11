@@ -47,6 +47,7 @@ in
               };
               spec = {
                 serviceAccountName = "nix-csi";
+                priorityClassName = "system-node-critical";
                 subdomain = cfg.internalServiceName;
                 initContainers = lib.mkNumberedList {
                   "1" = {
@@ -68,6 +69,12 @@ in
                       ssh-config.mountPath = "/etc/ssh";
                       ssh-key.mountPath = "/etc/ssh-key";
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "128Mi";
+                        cpu = "100m";
+                      };
                     };
                   };
                 };
@@ -112,6 +119,12 @@ in
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
                     };
+                    resources = {
+                      requests = {
+                        memory = "128Mi";
+                        cpu = "100m";
+                      };
+                    };
                   };
                   csi-node-driver-registrar = {
                     image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0";
@@ -128,6 +141,12 @@ in
                       kubelet.mountPath = "/var/lib/kubelet";
                       registration.mountPath = "/registration";
                     };
+                    resources = {
+                      requests = {
+                        memory = "10Mi";
+                        cpu = "10m";
+                      };
+                    };
                   };
                   livenessprobe = {
                     image = "registry.k8s.io/sig-storage/livenessprobe:v2.17.0";
@@ -135,6 +154,12 @@ in
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
                       registration.mountPath = "/registration";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "10Mi";
+                        cpu = "10m";
+                      };
                     };
                   };
                 };

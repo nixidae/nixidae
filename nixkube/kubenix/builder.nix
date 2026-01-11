@@ -97,6 +97,7 @@ in
             };
             spec = {
               nodeSelector."kubernetes.io/arch" = v.arch;
+              priorityClassName = "system-cluster-critical";
               serviceAccountName = "nix-csi";
               initContainers = lib.mkNumberedList {
                 "1" = {
