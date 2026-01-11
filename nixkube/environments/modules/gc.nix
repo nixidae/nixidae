@@ -39,9 +39,9 @@
                 nix copy --all --to ssh-ng://nix@nix-cache || true
               fi
               # Garbage collect anything older than an hour
-              nix path-info --all --json | \
+              nix path-info --store local --all --json | \
                 jq -r --argjson age ${rs} 'map(select(.registrationTime < (now - $age)) | .path) | .[]' | \
-                nix store delete --stdin --skip-live
+                nix store delete --store local --stdin --skip-live
               # chill
               SLEEP=$(shuf -i ${lis}-${uis} -n 1)
               echo Sleeping for "$SLEEP" seconds
