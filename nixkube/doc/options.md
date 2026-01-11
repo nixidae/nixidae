@@ -69,6 +69,318 @@ boolean
 
 
 
+## nix-csi\.builders\.enableProxy
+
+
+
+Whether to enable external access to builder pods\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+` false `
+
+
+
+*Example:*
+` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets
+
+
+
+This option has no description\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets\.\<name>\.enable
+
+
+
+Whether to enable builder pods\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+` true `
+
+
+
+*Example:*
+` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets\.\<name>\.arch
+
+
+
+GOARCH / kubernetes\.io/arch to deploy to
+
+
+
+*Type:*
+non-empty string
+
+
+
+*Default:*
+` "amd64" `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets\.\<name>\.labels
+
+
+
+Pod labels
+
+
+
+*Type:*
+attribute set of string
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets\.\<name>\.replicas
+
+
+
+Number of builder pod replicas
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+` 1 `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.daemonsets\.\<name>\.resources
+
+
+
+Resource requests/limits for builder pods
+
+
+
+*Type:*
+JSON value
+
+
+
+*Default:*
+
+```
+{
+  limits = {
+    ephemeral-storage = "5Gi";
+  };
+  requests = {
+    cpu = "1";
+    ephemeral-storage = "5Gi";
+    memory = "2Gi";
+  };
+}
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments
+
+
+
+This option has no description\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments\.\<name>\.enable
+
+
+
+Whether to enable builder pods\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+` true `
+
+
+
+*Example:*
+` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments\.\<name>\.arch
+
+
+
+GOARCH / kubernetes\.io/arch to deploy to
+
+
+
+*Type:*
+non-empty string
+
+
+
+*Default:*
+` "amd64" `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments\.\<name>\.labels
+
+
+
+Pod labels
+
+
+
+*Type:*
+attribute set of string
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments\.\<name>\.replicas
+
+
+
+Number of builder pod replicas
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+` 1 `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.deployments\.\<name>\.resources
+
+
+
+Resource requests/limits for builder pods
+
+
+
+*Type:*
+JSON value
+
+
+
+*Default:*
+
+```
+{
+  limits = {
+    ephemeral-storage = "5Gi";
+  };
+  requests = {
+    cpu = "1";
+    ephemeral-storage = "5Gi";
+    memory = "2Gi";
+  };
+}
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
 ## nix-csi\.builders\.nixConfig
 
 
@@ -127,54 +439,21 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 
-## nix-csi\.builders\.replicas
+## nix-csi\.builders\.privilegedSandboxedBuilds
 
 
 
-Number of builder pod replicas
-
-
-
-*Type:*
-positive integer, meaning >0
-
-
-
-*Default:*
-` 1 `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
-
-
-
-## nix-csi\.builders\.resources
-
-
-
-Resource requests/limits for builder pods
+To set up the sandbox Nix must run with privileges, without the sandbox Nix builds can run unprivileged
 
 
 
 *Type:*
-attribute set
+boolean
 
 
 
 *Default:*
-
-```
-{
-  limits = {
-    ephemeral-storage = "5Gi";
-  };
-  requests = {
-    cpu = "1";
-    ephemeral-storage = "5Gi";
-    memory = "2Gi";
-  };
-}
-```
+` true `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
@@ -216,7 +495,7 @@ Port to run public SSH on for Nix cache
 
 
 *Type:*
-signed integer
+null or signed integer
 
 
 
@@ -307,6 +586,27 @@ null or string
 
 
 
+## nix-csi\.deploySecrets
+
+
+
+This option has no description\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+` true `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
 ## nix-csi\.hostMountPath
 
 
@@ -349,6 +649,27 @@ string
 
 
 
+## nix-csi\.knownHosts
+
+
+
+SSH host keys to accept when connecting
+
+
+
+*Type:*
+attribute set of (string or absolute path)
+
+
+
+*Default:*
+` { } `
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
 ## nix-csi\.loggingConfig
 
 
@@ -369,7 +690,7 @@ JSON value
 {
   formatters = {
     standard = {
-      format = "%(asctime)s %(levelname)s [%(name)s] %(message)s";
+      format = "%(levelname)s [%(name)s] %(message)s";
     };
   };
   handlers = {
@@ -380,6 +701,13 @@ JSON value
     };
   };
   loggers = {
+    httpx = {
+      handlers = [
+        "console"
+      ];
+      level = "WARNING";
+      propagate = false;
+    };
     nix-csi = {
       handlers = [
         "console"
@@ -397,6 +725,27 @@ JSON value
   version = 1;
 }
 ```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nix-csi\.metadata
+
+
+
+Labels added to nix-csi resources
+
+
+
+*Type:*
+JSON value
+
+
+
+*Default:*
+` { } `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
@@ -524,48 +873,6 @@ positive integer, meaning >0
 
 *Default:*
 ` 300 `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
-
-
-
-## nix-csi\.privKey
-
-
-
-Private SSH key used for in-cluster SSH communication, note that this will go into Nix store!
-
-
-
-*Type:*
-string
-
-
-
-*Default:*
-` "hardcoded" `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
-
-
-
-## nix-csi\.pubKey
-
-
-
-Public SSH key used for in-cluster SSH communication, note that this will go into Nix store!
-
-
-
-*Type:*
-string
-
-
-
-*Default:*
-` "hardcoded" `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)

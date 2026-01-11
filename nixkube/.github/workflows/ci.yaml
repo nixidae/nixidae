@@ -71,7 +71,8 @@ jobs:
 
       - name: Deploy nix-csi
         run: |
-          nix run --file . kubenixCI1.deploymentScript -- --yes
+          nix build --file . kubenixCI1.deploymentScript
+          ./result/bin/kubenixDeploy --yes
 
       - name: Wait for nix-csi node daemonset
         run: |
@@ -136,7 +137,8 @@ jobs:
 
       - name: Deploy nix-csi
         run: |
-          nix run --file . kubenixCI2.deploymentScript -- --yes
+          nix build --file . kubenixCI2.deploymentScript
+          ./result/bin/kubenixDeploy --yes
 
       - name: Wait for nix-csi node daemonset
         run: |

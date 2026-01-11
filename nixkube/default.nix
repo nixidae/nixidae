@@ -58,6 +58,9 @@ rec {
         module
         ./kubenix
         {
+          _module.args.inputs = inputs;
+        }
+        {
           config = {
             # Disabled by default so you can include the module in an easykubenix project
             nix-csi.enable = true;
@@ -108,7 +111,7 @@ rec {
       ''
         #! ${pkgs.runtimeShell}
         export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
-        # nix path-info --derivation --recursive ${kubenixPush.manifestJSONFile} | cachix push nix-csi 
+        # ${lib.concatStrings (lib.attrValues inputs)}
         nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.manifestJSONFile}) | grep -v '\.drv$' | cachix push nix-csi
       '';
 

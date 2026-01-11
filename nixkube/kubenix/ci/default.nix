@@ -3,6 +3,7 @@
   pkgs,
   lib,
   mkNCSI,
+  inputs,
   ...
 }:
 let
@@ -53,6 +54,7 @@ in
       };
     };
     kubernetes.resources.${cfg.namespace} = {
+      ConfigMap.inputs.data = inputs;
       Job.flake-hello = mkNCSI {
         spec = {
           template = {
