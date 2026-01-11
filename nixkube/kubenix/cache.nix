@@ -27,7 +27,7 @@ in
     };
     loadBalancerPort = lib.mkOption {
       description = "Port to run public SSH on for Nix cache";
-      type = lib.types.int;
+      type = lib.types.nullOr lib.types.int;
       default = 2222;
     };
   };
@@ -154,7 +154,7 @@ in
             type = "ClusterIP";
           };
         };
-        Service.nix-cache-lb = mkNCSI {
+        Service.nix-cache-lb = lib.mkIf (cfg.cache.loadBalancerPort != null) (mkNCSI {
           spec = {
             selector = labels;
             ports = lib.mkNamedList {
@@ -165,7 +165,7 @@ in
             };
             type = "LoadBalancer";
           };
-        };
+        });
       };
     };
 }
