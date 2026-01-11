@@ -78,7 +78,7 @@ let
   };
 in
 pkgs.buildEnv {
-  name = "initEnv";
+  name = "cache-init-env";
   paths = [
     cacheEnv
     initCopy

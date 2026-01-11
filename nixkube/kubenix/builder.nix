@@ -1,7 +1,6 @@
 {
   config,
   lib,
-  maybePush,
   pkgs,
   x86Pkgs,
   armPkgs,
@@ -19,8 +18,9 @@ in
         { ... }:
         {
           options = {
-            enable = lib.mkEnableOption "builder pods";
-            enableProxy = lib.mkEnableOption "external access to builder pods";
+            enable = lib.mkEnableOption "builder pods" // {
+              default = cfg.builders.enable;
+            };
             replicas = lib.mkOption {
               description = "Number of builder pod replicas";
               type = lib.types.ints.positive;
@@ -56,6 +56,7 @@ in
     in
     {
       enable = lib.mkEnableOption "builder pods";
+      enableProxy = lib.mkEnableOption "external access to builder pods";
       privilegedSandboxedBuilds = lib.mkOption {
         description = "To set up the sandbox Nix must run with privileges, without the sandbox Nix builds can run unprivileged";
         type = lib.types.bool;
@@ -152,8 +153,10 @@ in
                   driver = "nix.csi.store";
                   readOnly = true;
                   volumeAttributes = {
-                    x86_64-linux = maybePush x86Pkgs.nix-csi-builder-env;
-                    aarch64-linux = maybePush armPkgs.nix-csi-builder-env;
+                    # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                    # this is so users don't have to build locally to deploy.
+                    x86_64-linux = builtins.unsafeDiscardStringContext x86Pkgs.nix-csi-builder-env;
+                    aarch64-linux = builtins.unsafeDiscardStringContext armPkgs.nix-csi-builder-env;
                   };
                 };
                 nix-store.emptyDir = { };
@@ -175,24 +178,87 @@ in
           };
         in
         {
-          Deployment = lib.mapAttrs (
-            n: v:
-            let
-              v2 = lib.recursiveUpdate v {
-                labels = baseLabels // {
-                  "kubernetes.io/arch" = v.arch;
-                  "nix.csi/deployment" = n;
+          Deployment =
+            (lib.mapAttrs (
+              n: v:
+              let
+                v2 = lib.recursiveUpdate v {
+                  labels = baseLabels // {
+                    "kubernetes.io/arch" = v.arch;
+                    "nix.csi/deployment" = n;
+                  };
                 };
+              in
+              mkNCSI {
+                spec = {
+                  replicas = v.replicas;
+                  selector.matchLabels = v2.labels;
+                  template = podTemplate v2;
+                };
+              }
+            ) (lib.filterAttrs (n: v: v.enable) cfg.builders.deployments))
+            // {
+              proxy = lib.mkIf cfg.builders.enableProxy {
+                spec =
+                  let
+                    labels = baseLabels // {
+                      "nix.csi/proxy" = "true";
+                    };
+                  in
+                  {
+                    replicas = 1;
+                    selector.matchLabels = labels;
+                    template = {
+                      metadata.labels = labels;
+                      metadata.annotations = {
+                        "kubectl.kubernetes.io/default-container" = "nix-builder";
+                      };
+                      spec = {
+                        containers = lib.mkNamedList {
+                          proxy = {
+                            image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
+                            command = [ "dinit" ];
+                            imagePullPolicy = "Always";
+
+                            volumeMounts = lib.mkNamedList {
+                              nix-store.mountPath = "/nix";
+
+                              ssh-config.mountPath = "/etc/ssh";
+                              ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                              ssh-key.mountPath = "/etc/ssh-key";
+                            };
+                          };
+                        };
+                        volumes = lib.mkNamedList {
+                          nix-store.csi = {
+                            driver = "nix.csi.store";
+                            readOnly = true;
+                            volumeAttributes = {
+                              # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                              # this is so users don't have to build locally to deploy.
+                              x86_64-linux = builtins.unsafeDiscardStringContext x86Pkgs.nix-csi-proxy-env;
+                              aarch64-linux = builtins.unsafeDiscardStringContext armPkgs.nix-csi-proxy-env;
+                            };
+                          };
+
+                          ssh-config.configMap = {
+                            name = "ssh-config";
+                            defaultMode = 292; # 444
+                          };
+                          ssh-dynauth.configMap = {
+                            name = "ssh-dynauth";
+                            defaultMode = 292; # 444
+                          };
+                          ssh-key.secret = {
+                            secretName = "ssh-key";
+                            defaultMode = 256; # 400
+                          };
+                        };
+                      };
+                    };
+                  };
               };
-            in
-            mkNCSI {
-              spec = {
-                replicas = v.replicas;
-                selector.matchLabels = v2.labels;
-                template = podTemplate v2;
-              };
-            }
-          ) (lib.filterAttrs (n: v: v.enable) cfg.builders.deployments);
+            };
 
           DaemonSet = lib.mapAttrs (
             n: v:

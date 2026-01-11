@@ -45,8 +45,6 @@ rec {
   };
   kubenixPush = kubenixInstance {
     module.config = {
-      nix-csi.cache.enable = true;
-      nix-csi.builders.enable = true;
       nix-csi.push = true;
     };
   };

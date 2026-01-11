@@ -1,7 +1,6 @@
 {
   config,
   lib,
-  maybePush,
   pkgs,
   x86Pkgs,
   armPkgs,
@@ -57,8 +56,10 @@ in
                     securityContext.privileged = true; # chroot store
                     env = lib.mkNamedList {
                       # Use GOARCH instead of system since system is not valid bash variable identifier
-                      ${x86Pkgs.go.GOARCH}.value = maybePush x86Pkgs.nix-csi-node-env;
-                      ${armPkgs.go.GOARCH}.value = maybePush armPkgs.nix-csi-node-env;
+                      # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                      # this is so users don't have to build locally to deploy.
+                      ${x86Pkgs.go.GOARCH}.value = builtins.unsafeDiscardStringContext x86Pkgs.nix-csi-node-env;
+                      ${armPkgs.go.GOARCH}.value = builtins.unsafeDiscardStringContext armPkgs.nix-csi-node-env;
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-store.mountPath = "/nix-volume";
@@ -81,19 +82,18 @@ in
                       "csi"
                     ];
                     securityContext.privileged = true;
-                    env =
-                      lib.mkNamedList {
-                        BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
-                        CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                        CSI_ENDPOINT.value = "unix:///csi/csi.sock";
-                        HOME.value = "/nix/var/nix-csi/root";
-                        KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
-                        KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
-                        KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
-                        NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
-                        RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
-                        USER.value = "root";
-                      };
+                    env = lib.mkNamedList {
+                      BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
+                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
+                      CSI_ENDPOINT.value = "unix:///csi/csi.sock";
+                      HOME.value = "/nix/var/nix-csi/root";
+                      KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
+                      KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
+                      KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
+                      NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
+                      RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
+                      USER.value = "root";
+                    };
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
                       nix-config.mountPath = "/etc/nix";

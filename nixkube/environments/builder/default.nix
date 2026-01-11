@@ -91,7 +91,7 @@ let
   };
 in
 pkgs.buildEnv {
-  name = "initEnv";
+  name = "builder-init-env";
   paths = [
     builderEnv
     initCopy

@@ -1,4 +1,9 @@
-{ config, lib, mkNCSI, ... }:
+{
+  config,
+  lib,
+  mkNCSI,
+  ...
+}:
 let
   cfg = config.nix-csi;
   namespace = cfg.namespace;

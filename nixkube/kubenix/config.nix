@@ -3,6 +3,8 @@
   pkgs,
   lib,
   mkNCSI,
+  x86Pkgs,
+  armPkgs,
   ...
 }:
 let
@@ -45,6 +47,18 @@ in
         };
       };
     kubernetes.resources.${cfg.namespace} = {
+      ConfigMap.push = lib.mkIf cfg.push {
+        data = {
+          builder-aarch64-linux = armPkgs.nix-csi-builder-env;
+          builder-x86_64-linux = x86Pkgs.nix-csi-builder-env;
+          cache-aarch64-linux = armPkgs.nix-csi-cache-env;
+          cache-x86_64-linux = x86Pkgs.nix-csi-cache-env;
+          node-aarch64-linux = armPkgs.nix-csi-node-env;
+          node-x86_64-linux = x86Pkgs.nix-csi-node-env;
+          proxy-aarch64-linux = armPkgs.nix-csi-proxy-env;
+          proxy-x86_64-linux = x86Pkgs.nix-csi-proxy-env;
+        };
+      };
       ConfigMap.nix-node = mkNCSI {
         data = {
           "nix.conf" = builtins.readFile (cfg.node.nixConfig.nixConf);
