@@ -84,9 +84,10 @@ in
                     ];
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     env = lib.mkNamedList {
+                      BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
+                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable; # copy to itself is a bit weird?
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
-                      BUILDERS_SERVICE_NAME.value = cfg.internalServiceName;
                     };
                     ports = lib.mkNamedList {
                       ssh.containerPort = 22;
