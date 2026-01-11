@@ -51,7 +51,7 @@ let
       dinixEval.config.containerWrapper
       bash
       coreutils
-      gitMinimal
+      gitMinimal # lix shells out to git
       lruLix
       openssh
       procps # pgrep

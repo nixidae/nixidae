@@ -45,18 +45,12 @@ let
     name = "cacheEnv";
     paths = with pkgs; [
       dinixEval.config.containerWrapper
-      bash # Used for build and upload scripts
-      procps # pkill
+      bash
       coreutils
-      fishMinimal
       lruLix
       openssh
-      util-linuxMinimal
-      gnugrep
-      getent
-      doggo
-      iputils
-      curl
+      # dev
+      fishMinimal
     ];
     # So we can peek into eval
     passthru.dinixEval = dinixEval;

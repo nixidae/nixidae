@@ -13,10 +13,7 @@ self: pkgs: {
         nix-store --option store local --dump-db "$@" | NIX_STATE_DIR="$NSD" nix-store --load-db --option store local
       '';
 
-  nix-csi = self.csi-root.csi;
-  nix-cache = self.csi-root.cache;
-  nix-timegc = self.csi-root.timegc;
-  csi-root = pkgs.python3Packages.callPackage ../python {
+  nix-csi = pkgs.python3Packages.callPackage ../python {
     inherit (self) csi-proto-python kr8s;
   };
 

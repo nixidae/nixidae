@@ -16,8 +16,6 @@ nix-csi is a Kubernetes CSI (Container Storage Interface) driver that mounts `/n
 2. **Cache StatefulSet** - Central cache/coordinator that manages distributed builds and binary substitution
 3. **Python Services** - Three main services packaged together:
    - `nix-csi`: CSI driver implementation (gRPC server)
-   - `nix-cache`: Watches Kubernetes nodes/pods and updates the Nix machines file for distributed builds
-   - `nix-timegc`: Time-based garbage collection for Nix stores
 
 ## Architecture
 
