@@ -32,6 +32,12 @@ in
                 IdentityFile /etc/ssh-key/id_ed25519
                 IdentitiesOnly yes
                 StrictHostKeyChecking yes
+
+            Host *
+                User nix
+                IdentityFile /etc/ssh-key/id_ed25519
+                IdentitiesOnly yes
+                StrictHostKeyChecking yes
           '';
           # Server configuration
           "sshd_config" = ''

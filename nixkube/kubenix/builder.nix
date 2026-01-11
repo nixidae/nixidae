@@ -218,7 +218,13 @@ in
                         containers = lib.mkNamedList {
                           proxy = {
                             image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
-                            command = [ "dinit" ];
+                            command = [
+                              "dinit"
+                              "--log-file"
+                              "/var/log/dinit.log"
+                              "--quiet"
+                              "proxy"
+                            ];
                             imagePullPolicy = "Always";
 
                             volumeMounts = lib.mkNamedList {

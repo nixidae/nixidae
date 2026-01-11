@@ -14,14 +14,41 @@ let
     inherit pkgs;
     modules = [
       ../modules/logger.nix
-      ../modules/setup.nix
       ../modules/ssh.nix
       ../modules/users.nix
       {
         config = {
+          users.users.root.homeDir = lib.mkForce "/root";
+          services.setup = {
+            type = "scripted";
+            log-type = "file";
+            logfile = "/var/log/setup.log";
+            options = [ "starts-rwfs" ];
+            command = pkgs.writeShellApplication {
+              name = "setup";
+              runtimeInputs = [
+                pkgs.rsync
+                pkgs.coreutils
+              ];
+              text = # bash
+                ''
+                  set -euo pipefail
+                  set -x
+                  mkdir --parents {/tmp,/var/tmp}
+                  chmod -R 1777 {/tmp,/var/tmp}
+                  mkdir --parents /var/log
+                  chmod -R 0755 /var/log
+                  # Copy in "well-known paths" into container root
+                  rsync --archive ${pkgs.dockerTools.binSh}/ /
+                  rsync --archive ${pkgs.dockerTools.caCertificates}/ /
+                  rsync --archive ${pkgs.dockerTools.usrBinEnv}/ /
+                '';
+            };
+          };
           services.proxy = {
             type = "internal";
             depends-on = [
+              "setup"
               "logger"
               "openssh"
               "ssh-reloader"
