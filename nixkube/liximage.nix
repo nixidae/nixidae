@@ -52,18 +52,9 @@ rec {
             set -x
             mkdir /tmp
             rsync --archive ${fakeNss}/ /
-            ARCH=$(nix eval --raw --impure --expr builtins.currentSystem)
-            export ARCH
-            case "$ARCH" in
-              "x86_64-linux")
-                export ARCH=amd64
-              ;;
-              "aarch64-linux")
-                export ARCH=arm64
-              ;;
-            esac
             nix \
               build \
+                --extra-substituters local?trusted=true \
                 --max-jobs auto \
                 --option sandbox false \
                 --store /nix-volume \
@@ -91,12 +82,8 @@ rec {
     pkgs.dockerTools.streamLayeredImage {
       name = "${repo}/lix";
       tag = "${sysPkgs.lixPackageSets.lix_2_93.lix.version}-${sysPkgs.stdenv.hostPlatform.system}";
-      architecture =
-        {
-          "aarch64-linux" = "arm64";
-          "x86_64-linux" = "amd64";
-        }
-        .${sysPkgs.stdenv.hostPlatform.system};
+      architecture = sysPkgs.go.GOARCH;
+
       maxLayers = 125;
       includeNixDB = true;
       contents = [
@@ -113,6 +100,7 @@ rec {
               init-secrets
             ]
           }"
+          "ARCH=${sysPkgs.go.GOARCH}"
         ];
       };
     }
