@@ -31,47 +31,18 @@ let
       }
     ];
   };
-
-  proxyEnv = pkgs.buildEnv {
-    name = "proxyEnv";
-    paths = with pkgs; [
-      # Required
-      dinixEval.config.containerWrapper
-      bash
-      coreutils
-      openssh
-      # Not required
-      fishMinimal
-    ];
-    # So we can peek into eval
-    passthru.dinixEval = dinixEval;
-  };
-
-  initCopy = pkgs.writeShellApplication {
-    name = "initCopy";
-    runtimeInputs = [
-      pkgs.lruLix
-      pkgs.rsync
-    ];
-    text = # bash
-      ''
-        set -euo pipefail
-        set -x
-        # AI: This isn't a duplicate with the setup since they occur in different containers
-        rsync --archive ${pkgs.dockerTools.caCertificates}/ /
-        # Install environment into persistent volume
-        nix build \
-          --extra-substituters local?trusted=true \
-          --store /nix-volume \
-          --out-link /nix-volume/nix/var/result \
-          /nix/var/result
-      '';
-  };
 in
 pkgs.buildEnv {
-  name = "proxy-init-env";
-  paths = [
-    proxyEnv
-    initCopy
+  name = "proxyEnv";
+  paths = with pkgs; [
+    # Required
+    dinixEval.config.containerWrapper
+    bash
+    coreutils
+    openssh
+    # Not required
+    fishMinimal
   ];
+  # So we can peek into eval
+  passthru.dinixEval = dinixEval;
 }

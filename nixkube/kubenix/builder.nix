@@ -212,7 +212,7 @@ in
                     template = {
                       metadata.labels = labels;
                       metadata.annotations = {
-                        "kubectl.kubernetes.io/default-container" = "nix-builder";
+                        "kubectl.kubernetes.io/default-container" = "proxy";
                       };
                       spec = {
                         containers = lib.mkNamedList {
