@@ -95,6 +95,7 @@ in
             metadata.labels = v.labels;
             metadata.annotations = {
               "kubectl.kubernetes.io/default-container" = "nix-builder";
+              "nix-csi/discard" = "true";
               configHash = lib.hashAttrs (
                 { } // nsRes.ConfigMap.nix-builder or { } // nsRes.ConfigMap.ssh-config or { }
               );
@@ -163,8 +164,8 @@ in
                   volumeAttributes = {
                     # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
                     # this is so users don't have to build locally to deploy.
-                    x86_64-linux = builtins.unsafeDiscardStringContext x86Pkgs.nix-csi-builder-env;
-                    aarch64-linux = builtins.unsafeDiscardStringContext armPkgs.nix-csi-builder-env;
+                    x86_64-linux = x86Pkgs.nix-csi-builder-env;
+                    aarch64-linux = armPkgs.nix-csi-builder-env;
                   };
                 };
                 nix-store.emptyDir = { };
@@ -209,8 +210,9 @@ in
               proxy = lib.mkIf (cfg.builders.loadBalancerPort != null) {
                 spec =
                   let
-                    labels = baseLabels // {
-                      "nix.csi/proxy" = "true";
+                    labels = {
+                      "app.kubernetes.io/name" = "proxy";
+                      "app.kubernetes.io/part-of" = "nix-csi";
                     };
                   in
                   {
@@ -220,6 +222,7 @@ in
                       metadata.labels = labels;
                       metadata.annotations = {
                         "kubectl.kubernetes.io/default-container" = "proxy";
+                        "nix-csi/discard" = "true";
                       };
                       spec = {
                         containers = lib.mkNamedList {
@@ -253,8 +256,8 @@ in
                             volumeAttributes = {
                               # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
                               # this is so users don't have to build locally to deploy.
-                              x86_64-linux = builtins.unsafeDiscardStringContext x86Pkgs.nix-csi-proxy-env;
-                              aarch64-linux = builtins.unsafeDiscardStringContext armPkgs.nix-csi-proxy-env;
+                              x86_64-linux = x86Pkgs.nix-csi-proxy-env;
+                              aarch64-linux = armPkgs.nix-csi-proxy-env;
                             };
                           };
 
