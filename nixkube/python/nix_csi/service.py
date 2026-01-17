@@ -17,6 +17,7 @@ from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server
+from functools import wraps
 from importlib import metadata
 from kr8s.asyncio.objects import Pod
 from pathlib import Path
@@ -106,22 +107,38 @@ async def get_builder_uris():
         return []
 
 
+def csi_error_handler(func):
+    @wraps(func)
+    async def wrapper(self, stream):
+        try:
+            return await func(self, stream)
+        except GRPCError:
+            raise
+        except Exception as e:
+            logger.exception(f"{func.__name__} failed")
+            raise GRPCError(Status.INTERNAL, f"{type(e).__name__}: {e}")
+
+    return wrapper
+
+
 class NodeServicer(csi_grpc.NodeBase):
     volumeLocks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
 
     def __init__(self, system: str):
         self.system = system
 
+    @csi_error_handler
     async def NodePublishVolume(self, stream):
         request: csi_pb2.NodePublishVolumeRequest | None = await stream.recv_message()
         if request is None:
-            raise ValueError("NodePublishVolumeRequest is None")
+            raise GRPCError(Status.INVALID_ARGUMENT, "NodePublishVolumeRequest is None")
 
         logger.info(f"Publish {request.target_path}")
 
         if not request.volume_context.get("csi.storage.k8s.io/ephemeral"):
             raise GRPCError(
-                Status.INTERNAL, "This CSI driver only supports ephemeral volumes"
+                Status.INVALID_ARGUMENT,
+                "This CSI driver only supports ephemeral volumes",
             )
 
         async with self.volumeLocks[request.volume_id]:
@@ -175,7 +192,9 @@ class NodeServicer(csi_grpc.NodeBase):
             if pod_name and pod_ns and pod_uid:
                 pod = await Pod.get(pod_name, pod_ns)
                 if pod.metadata.uid != pod_uid:
-                    raise GRPCError(Status.INTERNAL, "poduid doesn't match", "poduid doesn't match")
+                    raise GRPCError(
+                        Status.INTERNAL, "poduid doesn't match", "poduid doesn't match"
+                    )
 
                 pod = set(extract_store_paths(pod.raw))
                 for package_path in pod:
@@ -355,6 +374,9 @@ class NodeServicer(csi_grpc.NodeBase):
                         volume_root / "nix/var/result",
                         primary_package_path,
                     )
+                else:
+                    logger.debug(f"{primary_package_path=} doesn't exist")
+
             except Exception:
                 logger.exception("Failed to build volume")
                 # Remove gcroots if we failed something else
@@ -429,6 +451,7 @@ class NodeServicer(csi_grpc.NodeBase):
     async def Unmount(path: Path):
         return await run_captured("umount", "--verbose", path)
 
+    @csi_error_handler
     async def NodeUnpublishVolume(self, stream):
         request: csi_pb2.NodeUnpublishVolumeRequest | None = await stream.recv_message()
         if request is None:
