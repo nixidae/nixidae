@@ -9,6 +9,33 @@ let
 in
 {
   config = lib.mkIf cfg.enable {
+    kubernetes.resources.none = {
+      ClusterRole.nix-csi = mkNCSI {
+        rules = [
+          {
+            apiGroups = [ "" ];
+            resources = [ "pods" ];
+            verbs = [
+              "get"
+              "list"
+            ];
+          }
+        ];
+      };
+      ClusterRoleBinding.nix-csi = mkNCSI {
+        subjects = lib.mkNamedList {
+          nix-csi = {
+            kind = "ServiceAccount";
+            namespace = cfg.namespace;
+          };
+        };
+        roleRef = {
+          kind = "ClusterRole";
+          name = "nix-csi";
+          apiGroup = "rbac.authorization.k8s.io";
+        };
+      };
+    };
     kubernetes.resources.${cfg.namespace} = {
       ServiceAccount.nix-csi = mkNCSI { };
 
