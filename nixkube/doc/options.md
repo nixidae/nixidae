@@ -69,32 +69,6 @@ boolean
 
 
 
-## nix-csi\.builders\.enableProxy
-
-
-
-Whether to enable external access to builder pods\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-` false `
-
-
-
-*Example:*
-` true `
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
-
-
-
 ## nix-csi\.builders\.daemonsets
 
 
@@ -375,6 +349,27 @@ JSON value
   };
 }
 ```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
+
+
+
+## nix-csi\.builders\.loadBalancerPort
+
+
+
+Port to run public SSH on for builder jumpbox
+
+
+
+*Type:*
+null or (positive integer, meaning >0)
+
+
+
+*Default:*
+` 2223 `
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
