@@ -82,6 +82,29 @@ async def get_current_system():
         )
     ).stdout
 
+def deref_hardlink_tree(src: Path, dst: Path) -> None:
+    """
+    Recursively copy src to dst, dereferencing symlinks and
+    hardlinking files for space efficiency.
+
+    All symlink targets must exist on the same filesystem as dst.
+    """
+    src = Path(src)
+    dst = Path(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for entry in os.scandir(src):
+        dst_path = dst / entry.name
+        resolved = Path(entry.path).resolve()
+
+        if not resolved.exists():
+            raise FileNotFoundError(f"Broken symlink: {entry.path} -> {resolved}")
+
+        if resolved.is_dir():
+            deref_hardlink_tree(resolved, dst_path)
+        elif resolved.is_file():
+            dst_path.hardlink_to(resolved)
+
 
 async def get_builder_uris():
     """Query k8s API for builder pods, return list of SSH URIs for --builders flag."""
@@ -374,6 +397,9 @@ class NodeServicer(csi_grpc.NodeBase):
                         volume_root / "nix/var/result",
                         primary_package_path,
                     )
+
+                    # Create hardlink farm of primary package to volume_root
+                    await asyncio.to_thread(deref_hardlink_tree, primary_package_path, volume_root)
                 else:
                     logger.debug(f"{primary_package_path=} doesn't exist")
 
