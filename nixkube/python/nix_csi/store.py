@@ -19,5 +19,10 @@ def extract_store_paths(value: Any) -> Iterator[Path]:
                 yield from extract_store_paths(item)
 
 
+def extract_store_paths_set(value: Any) -> set[Path]:
+    """Convenience wrapper that returns a deduplicated set of store paths."""
+    return set(extract_store_paths(value))
+
+
 def extract_store_name(path: Path | str) -> str:
     return str(path).removeprefix("/nix/store/")

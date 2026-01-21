@@ -90,5 +90,11 @@ async def copy_to_cache(package_path: Path) -> None:
                 if nix_copy.returncode == 0:
                     logger.debug(f"Successfully copied to cache: {package_path}")
                     break
+                else:
+                    logger.debug(
+                        f"Copy attempt {attempt + 1}/6 failed for {package_path}: {nix_copy.combined}"
+                    )
             else:
-                logger.error(f"Failed to copy to cache after 6 attempts: {package_path}")
+                logger.error(
+                    f"Failed to copy to cache after 6 attempts: {package_path}"
+                )

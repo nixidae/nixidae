@@ -16,11 +16,17 @@ from pathlib import Path
 
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
-from .constants import CSI_GCROOTS, CSI_VOLUMES, NIX_BUILD_TIMEOUT
+from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, NIX_BUILD_TIMEOUT
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
-from .store import extract_store_paths
-from .volume import cleanup_failed_volume, is_mount, mount_volume, prepare_volume, unmount
+from .store import extract_store_paths_set
+from .volume import (
+    cleanup_failed_volume,
+    is_mount,
+    mount_volume,
+    prepare_volume,
+    unmount,
+)
 
 logger = logging.getLogger("nix-csi")
 
@@ -81,7 +87,7 @@ class NodeServicer(csi_grpc.NodeBase):
             )
 
         package_paths = []
-        pod_store_paths = set(extract_store_paths(pod.raw))
+        pod_store_paths = extract_store_paths_set(pod.raw)
 
         for package_path in pod_store_paths:
             logger.debug(f"{package_path=}")
@@ -155,7 +161,13 @@ class NodeServicer(csi_grpc.NodeBase):
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "NodePublishVolumeRequest is None")
 
-        logger.info(f"Publish {request.target_path}")
+        logger.info(
+            "Publishing volume",
+            extra={
+                "volume_id": request.volume_id,
+                "target_path": request.target_path,
+            },
+        )
 
         if not request.volume_context.get("csi.storage.k8s.io/ephemeral"):
             raise GRPCError(
@@ -230,7 +242,13 @@ class NodeServicer(csi_grpc.NodeBase):
         if request is None:
             raise ValueError("NodeUnpublishVolumeRequest is None")
 
-        logger.info(f"Unpublish {request.target_path}")
+        logger.info(
+            "Unpublishing volume",
+            extra={
+                "volume_id": request.volume_id,
+                "target_path": request.target_path,
+            },
+        )
 
         async with self.volumeLocks[request.volume_id]:
             target_path = Path(request.target_path)
@@ -262,9 +280,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     shutil.rmtree(gc_root, ignore_errors=True)
                     logger.debug(f"unlinked {gc_root=}")
                 except Exception as ex:
-                    raise GRPCError(
-                        Status.INTERNAL, f"unlinking {target_path=} failed", ex
-                    )
+                    raise GRPCError(Status.INTERNAL, f"unlinking {gc_root=} failed", ex)
 
             # Remove hardlink farm
             volume_path = CSI_VOLUMES / request.volume_id
@@ -274,7 +290,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     logger.debug(f"removed {volume_path=}")
                 except Exception as ex:
                     raise GRPCError(
-                        Status.INTERNAL, f"recursive removing {target_path=} failed", ex
+                        Status.INTERNAL, f"removing {volume_path=} failed", ex
                     )
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
@@ -313,7 +329,7 @@ class NodeServicer(csi_grpc.NodeBase):
 
 
 async def serve():
-    sock_path = "/csi/csi.sock"
+    sock_path = CSI_SOCKET_PATH
     Path(sock_path).unlink(missing_ok=True)
 
     identityServicer = IdentityServicer()

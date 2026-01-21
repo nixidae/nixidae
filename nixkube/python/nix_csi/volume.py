@@ -5,7 +5,12 @@ from pathlib import Path
 from grpclib import GRPCError
 from grpclib.const import Status
 
-from .constants import CSI_GCROOTS, CSI_VOLUMES, MOUNT_ALREADY_MOUNTED, NIX_BUILD_TIMEOUT
+from .constants import (
+    CSI_GCROOTS,
+    CSI_VOLUMES,
+    MOUNT_ALREADY_MOUNTED,
+    NIX_BUILD_TIMEOUT,
+)
 from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import get_closure_paths, init_database, install_gcroot, install_result_link
 from .store import extract_store_name
@@ -32,20 +37,26 @@ async def prepare_volume(
     # Get storepaths from all packages
     store_paths = await get_closure_paths(package_paths)
 
+    # Pre-compute store names to avoid duplicate calls
+    package_names = {p: extract_store_name(p) for p in package_paths}
+
     # This block is essentially nix copy into a chroot store with
     # extra steps. (Hardlinking instead of dumbcopying)
 
-    # Install CSI gcroots
-    for package_path in package_paths:
-        name = extract_store_name(package_path)
-        await try_captured(
-            "nix",
-            "build",
-            "--out-link",
-            gc_root / name,
-            package_path,
-            timeout=NIX_BUILD_TIMEOUT,
-        )
+    # Install CSI gcroots (parallel since packages are independent)
+    await asyncio.gather(
+        *[
+            try_captured(
+                "nix",
+                "build",
+                "--out-link",
+                gc_root / package_names[package_path],
+                package_path,
+                timeout=NIX_BUILD_TIMEOUT,
+            )
+            for package_path in package_paths
+        ]
+    )
 
     # Copy closure to substore
     hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
@@ -56,9 +67,14 @@ async def prepare_volume(
     # Install gcroots in container using chroot store. This is
     # required because the auto roots created for /nix/var/result
     # will point to Narnia while this one points into store.
-    for package_path in package_paths:
-        name = extract_store_name(package_path)
-        await install_gcroot(volume_root, package_path, name, NIX_STATE_DIR)
+    await asyncio.gather(
+        *[
+            install_gcroot(
+                volume_root, package_path, package_names[package_path], NIX_STATE_DIR
+            )
+            for package_path in package_paths
+        ]
+    )
 
     # Install /nix/var/result in container using chroot store
     if primary_package is not None:
@@ -134,6 +150,4 @@ async def unmount(path: Path) -> None:
     """Unmount a path. Raises GRPCError on failure if still mounted."""
     result = await run_captured("umount", "--verbose", path)
     if result.returncode != 0 and await is_mount(path):
-        raise GRPCError(
-            Status.INTERNAL, "unmount failed", f"{result.combined=}"
-        )
+        raise GRPCError(Status.INTERNAL, "unmount failed", f"{result.combined=}")

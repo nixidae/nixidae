@@ -33,3 +33,6 @@ BUILDERS_SERVICE = "nix-csi-builders"
 
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"
+
+# CSI socket path for gRPC server
+CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")

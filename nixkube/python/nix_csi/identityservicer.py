@@ -1,11 +1,11 @@
+from pathlib import Path
+
 from csi import csi_grpc, csi_pb2
 from google.protobuf.wrappers_pb2 import BoolValue
 from grpclib import GRPCError
 from grpclib.const import Status
-from importlib import metadata
 
-CSI_PLUGIN_NAME = "nix.csi.store"
-CSI_VENDOR_VERSION = metadata.version("nix-csi")
+from .constants import CSI_PLUGIN_NAME, CSI_VENDOR_VERSION
 
 
 class IdentityServicer(csi_grpc.IdentityBase):
@@ -44,5 +44,10 @@ class IdentityServicer(csi_grpc.IdentityBase):
         request: csi_pb2.ProbeRequest | None = await stream.recv_message()
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "Received None request in Probe")
-        reply = csi_pb2.ProbeResponse(ready=BoolValue(value=True))
+
+        # Verify /nix/store is accessible - critical for CSI driver operation
+        nix_store = Path("/nix/store")
+        ready = nix_store.is_dir()
+
+        reply = csi_pb2.ProbeResponse(ready=BoolValue(value=ready))
         await stream.send_message(reply)
