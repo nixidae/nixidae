@@ -82,6 +82,37 @@ async def get_current_system():
         )
     ).stdout
 
+def hardlink_tree(src: Path, dst: Path) -> None:
+    """Hardlink a single directory tree, preserving symlinks."""
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for entry in os.scandir(src):
+        dst_path = dst / entry.name
+
+        if entry.is_symlink():
+            os.symlink(os.readlink(entry.path), dst_path)
+        elif entry.is_dir(follow_symlinks=False):
+            hardlink_tree(Path(entry.path), dst_path)
+        elif entry.is_file(follow_symlinks=False):
+            dst_path.hardlink_to(entry.path)
+
+
+def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
+    """
+    Hardlink multiple store paths into dst.
+
+    store_paths: [/nix/store/abc-foo, /nix/store/def-bar, ...]
+    dst: volume_root/nix/store
+    result: dst/abc-foo/..., dst/def-bar/...
+    """
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for store_path in store_paths:
+        target = dst / store_path.name
+        if target.exists():
+            continue  # already copied (deduplication across volumes)
+        hardlink_tree(store_path, target)
+
 def deref_hardlink_tree(src: Path, dst: Path) -> None:
     """
     Recursively copy src to dst, dereferencing symlinks and
@@ -348,20 +379,8 @@ class NodeServicer(csi_grpc.NodeBase):
                         timeout=NIX_BUILD_TIMEOUT,
                     )
 
-                # Copy closure to substore, rsync saves a lot of implementation
-                # headache here. --archive keeps all attributes, --hard-links
-                # hardlinks everything hardlinkable.
-                async with RSYNC_CONCURRENCY:
-                    await try_captured(
-                        "rsync",
-                        "--one-file-system",
-                        "--recursive",
-                        "--links",
-                        "--hard-links",
-                        "--mkpath",
-                        *store_paths,
-                        volume_root / "nix/store",
-                    )
+                # Copy closure to substore
+                hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
 
                 # Create Nix database
                 # This is a bash script that runs nix-store --dump-db | NIX_STATE_DIR=something nix-store --load-db
