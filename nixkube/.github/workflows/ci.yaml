@@ -33,18 +33,18 @@ jobs:
 
       - name: Build and push environments
         run: |
-          nix build --file . push --out-link nix-envs
+          nix build --show-trace --file . push --out-link nix-envs
           ./nix-envs/bin/push
 
       # Build and push all components sequentially to reuse Nix store
       - name: Build and push Lix image
         run: |
-          nix build --file . lixImage.push --out-link nix-images
+          nix build --show-trace --file . lixImage.push --out-link nix-images
           ./nix-images/bin/push
 
       - name: Build and push scratch image
         run: |
-          nix build --file . scratchImage.push --out-link nix-scratches
+          nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
 
   test-kind-cache:
@@ -71,7 +71,7 @@ jobs:
 
       - name: Deploy nix-csi
         run: |
-          nix build --file . kubenixCI1.deploymentScript
+          nix build --show-trace --file . kubenixCI1.deploymentScript
           ./result/bin/kubenixDeploy --yes
 
       - name: Wait for nix-csi node daemonset
@@ -137,7 +137,7 @@ jobs:
 
       - name: Deploy nix-csi
         run: |
-          nix build --file . kubenixCI2.deploymentScript
+          nix build --show-trace --file . kubenixCI2.deploymentScript
           ./result/bin/kubenixDeploy --yes
 
       - name: Wait for nix-csi node daemonset
