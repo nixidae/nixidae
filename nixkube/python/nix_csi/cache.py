@@ -1,0 +1,94 @@
+import asyncio
+import logging
+from asyncio import Semaphore, sleep
+from collections import defaultdict
+from pathlib import Path
+
+from grpclib import GRPCError
+
+from .constants import CACHE_ENABLED
+from .subprocessing import run_captured, try_console
+
+logger = logging.getLogger("nix-csi")
+
+# Locks that prevent the same derivation to be uploaded in parallel
+copy_lock: defaultdict[Path, Semaphore] = defaultdict(Semaphore)
+
+
+async def check_cache_connectivity() -> bool:
+    """Check if the cache is reachable via SSH."""
+    if not CACHE_ENABLED:
+        return False
+
+    try:
+        logger.debug("Trying to connect to cache")
+        await asyncio.wait_for(
+            try_console("ssh", "nix@nix-cache", "--", "true"),
+            timeout=2.0,
+        )
+        logger.debug("Cache connectivity check succeeded")
+        return True
+    except (GRPCError, OSError, asyncio.TimeoutError):
+        logger.warning("Cache connectivity check failed")
+        return False
+
+
+def get_substituter_args() -> list[str]:
+    """Get nix command arguments for using the cache as a substituter."""
+    return [
+        "--extra-substituters",
+        "ssh-ng://nix@nix-cache?trusted=1&priority=20",
+    ]
+
+
+async def copy_to_cache(package_path: Path) -> None:
+    """
+    Copy a package and its closure to the cache.
+
+    TODO: Rewrite this entire copy process to support user-supplied copy scripts.
+    This will allow end-users to copy to arbitrary destinations (S3, GCS, custom caches, etc.)
+    rather than hard-coding ssh-ng://nix@nix-cache.
+
+    TODO: Building should be moved to separate builder pods rather than happening
+    within the CSI daemonset. The daemonset should only handle mounting pre-built paths.
+    This will improve separation of concerns and allow dedicated builder infrastructure.
+    """
+    # Only run one copy per path per time
+    async with copy_lock[package_path]:
+        paths = [str(package_path)]
+        # Try to get derivation paths recursively. This may fail if we only have
+        # store paths without .drv files (e.g., fetched from substituters), which is normal.
+        path_info_drv = await run_captured(
+            "nix",
+            "path-info",
+            "--recursive",
+            "--derivation",
+            package_path,
+        )
+        if path_info_drv.returncode == 0:
+            paths += path_info_drv.stdout.splitlines()
+        else:
+            logger.debug(
+                f"No derivation paths found for {package_path} (normal if fetched from substituters)"
+            )
+
+        # Filter out .drv files and deduplicate (path-info runs return overlapping results)
+        paths = {p for p in paths if not p.endswith(".drv")}
+
+        if len(paths) > 0:
+            for attempt in range(6):
+                if attempt > 0:
+                    exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
+                    logger.warning(
+                        f"Retry {attempt}/6 copying to cache after {exp_backoff}s: {package_path}"
+                    )
+                    await sleep(exp_backoff)
+
+                nix_copy = await run_captured(
+                    "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
+                )
+                if nix_copy.returncode == 0:
+                    logger.debug(f"Successfully copied to cache: {package_path}")
+                    break
+            else:
+                logger.error(f"Failed to copy to cache after 6 attempts: {package_path}")

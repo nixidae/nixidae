@@ -1,164 +1,28 @@
 import asyncio
-import kr8s
 import logging
 import os
-import re
 import shutil
 import socket
-import tempfile
 
-from .copytocache import copyToCache
-from .identityservicer import IdentityServicer
-from .subprocessing import run_captured, run_console, try_captured, try_console
 from asyncio import Semaphore
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
 from csi import csi_grpc, csi_pb2
+from functools import wraps
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server
-from functools import wraps
-from importlib import metadata
 from kr8s.asyncio.objects import Pod
 from pathlib import Path
-from typing import Any, Iterator
+
+from .builders import build_builder_args, get_builder_uris
+from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
+from .constants import CSI_GCROOTS, CSI_VOLUMES, NIX_BUILD_TIMEOUT
+from .identityservicer import IdentityServicer
+from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
+from .store import extract_store_paths
+from .volume import cleanup_failed_volume, is_mount, mount_volume, prepare_volume, unmount
 
 logger = logging.getLogger("nix-csi")
-
-CSI_PLUGIN_NAME = "nix.csi.store"
-CSI_VENDOR_VERSION = metadata.version("nix-csi")
-
-# Exit code from mount command when target is already mounted
-MOUNT_ALREADY_MOUNTED = 32
-
-# Paths we base everything on.
-# Remember that these are CSI pod paths not node paths.
-NIX_ROOT = Path("/")
-CSI_ROOT = NIX_ROOT / "nix/var/nix-csi"
-CSI_VOLUMES = CSI_ROOT / "volumes"
-CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
-
-# Configurable via kubenix option: rsyncConcurrency (default: 1)
-# Set via RSYNC_CONCURRENCY environment variable
-RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
-
-# Configurable via kubenix option: nodeBuildTimeout (default: 300)
-# Set via NIX_BUILD_TIMEOUT environment variable
-NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
-
-# Builder configuration
-# Set via environment variables from kubenix when builders are enabled
-BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
-
-NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
-BUILDERS_SERVICE = "nix-csi-builders"
-
-# Nix base32 excludes: e, o, t, u
-STORE_PATH_RE = re.compile(r"/?nix/store/([0-9a-df-np-sv-z]{32}-[^\s/]+)")
-
-
-def extract_store_paths(value: Any) -> Iterator[Path]:
-    match value:
-        case str():
-            for match in STORE_PATH_RE.findall(value):
-                yield Path("/nix/store") / match
-        case Mapping():
-            for v in value.values():
-                yield from extract_store_paths(v)
-        case Sequence():
-            for item in value:
-                yield from extract_store_paths(item)
-
-
-def extract_store_name(value: Path | str) -> str:
-    return str(value).removeprefix("/nix/store/")
-
-
-async def get_current_system():
-    """Get system string evaluated by nix"""
-    return (
-        await try_captured(
-            "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
-        )
-    ).stdout
-
-def hardlink_tree(src: Path, dst: Path) -> None:
-    """Hardlink a single directory tree, preserving symlinks."""
-    dst.mkdir(parents=True, exist_ok=True)
-
-    for entry in os.scandir(src):
-        dst_path = dst / entry.name
-
-        if entry.is_symlink():
-            os.symlink(os.readlink(entry.path), dst_path)
-        elif entry.is_dir(follow_symlinks=False):
-            hardlink_tree(Path(entry.path), dst_path)
-        elif entry.is_file(follow_symlinks=False):
-            dst_path.hardlink_to(entry.path)
-
-
-def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
-    """
-    Hardlink multiple store paths into dst.
-
-    store_paths: [/nix/store/abc-foo, /nix/store/def-bar, ...]
-    dst: volume_root/nix/store
-    result: dst/abc-foo/..., dst/def-bar/...
-    """
-    dst.mkdir(parents=True, exist_ok=True)
-
-    for store_path in store_paths:
-        target = dst / store_path.name
-        if target.exists():
-            continue  # already copied (deduplication across volumes)
-        hardlink_tree(store_path, target)
-
-def deref_hardlink_tree(src: Path, dst: Path) -> None:
-    """
-    Recursively copy src to dst, dereferencing symlinks and
-    hardlinking files for space efficiency.
-
-    All symlink targets must exist on the same filesystem as dst.
-    """
-    src = Path(src)
-    dst = Path(dst)
-    dst.mkdir(parents=True, exist_ok=True)
-
-    for entry in os.scandir(src):
-        dst_path = dst / entry.name
-        resolved = Path(entry.path).resolve()
-
-        if not resolved.exists():
-            raise FileNotFoundError(f"Broken symlink: {entry.path} -> {resolved}")
-
-        if resolved.is_dir():
-            deref_hardlink_tree(resolved, dst_path)
-        elif resolved.is_file():
-            dst_path.hardlink_to(resolved)
-
-
-async def get_builder_uris():
-    """Query k8s API for builder pods, return list of SSH URIs for --builders flag."""
-    if not BUILDERS_ENABLED:
-        return []
-
-    try:
-        # Use kr8s to query pods with label selector
-        # kr8s.asyncio.get() returns an async generator, iterate with async for
-        uris = []
-        async for pod in kr8s.asyncio.get(
-            "pods", namespace=NAMESPACE, label_selector="app.kubernetes.io/name=builder"
-        ):
-            if pod.status.phase == "Running":
-                pod_name = pod.metadata.name
-                uri = f"ssh://nix@{pod_name}.{BUILDERS_SERVICE}.{NAMESPACE}.svc.cluster.local"
-                uris.append(uri)
-
-        logger.debug(f"Discovered {len(uris)} builder pods: {uris}")
-        return uris
-    except Exception as e:
-        logger.warning(f"Failed to discover builder pods: {e}")
-        return []
 
 
 def csi_error_handler(func):
@@ -181,6 +45,110 @@ class NodeServicer(csi_grpc.NodeBase):
     def __init__(self, system: str):
         self.system = system
 
+    async def _get_build_args(self) -> list[str]:
+        """Get extra build arguments for builders and cache."""
+        extra_args = []
+
+        # Discover builder pods when builders are enabled
+        # CSI pods run with --max-jobs 0 to delegate all builds to builder pods
+        builder_uris = await get_builder_uris()
+        if builder_uris:
+            extra_args.extend(build_builder_args(builder_uris))
+            logger.info(f"Using {len(builder_uris)} builder pods for builds")
+
+        # Add cache as substituter if available
+        if await check_cache_connectivity():
+            extra_args.extend(get_substituter_args())
+
+        return extra_args
+
+    async def _build_pod_packages(
+        self,
+        pod_name: str | None,
+        pod_ns: str | None,
+        pod_uid: str | None,
+        gc_root: Path,
+        extra_args: list[str],
+    ) -> list[Path]:
+        """Extract and build packages referenced in the pod spec."""
+        if not (pod_name and pod_ns and pod_uid):
+            return []
+
+        pod = await Pod.get(pod_name, pod_ns)
+        if pod.metadata.uid != pod_uid:
+            raise GRPCError(
+                Status.INTERNAL, "poduid doesn't match", "poduid doesn't match"
+            )
+
+        package_paths = []
+        pod_store_paths = set(extract_store_paths(pod.raw))
+
+        for package_path in pod_store_paths:
+            logger.debug(f"{package_path=}")
+            async with self.volumeLocks[str(package_path)]:
+                result_path = await build_store_path(
+                    str(package_path),
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+                package_paths.append(result_path)
+
+        if package_paths:
+            logger.debug(f"Extracted packages {package_paths=}")
+
+        return package_paths
+
+    async def _build_primary_package(
+        self,
+        store_path: str | None,
+        flake_ref: str | None,
+        nix_expr: str | None,
+        gc_root: Path,
+        extra_args: list[str],
+    ) -> Path | None:
+        """
+        Build the primary package from various sources.
+
+        Source selection order (intentional, documented in README):
+        1. storePath - if present, use directly
+        2. flakeRef - if storePath not present, build flake
+        3. nixExpr - if neither above present, evaluate expression
+
+        Users can specify multiple; first non-None in priority order is used.
+        """
+        if store_path is not None:
+            async with self.volumeLocks[store_path]:
+                logger.debug(f"{store_path=}")
+                return await build_store_path(
+                    store_path,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+
+        if flake_ref is not None:
+            async with self.volumeLocks[flake_ref]:
+                logger.debug(f"{flake_ref=}")
+                return await build_flake_ref(
+                    flake_ref,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+
+        if nix_expr is not None:
+            async with self.volumeLocks[nix_expr]:
+                logger.debug(f"{nix_expr=}")
+                return await build_nix_expr(
+                    nix_expr,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+
+        return None
+
     @csi_error_handler
     async def NodePublishVolume(self, stream):
         request: csi_pb2.NodePublishVolumeRequest | None = await stream.recv_message()
@@ -196,305 +164,65 @@ class NodeServicer(csi_grpc.NodeBase):
             )
 
         async with self.volumeLocks[request.volume_id]:
-            target_path = Path(request.target_path)
-            store_path = request.volume_context.get(self.system)
-            flake_ref = request.volume_context.get("flakeRef")
-            nix_expr = request.volume_context.get("nixExpr")
-
-            # Using sentinel path instead of None to avoid Optional type and None checks everywhere.
-            # The if/elif blocks below should set this to a real path; the exists() check at line ~157
-            # will fail if none of the branches executed (sentinel path doesn't exist).
-            primary_package_path = Path("/nonexistent/path/that/should/never/exist")
             gc_root = CSI_GCROOTS / request.volume_id
+            volume_root = CSI_VOLUMES / request.volume_id
+            extra_args = await self._get_build_args()
 
-            extra_args = []
+            # Build packages from pod spec
+            package_paths = await self._build_pod_packages(
+                request.volume_context.get("csi.storage.k8s.io/pod.name"),
+                request.volume_context.get("csi.storage.k8s.io/pod.namespace"),
+                request.volume_context.get("csi.storage.k8s.io/pod.uid"),
+                gc_root,
+                extra_args,
+            )
 
-            # Discover builder pods when builders are enabled
-            # CSI pods run with --max-jobs 0 to delegate all builds to builder pods
-            builder_uris = await get_builder_uris()
-            if builder_uris:
-                extra_args.extend(["--max-jobs", "0"])
-                for uri in builder_uris:
-                    extra_args.extend(["--builders", uri])
-                extra_args.append("--builders-use-substitutes")
-                logger.info(f"Using {len(builder_uris)} builder pods for builds")
+            # Build primary package from volume attributes
+            primary_package = await self._build_primary_package(
+                request.volume_context.get(self.system),
+                request.volume_context.get("flakeRef"),
+                request.volume_context.get("nixExpr"),
+                gc_root,
+                extra_args,
+            )
 
-            # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
-            if os.environ.get("CACHE_ENABLED", "false") == "true":
-                try:
-                    logger.debug("Trying to connect to cache")
-                    await asyncio.wait_for(
-                        try_console("ssh", "nix@nix-cache", "--", "true"),
-                        timeout=2.0,
-                    )
-                    extra_args.extend(
-                        [
-                            "--extra-substituters",
-                            "ssh-ng://nix@nix-cache?trusted=1&priority=20",
-                        ]
-                    )
-                    logger.debug("Cache connectivity check succeeded")
-                except (GRPCError, OSError, asyncio.TimeoutError):
-                    logger.warning("Cache connectivity check failed")
+            if primary_package is not None:
+                package_paths.append(primary_package)
+                logger.debug(f"Primary package {primary_package=}")
 
-            package_paths = []
-
-            pod_name = request.volume_context.get("csi.storage.k8s.io/pod.name")
-            pod_ns = request.volume_context.get("csi.storage.k8s.io/pod.namespace")
-            pod_uid = request.volume_context.get("csi.storage.k8s.io/pod.uid")
-
-            if pod_name and pod_ns and pod_uid:
-                pod = await Pod.get(pod_name, pod_ns)
-                if pod.metadata.uid != pod_uid:
-                    raise GRPCError(
-                        Status.INTERNAL, "poduid doesn't match", "poduid doesn't match"
-                    )
-
-                pod = set(extract_store_paths(pod.raw))
-                for package_path in pod:
-                    logger.debug(f"{package_path=}")
-                    async with self.volumeLocks[str(package_path)]:
-                        name = extract_store_name(package_path)
-                        logger.debug(f"{name=}")
-                        result = await try_console(
-                            "nix",
-                            "build",
-                            *extra_args,
-                            "--print-out-paths",
-                            "--out-link",
-                            gc_root / name,
-                            package_path,
-                            timeout=NIX_BUILD_TIMEOUT,
-                        )
-                        package_paths.append(Path(result.stdout.splitlines()[0]))
-
-            if package_paths:
-                logger.debug(f"Extracted packages {package_paths=}")
-
-            # Source selection order (intentional, documented in README):
-            # 1. storePath - if present, use directly
-            # 2. flakeRef - if storePath not present, build flake
-            # 3. nixExpr - if neither above present, evaluate expression
-            # Users can specify multiple; first non-None in priority order is used.
-            if store_path is not None:
-                async with self.volumeLocks[store_path]:
-                    logger.debug(f"{store_path=}")
-                    name = extract_store_name(store_path)
-                    result = await try_console(
-                        "nix",
-                        "build",
-                        *extra_args,
-                        "--print-out-paths",
-                        "--out-link",
-                        gc_root / name,
-                        store_path,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    package_paths.append(Path(result.stdout.splitlines()[0]))
-                    if not primary_package_path.exists():
-                        primary_package_path = Path(result.stdout.splitlines()[0])
-
-            if flake_ref is not None:
-                async with self.volumeLocks[flake_ref]:
-                    logger.debug(f"{flake_ref=}")
-
-                    # Fetch storePath from caches
-                    result = await try_console(
-                        "nix",
-                        "build",
-                        *extra_args,
-                        "--print-out-paths",
-                        "--out-link",
-                        gc_root / "flake",
-                        flake_ref,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    package_paths.append(Path(result.stdout.splitlines()[0]))
-                    if not primary_package_path.exists():
-                        primary_package_path = Path(result.stdout.splitlines()[0])
-
-            if nix_expr is not None:
-                async with self.volumeLocks[nix_expr]:
-                    logger.debug(f"{nix_expr=}")
-                    with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
-                        tmp.write(nix_expr)
-                        tmp.flush()
-
-                        # Fetch storePath from caches
-                        result = await try_console(
-                            "nix",
-                            "build",
-                            *extra_args,
-                            "--print-out-paths",
-                            "--out-link",
-                            gc_root / "expr",
-                            "--file",
-                            tmp.name,
-                            timeout=NIX_BUILD_TIMEOUT,
-                        )
-                        package_paths.append(Path(result.stdout.splitlines()[0]))
-                        if not primary_package_path.exists():
-                            primary_package_path = Path(result.stdout.splitlines()[0])
-
-            if not primary_package_path.exists() and not package_paths:
-                logger.error("packagePath doesn't exist after building")
+            if not package_paths:
+                logger.error("No packages to mount after building")
                 raise GRPCError(
                     Status.INVALID_ARGUMENT,
-                    "packagePath turned out invalid",
+                    "No packages to mount",
                 )
-            elif primary_package_path.exists():
-                logger.debug(f"Primary package {primary_package_path=}")
-
-            # Root directory for volume. Contains /nix, also contains "workdir" and
-            # "upperdir" if we're doing overlayfs
-            volume_root = CSI_VOLUMES / request.volume_id
-            # Capitalized to emphasise they're Nix environment variables
-            NIX_STATE_DIR = volume_root / "nix/var/nix"
-            # Create NIX_STATE_DIR where database will be initialized
-            NIX_STATE_DIR.mkdir(parents=True, exist_ok=True)
-
-            # Get storepaths from all packages
-            store_paths = (
-                await try_captured(
-                    "nix",
-                    "path-info",
-                    "--recursive",
-                    *package_paths,
-                )
-            ).stdout.splitlines()
 
             try:
-                # This try block is essentially nix copy into a chroot store with
-                # extra steps. (Hardlinking instead of dumbcopying)
-
-                # Install CSI gcroots
-                for package_path in package_paths:
-                    name = extract_store_name(package_path)
-                    await try_captured(
-                        "nix",
-                        "build",
-                        "--out-link",
-                        gc_root / name,
-                        package_path,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-
-                # Copy closure to substore
-                hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
-
-                # Create Nix database
-                # This is a bash script that runs nix-store --dump-db | NIX_STATE_DIR=something nix-store --load-db
-                await try_captured(
-                    "nix_init_db",
-                    NIX_STATE_DIR,
-                    *store_paths,
+                volume_root = await prepare_volume(
+                    request.volume_id,
+                    package_paths,
+                    primary_package,
                 )
-
-                # install gcroots in container using chroot, store this is
-                # required because the auto roots created for /nix/var/result
-                # will point to Narnia while this one points into store.
-                for package_path in package_paths:
-                    name = extract_store_name(package_path)
-                    await try_captured(
-                        "nix",
-                        "build",
-                        "--store",
-                        volume_root,
-                        "--out-link",
-                        NIX_STATE_DIR / f"gcroots/{name}",
-                        package_path,
-                    )
-
-                # install /nix/var/result in container using chroot store
-                if primary_package_path.exists():
-                    await try_captured(
-                        "nix",
-                        "build",
-                        "--store",
-                        volume_root,
-                        "--out-link",
-                        volume_root / "nix/var/result",
-                        primary_package_path,
-                    )
-
-                    # Create hardlink farm of primary package to volume_root
-                    await asyncio.to_thread(deref_hardlink_tree, primary_package_path, volume_root)
-                else:
-                    logger.debug(f"{primary_package_path=} doesn't exist")
-
+                await mount_volume(
+                    volume_root,
+                    Path(request.target_path),
+                    request.readonly,
+                )
             except Exception:
                 logger.exception("Failed to build volume")
-                # Remove gcroots if we failed something else
-                shutil.rmtree(gc_root, ignore_errors=True)
-                # Remove what we were working on
-                shutil.rmtree(volume_root, True)
+                cleanup_failed_volume(gc_root, volume_root)
                 raise
 
-            target_path.mkdir(parents=True, exist_ok=True)
-            mount_command = []
-            if request.readonly:
-                # For readonly we use a bind mount, the benefit is that different
-                # container stores using bindmounts will get the same inodes and
-                # share page cache with others, reducing memory usage.
-                mount_command = [
-                    "mount",
-                    "--verbose",
-                    "--bind",
-                    "-o",
-                    "ro",
-                    volume_root,
-                    target_path,
-                ]
-            else:
-                # For readwrite we use an overlayfs mount, the benefit here is that
-                # it works as CoW even if the underlying filesystem doesn't support
-                # it, reducing host storage usage.
-                workdir = volume_root / "workdir"
-                upperdir = volume_root / "upperdir"
-                workdir.mkdir(parents=True, exist_ok=True)
-                upperdir.mkdir(parents=True, exist_ok=True)
-                mount_command = [
-                    "mount",
-                    "--verbose",
-                    "-t",
-                    "overlay",
-                    "overlay",
-                    "-o",
-                    f"rw,lowerdir={volume_root},upperdir={upperdir},workdir={workdir}",
-                    target_path,
-                ]
+            await stream.send_message(csi_pb2.NodePublishVolumeResponse())
 
-            mount = await run_console(*mount_command)
-            if mount.returncode == MOUNT_ALREADY_MOUNTED:
-                logger.debug(f"Mount target {target_path} was already mounted")
-            elif mount.returncode != 0:
-                # Clean up resources on mount failure
-                shutil.rmtree(gc_root, ignore_errors=True)
-                shutil.rmtree(volume_root, ignore_errors=True)
-                raise GRPCError(
-                    Status.INTERNAL,
-                    f"Failed to mount {mount.returncode=} {mount.stderr=}",
-                )
-
-            reply = csi_pb2.NodePublishVolumeResponse()
-            await stream.send_message(reply)
-
-            # Rework this horrible cache bullshit
-            if primary_package_path.exists():
-                task = asyncio.create_task(copyToCache(primary_package_path))
+            # Copy to cache in background
+            if primary_package is not None:
+                task = asyncio.create_task(copy_to_cache(primary_package))
                 task.add_done_callback(
-                    lambda t: logger.error(f"copyToCache failed: {t.exception()}")
+                    lambda t: logger.error(f"copy_to_cache failed: {t.exception()}")
                     if t.exception()
                     else None
                 )
-
-    @staticmethod
-    async def IsMount(path: Path):
-        return (await run_captured("findmnt", "--mountpoint", path)).returncode == 0
-
-    @staticmethod
-    async def Unmount(path: Path):
-        return await run_captured("umount", "--verbose", path)
 
     @csi_error_handler
     async def NodeUnpublishVolume(self, stream):
@@ -513,14 +241,9 @@ class NodeServicer(csi_grpc.NodeBase):
             # attempting partial cleanup, as each retry re-attempts all steps in order.
 
             # Unmount
-            if await NodeServicer.IsMount(target_path):
-                umount = await NodeServicer.Unmount(target_path)
-                if umount.returncode != 0 and await NodeServicer.IsMount(target_path):
-                    raise GRPCError(
-                        Status.INTERNAL, "unmount failed", f"{umount.combined=}"
-                    )
-                else:
-                    logger.debug(f"unmounted {request.target_path=}")
+            if await is_mount(target_path):
+                await unmount(target_path)
+                logger.debug(f"unmounted {request.target_path=}")
 
             # Remove mount dir
             if target_path.exists():
@@ -554,8 +277,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         Status.INTERNAL, f"recursive removing {target_path=} failed", ex
                     )
 
-            reply = csi_pb2.NodeUnpublishVolumeResponse()
-            await stream.send_message(reply)
+            await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
 
     async def NodeGetCapabilities(self, stream):
         request: csi_pb2.NodeGetCapabilitiesRequest | None = await stream.recv_message()
@@ -608,7 +330,6 @@ async def serve():
     try:
         sock.bind(sock_path)
         sock.listen(128)
-        # setblocking(False) is redundant - async IO handles this
 
         await server.start(sock=sock)
         logger.info(f"CSI driver (grpclib) listening on unix://{sock_path}")
