@@ -3,18 +3,23 @@ from pathlib import Path
 
 
 def hardlink_tree(src: Path, dst: Path) -> None:
-    """Hardlink a single directory tree, preserving symlinks."""
-    dst.mkdir(parents=True, exist_ok=True)
-
-    for entry in os.scandir(src):
-        dst_path = dst / entry.name
-
-        if entry.is_symlink():
-            os.symlink(os.readlink(entry.path), dst_path)
-        elif entry.is_dir(follow_symlinks=False):
-            hardlink_tree(Path(entry.path), dst_path)
-        elif entry.is_file(follow_symlinks=False):
-            dst_path.hardlink_to(entry.path)
+    """Hardlink a single path (file or directory tree), preserving symlinks."""
+    if src.is_symlink():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(os.readlink(src), dst)
+    elif src.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.hardlink_to(src)
+    elif src.is_dir():
+        dst.mkdir(parents=True, exist_ok=True)
+        for entry in os.scandir(src):
+            dst_path = dst / entry.name
+            if entry.is_symlink():
+                os.symlink(os.readlink(entry.path), dst_path)
+            elif entry.is_dir(follow_symlinks=False):
+                hardlink_tree(Path(entry.path), dst_path)
+            elif entry.is_file(follow_symlinks=False):
+                dst_path.hardlink_to(entry.path)
 
 
 def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
@@ -38,21 +43,17 @@ def deref_hardlink_tree(src: Path, dst: Path) -> None:
     """
     Recursively copy src to dst, dereferencing symlinks and
     hardlinking files for space efficiency.
-
     All symlink targets must exist on the same filesystem as dst.
     """
-    src = Path(src)
-    dst = Path(dst)
-    dst.mkdir(parents=True, exist_ok=True)
+    resolved = Path(src).resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Broken symlink: {src} -> {resolved}")
 
-    for entry in os.scandir(src):
-        dst_path = dst / entry.name
-        resolved = Path(entry.path).resolve()
-
-        if not resolved.exists():
-            raise FileNotFoundError(f"Broken symlink: {entry.path} -> {resolved}")
-
-        if resolved.is_dir():
-            deref_hardlink_tree(resolved, dst_path)
-        elif resolved.is_file():
-            dst_path.hardlink_to(resolved)
+    if resolved.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.hardlink_to(resolved)
+    elif resolved.is_dir():
+        dst.mkdir(parents=True, exist_ok=True)
+        for entry in os.scandir(resolved):
+            dst_path = dst / entry.name
+            deref_hardlink_tree(Path(entry.path), dst_path)
