@@ -19,14 +19,14 @@
 }:
 buildPythonPackage (finalAttrs: {
   pname = "kr8s";
-  version = "0.20.14";
+  version = "0.20.15";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "kr8s-org";
     repo = "kr8s";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-Q9rcaLpoT8RATKvw4oQdPSUKjeOCIJ+X0zKoo6z620E=";
+    hash = "sha256-98ImCNHNjmwKKQAGitvlpwCC+efcCKsbHbF2vcLIXE0=";
   };
 
   build-system = [
