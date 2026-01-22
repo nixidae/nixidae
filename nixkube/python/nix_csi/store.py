@@ -12,8 +12,11 @@ def extract_store_paths(value: Any) -> Iterator[Path]:
             for m in STORE_PATH_RE.finditer(value):
                 yield Path(m.group())
         case Mapping():
-            for v in value.values():
-                yield from extract_store_paths(v)
+            for k, v in value.items():
+                # volumeAttributes might contain multiarch paths which we don't want to include.
+                # storePaths in volumeAttributes are handled as "primary package".
+                if k != "volumeAttributes":
+                    yield from extract_store_paths(v)
         case Sequence():
             for item in value:
                 yield from extract_store_paths(item)
