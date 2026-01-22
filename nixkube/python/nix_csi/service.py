@@ -9,7 +9,7 @@ from csi import csi_grpc, csi_pb2
 from functools import wraps
 from grpclib import GRPCError
 from grpclib.const import Status
-from grpclib.server import Server
+from grpclib.server import Server, Stream
 from kr8s.asyncio.objects import Pod
 from pathlib import Path
 
@@ -156,8 +156,13 @@ class NodeServicer(csi_grpc.NodeBase):
         return None
 
     @csi_error_handler
-    async def NodePublishVolume(self, stream):
-        request: csi_pb2.NodePublishVolumeRequest | None = await stream.recv_message()
+    async def NodePublishVolume(
+        self,
+        stream: Stream[
+            csi_pb2.NodePublishVolumeRequest, csi_pb2.NodePublishVolumeResponse
+        ],
+    ) -> None:
+        request = await stream.recv_message()
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "NodePublishVolumeRequest is None")
 
@@ -237,8 +242,13 @@ class NodeServicer(csi_grpc.NodeBase):
                 )
 
     @csi_error_handler
-    async def NodeUnpublishVolume(self, stream):
-        request: csi_pb2.NodeUnpublishVolumeRequest | None = await stream.recv_message()
+    async def NodeUnpublishVolume(
+        self,
+        stream: Stream[
+            csi_pb2.NodeUnpublishVolumeRequest, csi_pb2.NodeUnpublishVolumeResponse
+        ],
+    ) -> None:
+        request = await stream.recv_message()
         if request is None:
             raise ValueError("NodeUnpublishVolumeRequest is None")
 
@@ -261,7 +271,7 @@ class NodeServicer(csi_grpc.NodeBase):
             # Unmount
             if await is_mount(target_path):
                 await unmount(target_path)
-                logger.debug(f"unmounted {request.target_path=}")
+                logger.debug(f"unmounted {target_path=}")
 
             # Remove mount dir
             if target_path.exists():
@@ -283,15 +293,23 @@ class NodeServicer(csi_grpc.NodeBase):
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
 
-    async def NodeGetCapabilities(self, stream):
-        request: csi_pb2.NodeGetCapabilitiesRequest | None = await stream.recv_message()
+    @csi_error_handler
+    async def NodeGetCapabilities(
+        self,
+        stream: Stream[
+            csi_pb2.NodeGetCapabilitiesRequest, csi_pb2.NodeGetCapabilitiesResponse
+        ],
+    ) -> None:
+        request = await stream.recv_message()
         if request is None:
             raise ValueError("NodeGetCapabilitiesRequest is None")
-        reply = csi_pb2.NodeGetCapabilitiesResponse(capabilities=[])
-        await stream.send_message(reply)
+        await stream.send_message(csi_pb2.NodeGetCapabilitiesResponse(capabilities=[]))
 
-    async def NodeGetInfo(self, stream):
-        request: csi_pb2.NodeGetInfoRequest | None = await stream.recv_message()
+    @csi_error_handler
+    async def NodeGetInfo(
+        self, stream: Stream[csi_pb2.NodeGetInfoRequest, csi_pb2.NodeGetInfoResponse]
+    ) -> None:
+        request = await stream.recv_message()
         if request is None:
             raise ValueError("NodeGetInfoRequest is None")
         node_name = os.environ.get("KUBE_NODE_NAME")
@@ -300,8 +318,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 Status.FAILED_PRECONDITION,
                 "KUBE_NODE_NAME environment variable not set",
             )
-        reply = csi_pb2.NodeGetInfoResponse(node_id=node_name)
-        await stream.send_message(reply)
+        await stream.send_message(csi_pb2.NodeGetInfoResponse(node_id=node_name))
 
     async def NodeGetVolumeStats(self, stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeGetVolumeStats not implemented")
