@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import shutil
 import socket
 
 from asyncio import Semaphore
@@ -16,6 +15,7 @@ from pathlib import Path
 
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
+from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, NIX_BUILD_TIMEOUT
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
@@ -273,25 +273,13 @@ class NodeServicer(csi_grpc.NodeBase):
                         Status.INTERNAL, f"removing {target_path=} failed", ex
                     )
 
-            # Remove gcroots
-            gc_root = CSI_GCROOTS / request.volume_id
-            if gc_root.exists():
-                try:
-                    shutil.rmtree(gc_root, ignore_errors=True)
-                    logger.debug(f"unlinked {gc_root=}")
-                except Exception as ex:
-                    raise GRPCError(Status.INTERNAL, f"unlinking {gc_root=} failed", ex)
-
-            # Remove hardlink farm
-            volume_path = CSI_VOLUMES / request.volume_id
-            if volume_path.exists():
-                try:
-                    shutil.rmtree(volume_path)
-                    logger.debug(f"removed {volume_path=}")
-                except Exception as ex:
-                    raise GRPCError(
-                        Status.INTERNAL, f"removing {volume_path=} failed", ex
-                    )
+            # Clean up stale gcroots and volume directories based on active volumes.
+            # This catches orphaned resources from volumes that failed to unpublish cleanly.
+            current_vol_data = target_path.parent / "vol_data.json"
+            active_handles = collect_active_volume_handles(
+                exclude_vol_data_path=current_vol_data
+            )
+            cleanup_stale_entries(active_handles)
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
 

@@ -36,3 +36,6 @@ CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"
 
 # CSI socket path for gRPC server
 CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
+
+# Kubelet pods directory for discovering active volumes
+KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
