@@ -6,6 +6,34 @@ from pathlib import Path
 from . import service
 
 
+def log_effective_config() -> None:
+    """Log the effective logging configuration for debugging."""
+    logger = logging.getLogger("nix-csi")
+    root = logging.getLogger()
+
+    lines = ["Effective logging configuration:"]
+    lines.append(f"  Root logger: level={logging.getLevelName(root.level)}")
+
+    # Collect all configured loggers
+    for name in sorted(logging.Logger.manager.loggerDict.keys()):
+        log = logging.getLogger(name)
+        if log.level != logging.NOTSET:
+            lines.append(f"  Logger '{name}': level={logging.getLevelName(log.level)}")
+
+    # Document handlers on root logger
+    if root.handlers:
+        lines.append("  Root handlers:")
+        for handler in root.handlers:
+            handler_info = f"    {type(handler).__name__}"
+            if hasattr(handler, "level"):
+                handler_info += f" level={logging.getLevelName(handler.level)}"
+            if hasattr(handler, "formatter") and handler.formatter:
+                handler_info += f" format='{handler.formatter._fmt}'"
+            lines.append(handler_info)
+
+    logger.info("\n".join(lines))
+
+
 async def async_main():
     # Configurable via kubenix option: loggingConfig
     # Mounted to /etc/nix/logging.json via ConfigMap
@@ -29,6 +57,8 @@ async def async_main():
         logger = logging.getLogger("nix-csi")
         logger.setLevel(logging.INFO)
         logger.info("Using fallback logging config (nix-csi: INFO, root: WARN)")
+
+    log_effective_config()
 
     try:
         await service.serve()
