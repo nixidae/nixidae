@@ -33,17 +33,20 @@ jobs:
 
       - name: Build and push environments
         run: |
+          unlink nix-envs || true
           nix build --show-trace --file . push --out-link nix-envs
           ./nix-envs/bin/push
 
       # Build and push all components sequentially to reuse Nix store
       - name: Build and push Lix image
         run: |
+          unlink nix-images || true
           nix build --show-trace --file . lixImage.push --out-link nix-images
           ./nix-images/bin/push
 
       - name: Build and push scratch image
         run: |
+          unlink nix-scratches || true
           nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
 
