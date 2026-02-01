@@ -17,13 +17,13 @@ self: pkgs: {
     inherit (self) csi-proto-python kr8s;
   };
 
-  lruLix = pkgs.lixPackageSets.lix_2_93.lix.overrideAttrs (oldAttrs: {
-    patches = (oldAttrs.patches or [ ]) ++ [
-      (pkgs.fetchpatch {
-        url = "https://github.com/Lillecarl/lix/commit/9ac72bbd0c7802ca83a907d1fec135f31aab6d24.patch";
-        hash = "sha256-NLyURqjzbyftbjxwOGWW26jcLRtvvE0hdIriiYEnQ4Q=";
-      })
-    ];
+  lruLix = pkgs.lixPackageSets.lix_2_94.lix.overrideAttrs (oldAttrs: {
+    src = builtins.fetchTree {
+      type = "github";
+      owner = "lillecarl";
+      repo = "lix";
+      ref = "regtimeabuse2.94";
+    };
     doCheck = false;
     doInstallCheck = false;
   });
