@@ -43,12 +43,14 @@ jobs:
           unlink nix-images || true
           nix build --show-trace --file . lixImage.push --out-link nix-images
           ./nix-images/bin/push
+          cachix push nix-csi ./nix-images
 
       - name: Build and push scratch image
         run: |
           unlink nix-scratches || true
           nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
+          cachix push nix-csi ./nix-scratches
 
   test-kind-cache:
     needs: build
