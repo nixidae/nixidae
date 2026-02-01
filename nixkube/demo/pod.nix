@@ -27,7 +27,7 @@ let
         pkgs.fishMinimal
         pkgs.coreutils
         pkgs.moreutils
-        pkgs.lixPackageSets.lix_2_93.lix
+        pkgs.lruLix
       ];
     };
 

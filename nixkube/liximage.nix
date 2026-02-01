@@ -9,7 +9,12 @@ rec {
   images = lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (
     system:
     let
-      sysPkgs = import pkgs.path { inherit system; };
+      sysPkgs = import pkgs.path {
+        inherit system;
+        overlays = [
+          (import ./pkgs)
+        ];
+      };
       inherit (sysPkgs) lib;
 
       fakeNss = sysPkgs.dockerTools.fakeNss.override {
@@ -20,7 +25,7 @@ rec {
       runtimeInputs = [
         sysPkgs.coreutils
         sysPkgs.gitMinimal
-        sysPkgs.lixPackageSets.lix_2_93.lix
+        sysPkgs.lruLix
         sysPkgs.rsync
         sysPkgs.openssh
         sysPkgs.kubectl
@@ -66,7 +71,7 @@ rec {
     in
     pkgs.dockerTools.streamLayeredImage {
       name = "${repo}/lix";
-      tag = "${sysPkgs.lixPackageSets.lix_2_93.lix.version}-${sysPkgs.stdenv.hostPlatform.system}";
+      tag = "${sysPkgs.lruLix.version}-${sysPkgs.stdenv.hostPlatform.system}";
       architecture = sysPkgs.go.GOARCH;
 
       maxLayers = 125;
@@ -110,7 +115,7 @@ rec {
           regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
           ${copyToRegistry "aarch64-linux"}
           ${copyToRegistry "x86_64-linux"}
-          regctl index create ${repo}/lix:${pkgs.lixPackageSets.lix_2_93.lix.version} \
+          regctl index create ${repo}/lix:${pkgs.lruLix.version} \
             --ref ${imageRef "aarch64-linux"} \
             --ref ${imageRef "x86_64-linux"}
           regctl index create ${repo}/lix:latest \

@@ -53,7 +53,8 @@ in
                 initContainers = lib.mkNumberedList {
                   "1" = {
                     name = "initcopy";
-                    image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.lixPackageSets.lix_2_93.lix.version}";
+                    # Use normal lix so we don't have to build lruLix locally
+                    image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.lixPackageSets.lix_2_94.lix.version}";
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
                     env = lib.mkNamedList {

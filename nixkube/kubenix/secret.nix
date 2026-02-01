@@ -106,7 +106,8 @@ in
               serviceAccountName = "nix-csi";
               containers = lib.mkNamedList {
                 init = {
-                  image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.lixPackageSets.lix_2_93.lix.version}";
+                  # Use normal lix so we don't have to build lruLix locally
+                  image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.lixPackageSets.lix_2_94.lix.version}";
                   imagePullPolicy = "Always";
                   command = [ "init-secrets" ];
                   volumeMounts = lib.mkNamedList {

@@ -8,7 +8,7 @@
   gitMinimal, # Lix requires Git since it doesn't use libgit2
   kr8s, # Kubernetes API
   shellous, # subprocessing
-  lix, # We need a Nix implementation.... :)
+  lruLix, # We need a Nix implementation.... :)
   nix_init_db, # Import from one nix DB to another
   openssh, # Copying to cache
   rsync, # hardlinking
@@ -31,7 +31,7 @@ buildPythonApplication {
     gitMinimal
     kr8s
     shellous
-    lix
+    lruLix
     nix_init_db
     openssh
     rsync
