@@ -108,6 +108,7 @@ rec {
         pkgs.regctl
         pkgs.skopeo
         pkgs.gzip
+        pkgs.cachix
       ];
       text = # bash
         ''
@@ -115,6 +116,8 @@ rec {
           regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
           ${copyToRegistry "aarch64-linux"}
           ${copyToRegistry "x86_64-linux"}
+          cachix push nix-csi ${images."aarch64-linux"}
+          cachix push nix-csi ${images."x86_64-linux"}
           regctl index create ${repo}/lix:${pkgs.lruLix.version} \
             --ref ${imageRef "aarch64-linux"} \
             --ref ${imageRef "x86_64-linux"}

@@ -43,14 +43,12 @@ jobs:
           unlink nix-images || true
           nix build --show-trace --file . lixImage.push --out-link nix-images
           ./nix-images/bin/push
-          cachix push nix-csi ./nix-images
 
       - name: Build and push scratch image
         run: |
           unlink nix-scratches || true
           nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
-          cachix push nix-csi ./nix-scratches
 
   test-kind-cache:
     needs: build
@@ -89,7 +87,7 @@ jobs:
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=60s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
@@ -110,8 +108,14 @@ jobs:
           echo "=== Cache pod logs ==="
           kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --tail -1 || true
 
+          echo "=== Cache pod describe ==="
+          kubectl describe pod -l app.kubernetes.io/name=cache-n nix-csi || true
+
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1 || true
+
+          echo "=== Node pod describe ==="
+          kubectl describe pod -l app.kubernetes.io/name=csi -n nix-csi || true
 
           echo "=== Init pod logs ==="
           kubectl logs -l app.kubernetes.io/name=init -n nix-csi --tail -1 || true
@@ -151,7 +155,7 @@ jobs:
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=60s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
