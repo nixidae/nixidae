@@ -17,6 +17,7 @@ self: pkgs: {
     inherit (self) csi-proto-python kr8s;
   };
 
+  stdLix = pkgs.lixPackageSets.lix_2_94.lix;
   lruLix = pkgs.lixPackageSets.lix_2_94.lix.overrideAttrs (oldAttrs: {
     src = builtins.fetchTree {
       type = "github";

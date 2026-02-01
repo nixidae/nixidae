@@ -83,9 +83,8 @@ types.submodule (
             checkConfig
             extraOptions
             ;
-          # Use normal lix so we don't have to build lruLix locally
-          package = pkgs.lixPackageSets.lix_2_94.lix.out;
-          inherit (pkgs.lixPackageSets.lix_2_94.lix) version;
+          package = pkgs.stdLix.out;
+          inherit (pkgs.stdLix) version;
         }).generate
           "nix.conf"
           config.settings;

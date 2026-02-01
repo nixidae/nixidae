@@ -22,7 +22,7 @@ let
             intervalSeconds = 3600;
           };
           # services.nix-serve-ng = {
-          #   command = "${lib.getExe pkgs.lixPackageSets.lix_2_93.nix-serve-ng}";
+          #   command = "${lib.getExe pkgs.lixPackageSets.lix_2_94.nix-serve-ng}";
           #   log-type = "file";
           #   logfile = "/var/log/nix-serve-ng.log";
           # };
