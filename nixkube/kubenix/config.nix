@@ -24,10 +24,8 @@ in
           experimental-features = [
             "nix-command"
             "flakes"
-            "auto-allocate-uids"
             "read-only-local-store"
           ];
-          auto-allocate-uids = true;
           builders-use-substitutes = true;
           narinfo-cache-negative-ttl = 0;
           narinfo-cache-positive-ttl = 0;
@@ -44,7 +42,6 @@ in
         };
         builders.nixConfig.settings = sharedSettings // {
           max-jobs = "auto";
-          keep-outputs = true;
         };
       };
     kubernetes.resources.${cfg.namespace} = {
