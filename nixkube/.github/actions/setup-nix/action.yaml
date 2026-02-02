@@ -41,8 +41,6 @@ runs:
     - name: Configure SSH Keys
       shell: bash
       run: |
-        mkdir -p ~/.ssh
-        echo "${{ inputs.nixbuild_key }}" > ~/.ssh/id_ed25519
-        chmod 600 ~/.ssh/id_ed25519
-        echo -e "Host *\n\tStrictHostKeyChecking no" | sudo tee -a ~/.ssh/config > /dev/null
+        echo "${{ inputs.nixbuild_key }}" | install -D -m 600 /dev/stdin ~/.ssh/nixbuild_key
+        install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
 
