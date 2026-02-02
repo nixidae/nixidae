@@ -1,6 +1,6 @@
 {
   config,
-  pkgs,
+  curPkgs,
   lib,
   mkNCSI,
   subPath,
@@ -9,7 +9,7 @@
 }:
 let
   cfg = config.nix-csi;
-  system = pkgs.stdenv.hostPlatform.system;
+  system = curPkgs.stdenv.hostPlatform.system;
 
   containers = lib.mkNamedList {
     hello = {
@@ -114,7 +114,7 @@ in
                 nix-csi.csi = {
                   driver = "nix.csi.store";
                   readOnly = true;
-                  volumeAttributes.${system} = pkgs.hello;
+                  volumeAttributes.${system} = curPkgs.hello;
                 };
               };
             };
@@ -127,7 +127,7 @@ in
             spec = {
               restartPolicy = "Never";
               containers = lib.recursiveUpdate containers {
-                hello.command = [ (lib.getExe pkgs.hello) ];
+                hello.command = [ (lib.getExe curPkgs.hello) ];
               };
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
@@ -148,11 +148,11 @@ in
                 hello = {
                   command = [
                     (lib.getExe (
-                      pkgs.writeShellApplication {
+                      curPkgs.writeShellApplication {
                         name = "printer";
                         runtimeInputs = [
-                          pkgs.coreutils
-                          pkgs.hello
+                          curPkgs.coreutils
+                          curPkgs.hello
                         ];
                         text = # bash
                           ''
@@ -164,8 +164,8 @@ in
                     ))
                   ];
                   env = lib.mkNamedList {
-                    SSL_CERT_FILE.value = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-                    SSL_CERT_DIR.value = "${pkgs.cacert}/etc/ssl/certs";
+                    SSL_CERT_FILE.value = "${curPkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+                    SSL_CERT_DIR.value = "${curPkgs.cacert}/etc/ssl/certs";
                   };
                   volumeMounts =
                     let
@@ -186,11 +186,11 @@ in
                           subPath = subPath "${if lib.pathExists sPath then sPath else throw "path no good homes"}";
                           readOnly = true;
                         };
-                      testEnv = pkgs.buildEnv {
+                      testEnv = curPkgs.buildEnv {
                         name = "testenv";
                         paths = [
-                          pkgs.dockerTools.fakeNss
-                          pkgs.dockerTools.binSh
+                          curPkgs.dockerTools.fakeNss
+                          curPkgs.dockerTools.binSh
                         ];
                       };
                     in

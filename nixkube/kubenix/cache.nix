@@ -1,9 +1,9 @@
 {
   config,
   lib,
-  pkgs,
   x86Pkgs,
   armPkgs,
+  curPkgs,
   mkNCSI,
   ...
 }:
@@ -16,7 +16,7 @@ in
     enable = lib.mkEnableOption "cache";
     nixConfig = lib.mkOption {
       description = "nix.conf for cache pod";
-      type = (import ./nixOptions.nix) pkgs;
+      type = (import ./nixOptions.nix) curPkgs;
     };
 
     storageClassName = lib.mkOption {

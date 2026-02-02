@@ -1,6 +1,5 @@
 {
   config,
-  pkgs,
   lib,
   mkNCSI,
   x86Pkgs,

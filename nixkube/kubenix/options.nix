@@ -1,6 +1,6 @@
 {
   config,
-  pkgs,
+  curPkgs,
   lib,
   ...
 }:
@@ -53,7 +53,7 @@ in
     };
     metadata = lib.mkOption {
       description = "Labels added to nix-csi resources";
-      type = (pkgs.formats.json { }).type;
+      type = (curPkgs.formats.json { }).type;
       default = { };
     };
     version = lib.mkOption {
@@ -97,7 +97,7 @@ in
         Python logging configuration dict for nix-csi service.
         See https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
       '';
-      type = (pkgs.formats.json { }).type;
+      type = (curPkgs.formats.json { }).type;
       default = {
         version = 1;
         formatters = {

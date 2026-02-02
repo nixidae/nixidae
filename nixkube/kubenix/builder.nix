@@ -1,9 +1,9 @@
 {
   config,
   lib,
-  pkgs,
   x86Pkgs,
   armPkgs,
+  curPkgs,
   mkNCSI,
   ...
 }:
@@ -38,7 +38,7 @@ in
             };
             resources = lib.mkOption {
               description = "Resource requests/limits for builder pods";
-              type = (pkgs.formats.json { }).type;
+              type = (curPkgs.formats.json { }).type;
               default = {
                 requests = {
                   cpu = "1";
@@ -68,7 +68,7 @@ in
       };
       nixConfig = lib.mkOption {
         description = "nix.conf for builder pods";
-        type = (import ./nixOptions.nix) pkgs;
+        type = (import ./nixOptions.nix) curPkgs;
       };
       deployments = lib.mkOption {
         type = lib.types.attrsOf deployType;

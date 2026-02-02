@@ -1,7 +1,6 @@
 {
   config,
   lib,
-  pkgs,
   x86Pkgs,
   armPkgs,
   curPkgs,
@@ -19,7 +18,7 @@ in
     };
     nixConfig = lib.mkOption {
       description = "nix.conf for CSI/mounter/DaemonSet pods";
-      type = (import ./nixOptions.nix) pkgs;
+      type = (import ./nixOptions.nix) curPkgs;
     };
   };
   config =
