@@ -3,6 +3,7 @@
   config,
   lib,
   mkNCSI,
+  curPkgs,
   ...
 }:
 let
@@ -63,6 +64,7 @@ in
       ConfigMap.init-scripts = {
         data.init-secrets = # bash
           ''
+            set -x
             mkdir -p /tmp/{ssh-key,nix-key,ssh-auth}
             if ! kubectl get secret ssh-key &>/dev/null || ! kubectl get configmap ssh-dynauth &>/dev/null; then
               # Create ssh secret
@@ -107,7 +109,7 @@ in
               containers = lib.mkNamedList {
                 init = {
                   # Use normal lix so we don't have to build lruLix locally
-                  image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.stdLix.version}";
+                  image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.stdLix.version}";
                   imagePullPolicy = "Always";
                   command = [ "init-secrets" ];
                   volumeMounts = lib.mkNamedList {

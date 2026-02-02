@@ -179,6 +179,7 @@ in
       _module.args = {
         x86Pkgs = mkPkgs "x86_64-linux";
         armPkgs = mkPkgs "aarch64-linux";
+        curPkgs = mkPkgs builtins.currentSystem;
         mkNCSI =
           attrs:
           lib.recursiveUpdate {

@@ -4,6 +4,7 @@
   pkgs,
   x86Pkgs,
   armPkgs,
+  curPkgs,
   mkNCSI,
   ...
 }:
@@ -54,7 +55,7 @@ in
                   "1" = {
                     name = "initcopy";
                     # Use normal lix so we don't have to build lruLix locally
-                    image = "ghcr.io/lillecarl/nix-csi/lix:${pkgs.stdLix.version}";
+                    image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.stdLix.version}";
                     imagePullPolicy = "Always";
                     securityContext.privileged = true; # chroot store
                     env = lib.mkNamedList {
