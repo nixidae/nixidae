@@ -42,9 +42,16 @@ rec {
             set -x
             mkdir /tmp
             rsync --archive ${fakeNss}/ /
+
+            # Check if we can SSH to nix-cache
+            EXTRA_SUBSTITUTERS="local?trusted=true"
+            if ssh nix@nix-cache true 2>/dev/null; then
+              EXTRA_SUBSTITUTERS="$EXTRA_SUBSTITUTERS ssh-ng://nix@nix-cache?trusted=true"
+            fi
+
             nix \
               build \
-                --extra-substituters "local?trusted=true ssh-ng://nix@nix-cache?trusted=true" \
+                --extra-substituters "$EXTRA_SUBSTITUTERS" \
                 --max-jobs auto \
                 --option sandbox false \
                 --store /nix-volume \
