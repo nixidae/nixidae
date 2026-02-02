@@ -45,7 +45,7 @@ rec {
 
             # Check if we can SSH to nix-cache
             EXTRA_SUBSTITUTERS="local?trusted=true"
-            if ssh nix@nix-cache true 2>/dev/null; then
+            if nix store ping --store ssh-ng://nix@nix-cache; then
               EXTRA_SUBSTITUTERS="$EXTRA_SUBSTITUTERS ssh-ng://nix@nix-cache?trusted=true"
             fi
 

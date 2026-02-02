@@ -23,8 +23,15 @@ async def check_cache_connectivity() -> bool:
     try:
         logger.debug("Trying to connect to cache")
         await asyncio.wait_for(
-            try_console("ssh", "nix@nix-cache", "--", "true"),
-            timeout=2.0,
+            try_console(
+                "nix",
+                "store",
+                "ping",
+                "--store",
+                "ssh-ng://nix@nix-cache",
+                log_level=logging.DEBUG,
+            ),
+            timeout=10.0,
         )
         logger.debug("Cache connectivity check succeeded")
         return True
