@@ -99,29 +99,51 @@ jobs:
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1
 
-      - name: Debug on failure
+      - name: Cluster state all
         if: failure()
         run: |
-          echo "=== Cluster state ==="
-          kubectl get all -A
+          echo "=== Cluster state all ==="
+          kubectl get all -A || true
 
-          echo "=== Cache pod logs ==="
+      - name: Cluster state configmaps
+        if: failure()
+        run: |
+          echo "=== Cluster configmaps ==="
+          kubectl get configmaps -A || true
+
+      - name: Cluster state secrets
+        if: failure()
+        run: |
+          kubectl get secrets -A || true
+
+      - name: Cache
+        if: failure()
+        run: |
           kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --tail -1 || true
-
-          echo "=== Cache pod describe ==="
           kubectl describe pod -l app.kubernetes.io/name=cache-n nix-csi || true
 
-          echo "=== Node pod logs ==="
+      - name: Node
+        if: failure()
+        run: |
           kubectl logs -l app.kubernetes.io/name=csi -n nix-csi --tail -1 || true
-
-          echo "=== Node pod describe ==="
           kubectl describe pod -l app.kubernetes.io/name=csi -n nix-csi || true
 
-          echo "=== Init pod logs ==="
+      - name: Init
+        if: failure()
+        run: |
           kubectl logs -l app.kubernetes.io/name=init -n nix-csi --tail -1 || true
 
-          echo "=== Events ==="
+      - name: Events
+        if: failure()
+        run: |
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'
+
+      - name: Troubleshoot with upterm
+        if: failure()
+        uses: owenthereal/action-upterm@main
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 5
 
   test-kind-nocache:
     needs: build
@@ -184,3 +206,10 @@ jobs:
 
           echo "=== Events ==="
           kubectl get events -n nix-csi --sort-by='.lastTimestamp'
+
+      - name: Troubleshoot with upterm
+        if: failure()
+        uses: owenthereal/action-upterm@main
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 5

@@ -25,6 +25,10 @@ self: pkgs: {
       repo = "lix";
       ref = "regtimeabuse2.94";
     };
+    # src = pkgs.lib.fileset.toSource {
+    #   root = /home/lillecarl/Code/lix;
+    #   fileset = pkgs.lib.fileset.gitTracked /home/lillecarl/Code/lix;
+    # };
     doCheck = false;
     doInstallCheck = false;
   });
