@@ -15,6 +15,7 @@ pkgs.mkShell {
     pkgs.cachix
     pkgs.kluctl
     pkgs.kubectx
+    pkgs.pyright
     pkgs.python3Packages.pylsp-mypy
     pkgs.python3Packages.pylsp-rope
     pkgs.python3Packages.python-lsp-ruff
