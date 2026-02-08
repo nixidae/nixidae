@@ -106,6 +106,7 @@ in
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
+                      nix-key.mountPath = "/etc/nix-key";
                       nix-store = {
                         mountPath = "/nix";
                         subPath = "nix";
@@ -125,6 +126,7 @@ in
                 };
                 volumes = lib.mkNamedList {
                   nix-config.configMap.name = "nix-cache";
+                  nix-key.secret.secretName = "nix-key";
                   init-store.csi = {
                     driver = "nix.csi.store";
                     readOnly = true;

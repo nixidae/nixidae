@@ -48,6 +48,8 @@
               if test "$IS_CACHE" = "true"; then
                 echo "Optimising Nix store (hardlinking)"
                 nix store optimise
+                echo "Signing all storepaths (this needs to be hooked somehow)"
+                nix path-info --all | nix store sign --stdin --key-file /etc/nix-key/nix_ed25519 
               fi
               # chill
               SLEEP=$(shuf -i ${lis}-${uis} -n 1)
