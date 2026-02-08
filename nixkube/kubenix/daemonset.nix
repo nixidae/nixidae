@@ -50,6 +50,13 @@ in
                 serviceAccountName = "nix-csi";
                 priorityClassName = "system-node-critical";
                 subdomain = cfg.internalServiceName;
+                tolerations = [
+                  {
+                    key = "node-role.kubernetes.io/control-plane";
+                    operator = "Exists";
+                    effect = "NoSchedule";
+                  }
+                ];
                 initContainers = lib.mkNumberedList {
                   "1" = {
                     name = "initcopy";
