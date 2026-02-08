@@ -1,16 +1,7 @@
 # TODO
 
-## Better SSH key management
-* Split server and client configuration
-* SSH certificates?
-* Use pregenerated ssh-keys for in-cluster configuration 
-
 ## Support Nix signing
-* Implement signing all paths in the cache (when?)
-
-## Improve GC
-* Copy entire CSI stores to cache on an interval (Keep paths cache alive)
-* Rewrite timegc to query dead paths before querying DB for regtime
+* Implement signing paths as soon as the touch cache
 
 ## Building
 * Wrap distributed building in a nicer "package"
@@ -18,4 +9,4 @@
 * Implement speed factor
 
 ## Controller
-* Rename cache to controller, integrate Kopf for additional future features.
+* Rename cache to controller, integrate Kopf for additional future features. (No?)
