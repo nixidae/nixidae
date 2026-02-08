@@ -17,6 +17,10 @@ self: pkgs: {
     inherit (self) csi-proto-python kr8s;
   };
 
+  # kluctl = pkgs.kluctl.override {
+  #   python310 = pkgs.python3;
+  # };
+
   stdLix = pkgs.lixPackageSets.lix_2_94.lix;
   lruLix = pkgs.lixPackageSets.lix_2_94.lix.overrideAttrs (oldAttrs: {
     src = builtins.fetchTree {
