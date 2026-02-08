@@ -21,11 +21,6 @@ let
             retainSeconds = 86400;
             intervalSeconds = 3600;
           };
-          # services.nix-serve-ng = {
-          #   command = "${lib.getExe pkgs.lixPackageSets.lix_2_94.nix-serve-ng}";
-          #   log-type = "file";
-          #   logfile = "/var/log/nix-serve-ng.log";
-          # };
           # Umbrella service for cache
           services.cache = {
             type = "internal";

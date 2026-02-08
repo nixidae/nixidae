@@ -96,6 +96,8 @@ in
                     env = lib.mkNamedList {
                       BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                       CACHE_ENABLED.value = lib.boolToString cfg.cache.enable; # copy to itself is a bit weird?
+                      IS_CACHE.value = lib.boolToString true;
+                      GC_KEEP_SECONDS.value = "86400";
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                     };

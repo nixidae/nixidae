@@ -34,14 +34,21 @@
           ''
             while :; do
               # Copy everything to cache
-              CACHE_ENABLED="''${CACHE_ENABLED:-false}"
+              CACHE_ENABLED="''${CACHE_ENABLED:-"false"}"
+              GC_KEEP_SECONDS="''${GC_KEEP_SECONDS:-"3600"}"
+              IS_CACHE="''${IS_CACHE:-"false"}"
               if test "$CACHE_ENABLED" = "true"; then
                 nix copy --all --store local --to ssh-ng://nix@nix-cache || true
               fi
               # Garbage collect anything older than an hour
+              echo "Collecting garbage"
               nix path-info --store local --all --json | \
-                jq -r --argjson age ${rs} 'map(select(.registrationTime < (now - $age)) | .path) | .[]' | \
+                jq -r --argjson age "$GC_KEEP_SECONDS" 'map(select(.registrationTime < (now - $age)) | .path) | .[]' | \
                 nix store delete --store local --stdin --skip-live
+              if test "$IS_CACHE" = "true"; then
+                echo "Optimising Nix store (hardlinking)"
+                nix store optimise
+              fi
               # chill
               SLEEP=$(shuf -i ${lis}-${uis} -n 1)
               echo Sleeping for "$SLEEP" seconds
