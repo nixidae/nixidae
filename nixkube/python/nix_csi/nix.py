@@ -5,6 +5,7 @@ from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
     ExprBuildError,
     FlakeBuildError,
+    InitDatabaseError,
     PathBuildError,
     StorePathClosureError,
     SubprocessError,
@@ -154,11 +155,17 @@ async def init_database(state_dir: Path, store_paths: list[str]) -> None:
     Initialize the Nix database for a chroot store.
     This runs nix-store --dump-db | NIX_STATE_DIR=something nix-store --load-db
     """
-    await try_captured(
-        "nix_init_db",
-        state_dir,
-        *store_paths,
-    )
+    try:
+        await try_captured(
+            "nix_init_db",
+            state_dir,
+            *store_paths,
+        )
+    except SubprocessError as e:
+        raise InitDatabaseError(
+            "Failed to initialize Nix database",
+            logs=e.combined,
+        ) from e
 
 
 async def install_gcroot(
