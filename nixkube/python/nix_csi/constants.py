@@ -34,6 +34,10 @@ BUILDERS_SERVICE = "nix-csi-builders"
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"
 
+# Verify store paths before mounting to detect corruption early
+# Set via VERIFY_STORE_PATHS environment variable
+VERIFY_STORE_PATHS = os.environ.get("VERIFY_STORE_PATHS", "false") == "true"
+
 # CSI socket path for gRPC server
 CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 

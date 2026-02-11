@@ -27,6 +27,17 @@ async def get_closure_paths(package_paths: list[Path]) -> list[str]:
     ).stdout.splitlines()
 
 
+async def verify_store_paths(store_paths: list[str]) -> None:
+    """Verify the integrity of all store paths in the closure."""
+    await try_captured(
+        "nix",
+        "store",
+        "verify",
+        "--recursive",
+        *store_paths,
+    )
+
+
 async def build_store_path(
     store_path: str,
     gc_root: Path,

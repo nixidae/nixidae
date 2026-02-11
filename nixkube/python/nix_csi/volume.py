@@ -10,9 +10,10 @@ from .constants import (
     CSI_VOLUMES,
     MOUNT_ALREADY_MOUNTED,
     NIX_BUILD_TIMEOUT,
+    VERIFY_STORE_PATHS,
 )
 from .hardlinks import deref_hardlink_tree, hardlink_closure
-from .nix import get_closure_paths, init_database, install_gcroot, install_result_link
+from .nix import get_closure_paths, init_database, install_gcroot, install_result_link, verify_store_paths
 from .store import extract_store_name
 from .subprocessing import run_captured, run_console, try_captured
 
@@ -57,6 +58,10 @@ async def prepare_volume(
             for package_path in package_paths
         ]
     )
+
+    # Verify all storepaths before hardlinking to detect corruption early
+    if VERIFY_STORE_PATHS:
+        await verify_store_paths(store_paths)
 
     # Copy closure to substore
     hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
