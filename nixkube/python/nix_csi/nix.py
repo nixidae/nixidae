@@ -2,7 +2,12 @@ import tempfile
 from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
-from .errors import StorePathClosureError, SubprocessError, SystemDetectionError
+from .errors import (
+    StorePathClosureError,
+    SubprocessError,
+    SystemDetectionError,
+    VerifyStorePathsError,
+)
 from .store import extract_store_name
 from .subprocessing import try_captured, try_console
 
@@ -42,13 +47,19 @@ async def get_closure_paths(package_paths: list[Path]) -> list[str]:
 
 async def verify_store_paths(store_paths: list[str]) -> None:
     """Verify the integrity of all store paths in the closure."""
-    await try_captured(
-        "nix",
-        "store",
-        "verify",
-        "--recursive",
-        *store_paths,
-    )
+    try:
+        await try_captured(
+            "nix",
+            "store",
+            "verify",
+            "--recursive",
+            *store_paths,
+        )
+    except SubprocessError as e:
+        raise VerifyStorePathsError(
+            "Failed to verify store paths",
+            logs=e.combined,
+        ) from e
 
 
 async def build_store_path(
