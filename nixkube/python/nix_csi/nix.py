@@ -3,6 +3,7 @@ from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
+    PathBuildError,
     StorePathClosureError,
     SubprocessError,
     SystemDetectionError,
@@ -69,18 +70,24 @@ async def build_store_path(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build/fetch a store path and create a gc root."""
-    name = extract_store_name(store_path)
-    result = await try_console(
-        "nix",
-        "build",
-        *extra_args,
-        "--print-out-paths",
-        "--out-link",
-        gc_root / name,
-        store_path,
-        timeout=timeout,
-    )
-    return Path(result.stdout.splitlines()[0])
+    try:
+        name = extract_store_name(store_path)
+        result = await try_console(
+            "nix",
+            "build",
+            *extra_args,
+            "--print-out-paths",
+            "--out-link",
+            gc_root / name,
+            store_path,
+            timeout=timeout,
+        )
+        return Path(result.stdout.splitlines()[0])
+    except SubprocessError as e:
+        raise PathBuildError(
+            f"Failed to build store path {store_path}",
+            logs=e.combined,
+        ) from e
 
 
 async def build_flake_ref(

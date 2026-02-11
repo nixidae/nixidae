@@ -117,10 +117,10 @@ class MountError(CSIError):
 
 
 # Build operation errors
-class StoreBuildError(CSIError):
+class PathBuildError(CSIError):
     """Error building a store path directly."""
 
-    reason = "StoreBuildFailed"
+    reason = "PathBuildFailed"
 
 
 class FlakeBuildError(CSIError):
