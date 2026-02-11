@@ -3,6 +3,7 @@ from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
+    ExprBuildError,
     FlakeBuildError,
     PathBuildError,
     StorePathClosureError,
@@ -124,22 +125,28 @@ async def build_nix_expr(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build a Nix expression and create a gc root."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
-        tmp.write(nix_expr)
-        tmp.flush()
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
+            tmp.write(nix_expr)
+            tmp.flush()
 
-        result = await try_console(
-            "nix",
-            "build",
-            *extra_args,
-            "--print-out-paths",
-            "--out-link",
-            gc_root / "expr",
-            "--file",
-            tmp.name,
-            timeout=timeout,
-        )
-        return Path(result.stdout.splitlines()[0])
+            result = await try_console(
+                "nix",
+                "build",
+                *extra_args,
+                "--print-out-paths",
+                "--out-link",
+                gc_root / "expr",
+                "--file",
+                tmp.name,
+                timeout=timeout,
+            )
+            return Path(result.stdout.splitlines()[0])
+    except SubprocessError as e:
+        raise ExprBuildError(
+            "Failed to evaluate Nix expression",
+            logs=e.combined,
+        ) from e
 
 
 async def init_database(state_dir: Path, store_paths: list[str]) -> None:
