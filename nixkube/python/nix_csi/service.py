@@ -125,20 +125,8 @@ class NodeServicer(csi_grpc.NodeBase):
                         timeout=NIX_BUILD_TIMEOUT,
                     )
                     package_paths.append(result_path)
-                    await report_event(
-                        pod_info,
-                        reason="PodStoreBuild",
-                        note=f"Built pod store path {package_path}",
-                        event_type="Normal",
-                    )
-                except Exception as e:
-                    await report_event(
-                        pod_info,
-                        reason="PodStoreBuildFailed",
-                        note=f"Failed to build pod store path {package_path}",
-                        logs=e,
-                        event_type="Warning",
-                    )
+                except CSIError as e:
+                    e.pod_info = pod_info
                     raise
 
         if package_paths:
@@ -175,23 +163,10 @@ class NodeServicer(csi_grpc.NodeBase):
                         extra_args,
                         timeout=NIX_BUILD_TIMEOUT,
                     )
-                    if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryStoreBuild",
-                            note=f"Built primary store path {store_path}",
-                            event_type="Normal",
-                        )
                     return result
-                except Exception as e:
+                except CSIError as e:
                     if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryStoreBuildFailed",
-                            note=f"Failed to build primary store path {store_path}",
-                            logs=e,
-                            event_type="Warning",
-                        )
+                        e.pod_info = pod_info
                     raise
 
         if flake_ref is not None:
@@ -204,23 +179,10 @@ class NodeServicer(csi_grpc.NodeBase):
                         extra_args,
                         timeout=NIX_BUILD_TIMEOUT,
                     )
-                    if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryFlakeBuild",
-                            note=f"Built primary flake {flake_ref}",
-                            event_type="Normal",
-                        )
                     return result
-                except Exception as e:
+                except CSIError as e:
                     if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryFlakeBuildFailed",
-                            note=f"Failed to build primary flake {flake_ref}",
-                            logs=e,
-                            event_type="Warning",
-                        )
+                        e.pod_info = pod_info
                     raise
 
         if nix_expr is not None:
@@ -233,23 +195,10 @@ class NodeServicer(csi_grpc.NodeBase):
                         extra_args,
                         timeout=NIX_BUILD_TIMEOUT,
                     )
-                    if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryExprBuild",
-                            note=f"Evaluated primary Nix expression",
-                            event_type="Normal",
-                        )
                     return result
-                except Exception as e:
+                except CSIError as e:
                     if pod_info:
-                        await report_event(
-                            pod_info,
-                            reason="PrimaryExprBuildFailed",
-                            note="Failed to evaluate primary Nix expression",
-                            logs=e,
-                            event_type="Warning",
-                        )
+                        e.pod_info = pod_info
                     raise
 
         return None

@@ -72,71 +72,71 @@ class CSIError(GRPCError):
 class StorePathClosureError(CSIError):
     """Error retrieving store path closure with 'nix path-info --recursive'."""
 
-    reason = "StorePathClosureFailed"
+    reason = "StorePathClosure"
 
 
 class VerifyStorePathsError(CSIError):
     """Error verifying store path integrity with 'nix store verify --recursive'."""
 
-    reason = "StorePathVerificationFailed"
+    reason = "VerifyStorePaths"
 
 
 class HardlinkClosureError(CSIError):
     """Error hardlinking store paths to volume root."""
 
-    reason = "HardlinkFailed"
+    reason = "HardlinkClosure"
 
 
 class InitDatabaseError(CSIError):
     """Error initializing Nix database in volume."""
 
-    reason = "InitDatabaseFailed"
+    reason = "InitDatabase"
 
 
 class InstallGCRootError(CSIError):
     """Error installing garbage collection root."""
 
-    reason = "GCRootInstallationFailed"
+    reason = "GCRootInstallation"
 
 
 class InstallResultLinkError(CSIError):
     """Error installing /nix/var/result symlink in volume."""
 
-    reason = "ResultLinkInstallationFailed"
+    reason = "ResultLinkInstallation"
 
 
 class VolumePreparationError(CSIError):
     """Error during overall volume preparation."""
 
-    reason = "VolumePreparationFailed"
+    reason = "VolumePreparation"
 
 
 class MountError(CSIError):
     """Error mounting volume to target path."""
 
-    reason = "VolumeMountFailed"
+    reason = "VolumeMount"
 
 
 # Build operation errors
 class PathBuildError(CSIError):
     """Error building a store path directly."""
 
-    reason = "PathBuildFailed"
+    reason = "PathBuild"
 
 
 class FlakeBuildError(CSIError):
     """Error building from a flake reference."""
 
-    reason = "FlakeBuildFailed"
+    reason = "FlakeBuild"
 
 
 class ExprBuildError(CSIError):
     """Error evaluating a Nix expression."""
 
-    reason = "ExprBuildFailed"
+    reason = "ExprBuild"
 
 
 class SystemDetectionError(CSIError):
     """Error detecting system type."""
 
-    reason = "SystemDetectionFailed"
+    reason = "SystemDetection"
