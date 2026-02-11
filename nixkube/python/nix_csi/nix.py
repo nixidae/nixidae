@@ -6,6 +6,7 @@ from .errors import (
     ExprBuildError,
     FlakeBuildError,
     InitDatabaseError,
+    InstallGCRootError,
     PathBuildError,
     StorePathClosureError,
     SubprocessError,
@@ -175,15 +176,21 @@ async def install_gcroot(
     state_dir: Path,
 ) -> None:
     """Install a gc root in the chroot store."""
-    await try_captured(
-        "nix",
-        "build",
-        "--store",
-        volume_root,
-        "--out-link",
-        state_dir / f"gcroots/{name}",
-        package_path,
-    )
+    try:
+        await try_captured(
+            "nix",
+            "build",
+            "--store",
+            volume_root,
+            "--out-link",
+            state_dir / f"gcroots/{name}",
+            package_path,
+        )
+    except SubprocessError as e:
+        raise InstallGCRootError(
+            "Failed to install garbage collection root",
+            logs=e.combined,
+        ) from e
 
 
 async def install_result_link(
