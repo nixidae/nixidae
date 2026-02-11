@@ -7,6 +7,7 @@ from .errors import (
     FlakeBuildError,
     InitDatabaseError,
     InstallGCRootError,
+    InstallResultLinkError,
     PathBuildError,
     StorePathClosureError,
     SubprocessError,
@@ -198,12 +199,18 @@ async def install_result_link(
     package_path: Path,
 ) -> None:
     """Install /nix/var/result symlink in the chroot store."""
-    await try_captured(
-        "nix",
-        "build",
-        "--store",
-        volume_root,
-        "--out-link",
-        volume_root / "nix/var/result",
-        package_path,
-    )
+    try:
+        await try_captured(
+            "nix",
+            "build",
+            "--store",
+            volume_root,
+            "--out-link",
+            volume_root / "nix/var/result",
+            package_path,
+        )
+    except SubprocessError as e:
+        raise InstallResultLinkError(
+            "Failed to install /nix/var/result symlink",
+            logs=e.combined,
+        ) from e
