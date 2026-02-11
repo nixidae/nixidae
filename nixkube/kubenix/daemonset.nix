@@ -106,6 +106,8 @@ in
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                       KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
                       KUBE_POD_IP.valueFrom.fieldRef.fieldPath = "status.podIP";
+                      KUBE_POD_NAME.valueFrom.fieldRef.fieldPath = "metadata.name";
+                      KUBE_POD_UID.valueFrom.fieldRef.fieldPath = "metadata.uid";
                       NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
                       RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
                       USER.value = "root";

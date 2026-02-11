@@ -44,5 +44,6 @@ CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 
-# CSI pod name for event reporting (from Kubernetes hostname)
-CSI_POD_NAME = os.environ.get("HOSTNAME", "nix-csi-node")
+# CSI pod metadata for event reporting (from downwardAPI)
+KUBE_POD_NAME = os.environ.get("KUBE_POD_NAME", "nix-csi-node")
+KUBE_POD_UID = os.environ.get("KUBE_POD_UID", "")

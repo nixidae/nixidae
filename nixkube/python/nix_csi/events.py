@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from kr8s.asyncio.objects import new_class
 
-from .constants import CSI_POD_NAME
+from .constants import KUBE_POD_NAME
 
 logger = logging.getLogger("nix-csi")
 
@@ -182,7 +182,7 @@ async def report_event(
                         "uid": pod.uid,
                     },
                     "reportingController": "nix-csi",
-                    "reportingInstance": CSI_POD_NAME,
+                    "reportingInstance": KUBE_POD_NAME,
                     "note": final_note,
                     "eventTime": now_iso,
                 }
