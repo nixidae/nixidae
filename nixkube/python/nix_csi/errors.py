@@ -63,6 +63,7 @@ class CSIError(GRPCError):
         """
         self.message = message
         self.logs = logs
+        self.pod_info = None  # Can be set by handler before re-raising
         grpc_status = status or self.__class__.status
         super().__init__(grpc_status, message)
 

@@ -18,7 +18,7 @@ from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
 from .errors import CSIError
-from .events import PodInfo, emit_event_for_exception, report_event
+from .events import PodInfo, report_event
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
 from .store import extract_store_paths_set
@@ -38,10 +38,44 @@ def csi_error_handler(func):
     async def wrapper(self, stream):
         try:
             return await func(self, stream)
-        except GRPCError:
-            raise
         except Exception as e:
             logger.exception(f"{func.__name__} failed")
+
+            # Emit events for all exceptions
+            if isinstance(e, CSIError):
+                # CSIError with pod_info: emit pod-specific event
+                if e.pod_info:
+                    await report_event(
+                        e.pod_info,
+                        reason=e.reason,
+                        note=e.message,
+                        logs=e.logs,
+                        event_type="Warning",
+                    )
+                else:
+                    # CSIError without pod_info: emit CSI pod event
+                    csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+                    await report_event(
+                        csi_pod_info,
+                        reason=e.reason,
+                        note=e.message,
+                        logs=e.logs,
+                        event_type="Warning",
+                    )
+            else:
+                # Unexpected exception: emit CSI pod event
+                csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+                await report_event(
+                    csi_pod_info,
+                    reason="InternalError",
+                    note=f"{func.__name__} failed: {type(e).__name__}",
+                    logs=str(e),
+                    event_type="Warning",
+                )
+
+            # Re-raise as GRPCError
+            if isinstance(e, GRPCError):
+                raise
             raise GRPCError(Status.INTERNAL, f"{type(e).__name__}: {e}")
 
     return wrapper
@@ -312,22 +346,12 @@ class NodeServicer(csi_grpc.NodeBase):
                     event_type="Normal",
                 )
             except CSIError as e:
-                logger.exception("Failed to build volume")
                 cleanup_failed_volume(gc_root, volume_root)
-                # Report specific CSI error event
-                await emit_event_for_exception(pod_info, e, event_type="Warning")
+                # Attach pod_info to exception for decorator to emit pod-specific event
+                e.pod_info = pod_info
                 raise
             except Exception as e:
-                logger.exception("Failed to build volume")
                 cleanup_failed_volume(gc_root, volume_root)
-                # Report generic failure for non-CSI errors
-                await report_event(
-                    pod_info,
-                    reason="VolumeMountFailed",
-                    note="Failed to mount volume",
-                    logs=str(e),
-                    event_type="Warning",
-                )
                 raise
 
             await stream.send_message(csi_pb2.NodePublishVolumeResponse())
@@ -443,7 +467,13 @@ async def serve():
     except CSIError as e:
         # Report event for CSI pod system detection failure
         csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
-        await emit_event_for_exception(csi_pod_info, e, event_type="Warning")
+        await report_event(
+            csi_pod_info,
+            reason=e.reason,
+            note=e.message,
+            logs=e.logs,
+            event_type="Warning",
+        )
         raise
     nodeServicer = NodeServicer(system)
 
