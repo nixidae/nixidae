@@ -127,7 +127,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     package_paths.append(result_path)
                     await report_event(
                         pod_info,
-                        reason="PodStoreBuildSucceeded",
+                        reason="PodStoreBuild",
                         note=f"Successfully built pod store path {package_path}",
                         event_type="Normal",
                     )
@@ -178,7 +178,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     if pod_info:
                         await report_event(
                             pod_info,
-                            reason="PrimaryStoreBuildSucceeded",
+                            reason="PrimaryStoreBuild",
                             note=f"Successfully built primary store path {store_path}",
                             event_type="Normal",
                         )
@@ -207,7 +207,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     if pod_info:
                         await report_event(
                             pod_info,
-                            reason="PrimaryFlakeBuildSucceeded",
+                            reason="PrimaryFlakeBuild",
                             note=f"Successfully built primary flake {flake_ref}",
                             event_type="Normal",
                         )
@@ -236,7 +236,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     if pod_info:
                         await report_event(
                             pod_info,
-                            reason="PrimaryExprBuildSucceeded",
+                            reason="PrimaryExprBuild",
                             note=f"Successfully evaluated primary Nix expression",
                             event_type="Normal",
                         )
