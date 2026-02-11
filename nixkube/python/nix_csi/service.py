@@ -97,14 +97,11 @@ class NodeServicer(csi_grpc.NodeBase):
 
     async def _build_pod_packages(
         self,
-        pod_info: PodInfo | None,
+        pod_info: PodInfo,
         gc_root: Path,
         extra_args: list[str],
     ) -> list[Path]:
         """Extract and build packages referenced in the pod spec."""
-        if not pod_info:
-            return []
-
         pod = await Pod.get(pod_info.name, pod_info.namespace)
         if pod.metadata.uid != pod_info.uid:
             raise GRPCError(
@@ -117,17 +114,13 @@ class NodeServicer(csi_grpc.NodeBase):
         for package_path in pod_store_paths:
             logger.debug(f"{package_path=}")
             async with self.volumeLocks[str(package_path)]:
-                try:
-                    result_path = await build_store_path(
-                        str(package_path),
-                        gc_root,
-                        extra_args,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    package_paths.append(result_path)
-                except CSIError as e:
-                    e.pod_info = pod_info
-                    raise
+                result_path = await build_store_path(
+                    str(package_path),
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+                package_paths.append(result_path)
 
         if package_paths:
             logger.debug(f"Extracted packages {package_paths=}")
@@ -141,7 +134,6 @@ class NodeServicer(csi_grpc.NodeBase):
         nix_expr: str | None,
         gc_root: Path,
         extra_args: list[str],
-        pod_info: PodInfo | None = None,
     ) -> Path | None:
         """
         Build the primary package from various sources.
@@ -156,50 +148,35 @@ class NodeServicer(csi_grpc.NodeBase):
         if store_path is not None:
             async with self.volumeLocks[store_path]:
                 logger.debug(f"{store_path=}")
-                try:
-                    result = await build_store_path(
-                        store_path,
-                        gc_root,
-                        extra_args,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    return result
-                except CSIError as e:
-                    if pod_info:
-                        e.pod_info = pod_info
-                    raise
+                result = await build_store_path(
+                    store_path,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+                return result
 
         if flake_ref is not None:
             async with self.volumeLocks[flake_ref]:
                 logger.debug(f"{flake_ref=}")
-                try:
-                    result = await build_flake_ref(
-                        flake_ref,
-                        gc_root,
-                        extra_args,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    return result
-                except CSIError as e:
-                    if pod_info:
-                        e.pod_info = pod_info
-                    raise
+                result = await build_flake_ref(
+                    flake_ref,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+                return result
 
         if nix_expr is not None:
             async with self.volumeLocks[nix_expr]:
                 logger.debug(f"{nix_expr=}")
-                try:
-                    result = await build_nix_expr(
-                        nix_expr,
-                        gc_root,
-                        extra_args,
-                        timeout=NIX_BUILD_TIMEOUT,
-                    )
-                    return result
-                except CSIError as e:
-                    if pod_info:
-                        e.pod_info = pod_info
-                    raise
+                result = await build_nix_expr(
+                    nix_expr,
+                    gc_root,
+                    extra_args,
+                    timeout=NIX_BUILD_TIMEOUT,
+                )
+                return result
 
         return None
 
@@ -238,24 +215,31 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_namespace = request.volume_context.get("csi.storage.k8s.io/pod.namespace")
             pod_uid = request.volume_context.get("csi.storage.k8s.io/pod.uid")
             pod_info = PodInfo(name=pod_name, namespace=pod_namespace, uid=pod_uid)
+            assert pod_info.name and pod_info.namespace and pod_info.uid, "Pod metadata missing from volume context"
 
             # Build packages from pod spec
-            package_paths = await self._build_pod_packages(
-                pod_info,
-                gc_root,
-                extra_args,
-            )
+            try:
+                package_paths = await self._build_pod_packages(
+                    pod_info,
+                    gc_root,
+                    extra_args,
+                )
+            except CSIError as e:
+                e.pod_info = pod_info
+                raise
 
             # Build primary package from volume attributes
-            primary_package = await self._build_primary_package(
-                request.volume_context.get(self.system),
-                request.volume_context.get("flakeRef"),
-                request.volume_context.get("nixExpr"),
-                gc_root,
-                extra_args,
-                pod_info,
-            )
-
+            try:
+                primary_package = await self._build_primary_package(
+                    request.volume_context.get(self.system),
+                    request.volume_context.get("flakeRef"),
+                    request.volume_context.get("nixExpr"),
+                    gc_root,
+                    extra_args,
+                )
+            except CSIError as e:
+                e.pod_info = pod_info
+                raise
             if primary_package is not None:
                 package_paths.append(primary_package)
                 logger.debug(f"Primary package {primary_package=}")
