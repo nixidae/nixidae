@@ -89,6 +89,26 @@ jobs:
         run: |
           kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=60s
 
+      - name: Validate success events
+        run: |
+          echo "=== Checking NixVolumeMount events ==="
+          EVENTS=$(kubectl get events -n nix-csi -o json)
+
+          MOUNT_EVENTS=$(echo "$EVENTS" | jq '[.items[] |
+            select(.reason == "NixVolumeMount" and .type == "Normal")] | length')
+
+          echo "Found $MOUNT_EVENTS successful NixVolumeMount events"
+
+          # Show event details
+          echo "$EVENTS" | jq '.items[] |
+            select(.reason == "NixVolumeMount" and .type == "Normal") |
+            {pod: .regarding.name, message: .note}'
+
+          if [ "$MOUNT_EVENTS" -lt 3 ]; then
+            echo "ERROR: Expected at least 3 mount events, found $MOUNT_EVENTS"
+            exit 1
+          fi
+
       - name: Delete jobs and verify CSI cleanup
         run: |
           kubectl delete job flake-hello expr-hello path-hello -n nix-csi
