@@ -17,6 +17,7 @@ from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, NIX_BUILD_TIMEOUT
+from .events import report_event
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
 from .store import extract_store_paths_set
@@ -92,13 +93,32 @@ class NodeServicer(csi_grpc.NodeBase):
         for package_path in pod_store_paths:
             logger.debug(f"{package_path=}")
             async with self.volumeLocks[str(package_path)]:
-                result_path = await build_store_path(
-                    str(package_path),
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
-                package_paths.append(result_path)
+                try:
+                    result_path = await build_store_path(
+                        str(package_path),
+                        gc_root,
+                        extra_args,
+                        timeout=NIX_BUILD_TIMEOUT,
+                    )
+                    package_paths.append(result_path)
+                    await report_event(
+                        pod_name,
+                        pod_ns,
+                        pod_uid,
+                        reason="PodStoreBuildSucceeded",
+                        note=f"Successfully built pod store path {package_path}",
+                        event_type="Normal",
+                    )
+                except Exception as e:
+                    await report_event(
+                        pod_name,
+                        pod_ns,
+                        pod_uid,
+                        reason="PodStoreBuildFailed",
+                        note=f"Failed to build pod store path {package_path}: {type(e).__name__}: {str(e)[:150]}",
+                        event_type="Warning",
+                    )
+                    raise
 
         if package_paths:
             logger.debug(f"Extracted packages {package_paths=}")
@@ -112,6 +132,9 @@ class NodeServicer(csi_grpc.NodeBase):
         nix_expr: str | None,
         gc_root: Path,
         extra_args: list[str],
+        pod_name: str | None = None,
+        pod_ns: str | None = None,
+        pod_uid: str | None = None,
     ) -> Path | None:
         """
         Build the primary package from various sources.
@@ -126,32 +149,98 @@ class NodeServicer(csi_grpc.NodeBase):
         if store_path is not None:
             async with self.volumeLocks[store_path]:
                 logger.debug(f"{store_path=}")
-                return await build_store_path(
-                    store_path,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
+                try:
+                    result = await build_store_path(
+                        store_path,
+                        gc_root,
+                        extra_args,
+                        timeout=NIX_BUILD_TIMEOUT,
+                    )
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryStoreBuildSucceeded",
+                            note=f"Successfully built primary store path {store_path}",
+                            event_type="Normal",
+                        )
+                    return result
+                except Exception as e:
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryStoreBuildFailed",
+                            note=f"Failed to build primary store path {store_path}: {type(e).__name__}: {str(e)[:150]}",
+                            event_type="Warning",
+                        )
+                    raise
 
         if flake_ref is not None:
             async with self.volumeLocks[flake_ref]:
                 logger.debug(f"{flake_ref=}")
-                return await build_flake_ref(
-                    flake_ref,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
+                try:
+                    result = await build_flake_ref(
+                        flake_ref,
+                        gc_root,
+                        extra_args,
+                        timeout=NIX_BUILD_TIMEOUT,
+                    )
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryFlakeBuildSucceeded",
+                            note=f"Successfully built primary flake {flake_ref}",
+                            event_type="Normal",
+                        )
+                    return result
+                except Exception as e:
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryFlakeBuildFailed",
+                            note=f"Failed to build primary flake {flake_ref}: {type(e).__name__}: {str(e)[:150]}",
+                            event_type="Warning",
+                        )
+                    raise
 
         if nix_expr is not None:
             async with self.volumeLocks[nix_expr]:
                 logger.debug(f"{nix_expr=}")
-                return await build_nix_expr(
-                    nix_expr,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
+                try:
+                    result = await build_nix_expr(
+                        nix_expr,
+                        gc_root,
+                        extra_args,
+                        timeout=NIX_BUILD_TIMEOUT,
+                    )
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryExprBuildSucceeded",
+                            note=f"Successfully evaluated primary Nix expression",
+                            event_type="Normal",
+                        )
+                    return result
+                except Exception as e:
+                    if pod_name and pod_ns and pod_uid:
+                        await report_event(
+                            pod_name,
+                            pod_ns,
+                            pod_uid,
+                            reason="PrimaryExprBuildFailed",
+                            note=f"Failed to evaluate primary Nix expression: {type(e).__name__}: {str(e)[:150]}",
+                            event_type="Warning",
+                        )
+                    raise
 
         return None
 
@@ -185,11 +274,16 @@ class NodeServicer(csi_grpc.NodeBase):
             volume_root = CSI_VOLUMES / request.volume_id
             extra_args = await self._get_build_args()
 
+            # Extract pod info for event reporting
+            pod_name = request.volume_context.get("csi.storage.k8s.io/pod.name")
+            pod_namespace = request.volume_context.get("csi.storage.k8s.io/pod.namespace")
+            pod_uid = request.volume_context.get("csi.storage.k8s.io/pod.uid")
+
             # Build packages from pod spec
             package_paths = await self._build_pod_packages(
-                request.volume_context.get("csi.storage.k8s.io/pod.name"),
-                request.volume_context.get("csi.storage.k8s.io/pod.namespace"),
-                request.volume_context.get("csi.storage.k8s.io/pod.uid"),
+                pod_name,
+                pod_namespace,
+                pod_uid,
                 gc_root,
                 extra_args,
             )
@@ -201,6 +295,9 @@ class NodeServicer(csi_grpc.NodeBase):
                 request.volume_context.get("nixExpr"),
                 gc_root,
                 extra_args,
+                pod_name,
+                pod_namespace,
+                pod_uid,
             )
 
             if primary_package is not None:
@@ -225,9 +322,29 @@ class NodeServicer(csi_grpc.NodeBase):
                     Path(request.target_path),
                     request.readonly,
                 )
-            except Exception:
+                # Report successful mount
+                if pod_name and pod_namespace and pod_uid:
+                    await report_event(
+                        pod_name,
+                        pod_namespace,
+                        pod_uid,
+                        reason="NixVolumeMount",
+                        note="Successfully mounted Nix volume",
+                        event_type="Normal",
+                    )
+            except Exception as e:
                 logger.exception("Failed to build volume")
                 cleanup_failed_volume(gc_root, volume_root)
+                # Report failure
+                if pod_name and pod_namespace and pod_uid:
+                    await report_event(
+                        pod_name,
+                        pod_namespace,
+                        pod_uid,
+                        reason="NixVolumeMountFailed",
+                        note=f"Failed to mount volume: {type(e).__name__}: {str(e)[:200]}",
+                        event_type="Warning",
+                    )
                 raise
 
             await stream.send_message(csi_pb2.NodePublishVolumeResponse())
