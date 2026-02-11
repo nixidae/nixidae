@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from .errors import HardlinkClosureError
+
 
 def hardlink_tree(src: Path, dst: Path) -> None:
     """Hardlink a single path (file or directory tree), preserving symlinks."""
@@ -30,13 +32,19 @@ def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
     dst: volume_root/nix/store
     result: dst/abc-foo/..., dst/def-bar/...
     """
-    dst.mkdir(parents=True, exist_ok=True)
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
 
-    for store_path in store_paths:
-        target = dst / store_path.name
-        if target.exists():
-            continue  # already copied (deduplication across volumes)
-        hardlink_tree(store_path, target)
+        for store_path in store_paths:
+            target = dst / store_path.name
+            if target.exists():
+                continue  # already copied (deduplication across volumes)
+            hardlink_tree(store_path, target)
+    except Exception as e:
+        raise HardlinkClosureError(
+            "Failed to hardlink store paths to volume",
+            logs=str(e),
+        ) from e
 
 
 def deref_hardlink_tree(src: Path, dst: Path) -> None:
