@@ -3,6 +3,7 @@ from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
+    FlakeBuildError,
     PathBuildError,
     StorePathClosureError,
     SubprocessError,
@@ -97,17 +98,23 @@ async def build_flake_ref(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build a flake reference and create a gc root."""
-    result = await try_console(
-        "nix",
-        "build",
-        *extra_args,
-        "--print-out-paths",
-        "--out-link",
-        gc_root / "flake",
-        flake_ref,
-        timeout=timeout,
-    )
-    return Path(result.stdout.splitlines()[0])
+    try:
+        result = await try_console(
+            "nix",
+            "build",
+            *extra_args,
+            "--print-out-paths",
+            "--out-link",
+            gc_root / "flake",
+            flake_ref,
+            timeout=timeout,
+        )
+        return Path(result.stdout.splitlines()[0])
+    except SubprocessError as e:
+        raise FlakeBuildError(
+            f"Failed to build flake {flake_ref}",
+            logs=e.combined,
+        ) from e
 
 
 async def build_nix_expr(
