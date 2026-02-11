@@ -5,6 +5,7 @@ from pathlib import Path
 from grpclib import GRPCError
 from grpclib.const import Status
 
+from .errors import MountError
 from .constants import (
     CSI_GCROOTS,
     CSI_VOLUMES,
@@ -134,9 +135,9 @@ async def mount_volume(
     if mount.returncode == MOUNT_ALREADY_MOUNTED:
         pass  # Already mounted is fine
     elif mount.returncode != 0:
-        raise GRPCError(
-            Status.INTERNAL,
-            f"Failed to mount {mount.returncode=} {mount.stderr=}",
+        raise MountError(
+            f"Failed to mount volume (exit code {mount.returncode})",
+            logs=mount.combined,
         )
 
 
