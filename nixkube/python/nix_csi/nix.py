@@ -2,17 +2,24 @@ import tempfile
 from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
+from .errors import SubprocessError, SystemDetectionError
 from .store import extract_store_name
 from .subprocessing import try_captured, try_console
 
 
 async def get_current_system() -> str:
     """Get system string evaluated by nix."""
-    return (
-        await try_captured(
-            "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
-        )
-    ).stdout
+    try:
+        return (
+            await try_captured(
+                "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
+            )
+        ).stdout
+    except SubprocessError as e:
+        raise SystemDetectionError(
+            "Failed to detect system type",
+            logs=e.combined,
+        ) from e
 
 
 async def get_closure_paths(package_paths: list[Path]) -> list[str]:

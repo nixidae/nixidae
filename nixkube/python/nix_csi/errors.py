@@ -4,6 +4,39 @@ from grpclib import GRPCError
 from grpclib.const import Status
 
 
+class SubprocessError(Exception):
+    """Exception raised when a subprocess command fails.
+
+    Contains structured information about the failure including output
+    and return code, which can be extracted when re-throwing as specific
+    operation errors.
+    """
+
+    def __init__(
+        self,
+        returncode: int,
+        stdout: str,
+        stderr: str,
+        combined: str,
+        command: list[str],
+    ) -> None:
+        """Initialize subprocess error.
+
+        Args:
+            returncode: Command exit code
+            stdout: Standard output from command
+            stderr: Standard error from command
+            combined: Combined stdout and stderr
+            command: Command that was executed (as list)
+        """
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.combined = combined
+        self.command = command
+        super().__init__(f"Subprocess failed with return code {returncode}")
+
+
 class CSIError(GRPCError):
     """Base CSI error with Kubernetes event mapping capability.
 
@@ -13,25 +46,25 @@ class CSIError(GRPCError):
     """
 
     reason: str = "InternalError"
+    status: Status = Status.INTERNAL
 
     def __init__(
         self,
-        status: Status,
         message: str,
-        logs: dict[str, str] | None = None,
-        details: str | None = None,
+        logs: str | None = None,
+        status: Status | None = None,
     ) -> None:
         """Initialize CSI error.
 
         Args:
-            status: gRPC status code
             message: Human-readable error message for events
-            logs: Dict with 'stdout', 'stderr', 'combined' from subprocess
-            details: Additional details for gRPC response
+            logs: Combined stdout/stderr output for inclusion in events
+            status: gRPC status code (defaults to Status.INTERNAL)
         """
         self.message = message
-        self.logs = logs or {}
-        super().__init__(status, message, details)
+        self.logs = logs
+        grpc_status = status or self.__class__.status
+        super().__init__(grpc_status, message)
 
 
 # Store path closure errors

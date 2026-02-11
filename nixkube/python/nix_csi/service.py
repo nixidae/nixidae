@@ -16,8 +16,9 @@ from pathlib import Path
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
-from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, NIX_BUILD_TIMEOUT
-from .events import PodInfo, report_event
+from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
+from .errors import CSIError
+from .events import PodInfo, emit_event_for_exception, report_event
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
 from .store import extract_store_paths_set
@@ -431,7 +432,14 @@ async def serve():
     Path(sock_path).unlink(missing_ok=True)
 
     identityServicer = IdentityServicer()
-    nodeServicer = NodeServicer(await get_current_system())
+    try:
+        system = await get_current_system()
+    except CSIError as e:
+        # Report event for CSI pod system detection failure
+        csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+        await emit_event_for_exception(csi_pod_info, e, event_type="Warning")
+        raise
+    nodeServicer = NodeServicer(system)
 
     server = Server(
         [

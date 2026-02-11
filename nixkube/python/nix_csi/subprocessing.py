@@ -7,6 +7,8 @@ from typing import NamedTuple
 from grpclib import GRPCError
 from grpclib.const import Status
 
+from .errors import SubprocessError
+
 logger = logging.getLogger("nix-csi")
 
 
@@ -28,10 +30,12 @@ def _format_command_preview(args, max_args=20):
 async def try_captured(*args, timeout: float | None = None):
     result = await run_captured(*args, timeout=timeout)
     if result.returncode != 0:
-        raise GRPCError(
-            Status.INTERNAL,
-            f"{_format_command_preview(args)} failed: {result.returncode=}",
+        raise SubprocessError(
+            result.returncode,
+            result.stdout,
+            result.stderr,
             result.combined,
+            list(args),
         )
     return result
 
@@ -41,10 +45,12 @@ async def try_console(
 ):
     result = await run_console(*args, log_level=log_level, timeout=timeout)
     if result.returncode != 0:
-        raise GRPCError(
-            Status.INTERNAL,
-            f"{_format_command_preview(args)} failed: {result.returncode=}",
+        raise SubprocessError(
+            result.returncode,
+            result.stdout,
+            result.stderr,
             result.combined,
+            list(args),
         )
     return result
 
