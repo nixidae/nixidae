@@ -311,15 +311,21 @@ class NodeServicer(csi_grpc.NodeBase):
                     note="Successfully mounted Nix volume",
                     event_type="Normal",
                 )
+            except CSIError as e:
+                logger.exception("Failed to build volume")
+                cleanup_failed_volume(gc_root, volume_root)
+                # Report specific CSI error event
+                await emit_event_for_exception(pod_info, e, event_type="Warning")
+                raise
             except Exception as e:
                 logger.exception("Failed to build volume")
                 cleanup_failed_volume(gc_root, volume_root)
-                # Report failure
+                # Report generic failure for non-CSI errors
                 await report_event(
                     pod_info,
                     reason="VolumeMountFailed",
                     note="Failed to mount volume",
-                    logs=e,
+                    logs=str(e),
                     event_type="Warning",
                 )
                 raise

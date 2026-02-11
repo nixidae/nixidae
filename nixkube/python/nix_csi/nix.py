@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
-from .errors import SubprocessError, SystemDetectionError
+from .errors import StorePathClosureError, SubprocessError, SystemDetectionError
 from .store import extract_store_name
 from .subprocessing import try_captured, try_console
 
@@ -24,14 +24,20 @@ async def get_current_system() -> str:
 
 async def get_closure_paths(package_paths: list[Path]) -> list[str]:
     """Get all store paths in the closure of the given packages."""
-    return (
-        await try_captured(
-            "nix",
-            "path-info",
-            "--recursive",
-            *package_paths,
-        )
-    ).stdout.splitlines()
+    try:
+        return (
+            await try_captured(
+                "nix",
+                "path-info",
+                "--recursive",
+                *package_paths,
+            )
+        ).stdout.splitlines()
+    except SubprocessError as e:
+        raise StorePathClosureError(
+            "Failed to get store path closure",
+            logs=e.combined,
+        ) from e
 
 
 async def verify_store_paths(store_paths: list[str]) -> None:
