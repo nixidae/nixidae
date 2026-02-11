@@ -41,30 +41,21 @@ def csi_error_handler(func):
         except Exception as e:
             logger.exception(f"{func.__name__} failed")
 
+            # Default to CSI pod info if not provided
+            csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+
             # Emit events for all exceptions
             if isinstance(e, CSIError):
-                # CSIError with pod_info: emit pod-specific event
-                if e.pod_info:
-                    await report_event(
-                        e.pod_info,
-                        reason=e.reason,
-                        note=e.message,
-                        logs=e.logs,
-                        event_type="Warning",
-                    )
-                else:
-                    # CSIError without pod_info: emit CSI pod event
-                    csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
-                    await report_event(
-                        csi_pod_info,
-                        reason=e.reason,
-                        note=e.message,
-                        logs=e.logs,
-                        event_type="Warning",
-                    )
+                pod_info = e.pod_info if e.pod_info else csi_pod_info
+                await report_event(
+                    pod_info,
+                    reason=e.reason,
+                    note=e.message,
+                    logs=e.logs,
+                    event_type="Warning",
+                )
             else:
                 # Unexpected exception: emit CSI pod event
-                csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
                 await report_event(
                     csi_pod_info,
                     reason="InternalError",
