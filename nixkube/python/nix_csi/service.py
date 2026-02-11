@@ -128,7 +128,7 @@ class NodeServicer(csi_grpc.NodeBase):
                     await report_event(
                         pod_info,
                         reason="PodStoreBuild",
-                        note=f"Successfully built pod store path {package_path}",
+                        note=f"Built pod store path {package_path}",
                         event_type="Normal",
                     )
                 except Exception as e:
@@ -179,7 +179,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         await report_event(
                             pod_info,
                             reason="PrimaryStoreBuild",
-                            note=f"Successfully built primary store path {store_path}",
+                            note=f"Built primary store path {store_path}",
                             event_type="Normal",
                         )
                     return result
@@ -208,7 +208,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         await report_event(
                             pod_info,
                             reason="PrimaryFlakeBuild",
-                            note=f"Successfully built primary flake {flake_ref}",
+                            note=f"Built primary flake {flake_ref}",
                             event_type="Normal",
                         )
                     return result
@@ -237,7 +237,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         await report_event(
                             pod_info,
                             reason="PrimaryExprBuild",
-                            note=f"Successfully evaluated primary Nix expression",
+                            note=f"Evaluated primary Nix expression",
                             event_type="Normal",
                         )
                     return result
@@ -333,7 +333,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 await report_event(
                     pod_info,
                     reason="VolumeMount",
-                    note="Successfully mounted Nix volume",
+                    note="Mounted Nix volume",
                     event_type="Normal",
                 )
             except CSIError as e:
