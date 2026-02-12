@@ -264,11 +264,11 @@ class NodeServicer(csi_grpc.NodeBase):
                     Path(request.target_path),
                     request.readonly,
                 )
-                # Report successful mount
+                # Report successful mount with closure size
                 await report_event(
                     pod_info,
                     reason="VolumeMount",
-                    note="Mounted Nix volume",
+                    note=f"Mounted Nix volume with {len(package_paths)} store paths",
                     event_type="Normal",
                 )
             except CSIError as e:
