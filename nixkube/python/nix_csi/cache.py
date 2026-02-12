@@ -4,9 +4,8 @@ from asyncio import Semaphore, sleep
 from collections import defaultdict
 from pathlib import Path
 
-from grpclib import GRPCError
-
 from .constants import CACHE_ENABLED
+from .errors import SubprocessError
 from .subprocessing import run_captured, try_console
 
 logger = logging.getLogger("nix-csi")
@@ -35,7 +34,7 @@ async def check_cache_connectivity() -> bool:
         )
         logger.debug("Cache connectivity check succeeded")
         return True
-    except (GRPCError, OSError, asyncio.TimeoutError):
+    except (SubprocessError, OSError, asyncio.TimeoutError):
         logger.warning("Cache connectivity check failed")
         return False
 
