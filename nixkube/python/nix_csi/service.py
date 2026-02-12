@@ -298,7 +298,7 @@ class NodeServicer(csi_grpc.NodeBase):
     ) -> None:
         request = await stream.recv_message()
         if request is None:
-            raise ValueError("NodeUnpublishVolumeRequest is None")
+            raise GRPCError(Status.INVALID_ARGUMENT, "NodeUnpublishVolumeRequest is None")
 
         logger.info(
             "Unpublishing volume",
@@ -350,7 +350,7 @@ class NodeServicer(csi_grpc.NodeBase):
     ) -> None:
         request = await stream.recv_message()
         if request is None:
-            raise ValueError("NodeGetCapabilitiesRequest is None")
+            raise GRPCError(Status.INVALID_ARGUMENT, "NodeGetCapabilitiesRequest is None")
         await stream.send_message(csi_pb2.NodeGetCapabilitiesResponse(capabilities=[]))
 
     @csi_error_handler
@@ -359,7 +359,7 @@ class NodeServicer(csi_grpc.NodeBase):
     ) -> None:
         request = await stream.recv_message()
         if request is None:
-            raise ValueError("NodeGetInfoRequest is None")
+            raise GRPCError(Status.INVALID_ARGUMENT, "NodeGetInfoRequest is None")
         node_name = os.environ.get("KUBE_NODE_NAME")
         if not node_name:
             raise GRPCError(
