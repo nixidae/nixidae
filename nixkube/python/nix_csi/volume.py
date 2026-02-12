@@ -90,7 +90,7 @@ async def prepare_volume(
         await install_result_link(volume_root, primary_package)
         # Create hardlink farm of primary package to volume_root
         deref_start = time.perf_counter()
-        await asyncio.to_thread(deref_hardlink_tree, primary_package, volume_root)
+        deref_hardlink_tree(primary_package, volume_root)
         logger.debug(f"Dereferenced hardlink tree in {time.perf_counter() - deref_start:.2f}s")
 
     return volume_root

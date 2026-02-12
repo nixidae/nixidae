@@ -110,19 +110,22 @@ class NodeServicer(csi_grpc.NodeBase):
                 f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
             )
 
-        package_paths = []
         pod_store_paths = extract_store_paths_set(pod.raw)
 
-        for package_path in pod_store_paths:
+        async def build_package(package_path: Path) -> Path:
             logger.debug(f"{package_path=}")
             async with self.volumeLocks[str(package_path)]:
-                result_path = await build_store_path(
+                return await build_store_path(
                     str(package_path),
                     gc_root,
                     extra_args,
                     timeout=NIX_BUILD_TIMEOUT,
                 )
-                package_paths.append(result_path)
+
+        # Build all packages in parallel
+        package_paths = await asyncio.gather(
+            *[build_package(package_path) for package_path in pod_store_paths]
+        )
 
         if package_paths:
             logger.debug(f"Extracted packages {package_paths=}")
