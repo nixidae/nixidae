@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import socket
+import time
 
 from asyncio import Semaphore
 from collections import defaultdict
@@ -188,6 +189,7 @@ class NodeServicer(csi_grpc.NodeBase):
             csi_pb2.NodePublishVolumeRequest, csi_pb2.NodePublishVolumeResponse
         ],
     ) -> None:
+        start_time = time.perf_counter()
         request = await stream.recv_message()
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "NodePublishVolumeRequest is None")
@@ -264,11 +266,12 @@ class NodeServicer(csi_grpc.NodeBase):
                     Path(request.target_path),
                     request.readonly,
                 )
-                # Report successful mount with closure size
+                # Report successful mount with closure size and elapsed time
+                elapsed = time.perf_counter() - start_time
                 await report_event(
                     pod_info,
                     reason="VolumeMount",
-                    note=f"Mounted Nix volume with {len(package_paths)} store paths",
+                    note=f"Mounted Nix volume with {len(package_paths)} store paths in {elapsed:.2f}s",
                     event_type="Normal",
                 )
             except CSIError as e:
