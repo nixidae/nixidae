@@ -211,11 +211,11 @@ class NodeServicer(csi_grpc.NodeBase):
             extra_args = await self._get_build_args()
 
             # Extract pod info for event reporting
-            pod_name = request.volume_context.get("csi.storage.k8s.io/pod.name")
-            pod_namespace = request.volume_context.get("csi.storage.k8s.io/pod.namespace")
-            pod_uid = request.volume_context.get("csi.storage.k8s.io/pod.uid")
-            pod_info = PodInfo(name=pod_name, namespace=pod_namespace, uid=pod_uid)
-            assert pod_info.name and pod_info.namespace and pod_info.uid, "Pod metadata missing from volume context"
+            pod_name = request.volume_context["csi.storage.k8s.io/pod.name"]
+            pod_namespace = request.volume_context["csi.storage.k8s.io/pod.namespace"]
+            pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
+            pod_info = PodInfo(pod_name, pod_namespace, pod_uid)
+            assert pod_info is not None
 
             # Build packages from pod spec
             try:
@@ -240,6 +240,7 @@ class NodeServicer(csi_grpc.NodeBase):
             except CSIError as e:
                 e.pod_info = pod_info
                 raise
+
             if primary_package is not None:
                 package_paths.append(primary_package)
                 logger.debug(f"Primary package {primary_package=}")

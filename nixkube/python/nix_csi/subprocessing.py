@@ -4,10 +4,7 @@ import asyncio
 import time
 from typing import NamedTuple
 
-from grpclib import GRPCError
-from grpclib.const import Status
-
-from .errors import SubprocessError
+from .errors import CommandTimeoutError, SubprocessError
 
 logger = logging.getLogger("nix-csi")
 
@@ -99,9 +96,13 @@ async def run_console(
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise GRPCError(
-            Status.DEADLINE_EXCEEDED,
-            f"Command timed out after {timeout}s: {_format_command_preview(args)}",
+        # Use return code 124 (conventional timeout code) for simplicity
+        raise CommandTimeoutError(
+            returncode=124,
+            stdout="\n".join(stdout_data).strip(),
+            stderr="\n".join(stderr_data).strip(),
+            combined="\n".join(combined_data).strip(),
+            command=list(args),
         )
 
     elapsed_time = time.perf_counter() - start_time

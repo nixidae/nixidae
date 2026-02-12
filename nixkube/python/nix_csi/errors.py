@@ -158,3 +158,14 @@ class SystemDetectionError(CSIError):
     """Error detecting system type."""
 
     reason = "SystemDetection"
+
+
+class CommandTimeoutError(SubprocessError):
+    """Error when a subprocess command times out.
+
+    Inherits from SubprocessError to preserve command details and output
+    for logging and event emission. The CSI error handler will catch this
+    and emit appropriate Kubernetes events.
+    """
+
+    pass
