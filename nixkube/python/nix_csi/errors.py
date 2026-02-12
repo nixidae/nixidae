@@ -105,12 +105,6 @@ class InstallResultLinkError(CSIError):
     reason = "ResultLinkInstallation"
 
 
-class VolumePreparationError(CSIError):
-    """Error during overall volume preparation."""
-
-    reason = "VolumePreparation"
-
-
 class MountError(CSIError):
     """Error mounting volume to target path."""
 
@@ -121,6 +115,24 @@ class UnmountError(CSIError):
     """Error unmounting volume from target path."""
 
     reason = "VolumeUnmount"
+
+
+class RemoveVolumeDirError(CSIError):
+    """Error removing volume directory after unmount."""
+
+    reason = "RemoveVolumeDir"
+
+
+class CleanupStaleEntriesError(CSIError):
+    """Error cleaning up stale volume entries."""
+
+    reason = "CleanupStaleEntries"
+
+
+class PodUIDMismatchError(CSIError):
+    """Pod UID in request does not match pod metadata."""
+
+    reason = "PodUIDMismatch"
 
 
 # Build operation errors

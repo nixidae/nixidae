@@ -17,7 +17,7 @@ from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
-from .errors import CSIError
+from .errors import CSIError, PodUIDMismatchError, RemoveVolumeDirError, CleanupStaleEntriesError
 from .events import PodInfo, report_event
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
@@ -104,8 +104,8 @@ class NodeServicer(csi_grpc.NodeBase):
         """Extract and build packages referenced in the pod spec."""
         pod = await Pod.get(pod_info.name, pod_info.namespace)
         if pod.metadata.uid != pod_info.uid:
-            raise GRPCError(
-                Status.INTERNAL, "poduid doesn't match", "poduid doesn't match"
+            raise PodUIDMismatchError(
+                f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
             )
 
         package_paths = []
@@ -327,17 +327,25 @@ class NodeServicer(csi_grpc.NodeBase):
                     target_path.rmdir()
                     logger.debug(f"removed {target_path=}")
                 except Exception as ex:
-                    raise GRPCError(
-                        Status.INTERNAL, f"removing {target_path=} failed", ex
+                    raise RemoveVolumeDirError(
+                        f"Failed to remove volume directory {target_path}",
+                        logs=str(ex),
                     )
 
             # Clean up stale gcroots and volume directories based on active volumes.
             # This catches orphaned resources from volumes that failed to unpublish cleanly.
-            current_vol_data = target_path.parent / "vol_data.json"
-            active_handles = collect_active_volume_handles(
-                exclude_vol_data_path=current_vol_data
-            )
-            cleanup_stale_entries(active_handles)
+            # TODO: distinguish between failures cleaning our own volume vs other volumes
+            try:
+                current_vol_data = target_path.parent / "vol_data.json"
+                active_handles = collect_active_volume_handles(
+                    exclude_vol_data_path=current_vol_data
+                )
+                cleanup_stale_entries(active_handles)
+            except Exception as ex:
+                raise CleanupStaleEntriesError(
+                    "Failed to cleanup stale volume entries",
+                    logs=str(ex),
+                )
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
 
