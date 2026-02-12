@@ -1,23 +1,14 @@
 import hashlib
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from kr8s.asyncio.objects import new_class
 
 from .constants import KUBE_POD_NAME
 from .errors import CSIError
+from .models import PodInfo
 
 logger = logging.getLogger("nix-csi")
-
-
-@dataclass
-class PodInfo:
-    """Container for pod identification information for events."""
-
-    name: str
-    namespace: str
-    uid: str
 
 
 async def emit_event_for_exception(

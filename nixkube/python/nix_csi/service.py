@@ -18,7 +18,8 @@ from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_NODE_NAME, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
 from .errors import CSIError, PodUIDMismatchError, RemoveVolumeDirError, CleanupStaleEntriesError
-from .events import PodInfo, report_event
+from .events import report_event
+from .models import PodInfo
 from .identityservicer import IdentityServicer
 from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
 from .store import extract_store_paths_set

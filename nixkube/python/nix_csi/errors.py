@@ -3,6 +3,8 @@
 from grpclib import GRPCError
 from grpclib.const import Status
 
+from .models import PodInfo
+
 
 class SubprocessError(Exception):
     """Exception raised when a subprocess command fails.
@@ -63,7 +65,7 @@ class CSIError(GRPCError):
         """
         self.message = message
         self.logs = logs
-        self.pod_info = None  # Can be set by handler before re-raising
+        self.pod_info: PodInfo | None = None  # Can be set by handler before re-raising
         grpc_status = status or self.__class__.status
         super().__init__(grpc_status, message)
 
