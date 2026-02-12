@@ -7,6 +7,7 @@ from typing import NamedTuple
 from .errors import CommandTimeoutError, SubprocessError
 
 logger = logging.getLogger("nix-csi")
+subproc_logger = logging.getLogger("nix-csi.subprocessing")
 
 
 class SubprocessResult(NamedTuple):
@@ -106,9 +107,23 @@ async def run_console(
         )
 
     elapsed_time = time.perf_counter() - start_time
+
+    # Format command preview with 75-char limit
+    cmd_str = shlex.join([str(arg) for arg in args])
+    if len(cmd_str) > 75:
+        cmd_preview = cmd_str[:72] + "..."
+    else:
+        cmd_preview = cmd_str
+
+    # Log all command timings for profiling
+    subproc_logger.debug(
+        f"Command completed in {elapsed_time:.2f}s (rc={proc.returncode}): {cmd_preview}"
+    )
+
+    # Also log slow commands to main logger
     if elapsed_time > 5:
         logger.info(
-            f"Command executed in {elapsed_time} seconds: {shlex.join([str(arg) for arg in args[:5]])}"
+            f"Slow command executed in {elapsed_time:.2f}s: {cmd_preview}"
         )
 
     if proc.returncode is None:
