@@ -117,6 +117,12 @@ class MountError(CSIError):
     reason = "VolumeMount"
 
 
+class UnmountError(CSIError):
+    """Error unmounting volume from target path."""
+
+    reason = "VolumeUnmount"
+
+
 # Build operation errors
 class PathBuildError(CSIError):
     """Error building a store path directly."""

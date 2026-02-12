@@ -2,10 +2,7 @@ import asyncio
 import shutil
 from pathlib import Path
 
-from grpclib import GRPCError
-from grpclib.const import Status
-
-from .errors import MountError
+from .errors import MountError, UnmountError
 from .constants import (
     CSI_GCROOTS,
     CSI_VOLUMES,
@@ -153,7 +150,10 @@ async def is_mount(path: Path) -> bool:
 
 
 async def unmount(path: Path) -> None:
-    """Unmount a path. Raises GRPCError on failure if still mounted."""
+    """Unmount a path. Raises UnmountError on failure if still mounted."""
     result = await run_captured("umount", "--verbose", path)
     if result.returncode != 0 and await is_mount(path):
-        raise GRPCError(Status.INTERNAL, "unmount failed", f"{result.combined=}")
+        raise UnmountError(
+            f"Failed to unmount volume (exit code {result.returncode})",
+            logs=result.combined,
+        )
