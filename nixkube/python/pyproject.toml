@@ -4,15 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nix-csi"
-version = "0.4.0"
-description = "CSI driver populating mounts with a /nix view"
+version = "0.4.1"
+description = "CSI driver populating mounts with a Nix store"
 authors = [{ name = "lillecarl", email = "github@lillecarl.com" }]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 dependencies = [
   "kr8s",
-  "cryptography",
   "csi",
 ]
 
