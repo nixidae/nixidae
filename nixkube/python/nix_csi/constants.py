@@ -45,5 +45,6 @@ CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 
 # CSI pod metadata for event reporting (from downwardAPI)
-KUBE_POD_NAME = os.environ.get("KUBE_POD_NAME", "nix-csi-node")
-KUBE_POD_UID = os.environ.get("KUBE_POD_UID", "")
+KUBE_POD_NAME = os.environ["KUBE_POD_NAME"]
+KUBE_POD_UID = os.environ["KUBE_POD_UID"]
+KUBE_NODE_NAME = os.environ["KUBE_NODE_NAME"]

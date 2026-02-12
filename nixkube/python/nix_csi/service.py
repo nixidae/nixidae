@@ -16,7 +16,7 @@ from pathlib import Path
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
-from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
+from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_NODE_NAME, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
 from .errors import CSIError, PodUIDMismatchError, RemoveVolumeDirError, CleanupStaleEntriesError
 from .events import PodInfo, report_event
 from .identityservicer import IdentityServicer
@@ -368,13 +368,7 @@ class NodeServicer(csi_grpc.NodeBase):
         request = await stream.recv_message()
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "NodeGetInfoRequest is None")
-        node_name = os.environ.get("KUBE_NODE_NAME")
-        if not node_name:
-            raise GRPCError(
-                Status.FAILED_PRECONDITION,
-                "KUBE_NODE_NAME environment variable not set",
-            )
-        await stream.send_message(csi_pb2.NodeGetInfoResponse(node_id=node_name))
+        await stream.send_message(csi_pb2.NodeGetInfoResponse(node_id=KUBE_NODE_NAME))
 
     async def NodeGetVolumeStats(self, stream):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeGetVolumeStats not implemented")
