@@ -215,6 +215,62 @@ in
           };
         };
       };
+      # Test failure scenarios for event reporting
+      Job.invalid-storepath-hello = mkNCSI {
+        spec = {
+          template = {
+            spec = {
+              restartPolicy = "Never";
+              inherit containers;
+              volumes = lib.mkNamedList {
+                nix-csi.csi = {
+                  driver = "nix.csi.store";
+                  readOnly = true;
+                  volumeAttributes.${system} = "/nix/store/0000000000000000000000000000000-nonexistent";
+                };
+              };
+            };
+          };
+        };
+      };
+      Job.invalid-flake-hello = mkNCSI {
+        spec = {
+          template = {
+            spec = {
+              restartPolicy = "Never";
+              inherit containers;
+              volumes = lib.mkNamedList {
+                nix-csi.csi = {
+                  driver = "nix.csi.store";
+                  volumeAttributes.flakeRef = "github:nonexistent/nonexistent-repo/nonexistent-ref#nonexistent";
+                };
+              };
+            };
+          };
+        };
+      };
+      Job.invalid-expr-hello = mkNCSI {
+        spec = {
+          template = {
+            spec = {
+              restartPolicy = "Never";
+              inherit containers;
+              volumes = lib.mkNamedList {
+                nix-csi.csi = {
+                  driver = "nix.csi.store";
+                  volumeAttributes.nixExpr = # nix
+                    ''
+                      let
+                        broken = this_identifier_does_not_exist;
+                      in
+                      broken
+                    '';
+                };
+              };
+            };
+          };
+        };
+      };
     };
   };
 }

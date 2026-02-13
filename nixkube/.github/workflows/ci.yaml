@@ -111,8 +111,25 @@ jobs:
 
       - name: Delete jobs and verify CSI cleanup
         run: |
-          kubectl delete job flake-hello expr-hello path-hello -n nix-csi
-          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello)" -n nix-csi --timeout=60s
+          kubectl delete job flake-hello expr-hello path-hello invalid-storepath-hello invalid-flake-hello invalid-expr-hello -n nix-csi
+          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,invalid-storepath-hello,invalid-flake-hello,invalid-expr-hello)" -n nix-csi --timeout=60s
+
+      - name: Validate error events
+        run: |
+          echo "=== Checking error events ==="
+          EVENTS=$(kubectl get events -n nix-csi -o json)
+
+          # Check for the three expected error reasons
+          for reason in "PathBuild" "FlakeBuild" "ExprBuild"; do
+            count=$(echo "$EVENTS" | jq --arg r "$reason" '[.items[] |
+              select(.reason == $r and .type == "Warning")] | length')
+            echo "Found $count '$reason' error event(s)"
+
+            # Show details of the errors
+            echo "$EVENTS" | jq --arg r "$reason" '.items[] |
+              select(.reason == $r and .type == "Warning") |
+              {pod: .regarding.name, reason: .reason, message: .note}' || true
+          done
 
       - name: Print node logs
         run: |
