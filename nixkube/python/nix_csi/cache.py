@@ -47,9 +47,9 @@ def get_substituter_args() -> list[str]:
     ]
 
 
-async def copy_to_cache(package_path: Path) -> None:
+async def copy_to_cache(package_paths: list[Path]) -> None:
     """
-    Copy a package and its closure to the cache.
+    Copy packages and their closures to the cache.
 
     TODO: Rewrite this entire copy process to support user-supplied copy scripts.
     This will allow end-users to copy to arbitrary destinations (S3, GCS, custom caches, etc.)
@@ -59,9 +59,26 @@ async def copy_to_cache(package_path: Path) -> None:
     within the CSI daemonset. The daemonset should only handle mounting pre-built paths.
     This will improve separation of concerns and allow dedicated builder infrastructure.
     """
-    # Only run one copy per path per time
-    async with copy_lock[package_path]:
-        paths = [str(package_path)]
+    if not package_paths:
+        return
+
+    # Create a lock key from all paths to prevent concurrent copies of the same set
+    lock_key = tuple(sorted(package_paths))
+    async with copy_lock[lock_key[0] if lock_key else Path("")]:
+        paths: set[Path] = {Path(p) for p in package_paths}
+
+        # Get regular closure paths for all packages
+        path_info = await run_captured(
+            "nix",
+            "path-info",
+            "--recursive",
+            *package_paths,
+        )
+        if path_info.returncode == 0:
+            paths.update(Path(p) for p in path_info.stdout.splitlines())
+        else:
+            logger.debug("Failed to get regular paths for packages")
+
         # Try to get derivation paths recursively. This may fail if we only have
         # store paths without .drv files (e.g., fetched from substituters), which is normal.
         path_info_drv = await run_captured(
@@ -69,24 +86,24 @@ async def copy_to_cache(package_path: Path) -> None:
             "path-info",
             "--recursive",
             "--derivation",
-            package_path,
+            *package_paths,
         )
         if path_info_drv.returncode == 0:
-            paths += path_info_drv.stdout.splitlines()
+            paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         else:
             logger.debug(
-                f"No derivation paths found for {package_path} (normal if fetched from substituters)"
+                "No derivation paths found for packages (normal if fetched from substituters)"
             )
 
-        # Filter out .drv files and deduplicate (path-info runs return overlapping results)
-        paths = {p for p in paths if not p.endswith(".drv")}
+        # Filter out .drv files and deduplicate
+        paths = {p for p in paths if p.suffix != ".drv"}
 
         if len(paths) > 0:
             for attempt in range(6):
                 if attempt > 0:
                     exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
                     logger.warning(
-                        f"Retry {attempt}/6 copying to cache after {exp_backoff}s: {package_path}"
+                        f"Retry {attempt}/6 copying to cache after {exp_backoff}s: {len(paths)} paths"
                     )
                     await sleep(exp_backoff)
 
@@ -94,13 +111,13 @@ async def copy_to_cache(package_path: Path) -> None:
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
                 )
                 if nix_copy.returncode == 0:
-                    logger.debug(f"Successfully copied to cache: {package_path}")
+                    logger.debug(f"Successfully copied to cache: {len(paths)} paths")
                     break
                 else:
                     logger.debug(
-                        f"Copy attempt {attempt + 1}/6 failed for {package_path}: {nix_copy.combined}"
+                        f"Copy attempt {attempt + 1}/6 failed: {nix_copy.combined}"
                     )
             else:
                 logger.error(
-                    f"Failed to copy to cache after 6 attempts: {package_path}"
+                    f"Failed to copy to cache after 6 attempts: {len(paths)} paths"
                 )

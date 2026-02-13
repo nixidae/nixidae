@@ -216,9 +216,9 @@ class NodeServicer(csi_grpc.NodeBase):
 
             await stream.send_message(csi_pb2.NodePublishVolumeResponse())
 
-            # Copy to cache in background
-            if primary_package is not None:
-                task = asyncio.create_task(copy_to_cache(primary_package))
+            # Copy all packages to cache in background
+            if package_paths:
+                task = asyncio.create_task(copy_to_cache(package_paths))
                 task.add_done_callback(
                     lambda t: (
                         logger.error(f"copy_to_cache failed: {t.exception()}")
