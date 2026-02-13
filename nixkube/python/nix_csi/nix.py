@@ -4,6 +4,7 @@ from pathlib import Path
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
     BuildError,
+    CommandTimeoutError,
     InitDatabaseError,
     InstallGCRootError,
     InstallResultLinkError,
@@ -86,6 +87,11 @@ async def build_store_path(
             timeout=timeout,
         )
         return Path(result.stdout.splitlines()[0])
+    except CommandTimeoutError as e:
+        raise BuildError(
+            f"Build timeout for {store_path} after {timeout}s",
+            logs=e.combined,
+        ) from e
     except SubprocessError as e:
         raise BuildError(
             f"Failed to build store path {store_path}",
@@ -112,6 +118,11 @@ async def build_flake_ref(
             timeout=timeout,
         )
         return Path(result.stdout.splitlines()[0])
+    except CommandTimeoutError as e:
+        raise BuildError(
+            f"Build timeout for flake {flake_ref} after {timeout}s",
+            logs=e.combined,
+        ) from e
     except SubprocessError as e:
         raise BuildError(
             f"Failed to build flake {flake_ref}",
@@ -143,6 +154,11 @@ async def build_nix_expr(
                 timeout=timeout,
             )
             return Path(result.stdout.splitlines()[0])
+    except CommandTimeoutError as e:
+        raise BuildError(
+            f"Build timeout for Nix expression after {timeout}s",
+            logs=e.combined,
+        ) from e
     except SubprocessError as e:
         raise BuildError(
             "Failed to build Nix expression",
@@ -189,6 +205,11 @@ async def install_gcroots(
             await try_captured(*args, timeout=timeout)
         else:
             await try_captured(*args)
+    except CommandTimeoutError as e:
+        raise InstallGCRootError(
+            f"GC root installation timeout after {timeout}s",
+            logs=e.combined,
+        ) from e
     except SubprocessError as e:
         raise InstallGCRootError(
             "Failed to install garbage collection root",
@@ -212,6 +233,11 @@ async def install_result_link(
             package_path,
             timeout=NIX_BUILD_TIMEOUT,
         )
+    except CommandTimeoutError as e:
+        raise InstallResultLinkError(
+            f"Result link installation timeout after {NIX_BUILD_TIMEOUT}s",
+            logs=e.combined,
+        ) from e
     except SubprocessError as e:
         raise InstallResultLinkError(
             "Failed to install /nix/var/result symlink",
