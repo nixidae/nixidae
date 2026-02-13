@@ -131,6 +131,12 @@ class CleanupStaleEntriesError(CSIError):
     reason = "CleanupStaleEntries"
 
 
+class FailedVolumeCleanupError(CSIError):
+    """Error cleaning up resources after a failed volume operation."""
+
+    reason = "FailedVolumeCleanup"
+
+
 class PodUIDMismatchError(CSIError):
     """Pod UID in request does not match pod metadata."""
 

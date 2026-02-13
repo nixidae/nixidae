@@ -3,7 +3,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .errors import MountError, UnmountError
+from .errors import FailedVolumeCleanupError, MountError, UnmountError
 
 from .constants import (
     CSI_GCROOTS,
@@ -126,8 +126,19 @@ async def mount_volume(
 
 def cleanup_failed_volume(gc_root: Path, volume_root: Path) -> None:
     """Clean up resources after a failed volume operation."""
-    shutil.rmtree(gc_root, ignore_errors=True)
-    shutil.rmtree(volume_root, ignore_errors=True)
+    failed_paths = []
+    for path in [gc_root, volume_root]:
+        if path.exists():
+            try:
+                shutil.rmtree(path)
+            except Exception as e:
+                failed_paths.append(f"{path}: {e}")
+
+    if failed_paths:
+        raise FailedVolumeCleanupError(
+            "Failed to clean up volume resources",
+            logs="\n".join(failed_paths),
+        )
 
 
 async def is_mount(path: Path) -> bool:
