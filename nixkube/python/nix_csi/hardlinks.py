@@ -39,7 +39,15 @@ def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
             target = dst / store_path.name
             if target.exists():
                 continue  # already copied (deduplication across volumes)
-            hardlink_tree(store_path, target)
+            try:
+                hardlink_tree(store_path, target)
+            except Exception as e:
+                raise HardlinkClosureError(
+                    f"Failed to hardlink {store_path.name}",
+                    logs=str(e),
+                ) from e
+    except HardlinkClosureError:
+        raise
     except Exception as e:
         raise HardlinkClosureError(
             "Failed to hardlink store paths to volume",
