@@ -282,7 +282,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 # Attach pod_info to exception for decorator to emit pod-specific event
                 e.pod_info = pod_info
                 raise
-            except Exception as e:
+            except Exception:
                 cleanup_failed_volume(gc_root, volume_root)
                 raise
 

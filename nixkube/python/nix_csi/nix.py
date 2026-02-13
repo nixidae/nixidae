@@ -210,6 +210,7 @@ async def install_result_link(
             "--out-link",
             volume_root / "nix/var/result",
             package_path,
+            timeout=NIX_BUILD_TIMEOUT,
         )
     except SubprocessError as e:
         raise InstallResultLinkError(
