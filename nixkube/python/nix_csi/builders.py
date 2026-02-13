@@ -18,10 +18,14 @@ async def get_builder_uris() -> list[str]:
         async for pod in kr8s.asyncio.get(
             "pods", namespace=NAMESPACE, label_selector="app.kubernetes.io/name=builder"
         ):
-            if pod.status.phase == "Running":
-                pod_name = pod.metadata.name
-                uri = f"ssh://nix@{pod_name}.{BUILDERS_SERVICE}.{NAMESPACE}.svc.cluster.local"
-                uris.append(uri)
+            try:
+                if pod["status"]["phase"] == "Running":
+                    pod_name = pod["metadata"]["name"]
+                    uri = f"ssh-ng://nix@{pod_name}.{BUILDERS_SERVICE}.{NAMESPACE}.svc.cluster.local"
+                    uris.append(uri)
+            except (KeyError, TypeError):
+                # Skip pods with missing or malformed metadata
+                continue
 
         logger.debug(f"Discovered {len(uris)} builder pods: {uris}")
         return uris
