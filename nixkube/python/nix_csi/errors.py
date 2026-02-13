@@ -138,22 +138,16 @@ class PodUIDMismatchError(CSIError):
 
 
 # Build operation errors
-class PathBuildError(CSIError):
-    """Error building a store path directly."""
+class BuildError(CSIError):
+    """Error building a package (store path, flake, or expression)."""
 
-    reason = "PathBuild"
-
-
-class FlakeBuildError(CSIError):
-    """Error building from a flake reference."""
-
-    reason = "FlakeBuild"
+    reason = "Build"
 
 
-class ExprBuildError(CSIError):
-    """Error evaluating a Nix expression."""
-
-    reason = "ExprBuild"
+# Backwards compatibility
+PathBuildError = BuildError
+FlakeBuildError = BuildError
+ExprBuildError = BuildError
 
 
 class SystemDetectionError(CSIError):

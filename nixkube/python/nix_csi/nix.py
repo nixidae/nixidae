@@ -3,12 +3,10 @@ from pathlib import Path
 
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
-    ExprBuildError,
-    FlakeBuildError,
+    BuildError,
     InitDatabaseError,
     InstallGCRootError,
     InstallResultLinkError,
-    PathBuildError,
     StorePathClosureError,
     SubprocessError,
     SystemDetectionError,
@@ -89,7 +87,7 @@ async def build_store_path(
         )
         return Path(result.stdout.splitlines()[0])
     except SubprocessError as e:
-        raise PathBuildError(
+        raise BuildError(
             f"Failed to build store path {store_path}",
             logs=e.combined,
         ) from e
@@ -115,7 +113,7 @@ async def build_flake_ref(
         )
         return Path(result.stdout.splitlines()[0])
     except SubprocessError as e:
-        raise FlakeBuildError(
+        raise BuildError(
             f"Failed to build flake {flake_ref}",
             logs=e.combined,
         ) from e
@@ -146,8 +144,8 @@ async def build_nix_expr(
             )
             return Path(result.stdout.splitlines()[0])
     except SubprocessError as e:
-        raise ExprBuildError(
-            "Failed to evaluate Nix expression",
+        raise BuildError(
+            "Failed to build Nix expression",
             logs=e.combined,
         ) from e
 
