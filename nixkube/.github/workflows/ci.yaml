@@ -99,10 +99,10 @@ jobs:
 
           echo "Found $MOUNT_EVENTS successful NixVolumeMount events"
 
-          # Show event details
-          echo "$EVENTS" | jq '.items[] |
+          # Show event details: pod name and message with timing
+          echo "$EVENTS" | jq -r '.items[] |
             select(.reason == "NixVolumeMount" and .type == "Normal") |
-            {pod: .regarding.name, message: .note}'
+            "  - \(.involvedObject.name): \(.message)"'
 
           if [ "$MOUNT_EVENTS" -lt 3 ]; then
             echo "ERROR: Expected at least 3 mount events, found $MOUNT_EVENTS"
@@ -119,16 +119,16 @@ jobs:
           echo "=== Checking error events ==="
           EVENTS=$(kubectl get events -n nix-csi -o json)
 
-          # Check for the three expected error reasons
-          for reason in "PathBuild" "FlakeBuild" "ExprBuild"; do
+          # Check for the three expected error reasons (with Nix prefix)
+          for reason in "NixPathBuild" "NixFlakeBuild" "NixExprBuild"; do
             count=$(echo "$EVENTS" | jq --arg r "$reason" '[.items[] |
               select(.reason == $r and .type == "Warning")] | length')
             echo "Found $count '$reason' error event(s)"
 
             # Show details of the errors
-            echo "$EVENTS" | jq --arg r "$reason" '.items[] |
+            echo "$EVENTS" | jq --arg r "$reason" -r '.items[] |
               select(.reason == $r and .type == "Warning") |
-              {pod: .regarding.name, reason: .reason, message: .note}' || true
+              "  - \(.involvedObject.name): \(.message)"' || true
           done
 
       - name: Print node logs
