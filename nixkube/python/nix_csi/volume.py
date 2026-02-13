@@ -41,13 +41,6 @@ async def prepare_volume(
     # This block is essentially nix copy into a chroot store with
     # extra steps. (Hardlinking instead of dumbcopying)
 
-    # Install CSI gcroots with single batch build
-    await install_gcroots(
-        package_paths,
-        gc_root / "csi",
-        timeout=NIX_BUILD_TIMEOUT,
-    )
-
     # Verify all storepaths before hardlinking to detect corruption early
     if VERIFY_STORE_PATHS:
         await verify_store_paths(store_paths)
@@ -67,6 +60,7 @@ async def prepare_volume(
         package_paths,
         NIX_STATE_DIR / "gcroots" / "csi",
         store=volume_root,
+        timeout=NIX_BUILD_TIMEOUT,
     )
 
     # Install /nix/var/result in container using chroot store

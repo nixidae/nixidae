@@ -155,7 +155,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 logger.debug(f"{store_path=}")
                 result = await build_store_path(
                     store_path,
-                    gc_root,
+                    gc_root / "primary",
                     extra_args,
                     timeout=NIX_BUILD_TIMEOUT,
                 )
@@ -166,7 +166,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 logger.debug(f"{flake_ref=}")
                 result = await build_flake_ref(
                     flake_ref,
-                    gc_root,
+                    gc_root / "primary",
                     extra_args,
                     timeout=NIX_BUILD_TIMEOUT,
                 )
@@ -177,7 +177,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 logger.debug(f"{nix_expr=}")
                 result = await build_nix_expr(
                     nix_expr,
-                    gc_root,
+                    gc_root / "primary",
                     extra_args,
                     timeout=NIX_BUILD_TIMEOUT,
                 )
