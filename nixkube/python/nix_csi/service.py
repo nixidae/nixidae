@@ -11,19 +11,17 @@ from functools import wraps
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server, Stream
-from kr8s.asyncio.objects import Pod
 from pathlib import Path
 
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
-from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_NODE_NAME, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE, NIX_BUILD_TIMEOUT
-from .errors import CSIError, PodUIDMismatchError, RemoveVolumeDirError, CleanupStaleEntriesError
+from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_NODE_NAME, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE
+from .errors import CSIError, RemoveVolumeDirError, CleanupStaleEntriesError
 from .events import report_event
 from .models import PodInfo
 from .identityservicer import IdentityServicer
-from .nix import build_flake_ref, build_nix_expr, build_store_path, get_current_system
-from .store import extract_store_paths_set
+from .nix import build_primary_package, build_pod_packages, get_current_system
 from .volume import (
     cleanup_failed_volume,
     is_mount,
@@ -97,94 +95,6 @@ class NodeServicer(csi_grpc.NodeBase):
 
         return extra_args
 
-    async def _build_pod_packages(
-        self,
-        pod_info: PodInfo,
-        gc_root: Path,
-        extra_args: list[str],
-    ) -> list[Path]:
-        """Extract and batch build packages referenced in the pod spec."""
-        from .subprocessing import try_captured
-
-        pod = await Pod.get(pod_info.name, pod_info.namespace)
-        if pod.metadata.uid != pod_info.uid:
-            raise PodUIDMismatchError(
-                f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
-            )
-
-        pod_store_paths = list(extract_store_paths_set(pod.raw))
-
-        if not pod_store_paths:
-            return []
-
-        # Batch build all extracted packages with single nix build call
-        args: list[str | Path] = ["nix", "build"]
-        args.extend(extra_args)
-        args.extend(["--out-link", gc_root / "extracted"])
-        args.extend(pod_store_paths)
-
-        try:
-            await try_captured(*args, timeout=NIX_BUILD_TIMEOUT)
-        except Exception as e:
-            logger.error(f"Failed to build pod packages: {e}")
-            raise
-
-        logger.debug(f"Built {len(pod_store_paths)} extracted packages")
-        return pod_store_paths
-
-    async def _build_primary_package(
-        self,
-        store_path: str | None,
-        flake_ref: str | None,
-        nix_expr: str | None,
-        gc_root: Path,
-        extra_args: list[str],
-    ) -> Path | None:
-        """
-        Build the primary package from various sources.
-
-        Source selection order (intentional, documented in README):
-        1. storePath - if present, use directly
-        2. flakeRef - if storePath not present, build flake
-        3. nixExpr - if neither above present, evaluate expression
-
-        Users can specify multiple; first non-None in priority order is used.
-        """
-        if store_path is not None:
-            async with self.volumeLocks[store_path]:
-                logger.debug(f"{store_path=}")
-                result = await build_store_path(
-                    store_path,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
-                return result
-
-        if flake_ref is not None:
-            async with self.volumeLocks[flake_ref]:
-                logger.debug(f"{flake_ref=}")
-                result = await build_flake_ref(
-                    flake_ref,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
-                return result
-
-        if nix_expr is not None:
-            async with self.volumeLocks[nix_expr]:
-                logger.debug(f"{nix_expr=}")
-                result = await build_nix_expr(
-                    nix_expr,
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
-                return result
-
-        return None
-
     @csi_error_handler
     async def NodePublishVolume(
         self,
@@ -225,24 +135,32 @@ class NodeServicer(csi_grpc.NodeBase):
 
             # Build primary package from volume attributes
             try:
-                primary_package = await self._build_primary_package(
-                    request.volume_context.get(self.system),
-                    request.volume_context.get("flakeRef"),
-                    request.volume_context.get("nixExpr"),
-                    gc_root,
-                    extra_args,
-                )
+                store_path = request.volume_context.get(self.system)
+                flake_ref = request.volume_context.get("flakeRef")
+                nix_expr = request.volume_context.get("nixExpr")
+
+                # Use first non-None value as lock key (same priority as build_primary_package)
+                lock_key = store_path or flake_ref or nix_expr or "null"
+                async with self.volumeLocks[lock_key]:
+                    primary_package = await build_primary_package(
+                        store_path,
+                        flake_ref,
+                        nix_expr,
+                        gc_root,
+                        extra_args,
+                    )
             except CSIError as e:
                 e.pod_info = pod_info
                 raise
 
             # Build packages from pod spec
             try:
-                package_paths = await self._build_pod_packages(
-                    pod_info,
-                    gc_root,
-                    extra_args,
-                )
+                async with self.volumeLocks[pod_info.uid]:
+                    package_paths = await build_pod_packages(
+                        pod_info,
+                        gc_root,
+                        extra_args,
+                    )
             except CSIError as e:
                 e.pod_info = pod_info
                 raise

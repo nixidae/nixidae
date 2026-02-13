@@ -1,5 +1,8 @@
+import logging
 import tempfile
 from pathlib import Path
+
+from kr8s.asyncio.objects import Pod
 
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
@@ -8,13 +11,17 @@ from .errors import (
     InitDatabaseError,
     InstallGCRootError,
     InstallResultLinkError,
+    PodUIDMismatchError,
     StorePathClosureError,
     SubprocessError,
     SystemDetectionError,
     VerifyStorePathsError,
 )
-from .store import extract_store_name
+from .models import PodInfo
+from .store import extract_store_name, extract_store_paths_set
 from .subprocessing import try_captured, try_console
+
+logger = logging.getLogger("nix-csi")
 
 
 async def get_current_system() -> str:
@@ -243,3 +250,83 @@ async def install_result_link(
             "Failed to install /nix/var/result symlink",
             logs=e.combined,
         ) from e
+
+
+async def build_pod_packages(
+    pod_info: PodInfo,
+    gc_root: Path,
+    extra_args: list[str],
+) -> list[Path]:
+    """Extract and batch build packages referenced in the pod spec."""
+    pod = await Pod.get(pod_info.name, pod_info.namespace)
+    if pod.metadata.uid != pod_info.uid:
+        raise PodUIDMismatchError(
+            f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
+        )
+
+    pod_store_paths = list(extract_store_paths_set(pod.raw))
+
+    if not pod_store_paths:
+        return []
+
+    # Batch build all extracted packages with single nix build call
+    args: list[str | Path] = ["nix", "build"]
+    args.extend(extra_args)
+    args.extend(["--out-link", gc_root / "extracted"])
+    args.extend(pod_store_paths)
+
+    try:
+        await try_captured(*args, timeout=NIX_BUILD_TIMEOUT)
+    except Exception as e:
+        logger.error(f"Failed to build pod packages: {e}")
+        raise
+
+    logger.debug(f"Built {len(pod_store_paths)} extracted packages")
+    return [Path(p) for p in pod_store_paths]
+
+
+async def build_primary_package(
+    store_path: str | None,
+    flake_ref: str | None,
+    nix_expr: str | None,
+    gc_root: Path,
+    extra_args: list[str],
+) -> Path | None:
+    """
+    Build the primary package from various sources.
+
+    Source selection order (intentional, documented in README):
+    1. storePath - if present, use directly
+    2. flakeRef - if storePath not present, build flake
+    3. nixExpr - if neither above present, evaluate expression
+
+    Users can specify multiple; first non-None in priority order is used.
+    """
+    if store_path is not None:
+        logger.debug(f"{store_path=}")
+        return await build_store_path(
+            store_path,
+            gc_root,
+            extra_args,
+            timeout=NIX_BUILD_TIMEOUT,
+        )
+
+    if flake_ref is not None:
+        logger.debug(f"{flake_ref=}")
+        return await build_flake_ref(
+            flake_ref,
+            gc_root,
+            extra_args,
+            timeout=NIX_BUILD_TIMEOUT,
+        )
+
+    if nix_expr is not None:
+        logger.debug(f"{nix_expr=}")
+        return await build_nix_expr(
+            nix_expr,
+            gc_root,
+            extra_args,
+            timeout=NIX_BUILD_TIMEOUT,
+        )
+
+    return None
