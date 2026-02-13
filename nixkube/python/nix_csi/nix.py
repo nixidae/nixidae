@@ -170,23 +170,27 @@ async def init_database(state_dir: Path, store_paths: list[str]) -> None:
         ) from e
 
 
-async def install_gcroot(
-    volume_root: Path,
-    package_path: Path,
-    name: str,
-    state_dir: Path,
+async def install_gcroots(
+    package_paths: list[Path],
+    out_link: Path,
+    store: Path | None = None,
+    timeout: float | None = None,
 ) -> None:
-    """Install a gc root in the chroot store."""
+    """Install gc roots with single batch build."""
+    if not package_paths:
+        return
+
     try:
-        await try_captured(
-            "nix",
-            "build",
-            "--store",
-            volume_root,
-            "--out-link",
-            state_dir / f"gcroots/{name}",
-            package_path,
-        )
+        args: list[str | Path] = ["nix", "build"]
+        if store is not None:
+            args.extend(["--store", store])
+        args.extend(["--out-link", out_link])
+        args.extend(package_paths)
+
+        if timeout is not None:
+            await try_captured(*args, timeout=timeout)
+        else:
+            await try_captured(*args)
     except SubprocessError as e:
         raise InstallGCRootError(
             "Failed to install garbage collection root",

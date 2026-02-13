@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import shutil
 import time
@@ -15,9 +14,8 @@ from .constants import (
     VERIFY_STORE_PATHS,
 )
 from .hardlinks import deref_hardlink_tree, hardlink_closure
-from .nix import get_closure_paths, init_database, install_gcroot, install_result_link, verify_store_paths
-from .store import extract_store_name
-from .subprocessing import run_captured, run_console, try_captured
+from .nix import get_closure_paths, init_database, install_gcroots, install_result_link, verify_store_paths
+from .subprocessing import run_captured, run_console
 
 
 async def prepare_volume(
@@ -40,25 +38,14 @@ async def prepare_volume(
     # Get storepaths from all packages
     store_paths = await get_closure_paths(package_paths)
 
-    # Pre-compute store names to avoid duplicate calls
-    package_names = {p: extract_store_name(p) for p in package_paths}
-
     # This block is essentially nix copy into a chroot store with
     # extra steps. (Hardlinking instead of dumbcopying)
 
-    # Install CSI gcroots (parallel since packages are independent)
-    await asyncio.gather(
-        *[
-            try_captured(
-                "nix",
-                "build",
-                "--out-link",
-                gc_root / package_names[package_path],
-                package_path,
-                timeout=NIX_BUILD_TIMEOUT,
-            )
-            for package_path in package_paths
-        ]
+    # Install CSI gcroots with single batch build
+    await install_gcroots(
+        package_paths,
+        gc_root / "csi",
+        timeout=NIX_BUILD_TIMEOUT,
     )
 
     # Verify all storepaths before hardlinking to detect corruption early
@@ -76,13 +63,10 @@ async def prepare_volume(
     # Install gcroots in container using chroot store. This is
     # required because the auto roots created for /nix/var/result
     # will point to Narnia while this one points into store.
-    await asyncio.gather(
-        *[
-            install_gcroot(
-                volume_root, package_path, package_names[package_path], NIX_STATE_DIR
-            )
-            for package_path in package_paths
-        ]
+    await install_gcroots(
+        package_paths,
+        NIX_STATE_DIR / "gcroots" / "csi",
+        store=volume_root,
     )
 
     # Install /nix/var/result in container using chroot store
