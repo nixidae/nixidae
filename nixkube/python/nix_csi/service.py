@@ -103,34 +103,34 @@ class NodeServicer(csi_grpc.NodeBase):
         gc_root: Path,
         extra_args: list[str],
     ) -> list[Path]:
-        """Extract and build packages referenced in the pod spec."""
+        """Extract and batch build packages referenced in the pod spec."""
+        from .subprocessing import try_captured
+
         pod = await Pod.get(pod_info.name, pod_info.namespace)
         if pod.metadata.uid != pod_info.uid:
             raise PodUIDMismatchError(
                 f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
             )
 
-        pod_store_paths = extract_store_paths_set(pod.raw)
+        pod_store_paths = list(extract_store_paths_set(pod.raw))
 
-        async def build_package(package_path: Path) -> Path:
-            logger.debug(f"{package_path=}")
-            async with self.volumeLocks[str(package_path)]:
-                return await build_store_path(
-                    str(package_path),
-                    gc_root,
-                    extra_args,
-                    timeout=NIX_BUILD_TIMEOUT,
-                )
+        if not pod_store_paths:
+            return []
 
-        # Build all packages in parallel
-        package_paths = await asyncio.gather(
-            *[build_package(package_path) for package_path in pod_store_paths]
-        )
+        # Batch build all extracted packages with single nix build call
+        args: list[str | Path] = ["nix", "build"]
+        args.extend(extra_args)
+        args.extend(["--out-link", gc_root / "extracted"])
+        args.extend(pod_store_paths)
 
-        if package_paths:
-            logger.debug(f"Extracted packages {package_paths=}")
+        try:
+            await try_captured(*args, timeout=NIX_BUILD_TIMEOUT)
+        except Exception as e:
+            logger.error(f"Failed to build pod packages: {e}")
+            raise
 
-        return package_paths
+        logger.debug(f"Built {len(pod_store_paths)} extracted packages")
+        return pod_store_paths
 
     async def _build_primary_package(
         self,

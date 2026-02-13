@@ -5,7 +5,6 @@ from pathlib import Path
 
 from .errors import MountError, UnmountError
 
-logger = logging.getLogger("nix-csi")
 from .constants import (
     CSI_GCROOTS,
     CSI_VOLUMES,
@@ -17,6 +16,7 @@ from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import get_closure_paths, init_database, install_gcroots, install_result_link, verify_store_paths
 from .subprocessing import run_captured, run_console
 
+logger = logging.getLogger("nix-csi")
 
 async def prepare_volume(
     volume_id: str,
