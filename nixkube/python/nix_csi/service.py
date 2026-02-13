@@ -223,10 +223,12 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_info = PodInfo(pod_name, pod_namespace, pod_uid)
             assert pod_info is not None
 
-            # Build packages from pod spec
+            # Build primary package from volume attributes
             try:
-                package_paths = await self._build_pod_packages(
-                    pod_info,
+                primary_package = await self._build_primary_package(
+                    request.volume_context.get(self.system),
+                    request.volume_context.get("flakeRef"),
+                    request.volume_context.get("nixExpr"),
                     gc_root,
                     extra_args,
                 )
@@ -234,12 +236,10 @@ class NodeServicer(csi_grpc.NodeBase):
                 e.pod_info = pod_info
                 raise
 
-            # Build primary package from volume attributes
+            # Build packages from pod spec
             try:
-                primary_package = await self._build_primary_package(
-                    request.volume_context.get(self.system),
-                    request.volume_context.get("flakeRef"),
-                    request.volume_context.get("nixExpr"),
+                package_paths = await self._build_pod_packages(
+                    pod_info,
                     gc_root,
                     extra_args,
                 )
