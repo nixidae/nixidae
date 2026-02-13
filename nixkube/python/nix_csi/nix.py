@@ -49,15 +49,15 @@ async def get_closure_paths(package_paths: list[Path]) -> list[str]:
         ) from e
 
 
-async def verify_store_paths(store_paths: list[str]) -> None:
-    """Verify the integrity of all store paths in the closure."""
+async def verify_store_paths(package_paths: list[Path]) -> None:
+    """Verify the integrity of all packages and their closures."""
     try:
         await try_captured(
             "nix",
             "store",
             "verify",
             "--recursive",
-            *store_paths,
+            *package_paths,
         )
     except SubprocessError as e:
         raise VerifyStorePathsError(

@@ -35,15 +35,15 @@ async def prepare_volume(
     NIX_STATE_DIR = volume_root / "nix/var/nix"
     NIX_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Verify all packages and their closures before processing
+    if VERIFY_STORE_PATHS:
+        await verify_store_paths(package_paths)
+
     # Get storepaths from all packages
     store_paths = await get_closure_paths(package_paths)
 
     # This block is essentially nix copy into a chroot store with
     # extra steps. (Hardlinking instead of dumbcopying)
-
-    # Verify all storepaths before hardlinking to detect corruption early
-    if VERIFY_STORE_PATHS:
-        await verify_store_paths(store_paths)
 
     # Copy closure to substore
     hardlink_start = time.perf_counter()
