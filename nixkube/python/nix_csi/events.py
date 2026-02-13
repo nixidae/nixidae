@@ -44,10 +44,13 @@ MAX_EVENT_NOTE_SIZE = 1000
 
 
 def _format_event_note(message: str, logs: str | None = None) -> str:
-    """Format and truncate event note, preserving message and truncating logs if needed.
+    """Format event note with message and logs, truncated to 1000 bytes.
+
+    Preserves the full message and truncates logs if needed.
+    Naturally handles UTF-8 multi-byte characters.
 
     Args:
-        message: Human-readable message (always preserved)
+        message: Human-readable message (must be < 1000 bytes)
         logs: Optional build/subprocess logs to append
 
     Returns:
@@ -55,29 +58,35 @@ def _format_event_note(message: str, logs: str | None = None) -> str:
     """
     message_bytes = message.encode()
 
+    # Message must fit within limit (defensive assertion)
+    assert len(message_bytes) <= MAX_EVENT_NOTE_SIZE, \
+        f"Message alone exceeds {MAX_EVENT_NOTE_SIZE} bytes: {len(message_bytes)}"
+
     if not logs:
-        # Just truncate message if needed
-        if len(message_bytes) <= MAX_EVENT_NOTE_SIZE:
-            return message
-        return message_bytes[:MAX_EVENT_NOTE_SIZE].decode(errors="ignore")
+        return message
 
-    # Both message and logs
-    combined = f"{message}\n{logs}"
-    combined_bytes = combined.encode()
+    # Calculate space available for logs (reserve space for newline separator)
+    available_for_logs = MAX_EVENT_NOTE_SIZE - len(message_bytes) - 1
 
-    if len(combined_bytes) <= MAX_EVENT_NOTE_SIZE:
-        return combined
+    # Take last 1000 characters of logs (most recent/relevant)
+    if len(logs) > 1000:
+        logs = logs[-1000:]
 
-    # Message fits, truncate logs to make room
-    available_for_logs = MAX_EVENT_NOTE_SIZE - len(message_bytes) - 1  # -1 for newline
-    if available_for_logs > 0:
+    # Trim logs from start until they fit in available space
+    logs_bytes = logs.encode()
+    while len(logs_bytes) > available_for_logs and len(logs) > 0:
+        excess_bytes = len(logs_bytes) - available_for_logs
+        logs = logs[excess_bytes:]  # Remove first excess_bytes chars
         logs_bytes = logs.encode()
-        # Keep the last part of logs (most relevant)
-        truncated_logs = logs_bytes[-available_for_logs:].decode(errors="ignore")
-        return f"{message}\n{truncated_logs}"
 
-    # Message alone takes most space, just return truncated message
-    return message_bytes[:MAX_EVENT_NOTE_SIZE].decode(errors="ignore")
+    # Combine and verify final size (defensive assertion)
+    result = f"{message}\n{logs}"
+    result_bytes = result.encode()
+
+    assert len(result_bytes) <= MAX_EVENT_NOTE_SIZE, \
+        f"Failed to truncate event note to {MAX_EVENT_NOTE_SIZE} bytes: {len(result_bytes)}"
+
+    return result
 
 
 def _extract_build_logs(exception: Exception) -> str:
