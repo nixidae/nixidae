@@ -59,8 +59,9 @@ def _format_event_note(message: str, logs: str | None = None) -> str:
     message_bytes = message.encode()
 
     # Message must fit within limit (defensive assertion)
-    assert len(message_bytes) <= MAX_EVENT_NOTE_SIZE, \
+    assert len(message_bytes) <= MAX_EVENT_NOTE_SIZE, (
         f"Message alone exceeds {MAX_EVENT_NOTE_SIZE} bytes: {len(message_bytes)}"
+    )
 
     if not logs:
         return message
@@ -83,8 +84,9 @@ def _format_event_note(message: str, logs: str | None = None) -> str:
     result = f"{message}\n{logs}"
     result_bytes = result.encode()
 
-    assert len(result_bytes) <= MAX_EVENT_NOTE_SIZE, \
+    assert len(result_bytes) <= MAX_EVENT_NOTE_SIZE, (
         f"Failed to truncate event note to {MAX_EVENT_NOTE_SIZE} bytes: {len(result_bytes)}"
+    )
 
     return result
 
@@ -184,9 +186,7 @@ async def report_event(
                 # Generate event name using hash of pod uid and reason
                 # This ensures the same event (same pod + reason) gets the same name
                 # so we can find and patch it to update series when it recurs
-                event_hash = hashlib.md5(
-                    f"{pod.uid}{reason}".encode()
-                ).hexdigest()[:8]
+                event_hash = hashlib.md5(f"{pod.uid}{reason}".encode()).hexdigest()[:8]
                 event_name = f"{pod.name}.{event_hash}"
 
                 event_spec = {

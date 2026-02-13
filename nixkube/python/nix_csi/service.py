@@ -16,7 +16,15 @@ from pathlib import Path
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
-from .constants import CSI_GCROOTS, CSI_SOCKET_PATH, CSI_VOLUMES, KUBE_NODE_NAME, KUBE_POD_NAME, KUBE_POD_UID, NAMESPACE
+from .constants import (
+    CSI_GCROOTS,
+    CSI_SOCKET_PATH,
+    CSI_VOLUMES,
+    KUBE_NODE_NAME,
+    KUBE_POD_NAME,
+    KUBE_POD_UID,
+    NAMESPACE,
+)
 from .errors import CSIError, RemoveVolumeDirError, CleanupStaleEntriesError
 from .events import report_event
 from .models import PodInfo
@@ -42,7 +50,9 @@ def csi_error_handler(func):
             logger.exception(f"{func.__name__} failed")
 
             # Default to CSI pod info if not provided
-            csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+            csi_pod_info = PodInfo(
+                name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID
+            )
 
             # Emit events for all exceptions
             if isinstance(e, CSIError):
@@ -210,9 +220,11 @@ class NodeServicer(csi_grpc.NodeBase):
             if primary_package is not None:
                 task = asyncio.create_task(copy_to_cache(primary_package))
                 task.add_done_callback(
-                    lambda t: logger.error(f"copy_to_cache failed: {t.exception()}")
-                    if t.exception()
-                    else None
+                    lambda t: (
+                        logger.error(f"copy_to_cache failed: {t.exception()}")
+                        if t.exception()
+                        else None
+                    )
                 )
 
     @csi_error_handler
@@ -224,7 +236,9 @@ class NodeServicer(csi_grpc.NodeBase):
     ) -> None:
         request = await stream.recv_message()
         if request is None:
-            raise GRPCError(Status.INVALID_ARGUMENT, "NodeUnpublishVolumeRequest is None")
+            raise GRPCError(
+                Status.INVALID_ARGUMENT, "NodeUnpublishVolumeRequest is None"
+            )
 
         logger.info(
             "Unpublishing volume",
@@ -284,7 +298,9 @@ class NodeServicer(csi_grpc.NodeBase):
     ) -> None:
         request = await stream.recv_message()
         if request is None:
-            raise GRPCError(Status.INVALID_ARGUMENT, "NodeGetCapabilitiesRequest is None")
+            raise GRPCError(
+                Status.INVALID_ARGUMENT, "NodeGetCapabilitiesRequest is None"
+            )
         await stream.send_message(csi_pb2.NodeGetCapabilitiesResponse(capabilities=[]))
 
     @csi_error_handler
@@ -318,7 +334,9 @@ async def serve():
         system = await get_current_system()
     except CSIError as e:
         # Report event for CSI pod system detection failure
-        csi_pod_info = PodInfo(name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID)
+        csi_pod_info = PodInfo(
+            name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID
+        )
         await report_event(
             csi_pod_info,
             reason=e.reason,

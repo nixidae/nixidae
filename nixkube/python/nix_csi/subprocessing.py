@@ -116,9 +116,7 @@ async def run_console(
 
     # Also log slow commands to main logger
     if elapsed_time > 5:
-        logger.info(
-            f"Slow command executed in {elapsed_time:.2f}s: {cmd_str}"
-        )
+        logger.info(f"Slow command executed in {elapsed_time:.2f}s: {cmd_str}")
 
     if proc.returncode is None:
         raise RuntimeError("Process returncode is None after wait()")

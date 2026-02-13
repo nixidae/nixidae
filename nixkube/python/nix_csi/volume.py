@@ -13,10 +13,17 @@ from .constants import (
     VERIFY_STORE_PATHS,
 )
 from .hardlinks import deref_hardlink_tree, hardlink_closure
-from .nix import get_closure_paths, init_database, install_gcroots, install_result_link, verify_store_paths
+from .nix import (
+    get_closure_paths,
+    init_database,
+    install_gcroots,
+    install_result_link,
+    verify_store_paths,
+)
 from .subprocessing import run_captured, run_console
 
 logger = logging.getLogger("nix-csi")
+
 
 async def prepare_volume(
     volume_id: str,
@@ -48,7 +55,9 @@ async def prepare_volume(
     # Copy closure to substore
     hardlink_start = time.perf_counter()
     hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
-    logger.debug(f"Hardlinked {len(store_paths)} paths in {time.perf_counter() - hardlink_start:.2f}s")
+    logger.debug(
+        f"Hardlinked {len(store_paths)} paths in {time.perf_counter() - hardlink_start:.2f}s"
+    )
 
     # Create Nix database
     await init_database(NIX_STATE_DIR, store_paths)
@@ -69,7 +78,9 @@ async def prepare_volume(
         # Create hardlink farm of primary package to volume_root
         deref_start = time.perf_counter()
         deref_hardlink_tree(primary_package, volume_root)
-        logger.debug(f"Dereferenced hardlink tree in {time.perf_counter() - deref_start:.2f}s")
+        logger.debug(
+            f"Dereferenced hardlink tree in {time.perf_counter() - deref_start:.2f}s"
+        )
 
     return volume_root
 

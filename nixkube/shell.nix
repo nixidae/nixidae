@@ -22,6 +22,7 @@ pkgs.mkShell {
     pkgs.python3Packages.python-lsp-server
     pkgs.regctl
     pkgs.ruff
+    pkgs.ty
     pkgs.skopeo
     pkgs.stern
     (default.inputs.treefmt-nix.lib.mkWrapper pkgs {
