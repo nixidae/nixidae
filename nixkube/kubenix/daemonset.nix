@@ -142,7 +142,7 @@ in
                     };
                   };
                   csi-node-driver-registrar = {
-                    image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0";
+                    image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0";
                     args = [
                       "--v=5"
                       "--csi-address=/csi/csi.sock"
