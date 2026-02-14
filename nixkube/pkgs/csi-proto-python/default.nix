@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 # Credits to Claude Sonnet 3.7
 {
   lib,

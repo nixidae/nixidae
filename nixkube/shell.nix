@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 let
   default = import ./. { };
   inherit (default) pkgs;

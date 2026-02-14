@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 { pkgs }:
 let
   version = "1.0.1";

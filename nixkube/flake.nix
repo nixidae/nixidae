@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

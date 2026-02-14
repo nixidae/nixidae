@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 {
   buildPythonApplication, # Builder
   hatchling, # Build system

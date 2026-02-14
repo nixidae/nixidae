@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 self: pkgs: {
   # Overlay lib
   lib = pkgs.lib.extend (import ../lib);

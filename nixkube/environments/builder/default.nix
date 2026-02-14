@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 # Builder environment for distributed builds
 # Runs openssh for accepting build requests from CSI pods
 #
