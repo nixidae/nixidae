@@ -88,14 +88,12 @@ async def run_console(
             # Continue - proc.wait() will still complete and we'll get returncode
 
     try:
-        await asyncio.wait_for(
-            asyncio.gather(
+        async with asyncio.timeout(timeout):
+            await asyncio.gather(
                 stream_output(proc.stdout, stdout_data),
                 stream_output(proc.stderr, stderr_data),
                 proc.wait(),
-            ),
-            timeout=timeout,
-        )
+            )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
