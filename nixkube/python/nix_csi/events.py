@@ -4,29 +4,28 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 
-from kr8s.asyncio.objects import new_class
+from kr8s.asyncio.objects import Pod, new_class
 
 from .constants import KUBE_POD_NAME
 from .errors import CSIError
-from .models import PodInfo
 
 logger = logging.getLogger("nix-csi")
 
 
 async def emit_event_for_exception(
-    pod_info: PodInfo,
+    pod: Pod,
     exception: CSIError,
     event_type: str = "Warning",
 ) -> None:
     """Emit a Kubernetes event for a CSIError exception.
 
     Args:
-        pod_info: Pod information for event targeting
+        pod: Kubernetes Pod object for event targeting
         exception: CSIError with reason and logs
         event_type: "Normal" or "Warning" (default: "Warning")
     """
     await report_event(
-        pod_info,
+        pod,
         reason=exception.reason,
         note=exception.message,
         logs=exception.logs,
@@ -105,7 +104,7 @@ def _extract_build_logs(exception: Exception) -> str:
 
 
 async def report_event(
-    pod: PodInfo,
+    pod: Pod,
     reason: str,
     note: str | None = None,
     event_type: str = "Normal",
@@ -139,7 +138,7 @@ async def report_event(
     # Ensure reason is prefixed with "Nix" if not already
     if not reason.startswith("Nix"):
         reason = f"Nix{reason}"
-    logger.debug(f"report_event: {reason} for pod {pod.name}")
+    logger.debug(f"report_event: {reason} for pod {pod.metadata.name}")
     try:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
@@ -151,9 +150,9 @@ async def report_event(
         try:
             events = []
             async for event in ModernEvent.list(
-                namespace=pod.namespace,
+                namespace=pod.metadata.namespace,
                 field_selector={
-                    "regarding.uid": pod.uid,
+                    "regarding.uid": pod.metadata.uid,
                     "reason": reason,
                 },
             ):
@@ -177,7 +176,7 @@ async def report_event(
 
                 await event.patch()
                 logger.debug(
-                    f"Incremented event {reason} for pod {pod.name}",
+                    f"Incremented event {reason} for pod {pod.metadata.name}",
                     extra={"count": event["series"]["count"]},
                 )
             except Exception as e:
@@ -188,13 +187,13 @@ async def report_event(
                 # Generate event name using hash of pod uid and reason
                 # This ensures the same event (same pod + reason) gets the same name
                 # so we can find and patch it to update series when it recurs
-                event_hash = hashlib.md5(f"{pod.uid}{reason}".encode()).hexdigest()[:8]
-                event_name = f"{pod.name}.{event_hash}"
+                event_hash = hashlib.md5(f"{pod.metadata.uid}{reason}".encode()).hexdigest()[:8]
+                event_name = f"{pod.metadata.name}.{event_hash}"
 
                 event_spec = {
                     "metadata": {
                         "name": event_name,
-                        "namespace": pod.namespace,
+                        "namespace": pod.metadata.namespace,
                     },
                     "type": event_type,
                     "reason": reason,
@@ -202,19 +201,19 @@ async def report_event(
                     "regarding": {
                         "apiVersion": "v1",
                         "kind": "Pod",
-                        "name": pod.name,
-                        "namespace": pod.namespace,
-                        "uid": pod.uid,
+                        "name": pod.metadata.name,
+                        "namespace": pod.metadata.namespace,
+                        "uid": pod.metadata.uid,
                     },
                     "reportingController": "nix-csi",
                     "reportingInstance": KUBE_POD_NAME,
                     "note": final_note,
                     "eventTime": now_iso,
                 }
-                event = await ModernEvent(event_spec, namespace=pod.namespace)
+                event = await ModernEvent(event_spec, namespace=pod.metadata.namespace)
                 await event.create()
                 logger.debug(
-                    f"Created event {reason} for pod {pod.name}",
+                    f"Created event {reason} for pod {pod.metadata.name}",
                 )
             except Exception as e:
                 logger.warning(f"Failed to create event: {e}")

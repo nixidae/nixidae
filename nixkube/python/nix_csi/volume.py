@@ -37,7 +37,7 @@ async def prepare_volume(
 
     Returns the volume_root path.
     """
-    gc_root = CSI_GCROOTS / volume_id
+    (CSI_GCROOTS / volume_id).mkdir(parents=True, exist_ok=True)
     volume_root = CSI_VOLUMES / volume_id
 
     # Capitalized to emphasise they're Nix environment variables

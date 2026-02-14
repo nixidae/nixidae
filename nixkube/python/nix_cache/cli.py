@@ -6,16 +6,14 @@ import os
 import kr8s
 import argparse
 import logging
-import textwrap
 from pathlib import Path
-from nix_csi.subprocessing import run_captured
 
 
 async def update_machines(namespace: str):
     """Fetches builder pod info and atomically updates the nix machines file."""
     try:
         builder_nodes = {
-            node.name: node
+            node["metadata"]["name"]: node
             async for node in kr8s.asyncio.get(
                 "nodes", label_selector="nix.csi/builder"
             )
@@ -33,25 +31,25 @@ async def update_machines(namespace: str):
         async for pod in kr8s.asyncio.get(
             "pods", namespace=namespace, label_selector={"app": "nix-csi-node"}
         ):
-            node_name = pod.spec.nodeName
+            node_name = pod["spec"]["nodeName"]
             if node := builder_nodes.get(node_name):
-                k8s_arch = node.metadata.labels.get("kubernetes.io/arch")
+                k8s_arch = node["metadata"]["labels"].get("kubernetes.io/arch")
                 if not k8s_arch:
                     logging.warning(
-                        f"Node '{node_name}' missing 'kubernetes.io/arch' label. Skipping pod '{pod.name}'."
+                        f"Node '{node_name}' missing 'kubernetes.io/arch' label. Skipping pod '{pod["metadata"]["name"]}'."
                     )
                     continue
 
                 nix_arch = arch_map.get(k8s_arch)
                 if not nix_arch:
                     logging.warning(
-                        f"Unhandled architecture '{k8s_arch}' for node '{node_name}'. Skipping pod '{pod.name}'."
+                        f"Unhandled architecture '{k8s_arch}' for node '{node_name}'. Skipping pod '{pod["metadata"]["name"]}'."
                     )
                     continue
 
                 # Cluster internal DNS search-domain will sort out the full name
                 builders.append(
-                    f"ssh-ng://{pod.metadata['name']}.{os.environ['BUILDERS_SERVICE_NAME']}?trusted=1 {nix_arch}"
+                    f"ssh-ng://{pod["metadata"]["name"]}.{os.environ['BUILDERS_SERVICE_NAME']}?trusted=1 {nix_arch}"
                 )
 
         machines_path = Path("/etc/machines")

@@ -13,13 +13,11 @@ from .errors import (
     InitDatabaseError,
     InstallGCRootError,
     InstallResultLinkError,
-    PodUIDMismatchError,
     StorePathClosureError,
     SubprocessError,
     SystemDetectionError,
     VerifyStorePathsError,
 )
-from .models import PodInfo
 from .store import extract_store_name, extract_store_paths_set
 from .subprocessing import try_captured, try_console
 
@@ -255,17 +253,11 @@ async def install_result_link(
 
 
 async def build_pod_packages(
-    pod_info: PodInfo,
+    pod: Pod,
     gc_root: Path,
     extra_args: list[str],
 ) -> list[Path]:
     """Extract and batch build packages referenced in the pod spec."""
-    pod = await Pod.get(pod_info.name, pod_info.namespace)
-    if pod.metadata.uid != pod_info.uid:
-        raise PodUIDMismatchError(
-            f"Pod UID mismatch: expected {pod_info.uid}, got {pod.metadata.uid}"
-        )
-
     pod_store_paths = list(extract_store_paths_set(pod.raw))
 
     if not pod_store_paths:

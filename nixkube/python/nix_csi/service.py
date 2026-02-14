@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import socket
 import time
 
@@ -13,6 +12,7 @@ from functools import wraps
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server, Stream
+from kr8s.asyncio.objects import Pod
 from pathlib import Path
 
 from .builders import build_builder_args, get_builder_uris
@@ -24,12 +24,10 @@ from .constants import (
     CSI_VOLUMES,
     KUBE_NODE_NAME,
     KUBE_POD_NAME,
-    KUBE_POD_UID,
     NAMESPACE,
 )
 from .errors import CSIError, RemoveVolumeDirError, CleanupStaleEntriesError
 from .events import report_event
-from .models import PodInfo
 from .identityservicer import IdentityServicer
 from .nix import build_primary_package, build_pod_packages, get_current_system
 from .volume import (
@@ -51,25 +49,21 @@ def csi_error_handler(func):
         except Exception as e:
             logger.exception(f"{func.__name__} failed")
 
-            # Default to CSI pod info if not provided
-            csi_pod_info = PodInfo(
-                name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID
-            )
-
             # Emit events for all exceptions
             if isinstance(e, CSIError):
-                pod_info = e.pod_info if e.pod_info else csi_pod_info
-                await report_event(
-                    pod_info,
-                    reason=e.reason,
-                    note=e.message,
-                    logs=e.logs,
-                    event_type="Warning",
-                )
+                # CSIError should already have pod set from the operation
+                if e.pod:
+                    await report_event(
+                        e.pod,
+                        reason=e.reason,
+                        note=e.message,
+                        logs=e.logs,
+                        event_type="Warning",
+                    )
             else:
-                # Unexpected exception: emit CSI pod event
+                # Unexpected exception: emit CSI pod event (use pre-fetched pod from __init__)
                 await report_event(
-                    csi_pod_info,
+                    self.csi_pod,
                     reason="InternalError",
                     note=f"{func.__name__} failed: {type(e).__name__}",
                     logs=str(e),
@@ -87,8 +81,9 @@ def csi_error_handler(func):
 class NodeServicer(csi_grpc.NodeBase):
     volumeLocks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
 
-    def __init__(self, system: str):
+    def __init__(self, system: str, csi_pod: Pod):
         self.system = system
+        self.csi_pod = csi_pod
 
     async def _get_build_args(self) -> list[str]:
         """Get extra build arguments for builders and cache."""
@@ -138,12 +133,13 @@ class NodeServicer(csi_grpc.NodeBase):
             volume_root = CSI_VOLUMES / request.volume_id
             extra_args = await self._get_build_args()
 
-            # Extract pod info for event reporting
+            # Fetch pod for event reporting and package extraction
             pod_name = request.volume_context["csi.storage.k8s.io/pod.name"]
             pod_namespace = request.volume_context["csi.storage.k8s.io/pod.namespace"]
             pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
-            pod_info = PodInfo(pod_name, pod_namespace, pod_uid)
-            assert pod_info is not None
+            pod = await Pod.get(pod_name, namespace=pod_namespace)
+            # Validate that fetched pod matches the UID from volume context
+            assert pod.metadata.uid == pod_uid, f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
 
             # Build primary package from volume attributes
             try:
@@ -162,19 +158,19 @@ class NodeServicer(csi_grpc.NodeBase):
                         extra_args,
                     )
             except CSIError as e:
-                e.pod_info = pod_info
+                e.pod = pod
                 raise
 
             # Build packages from pod spec
             try:
-                async with self.volumeLocks[pod_info.uid]:
+                async with self.volumeLocks[pod_uid]:
                     package_paths = await build_pod_packages(
-                        pod_info,
+                        pod,
                         gc_root,
                         extra_args,
                     )
             except CSIError as e:
-                e.pod_info = pod_info
+                e.pod = pod
                 raise
 
             if primary_package is not None:
@@ -202,15 +198,15 @@ class NodeServicer(csi_grpc.NodeBase):
                 # Report successful mount with closure size and elapsed time
                 elapsed = time.perf_counter() - start_time
                 await report_event(
-                    pod_info,
+                    pod,
                     reason="VolumeMount",
                     note=f"Mounted Nix volume with {len(package_paths)} store paths in {elapsed:.2f}s",
                     event_type="Normal",
                 )
             except CSIError as e:
                 cleanup_failed_volume(gc_root, volume_root)
-                # Attach pod_info to exception for decorator to emit pod-specific event
-                e.pod_info = pod_info
+                # Attach pod to exception for decorator to emit pod-specific event
+                e.pod = pod
                 raise
             except Exception:
                 cleanup_failed_volume(gc_root, volume_root)
@@ -332,22 +328,21 @@ async def serve():
     Path(sock_path).unlink(missing_ok=True)
 
     identityServicer = IdentityServicer()
+    # Fetch CSI pod and system once at startup, cache for entire service lifetime
+    csi_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
     try:
         system = await get_current_system()
     except CSIError as e:
         # Report event for CSI pod system detection failure
-        csi_pod_info = PodInfo(
-            name=KUBE_POD_NAME, namespace=NAMESPACE, uid=KUBE_POD_UID
-        )
         await report_event(
-            csi_pod_info,
+            csi_pod,
             reason=e.reason,
             note=e.message,
             logs=e.logs,
             event_type="Warning",
         )
         raise
-    nodeServicer = NodeServicer(system)
+    nodeServicer = NodeServicer(system, csi_pod)
 
     server = Server(
         [
