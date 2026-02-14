@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Data models for the CSI driver."""
 
 from dataclasses import dataclass

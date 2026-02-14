@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 import os
 from asyncio import Semaphore
 from importlib import metadata

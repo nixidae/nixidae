@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """CSI driver exception hierarchy with Kubernetes event mapping."""
 
 from grpclib import GRPCError

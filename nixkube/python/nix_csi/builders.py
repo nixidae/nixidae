@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 import kr8s
 import logging
 

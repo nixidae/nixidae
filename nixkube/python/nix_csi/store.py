@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path

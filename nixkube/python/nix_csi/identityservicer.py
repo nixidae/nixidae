@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 from pathlib import Path
 
 from csi import csi_grpc, csi_pb2

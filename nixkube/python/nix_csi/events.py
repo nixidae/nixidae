@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 import hashlib
 import logging
 from datetime import datetime, timezone
