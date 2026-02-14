@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
+import logging
+import os
 import sqlite3
 import subprocess
 import time
-import logging
-import os
 from pathlib import Path
 
 logging.basicConfig(

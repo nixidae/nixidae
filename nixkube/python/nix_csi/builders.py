@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 
-import kr8s
 import logging
+
+import kr8s
 
 from .constants import BUILDERS_ENABLED, BUILDERS_SERVICE, NAMESPACE
 

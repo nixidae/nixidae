@@ -187,7 +187,9 @@ async def report_event(
                 # Generate event name using hash of pod uid and reason
                 # This ensures the same event (same pod + reason) gets the same name
                 # so we can find and patch it to update series when it recurs
-                event_hash = hashlib.md5(f"{pod.metadata.uid}{reason}".encode()).hexdigest()[:8]
+                event_hash = hashlib.md5(
+                    f"{pod.metadata.uid}{reason}".encode()
+                ).hexdigest()[:8]
                 event_name = f"{pod.metadata.name}.{event_hash}"
 
                 event_spec = {

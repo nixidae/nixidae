@@ -5,8 +5,6 @@ import shutil
 import time
 from pathlib import Path
 
-from .errors import FailedVolumeCleanupError, MountError, UnmountError
-
 from .constants import (
     CSI_GCROOTS,
     CSI_VOLUMES,
@@ -14,6 +12,7 @@ from .constants import (
     NIX_BUILD_TIMEOUT,
     VERIFY_STORE_PATHS,
 )
+from .errors import FailedVolumeCleanupError, MountError, UnmountError
 from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import (
     get_closure_paths,

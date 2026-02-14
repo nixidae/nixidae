@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: MIT
 
 import asyncio
+import json
 import logging
 import logging.config
-import json
 from pathlib import Path
+
 from . import service
 
 

@@ -1,8 +1,9 @@
 #! /usr/bin/env python3
 
 import asyncio
-import kr8s
 import time
+
+import kr8s
 
 
 async def update_config(namespace: str):

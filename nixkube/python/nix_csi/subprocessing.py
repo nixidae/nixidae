@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 
+import asyncio
 import logging
 import shlex
-import asyncio
 import time
 from typing import NamedTuple
 

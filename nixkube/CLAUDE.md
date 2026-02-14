@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Always use Jujutsu (jj) instead of Git** for all version control operations in this repository.
 
-**Format Nix files before committing**: Run `nixfmt **/*.nix` before any commit to ensure all Nix files are formatted correctly.
+**Format code before committing**: Run `direnv exec . treefmt` before any `jj describe` or `jj commit` to ensure all code (Nix, Python, YAML, etc.) is properly formatted according to project standards.
 
 ## Project Overview
 

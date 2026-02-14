@@ -29,10 +29,12 @@ pkgs.mkShell {
     pkgs.stern
     (default.inputs.treefmt-nix.lib.mkWrapper pkgs {
       projectRootFile = "flake.nix";
+      programs.fish_indent.enable = true;
+      programs.isort.enable = true;
       programs.nixfmt.enable = true;
+      programs.ruff-check.enable = true;
       programs.ruff-format.enable = true;
       programs.shellcheck.enable = true;
-      programs.fish_indent.enable = true;
     })
   ];
   shellHook = # bash

@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: MIT
 
+import logging
 import os
 from pathlib import Path
 
 from .errors import HardlinkClosureError
+
+logger = logging.getLogger("nix-csi")
 
 
 def hardlink_tree(src: Path, dst: Path) -> None:
@@ -61,17 +64,43 @@ def deref_hardlink_tree(src: Path, dst: Path) -> None:
     """
     Recursively copy src to dst, dereferencing symlinks and
     hardlinking files for space efficiency.
-    All symlink targets must exist on the same filesystem as dst.
-    """
-    resolved = Path(src).resolve()
-    if not resolved.exists():
-        raise FileNotFoundError(f"Broken symlink: {src} -> {resolved}")
 
-    if resolved.is_file():
+    Symlink handling:
+    - Symlinks to /nix/store that exist: dereference recursively
+    - Symlinks to /nix/store that are broken: log warning and copy as-is
+    - Symlinks to outside /nix/store: log warning and copy as-is
+    """
+    src = Path(src)
+
+    if src.is_symlink():
+        target = os.readlink(src)
+        resolved = (src.parent / target).resolve()
+
+        # Check if target is outside /nix/store
+        try:
+            resolved.relative_to("/nix/store")
+            in_store = True
+        except ValueError:
+            in_store = False
+
+        if not in_store:
+            # Target is outside /nix/store, log warning and copy symlink as-is
+            logger.warning(f"Symlink points outside /nix/store: {src} -> {target}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, dst)
+        elif not resolved.exists():
+            # Target is in /nix/store but broken, log warning and copy as-is
+            logger.warning(f"Broken symlink in /nix/store: {src} -> {target}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, dst)
+        else:
+            # Target is in /nix/store and exists, dereference it
+            deref_hardlink_tree(resolved, dst)
+    elif src.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.hardlink_to(resolved)
-    elif resolved.is_dir():
+        dst.hardlink_to(src)
+    elif src.is_dir():
         dst.mkdir(parents=True, exist_ok=True)
-        for entry in os.scandir(resolved):
+        for entry in os.scandir(src):
             dst_path = dst / entry.name
             deref_hardlink_tree(Path(entry.path), dst_path)

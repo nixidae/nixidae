@@ -4,16 +4,16 @@ import asyncio
 import logging
 import socket
 import time
-
 from asyncio import Semaphore
 from collections import defaultdict
-from csi import csi_grpc, csi_pb2
 from functools import wraps
+from pathlib import Path
+
+from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server, Stream
 from kr8s.asyncio.objects import Pod
-from pathlib import Path
 
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
@@ -26,10 +26,10 @@ from .constants import (
     KUBE_POD_NAME,
     NAMESPACE,
 )
-from .errors import CSIError, RemoveVolumeDirError, CleanupStaleEntriesError
+from .errors import CleanupStaleEntriesError, CSIError, RemoveVolumeDirError
 from .events import report_event
 from .identityservicer import IdentityServicer
-from .nix import build_primary_package, build_pod_packages, get_current_system
+from .nix import build_pod_packages, build_primary_package, get_current_system
 from .volume import (
     cleanup_failed_volume,
     is_mount,
@@ -139,7 +139,9 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
             pod = await Pod.get(pod_name, namespace=pod_namespace)
             # Validate that fetched pod matches the UID from volume context
-            assert pod.metadata.uid == pod_uid, f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
+            assert pod.metadata.uid == pod_uid, (
+                f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
+            )
 
             # Build primary package from volume attributes
             try:

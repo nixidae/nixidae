@@ -1,12 +1,13 @@
 #! /usr/bin/env python3
 # SPDX-License-Identifier: MIT
 
-import asyncio
-import os
-import kr8s
 import argparse
+import asyncio
 import logging
+import os
 from pathlib import Path
+
+import kr8s
 
 
 async def update_machines(namespace: str):
@@ -36,20 +37,20 @@ async def update_machines(namespace: str):
                 k8s_arch = node["metadata"]["labels"].get("kubernetes.io/arch")
                 if not k8s_arch:
                     logging.warning(
-                        f"Node '{node_name}' missing 'kubernetes.io/arch' label. Skipping pod '{pod["metadata"]["name"]}'."
+                        f"Node '{node_name}' missing 'kubernetes.io/arch' label. Skipping pod '{pod['metadata']['name']}'."
                     )
                     continue
 
                 nix_arch = arch_map.get(k8s_arch)
                 if not nix_arch:
                     logging.warning(
-                        f"Unhandled architecture '{k8s_arch}' for node '{node_name}'. Skipping pod '{pod["metadata"]["name"]}'."
+                        f"Unhandled architecture '{k8s_arch}' for node '{node_name}'. Skipping pod '{pod['metadata']['name']}'."
                     )
                     continue
 
                 # Cluster internal DNS search-domain will sort out the full name
                 builders.append(
-                    f"ssh-ng://{pod["metadata"]["name"]}.{os.environ['BUILDERS_SERVICE_NAME']}?trusted=1 {nix_arch}"
+                    f"ssh-ng://{pod['metadata']['name']}.{os.environ['BUILDERS_SERVICE_NAME']}?trusted=1 {nix_arch}"
                 )
 
         machines_path = Path("/etc/machines")
