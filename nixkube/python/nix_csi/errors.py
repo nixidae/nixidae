@@ -137,12 +137,6 @@ class FailedVolumeCleanupError(CSIError):
     reason = "FailedVolumeCleanup"
 
 
-class PodUIDMismatchError(CSIError):
-    """Pod UID in request does not match pod metadata."""
-
-    reason = "PodUIDMismatch"
-
-
 # Build operation errors
 class BuildError(CSIError):
     """Error building a package (store path, flake, or expression)."""
