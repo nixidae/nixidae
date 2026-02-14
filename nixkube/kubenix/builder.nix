@@ -18,7 +18,7 @@ in
         { ... }:
         {
           options = {
-            enable = lib.mkEnableOption "builder pods" // {
+            enable = (lib.mkEnableOption "builder pods") // {
               default = cfg.builders.enable;
             };
             replicas = lib.mkOption {
@@ -55,7 +55,9 @@ in
       );
     in
     {
-      enable = lib.mkEnableOption "builder pods";
+      enable = (lib.mkEnableOption "builder pods") // {
+        default = true;
+      };
       loadBalancerPort = lib.mkOption {
         description = "Port to run public SSH on for builder jumpbox";
         type = lib.types.nullOr lib.types.ints.positive;

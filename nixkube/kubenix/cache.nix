@@ -13,7 +13,9 @@ let
 in
 {
   options.nix-csi.cache = {
-    enable = lib.mkEnableOption "cache";
+    enable = (lib.mkEnableOption "cache") // {
+      default = true;
+    };
     nixConfig = lib.mkOption {
       description = "nix.conf for cache pod";
       type = (import ./nixOptions.nix) curPkgs;

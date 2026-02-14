@@ -30,10 +30,6 @@ rec {
   kubenixCI1 = kubenixInstance {
     module.imports = [
       ./kubenix/ci
-      {
-        nix-csi.cache.enable = true;
-        nix-csi.builders.enable = true;
-      }
     ];
   };
   kubenixCI2 = kubenixInstance {
