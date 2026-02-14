@@ -164,7 +164,7 @@ in
                     };
                   };
                   livenessprobe = {
-                    image = "registry.k8s.io/sig-storage/livenessprobe:v2.17.0";
+                    image = "registry.k8s.io/sig-storage/livenessprobe:v2.18.0";
                     args = [ "--csi-address=/csi/csi.sock" ];
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
