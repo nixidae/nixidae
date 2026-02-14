@@ -79,7 +79,7 @@ def csi_error_handler(func):
 
 
 class NodeServicer(csi_grpc.NodeBase):
-    volumeLocks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
+    volume_locks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
 
     def __init__(self, system: str, csi_pod: Pod):
         self.system = system
@@ -128,7 +128,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 "This CSI driver only supports ephemeral volumes",
             )
 
-        async with self.volumeLocks[request.volume_id]:
+        async with self.volume_locks[request.volume_id]:
             gc_root = CSI_GCROOTS / request.volume_id
             volume_root = CSI_VOLUMES / request.volume_id
             extra_args = await self._get_build_args()
@@ -149,7 +149,7 @@ class NodeServicer(csi_grpc.NodeBase):
 
                 # Use first non-None value as lock key (same priority as build_primary_package)
                 lock_key = store_path or flake_ref or nix_expr or "null"
-                async with self.volumeLocks[lock_key]:
+                async with self.volume_locks[lock_key]:
                     primary_package = await build_primary_package(
                         store_path,
                         flake_ref,
@@ -163,7 +163,7 @@ class NodeServicer(csi_grpc.NodeBase):
 
             # Build packages from pod spec
             try:
-                async with self.volumeLocks[pod_uid]:
+                async with self.volume_locks[pod_uid]:
                     package_paths = await build_pod_packages(
                         pod,
                         gc_root,
@@ -246,7 +246,7 @@ class NodeServicer(csi_grpc.NodeBase):
             },
         )
 
-        async with self.volumeLocks[request.volume_id]:
+        async with self.volume_locks[request.volume_id]:
             target_path = Path(request.target_path)
 
             # Cleanup operations are intentionally fail-fast (not wrapped in individual try/except).
@@ -327,7 +327,7 @@ async def serve():
     sock_path = CSI_SOCKET_PATH
     Path(sock_path).unlink(missing_ok=True)
 
-    identityServicer = IdentityServicer()
+    identity_servicer = IdentityServicer()
     # Fetch CSI pod and system once at startup, cache for entire service lifetime
     csi_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
     try:
@@ -342,12 +342,12 @@ async def serve():
             event_type="Warning",
         )
         raise
-    nodeServicer = NodeServicer(system, csi_pod)
+    node_servicer = NodeServicer(system, csi_pod)
 
     server = Server(
         [
-            identityServicer,
-            nodeServicer,
+            identity_servicer,
+            node_servicer,
         ]
     )
 
