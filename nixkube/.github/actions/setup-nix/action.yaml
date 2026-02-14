@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 name: "Setup Nix & Caches"
 description: "Installs Nix, configures Nixbuild SSH, and sets up substituters"
 inputs:
