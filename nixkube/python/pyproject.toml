@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nix-csi"
-version = "0.4.1"
+version = "0.4.2"
 description = "CSI driver populating mounts with a Nix store"
 authors = [{ name = "lillecarl", email = "github@lillecarl.com" }]
 readme = "README.md"
