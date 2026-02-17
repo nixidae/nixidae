@@ -1,18 +1,10 @@
 # SPDX-License-Identifier: MIT
-
-{
-  pkgs ? import <nixpkgs> { },
-}:
 let
-  lib = pkgs.lib;
-  # You can use flakes, npins, niv, fetchTree, fetchFromGitHub or whatever.
-  easykubenix = builtins.fetchTree {
-    type = "github";
-    owner = "lillecarl";
-    repo = "easykubenix";
-  };
+  default = import ../. { };
+  inherit (default) pkgs easykubenix;
+  inherit (pkgs) lib;
 
-  nixos = import "${pkgs.path}/nixos/lib/eval-config.nix" {
+  nixos = import (pkgs.path + "/nixos/lib/eval-config.nix") {
     inherit pkgs;
     modules = [
       (
@@ -36,7 +28,7 @@ let
     ];
   };
 
-  ekn = import easykubenix {
+  ekn = easykubenix {
     inherit pkgs;
     modules = [
       (
