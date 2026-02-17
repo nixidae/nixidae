@@ -17,13 +17,13 @@ let
 in
 {
   system ? builtins.currentSystem,
-  pkgs ? import inputs.nixpkgs {
-    inherit system;
-    overlays = [ (import ./pkgs) ];
-  },
 }:
 rec {
-  inherit inputs pkgs;
+  pkgs = import inputs.nixpkgs {
+    inherit system;
+    overlays = [ (import ./pkgs) ];
+  };
+  inherit inputs;
   lib = pkgs.lib;
 
   easykubenix = import inputs.easykubenix;
