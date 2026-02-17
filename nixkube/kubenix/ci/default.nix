@@ -82,7 +82,18 @@ in
           template = {
             spec = {
               restartPolicy = "Never";
-              inherit containers;
+              containers = lib.mkNamedList {
+                hello = {
+                  image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
+                  command = [ "hello-unfree" ];
+                  volumeMounts = lib.mkNamedList {
+                    nix-csi = {
+                      mountPath = "/nix";
+                      subPath = "nix";
+                    };
+                  };
+                };
+              };
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
                   driver = "nix.csi.store";
@@ -98,7 +109,7 @@ in
                         };
                         pkgs = import nixpkgs { };
                       in
-                      pkgs.hello
+                      pkgs.hello-unfree # test that building works
                     '';
                 };
               };
