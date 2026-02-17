@@ -1,24 +1,15 @@
 # SPDX-License-Identifier: MIT
 
 let
-  inputs =
-    (
-      let
-        lockFile = builtins.readFile ../flake.lock;
-        lockAttrs = builtins.fromJSON lockFile;
-        fcLockInfo = lockAttrs.nodes.flake-compatish.locked;
-        fcSrc = builtins.fetchTree fcLockInfo;
-        flake-compatish = import fcSrc;
-      in
-      flake-compatish ../.
-    ).inputs;
+  system = builtins.currentSystem;
+  inputs = (import ../. { }).inputs;
 
-  pkgs = import inputs.nixpkgs { };
   sysMap = {
     "x86_64-linux" = "aarch64-linux";
     "aarch64-linux" = "x86_64-linux";
   };
-  pkgsCross = import pkgs.path { system = sysMap.${builtins.currentSystem}; };
+  pkgs = import inputs.nixpkgs { inherit system; };
+  pkgsCross = import pkgs.path { system = sysMap.${system}; };
 
   package =
     pkgs:
@@ -29,7 +20,7 @@ let
         pkgs.fishMinimal
         pkgs.coreutils
         pkgs.moreutils
-        pkgs.lruLix
+        pkgs.lix
       ];
     };
 
@@ -38,10 +29,19 @@ let
     inherit pkgs;
     modules = [
       (
-        { lib, ... }:
+        { config, lib, ... }:
         {
           kluctl = {
             discriminator = "demodeploy"; # Used for kluctl pruning (removing resources not in generated manifests)
+            preDeployScript = # bash
+              ''
+                nix copy \
+                  --substitute-on-destination \
+                  --no-check-sigs \
+                  --to ssh-ng://nix@nixcache.lillecarl.com?port=2222 \
+                  ${config.kluctl.projectDir} \
+                  -v || true
+              '';
           };
           # Will go into the default namespace
           kubernetes.resources.none.Pod.hello.spec = {
@@ -54,7 +54,10 @@ let
                   "hello;sleep infinity"
                 ];
                 volumeMounts = lib.mkNamedList {
-                  nix.mountPath = "/nix";
+                  nix = {
+                    mountPath = "/nix";
+                    subPath = "nix";
+                  };
                 };
               };
             };
