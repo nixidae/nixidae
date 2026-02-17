@@ -22,6 +22,17 @@ in
               "list"
             ];
           }
+          # Report events using events.k8s.io/v1 API across all namespaces
+          {
+            apiGroups = [ "events.k8s.io" ];
+            resources = [ "events" ];
+            verbs = [
+              "get"
+              "list"
+              "create"
+              "patch"
+            ];
+          }
         ];
       };
       ClusterRoleBinding.nix-csi = mkNCSI {
@@ -66,28 +77,6 @@ in
               "create"
               "patch"
               "delete"
-            ];
-          }
-          # Report events for build/mount outcomes (core v1 API)
-          {
-            apiGroups = [ "" ];
-            resources = [ "events" ];
-            verbs = [
-              "get"
-              "list"
-              "create"
-              "patch"
-            ];
-          }
-          # Report events using events.k8s.io/v1 API
-          {
-            apiGroups = [ "events.k8s.io" ];
-            resources = [ "events" ];
-            verbs = [
-              "get"
-              "list"
-              "create"
-              "patch"
             ];
           }
         ];
