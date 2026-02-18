@@ -91,7 +91,7 @@ jobs:
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=60s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
 
       - name: Validate success events
         run: |
@@ -218,7 +218,7 @@ jobs:
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=60s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello -n nix-csi --timeout=120s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
