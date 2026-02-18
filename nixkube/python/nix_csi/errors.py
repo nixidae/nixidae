@@ -54,7 +54,7 @@ class CSIError(GRPCError):
         self,
         message: str,
         logs: str | None = None,
-        status: Status | None = None,
+        status: Status = Status.INTERNAL,
     ) -> None:
         """Initialize CSI error.
 
@@ -66,8 +66,7 @@ class CSIError(GRPCError):
         self.message = message
         self.logs = logs
         self.pod: Pod | None = None  # Can be set by handler before re-raising
-        grpc_status = status or self.__class__.status
-        super().__init__(grpc_status, message)
+        super().__init__(status, message)
 
 
 # Store path closure errors
