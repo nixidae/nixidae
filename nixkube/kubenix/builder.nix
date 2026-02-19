@@ -86,8 +86,7 @@ in
   config =
     let
       baseLabels = {
-        "app.kubernetes.io/name" = "builder";
-        "app.kubernetes.io/part-of" = "nix-csi";
+        "app.kubernetes.io/component" = "builder";
       };
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
@@ -215,8 +214,7 @@ in
                 spec =
                   let
                     labels = {
-                      "app.kubernetes.io/name" = "proxy";
-                      "app.kubernetes.io/part-of" = "nix-csi";
+                      "app.kubernetes.io/component" = "proxy";
                     };
                   in
                   {

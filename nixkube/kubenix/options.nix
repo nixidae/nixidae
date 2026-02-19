@@ -53,9 +53,9 @@ in
       apply = lib.mapAttrs (n: v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = { };
     };
-    metadata = lib.mkOption {
+    labels = lib.mkOption {
       description = "Labels added to nix-csi resources";
-      type = (curPkgs.formats.json { }).type;
+      type = lib.types.attrsOf lib.types.str;
       default = { };
     };
     version = lib.mkOption {
@@ -185,7 +185,7 @@ in
         mkNCSI =
           attrs:
           lib.recursiveUpdate {
-            inherit (cfg) metadata;
+            metadata.labels = cfg.labels;
           } attrs;
         subPath = spath: lib.removePrefix "/" (toString spath);
       };
@@ -208,6 +208,11 @@ in
           resource
       );
 
-      nix-csi = { };
+      nix-csi.labels = {
+        "app.kubernetes.io/name" = "nix-csi";
+        "app.kubernetes.io/part-of" = "nix-csi";
+        "app.kubernetes.io/managed-by" = "nix";
+        "app.kubernetes.io/version" = cfg.version;
+      };
     };
 }

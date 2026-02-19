@@ -26,8 +26,7 @@ in
   config =
     let
       labels = {
-        "app.kubernetes.io/name" = "csi";
-        "app.kubernetes.io/part-of" = "nix-csi";
+        "app.kubernetes.io/component" = "node";
       };
     in
     lib.mkIf cfg.enable {

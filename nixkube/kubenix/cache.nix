@@ -37,8 +37,7 @@ in
   config =
     let
       labels = {
-        "app.kubernetes.io/name" = "cache";
-        "app.kubernetes.io/part-of" = "nix-csi";
+        "app.kubernetes.io/component" = "cache";
       };
     in
     lib.mkIf (cfg.enable && cfg.cache.enable) {

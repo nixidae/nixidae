@@ -91,7 +91,7 @@ in
             fi
           '';
       };
-      Job.init = {
+      Job.init = mkNCSI {
         metadata.annotations = {
           "kluctl.io/hook" = "pre-deploy";
           "kluctl.io/hook-delete-policy" = "hook-succeeded"; # seems flaky
@@ -101,8 +101,7 @@ in
           # ttlSecondsAfterFinished = 0; # remove job when it's done
           template = {
             metadata.labels = {
-              "app.kubernetes.io/name" = "init";
-              "app.kubernetes.io/part-of" = "nix-csi";
+              "app.kubernetes.io/component" = "init";
             };
             spec = {
               restartPolicy = "OnFailure";
