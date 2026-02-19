@@ -109,7 +109,7 @@ rec {
         #! ${pkgs.runtimeShell}
         export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
         # ${lib.concatStrings (lib.attrValues inputs)}
-        nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.manifestJSONFile}) | grep -v '\.drv$' | cachix push nix-csi
+        nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.deploymentScript}) | grep -v '\.drv$' | cachix push nix-csi
       '';
 
   uploadScratch =

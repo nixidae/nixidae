@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nri"
+version = "0.1.0"
+description = "NRI (Node Resource Interface) spec for Python"
+authors = [
+    { name="Carl Andersson", email="github@lillecarl.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = []
