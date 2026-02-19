@@ -46,7 +46,8 @@ in
         };
       };
     kubernetes.resources.${cfg.namespace} = {
-      ConfigMap.push = lib.mkIf cfg.push (mkNCSI {
+      ConfigMap.push = lib.mkIf cfg.push {
+        metadata.labels = cfg.labels;
         data = {
           builder-aarch64-linux = armPkgs.nix-csi-builder-env;
           builder-x86_64-linux = x86Pkgs.nix-csi-builder-env;
@@ -57,20 +58,23 @@ in
           proxy-aarch64-linux = armPkgs.nix-csi-proxy-env;
           proxy-x86_64-linux = x86Pkgs.nix-csi-proxy-env;
         };
-      });
-      ConfigMap.nix-node = mkNCSI {
+      };
+      ConfigMap.nix-node = {
+        metadata.labels = cfg.labels;
         data = {
           "nix.conf" = builtins.readFile (cfg.node.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
-      ConfigMap.nix-cache = mkNCSI {
+      ConfigMap.nix-cache = {
+        metadata.labels = cfg.labels;
         data = {
           "nix.conf" = builtins.readFile (cfg.cache.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
-      ConfigMap.nix-builder = mkNCSI {
+      ConfigMap.nix-builder = {
+        metadata.labels = cfg.labels;
         data = {
           "nix.conf" = builtins.readFile (cfg.builders.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;

@@ -53,9 +53,9 @@ in
       apply = lib.mapAttrs (n: v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = { };
     };
-    labels = lib.mkOption {
-      description = "Labels added to nix-csi resources";
-      type = lib.types.attrsOf lib.types.str;
+    metadata = lib.mkOption {
+      description = "Metadata (labels, annotations) applied to nix-csi resources";
+      type = (curPkgs.formats.json { }).type;
       default = { };
     };
     version = lib.mkOption {
@@ -148,6 +148,16 @@ in
       internal = true;
       default = inputs.dinix;
     };
+    labels = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      internal = true;
+      description = "All nix-csi labels including version (for metadata.labels)";
+    };
+    matchLabels = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      internal = true;
+      description = "nix-csi base labels without version (for selector.matchLabels)";
+    };
   };
   config =
     let
@@ -182,12 +192,17 @@ in
         x86Pkgs = mkPkgs "x86_64-linux";
         armPkgs = mkPkgs "aarch64-linux";
         curPkgs = mkPkgs builtins.currentSystem;
-        mkNCSI =
-          attrs:
-          lib.recursiveUpdate {
-            metadata.labels = cfg.labels;
-          } attrs;
         subPath = spath: lib.removePrefix "/" (toString spath);
+      };
+
+      # Set internal label options using the derived values
+      nix-csi.matchLabels = {
+        "app.kubernetes.io/name" = "nix-csi";
+        "app.kubernetes.io/part-of" = "nix-csi";
+        "app.kubernetes.io/managed-by" = "nix";
+      };
+      nix-csi.labels = cfg.matchLabels // {
+        "app.kubernetes.io/version" = cfg.version;
       };
 
       kubernetes.transformers = lib.optional (!cfg.push) (
@@ -207,12 +222,5 @@ in
         else
           resource
       );
-
-      nix-csi.labels = {
-        "app.kubernetes.io/name" = "nix-csi";
-        "app.kubernetes.io/part-of" = "nix-csi";
-        "app.kubernetes.io/managed-by" = "nix";
-        "app.kubernetes.io/version" = cfg.version;
-      };
     };
 }

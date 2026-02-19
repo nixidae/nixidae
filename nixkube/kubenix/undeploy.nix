@@ -3,7 +3,6 @@
 {
   config,
   lib,
-  mkNCSI,
   ...
 }:
 let
@@ -22,35 +21,42 @@ in
       }
     ];
 
-    kubernetes.resources.${cfg.namespace}.DaemonSet.nix-csi-cleanup = mkNCSI {
-      spec.selector.matchLabels.app = "nix-csi-cleanup";
-      spec.template = {
-        metadata.labels.app = "nix-csi-cleanup";
-        spec = {
-          containers = lib.mkNamedList {
-            cleanup = {
-              name = "cleanup";
-              image = "busybox:latest";
-              command = [
-                "find"
-                "/nix"
-                "-mindepth"
-                "1"
-                "-delete"
-              ];
+    kubernetes.resources.${cfg.namespace}.DaemonSet.nix-csi-cleanup =
+      let
+        labels = cfg.labels // {
+          "app.kubernetes.io/component" = "cleanup";
+        };
+      in
+      {
+        metadata.labels = labels;
+        spec.selector.matchLabels = cfg.matchLabels // labels;
+        spec.template = {
+          metadata.labels = labels;
+          spec = {
+            containers = lib.mkNamedList {
+              cleanup = {
+                name = "cleanup";
+                image = "busybox:latest";
+                command = [
+                  "find"
+                  "/nix"
+                  "-mindepth"
+                  "1"
+                  "-delete"
+                ];
 
-              volumeMounts = lib.mkNamedList {
-                nix-store.mountPath = "/nix";
+                volumeMounts = lib.mkNamedList {
+                  nix-store.mountPath = "/nix";
+                };
+                securityContext.privileged = true;
               };
-              securityContext.privileged = true;
             };
-          };
 
-          volumes = lib.mkNamedList {
-            nix-store.hostPath.path = cfg.hostMountPath;
+            volumes = lib.mkNamedList {
+              nix-store.hostPath.path = cfg.hostMountPath;
+            };
           };
         };
       };
-    };
   };
 }

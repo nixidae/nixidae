@@ -6,7 +6,6 @@
   x86Pkgs,
   armPkgs,
   curPkgs,
-  mkNCSI,
   ...
 }:
 let
@@ -85,9 +84,10 @@ in
     };
   config =
     let
-      baseLabels = {
+      labels = cfg.labels // {
         "app.kubernetes.io/component" = "builder";
       };
+      matchLabels = cfg.matchLabels // labels;
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
       nix-csi.builders.nixConfig.settings.sandbox = cfg.builders.privilegedSandboxedBuilds;
@@ -195,31 +195,33 @@ in
               n: v:
               let
                 v2 = lib.recursiveUpdate v {
-                  labels = baseLabels // {
+                  labels = labels // {
                     "kubernetes.io/arch" = v.arch;
                     "nix.csi/deployment" = n;
                   };
                 };
               in
-              mkNCSI {
+              {
+                metadata.labels = v2.labels;
                 spec = {
                   replicas = v.replicas;
-                  selector.matchLabels = v2.labels;
+                  selector.matchLabels = cfg.matchLabels // v2.labels;
                   template = podTemplate v2;
                 };
               }
             ) (lib.filterAttrs (n: v: v.enable) cfg.builders.deployments))
             // {
-              proxy = lib.mkIf (cfg.builders.loadBalancerPort != null) {
-                spec =
-                  let
-                    labels = {
-                      "app.kubernetes.io/component" = "proxy";
-                    };
-                  in
-                  {
+              proxy = lib.mkIf (cfg.builders.loadBalancerPort != null) (
+                let
+                  labels = cfg.labels // {
+                    "app.kubernetes.io/component" = "proxy";
+                  };
+                in
+                {
+                  metadata.labels = labels;
+                  spec = {
                     replicas = 1;
-                    selector.matchLabels = labels;
+                    selector.matchLabels = cfg.matchLabels // labels;
                     template = {
                       metadata.labels = labels;
                       metadata.annotations = {
@@ -279,22 +281,24 @@ in
                       };
                     };
                   };
-              };
+                }
+              );
             };
 
           DaemonSet = lib.mapAttrs (
             n: v:
             let
               v2 = lib.recursiveUpdate v {
-                labels = baseLabels // {
+                labels = labels // {
                   "kubernetes.io/arch" = v.arch;
                   "nix.csi/daemonset" = n;
                 };
               };
             in
-            mkNCSI {
+            {
+              metadata.labels = v2.labels;
               spec = {
-                selector.matchLabels = v2.labels;
+                selector.matchLabels = cfg.matchLabels // v2.labels;
                 template = lib.recursiveUpdate (podTemplate v2) {
                   spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms = [
                     {
@@ -312,32 +316,32 @@ in
           ) (lib.filterAttrs (n: v: v.enable) cfg.builders.daemonsets);
 
           # Headless service for DNS discovery of individual builder pods
-          Service.nix-csi-builders = mkNCSI {
+          Service.nix-csi-builders = {
+            metadata.labels = labels;
             spec = {
               clusterIP = "None";
-              selector = baseLabels;
+              selector = matchLabels;
               ports = lib.mkNamedList {
                 ssh.port = 22;
               };
             };
           };
 
-          Service.nix-proxy =
-            lib.mkIf (cfg.builders.enable && cfg.builders.loadBalancerPort != null)
-              (mkNCSI {
-                spec = {
-                  selector = baseLabels // {
-                    "nix.csi/proxy" = "true";
-                  };
-                  ports = lib.mkNamedList {
-                    ssh = {
-                      port = cfg.builders.loadBalancerPort;
-                      targetPort = "ssh";
-                    };
-                  };
-                  type = "LoadBalancer";
+          Service.nix-proxy = lib.mkIf (cfg.builders.enable && cfg.builders.loadBalancerPort != null) {
+            metadata.labels = labels;
+            spec = {
+              selector = matchLabels // {
+                "nix.csi/proxy" = "true";
+              };
+              ports = lib.mkNamedList {
+                ssh = {
+                  port = cfg.builders.loadBalancerPort;
+                  targetPort = "ssh";
                 };
-              });
+              };
+              type = "LoadBalancer";
+            };
+          };
         };
     };
 }

@@ -6,7 +6,6 @@
   x86Pkgs,
   armPkgs,
   curPkgs,
-  mkNCSI,
   ...
 }:
 let
@@ -36,13 +35,15 @@ in
   };
   config =
     let
-      labels = {
+      labels = cfg.labels // {
         "app.kubernetes.io/component" = "cache";
       };
+      matchLabels = cfg.matchLabels // labels;
     in
     lib.mkIf (cfg.enable && cfg.cache.enable) {
       kubernetes.resources.${cfg.namespace} = {
-        StatefulSet.nix-cache = mkNCSI {
+        StatefulSet.nix-cache = {
+          metadata.labels = labels;
           spec = {
             serviceName = "nix-cache";
             replicas = 1;
@@ -169,9 +170,10 @@ in
           };
         };
 
-        Service.nix-cache = mkNCSI {
+        Service.nix-cache = {
+          metadata.labels = labels;
           spec = {
-            selector = labels;
+            selector = matchLabels;
             ports = lib.mkNamedList {
               ssh = {
                 port = 22;
@@ -181,9 +183,10 @@ in
             type = "ClusterIP";
           };
         };
-        Service.nix-cache-lb = lib.mkIf (cfg.cache.loadBalancerPort != null) (mkNCSI {
+        Service.nix-cache-lb = lib.mkIf (cfg.cache.loadBalancerPort != null) {
+          metadata.labels = labels;
           spec = {
-            selector = labels;
+            selector = matchLabels;
             ports = lib.mkNamedList {
               ssh = {
                 port = cfg.cache.loadBalancerPort;
@@ -192,7 +195,7 @@ in
             };
             type = "LoadBalancer";
           };
-        });
+        };
       };
     };
 }

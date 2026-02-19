@@ -12,7 +12,8 @@ in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.none = {
-      ClusterRole.nix-csi = mkNCSI {
+      ClusterRole.nix-csi = {
+        metadata.labels = cfg.labels;
         rules = [
           {
             apiGroups = [ "" ];
@@ -35,7 +36,8 @@ in
           }
         ];
       };
-      ClusterRoleBinding.nix-csi = mkNCSI {
+      ClusterRoleBinding.nix-csi = {
+        metadata.labels = cfg.labels;
         subjects = lib.mkNamedList {
           nix-csi = {
             kind = "ServiceAccount";
@@ -50,9 +52,12 @@ in
       };
     };
     kubernetes.resources.${cfg.namespace} = {
-      ServiceAccount.nix-csi = mkNCSI { };
+      ServiceAccount.nix-csi = {
+        metadata.labels = cfg.labels;
+      };
 
-      Role.nix-csi = mkNCSI {
+      Role.nix-csi = {
+        metadata.labels = cfg.labels;
         rules = [
           # Cache maintains up2date /etc/machines
           {
@@ -83,7 +88,8 @@ in
       };
 
       # Binds the Role to the ServiceAccount.
-      RoleBinding.nix-csi = mkNCSI {
+      RoleBinding.nix-csi = {
+        metadata.labels = cfg.labels;
         subjects = lib.mkNamedList {
           nix-csi.kind = "ServiceAccount";
         };

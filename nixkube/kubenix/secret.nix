@@ -3,7 +3,6 @@
 {
   config,
   lib,
-  mkNCSI,
   curPkgs,
   ...
 }:
@@ -13,7 +12,8 @@ in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.${cfg.namespace} = {
-      ConfigMap.ssh-config = mkNCSI {
+      ConfigMap.ssh-config = {
+        metadata.labels = cfg.labels;
         data = {
           # Keys that can connect to us
           "authorized_keys" = lib.concatLines cfg.authorizedKeys;
@@ -63,6 +63,7 @@ in
         };
       };
       ConfigMap.init-scripts = {
+        metadata.labels = cfg.labels;
         data.init-secrets = # bash
           ''
             set -x
@@ -91,41 +92,46 @@ in
             fi
           '';
       };
-      Job.init = mkNCSI {
-        metadata.annotations = {
-          "kluctl.io/hook" = "pre-deploy";
-          "kluctl.io/hook-delete-policy" = "hook-succeeded"; # seems flaky
-          "kluctl.io/hook-wait" = "false"; # true fails CI since other resources aren't deployed yet
-        };
-        spec = {
-          # ttlSecondsAfterFinished = 0; # remove job when it's done
-          template = {
-            metadata.labels = {
-              "app.kubernetes.io/component" = "init";
-            };
-            spec = {
-              restartPolicy = "OnFailure";
-              serviceAccountName = "nix-csi";
-              containers = lib.mkNamedList {
-                init = {
-                  # Use normal lix so we don't have to build lruLix locally
-                  image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.stdLix.version}";
-                  imagePullPolicy = "Always";
-                  command = [ "init-secrets" ];
-                  volumeMounts = lib.mkNamedList {
-                    nix-config.mountPath = "/etc/nix";
-                    init-scripts.mountPath = "/opt/bin";
+      Job.init =
+        let
+          labels = cfg.labels // {
+            "app.kubernetes.io/component" = "init";
+          };
+        in
+        {
+          metadata.labels = labels;
+          metadata.annotations = {
+            "kluctl.io/hook" = "pre-deploy";
+            "kluctl.io/hook-delete-policy" = "hook-succeeded"; # seems flaky
+            "kluctl.io/hook-wait" = "false"; # true fails CI since other resources aren't deployed yet
+          };
+          spec = {
+            # ttlSecondsAfterFinished = 0; # remove job when it's done
+            template = {
+              metadata.labels = labels;
+              spec = {
+                restartPolicy = "OnFailure";
+                serviceAccountName = "nix-csi";
+                containers = lib.mkNamedList {
+                  init = {
+                    # Use normal lix so we don't have to build lruLix locally
+                    image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.stdLix.version}";
+                    imagePullPolicy = "Always";
+                    command = [ "init-secrets" ];
+                    volumeMounts = lib.mkNamedList {
+                      nix-config.mountPath = "/etc/nix";
+                      init-scripts.mountPath = "/opt/bin";
+                    };
                   };
                 };
-              };
-              volumes = lib.mkNamedList {
-                nix-config.configMap.name = "nix-builder";
-                init-scripts.configMap.name = "init-scripts";
+                volumes = lib.mkNamedList {
+                  nix-config.configMap.name = "nix-builder";
+                  init-scripts.configMap.name = "init-scripts";
+                };
               };
             };
           };
         };
-      };
     };
   };
 }

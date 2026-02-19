@@ -12,6 +12,8 @@ let
 in
 {
   config = lib.mkIf cfg.enable {
-    kubernetes.resources.none.Namespace.${namespace} = mkNCSI { };
+    kubernetes.resources.none.Namespace.${namespace} = {
+      metadata.labels = cfg.labels;
+    };
   };
 }

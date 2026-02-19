@@ -11,7 +11,8 @@ let
 in
 {
   config = lib.mkIf cfg.enable {
-    kubernetes.resources.none.CSIDriver."nix.csi.store" = mkNCSI {
+    kubernetes.resources.none.CSIDriver."nix.csi.store" = {
+      metadata.labels = cfg.labels;
       spec = {
         attachRequired = false;
         podInfoOnMount = true;
