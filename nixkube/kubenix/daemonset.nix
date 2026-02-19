@@ -27,7 +27,9 @@ in
       labels = cfg.labels // {
         "app.kubernetes.io/component" = "node";
       };
-      matchLabels = cfg.matchLabels // labels;
+      matchLabels = cfg.matchLabels // {
+        "app.kubernetes.io/component" = "node";
+      };
     in
     lib.mkIf cfg.enable {
       kubernetes.resources.${cfg.namespace} = {
@@ -38,7 +40,7 @@ in
               type = "RollingUpdate";
               rollingUpdate.maxUnavailable = 1;
             };
-            selector.matchLabels = labels;
+            selector.matchLabels = matchLabels;
             template = {
               metadata.labels = labels;
               metadata.annotations = {

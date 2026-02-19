@@ -26,10 +26,13 @@ in
         labels = cfg.labels // {
           "app.kubernetes.io/component" = "cleanup";
         };
+        matchLabels = cfg.matchLabels // {
+          "app.kubernetes.io/component" = "cleanup";
+        };
       in
       {
         metadata.labels = labels;
-        spec.selector.matchLabels = cfg.matchLabels // labels;
+        spec.selector.matchLabels = matchLabels;
         spec.template = {
           metadata.labels = labels;
           spec = {

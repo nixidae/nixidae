@@ -38,7 +38,9 @@ in
       labels = cfg.labels // {
         "app.kubernetes.io/component" = "cache";
       };
-      matchLabels = cfg.matchLabels // labels;
+      matchLabels = cfg.matchLabels // {
+        "app.kubernetes.io/component" = "cache";
+      };
     in
     lib.mkIf (cfg.enable && cfg.cache.enable) {
       kubernetes.resources.${cfg.namespace} = {

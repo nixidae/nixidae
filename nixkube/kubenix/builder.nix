@@ -87,7 +87,9 @@ in
       labels = cfg.labels // {
         "app.kubernetes.io/component" = "builder";
       };
-      matchLabels = cfg.matchLabels // labels;
+      matchLabels = cfg.matchLabels // {
+        "app.kubernetes.io/component" = "builder";
+      };
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
       nix-csi.builders.nixConfig.settings.sandbox = cfg.builders.privilegedSandboxedBuilds;
@@ -205,7 +207,11 @@ in
                 metadata.labels = v2.labels;
                 spec = {
                   replicas = v.replicas;
-                  selector.matchLabels = cfg.matchLabels // v2.labels;
+                  selector.matchLabels = cfg.matchLabels // {
+                    "app.kubernetes.io/component" = "builder";
+                    "kubernetes.io/arch" = v.arch;
+                    "nix.csi/deployment" = n;
+                  };
                   template = podTemplate v2;
                 };
               }
@@ -298,7 +304,11 @@ in
             {
               metadata.labels = v2.labels;
               spec = {
-                selector.matchLabels = cfg.matchLabels // v2.labels;
+                selector.matchLabels = cfg.matchLabels // {
+                  "app.kubernetes.io/component" = "builder";
+                  "kubernetes.io/arch" = v.arch;
+                  "nix.csi/daemonset" = n;
+                };
                 template = lib.recursiveUpdate (podTemplate v2) {
                   spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms = [
                     {

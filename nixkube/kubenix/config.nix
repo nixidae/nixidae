@@ -3,7 +3,6 @@
 {
   config,
   lib,
-  mkNCSI,
   x86Pkgs,
   armPkgs,
   ...

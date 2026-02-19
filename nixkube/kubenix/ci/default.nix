@@ -4,7 +4,6 @@
   config,
   curPkgs,
   lib,
-  mkNCSI,
   subPath,
   inputs,
   ...
@@ -60,8 +59,14 @@ in
       };
     };
     kubernetes.resources.${cfg.namespace} = {
-      ConfigMap.inputs.data = inputs;
-      Job.flake-hello = mkNCSI {
+      ConfigMap.inputs = {
+        metadata.labels = cfg.labels;
+        data = inputs;
+      };
+      Job.flake-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -77,7 +82,10 @@ in
           };
         };
       };
-      Job.expr-hello = mkNCSI {
+      Job.expr-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -117,7 +125,10 @@ in
           };
         };
       };
-      Job.path-hello = mkNCSI {
+      Job.path-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -134,7 +145,10 @@ in
           };
         };
       };
-      Job.commandpath-hello = mkNCSI {
+      Job.commandpath-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -152,7 +166,10 @@ in
           };
         };
       };
-      Job.env-ssl = mkNCSI {
+      Job.env-ssl = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -229,7 +246,10 @@ in
         };
       };
       # Test failure scenarios for event reporting
-      Job.invalid-storepath-hello = mkNCSI {
+      Job.invalid-storepath-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -246,7 +266,10 @@ in
           };
         };
       };
-      Job.invalid-flake-hello = mkNCSI {
+      Job.invalid-flake-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
@@ -262,7 +285,10 @@ in
           };
         };
       };
-      Job.invalid-expr-hello = mkNCSI {
+      Job.invalid-expr-hello = {
+        metadata.labels = cfg.labels // {
+          "app.kubernetes.io/component" = "ci-test";
+        };
         spec = {
           template = {
             spec = {
