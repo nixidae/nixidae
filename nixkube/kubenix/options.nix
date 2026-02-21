@@ -97,40 +97,11 @@ in
     loggingConfig = lib.mkOption {
       description = ''
         Python logging configuration dict for nix-csi service.
+        Merged with built-in defaults, so you only need to override specific parts.
         See https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
       '';
-      type = (curPkgs.formats.json { }).type;
-      default = {
-        version = 1;
-        formatters = {
-          standard = {
-            format = "%(levelname)s [%(name)s] %(message)s";
-          };
-        };
-        handlers = {
-          console = {
-            class = "logging.StreamHandler";
-            formatter = "standard";
-            stream = "ext://sys.stdout";
-          };
-        };
-        loggers = {
-          nix-csi = {
-            level = "INFO";
-            handlers = [ "console" ];
-            propagate = false;
-          };
-          httpx = {
-            level = "WARNING";
-            handlers = [ "console" ];
-            propagate = false;
-          };
-        };
-        root = {
-          level = "WARN";
-          handlers = [ "console" ];
-        };
-      };
+      type = lib.types.attrsOf (curPkgs.formats.json { }).type;
+      default = { };
     };
 
     pkgs = lib.mkOption {
@@ -203,6 +174,31 @@ in
       };
       nix-csi.labels = cfg.matchLabels // {
         "app.kubernetes.io/version" = cfg.version;
+      };
+
+      nix-csi.loggingConfig = lib.mapAttrsRecursive (_: v: lib.mkDefault v) {
+        version = 1;
+        formatters = {
+          standard = {
+            format = "%(levelname)s [%(name)s] %(message)s";
+          };
+        };
+        handlers = {
+          console = {
+            class = "logging.StreamHandler";
+            formatter = "standard";
+            stream = "ext://sys.stdout";
+          };
+        };
+        loggers = {
+          nix-csi.level = "INFO";
+          nix-nri.level = "INFO";
+          httpx.level = "WARNING";
+        };
+        root = {
+          level = "WARN";
+          handlers = [ "console" ];
+        };
       };
 
       kubernetes.transformers = lib.optional (!cfg.push) (
