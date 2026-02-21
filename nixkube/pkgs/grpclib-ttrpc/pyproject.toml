@@ -12,4 +12,5 @@ license = { text = "MIT" }
 dependencies = [
   "grpclib",
   "multidict",
+  "ttrpc",
 ]

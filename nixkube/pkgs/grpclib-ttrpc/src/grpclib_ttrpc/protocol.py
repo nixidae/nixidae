@@ -1,14 +1,14 @@
 """ttrpc wire protocol: frame parsing, raw streams, connection management."""
+
 import abc
 import asyncio
-import struct
 import logging
-
+import struct
 from typing import Callable, Dict, Optional
 
 from grpclib.exceptions import ProtocolError
-from ._stream_buffer import StreamBuffer
 
+from ._stream_buffer import StreamBuffer
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-HEADER_SIZE = 10   # 4 + 4 + 1 + 1 bytes
+HEADER_SIZE = 10  # 4 + 4 + 1 + 1 bytes
 MAX_PAYLOAD = 4 * 1024 * 1024  # 4 MiB
 
 # Frame message types
@@ -29,12 +29,13 @@ FLAG_REMOTE_CLOSED = 0x1
 FLAG_REMOTE_OPEN = 0x2
 FLAG_NO_DATA = 0x4
 
-_HEADER_FMT = '>IIBB'   # payload_length, stream_id, msg_type, flags
+_HEADER_FMT = ">IIBB"  # payload_length, stream_id, msg_type, flags
 
 
 # ---------------------------------------------------------------------------
 # TtrpcRawStream
 # ---------------------------------------------------------------------------
+
 
 class TtrpcRawStream:
     """Per-stream object bridging the protocol layer and request handlers.
@@ -79,18 +80,15 @@ class TtrpcRawStream:
         """
         length = len(payload)
         if length > MAX_PAYLOAD:
-            raise ProtocolError(
-                f'Payload too large: {length} > {MAX_PAYLOAD}'
-            )
-        header = struct.pack(
-            _HEADER_FMT, length, self.stream_id, msg_type, flags
-        )
+            raise ProtocolError(f"Payload too large: {length} > {MAX_PAYLOAD}")
+        header = struct.pack(_HEADER_FMT, length, self.stream_id, msg_type, flags)
         self._transport.write(header + payload)
 
 
 # ---------------------------------------------------------------------------
 # TtrpcConnection
 # ---------------------------------------------------------------------------
+
 
 class TtrpcConnection:
     """Server-side stream-ID bookkeeping.
@@ -116,6 +114,7 @@ class TtrpcConnection:
 # AbstractTtrpcHandler
 # ---------------------------------------------------------------------------
 
+
 class AbstractTtrpcHandler(abc.ABC):
     """Abstract interface implemented by the server-side handler."""
 
@@ -135,6 +134,7 @@ class AbstractTtrpcHandler(abc.ABC):
 # ---------------------------------------------------------------------------
 # TtrpcProtocol
 # ---------------------------------------------------------------------------
+
 
 class TtrpcProtocol(asyncio.Protocol):
     """asyncio.Protocol for the ttrpc binary framing protocol.
@@ -156,17 +156,17 @@ class TtrpcProtocol(asyncio.Protocol):
         assert isinstance(transport, asyncio.Transport)
         self._transport = transport
         self._connection = TtrpcConnection()
-        peer = getattr(transport, 'get_extra_info', lambda *a: None)('peername')
-        log.debug('connection established peer=%r', peer)
+        peer = getattr(transport, "get_extra_info", lambda *a: None)("peername")
+        log.debug("connection established peer=%r", peer)
 
     def data_received(self, data: bytes) -> None:
-        log.debug('data_received %d bytes', len(data))
+        log.debug("data_received %d bytes", len(data))
         self._buf.extend(data)
         self._try_parse_frames()
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
-        log.debug('connection lost exc=%r active_streams=%d', exc, len(self._streams))
-        err: Exception = exc or ConnectionResetError('ttrpc connection closed')
+        log.debug("connection lost exc=%r active_streams=%d", exc, len(self._streams))
+        err: Exception = exc or ConnectionResetError("ttrpc connection closed")
         for raw_stream in list(self._streams.values()):
             raw_stream.feed_error(err)
         self._streams.clear()
@@ -181,7 +181,7 @@ class TtrpcProtocol(asyncio.Protocol):
             )
             if length > MAX_PAYLOAD:
                 log.warning(
-                    'payload too large (%d bytes), dropping connection',
+                    "payload too large (%d bytes), dropping connection",
                     length,
                 )
                 if self._transport:
@@ -208,9 +208,7 @@ class TtrpcProtocol(asyncio.Protocol):
 
         if msg_type == MSG_TYPE_REQUEST:
             if not self._connection.validate_and_accept(stream_id):
-                log.warning(
-                    'invalid stream_id %d, discarding frame', stream_id
-                )
+                log.warning("invalid stream_id %d, discarding frame", stream_id)
                 return
 
             raw_stream = TtrpcRawStream(stream_id, self._transport)
@@ -232,9 +230,7 @@ class TtrpcProtocol(asyncio.Protocol):
         elif msg_type == MSG_TYPE_DATA:
             raw_stream = self._streams.get(stream_id)
             if raw_stream is None:
-                log.warning(
-                    'DATA frame for unknown stream %d', stream_id
-                )
+                log.warning("DATA frame for unknown stream %d", stream_id)
                 return
             if flags & FLAG_REMOTE_CLOSED:
                 if payload and not (flags & FLAG_NO_DATA):
@@ -244,4 +240,4 @@ class TtrpcProtocol(asyncio.Protocol):
                 raw_stream.feed_data(payload)
 
         else:
-            log.warning('unknown message type 0x%02x', msg_type)
+            log.warning("unknown message type 0x%02x", msg_type)

@@ -1,24 +1,26 @@
 """Unit tests for grpclib_ttrpc.protocol (frame parsing)."""
+
 import struct
-import pytest
 
 from grpclib_ttrpc.protocol import (
-    TtrpcProtocol, TtrpcConnection,
-    HEADER_SIZE, MAX_PAYLOAD,
-    MSG_TYPE_REQUEST, MSG_TYPE_DATA,
-    FLAG_REMOTE_CLOSED, FLAG_REMOTE_OPEN,
     _HEADER_FMT,
+    FLAG_REMOTE_CLOSED,
+    HEADER_SIZE,
+    MAX_PAYLOAD,
+    MSG_TYPE_DATA,
+    MSG_TYPE_REQUEST,
+    TtrpcConnection,
+    TtrpcProtocol,
 )
 
-from helpers import FakeTransport, FakeHandler, encode_frame
-
+from .helpers import FakeHandler, FakeTransport, encode_frame
 
 # ---------------------------------------------------------------------------
 # TtrpcConnection
 # ---------------------------------------------------------------------------
 
-class TestTtrpcConnection:
 
+class TestTtrpcConnection:
     def test_accepts_first_odd_stream(self):
         conn = TtrpcConnection()
         assert conn.validate_and_accept(1) is True
@@ -36,8 +38,8 @@ class TestTtrpcConnection:
     def test_rejects_non_increasing(self):
         conn = TtrpcConnection()
         conn.validate_and_accept(3)
-        assert conn.validate_and_accept(3) is False   # equal
-        assert conn.validate_and_accept(1) is False   # less than
+        assert conn.validate_and_accept(3) is False  # equal
+        assert conn.validate_and_accept(1) is False  # less than
 
     def test_rejects_zero(self):
         conn = TtrpcConnection()
@@ -47,6 +49,7 @@ class TestTtrpcConnection:
 # ---------------------------------------------------------------------------
 # TtrpcProtocol frame parsing helpers
 # ---------------------------------------------------------------------------
+
 
 def make_proto(handler=None) -> tuple:
     transport = FakeTransport()
@@ -60,62 +63,61 @@ def make_proto(handler=None) -> tuple:
 # Single frame delivery
 # ---------------------------------------------------------------------------
 
-class TestSingleFrame:
 
+class TestSingleFrame:
     def test_request_frame_dispatched(self):
         proto, _, handler = make_proto()
-        payload = b'hello world'
+        payload = b"hello world"
         frame = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, payload)
         proto.data_received(frame)
         assert len(handler.accepted) == 1
-        raw_stream, initial_payload, flags = handler.accepted[0]
+        _, initial_payload, flags = handler.accepted[0]
         assert initial_payload == payload
         assert flags == FLAG_REMOTE_CLOSED
 
     def test_data_frame_feeds_existing_stream(self):
         proto, _, handler = make_proto()
-        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b'req'))
-        raw_stream = handler.accepted[0][0]
+        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b"req"))
 
-        proto.data_received(encode_frame(1, MSG_TYPE_DATA, 0, b'data'))
+        proto.data_received(encode_frame(1, MSG_TYPE_DATA, 0, b"data"))
         # Queue should have the initial payload (not yet consumed) + data
         # We can't directly inspect the queue; just verify no crash.
 
     def test_empty_payload_request(self):
         proto, _, handler = make_proto()
-        frame = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b'')
+        frame = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b"")
         proto.data_received(frame)
         assert len(handler.accepted) == 1
-        assert handler.accepted[0][1] == b''
+        assert handler.accepted[0][1] == b""
 
 
 # ---------------------------------------------------------------------------
 # Fragmented delivery
 # ---------------------------------------------------------------------------
 
-class TestFragmentedDelivery:
 
+class TestFragmentedDelivery:
     def test_header_split_across_chunks(self):
         proto, _, handler = make_proto()
-        payload = b'fragmented'
+        payload = b"fragmented"
         frame = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, payload)
         # split in the middle of the header
         split = 5
         proto.data_received(frame[:split])
-        assert len(handler.accepted) == 0   # not dispatched yet
+        assert len(handler.accepted) == 0  # not dispatched yet
         proto.data_received(frame[split:])
         assert len(handler.accepted) == 1
 
     def test_multiple_frames_in_one_chunk(self):
         proto, _, handler = make_proto()
-        f1 = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b'first')
-        f2 = encode_frame(3, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b'second')
+        f1 = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b"first")
+        f2 = encode_frame(3, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, b"second")
         proto.data_received(f1 + f2)
         assert len(handler.accepted) == 2
 
     def test_payload_arrives_in_pieces(self):
         proto, _, handler = make_proto()
-        payload = b'x' * 100
+        payload = b"x" * 100
         frame = encode_frame(1, MSG_TYPE_REQUEST, FLAG_REMOTE_CLOSED, payload)
         # send header + first half of payload, then second half
         mid = HEADER_SIZE + 50
@@ -130,34 +132,32 @@ class TestFragmentedDelivery:
 # Stream-ID validation
 # ---------------------------------------------------------------------------
 
-class TestStreamIdValidation:
 
+class TestStreamIdValidation:
     def test_even_stream_id_rejected(self):
         proto, _, handler = make_proto()
-        frame = encode_frame(2, MSG_TYPE_REQUEST, 0, b'bad')
+        frame = encode_frame(2, MSG_TYPE_REQUEST, 0, b"bad")
         proto.data_received(frame)
-        assert len(handler.accepted) == 0   # discarded
+        assert len(handler.accepted) == 0  # discarded
 
     def test_non_increasing_stream_id_rejected(self):
         proto, _, handler = make_proto()
-        proto.data_received(encode_frame(3, MSG_TYPE_REQUEST, 0, b'first'))
+        proto.data_received(encode_frame(3, MSG_TYPE_REQUEST, 0, b"first"))
         # send lower ID
-        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b'bad'))
-        assert len(handler.accepted) == 1   # only first accepted
+        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b"bad"))
+        assert len(handler.accepted) == 1  # only first accepted
 
 
 # ---------------------------------------------------------------------------
 # Oversized payload
 # ---------------------------------------------------------------------------
 
-class TestOversizedPayload:
 
+class TestOversizedPayload:
     def test_oversized_drops_connection(self):
         proto, transport, _ = make_proto()
         # forge a header claiming MAX_PAYLOAD + 1
-        bad_header = struct.pack(
-            _HEADER_FMT, MAX_PAYLOAD + 1, 1, MSG_TYPE_REQUEST, 0
-        )
+        bad_header = struct.pack(_HEADER_FMT, MAX_PAYLOAD + 1, 1, MSG_TYPE_REQUEST, 0)
         proto.data_received(bad_header)
         assert transport._closing is True
 
@@ -166,28 +166,25 @@ class TestOversizedPayload:
 # DATA frame routing
 # ---------------------------------------------------------------------------
 
-class TestDataFrameRouting:
 
+class TestDataFrameRouting:
     def test_data_frame_for_unknown_stream_ignored(self):
         proto, _, handler = make_proto()
         # No prior REQUEST frame for stream 5
-        proto.data_received(encode_frame(5, MSG_TYPE_DATA, 0, b'orphan'))
+        proto.data_received(encode_frame(5, MSG_TYPE_DATA, 0, b"orphan"))
         # No crash, handler not notified
 
     def test_data_frame_with_close_feeds_eof(self):
         proto, _, _ = make_proto()
-        from grpclib_ttrpc._stream_buffer import StreamBuffer
 
-        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b'req'))
+        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b"req"))
         # Now close the stream via a DATA frame
-        proto.data_received(
-            encode_frame(1, MSG_TYPE_DATA, FLAG_REMOTE_CLOSED, b'')
-        )
+        proto.data_received(encode_frame(1, MSG_TYPE_DATA, FLAG_REMOTE_CLOSED, b""))
         # No assertion needed; just verify no crash
 
     def test_unknown_msg_type_ignored(self):
         proto, _, handler = make_proto()
-        bad_frame = encode_frame(1, 0xFF, 0, b'unknown')
+        bad_frame = encode_frame(1, 0xFF, 0, b"unknown")
         proto.data_received(bad_frame)
         assert len(handler.accepted) == 0
 
@@ -196,14 +193,14 @@ class TestDataFrameRouting:
 # connection_lost propagates error to active streams
 # ---------------------------------------------------------------------------
 
-class TestConnectionLost:
 
+class TestConnectionLost:
     def test_error_fed_to_streams_on_connection_lost(self):
         proto, _, handler = make_proto()
-        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b'req'))
+        proto.data_received(encode_frame(1, MSG_TYPE_REQUEST, 0, b"req"))
         raw_stream = handler.accepted[0][0]
 
-        exc = ConnectionResetError('peer gone')
+        exc = ConnectionResetError("peer gone")
         proto.connection_lost(exc)
 
         assert handler.closed is True

@@ -1,7 +1,9 @@
 """pytest configuration and fixtures for grpclib_ttrpc tests."""
-import sys
-import os
+
 import asyncio
+import os
+import sys
+
 import pytest_asyncio
 
 # Ensure tests/ is on sys.path so helpers.py and dummy_pb2.py are importable.

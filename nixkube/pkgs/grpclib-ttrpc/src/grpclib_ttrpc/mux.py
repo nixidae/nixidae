@@ -10,18 +10,19 @@ ConnID=2 (RUNTIME_SERVICE_CONN) — the plugin acts as a ttrpc *client*
 
 Source: nri/pkg/net/multiplex/{mux.go,ttrpc.go}
 """
+
 import asyncio
 import logging
 import struct
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 
-MUX_HEADER_FMT = '>II'
+MUX_HEADER_FMT = ">II"
 MUX_HEADER_SIZE = 8
 MAX_MUX_PAYLOAD = 10 + 4 * 1024 * 1024  # mirrors Go mux.go maxPayloadSize
 
-PLUGIN_SERVICE_CONN = 1   # plugin is ttRPC server on this channel
+PLUGIN_SERVICE_CONN = 1  # plugin is ttRPC server on this channel
 RUNTIME_SERVICE_CONN = 2  # plugin is ttRPC client on this channel
 
 
@@ -38,9 +39,11 @@ class MuxChannelTransport(asyncio.Transport):
         self._conn_id = conn_id
         self._writer = writer
 
-    def write(self, data: bytes) -> None:
-        header = struct.pack(MUX_HEADER_FMT, self._conn_id, len(data))
-        self._writer.write(header + data)
+    def write(self, data: bytes | bytearray | memoryview[Any]) -> None:
+        # Convert to bytes for len() and concatenation
+        data_bytes = bytes(data)
+        header = struct.pack(MUX_HEADER_FMT, self._conn_id, len(data_bytes))
+        self._writer.write(header + data_bytes)
 
     def is_closing(self) -> bool:
         return self._writer.is_closing()
@@ -97,7 +100,7 @@ class NriMux:
         """Return the next payload chunk for *conn_id*, or None on EOF."""
         q = self._channels.get(conn_id)
         if q is None:
-            raise KeyError(f'Unknown mux channel: {conn_id}')
+            raise KeyError(f"Unknown mux channel: {conn_id}")
         return await q.get()
 
     async def read_loop(self) -> None:
@@ -112,22 +115,23 @@ class NriMux:
                 conn_id, length = struct.unpack(MUX_HEADER_FMT, raw)
                 if length > MAX_MUX_PAYLOAD:
                     log.warning(
-                        'mux payload too large (%d bytes) on conn_id=%d, '
-                        'dropping connection',
-                        length, conn_id,
+                        "mux payload too large (%d bytes) on conn_id=%d, "
+                        "dropping connection",
+                        length,
+                        conn_id,
                     )
                     return
                 payload = await self._reader.readexactly(length)
-                log.debug('mux recv: conn_id=%d length=%d', conn_id, length)
+                log.debug("mux recv: conn_id=%d length=%d", conn_id, length)
                 q = self._channels.get(conn_id)
                 if q is None:
-                    log.debug('mux: ignoring unknown conn_id=%d', conn_id)
+                    log.debug("mux: ignoring unknown conn_id=%d", conn_id)
                 else:
                     await q.put(payload)
         except asyncio.IncompleteReadError:
-            log.debug('mux read_loop: connection closed (EOF)')
+            log.debug("mux read_loop: connection closed (EOF)")
         except Exception as exc:
-            log.warning('mux read_loop error: %r', exc)
+            log.warning("mux read_loop error: %r", exc)
         finally:
             # Signal EOF to all channel consumers.
             # put_nowait is safe here: all queues are unbounded (maxsize=0).

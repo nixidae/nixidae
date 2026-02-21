@@ -1,6 +1,6 @@
 """Per-stream async byte buffer for ttrpc."""
-import asyncio
 
+import asyncio
 from typing import Optional
 
 from grpclib.exceptions import StreamTerminatedError

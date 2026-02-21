@@ -8,26 +8,21 @@ from typing import Optional
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
-from grpclib_ttrpc._messages import Request, Response  # type: ignore[attr-defined]
-from grpclib_ttrpc.mux import (
-    NriMux,
-    PLUGIN_SERVICE_CONN,
-    RUNTIME_SERVICE_CONN,
-    MUX_HEADER_SIZE,
-)
+from grpclib_ttrpc.mux import PLUGIN_SERVICE_CONN, RUNTIME_SERVICE_CONN, NriMux
 from grpclib_ttrpc.protocol import (
-    TtrpcProtocol,
     HEADER_SIZE,
+    MAX_PAYLOAD,
     MSG_TYPE_REQUEST,
     MSG_TYPE_RESPONSE,
-    MAX_PAYLOAD,
+    TtrpcProtocol,
 )
 from grpclib_ttrpc.server import TtrpcHandler
 from nri import api_grpc, api_pb2
+from ttrpc.ttrpc_pb2 import Request, Response
 
-from .constants import NRI_RUNTIME_SOCKET, NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
+from .constants import NRI_PLUGIN_IDX, NRI_PLUGIN_NAME, NRI_RUNTIME_SOCKET
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nix-nri")
 
 # Subscribe to all valid NRI events.
 # Mirrors the Go formula: ValidEvents = (1 << (Event_LAST - 1)) - 1
@@ -49,10 +44,11 @@ class NriPlugin(api_grpc.PluginBase):
 
     async def Synchronize(self, stream) -> None:
         req: api_pb2.SynchronizeRequest | None = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI Synchronize: %d pods, %d containers",
-            len(req.pods) if req else 0,
-            len(req.containers) if req else 0,
+            len(req.pods),
+            len(req.containers),
         )
         await stream.send_message(api_pb2.SynchronizeResponse())
 
@@ -63,50 +59,58 @@ class NriPlugin(api_grpc.PluginBase):
 
     async def CreateContainer(self, stream) -> None:
         req: api_pb2.CreateContainerRequest | None = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI CreateContainer: pod=%r container=%r",
-            req.pod.name if req and req.pod else None,
-            req.container.name if req and req.container else None,
+            req.pod.name,
+            req.container.name,
         )
         await stream.send_message(api_pb2.CreateContainerResponse())
 
     async def UpdateContainer(self, stream) -> None:
         req: api_pb2.UpdateContainerRequest | None = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI UpdateContainer: container=%r",
-            req.container.name if req and req.container else None,
+            req.container.name,
         )
         await stream.send_message(api_pb2.UpdateContainerResponse())
 
     async def StopContainer(self, stream) -> None:
         req: api_pb2.StopContainerRequest | None = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI StopContainer: container=%r",
-            req.container.name if req and req.container else None,
+            req.container.name,
         )
         await stream.send_message(api_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
         req: api_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI UpdatePodSandbox: pod=%r",
-            req.pod.name if req and req.pod else None,
+            req.pod.name,
         )
         await stream.send_message(api_pb2.UpdatePodSandboxResponse())
 
     async def StateChange(self, stream) -> None:
         event: api_pb2.StateChangeEvent | None = await stream.recv_message()
+        assert event is not None
         logger.info(
             "NRI StateChange: event=%r",
-            event.event if event else None,
+            event.event,
         )
         await stream.send_message(api_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
-        req: api_pb2.ValidateContainerAdjustmentRequest | None = await stream.recv_message()
+        req: (
+            api_pb2.ValidateContainerAdjustmentRequest | None
+        ) = await stream.recv_message()
+        assert req is not None
         logger.info(
             "NRI ValidateContainerAdjustment: container=%r",
-            req.container.name if req and req.container else None,
+            req.container.name,
         )
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
 
@@ -131,7 +135,7 @@ async def _register_plugin(
     mux: NriMux,
     codec: ProtoCodec,
     *,
-    timeout: float = 30.0,
+    timeout: float = 5.0,
 ) -> None:
     """Send RegisterPlugin on ConnID=2 and wait for the response.
 
@@ -148,21 +152,22 @@ async def _register_plugin(
     )
     inner_payload = codec.encode(rpr, api_pb2.RegisterPluginRequest)
 
-    req = Request(  # type: ignore[call-arg]
-        service='nri.pkg.api.v1alpha1.Runtime',
-        method='RegisterPlugin',
+    req = Request(
+        service="nri.pkg.api.v1alpha1.Runtime",
+        method="RegisterPlugin",
         payload=inner_payload,
         timeout_nano=int(timeout * 1e9),
     )
     req_bytes = req.SerializeToString()
 
-    ttrpc_hdr = struct.pack('>IIBB', len(req_bytes), 1, MSG_TYPE_REQUEST, 0)
+    ttrpc_hdr = struct.pack(">IIBB", len(req_bytes), 1, MSG_TYPE_REQUEST, 0)
     ttrpc_frame = ttrpc_hdr + req_bytes
-    mux_hdr = struct.pack('>II', RUNTIME_SERVICE_CONN, len(ttrpc_frame))
+    mux_hdr = struct.pack(">II", RUNTIME_SERVICE_CONN, len(ttrpc_frame))
 
     logger.debug(
-        'RegisterPlugin: sending %d-byte ttrpc frame on ConnID=%d',
-        len(ttrpc_frame), RUNTIME_SERVICE_CONN,
+        "RegisterPlugin: sending %d-byte ttrpc frame on ConnID=%d",
+        len(ttrpc_frame),
+        RUNTIME_SERVICE_CONN,
     )
     mux.writer.write(mux_hdr + ttrpc_frame)
     await mux.writer.drain()
@@ -174,30 +179,31 @@ async def _register_plugin(
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
-            raise asyncio.TimeoutError('Timed out waiting for RegisterPlugin response')
+            raise asyncio.TimeoutError("Timed out waiting for RegisterPlugin response")
         chunk: Optional[bytes] = await asyncio.wait_for(
             mux.read_channel(RUNTIME_SERVICE_CONN), timeout=remaining
         )
         if chunk is None:
-            raise ProtocolError('Connection closed waiting for RegisterPlugin response')
+            raise ProtocolError("Connection closed waiting for RegisterPlugin response")
         buf.extend(chunk)
         if len(buf) < HEADER_SIZE:
             continue
-        payload_len, _stream_id, msg_type, _flags = struct.unpack_from('>IIBB', buf)
+        payload_len, _stream_id, msg_type, _flags = struct.unpack_from(">IIBB", buf)
         if payload_len > MAX_PAYLOAD:
-            raise ProtocolError(f'RegisterPlugin response payload too large: {payload_len}')
+            raise ProtocolError(
+                f"RegisterPlugin response payload too large: {payload_len}"
+            )
         if len(buf) < HEADER_SIZE + payload_len:
             continue  # wait for more chunks
         if msg_type != MSG_TYPE_RESPONSE:
             raise ProtocolError(
-                f'Expected RESPONSE (0x{MSG_TYPE_RESPONSE:02x}), '
-                f'got 0x{msg_type:02x}'
+                f"Expected RESPONSE (0x{MSG_TYPE_RESPONSE:02x}), got 0x{msg_type:02x}"
             )
-        resp_bytes = bytes(buf[HEADER_SIZE:HEADER_SIZE + payload_len])
-        resp = Response.FromString(resp_bytes)  # type: ignore[attr-defined]
+        resp_bytes = bytes(buf[HEADER_SIZE : HEADER_SIZE + payload_len])
+        resp = Response.FromString(resp_bytes)
         if resp.status.code != 0:
             raise GRPCError(Status(resp.status.code), resp.status.message or None)
-        logger.debug('RegisterPlugin response: OK')
+        logger.debug("RegisterPlugin response: OK")
         return
 
 
@@ -205,7 +211,9 @@ async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger.info(
         "Connecting to NRI socket %s (plugin=%s idx=%s)",
-        NRI_RUNTIME_SOCKET, NRI_PLUGIN_NAME, NRI_PLUGIN_IDX,
+        NRI_RUNTIME_SOCKET,
+        NRI_PLUGIN_NAME,
+        NRI_PLUGIN_IDX,
     )
     reader, writer = await asyncio.wait_for(
         asyncio.open_unix_connection(NRI_RUNTIME_SOCKET), timeout=5.0
@@ -227,7 +235,9 @@ async def _nri_run() -> None:
 
     try:
         await _register_plugin(mux, codec)
-        logger.info("NRI plugin registered (name=%r idx=%r)", NRI_PLUGIN_NAME, NRI_PLUGIN_IDX)
+        logger.info(
+            "NRI plugin registered (name=%r idx=%r)", NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
+        )
         # Block until the connection drops (read_loop exits → serve_task exits).
         await asyncio.gather(read_task, serve_task)
     finally:
@@ -254,7 +264,9 @@ async def nri_serve() -> None:
         except Exception as e:
             logger.warning(
                 "NRI connection failed (%s: %s), retrying in %.0fs",
-                type(e).__name__, e, delay,
+                type(e).__name__,
+                e,
+                delay,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 30.0)

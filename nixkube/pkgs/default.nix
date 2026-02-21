@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 
-self: pkgs:
-{
+self: pkgs: {
   # Overlay lib
   lib = pkgs.lib.extend (import ../lib);
 
@@ -17,7 +16,12 @@ self: pkgs:
       '';
 
   nix-csi = pkgs.python3Packages.callPackage ../python {
-    inherit (self) csi-proto-python nri-proto-python grpclib-ttrpc kr8s;
+    inherit (self)
+      csi-proto-python
+      nri-proto-python
+      grpclib-ttrpc
+      kr8s
+      ;
   };
 
   # kluctl = pkgs.kluctl.override {
@@ -40,9 +44,12 @@ self: pkgs:
     doInstallCheck = false;
   });
 
-  grpclib-ttrpc = pkgs.python3Packages.callPackage ./grpclib-ttrpc { };
+  grpclib-ttrpc = pkgs.python3Packages.callPackage ./grpclib-ttrpc {
+    inherit (self) ttrpc-proto-python;
+  };
   csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { };
   nri-proto-python = pkgs.python3Packages.callPackage ./nri-proto-python { };
+  ttrpc-proto-python = pkgs.python3Packages.callPackage ./ttrpc-proto-python { };
   python-jsonpath = pkgs.python3Packages.callPackage ./python-jsonpath.nix { };
   kr8s = pkgs.python3Packages.callPackage ./kr8s.nix { inherit (self) python-jsonpath; };
   shellous = pkgs.python3Packages.callPackage ./shellous.nix { };

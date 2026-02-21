@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ttrpc"
+version = "0.1.0"
+description = "ttRPC spec for Python"
+authors = [
+    { name="Carl Andersson", email="github@lillecarl.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []

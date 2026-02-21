@@ -1,25 +1,27 @@
 """Shared test fixtures and helpers for grpclib_ttrpc tests."""
+
 import asyncio
 import struct
 
-import pytest
-import pytest_asyncio
-
-from dummy_pb2 import DummyRequest, DummyReply
-
 import grpclib.const
+import pytest_asyncio
+from dummy_pb2 import DummyReply, DummyRequest
 from grpclib_ttrpc.protocol import (
-    HEADER_SIZE, MSG_TYPE_REQUEST, MSG_TYPE_RESPONSE, MSG_TYPE_DATA,
-    FLAG_REMOTE_CLOSED, FLAG_REMOTE_OPEN,
-    AbstractTtrpcHandler, TtrpcRawStream,
     _HEADER_FMT,
+    FLAG_REMOTE_CLOSED,
+    FLAG_REMOTE_OPEN,
+    HEADER_SIZE,
+    MSG_TYPE_DATA,
+    MSG_TYPE_REQUEST,
+    MSG_TYPE_RESPONSE,
+    AbstractTtrpcHandler,
 )
-from grpclib_ttrpc._messages import Request, Response  # type: ignore[attr-defined]
-
+from ttrpc import Request
 
 # ---------------------------------------------------------------------------
 # Frame helpers (used by both unit tests and the fake client)
 # ---------------------------------------------------------------------------
+
 
 def encode_frame(stream_id: int, msg_type: int, flags: int, payload: bytes) -> bytes:
     """Pack one ttrpc wire frame."""
@@ -33,14 +35,15 @@ def decode_frame(data: bytes) -> tuple:
     Returns ``(length, stream_id, msg_type, flags, payload, remainder)``.
     """
     length, stream_id, msg_type, flags = struct.unpack_from(_HEADER_FMT, data, 0)
-    payload = data[HEADER_SIZE:HEADER_SIZE + length]
-    remainder = data[HEADER_SIZE + length:]
+    payload = data[HEADER_SIZE : HEADER_SIZE + length]
+    remainder = data[HEADER_SIZE + length :]
     return length, stream_id, msg_type, flags, payload, remainder
 
 
 # ---------------------------------------------------------------------------
 # FakeTransport
 # ---------------------------------------------------------------------------
+
 
 class FakeTransport(asyncio.Transport):
     """Stub transport that records written bytes."""
@@ -78,11 +81,12 @@ class FakeTransport(asyncio.Transport):
 # FakeHandler
 # ---------------------------------------------------------------------------
 
+
 class FakeHandler(AbstractTtrpcHandler):
     """Minimal handler for protocol-layer unit tests."""
 
     def __init__(self) -> None:
-        self.accepted = []   # list of (raw_stream, initial_payload, flags)
+        self.accepted = []  # list of (raw_stream, initial_payload, flags)
         self.closed = False
 
     def accept(self, raw_stream, initial_payload, flags, release):
@@ -97,49 +101,54 @@ class FakeHandler(AbstractTtrpcHandler):
 # Dummy service for handler / functional tests
 # ---------------------------------------------------------------------------
 
+
 class DummyServiceImpl:
     """Test implementation of all four cardinalities."""
 
     async def UnaryUnary(self, stream):
         request: DummyRequest = await stream.recv_message()
-        await stream.send_message(DummyReply(value=f'echo:{request.value}'))
+        await stream.send_message(DummyReply(value=f"echo:{request.value}"))
 
     async def UnaryStream(self, stream):
         request: DummyRequest = await stream.recv_message()
         for i in range(3):
-            await stream.send_message(DummyReply(value=f'{request.value}:{i}'))
+            await stream.send_message(DummyReply(value=f"{request.value}:{i}"))
 
     async def StreamUnary(self, stream):
         values = []
         async for msg in stream:
             values.append(msg.value)
-        await stream.send_message(DummyReply(value=','.join(values)))
+        await stream.send_message(DummyReply(value=",".join(values)))
 
     async def StreamStream(self, stream):
         async for msg in stream:
-            await stream.send_message(DummyReply(value=f'echo:{msg.value}'))
+            await stream.send_message(DummyReply(value=f"echo:{msg.value}"))
 
     def __mapping__(self):
         return {
-            '/dummy.DummyService/UnaryUnary': grpclib.const.Handler(
+            "/dummy.DummyService/UnaryUnary": grpclib.const.Handler(
                 self.UnaryUnary,
                 grpclib.const.Cardinality.UNARY_UNARY,
-                DummyRequest, DummyReply,
+                DummyRequest,
+                DummyReply,
             ),
-            '/dummy.DummyService/UnaryStream': grpclib.const.Handler(
+            "/dummy.DummyService/UnaryStream": grpclib.const.Handler(
                 self.UnaryStream,
                 grpclib.const.Cardinality.UNARY_STREAM,
-                DummyRequest, DummyReply,
+                DummyRequest,
+                DummyReply,
             ),
-            '/dummy.DummyService/StreamUnary': grpclib.const.Handler(
+            "/dummy.DummyService/StreamUnary": grpclib.const.Handler(
                 self.StreamUnary,
                 grpclib.const.Cardinality.STREAM_UNARY,
-                DummyRequest, DummyReply,
+                DummyRequest,
+                DummyReply,
             ),
-            '/dummy.DummyService/StreamStream': grpclib.const.Handler(
+            "/dummy.DummyService/StreamStream": grpclib.const.Handler(
                 self.StreamStream,
                 grpclib.const.Cardinality.STREAM_STREAM,
-                DummyRequest, DummyReply,
+                DummyRequest,
+                DummyReply,
             ),
         }
 
@@ -147,6 +156,7 @@ class DummyServiceImpl:
 # ---------------------------------------------------------------------------
 # Minimal ttRPC raw client (used in functional tests)
 # ---------------------------------------------------------------------------
+
 
 class TtrpcClient:
     """Very thin ttrpc client for functional tests — no framing buffering."""
@@ -158,7 +168,7 @@ class TtrpcClient:
     ) -> None:
         self._reader = reader
         self._writer = writer
-        self._next_stream_id = 1   # odd, client-initiated
+        self._next_stream_id = 1  # odd, client-initiated
 
     def _next_id(self) -> int:
         sid = self._next_stream_id
@@ -176,7 +186,7 @@ class TtrpcClient:
     ) -> bytes:
         """Send a unary ttrpc request and await the response payload."""
         sid = stream_id if stream_id is not None else self._next_id()
-        req = Request(  # type: ignore[attr-defined]
+        req = Request(
             service=service,
             method=method,
             payload=payload,
@@ -205,11 +215,11 @@ class TtrpcClient:
         self,
         service: str,
         method: str,
-        first_payload: bytes = b'',
+        first_payload: bytes = b"",
     ) -> int:
         """Send the initial Request frame (without FLAG_REMOTE_CLOSED)."""
         sid = self._next_id()
-        req = Request(  # type: ignore[attr-defined]
+        req = Request(
             service=service,
             method=method,
             payload=first_payload,
@@ -223,19 +233,19 @@ class TtrpcClient:
     async def _read_frame(self) -> tuple:
         header = await self._reader.readexactly(HEADER_SIZE)
         length, stream_id, msg_type, flags = struct.unpack(_HEADER_FMT, header)
-        payload = await self._reader.readexactly(length) if length else b''
+        payload = await self._reader.readexactly(length) if length else b""
         return stream_id, msg_type, flags, payload
 
     async def _read_response(self) -> bytes:
         """Read one RESPONSE frame and return its raw payload."""
         _, msg_type, _, payload = await self._read_frame()
-        assert msg_type == MSG_TYPE_RESPONSE, f'expected RESPONSE, got {msg_type}'
+        assert msg_type == MSG_TYPE_RESPONSE, f"expected RESPONSE, got {msg_type}"
         return payload
 
     async def read_data_frame(self) -> tuple:
         """Read one DATA frame. Returns (flags, payload)."""
         _, msg_type, flags, payload = await self._read_frame()
-        assert msg_type == MSG_TYPE_DATA, f'expected DATA, got {msg_type}'
+        assert msg_type == MSG_TYPE_DATA, f"expected DATA, got {msg_type}"
         return flags, payload
 
     def close(self) -> None:
@@ -245,6 +255,7 @@ class TtrpcClient:
 # ---------------------------------------------------------------------------
 # pytest fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture
 async def loop():

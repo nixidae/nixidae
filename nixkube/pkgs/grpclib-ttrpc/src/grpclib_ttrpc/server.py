@@ -1,34 +1,48 @@
 """ttrpc server: Stream, request_handler, TtrpcHandler, Server."""
+
 import asyncio
 import logging
 import socket
-
 from contextlib import nullcontext
 from types import TracebackType
 from typing import (
-    Callable, Collection, Dict, Generic, Optional, Set, Type, Any,
     TYPE_CHECKING,
+    Any,
+    Callable,
+    Collection,
+    Dict,
+    Generic,
+    Optional,
+    Set,
+    Type,
 )
 
-from multidict import MultiDict
-
-from grpclib.const import Status, Cardinality
-from grpclib.exceptions import GRPCError, ProtocolError, StreamTerminatedError
-from grpclib.metadata import Deadline, _Metadata
-from grpclib.stream import StreamIterator, _RecvType, _SendType
-from grpclib.utils import DeadlineWrapper, Wrapper
+from grpclib._typing import IServable
+from grpclib.const import Cardinality, Status
 from grpclib.encoding.base import CodecBase
 from grpclib.encoding.proto import ProtoCodec
+from grpclib.exceptions import GRPCError, ProtocolError, StreamTerminatedError
+from grpclib.metadata import Deadline, _Metadata
 from grpclib.server import _GC
+from grpclib.stream import StreamIterator, _RecvType, _SendType
+from grpclib.utils import DeadlineWrapper, Wrapper
+from multidict import MultiDict
+from ttrpc import Request
+
+from ._messages import build_response
 from .protocol import (
-    AbstractTtrpcHandler, TtrpcProtocol, TtrpcRawStream,
-    MSG_TYPE_RESPONSE, MSG_TYPE_DATA,
-    FLAG_REMOTE_CLOSED, FLAG_NO_DATA,
+    FLAG_NO_DATA,
+    FLAG_REMOTE_CLOSED,
+    MSG_TYPE_DATA,
+    MSG_TYPE_RESPONSE,
+    AbstractTtrpcHandler,
+    TtrpcProtocol,
+    TtrpcRawStream,
 )
-from ._messages import build_response, Request  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     import ssl as _ssl
+
     from grpclib import const
 
 
@@ -39,9 +53,10 @@ log = logging.getLogger(__name__)
 # Metadata helpers
 # ---------------------------------------------------------------------------
 
+
 def _decode_ttrpc_metadata(kv_list: Any) -> _Metadata:
     """Convert a repeated KeyValue list from a ttrpc Request into _Metadata."""
-    md: _Metadata = _Metadata(MultiDict())  # type: ignore[call-arg]
+    md: _Metadata = _Metadata(MultiDict())
     for kv in kv_list:
         md.add(kv.key, kv.value)
     return md
@@ -50,6 +65,7 @@ def _decode_ttrpc_metadata(kv_list: Any) -> _Metadata:
 # ---------------------------------------------------------------------------
 # Stream
 # ---------------------------------------------------------------------------
+
 
 class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
     """Handler-facing stream for a single ttrpc RPC call.
@@ -80,7 +96,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
         self._recv_type = recv_type
         self._send_type = send_type
         self._codec = codec
-        self._pending_payload: bytes = b''
+        self._pending_payload: bytes = b""
 
         #: :py:class:`~grpclib.metadata.Deadline` of the current request
         self.deadline = deadline
@@ -94,7 +110,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
         payload = await self._raw_stream.read_payload()
         if payload is None:
             return None
-        return self._codec.decode(payload, self._recv_type)  # type: ignore[return-value]
+        return self._codec.decode(payload, self._recv_type)
 
     # --- sending -------------------------------------------------------------
 
@@ -114,7 +130,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
         """
         if not self._cardinality.server_streaming:
             if self._send_message_done:
-                raise ProtocolError('Message was already sent')
+                raise ProtocolError("Message was already sent")
 
         encoded = self._codec.encode(message, self._send_type)
 
@@ -142,16 +158,16 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
         ``MSG_TYPE_RESPONSE`` frame with the error status otherwise.
         """
         if self._send_trailing_metadata_done:
-            raise ProtocolError('Trailing metadata was already sent')
+            raise ProtocolError("Trailing metadata was already sent")
 
         if self._cardinality.server_streaming and status is Status.OK:
             # Normal end-of-stream for server streaming.
             self._raw_stream.send_frame(
-                MSG_TYPE_DATA, FLAG_REMOTE_CLOSED | FLAG_NO_DATA, b''
+                MSG_TYPE_DATA, FLAG_REMOTE_CLOSED | FLAG_NO_DATA, b""
             )
         else:
             # Unary response OR streaming error: use the Response frame.
-            payload = self._pending_payload if status is Status.OK else b''
+            payload = self._pending_payload if status is Status.OK else b""
             response_bytes = build_response(status, status_message, payload)
             self._raw_stream.send_frame(
                 MSG_TYPE_RESPONSE, FLAG_REMOTE_CLOSED, response_bytes
@@ -161,7 +177,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
 
     # --- context manager -----------------------------------------------------
 
-    async def __aenter__(self) -> 'Stream[_RecvType, _SendType]':
+    async def __aenter__(self) -> "Stream[_RecvType, _SendType]":
         return self
 
     async def __aexit__(
@@ -179,18 +195,15 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
                 status_message: Optional[str] = exc_val.message
             elif isinstance(exc_val, Exception):
                 status = Status.UNKNOWN
-                status_message = 'Internal Server Error'
+                status_message = "Internal Server Error"
             else:
                 # propagate non-Exception (e.g. KeyboardInterrupt)
                 return None
-        elif (
-            not self._cardinality.server_streaming
-            and not self._send_message_done
-        ):
+        elif not self._cardinality.server_streaming and not self._send_message_done:
             status = Status.UNKNOWN
-            status_message = 'Internal Server Error'
+            status_message = "Internal Server Error"
             log.error(
-                'Unary handler %r exited without sending a message',
+                "Unary handler %r exited without sending a message",
                 self._method_name,
             )
         else:
@@ -202,7 +215,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
                 status=status, status_message=status_message
             )
         except Exception:
-            log.exception('Error sending trailing metadata')
+            log.exception("Error sending trailing metadata")
 
         return True  # suppress the original exception
 
@@ -211,8 +224,9 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
 # request_handler
 # ---------------------------------------------------------------------------
 
+
 async def request_handler(
-    mapping: Dict[str, 'const.Handler'],
+    mapping: Dict[str, "const.Handler"],
     raw_stream: TtrpcRawStream,
     method_name: str,
     flags: int,
@@ -230,11 +244,9 @@ async def request_handler(
         method = mapping.get(method_name)
         if method is None:
             response_bytes = build_response(
-                Status.UNIMPLEMENTED, 'Method not found', b''
+                Status.UNIMPLEMENTED, "Method not found", b""
             )
-            raw_stream.send_frame(
-                MSG_TYPE_RESPONSE, FLAG_REMOTE_CLOSED, response_bytes
-            )
+            raw_stream.send_frame(MSG_TYPE_RESPONSE, FLAG_REMOTE_CLOSED, response_bytes)
             return
 
         deadline: Optional[Deadline] = None
@@ -249,9 +261,14 @@ async def request_handler(
         # client-streaming, subsequent DATA frames supply more data.
 
         async with Stream(
-            raw_stream, method_name, method.cardinality,
-            method.request_type, method.reply_type,
-            codec=codec, deadline=deadline, metadata=metadata,
+            raw_stream,
+            method_name,
+            method.cardinality,
+            method.request_type,
+            method.reply_type,
+            codec=codec,
+            deadline=deadline,
+            metadata=metadata,
         ) as stream:
             wrapper: Any
             deadline_ctx: Any
@@ -269,29 +286,29 @@ async def request_handler(
                 raise
             except asyncio.TimeoutError:
                 if wrapper.cancel_failed:
-                    log.exception('Failed to handle deadline cancellation')
+                    log.exception("Failed to handle deadline cancellation")
                     raise GRPCError(Status.DEADLINE_EXCEEDED)
                 elif wrapper.cancelled:
-                    log.info('Deadline exceeded')
+                    log.info("Deadline exceeded")
                     raise GRPCError(Status.DEADLINE_EXCEEDED)
                 else:
-                    log.exception('Timeout error')
+                    log.exception("Timeout error")
                     raise
             except StreamTerminatedError as err:
                 if wrapper.cancel_failed:
-                    log.exception('Failed to handle cancellation')
+                    log.exception("Failed to handle cancellation")
                     raise
                 else:
                     assert wrapper.cancelled
-                    log.info('Request cancelled: %s', err)
+                    log.info("Request cancelled: %s", err)
                     raise
             except Exception:
-                log.exception('Application error')
+                log.exception("Application error")
                 raise
     except ProtocolError:
-        log.exception('Protocol error')
+        log.exception("Protocol error")
     except Exception:
-        log.exception('Server error')
+        log.exception("Server error")
     finally:
         release_stream()
 
@@ -299,6 +316,7 @@ async def request_handler(
 # ---------------------------------------------------------------------------
 # TtrpcHandler
 # ---------------------------------------------------------------------------
+
 
 class TtrpcHandler(_GC, AbstractTtrpcHandler):
     """Manages per-connection request tasks."""
@@ -308,13 +326,13 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
 
     def __init__(
         self,
-        mapping: Dict[str, 'const.Handler'],
+        mapping: Dict[str, "const.Handler"],
         codec: CodecBase,
     ) -> None:
         self.mapping = mapping
         self.codec = codec
-        self._tasks: Dict[TtrpcRawStream, 'asyncio.Task[None]'] = {}
-        self._cancelled: Set['asyncio.Task[None]'] = set()
+        self._tasks: Dict[TtrpcRawStream, "asyncio.Task[None]"] = {}
+        self._cancelled: Set["asyncio.Task[None]"] = set()
 
     def __gc_collect__(self) -> None:
         self._tasks = {s: t for s, t in self._tasks.items() if not t.done()}
@@ -336,13 +354,13 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
         self.__gc_step__()
 
         try:
-            req = Request.FromString(initial_payload)  # type: ignore[attr-defined]
+            req = Request.FromString(initial_payload)
         except Exception:
-            log.exception('Failed to parse ttrpc Request')
+            log.exception("Failed to parse ttrpc Request")
             release()
             return
 
-        method_name = f'/{req.service}/{req.method}'
+        method_name = f"/{req.service}/{req.method}"
         payload_bytes = bytes(req.payload)
 
         # Pre-seed the stream buffer synchronously *before* spawning the task
@@ -352,16 +370,18 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
             raw_stream.feed_data(payload_bytes)
 
         loop = asyncio.get_event_loop()
-        task = loop.create_task(request_handler(
-            self.mapping,
-            raw_stream,
-            method_name,
-            flags,
-            req.timeout_nano,
-            req.metadata,
-            self.codec,
-            release,
-        ))
+        task = loop.create_task(
+            request_handler(
+                self.mapping,
+                raw_stream,
+                method_name,
+                flags,
+                req.timeout_nano,
+                req.metadata,
+                self.codec,
+                release,
+            )
+        )
         self._tasks[raw_stream] = task
 
     def close(self) -> None:
@@ -383,6 +403,7 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
 # Server
 # ---------------------------------------------------------------------------
 
+
 class Server(_GC):
     """ttrpc server over TCP or Unix sockets.
 
@@ -401,11 +422,11 @@ class Server(_GC):
 
     def __init__(
         self,
-        handlers: Collection['IServable'],  # type: ignore[name-defined]
+        handlers: Collection[IServable],
         *,
         codec: Optional[CodecBase] = None,
     ) -> None:
-        mapping: Dict[str, 'const.Handler'] = {}
+        mapping: Dict[str, "const.Handler"] = {}
         for handler in handlers:
             mapping.update(handler.__mapping__())
 
@@ -413,13 +434,12 @@ class Server(_GC):
         self._codec = codec if codec is not None else ProtoCodec()
 
         self._server: Optional[asyncio.AbstractServer] = None
-        self._server_closed_fut: Optional['asyncio.Future[None]'] = None
+        self._server_closed_fut: Optional["asyncio.Future[None]"] = None
         self._handlers: Set[TtrpcHandler] = set()
 
     def __gc_collect__(self) -> None:
         self._handlers = {
-            h for h in self._handlers
-            if not (h.closing and h.check_closed())
+            h for h in self._handlers if not (h.closing and h.check_closed())
         }
 
     def _protocol_factory(self) -> TtrpcProtocol:
@@ -434,11 +454,11 @@ class Server(_GC):
         port: Optional[int] = None,
         *,
         path: Optional[str] = None,
-        family: 'socket.AddressFamily' = socket.AF_UNSPEC,
-        flags: 'socket.AddressInfo' = socket.AI_PASSIVE,
+        family: "socket.AddressFamily" = socket.AF_UNSPEC,
+        flags: "socket.AddressInfo" = socket.AI_PASSIVE,
         sock: Optional[socket.socket] = None,
         backlog: int = 100,
-        ssl: Optional['_ssl.SSLContext'] = None,
+        ssl: Optional["_ssl.SSLContext"] = None,
         reuse_address: Optional[bool] = None,
         reuse_port: Optional[bool] = None,
     ) -> None:
@@ -456,28 +476,37 @@ class Server(_GC):
                 "The 'path' parameter cannot be combined with 'host'/'port'."
             )
         if self._server is not None:
-            raise RuntimeError('Server is already started')
+            raise RuntimeError("Server is already started")
 
         loop = asyncio.get_event_loop()
 
         if path is not None:
             self._server = await loop.create_unix_server(
-                self._protocol_factory, path, sock=sock,
-                backlog=backlog, ssl=ssl,
+                self._protocol_factory,
+                path,
+                sock=sock,
+                backlog=backlog,
+                ssl=ssl,
             )
         else:
             self._server = await loop.create_server(  # type: ignore[call-overload]
-                self._protocol_factory, host, port,  # type: ignore[arg-type]
-                family=family, flags=flags, sock=sock,  # type: ignore[arg-type]
-                backlog=backlog, ssl=ssl,
-                reuse_address=reuse_address, reuse_port=reuse_port,
+                self._protocol_factory,
+                host,
+                port,  # type: ignore[arg-type]
+                family=family,
+                flags=flags,
+                sock=sock,  # type: ignore[arg-type]
+                backlog=backlog,
+                ssl=ssl,
+                reuse_address=reuse_address,
+                reuse_port=reuse_port,
             )
         self._server_closed_fut = loop.create_future()
 
     def close(self) -> None:
         """Stop accepting connections and cancel all in-flight requests."""
         if self._server is None or self._server_closed_fut is None:
-            raise RuntimeError('Server is not started')
+            raise RuntimeError("Server is not started")
         self._server.close()
         if not self._server_closed_fut.done():
             self._server_closed_fut.set_result(None)
@@ -487,16 +516,16 @@ class Server(_GC):
     async def wait_closed(self) -> None:
         """Wait until all request handlers have finished."""
         if self._server is None or self._server_closed_fut is None:
-            raise RuntimeError('Server is not started')
+            raise RuntimeError("Server is not started")
         await self._server_closed_fut
         await self._server.wait_closed()
         if self._handlers:
             loop = asyncio.get_event_loop()
-            await asyncio.wait({
-                loop.create_task(h.wait_closed()) for h in self._handlers
-            })
+            await asyncio.wait(
+                {loop.create_task(h.wait_closed()) for h in self._handlers}
+            )
 
-    async def __aenter__(self) -> 'Server':
+    async def __aenter__(self) -> "Server":
         return self
 
     async def __aexit__(
