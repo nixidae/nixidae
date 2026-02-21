@@ -489,7 +489,7 @@ class Server(_GC):
                 ssl=ssl,
             )
         else:
-            self._server = await loop.create_server(
+            self._server = await loop.create_server(  # type: ignore[no-matching-overload]
                 self._protocol_factory,
                 host,
                 port,

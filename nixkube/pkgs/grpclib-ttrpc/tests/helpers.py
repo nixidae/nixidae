@@ -17,10 +17,8 @@ from grpclib_ttrpc.protocol import (
 )
 from ttrpc.ttrpc_pb2 import Request
 
-from .dummy_pb2 import (
-    DummyReply,  # type: ignore[import-not-found]
-    DummyRequest,
-)
+from .dummy_pb2 import DummyReply  # type: ignore[import-not-found]
+from .dummy_pb2 import DummyRequest  # type: ignore[import-not-found]
 
 # ---------------------------------------------------------------------------
 # Frame helpers (used by both unit tests and the fake client)

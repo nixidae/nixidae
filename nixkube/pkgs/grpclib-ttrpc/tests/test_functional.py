@@ -1,6 +1,7 @@
 """End-to-end functional tests for grpclib_ttrpc.Server."""
 
 import asyncio
+from typing import cast
 
 import pytest
 import pytest_asyncio
@@ -11,10 +12,8 @@ from grpclib_ttrpc import Server
 from grpclib_ttrpc.protocol import FLAG_REMOTE_CLOSED
 from ttrpc.ttrpc_pb2 import Response
 
-from .dummy_pb2 import (
-    DummyReply,  # type: ignore[import-not-found]
-    DummyRequest,
-)
+from .dummy_pb2 import DummyReply  # type: ignore[import-not-found]
+from .dummy_pb2 import DummyRequest  # type: ignore[import-not-found]
 from .helpers import DummyServiceImpl, TtrpcClient
 
 CODEC = ProtoCodec()
@@ -39,7 +38,8 @@ async def tcp_server():
     server = Server([svc])
     await server.start(host="127.0.0.1", port=0)
     # Extract the bound port
-    sock = server._server.sockets[0]
+    assert server._server is not None
+    sock = cast("asyncio.Server", server._server).sockets[0]
     port = sock.getsockname()[1]
     yield server, port
     server.close()
@@ -219,7 +219,8 @@ async def test_grpc_error_in_handler(tcp_server):
     # spin up a separate server for this test
     err_server = Server([ErrorService()])
     await err_server.start(host="127.0.0.1", port=0)
-    err_port = err_server._server.sockets[0].getsockname()[1]
+    assert err_server._server is not None
+    err_port = cast("asyncio.Server", err_server._server).sockets[0].getsockname()[1]
 
     reader, writer = await asyncio.open_connection("127.0.0.1", err_port)
     client = TtrpcClient(reader, writer)
@@ -260,7 +261,8 @@ async def test_deadline_exceeded(tcp_server):
 
     slow_server = Server([SlowService()])
     await slow_server.start(host="127.0.0.1", port=0)
-    slow_port = slow_server._server.sockets[0].getsockname()[1]
+    assert slow_server._server is not None
+    slow_port = cast("asyncio.Server", slow_server._server).sockets[0].getsockname()[1]
 
     reader, writer = await asyncio.open_connection("127.0.0.1", slow_port)
     client = TtrpcClient(reader, writer)
