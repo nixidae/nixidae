@@ -10,6 +10,8 @@
   grpcio-tools,
   protobuf,
   ttrpc-proto-python,
+  pytest,
+  pytest-asyncio,
 }:
 let
   pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -34,5 +36,10 @@ buildPythonPackage {
     grpclib
     mypy-protobuf
     grpcio-tools
+  ];
+
+  nativeCheckInputs = [
+    pytest
+    pytest-asyncio
   ];
 }

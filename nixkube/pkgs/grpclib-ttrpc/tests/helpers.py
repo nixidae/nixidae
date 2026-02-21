@@ -17,7 +17,10 @@ from grpclib_ttrpc.protocol import (
 )
 from ttrpc.ttrpc_pb2 import Request
 
-from .dummy_pb2 import DummyReply, DummyRequest
+from .dummy_pb2 import (
+    DummyReply,  # type: ignore[import-not-found]
+    DummyRequest,
+)
 
 # ---------------------------------------------------------------------------
 # Frame helpers (used by both unit tests and the fake client)
@@ -60,11 +63,11 @@ class FakeTransport(asyncio.Transport):
     def is_closing(self) -> bool:
         return self._closing
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self) -> None:
         self._closing = True
 
     # asyncio.BaseTransport requires this
-    def get_extra_info(self, name: str, default=None):  # type: ignore[override]
+    def get_extra_info(self, name: str, default=None):
         return default
 
     def pop_frames(self):

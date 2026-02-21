@@ -11,7 +11,10 @@ from grpclib_ttrpc import Server
 from grpclib_ttrpc.protocol import FLAG_REMOTE_CLOSED
 from ttrpc.ttrpc_pb2 import Response
 
-from .dummy_pb2 import DummyReply, DummyRequest
+from .dummy_pb2 import (
+    DummyReply,  # type: ignore[import-not-found]
+    DummyRequest,
+)
 from .helpers import DummyServiceImpl, TtrpcClient
 
 CODEC = ProtoCodec()
