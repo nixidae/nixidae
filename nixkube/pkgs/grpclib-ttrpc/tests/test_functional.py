@@ -4,14 +4,15 @@ import asyncio
 
 import pytest
 import pytest_asyncio
-from dummy_pb2 import DummyReply, DummyRequest
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError
 from grpclib_ttrpc import Server
 from grpclib_ttrpc.protocol import FLAG_REMOTE_CLOSED
-from helpers import DummyServiceImpl, TtrpcClient
 from ttrpc.ttrpc_pb2 import Response
+
+from .dummy_pb2 import DummyReply, DummyRequest
+from .helpers import DummyServiceImpl, TtrpcClient
 
 CODEC = ProtoCodec()
 

@@ -5,7 +5,6 @@ import struct
 
 import grpclib.const
 import pytest_asyncio
-from dummy_pb2 import DummyReply, DummyRequest
 from grpclib_ttrpc.protocol import (
     _HEADER_FMT,
     FLAG_REMOTE_CLOSED,
@@ -17,6 +16,8 @@ from grpclib_ttrpc.protocol import (
     AbstractTtrpcHandler,
 )
 from ttrpc.ttrpc_pb2 import Request
+
+from .dummy_pb2 import DummyReply, DummyRequest
 
 # ---------------------------------------------------------------------------
 # Frame helpers (used by both unit tests and the fake client)

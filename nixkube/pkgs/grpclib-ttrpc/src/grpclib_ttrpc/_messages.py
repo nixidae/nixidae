@@ -13,10 +13,8 @@ def build_response(
     payload: bytes,
 ) -> bytes:
     """Serialize a ttrpc Response frame payload."""
-    ttrpc_status = ttStatus(
-        code=status.value,
-        message=message or "",
-    )
+    # Note: ttrpc Status message only has a code field, message is not part of the protocol
+    ttrpc_status = ttStatus(code=status.value)
     response = Response(
         status=ttrpc_status,
         payload=payload,

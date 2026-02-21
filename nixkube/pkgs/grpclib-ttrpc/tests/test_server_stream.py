@@ -1,7 +1,6 @@
 """Unit tests for grpclib_ttrpc.server.Stream."""
 
 import pytest
-from dummy_pb2 import DummyReply, DummyRequest
 from grpclib.const import Cardinality, Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
@@ -13,8 +12,10 @@ from grpclib_ttrpc.protocol import (
     TtrpcRawStream,
 )
 from grpclib_ttrpc.server import Stream
-from helpers import FakeTransport
 from ttrpc.ttrpc_pb2 import Response
+
+from .dummy_pb2 import DummyReply, DummyRequest
+from .helpers import FakeTransport
 
 # ---------------------------------------------------------------------------
 # Helpers
