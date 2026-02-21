@@ -4,7 +4,14 @@ let
   default = import ./. { };
   inherit (default) pkgs;
 
-  pypkgs = pp: with pp; [ ] ++ pkgs.nix-csi.dependencies;
+  pypkgs =
+    pp:
+    with pp;
+    [
+      pytest
+      pytest-asyncio
+    ]
+    ++ pkgs.nix-csi.dependencies;
   python = pkgs.python3.withPackages pypkgs;
   xonsh = pkgs.xonsh.override {
     extraPackages = pypkgs;
