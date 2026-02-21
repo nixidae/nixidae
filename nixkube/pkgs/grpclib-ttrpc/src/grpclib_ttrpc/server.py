@@ -117,7 +117,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
     async def send_initial_metadata(
         self,
         *,
-        metadata: Any = None,  # noqa: ARG002
+        _metadata: Any = None,
     ) -> None:
         """No-op: ttrpc has no HTTP/2 initial metadata frame."""
 

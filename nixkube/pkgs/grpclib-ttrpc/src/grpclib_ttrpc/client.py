@@ -147,5 +147,5 @@ async def unary_call(
         writer.close()
         try:
             await writer.wait_closed()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("Error closing connection: %r", exc)

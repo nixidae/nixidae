@@ -153,10 +153,14 @@ class TtrpcProtocol(asyncio.Protocol):
     # asyncio.Protocol callbacks -------------------------------------------
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        assert isinstance(transport, asyncio.Transport)
+        if not isinstance(transport, asyncio.Transport):
+            raise TypeError(f"Expected asyncio.Transport, got {type(transport)}")
         self._transport = transport
         self._connection = TtrpcConnection()
-        peer = getattr(transport, "get_extra_info", lambda *a: None)("peername")
+        try:
+            peer = transport.get_extra_info("peername")
+        except (AttributeError, Exception):
+            peer = None
         log.debug("connection established peer=%r", peer)
 
     def data_received(self, data: bytes) -> None:
@@ -203,8 +207,9 @@ class TtrpcProtocol(asyncio.Protocol):
         flags: int,
         payload: bytes,
     ) -> None:
-        assert self._transport is not None
-        assert self._connection is not None
+        if self._transport is None or self._connection is None:
+            raise RuntimeError("Transport or connection not initialized")
+
 
         if msg_type == MSG_TYPE_REQUEST:
             if not self._connection.validate_and_accept(stream_id):
