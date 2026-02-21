@@ -8,21 +8,21 @@ from typing import Optional
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
-from grpclib.ttrpc._messages import Request, Response  # type: ignore[attr-defined]
-from grpclib.ttrpc.mux import (
+from grpclib_ttrpc._messages import Request, Response  # type: ignore[attr-defined]
+from grpclib_ttrpc.mux import (
     NriMux,
     PLUGIN_SERVICE_CONN,
     RUNTIME_SERVICE_CONN,
     MUX_HEADER_SIZE,
 )
-from grpclib.ttrpc.protocol import (
+from grpclib_ttrpc.protocol import (
     TtrpcProtocol,
     HEADER_SIZE,
     MSG_TYPE_REQUEST,
     MSG_TYPE_RESPONSE,
     MAX_PAYLOAD,
 )
-from grpclib.ttrpc.server import TtrpcHandler
+from grpclib_ttrpc.server import TtrpcHandler
 from nri import api_grpc, api_pb2
 
 from .constants import NRI_RUNTIME_SOCKET, NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
@@ -167,7 +167,7 @@ async def _register_plugin(
     mux.writer.write(mux_hdr + ttrpc_frame)
     await mux.writer.drain()
 
-    # Accumulate mux chunks for ConnID=2 until we have a complete ttrpc frame.
+    # Accumulate mux chunks for ConnID=2 until we have a complete ttRPC frame.
     buf = bytearray()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout

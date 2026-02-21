@@ -1,0 +1,260 @@
+"""Unit tests for grpclib_ttrpc.server.Stream."""
+import pytest
+import pytest_asyncio
+
+from grpclib.const import Cardinality, Status
+from grpclib.exceptions import GRPCError, ProtocolError
+from grpclib.encoding.proto import ProtoCodec
+from grpclib_ttrpc.protocol import (
+    TtrpcRawStream,
+    MSG_TYPE_RESPONSE, MSG_TYPE_DATA,
+    FLAG_REMOTE_CLOSED, FLAG_NO_DATA,
+)
+from grpclib_ttrpc._stream_buffer import StreamBuffer
+from grpclib_ttrpc.server import Stream
+from grpclib_ttrpc._messages import Response  # type: ignore[attr-defined]
+
+from dummy_pb2 import DummyRequest, DummyReply
+from helpers import FakeTransport
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def make_stream(cardinality: Cardinality, *, preload=None):
+    """Return (Stream, FakeTransport, buffer) ready for testing."""
+    transport = FakeTransport()
+    raw = TtrpcRawStream(1, transport)
+    if preload is not None:
+        for item in preload:
+            if item is None:
+                raw._buffer.feed_eof()
+            else:
+                raw._buffer.feed_data(item)
+    return (
+        Stream(
+            raw, '/dummy.DummyService/Method', cardinality,
+            DummyRequest, DummyReply,
+            codec=ProtoCodec(),
+        ),
+        transport,
+        raw._buffer,
+    )
+
+
+def encoded(msg):
+    return ProtoCodec().encode(msg, type(msg))
+
+
+# ---------------------------------------------------------------------------
+# recv_message
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_recv_message_unary():
+    req = DummyRequest(value='hello')
+    stream, _, buf = make_stream(
+        Cardinality.UNARY_UNARY,
+        preload=[encoded(req), None],
+    )
+    msg = await stream.recv_message()
+    assert msg.value == 'hello'
+    eof = await stream.recv_message()
+    assert eof is None
+
+
+@pytest.mark.asyncio
+async def test_recv_message_stream_multi():
+    reqs = [DummyRequest(value=str(i)) for i in range(3)]
+    preload = [encoded(r) for r in reqs] + [None]
+    stream, _, _ = make_stream(Cardinality.STREAM_UNARY, preload=preload)
+    collected = []
+    async for msg in stream:
+        collected.append(msg.value)
+    assert collected == ['0', '1', '2']
+
+
+# ---------------------------------------------------------------------------
+# send_message — unary server (buffered)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_send_message_unary_buffers_payload():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    reply = DummyReply(value='pong')
+    await stream.send_message(reply)
+    # No frame emitted yet for unary — payload is buffered
+    assert len(transport.pop_frames()) == 0
+    assert stream._pending_payload == encoded(reply)
+
+
+@pytest.mark.asyncio
+async def test_send_message_unary_twice_raises():
+    stream, _, _ = make_stream(Cardinality.UNARY_UNARY)
+    await stream.send_message(DummyReply(value='first'))
+    with pytest.raises(ProtocolError, match='already sent'):
+        await stream.send_message(DummyReply(value='second'))
+
+
+# ---------------------------------------------------------------------------
+# send_message — server streaming (immediate frames)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_send_message_streaming_emits_data_frames():
+    stream, transport, _ = make_stream(Cardinality.UNARY_STREAM)
+    for i in range(3):
+        await stream.send_message(DummyReply(value=str(i)))
+    frames = transport.pop_frames()
+    assert len(frames) == 3
+    for sid, mtype, flags, _ in frames:
+        assert mtype == MSG_TYPE_DATA
+        assert flags == 0  # no close yet
+        assert sid == 1
+
+
+# ---------------------------------------------------------------------------
+# send_trailing_metadata — unary OK
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trailing_unary_ok_sends_response():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    reply = DummyReply(value='pong')
+    await stream.send_message(reply)
+    await stream.send_trailing_metadata(status=Status.OK)
+
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    sid, mtype, flags, payload = frames[0]
+    assert mtype == MSG_TYPE_RESPONSE
+    assert flags & FLAG_REMOTE_CLOSED
+    resp = Response.FromString(payload)  # type: ignore[attr-defined]
+    assert resp.status.code == Status.OK.value
+    assert resp.payload == encoded(reply)
+
+
+@pytest.mark.asyncio
+async def test_trailing_unary_error_sends_response_empty_payload():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    await stream.send_trailing_metadata(
+        status=Status.NOT_FOUND, status_message='gone'
+    )
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    _, mtype, flags, payload = frames[0]
+    assert mtype == MSG_TYPE_RESPONSE
+    resp = Response.FromString(payload)  # type: ignore[attr-defined]
+    assert resp.status.code == Status.NOT_FOUND.value
+    assert resp.status.message == 'gone'
+    assert resp.payload == b''
+
+
+# ---------------------------------------------------------------------------
+# send_trailing_metadata — streaming OK
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trailing_stream_ok_sends_final_data():
+    stream, transport, _ = make_stream(Cardinality.UNARY_STREAM)
+    await stream.send_message(DummyReply(value='x'))
+    transport.pop_frames()  # discard the DATA frame
+
+    await stream.send_trailing_metadata(status=Status.OK)
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    _, mtype, flags, payload = frames[0]
+    assert mtype == MSG_TYPE_DATA
+    assert flags == FLAG_REMOTE_CLOSED | FLAG_NO_DATA
+    assert payload == b''
+
+
+@pytest.mark.asyncio
+async def test_trailing_stream_error_sends_response():
+    stream, transport, _ = make_stream(Cardinality.UNARY_STREAM)
+    await stream.send_trailing_metadata(
+        status=Status.INTERNAL, status_message='oops'
+    )
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    _, mtype, flags, _ = frames[0]
+    assert mtype == MSG_TYPE_RESPONSE
+    assert flags & FLAG_REMOTE_CLOSED
+
+
+@pytest.mark.asyncio
+async def test_trailing_twice_raises():
+    stream, _, _ = make_stream(Cardinality.UNARY_UNARY)
+    await stream.send_trailing_metadata(status=Status.UNKNOWN)
+    with pytest.raises(ProtocolError):
+        await stream.send_trailing_metadata(status=Status.OK)
+
+
+# ---------------------------------------------------------------------------
+# __aexit__ — automatic trailing metadata
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_exit_clean_streaming():
+    """Clean exit on streaming handler should emit final DATA frame."""
+    stream, transport, _ = make_stream(Cardinality.UNARY_STREAM)
+    async with stream:
+        await stream.send_message(DummyReply(value='y'))
+    transport.pop_frames()  # discard the DATA content frame
+    # At this point send_trailing_metadata was already called inside the
+    # stream body, so __aexit__ sees _send_trailing_metadata_done=True and
+    # does nothing.  Let's test a fresh stream instead.
+
+    stream2, transport2, _ = make_stream(Cardinality.UNARY_STREAM)
+    async with stream2:
+        await stream2.send_message(DummyReply(value='z'))
+        # trailing metadata NOT called explicitly
+    all_frames = transport2.pop_frames()
+    # DATA frame for 'z' + final DATA frame
+    data_frames = [f for f in all_frames if f[1] == MSG_TYPE_DATA]
+    final_frames = [f for f in data_frames if f[2] & FLAG_REMOTE_CLOSED]
+    assert len(final_frames) >= 1
+
+
+@pytest.mark.asyncio
+async def test_exit_grpc_error_sends_error_response():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    async with stream:
+        raise GRPCError(Status.NOT_FOUND, 'missing')
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    _, mtype, _, payload = frames[0]
+    assert mtype == MSG_TYPE_RESPONSE
+    resp = Response.FromString(payload)  # type: ignore[attr-defined]
+    assert resp.status.code == Status.NOT_FOUND.value
+
+
+@pytest.mark.asyncio
+async def test_exit_bare_exception_sends_unknown():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    async with stream:
+        raise ValueError('internal oops')
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    resp = Response.FromString(frames[0][3])  # type: ignore[attr-defined]
+    assert resp.status.code == Status.UNKNOWN.value
+
+
+@pytest.mark.asyncio
+async def test_exit_no_message_unary_sends_unknown():
+    """Unary handler that exits without send_message should get UNKNOWN."""
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    async with stream:
+        pass  # forgot to send_message
+    frames = transport.pop_frames()
+    assert len(frames) == 1
+    resp = Response.FromString(frames[0][3])  # type: ignore[attr-defined]
+    assert resp.status.code == Status.UNKNOWN.value
+
+
+@pytest.mark.asyncio
+async def test_send_initial_metadata_is_noop():
+    stream, transport, _ = make_stream(Cardinality.UNARY_UNARY)
+    await stream.send_initial_metadata()
+    assert len(transport.pop_frames()) == 0

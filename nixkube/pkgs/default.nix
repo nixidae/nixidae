@@ -1,14 +1,6 @@
 # SPDX-License-Identifier: MIT
 
 self: pkgs:
-let
-  localGrpclib = pkgs.python3Packages.grpclib.overrideAttrs (_: {
-    src = pkgs.lib.fileset.toSource {
-      root = /home/lillecarl/grpclib;
-      fileset = pkgs.lib.fileset.gitTracked /home/lillecarl/grpclib;
-    };
-  });
-in
 {
   # Overlay lib
   lib = pkgs.lib.extend (import ../lib);
@@ -25,7 +17,7 @@ in
       '';
 
   nix-csi = pkgs.python3Packages.callPackage ../python {
-    inherit (self) csi-proto-python nri-proto-python kr8s;
+    inherit (self) csi-proto-python nri-proto-python grpclib-ttrpc kr8s;
   };
 
   # kluctl = pkgs.kluctl.override {
@@ -48,8 +40,9 @@ in
     doInstallCheck = false;
   });
 
-  csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { grpclib = localGrpclib; };
-  nri-proto-python = pkgs.python3Packages.callPackage ./nri-proto-python { grpclib = localGrpclib; };
+  grpclib-ttrpc = pkgs.python3Packages.callPackage ./grpclib-ttrpc { };
+  csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { };
+  nri-proto-python = pkgs.python3Packages.callPackage ./nri-proto-python { };
   python-jsonpath = pkgs.python3Packages.callPackage ./python-jsonpath.nix { };
   kr8s = pkgs.python3Packages.callPackage ./kr8s.nix { inherit (self) python-jsonpath; };
   shellous = pkgs.python3Packages.callPackage ./shellous.nix { };

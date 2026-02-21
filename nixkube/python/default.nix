@@ -7,6 +7,7 @@
   cryptography, # ssh-keygen Python
   csi-proto-python, # CSI gRPC bindings
   nri-proto-python, # NRI ttRPC bindings
+  grpclib-ttrpc, # ttRPC server/client over grpclib primitives
   googleapis-common-protos, # Google Errors
   gitMinimal, # Lix requires Git since it doesn't use libgit2
   kr8s, # Kubernetes API
@@ -31,6 +32,7 @@ buildPythonApplication {
     cryptography
     csi-proto-python
     nri-proto-python
+    grpclib-ttrpc
     googleapis-common-protos
     gitMinimal
     kr8s
