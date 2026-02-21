@@ -14,7 +14,7 @@ from grpclib_ttrpc.protocol import (
 )
 from grpclib_ttrpc.server import Stream
 from helpers import FakeTransport
-from ttrpc import Response
+from ttrpc.ttrpc_pb2 import Response
 
 # ---------------------------------------------------------------------------
 # Helpers

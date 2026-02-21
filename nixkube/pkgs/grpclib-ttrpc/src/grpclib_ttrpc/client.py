@@ -9,7 +9,7 @@ from grpclib.const import Status
 from grpclib.encoding.base import CodecBase
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
-from ttrpc import Request, Response
+from ttrpc.ttrpc_pb2 import Request, Response
 
 from .protocol import HEADER_SIZE, MAX_PAYLOAD, MSG_TYPE_REQUEST, MSG_TYPE_RESPONSE
 

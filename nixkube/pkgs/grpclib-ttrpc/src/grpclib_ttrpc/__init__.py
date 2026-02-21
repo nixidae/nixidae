@@ -3,7 +3,7 @@
 Uses the same protobuf service handler classes as grpclib's HTTP/2 server.
 """
 
-from ttrpc import Request, Response
+from ttrpc.ttrpc_pb2 import Request, Response
 
 from .client import unary_call
 from .server import Server, Stream

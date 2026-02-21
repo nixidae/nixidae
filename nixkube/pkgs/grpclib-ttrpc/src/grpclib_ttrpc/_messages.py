@@ -2,17 +2,18 @@
 
 from typing import Optional
 
-from grpclib.const import Status
-from ttrpc import Response, TtrpcStatus
+from grpclib.const import Status as gStatus
+from ttrpc.proto.status_pb2 import Status as ttStatus
+from ttrpc.ttrpc_pb2 import Response
 
 
 def build_response(
-    status: Status,
+    status: gStatus,
     message: Optional[str],
     payload: bytes,
 ) -> bytes:
     """Serialize a ttrpc Response frame payload."""
-    ttrpc_status = TtrpcStatus(
+    ttrpc_status = ttStatus(
         code=status.value,
         message=message or "",
     )

@@ -16,7 +16,7 @@ from grpclib_ttrpc.protocol import (
     MSG_TYPE_RESPONSE,
     AbstractTtrpcHandler,
 )
-from ttrpc import Request
+from ttrpc.ttrpc_pb2 import Request
 
 # ---------------------------------------------------------------------------
 # Frame helpers (used by both unit tests and the fake client)

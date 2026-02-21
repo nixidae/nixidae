@@ -27,7 +27,7 @@ from grpclib.server import _GC
 from grpclib.stream import StreamIterator, _RecvType, _SendType
 from grpclib.utils import DeadlineWrapper, Wrapper
 from multidict import MultiDict
-from ttrpc import Request
+from ttrpc.ttrpc_pb2 import Request
 
 from ._messages import build_response
 from .protocol import (
@@ -489,13 +489,13 @@ class Server(_GC):
                 ssl=ssl,
             )
         else:
-            self._server = await loop.create_server(  # type: ignore[call-overload]
+            self._server = await loop.create_server(
                 self._protocol_factory,
                 host,
-                port,  # type: ignore[arg-type]
+                port,
                 family=family,
                 flags=flags,
-                sock=sock,  # type: ignore[arg-type]
+                sock=sock,
                 backlog=backlog,
                 ssl=ssl,
                 reuse_address=reuse_address,

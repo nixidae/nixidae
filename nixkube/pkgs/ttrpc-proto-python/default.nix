@@ -44,15 +44,21 @@ buildPythonPackage {
     cp ${ttrpc}/request.proto $TMPDIR/ttrpc.proto
     cp ${ttrpc}/proto/status.proto $TMPDIR/proto/status.proto
 
-    mkdir -p src/ttrpc
+    mkdir -p src/ttrpc/proto
     touch src/ttrpc/py.typed
     touch src/ttrpc/__init__.py
+    touch src/ttrpc/proto/__init__.py
+
     protoc \
       --proto_path=$TMPDIR \
       --python_out=src/ttrpc \
       --grpclib_python_out=src/ttrpc \
       --mypy_out=src/ttrpc \
-      ttrpc.proto
+      ttrpc.proto proto/status.proto
+
+    # Fix relative imports in generated code
+    substituteInPlace src/ttrpc/ttrpc_pb2.py \
+      --replace-fail "from proto import status_pb2" "from .proto import status_pb2"
   '';
 
   meta = with lib; {
