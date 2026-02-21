@@ -9,7 +9,6 @@
   grpcio-tools,
   grpclib,
   protobuf,
-  python,
 }:
 let
   version = "0.11.0";
@@ -19,12 +18,6 @@ let
     rev = "1078130fa016884b4c03880d9d587e6691a67d98";
     sha256 = "sha256-E3UivHF+tTltMUrdgQk2rIJGtqOav4iqF1E3sYXsoGU=";
   };
-  localGrpclib = grpclib.overrideAttrs (_: {
-    src = lib.fileset.toSource {
-      root = /home/lillecarl/grpclib;
-      fileset = lib.fileset.gitTracked /home/lillecarl/grpclib;
-    };
-  });
 in
 buildPythonPackage {
   inherit version;
@@ -34,12 +27,12 @@ buildPythonPackage {
 
   build-system = [ hatchling ];
   nativeBuildInputs = [
-    localGrpclib
+    grpclib
     grpcio-tools
   ];
 
   dependencies = [
-    localGrpclib
+    grpclib
     protobuf
   ];
 
