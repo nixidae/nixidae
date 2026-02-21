@@ -331,7 +331,7 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
     ) -> None:
         self.mapping = mapping
         self.codec = codec
-        self._tasks: Dict[TtrpcRawStream, "asyncio.Task[None]"] = {}
+        self._tasks: Dict[int, "asyncio.Task[None]"] = {}
         self._cancelled: Set["asyncio.Task[None]"] = set()
 
     def __gc_collect__(self) -> None:
@@ -382,7 +382,7 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
                 release,
             )
         )
-        self._tasks[raw_stream] = task
+        self._tasks[raw_stream.stream_id] = task
 
     def close(self) -> None:
         for task in self._tasks.values():
