@@ -119,6 +119,7 @@ in
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
                       nix-config.mountPath = "/etc/nix";
+                      nri-socket.mountPath = "/var/run/nri";
                       registration.mountPath = "/registration";
                       kubelet = {
                         mountPath = "/var/lib/kubelet";
@@ -187,6 +188,10 @@ in
                   };
                   csi-socket.hostPath = {
                     path = "/var/lib/kubelet/plugins/nix.csi.store/";
+                    type = "DirectoryOrCreate";
+                  };
+                  nri-socket.hostPath = {
+                    path = "/var/run/nri";
                     type = "DirectoryOrCreate";
                   };
                   kubelet.hostPath = {

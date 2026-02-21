@@ -43,8 +43,13 @@ VERIFY_STORE_PATHS = os.environ.get("VERIFY_STORE_PATHS", "false") == "true"
 # CSI socket path for gRPC server
 CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 
-# NRI socket path for ttrpc plugin server
-NRI_SOCKET_PATH = os.environ.get("NRI_SOCKET_PATH", "/var/run/nri/plugins/00-nix-csi.sock")
+# NRI runtime socket — containerd's multiplex socket we connect to
+NRI_RUNTIME_SOCKET = os.environ.get("NRI_RUNTIME_SOCKET", "/var/run/nri/nri.sock")
+
+# NRI plugin identity — sent in RegisterPlugin; must match the index prefix
+# that containerd expects (two-digit zero-padded number, e.g. "00").
+NRI_PLUGIN_NAME = os.environ.get("NRI_PLUGIN_NAME", "nix-csi")
+NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
 
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")

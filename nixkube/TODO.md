@@ -10,3 +10,7 @@
 
 ## Controller
 * Rename cache to controller, integrate Kopf for additional future features. (No?)
+
+
+## NRI
+* lower registration timeout to 5s to match default containerd config

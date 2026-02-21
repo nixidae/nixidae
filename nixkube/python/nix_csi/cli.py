@@ -63,10 +63,16 @@ async def async_main():
 
     log_effective_config()
 
+    async def nri_serve_safe() -> None:
+        try:
+            await nriplugin.nri_serve()
+        except Exception as e:
+            logger.error("NRI plugin server exited unexpectedly: %s", e, exc_info=True)
+
     try:
-        await asyncio.gather(service.serve(), nriplugin.nri_serve())
+        await asyncio.gather(service.serve(), nri_serve_safe())
     except Exception as e:
-        logger.critical(f"Service failed: {e}", exc_info=True)
+        logger.critical(f"CSI service failed: {e}", exc_info=True)
         raise
 
 
