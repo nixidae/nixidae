@@ -14,7 +14,7 @@ Source: nri/pkg/net/multiplex/{mux.go,ttrpc.go}
 import asyncio
 import logging
 import struct
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class MuxChannelTransport(asyncio.Transport):
         self._conn_id = conn_id
         self._writer = writer
 
-    def write(self, data: bytes | bytearray | memoryview[Any]) -> None:
+    def write(self, data: bytes | bytearray | memoryview) -> None:
         # Convert to bytes for len() and concatenation
         data_bytes = bytes(data)
         header = struct.pack(MUX_HEADER_FMT, self._conn_id, len(data_bytes))
