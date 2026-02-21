@@ -16,7 +16,7 @@ self: pkgs: {
       '';
 
   nix-csi = pkgs.python3Packages.callPackage ../python {
-    inherit (self) csi-proto-python kr8s;
+    inherit (self) csi-proto-python nri-proto-python kr8s;
   };
 
   # kluctl = pkgs.kluctl.override {

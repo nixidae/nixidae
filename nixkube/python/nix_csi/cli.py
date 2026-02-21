@@ -6,7 +6,7 @@ import logging
 import logging.config
 from pathlib import Path
 
-from . import service
+from . import nriplugin, service
 
 
 def log_effective_config() -> None:
@@ -64,9 +64,9 @@ async def async_main():
     log_effective_config()
 
     try:
-        await service.serve()
+        await asyncio.gather(service.serve(), nriplugin.nri_serve())
     except Exception as e:
-        logger.critical(f"CSI service failed: {e}", exc_info=True)
+        logger.critical(f"Service failed: {e}", exc_info=True)
         raise
 
 

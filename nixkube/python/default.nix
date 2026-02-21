@@ -5,7 +5,8 @@
   hatchling, # Build system
   coreutils, # ln
   cryptography, # ssh-keygen Python
-  csi-proto-python, # CSI GRPC bindings
+  csi-proto-python, # CSI gRPC bindings
+  nri-proto-python, # NRI ttRPC bindings
   googleapis-common-protos, # Google Errors
   gitMinimal, # Lix requires Git since it doesn't use libgit2
   kr8s, # Kubernetes API
@@ -29,6 +30,7 @@ buildPythonApplication {
     coreutils
     cryptography
     csi-proto-python
+    nri-proto-python
     googleapis-common-protos
     gitMinimal
     kr8s

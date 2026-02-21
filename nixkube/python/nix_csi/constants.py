@@ -43,6 +43,9 @@ VERIFY_STORE_PATHS = os.environ.get("VERIFY_STORE_PATHS", "false") == "true"
 # CSI socket path for gRPC server
 CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 
+# NRI socket path for ttrpc plugin server
+NRI_SOCKET_PATH = os.environ.get("NRI_SOCKET_PATH", "/var/run/nri/plugins/00-nix-csi.sock")
+
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 
