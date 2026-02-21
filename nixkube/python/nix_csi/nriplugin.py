@@ -36,7 +36,7 @@ class NriPlugin(api_grpc.PluginBase):
     async def Configure(self, stream) -> None:
         req: api_pb2.ConfigureRequest | None = await stream.recv_message()
         logger.info(
-            "NRI Configure: runtime=%r version=%r",
+            "Configure: runtime=%r version=%r",
             req.runtime_name if req else None,
             req.runtime_version if req else None,
         )
@@ -46,7 +46,7 @@ class NriPlugin(api_grpc.PluginBase):
         req: api_pb2.SynchronizeRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI Synchronize: %d pods, %d containers",
+            "Synchronize: %d pods, %d containers",
             len(req.pods),
             len(req.containers),
         )
@@ -54,14 +54,14 @@ class NriPlugin(api_grpc.PluginBase):
 
     async def Shutdown(self, stream) -> None:
         await stream.recv_message()
-        logger.info("NRI Shutdown")
+        logger.info("Shutdown")
         await stream.send_message(api_pb2.Empty())
 
     async def CreateContainer(self, stream) -> None:
         req: api_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI CreateContainer: pod=%r container=%r",
+            "CreateContainer: pod=%r container=%r",
             req.pod.name,
             req.container.name,
         )
@@ -71,7 +71,7 @@ class NriPlugin(api_grpc.PluginBase):
         req: api_pb2.UpdateContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI UpdateContainer: container=%r",
+            "UpdateContainer: container=%r",
             req.container.name,
         )
         await stream.send_message(api_pb2.UpdateContainerResponse())
@@ -80,7 +80,7 @@ class NriPlugin(api_grpc.PluginBase):
         req: api_pb2.StopContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI StopContainer: container=%r",
+            "StopContainer: container=%r",
             req.container.name,
         )
         await stream.send_message(api_pb2.StopContainerResponse())
@@ -89,7 +89,7 @@ class NriPlugin(api_grpc.PluginBase):
         req: api_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI UpdatePodSandbox: pod=%r",
+            "UpdatePodSandbox: pod=%r",
             req.pod.name,
         )
         await stream.send_message(api_pb2.UpdatePodSandboxResponse())
@@ -98,7 +98,7 @@ class NriPlugin(api_grpc.PluginBase):
         event: api_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
         logger.info(
-            "NRI StateChange: event=%r",
+            "StateChange: event=%r",
             event.event,
         )
         await stream.send_message(api_pb2.Empty())
@@ -109,7 +109,7 @@ class NriPlugin(api_grpc.PluginBase):
         ) = await stream.recv_message()
         assert req is not None
         logger.info(
-            "NRI ValidateContainerAdjustment: container=%r",
+            "ValidateContainerAdjustment: container=%r",
             req.container.name,
         )
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
@@ -210,7 +210,7 @@ async def _register_plugin(
 async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger.info(
-        "Connecting to NRI socket %s (plugin=%s idx=%s)",
+        "Connecting to socket %s (plugin=%s idx=%s)",
         NRI_RUNTIME_SOCKET,
         NRI_PLUGIN_NAME,
         NRI_PLUGIN_IDX,
@@ -236,7 +236,7 @@ async def _nri_run() -> None:
     try:
         await _register_plugin(mux, codec)
         logger.info(
-            "NRI plugin registered (name=%r idx=%r)", NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
+            "Plugin registered (name=%r idx=%r)", NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
         )
         # Block until the connection drops (read_loop exits → serve_task exits).
         await asyncio.gather(read_task, serve_task)
@@ -263,7 +263,7 @@ async def nri_serve() -> None:
             await _nri_run()
         except Exception as e:
             logger.warning(
-                "NRI connection failed (%s: %s), retrying in %.0fs",
+                "Connection failed (%s: %s), retrying in %.0fs",
                 type(e).__name__,
                 e,
                 delay,
