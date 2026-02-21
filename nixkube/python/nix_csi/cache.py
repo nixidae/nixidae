@@ -113,7 +113,7 @@ async def copy_to_cache(package_paths: list[Path]) -> None:
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
                 )
                 if nix_copy.returncode == 0:
-                    logger.debug(f"Successfully copied to cache: {len(paths)} paths")
+                    logger.debug(f"Successfully copied {len(paths)} paths to cache")
                     break
                 else:
                     logger.debug(
