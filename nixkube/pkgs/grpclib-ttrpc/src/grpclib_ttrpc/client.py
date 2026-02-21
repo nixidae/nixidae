@@ -82,12 +82,13 @@ async def unary_call(
         # FLAG_REMOTE_CLOSED (0x01) signals streaming (client done sending
         # but expects multiple server responses) — NOT for unary calls.
         header = struct.pack(">IIBB", len(req_bytes), 1, MSG_TYPE_REQUEST, 0)
-        log.debug(
-            "ttrpc unary_call: sending %d-byte request (header=%s payload_hex=%s)",
-            len(req_bytes),
-            header.hex(),
-            req_bytes[:64].hex(),
-        )
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "ttrpc unary_call: sending %d-byte request (header=%s payload_hex=%s)",
+                len(req_bytes),
+                header.hex(),
+                req_bytes[:64].hex(),
+            )
         writer.write(header + req_bytes)
         await writer.drain()
 
@@ -122,11 +123,12 @@ async def unary_call(
         resp_bytes = await asyncio.wait_for(
             reader.readexactly(length), timeout=response_timeout
         )
-        log.debug(
-            "ttrpc unary_call: response payload (%d bytes): %s",
-            length,
-            resp_bytes[:64].hex(),
-        )
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "ttrpc unary_call: response payload (%d bytes): %s",
+                length,
+                resp_bytes[:64].hex(),
+            )
         resp = Response.FromString(resp_bytes)
 
         if resp.status.code != 0:
