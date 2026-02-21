@@ -39,7 +39,7 @@ class NriPlugin(api_grpc.PluginBase):
     """Empty NRI plugin — logs every lifecycle event and passes through."""
 
     async def Configure(self, stream) -> None:
-        req: api_pb2.ConfigureRequest = await stream.recv_message()
+        req: api_pb2.ConfigureRequest | None = await stream.recv_message()
         logger.info(
             "NRI Configure: runtime=%r version=%r",
             req.runtime_name if req else None,
@@ -48,7 +48,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.ConfigureResponse(events=_ALL_NRI_EVENTS))
 
     async def Synchronize(self, stream) -> None:
-        req: api_pb2.SynchronizeRequest = await stream.recv_message()
+        req: api_pb2.SynchronizeRequest | None = await stream.recv_message()
         logger.info(
             "NRI Synchronize: %d pods, %d containers",
             len(req.pods) if req else 0,
@@ -62,7 +62,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.Empty())
 
     async def CreateContainer(self, stream) -> None:
-        req: api_pb2.CreateContainerRequest = await stream.recv_message()
+        req: api_pb2.CreateContainerRequest | None = await stream.recv_message()
         logger.info(
             "NRI CreateContainer: pod=%r container=%r",
             req.pod.name if req and req.pod else None,
@@ -71,7 +71,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.CreateContainerResponse())
 
     async def UpdateContainer(self, stream) -> None:
-        req: api_pb2.UpdateContainerRequest = await stream.recv_message()
+        req: api_pb2.UpdateContainerRequest | None = await stream.recv_message()
         logger.info(
             "NRI UpdateContainer: container=%r",
             req.container.name if req and req.container else None,
@@ -79,7 +79,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.UpdateContainerResponse())
 
     async def StopContainer(self, stream) -> None:
-        req: api_pb2.StopContainerRequest = await stream.recv_message()
+        req: api_pb2.StopContainerRequest | None = await stream.recv_message()
         logger.info(
             "NRI StopContainer: container=%r",
             req.container.name if req and req.container else None,
@@ -87,7 +87,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
-        req: api_pb2.UpdatePodSandboxRequest = await stream.recv_message()
+        req: api_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
         logger.info(
             "NRI UpdatePodSandbox: pod=%r",
             req.pod.name if req and req.pod else None,
@@ -95,7 +95,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.UpdatePodSandboxResponse())
 
     async def StateChange(self, stream) -> None:
-        event: api_pb2.StateChangeEvent = await stream.recv_message()
+        event: api_pb2.StateChangeEvent | None = await stream.recv_message()
         logger.info(
             "NRI StateChange: event=%r",
             event.event if event else None,
@@ -103,7 +103,7 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
-        req: api_pb2.ValidateContainerAdjustmentRequest = await stream.recv_message()
+        req: api_pb2.ValidateContainerAdjustmentRequest | None = await stream.recv_message()
         logger.info(
             "NRI ValidateContainerAdjustment: container=%r",
             req.container.name if req and req.container else None,

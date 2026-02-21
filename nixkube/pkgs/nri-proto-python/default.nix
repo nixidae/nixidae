@@ -9,6 +9,7 @@
   grpcio-tools,
   grpclib,
   protobuf,
+  mypy-protobuf,
 }:
 let
   version = "0.11.0";
@@ -29,6 +30,7 @@ buildPythonPackage {
   nativeBuildInputs = [
     grpclib
     grpcio-tools
+    mypy-protobuf
   ];
 
   dependencies = [
@@ -45,6 +47,7 @@ buildPythonPackage {
       --proto_path="${nri}/pkg/api" \
       --python_out="src/nri" \
       --grpclib_python_out="src/nri" \
+      --mypy_out="src/nri" \
       api.proto
 
     substituteInPlace src/nri/api_grpc.py \
