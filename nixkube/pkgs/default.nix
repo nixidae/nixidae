@@ -21,6 +21,7 @@ self: pkgs: {
       nri-proto-python
       grpclib-ttrpc
       kr8s
+      nri-wait
       ;
   };
 
@@ -55,4 +56,8 @@ self: pkgs: {
   shellous = pkgs.python3Packages.callPackage ./shellous.nix { };
 
   nix-csi-validpaths-monitor = pkgs.callPackage ./nix-csi-validpaths-monitor { };
+
+  # NRI wait Python application for OCI hooks
+  # Runs inside chroot(/var/lib/nix-csi), uses pyzmq for communication
+  nri-wait = pkgs.python3Packages.callPackage ./nri-wait { };
 }

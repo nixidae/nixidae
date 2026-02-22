@@ -22,6 +22,7 @@ pkgs.mkShell {
     python
     xonsh
     pkgs.cachix
+    pkgs.cargo
     pkgs.kluctl
     pkgs.kubectx
     pkgs.pyright
@@ -31,6 +32,7 @@ pkgs.mkShell {
     pkgs.python3Packages.python-lsp-server
     pkgs.regctl
     pkgs.ruff
+    pkgs.rustc
     pkgs.ty
     pkgs.skopeo
     pkgs.stern

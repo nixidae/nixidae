@@ -17,6 +17,8 @@
   openssh, # Copying to cache
   rsync, # hardlinking
   util-linuxMinimal, # mount, umount
+  pyzmq, # Talking to OCI hooks
+  nri-wait, # OCI hook for waiting on NRI builds
 }:
 let
   pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -42,6 +44,8 @@ buildPythonApplication {
     openssh
     rsync
     util-linuxMinimal
+    pyzmq
+    nri-wait
   ];
   meta.mainProgram = "nix-csi";
 }
