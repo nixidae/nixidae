@@ -1,6 +1,11 @@
 # NRI wait OCI hook - waits for Nix builds via ZeroMQ
 # Runs inside chroot(/var/lib/nix-csi) so standard glibc is fine
-{ lib, buildPythonApplication, hatchling, pyzmq }:
+{
+  lib,
+  buildPythonApplication,
+  hatchling,
+  pyzmq,
+}:
 
 buildPythonApplication {
   pname = "nri-wait";

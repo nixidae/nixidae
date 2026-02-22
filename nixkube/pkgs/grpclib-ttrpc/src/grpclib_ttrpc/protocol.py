@@ -210,7 +210,6 @@ class TtrpcProtocol(asyncio.Protocol):
         if self._transport is None or self._connection is None:
             raise RuntimeError("Transport or connection not initialized")
 
-
         if msg_type == MSG_TYPE_REQUEST:
             if not self._connection.validate_and_accept(stream_id):
                 log.warning("invalid stream_id %d, discarding frame", stream_id)

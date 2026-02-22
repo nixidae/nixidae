@@ -29,7 +29,9 @@ class ZeroMQServer:
 
     async def initialize(self) -> None:
         """Create ZeroMQ context and bind sockets."""
-        logger.info("[ZMQ-INIT] Initializing ZeroMQ sockets in %r", self.socket_base_dir)
+        logger.info(
+            "[ZMQ-INIT] Initializing ZeroMQ sockets in %r", self.socket_base_dir
+        )
 
         # Ensure socket directory exists
         socket_dir = Path(self.socket_base_dir)
@@ -88,7 +90,9 @@ class ZeroMQServer:
             msg = json.dumps({"container_id": container_id, "status": "done"})
             logger.debug("[ZMQ-PUB] Publishing: %s", msg)
             await self.pub_socket.send(msg.encode())
-            logger.info("[ZMQ-PUB] Published build completion for container=%r", container_id)
+            logger.info(
+                "[ZMQ-PUB] Published build completion for container=%r", container_id
+            )
         except Exception as e:
             logger.error(
                 "[ZMQ-PUB] Failed to publish build completion for container=%r: %s",

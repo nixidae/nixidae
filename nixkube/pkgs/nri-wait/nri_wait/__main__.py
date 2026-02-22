@@ -29,10 +29,16 @@ def main() -> None:
     try:
         # Phase 1: Query if build is already done
         if check_build_status(context, query_socket, container_id, timeout):
-            print(f"[nri-wait] Build already completed for {container_id}", file=sys.stderr)
+            print(
+                f"[nri-wait] Build already completed for {container_id}",
+                file=sys.stderr,
+            )
             return
 
-        print(f"[nri-wait] Build pending for {container_id}, subscribing to updates...", file=sys.stderr)
+        print(
+            f"[nri-wait] Build pending for {container_id}, subscribing to updates...",
+            file=sys.stderr,
+        )
 
         # Phase 2: Subscribe to PUB socket and wait for completion
         wait_for_completion(context, pub_socket, container_id, timeout)

@@ -134,12 +134,36 @@ All files within each container's directory are hardlinked, leveraging Nix's con
 5. ✅ Socket communication verified (REP query, PUB broadcast)
 6. ✅ End-to-end testing with real Kubernetes cluster
 7. ✅ Hook chroot isolation working correctly
+8. ✅ **Mount timing validated**: OCI runtime applies mounts immediately during container creation (before hooks run)
+9. ✅ **Backfilling architecture verified**: Pre-create empty mount directories in CreateContainer, populate with files during LARP build, files appear immediately in running container
+
+**Key Architectural Findings (Mount Timing)**:
+
+The OCI runtime applies all mounts from the container spec during `CreateContainer`, **before** any hooks execute. Initial approach of deferring mount creation until after build fails:
+- Container creation fails immediately if mount sources don't exist
+- createRuntime hook never runs if container creation fails
+
+**Solution: Backfilling Pattern**:
+1. `CreateContainer` (NRI) → Pre-create **empty** mount directories
+2. Inject mounts pointing to these empty directories (mount succeeds)
+3. `createRuntime` hook (OCI) → Queries ZeroMQ, waits for build if pending
+4. Background build task → Sleeps, then hardlinks/populates files into already-mounted directories
+5. Files appear immediately in running container (bind mount sees new files)
+6. Hook receives build-complete signal, exits, container process starts
+
+**Backfilling Test Results**:
+- ✅ Empty directories mount successfully (no errors)
+- ✅ Files added to mounted directory visible in container immediately
+- ✅ No container restart required
+- ✅ Clean coordination via ZeroMQ query+subscribe pattern
 
 **Next Phase** (Phase 3):
 1. Replace LARP builds with actual Nix build invocation
-2. Update annotation filter: change from `nix-nri/test` to `nix-nri/store-paths`
-3. Parse store paths from annotation, trigger real builds
-4. Implement cache coordination with nix-cache StatefulSet
+2. Implement hardlink extraction for store paths into mount directories
+3. Handle symlinks: error if directory structure has symlinks where we expect directories
+4. Update annotation filter: change from `nix-nri/test` to `nix-nri/store-paths`
+5. Parse store paths from annotation, trigger real builds with FHS path extraction
+6. Implement cache coordination with nix-cache StatefulSet
 
 ---
 
@@ -210,6 +234,51 @@ The hook:
   - Modify CreateContainer to spawn "build" task (LARP for Phase 2)
 - `python/pyproject.toml`: Add cachetools, pyzmq, aiozmq dependencies
 - `pkgs/aiozmq/default.nix`: Package aiozmq if not in nixpkgs (TBD)
+
+---
+
+## Phase 3: FHS Path Mounting (Planned)
+
+**Goal**: Support mounting specific package contents at FHS (Filesystem Hierarchy Standard) locations.
+
+### FHS Mounting Use Case
+
+Example: User wants `/nix/store/cacert-1.0/etc/ssl` available at `/etc/ssl` in container.
+
+```yaml
+metadata:
+  annotations:
+    nix-nri.io/my-container/etc-ssl: /nix/store/xyz-cacert-1.0/etc/ssl
+    nix-nri.io/my-container/etc-nsswitch: /nix/store/abc-glibc-2.37/etc/nsswitch.conf
+```
+
+### Implementation Strategy
+
+1. **Parse FHS annotations**: Extract from pod annotations using `nix-nri.io/{container-name}/{path-in-container}` format
+2. **Pre-create mount directories**: During CreateContainer, create target directories (`/etc/ssl`, `/etc/nsswitch.conf`, etc.)
+3. **Inject mounts**: Add mounts for each FHS path to ContainerAdjustment
+4. **Backfill during build**: During build phase, extract/hardlink source paths into mount directories
+5. **Error on symlinks**: If encountering symlink where directory expected, fail fast (indicates structural mismatch)
+
+### Volume Layout Example
+
+```
+/var/lib/nix-csi/nix/var/volumes/{container-id}/
+├── nix/store/xyz-cacert-1.0/...       (all storepaths hardlinked)
+├── nix/store/abc-glibc-2.37/...
+├── etc/
+│   ├── ssl/                            (hardlinks from cacert)
+│   └── nsswitch.conf                   (hardlink from glibc)
+└── lib64/                              (hardlinks from glibc if requested)
+```
+
+### Mount Injection
+
+Multiple mounts injected into ContainerAdjustment:
+- `/var/lib/nix-csi/nix/var/volumes/{container-id}/nix` → `/nix`
+- `/var/lib/nix-csi/nix/var/volumes/{container-id}/etc/ssl` → `/etc/ssl`
+- `/var/lib/nix-csi/nix/var/volumes/{container-id}/etc/nsswitch.conf` → `/etc/nsswitch.conf`
+- (etc. for each annotated path)
 
 ---
 

@@ -7,8 +7,6 @@ import struct
 from pathlib import Path
 from typing import Optional
 
-from .zmq_server import ZeroMQServer
-
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
@@ -25,6 +23,7 @@ from nri import api_grpc, api_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
 from .constants import NRI_PLUGIN_IDX, NRI_PLUGIN_NAME, NRI_RUNTIME_SOCKET
+from .zmq_server import ZeroMQServer
 
 logger = logging.getLogger("nix-nri")
 
@@ -94,20 +93,13 @@ class NriPlugin(api_grpc.PluginBase):
             )
 
             try:
-                # Create directory structure (using pod-side path)
+                # Create empty directory structure early (mount sources must exist at container creation time)
                 volume_path = Path(volume_path_in_pod)
                 volume_path.mkdir(parents=True, exist_ok=True)
-
-                # Write test file to verify mount works
-                test_file = volume_path / "test.txt"
-                test_file.write_text(
-                    f"NRI test file\n"
-                    f"Pod: {req.pod.name}\n"
-                    f"Container: {req.container.name}\n"
-                    f"Container ID: {container_id}\n"
+                logger.info(
+                    "Created empty volume directory for backfill test at %r",
+                    volume_path_in_pod,
                 )
-
-                logger.info("Created test file at %r", test_file)
 
                 # Inject mount into container (using host-side path as source)
                 mount = api_pb2.Mount(
@@ -120,7 +112,9 @@ class NriPlugin(api_grpc.PluginBase):
                 logger.info("Injected mount for container=%r", container_id)
 
                 # Phase 2: Inject OCI hook to wait for build completion
-                assert self.nri_wait_bin is not None, "nri-wait binary not found on PATH"
+                assert self.nri_wait_bin is not None, (
+                    "nri-wait binary not found on PATH"
+                )
                 hook = api_pb2.Hook(
                     path="/usr/bin/env",
                     args=["chroot", "/var/lib/nix-csi", self.nri_wait_bin],
@@ -146,7 +140,9 @@ class NriPlugin(api_grpc.PluginBase):
                         container_id,
                     )
                     # Spawn background task (fire and forget with exception logging)
-                    task = asyncio.create_task(self._spawn_larp_build(container_id, delay=2.0))
+                    task = asyncio.create_task(
+                        self._spawn_larp_build(container_id, delay=10.0)
+                    )
                     # Log task completion
                     task.add_done_callback(
                         lambda t: (
@@ -239,21 +235,45 @@ class NriPlugin(api_grpc.PluginBase):
         )
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
 
-    async def _spawn_larp_build(self, container_id: str, delay: float = 2.0) -> None:
-        """Simulate a build: sleep then publish completion (LARP for Phase 2 testing)."""
+    async def _spawn_larp_build(self, container_id: str, delay: float = 10.0) -> None:
+        """Simulate a build: sleep then backfill files into pre-created mount directory (LARP for Phase 2 testing)."""
         logger.info(
-            "[LARP-BUILD] Started for container=%r (will complete in %.1fs)",
+            "[LARP-BUILD] Started for container=%r (will backfill in %.1fs)",
             container_id,
             delay,
         )
         try:
             await asyncio.sleep(delay)
-            logger.info("[LARP-BUILD] Simulated build completed for container=%r", container_id)
+            logger.info(
+                "[LARP-BUILD] Backfill phase started for container=%r", container_id
+            )
+
+            # Backfill test files into the already-mounted directory
+            volume_path = Path(f"/nix/var/volumes/{container_id}")
+            if not volume_path.exists():
+                logger.error(
+                    "[LARP-BUILD] Volume directory does not exist at %r", volume_path
+                )
+                raise RuntimeError(f"Volume directory missing: {volume_path}")
+
+            test_file = volume_path / "test.txt"
+            test_file.write_text("testfile exists!!!\n")
+            logger.info("[LARP-BUILD] Created test file at %r", test_file)
+
+            logger.info(
+                "[LARP-BUILD] Backfill completed for container=%r", container_id
+            )
             self.zmq_server.build_status[container_id] = {"status": "done"}
-            logger.debug("[LARP-BUILD] Added to build_status cache for container=%r", container_id)
+            logger.debug(
+                "[LARP-BUILD] Added to build_status cache for container=%r",
+                container_id,
+            )
             await self.zmq_server.publish_build_complete(container_id)
             self.zmq_server.pending_builds.discard(container_id)
-            logger.info("[LARP-BUILD] Removed from pending_builds for container=%r", container_id)
+            logger.info(
+                "[LARP-BUILD] Removed from pending_builds for container=%r",
+                container_id,
+            )
         except Exception as e:
             logger.error("LARP build task failed for container=%r: %s", container_id, e)
 
