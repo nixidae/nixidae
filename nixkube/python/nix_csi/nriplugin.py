@@ -1,15 +1,13 @@
 # SPDX-License-Identifier: MIT
 
 import asyncio
-import json
 import logging
 import shutil
 import struct
 from pathlib import Path
 from typing import Optional
 
-import zmq.asyncio
-from cachetools import TTLCache
+from .zmq_server import ZeroMQServer
 
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
@@ -39,14 +37,9 @@ _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
 class NriPlugin(api_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
-    def __init__(self):
+    def __init__(self, zmq_server: ZeroMQServer):
         super().__init__()
-        self.zmq_context: Optional[zmq.asyncio.Context] = None
-        self.rep_socket: Optional[zmq.asyncio.Socket] = None
-        self.pub_socket: Optional[zmq.asyncio.Socket] = None
-        # Build status cache: container_id -> {"status": "done"|"pending", "timestamp": float}
-        self.build_status: TTLCache = TTLCache(maxsize=10000, ttl=3600)
-        self.pending_builds: set[str] = set()  # container IDs currently being built
+        self.zmq_server = zmq_server
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
         logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
@@ -146,8 +139,8 @@ class NriPlugin(api_grpc.PluginBase):
                 )
 
                 # Phase 2: Spawn LARP build task to test ZeroMQ communication
-                if container_id not in self.pending_builds:
-                    self.pending_builds.add(container_id)
+                if container_id not in self.zmq_server.pending_builds:
+                    self.zmq_server.pending_builds.add(container_id)
                     logger.info(
                         "[CreateContainer] Spawning LARP build task for container=%r",
                         container_id,
@@ -256,37 +249,13 @@ class NriPlugin(api_grpc.PluginBase):
         try:
             await asyncio.sleep(delay)
             logger.info("[LARP-BUILD] Simulated build completed for container=%r", container_id)
-            self.build_status[container_id] = {"status": "done"}
+            self.zmq_server.build_status[container_id] = {"status": "done"}
             logger.debug("[LARP-BUILD] Added to build_status cache for container=%r", container_id)
-            await self._publish_build_complete(container_id)
-            self.pending_builds.discard(container_id)
+            await self.zmq_server.publish_build_complete(container_id)
+            self.zmq_server.pending_builds.discard(container_id)
             logger.info("[LARP-BUILD] Removed from pending_builds for container=%r", container_id)
         except Exception as e:
             logger.error("LARP build task failed for container=%r: %s", container_id, e)
-
-    async def _publish_build_complete(self, container_id: str) -> None:
-        """Publish build completion message on PUB socket."""
-        if self.pub_socket is None:
-            logger.warning("PUB socket not initialized, cannot publish")
-            return
-        try:
-            msg = json.dumps({"container_id": container_id, "status": "done"})
-            logger.debug("[ZMQ-PUB] Publishing: %s", msg)
-            await self.pub_socket.send(msg.encode())
-            logger.info("[ZMQ-PUB] Published build completion for container=%r", container_id)
-        except Exception as e:
-            logger.error(
-                "[ZMQ-PUB] Failed to publish build completion for container=%r: %s", container_id, e
-            )
-
-    async def _query_build_status(self, container_id: str) -> dict:
-        """Return build status for a container (used by REP socket handler)."""
-        if container_id in self.build_status:
-            return self.build_status[container_id]
-        elif container_id in self.pending_builds:
-            return {"status": "pending"}
-        else:
-            return {"status": "unknown"}
 
 
 async def _serve_plugin_channel(
@@ -381,81 +350,6 @@ async def _register_plugin(
         return
 
 
-async def _handle_zmq_requests(plugin: NriPlugin) -> None:
-    """Handle build status queries on REP socket."""
-    if plugin.rep_socket is None:
-        logger.warning("REP socket not initialized, cannot handle requests")
-        return
-
-    logger.info("Starting ZeroMQ REP socket handler")
-    try:
-        while True:
-            logger.debug("Waiting for build status query on REP socket...")
-            query_bytes = await plugin.rep_socket.recv()
-            logger.debug("Received query: %d bytes", len(query_bytes))
-            try:
-                query = json.loads(query_bytes.decode())
-                container_id = query.get("container_id")
-                logger.info("[ZMQ-REP] Query for container=%r", container_id)
-
-                status = await plugin._query_build_status(container_id)
-                logger.debug("[ZMQ-REP] Responding with status=%s for container=%r", status, container_id)
-                response = json.dumps(status)
-                await plugin.rep_socket.send(response.encode())
-                logger.debug("[ZMQ-REP] Response sent")
-            except Exception as e:
-                logger.error("Error handling query: %s", e)
-                await plugin.rep_socket.send(b'{"error":"internal error"}')
-    except asyncio.CancelledError:
-        logger.info("REP socket handler cancelled")
-    except Exception as e:
-        logger.error("REP socket handler error: %s", e)
-
-
-async def _init_zmq_sockets(plugin: NriPlugin, socket_base_dir: str = "/nix/var/nix-csi") -> None:
-    """Initialize ZeroMQ sockets (REP and PUB)."""
-    logger.info("[ZMQ-INIT] Initializing ZeroMQ sockets in %r", socket_base_dir)
-
-    # Ensure socket directory exists
-    socket_dir = Path(socket_base_dir)
-    try:
-        socket_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug("[ZMQ-INIT] Socket directory ready: %s", socket_dir)
-    except Exception as e:
-        logger.error("[ZMQ-INIT] Failed to create socket directory: %s", e)
-        raise
-
-    # Create ZeroMQ context
-    try:
-        plugin.zmq_context = zmq.asyncio.Context()
-        logger.debug("[ZMQ-INIT] ZeroMQ context created")
-    except Exception as e:
-        logger.error("[ZMQ-INIT] Failed to create ZMQ context: %s", e)
-        raise
-
-    # Create REP socket (for queries)
-    try:
-        req_socket_path = socket_dir / "wait-req.sock"
-        plugin.rep_socket = plugin.zmq_context.socket(zmq.REP)
-        plugin.rep_socket.bind(f"ipc://{req_socket_path}")
-        logger.info("[ZMQ-INIT] REP socket bound to ipc://%s", req_socket_path)
-    except Exception as e:
-        logger.error("[ZMQ-INIT] Failed to create REP socket: %s", e)
-        raise
-
-    # Create PUB socket (for broadcasts)
-    try:
-        pub_socket_path = socket_dir / "wait-pub.sock"
-        plugin.pub_socket = plugin.zmq_context.socket(zmq.PUB)
-        plugin.pub_socket.bind(f"ipc://{pub_socket_path}")
-        logger.info("[ZMQ-INIT] PUB socket bound to ipc://%s", pub_socket_path)
-    except Exception as e:
-        logger.error("[ZMQ-INIT] Failed to create PUB socket: %s", e)
-        raise
-
-    logger.info("[ZMQ-INIT] Both ZeroMQ sockets initialized successfully")
-
-
 async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger.info(
@@ -470,13 +364,14 @@ async def _nri_run() -> None:
     mux = NriMux(reader, writer)
     codec = ProtoCodec()
 
+    # Initialize ZeroMQ server
+    zmq_server = ZeroMQServer()
+    await zmq_server.initialize()
+
     mapping: dict = {}
-    plugin = NriPlugin()
+    plugin = NriPlugin(zmq_server)
     for h in [plugin]:
         mapping.update(h.__mapping__())
-
-    # Initialize ZeroMQ sockets and handler
-    await _init_zmq_sockets(plugin)
 
     handler = TtrpcHandler(mapping, codec)
     protocol = TtrpcProtocol(handler)
@@ -485,7 +380,7 @@ async def _nri_run() -> None:
     loop = asyncio.get_running_loop()
     read_task = loop.create_task(mux.read_loop())
     serve_task = loop.create_task(_serve_plugin_channel(mux, protocol))
-    zmq_task = loop.create_task(_handle_zmq_requests(plugin))
+    zmq_task = loop.create_task(zmq_server.start_request_handler())
 
     try:
         await _register_plugin(mux, codec)
@@ -508,9 +403,8 @@ async def _nri_run() -> None:
             await writer.wait_closed()
         except Exception:
             pass
-        # Clean up ZeroMQ context
-        if plugin.zmq_context is not None:
-            plugin.zmq_context.term()
+        # Clean up ZeroMQ server
+        zmq_server.shutdown()
 
 
 async def nri_serve() -> None:
