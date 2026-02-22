@@ -23,6 +23,7 @@ from nri import api_grpc, api_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
 from .constants import NRI_PLUGIN_IDX, NRI_PLUGIN_NAME, NRI_RUNTIME_SOCKET
+from .store import extract_store_paths_set
 from .zmq_server import ZeroMQServer
 
 logger = logging.getLogger("nix-nri")
@@ -75,6 +76,31 @@ class NriPlugin(api_grpc.PluginBase):
             req.pod.name,
             req.container.name,
         )
+
+        # Log container environment and args for debugging
+        logger.debug(
+            "[CreateContainer] Container args: %s",
+            list(req.container.args) if req.container.args else [],
+        )
+        logger.debug(
+            "[CreateContainer] Container env: %s",
+            list(req.container.env) if req.container.env else [],
+        )
+
+        # Extract store paths from container env and args
+        # Remove variable name prefix from env (keep only values)
+        env_values = [
+            env_var.split("=", 1)[1] for env_var in req.container.env if "=" in env_var
+        ]
+        # Combine env values and args
+        combined = env_values + list(req.container.args)
+        # Extract all store paths
+        store_paths = extract_store_paths_set(combined)
+        if store_paths:
+            logger.info(
+                "[CreateContainer] Extracted store paths from container: %s",
+                sorted(store_paths),
+            )
 
         adjust = api_pb2.ContainerAdjustment()
 
