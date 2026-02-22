@@ -49,7 +49,7 @@ def get_substituter_args() -> list[str]:
     ]
 
 
-async def copy_to_cache(package_paths: list[Path]) -> None:
+async def copy_to_cache(package_paths: set[Path]) -> None:
     """
     Copy packages and their closures to the cache.
 

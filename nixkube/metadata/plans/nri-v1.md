@@ -157,12 +157,32 @@ The OCI runtime applies all mounts from the container spec during `CreateContain
 - ✅ No container restart required
 - ✅ Clean coordination via ZeroMQ query+subscribe pattern
 
-**Next Phase** (Phase 3):
-1. Replace LARP builds with actual Nix build invocation
-2. Implement hardlink extraction for store paths into mount directories
-3. Handle symlinks: error if directory structure has symlinks where we expect directories
+---
+
+### Phase 3: Extract Build Args + Real Nix Builds ✅ COMPLETE
+
+**Goal**: Replace mock LARP builds with real Nix builds using the same build coordination logic as CSI.
+
+**Completed**:
+1. ✅ Extracted `get_build_args()` from NodeServicer into shared `nix.get_build_args()` utility
+2. ✅ Enables builder pod discovery and cache substitution in NRI builds
+3. ✅ NRI plugin now performs real Nix builds instead of mock LARP builds
+4. ✅ Both CSI and NRI code paths share build coordination logic (DRY principle)
+5. ✅ `_spawn_build_task` calls `get_build_args()` and passes `extra_args` to `build_packages()`
+
+**Implementation**:
+- Moved build args discovery to `nix.py` as reusable function
+- Removed duplication between `service.py` and `nriplugin.py`
+- NRI containers now build using same builder pod discovery and cache substitution as CSI volumes
+
+**Result**: Building /nix stores into containers via NRI now works with full build coordination.
+
+**Next Phase** (Phase 4):
+1. Parse FHS annotations from pod metadata
+2. Extract store paths to FHS locations (/etc/ssl, /etc/nsswitch, etc)
+3. Handle symlinks: error if directory structure has symlinks where directories expected
 4. Update annotation filter: change from `nix-nri/test` to `nix-nri/store-paths`
-5. Parse store paths from annotation, trigger real builds with FHS path extraction
+5. Parse multiple mount paths from annotation, trigger real builds with FHS path extraction
 6. Implement cache coordination with nix-cache StatefulSet
 
 ---
@@ -237,7 +257,7 @@ The hook:
 
 ---
 
-## Phase 3: FHS Path Mounting (Planned)
+## Phase 4: FHS Path Mounting (Planned)
 
 **Goal**: Support mounting specific package contents at FHS (Filesystem Hierarchy Standard) locations.
 

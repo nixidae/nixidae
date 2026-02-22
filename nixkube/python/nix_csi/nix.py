@@ -6,6 +6,8 @@ from pathlib import Path
 
 from kr8s.asyncio.objects import Pod
 
+from .builders import build_builder_args, get_builder_uris
+from .cache import check_cache_connectivity, get_substituter_args
 from .constants import NIX_BUILD_TIMEOUT
 from .errors import (
     BuildError,
@@ -18,7 +20,7 @@ from .errors import (
     SystemDetectionError,
     VerifyStorePathsError,
 )
-from .store import extract_store_name, extract_store_paths_set
+from .store import extract_store_name, extract_store_paths
 from .subprocessing import try_captured, try_console
 
 logger = logging.getLogger("nix-csi")
@@ -39,17 +41,38 @@ async def get_current_system() -> str:
         ) from e
 
 
-async def get_closure_paths(package_paths: list[Path]) -> list[str]:
+async def get_build_args() -> list[str]:
+    """Get extra build arguments for builders and cache."""
+    extra_args = []
+
+    # Discover builder pods when builders are enabled
+    # CSI pods run with --max-jobs 0 to delegate all builds to builder pods
+    builder_uris = await get_builder_uris()
+    if builder_uris:
+        extra_args.extend(build_builder_args(builder_uris))
+        logger.info(f"Using {len(builder_uris)} builder pods for builds")
+
+    # Add cache as substituter if available
+    if await check_cache_connectivity():
+        extra_args.extend(get_substituter_args())
+
+    return extra_args
+
+
+async def get_closure_paths(package_paths: set[Path]) -> set[Path]:
     """Get all store paths in the closure of the given packages."""
     try:
-        return (
-            await try_captured(
-                "nix",
-                "path-info",
-                "--recursive",
-                *package_paths,
-            )
-        ).stdout.splitlines()
+        return {
+            Path(p)
+            for p in (
+                await try_captured(
+                    "nix",
+                    "path-info",
+                    "--recursive",
+                    *package_paths,
+                )
+            ).stdout.splitlines()
+        }
     except SubprocessError as e:
         raise StorePathClosureError(
             "Failed to get store path closure",
@@ -57,7 +80,7 @@ async def get_closure_paths(package_paths: list[Path]) -> list[str]:
         ) from e
 
 
-async def verify_store_paths(package_paths: list[Path]) -> None:
+async def verify_store_paths(package_paths: set[Path]) -> None:
     """Verify the integrity of all packages and their closures."""
     try:
         await try_captured(
@@ -173,7 +196,7 @@ async def build_nix_expr(
         ) from e
 
 
-async def init_database(state_dir: Path, store_paths: list[str]) -> None:
+async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
     """
     Initialize the Nix database for a chroot store.
     This runs nix-store --dump-db | NIX_STATE_DIR=something nix-store --load-db
@@ -192,7 +215,7 @@ async def init_database(state_dir: Path, store_paths: list[str]) -> None:
 
 
 async def install_gcroots(
-    package_paths: list[Path],
+    package_paths: set[Path],
     out_link: Path,
     store: Path | None = None,
     timeout: float | None = None,
@@ -252,31 +275,53 @@ async def install_result_link(
         ) from e
 
 
+async def build_packages(
+    package_paths: set[Path],
+    gc_root: Path,
+    extra_args: list[str] = [],
+) -> set[Path]:
+    """Batch build packages with a single nix build call."""
+    if not package_paths:
+        return set()
+
+    gc_root.mkdir(parents=True, exist_ok=True)
+
+    # Batch build all packages with single nix build call
+    args: list[str | Path] = ["nix", "build"]
+    args.extend(extra_args)
+    args.extend(["--out-link", gc_root / "build"])
+    args.extend(package_paths)
+
+    try:
+        await try_console(*args, timeout=NIX_BUILD_TIMEOUT)
+    except SubprocessError as e:
+        logger.error(
+            "Failed to build packages\n"
+            + f"Command: {e.command}\n"
+            + "Logs:\n"
+            + e.combined
+        )
+        raise
+    except Exception as e:
+        logger.error(f"Failed to build packages: {e}")
+        raise
+
+    logger.debug(f"Built {len(package_paths)} packages")
+    return package_paths
+
+
 async def build_pod_packages(
     pod: Pod,
     gc_root: Path,
     extra_args: list[str],
-) -> list[Path]:
+) -> set[Path]:
     """Extract and batch build packages referenced in the pod spec."""
-    pod_store_paths = list(extract_store_paths_set(pod.raw))
+    pod_store_paths = extract_store_paths(pod.raw)
 
     if not pod_store_paths:
-        return []
+        return set()
 
-    # Batch build all extracted packages with single nix build call
-    args: list[str | Path] = ["nix", "build"]
-    args.extend(extra_args)
-    args.extend(["--out-link", gc_root / "extracted"])
-    args.extend(pod_store_paths)
-
-    try:
-        await try_captured(*args, timeout=NIX_BUILD_TIMEOUT)
-    except Exception as e:
-        logger.error(f"Failed to build pod packages: {e}")
-        raise
-
-    logger.debug(f"Built {len(pod_store_paths)} extracted packages")
-    return [Path(p) for p in pod_store_paths]
+    return await build_packages(pod_store_paths, gc_root, extra_args)
 
 
 async def build_primary_package(

@@ -27,18 +27,25 @@ let
           };
           # Will go into the default namespace
           kubernetes.resources.nix-csi.Pod.nritest = {
+            metadata.annotations."nix-nri/test" = "true";
             spec = {
               containers = lib.mkNamedList {
-                nritest = {
-                  image = "busybox:latest";
-                  env = [
-                    {
-                      name = "AFILE";
-                      value = pkgs.writeText "afile" "this is a file";
-                    }
-                  ];
+                ${toString builtins.currentTime} = {
+                  # image = "busybox:latest";
+                  image = "gcr.io/distroless/static:latest";
+
+                  env = lib.mkNamedList {
+                    AFILE.value = pkgs.writeText "afile" "this is a file";
+                    PATH.value = lib.makeBinPath [ pkgs.bash ];
+                  };
+                  # command = [
+                  #   "sleep"
+                  #   "infinity"
+                  # ];
                   command = [
-                    "sleep"
+                    (lib.getExe pkgs.tini)
+                    "--"
+                    (lib.getExe' pkgs.coreutils "sleep")
                     "infinity"
                   ];
                 };

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+from nix_csi.volume import prepare_volume
 
 import asyncio
 import logging
@@ -23,7 +24,9 @@ from nri import api_grpc, api_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
 from .constants import NRI_PLUGIN_IDX, NRI_PLUGIN_NAME, NRI_RUNTIME_SOCKET
-from .store import extract_store_paths_set
+from .hardlinks import hardlink_closure
+from .nix import build_packages, get_build_args, get_closure_paths
+from .store import extract_store_paths
 from .zmq_server import ZeroMQServer
 
 logger = logging.getLogger("nix-nri")
@@ -95,11 +98,10 @@ class NriPlugin(api_grpc.PluginBase):
         # Combine env values and args
         combined = env_values + list(req.container.args)
         # Extract all store paths
-        store_paths = extract_store_paths_set(combined)
+        store_paths = extract_store_paths(combined)
         if store_paths:
             logger.info(
-                "[CreateContainer] Extracted store paths from container: %s",
-                sorted(store_paths),
+                f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
             )
 
         adjust = api_pb2.ContainerAdjustment()
@@ -108,38 +110,35 @@ class NriPlugin(api_grpc.PluginBase):
         if "nix-nri/test" in req.pod.annotations:
             container_id = req.container.id
             # Pod-side path: /nix is /var/lib/nix-csi/nix mounted into the pod
-            volume_path_in_pod = f"/nix/var/volumes/{container_id}"
+            volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
             # Host-side path: what gets injected into user containers
-            volume_path_on_host = f"/var/lib/nix-csi/nix/var/volumes/{container_id}"
-
-            logger.info(
-                "Creating volume dir for container=%r at %r",
-                container_id,
-                volume_path_in_pod,
+            volume_path_host = Path(
+                f"/var/lib/nix-csi/nix/var/nix-csi/volumes/{container_id}/nix"
             )
+
+            logger.info(f"Creating volume dir for {container_id=} at {volume_path=}")
 
             try:
                 # Create empty directory structure early (mount sources must exist at container creation time)
-                volume_path = Path(volume_path_in_pod)
-                volume_path.mkdir(parents=True, exist_ok=True)
+                (volume_path / "nix").mkdir(parents=True, exist_ok=True)
                 logger.info(
                     "Created empty volume directory for backfill test at %r",
-                    volume_path_in_pod,
+                    volume_path,
                 )
 
                 # Inject mount into container (using host-side path as source)
                 mount = api_pb2.Mount(
-                    destination="/nix-test",
-                    source=volume_path_on_host,
+                    destination="/nix",
+                    source=str(volume_path_host),
                     type="bind",
                     options=["bind", "ro"],
                 )
                 adjust.mounts.append(mount)
-                logger.info("Injected mount for container=%r", container_id)
+                logger.info("Injected mount to /nix for container=%r", container_id)
 
-                # Phase 2: Inject OCI hook to wait for build completion
+                #  Inject OCI hook to wait for build completion
                 assert self.nri_wait_bin is not None, (
-                    "nri-wait binary not found on PATH"
+                    "nri-wait binary not found on PATH, wait hook won't be able to execute"
                 )
                 hook = api_pb2.Hook(
                     path="/usr/bin/env",
@@ -158,22 +157,23 @@ class NriPlugin(api_grpc.PluginBase):
                     self.nri_wait_bin,
                 )
 
-                # Phase 2: Spawn LARP build task to test ZeroMQ communication
+                # Phase 3: Spawn build task to build extracted store paths and backfill mounts
                 if container_id not in self.zmq_server.pending_builds:
                     self.zmq_server.pending_builds.add(container_id)
                     logger.info(
-                        "[CreateContainer] Spawning LARP build task for container=%r",
+                        "[CreateContainer] Spawning build task for container=%r with %d extracted store paths",
                         container_id,
+                        len(store_paths),
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
-                        self._spawn_larp_build(container_id, delay=10.0)
+                        self._spawn_build_task(container_id, store_paths, volume_path)
                     )
                     # Log task completion
                     task.add_done_callback(
                         lambda t: (
                             logger.info(
-                                "[CreateContainer] LARP build task completed for container=%r",
+                                "[CreateContainer] Build task completed for container=%r",
                                 container_id,
                             )
                             if not t.cancelled()
@@ -216,17 +216,16 @@ class NriPlugin(api_grpc.PluginBase):
         # Phase 1: Cleanup volume directory if it was created
         container_id = req.container.id
         # Use pod-side path for cleanup (same as creation)
-        volume_path_in_pod = f"/nix/var/volumes/{container_id}"
-        volume_path = Path(volume_path_in_pod)
+        volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
 
         if volume_path.exists():
             try:
                 shutil.rmtree(volume_path)
-                logger.info("Cleaned up volume dir at %r", volume_path_in_pod)
+                logger.info("Cleaned up volume dir at %r", volume_path)
             except Exception as e:
                 logger.warning(
                     "Failed to remove volume dir at %r: %s",
-                    volume_path_in_pod,
+                    volume_path,
                     e,
                 )
 
@@ -261,47 +260,56 @@ class NriPlugin(api_grpc.PluginBase):
         )
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
 
-    async def _spawn_larp_build(self, container_id: str, delay: float = 10.0) -> None:
-        """Simulate a build: sleep then backfill files into pre-created mount directory (LARP for Phase 2 testing)."""
+    async def _spawn_build_task(
+        self, container_id: str, store_paths: set[Path], volume_path: Path
+    ) -> None:
+        """Realize, get closure, and hardlink store paths into the mount directory."""
         logger.info(
-            "[LARP-BUILD] Started for container=%r (will backfill in %.1fs)",
+            "[BUILD-TASK] Started for container=%r with %d store paths",
             container_id,
-            delay,
+            len(store_paths),
         )
         try:
-            await asyncio.sleep(delay)
-            logger.info(
-                "[LARP-BUILD] Backfill phase started for container=%r", container_id
-            )
-
-            # Backfill test files into the already-mounted directory
-            volume_path = Path(f"/nix/var/volumes/{container_id}")
-            if not volume_path.exists():
-                logger.error(
-                    "[LARP-BUILD] Volume directory does not exist at %r", volume_path
+            # If no store paths to build, just mark as done
+            if not store_paths:
+                logger.info(
+                    "[BUILD-TASK] No store paths to build for container=%r",
+                    container_id,
                 )
-                raise RuntimeError(f"Volume directory missing: {volume_path}")
+                self.zmq_server.build_status[container_id] = {"status": "done"}
+                await self.zmq_server.publish_build_complete(container_id)
+                self.zmq_server.pending_builds.discard(container_id)
+                return
 
-            test_file = volume_path / "test.txt"
-            test_file.write_text("testfile exists!!!\n")
-            logger.info("[LARP-BUILD] Created test file at %r", test_file)
+            # Get extra build args for builders and cache
+            extra_args = await get_build_args()
+
+            # Realize storepaths
+            await build_packages(
+                store_paths, Path("/nix/var/nix-csi/volumes") / container_id, extra_args
+            )
+            # Get all paths
+            paths = await get_closure_paths(store_paths)
+            # Link all paths
+            await prepare_volume(container_id, paths, None)
 
             logger.info(
-                "[LARP-BUILD] Backfill completed for container=%r", container_id
+                "[BUILD-TASK] Completed all phases for container=%r", container_id
             )
             self.zmq_server.build_status[container_id] = {"status": "done"}
             logger.debug(
-                "[LARP-BUILD] Added to build_status cache for container=%r",
+                "[BUILD-TASK] Added to build_status cache for container=%r",
                 container_id,
             )
             await self.zmq_server.publish_build_complete(container_id)
             self.zmq_server.pending_builds.discard(container_id)
             logger.info(
-                "[LARP-BUILD] Removed from pending_builds for container=%r",
+                "[BUILD-TASK] Removed from pending_builds for container=%r",
                 container_id,
             )
         except Exception as e:
-            logger.error("LARP build task failed for container=%r: %s", container_id, e)
+            logger.error("Build task failed for container=%r: %s", container_id, e)
+            self.zmq_server.pending_builds.discard(container_id)
 
 
 async def _serve_plugin_channel(

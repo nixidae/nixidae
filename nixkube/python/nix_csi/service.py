@@ -15,8 +15,7 @@ from grpclib.const import Status
 from grpclib.server import Server, Stream
 from kr8s.asyncio.objects import Pod
 
-from .builders import build_builder_args, get_builder_uris
-from .cache import check_cache_connectivity, copy_to_cache, get_substituter_args
+from .cache import copy_to_cache
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .constants import (
     CSI_GCROOTS,
@@ -29,7 +28,12 @@ from .constants import (
 from .errors import CleanupStaleEntriesError, CSIError, RemoveVolumeDirError
 from .events import report_event
 from .identityservicer import IdentityServicer
-from .nix import build_pod_packages, build_primary_package, get_current_system
+from .nix import (
+    build_pod_packages,
+    build_primary_package,
+    get_build_args,
+    get_current_system,
+)
 from .volume import (
     cleanup_failed_volume,
     is_mount,
@@ -85,23 +89,6 @@ class NodeServicer(csi_grpc.NodeBase):
         self.system = system
         self.csi_pod = csi_pod
 
-    async def _get_build_args(self) -> list[str]:
-        """Get extra build arguments for builders and cache."""
-        extra_args = []
-
-        # Discover builder pods when builders are enabled
-        # CSI pods run with --max-jobs 0 to delegate all builds to builder pods
-        builder_uris = await get_builder_uris()
-        if builder_uris:
-            extra_args.extend(build_builder_args(builder_uris))
-            logger.info(f"Using {len(builder_uris)} builder pods for builds")
-
-        # Add cache as substituter if available
-        if await check_cache_connectivity():
-            extra_args.extend(get_substituter_args())
-
-        return extra_args
-
     @csi_error_handler
     async def NodePublishVolume(
         self,
@@ -131,7 +118,7 @@ class NodeServicer(csi_grpc.NodeBase):
         async with self.volume_locks[request.volume_id]:
             gc_root = CSI_GCROOTS / request.volume_id
             volume_root = CSI_VOLUMES / request.volume_id
-            extra_args = await self._get_build_args()
+            extra_args = await get_build_args()
 
             # Fetch pod for event reporting and package extraction
             pod_name = request.volume_context["csi.storage.k8s.io/pod.name"]
@@ -176,7 +163,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 raise
 
             if primary_package is not None:
-                package_paths.append(primary_package)
+                package_paths.add(primary_package)
                 logger.debug(f"Primary package {primary_package=}")
 
             if not package_paths:

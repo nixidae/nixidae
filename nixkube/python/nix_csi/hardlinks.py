@@ -29,11 +29,11 @@ def hardlink_tree(src: Path, dst: Path) -> None:
                 dst_path.hardlink_to(entry.path)
 
 
-def hardlink_closure(store_paths: list[Path], dst: Path) -> None:
+def hardlink_closure(store_paths: set[Path], dst: Path) -> None:
     """
     Hardlink multiple store paths into dst.
 
-    store_paths: [/nix/store/abc-foo, /nix/store/def-bar, ...]
+    store_paths: {/nix/store/abc-foo, /nix/store/def-bar, ...}
     dst: volume_root/nix/store
     result: dst/abc-foo/..., dst/def-bar/...
     """

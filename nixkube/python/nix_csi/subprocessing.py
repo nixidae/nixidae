@@ -8,8 +8,7 @@ from typing import NamedTuple
 
 from .errors import CommandTimeoutError, SubprocessError
 
-logger = logging.getLogger("nix-csi")
-subproc_logger = logging.getLogger("nix-csi.subprocessing")
+logger = logging.getLogger("nix-csi.subprocessing")
 
 
 class SubprocessResult(NamedTuple):
@@ -18,13 +17,6 @@ class SubprocessResult(NamedTuple):
     stderr: str
     combined: str
     elapsed: float
-
-
-def _format_command_preview(args, max_args=20):
-    """Format command for error messages, truncating if too long."""
-    cmd_preview = shlex.join([str(arg) for arg in args[:max_args]])
-    suffix = f" ... ({len(args)} total args)" if len(args) > max_args else ""
-    return f"{cmd_preview}{suffix}"
 
 
 async def try_captured(*args, timeout: float | None = None):
@@ -72,9 +64,9 @@ async def run_console(
         stderr=asyncio.subprocess.PIPE,
     )
 
-    stdout_data = []
-    stderr_data = []
-    combined_data = []
+    stdout_data: list[str] = []
+    stderr_data: list[str] = []
+    combined_data: list[str] = []
 
     async def stream_output(stream, buffer):
         try:
@@ -110,8 +102,9 @@ async def run_console(
     cmd_str = shlex.join([str(arg) for arg in args])
 
     # Log all command timings for profiling
-    subproc_logger.debug(
-        f"Command completed in {elapsed_time:.2f}s (rc={proc.returncode}): {cmd_str}"
+    logger.log(
+        log_level,
+        f"Command completed in {elapsed_time:.2f}s (rc={proc.returncode}): {cmd_str}",
     )
 
     # Also log slow commands to main logger

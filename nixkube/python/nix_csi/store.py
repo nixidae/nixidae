@@ -8,7 +8,7 @@ from typing import Any, Iterator
 STORE_PATH_RE = re.compile(r"/nix/store/[a-z0-9]{32}-[^\s/]+")
 
 
-def extract_store_paths(value: Any) -> Iterator[Path]:
+def _extract_store_paths(value: Any) -> Iterator[Path]:
     match value:
         case str():
             for m in STORE_PATH_RE.finditer(value):
@@ -18,15 +18,15 @@ def extract_store_paths(value: Any) -> Iterator[Path]:
                 # volumeAttributes might contain multiarch paths which we don't want to include.
                 # storePaths in volumeAttributes are handled as "primary package".
                 if k != "volumeAttributes":
-                    yield from extract_store_paths(v)
+                    yield from _extract_store_paths(v)
         case Sequence():
             for item in value:
-                yield from extract_store_paths(item)
+                yield from _extract_store_paths(item)
 
 
-def extract_store_paths_set(value: Any) -> set[Path]:
+def extract_store_paths(value: Any) -> set[Path]:
     """Convenience wrapper that returns a deduplicated set of store paths."""
-    return set(extract_store_paths(value))
+    return set(_extract_store_paths(value))
 
 
 def extract_store_name(path: Path | str) -> str:

@@ -28,7 +28,7 @@ logger = logging.getLogger("nix-csi")
 
 async def prepare_volume(
     volume_id: str,
-    package_paths: list[Path],
+    package_paths: set[Path],
     primary_package: Path | None,
 ) -> Path:
     """
@@ -55,7 +55,7 @@ async def prepare_volume(
 
     # Copy closure to substore
     hardlink_start = time.perf_counter()
-    hardlink_closure([Path(p) for p in store_paths], volume_root / "nix/store")
+    hardlink_closure(store_paths, volume_root / "nix/store")
     logger.debug(
         f"Hardlinked {len(store_paths)} paths in {time.perf_counter() - hardlink_start:.2f}s"
     )
