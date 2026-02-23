@@ -51,6 +51,10 @@ NRI_RUNTIME_SOCKET = os.environ.get("NRI_RUNTIME_SOCKET", "/var/run/nri/nri.sock
 NRI_PLUGIN_NAME = os.environ.get("NRI_PLUGIN_NAME", "nix-csi")
 NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
 
+# NRI host mount path for bind mounts (default: /var/lib/nix-csi)
+# Set via HOST_MOUNT_PATH environment variable from kubenix
+HOST_MOUNT_PATH = os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi")
+
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 

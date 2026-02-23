@@ -102,8 +102,8 @@ All files within each container's directory are hardlinked, leveraging Nix's con
 
 ### Constraints & Design Decisions
 
-- **Read-only mounts**: Bind mounts with hardlinks prevent accidental modifications
-- **OverlayFS not used initially**: Overlay's startup scan doesn't see files added after mount; bind mounts see new files immediately
+- **Bind mounts required (not overlayfs)**: Overlayfs caches lowerdir tree at mount time; files added after mount are invisible. Bind mounts see new files immediately, enabling backfilling.
+- **Read-only mounts (required)**: We use hardlinks for space efficiency/speed. Read-only prevents pods from modifying hardlinks, which would corrupt the shared store for other containers.
 - **No host namespace dependency**: All tooling is self-contained (Rust binary, Python)
 - **No hook cleanup needed**: OCI Runtime cleans up mounts when container terminates
 - **2-second timeout workaround**: Build spawned asynchronously; hook waits outside NRI timeout constraint
@@ -274,11 +274,16 @@ metadata:
 
 ### Implementation Strategy
 
+**Key Insight**: Reuse `deref_hardlink_tree()` for symlink handling. Since NRI mounts are read-only, dereferencing symlinks during setup is safe and eliminates runtime issues.
+
 1. **Parse FHS annotations**: Extract from pod annotations using `nix-nri.io/{container-name}/{path-in-container}` format
 2. **Pre-create mount directories**: During CreateContainer, create target directories (`/etc/ssl`, `/etc/nsswitch.conf`, etc.)
 3. **Inject mounts**: Add mounts for each FHS path to ContainerAdjustment
-4. **Backfill during build**: During build phase, extract/hardlink source paths into mount directories
-5. **Error on symlinks**: If encountering symlink where directory expected, fail fast (indicates structural mismatch)
+4. **Backfill during build**: During build phase, use `deref_hardlink_tree()` to extract source paths into mount directories
+   - Dereferences symlinks to `/nix/store` paths
+   - Hardlinks actual files (space efficient)
+   - Handles edge cases (external symlinks, broken links - logged as warnings)
+5. **Read-only guarantees**: Dereferenced hardlink tree prevents runtime symlink issues in containers
 
 ### Volume Layout Example
 

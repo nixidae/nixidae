@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: MIT
-from nix_csi.volume import prepare_volume
-
 import asyncio
 import logging
 import shutil
@@ -20,11 +18,17 @@ from grpclib_ttrpc.protocol import (
     TtrpcProtocol,
 )
 from grpclib_ttrpc.server import TtrpcHandler
+from nix_csi.volume import prepare_volume
 from nri import api_grpc, api_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
-from .constants import NRI_PLUGIN_IDX, NRI_PLUGIN_NAME, NRI_RUNTIME_SOCKET
-from .hardlinks import hardlink_closure
+from .constants import (
+    HOST_MOUNT_PATH,
+    NRI_PLUGIN_IDX,
+    NRI_PLUGIN_NAME,
+    NRI_RUNTIME_SOCKET,
+)
+from .hardlinks import deref_hardlink_tree
 from .nix import build_packages, get_build_args, get_closure_paths
 from .store import extract_store_paths
 from .zmq_server import ZeroMQServer
@@ -35,6 +39,63 @@ logger = logging.getLogger("nix-nri")
 # Mirrors the Go formula: ValidEvents = (1 << (Event_LAST - 1)) - 1
 # containerd rejects any events bits outside this mask.
 _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
+
+
+def _parse_fhs_mounts_for_name(pod_annotations, target_name: str) -> dict[Path, Path]:
+    """
+    Parse FHS mount annotations matching a specific name (container name or "pod" for wildcard).
+
+    Annotations format: nix-nri/{target-name}{-N}: path/in/container=/nix/store/.../package
+    Where N is optional numeric suffix (1, 2, 3...) for multiple mounts.
+
+    For wildcard (target_name="pod"):
+      nix-nri/pod-1: /etc/ssl=/nix/store/cacert-1.0/etc/ssl
+      nix-nri/pod-2: /lib64=/nix/store/glibc-2.37/lib64
+
+    For container (target_name="myapp"):
+      nix-nri/myapp-1: /etc/ssl=/nix/store/cacert-2.0/etc/ssl
+
+    Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
+    """
+    mounts: dict[Path, Path] = {}
+    prefix = f"nix-nri/{target_name}"
+
+    for key, value in pod_annotations.items():
+        # Match exact key or key with any suffix (nix-nri/{target-name} or nix-nri/{target-name}-{suffix})
+        if key == prefix or key.startswith(prefix + "-"):
+            # Parse value as "path=store_path"
+            if "=" in value:
+                container_path_str, store_path_str = value.split("=", 1)
+                container_path = Path(container_path_str)
+                store_path = Path(store_path_str)
+                mounts[container_path] = store_path
+
+    return mounts
+
+
+def parse_fhs_mounts(pod_annotations, container_name: str) -> dict[Path, Path]:
+    """
+    Parse FHS mount annotations from pod metadata.
+
+    Supports two annotation patterns:
+    1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/nix/store/.../etc/ssl
+    2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/nix/store/.../etc/ssl
+
+    Example annotations:
+      nix-nri/pod: /etc/ssl=/nix/store/abc-cacert-1.0/etc/ssl          (wildcard)
+      nix-nri/myapp: /etc/ssl=/nix/store/def-cacert-2.0/etc/ssl        (container-specific)
+
+    Returns dict: {Path("/path/in/container"): Path("/nix/store/.../package")}
+    Container-specific annotations override wildcard mounts for the same path.
+    """
+    # Get wildcard mounts first
+    wildcard_mounts = _parse_fhs_mounts_for_name(pod_annotations, "pod")
+
+    # Get container-specific mounts (these override wildcards)
+    container_mounts = _parse_fhs_mounts_for_name(pod_annotations, container_name)
+
+    # Merge: container-specific overrides wildcard
+    return {**wildcard_mounts, **container_mounts}
 
 
 class NriPlugin(api_grpc.PluginBase):
@@ -90,13 +151,21 @@ class NriPlugin(api_grpc.PluginBase):
             list(req.container.env) if req.container.env else [],
         )
 
-        # Extract store paths from container env and args
-        # Remove variable name prefix from env (keep only values)
-        env_values = [
-            env_var.split("=", 1)[1] for env_var in req.container.env if "=" in env_var
+        # Combine env values, args and FHS mount annotation values for store path extraction
+        # Only extract from nix-nri/pod or nix-nri/{container-name} annotations
+        pod_prefix = "nix-nri/pod"
+        container_prefix = f"nix-nri/{req.container.name}"
+        fhs_annotation_values = [
+            value
+            for key, value in req.pod.annotations.items()
+            if key == pod_prefix
+            or key.startswith(pod_prefix + "-")
+            or key == container_prefix
+            or key.startswith(container_prefix + "-")
         ]
-        # Combine env values and args
-        combined = env_values + list(req.container.args)
+        combined = (
+            list(req.container.env) + list(req.container.args) + fhs_annotation_values
+        )
         # Extract all store paths
         store_paths = extract_store_paths(combined)
         if store_paths:
@@ -104,16 +173,23 @@ class NriPlugin(api_grpc.PluginBase):
                 f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
             )
 
+        # Parse FHS mount annotations (nix-nri/[container-name/]path)
+        fhs_mounts = parse_fhs_mounts(req.pod.annotations, req.container.name)
+        if fhs_mounts:
+            logger.info(
+                f"[CreateContainer] Parsed FHS mounts for container={req.container.name}: {fhs_mounts}"
+            )
+
         adjust = api_pb2.ContainerAdjustment()
 
         # Phase 1/2: Test NRI mount injection + build coordination (filter by nix-nri/test annotation)
-        if "nix-nri/test" in req.pod.annotations:
+        if "nix-nri/test" in req.pod.annotations and store_paths:
             container_id = req.container.id
             # Pod-side path: /nix is /var/lib/nix-csi/nix mounted into the pod
             volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
             # Host-side path: what gets injected into user containers
             volume_path_host = Path(
-                f"/var/lib/nix-csi/nix/var/nix-csi/volumes/{container_id}/nix"
+                f"{HOST_MOUNT_PATH}/nix/var/nix-csi/volumes/{container_id}/nix"
             )
 
             logger.info(f"Creating volume dir for {container_id=} at {volume_path=}")
@@ -126,7 +202,34 @@ class NriPlugin(api_grpc.PluginBase):
                     volume_path,
                 )
 
-                # Inject mount into container (using host-side path as source)
+                # Create FHS mount directories and inject mounts
+                fhs_base = (
+                    Path(HOST_MOUNT_PATH) / "nix/var/nix-csi/volumes" / container_id
+                )
+                for container_path in fhs_mounts.keys():
+                    # container_path is Path("/etc/ssl") or Path("/lib64")
+                    # Reparent absolute path to volume_path
+                    relative_path = container_path.relative_to("/")
+                    fhs_volume_dir = volume_path / relative_path
+                    fhs_volume_dir.mkdir(parents=True, exist_ok=True)
+                    logger.debug(
+                        f"Created FHS mount directory for {container_path} at {fhs_volume_dir}"
+                    )
+
+                    # Create mount pointing to host-side FHS directory
+                    fhs_host_path = fhs_base / relative_path
+                    mount = api_pb2.Mount(
+                        destination=str(container_path),
+                        source=str(fhs_host_path),
+                        type="bind",
+                        options=["bind", "ro"],
+                    )
+                    adjust.mounts.append(mount)
+                    logger.info(
+                        f"Injected FHS mount {container_path} for container={container_id}"
+                    )
+
+                # Inject primary /nix mount (using host-side path as source)
                 mount = api_pb2.Mount(
                     destination="/nix",
                     source=str(volume_path_host),
@@ -141,8 +244,8 @@ class NriPlugin(api_grpc.PluginBase):
                     "nri-wait binary not found on PATH, wait hook won't be able to execute"
                 )
                 hook = api_pb2.Hook(
-                    path="/usr/bin/env",
-                    args=["chroot", "/var/lib/nix-csi", self.nri_wait_bin],
+                    path="/usr/bin/env",  # This is POSIX
+                    args=["chroot", HOST_MOUNT_PATH, self.nri_wait_bin],
                     env=[
                         f"NRI_CONTAINER_ID={container_id}",
                         "NRI_QUERY_SOCKET=/nix/var/nix-csi/wait-req.sock",
@@ -167,7 +270,9 @@ class NriPlugin(api_grpc.PluginBase):
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
-                        self._spawn_build_task(container_id, store_paths, volume_path)
+                        self._spawn_build_task(
+                            container_id, store_paths, volume_path, fhs_mounts
+                        )
                     )
                     # Log task completion
                     task.add_done_callback(
@@ -261,9 +366,17 @@ class NriPlugin(api_grpc.PluginBase):
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
 
     async def _spawn_build_task(
-        self, container_id: str, store_paths: set[Path], volume_path: Path
+        self,
+        container_id: str,
+        store_paths: set[Path],
+        volume_path: Path,
+        fhs_mounts: dict[Path, Path] | None = None,
     ) -> None:
-        """Realize, get closure, and hardlink store paths into the mount directory."""
+        """Realize, get closure, and hardlink store paths into the mount directory.
+
+        Also backfills FHS mount directories if fhs_mounts is provided.
+        Uses deref_hardlink_tree to dereference symlinks in FHS mounts.
+        """
         logger.info(
             "[BUILD-TASK] Started for container=%r with %d store paths",
             container_id,
@@ -292,6 +405,16 @@ class NriPlugin(api_grpc.PluginBase):
             paths = await get_closure_paths(store_paths)
             # Link all paths
             await prepare_volume(container_id, paths, None)
+
+            # Backfill FHS mounts with dereferenced store paths
+            if fhs_mounts:
+                for container_path, store_path in fhs_mounts.items():
+                    fhs_volume_dir = volume_path / container_path.relative_to("/")
+                    logger.info(
+                        f"[BUILD-TASK] Backfilling FHS mount {container_path} from {store_path}"
+                    )
+                    # Use deref_hardlink_tree to dereference symlinks and hardlink content
+                    deref_hardlink_tree(store_path, fhs_volume_dir)
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id
