@@ -92,10 +92,27 @@ def wait_for_completion(
         sub.close()
         sys.exit(1)
 
-    # Wait for completion message
-    deadline = time.time() + timeout
+    # Wait for completion message with rolling timeout on progress updates
+    absolute_deadline = time.time() + timeout  # Absolute deadline (safety timeout)
+    progress_deadline = time.time() + timeout  # Resets on progress messages
 
     while True:
+        # Check absolute safety deadline
+        now = time.time()
+        if now >= absolute_deadline:
+            print(
+                f"[nri-wait] Absolute timeout waiting for build completion ({timeout}s)",
+                file=sys.stderr,
+            )
+            sub.close()
+            sys.exit(1)
+
+        # Use whichever deadline is sooner
+        next_deadline = min(absolute_deadline, progress_deadline)
+        remaining = next_deadline - now
+        remaining_ms = max(1, int(remaining * 1000))
+        sub.setsockopt(zmq.RCVTIMEO, remaining_ms)
+
         try:
             msg_bytes = sub.recv()
 
@@ -104,34 +121,39 @@ def wait_for_completion(
                 msg = json.loads(msg_bytes.decode())
                 print(f"[nri-wait] Received message: {msg}", file=sys.stderr)
 
-                if (
-                    msg.get("container_id") == container_id
-                    and msg.get("status") == "done"
-                ):
-                    print(
-                        f"[nri-wait] Build completed for container {container_id}",
-                        file=sys.stderr,
-                    )
-                    sub.close()
-                    return
+                if msg.get("container_id") == container_id:
+                    # Exit immediately on "done" status
+                    if msg.get("status") == "done":
+                        print(
+                            f"[nri-wait] Build completed for container {container_id}",
+                            file=sys.stderr,
+                        )
+                        sub.close()
+                        return
+
+                    # Reset progress deadline on status updates (e.g., "progress", "building")
+                    if msg.get("status") in ("progress", "building"):
+                        progress_deadline = time.time() + timeout
+                        print(
+                            f"[nri-wait] Progress update for container {container_id}, "
+                            f"progress timeout reset to {timeout}s",
+                            file=sys.stderr,
+                        )
+
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
                 # Ignore unparseable messages
                 pass
 
         except zmq.error.Again:
-            # Timeout occurred
-            remaining = deadline - time.time()
-            if remaining <= 0:
+            # Timeout from recv - check which deadline we hit
+            if time.time() >= progress_deadline:
                 print(
-                    f"[nri-wait] Timeout waiting for build completion ({timeout}s)",
+                    f"[nri-wait] Progress timeout waiting for build completion ({timeout}s)",
                     file=sys.stderr,
                 )
                 sub.close()
                 sys.exit(1)
-
-            # Re-set timeout for next iteration with remaining time
-            remaining_ms = max(1, int(remaining * 1000))
-            sub.setsockopt(zmq.RCVTIMEO, remaining_ms)
+            # Otherwise loop and check absolute deadline
 
         except zmq.error.ZMQError as e:
             print(f"[nri-wait] Socket error: {e}", file=sys.stderr)

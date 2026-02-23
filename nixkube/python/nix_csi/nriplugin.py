@@ -365,6 +365,17 @@ class NriPlugin(api_grpc.PluginBase):
         )
         await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
 
+    async def _pump_build_progress(self, container_id: str) -> None:
+        """Periodically publish build progress heartbeats to reset nri-wait timeout."""
+        try:
+            while True:
+                await asyncio.sleep(10)
+                await self.zmq_server.publish_build_progress(container_id)
+        except asyncio.CancelledError:
+            logger.debug(
+                "[BUILD-PUMP] Progress pump cancelled for container=%r", container_id
+            )
+
     async def _spawn_build_task(
         self,
         container_id: str,
@@ -376,12 +387,14 @@ class NriPlugin(api_grpc.PluginBase):
 
         Also backfills FHS mount directories if fhs_mounts is provided.
         Uses deref_hardlink_tree to dereference symlinks in FHS mounts.
+        Periodically pumps progress updates to reset nri-wait timeout.
         """
         logger.info(
             "[BUILD-TASK] Started for container=%r with %d store paths",
             container_id,
             len(store_paths),
         )
+        pump_task: Optional[asyncio.Task] = None
         try:
             # If no store paths to build, just mark as done
             if not store_paths:
@@ -393,6 +406,12 @@ class NriPlugin(api_grpc.PluginBase):
                 await self.zmq_server.publish_build_complete(container_id)
                 self.zmq_server.pending_builds.discard(container_id)
                 return
+
+            # Start progress pump to keep nri-wait timeout reset during long builds
+            pump_task = asyncio.create_task(self._pump_build_progress(container_id))
+            logger.debug(
+                "[BUILD-TASK] Started progress pump for container=%r", container_id
+            )
 
             # Get extra build args for builders and cache
             extra_args = await get_build_args()
@@ -433,6 +452,14 @@ class NriPlugin(api_grpc.PluginBase):
         except Exception as e:
             logger.error("Build task failed for container=%r: %s", container_id, e)
             self.zmq_server.pending_builds.discard(container_id)
+        finally:
+            # Cancel progress pump if it's still running
+            if pump_task is not None:
+                pump_task.cancel()
+                try:
+                    await pump_task
+                except asyncio.CancelledError:
+                    pass
 
 
 async def _serve_plugin_channel(

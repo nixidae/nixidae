@@ -81,6 +81,22 @@ class ZeroMQServer:
         else:
             return {"status": "unknown"}
 
+    async def publish_build_progress(self, container_id: str) -> None:
+        """Publish build progress heartbeat on PUB socket to reset nri-wait timeout."""
+        if self.pub_socket is None:
+            logger.warning("PUB socket not initialized, cannot publish")
+            return
+        try:
+            msg = json.dumps({"container_id": container_id, "status": "progress"})
+            logger.debug("[ZMQ-PUB] Publishing progress: %s", msg)
+            await self.pub_socket.send(msg.encode())
+        except Exception as e:
+            logger.warning(
+                "[ZMQ-PUB] Failed to publish build progress for container=%r: %s",
+                container_id,
+                e,
+            )
+
     async def publish_build_complete(self, container_id: str) -> None:
         """Publish build completion message on PUB socket."""
         if self.pub_socket is None:
