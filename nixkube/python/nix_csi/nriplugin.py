@@ -182,8 +182,11 @@ class NriPlugin(api_grpc.PluginBase):
 
         adjust = api_pb2.ContainerAdjustment()
 
-        # Phase 1/2: Test NRI mount injection + build coordination (filter by nix-nri/test annotation)
-        if "nix-nri/test" in req.pod.annotations and store_paths:
+        # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
+        nix_already_mounted = any(m.destination == "/nix" for m in req.container.mounts)
+
+        # Enable NRI build if we have storepaths to inject and /nix isn't already mounted
+        if store_paths and not nix_already_mounted:
             container_id = req.container.id
             # Pod-side path: /nix is /var/lib/nix-csi/nix mounted into the pod
             volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
@@ -192,13 +195,17 @@ class NriPlugin(api_grpc.PluginBase):
                 f"{HOST_MOUNT_PATH}/nix/var/nix-csi/volumes/{container_id}/nix"
             )
 
-            logger.info(f"Creating volume dir for {container_id=} at {volume_path=}")
+            logger.info(
+                "Enabling store injection for container=%r with %d storepaths",
+                container_id,
+                len(store_paths),
+            )
 
             try:
                 # Create empty directory structure early (mount sources must exist at container creation time)
                 (volume_path / "nix").mkdir(parents=True, exist_ok=True)
                 logger.info(
-                    "Created empty volume directory for backfill test at %r",
+                    "Created empty volume directory at %r",
                     volume_path,
                 )
 

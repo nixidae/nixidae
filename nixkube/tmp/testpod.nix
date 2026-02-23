@@ -28,7 +28,6 @@ let
           # Will go into the default namespace
           kubernetes.resources.nix-csi.Pod.nritest = {
             metadata.annotations = {
-              "nix-nri/test" = "true";
               "nix-nri/pod" = "/etc/ssl/certs=${pkgs.cacert}/etc/ssl/certs";
             };
             spec = {
