@@ -30,6 +30,7 @@ from .constants import (
 )
 from .hardlinks import deref_mount_hardlink_tree
 from .nix import build_packages, get_build_args, get_closure_paths
+from .ns_mount import mount_in_container
 from .store import extract_store_paths
 from .zmq_server import ZeroMQServer
 
@@ -450,6 +451,23 @@ class NriPlugin(api_grpc.PluginBase):
             paths = await get_closure_paths(store_paths)
             # Link all paths
             await prepare_volume(container_id, paths, None)
+
+            # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook starts).
+            # Then bind-mount /nix → /nix2 inside the container namespace as a minimal test.
+            container_info = await self.zmq_server.wait_for_pid(container_id)
+            if container_info is not None:
+                pid, bundle = container_info
+                logger.info(
+                    "[BUILD-TASK] Mounting /nix → /nix2 in container pid=%d bundle=%r",
+                    pid,
+                    bundle,
+                )
+                await mount_in_container(pid, bundle, [("/nix", "/nix2")])
+            else:
+                logger.warning(
+                    "[BUILD-TASK] No PID/bundle received for container=%r, skipping ns mount",
+                    container_id,
+                )
 
             # Backfill FHS mounts with dereferenced store paths
             if fhs_mounts:

@@ -55,6 +55,10 @@ NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
 # Set via HOST_MOUNT_PATH environment variable from kubenix
 HOST_MOUNT_PATH = os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi")
 
+# Host /proc mounted into the daemonset for accessing container namespaces.
+# Set via HOST_PROC_PATH environment variable from kubenix.
+HOST_PROC_PATH = os.environ.get("HOST_PROC_PATH", "/host/proc")
+
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 

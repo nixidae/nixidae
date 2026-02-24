@@ -1,5 +1,6 @@
 """Entry point for nri-wait OCI hook."""
 
+import json
 import os
 import sys
 
@@ -10,6 +11,20 @@ from . import check_build_status, wait_for_completion
 
 def main() -> None:
     """Main entry point - orchestrates query and wait phases."""
+    # OCI runtime passes container state as JSON on stdin for createRuntime hooks.
+    container_pid: int | None = None
+    container_bundle: str | None = None
+    try:
+        oci_state = json.load(sys.stdin)
+        container_pid = oci_state.get("pid")
+        container_bundle = oci_state.get("bundle")
+        print(
+            f"[nri-wait] OCI state: id={oci_state.get('id')} pid={container_pid} bundle={container_bundle}",
+            file=sys.stderr,
+        )
+    except Exception as e:
+        print(f"[nri-wait] Could not parse OCI state from stdin: {e}", file=sys.stderr)
+
     # Read from environment variables (set by OCI hook)
     try:
         container_id = os.environ["NRI_CONTAINER_ID"]
@@ -27,8 +42,15 @@ def main() -> None:
     context = zmq.Context()
 
     try:
-        # Phase 1: Query if build is already done
-        if check_build_status(context, query_socket, container_id, timeout):
+        # Phase 1: Query if build is already done (also registers the PID/bundle with nix-nri)
+        if check_build_status(
+            context,
+            query_socket,
+            container_id,
+            timeout,
+            container_pid,
+            container_bundle,
+        ):
             print(
                 f"[nri-wait] Build already completed for {container_id}",
                 file=sys.stderr,

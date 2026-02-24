@@ -122,6 +122,10 @@ in
                       nix-config.mountPath = "/etc/nix";
                       nri-socket.mountPath = "/var/run/nri";
                       registration.mountPath = "/registration";
+                      host-proc = {
+                        mountPath = "/host/proc";
+                        readOnly = true;
+                      };
                       kubelet = {
                         mountPath = "/var/lib/kubelet";
                         mountPropagation = "Bidirectional";
@@ -194,6 +198,10 @@ in
                   nri-socket.hostPath = {
                     path = "/var/run/nri";
                     type = "DirectoryOrCreate";
+                  };
+                  host-proc.hostPath = {
+                    path = "/proc";
+                    type = "Directory";
                   };
                   kubelet.hostPath = {
                     path = "/var/lib/kubelet";

@@ -26,6 +26,13 @@ class ZeroMQServer:
         # Build status cache: container_id -> {"status": "done"|"pending", "timestamp": float}
         self.build_status: TTLCache = TTLCache(maxsize=10000, ttl=3600)
         self.pending_builds: set[str] = set()  # container IDs currently being built
+        self.container_pids: dict[str, int] = {}  # container_id -> PID from nri-wait
+        self.container_bundles: dict[
+            str, str
+        ] = {}  # container_id -> bundle from nri-wait
+        self._pid_events: dict[
+            str, asyncio.Event
+        ] = {}  # signalled when PID+bundle arrive
 
     async def initialize(self) -> None:
         """Create ZeroMQ context and bind sockets."""
@@ -71,6 +78,37 @@ class ZeroMQServer:
             raise
 
         logger.info("[ZMQ-INIT] Both ZeroMQ sockets initialized successfully")
+
+    def _pid_event(self, container_id: str) -> asyncio.Event:
+        """Return (creating if needed) the Event for a container's PID arrival."""
+        if container_id not in self._pid_events:
+            self._pid_events[container_id] = asyncio.Event()
+        return self._pid_events[container_id]
+
+    async def wait_for_pid(
+        self, container_id: str, timeout: float = 30.0
+    ) -> tuple[int, str] | None:
+        """Wait until nri-wait reports the container PID and bundle, then return (pid, bundle)."""
+        try:
+            await asyncio.wait_for(
+                self._pid_event(container_id).wait(), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[ZMQ] Timed out waiting for PID of container=%r", container_id
+            )
+            return None
+        pid = self.container_pids.get(container_id)
+        bundle = self.container_bundles.get(container_id)
+        if pid is None or bundle is None:
+            logger.warning(
+                "[ZMQ] Missing pid=%r or bundle=%r for container=%r",
+                pid,
+                bundle,
+                container_id,
+            )
+            return None
+        return (pid, bundle)
 
     async def query_build_status(self, container_id: str) -> dict:
         """Return build status for a container."""
@@ -131,7 +169,28 @@ class ZeroMQServer:
                 try:
                     query = json.loads(query_bytes.decode())
                     container_id = query.get("container_id")
-                    logger.info("[ZMQ-REP] Query for container=%r", container_id)
+                    pid = query.get("pid")
+                    bundle = query.get("bundle")
+                    if (
+                        pid is not None
+                        and bundle is not None
+                        and container_id is not None
+                    ):
+                        self.container_pids[container_id] = pid
+                        self.container_bundles[container_id] = bundle
+                        self._pid_event(container_id).set()
+                        logger.debug(
+                            "[ZMQ-REP] Stored pid=%d bundle=%r for container=%r",
+                            pid,
+                            bundle,
+                            container_id,
+                        )
+                    logger.info(
+                        "[ZMQ-REP] Query for container=%r pid=%r bundle=%r",
+                        container_id,
+                        pid,
+                        bundle,
+                    )
 
                     status = await self.query_build_status(container_id)
                     logger.debug(
