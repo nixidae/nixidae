@@ -7,7 +7,7 @@
 NRI `createRuntime` hooks (where nri-wait runs) execute in the *host* mount
 namespace and before `pivot_root`.  The OCI runtime injects our bind mounts
 declaratively (via CreateContainerResponse), but those are limited to paths
-that exist on the host.  For FHS paths that need to live *inside* the
+that exist on the host.  For store mount paths that need to live *inside* the
 container's own namespace (e.g. /etc/ssl populated from a Nix store path),
 we need to mount them ourselves after the namespace is created.
 

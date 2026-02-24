@@ -42,11 +42,11 @@ logger = logging.getLogger("nix-nri")
 _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
 
 
-def _parse_fhs_mounts_for_name(
+def _parse_store_mounts_for_name(
     pod_annotations, target_name: str
 ) -> dict[Path, tuple[str, Path]]:
     """
-    Parse FHS mount annotations matching a specific name (container name or "pod" for wildcard).
+    Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
     Annotations format: nix-nri/{target-name}{-N}: [type:]/path/in/container=/nix/store/.../package
     Where N is optional suffix for multiple mounts, and type is "file" or "dir" (default: "dir").
@@ -84,11 +84,11 @@ def _parse_fhs_mounts_for_name(
     return mounts
 
 
-def parse_fhs_mounts(
+def parse_store_mounts(
     pod_annotations, container_name: str
 ) -> dict[Path, tuple[str, Path]]:
     """
-    Parse FHS mount annotations from pod metadata.
+    Parse store mount annotations from pod metadata.
 
     Supports two annotation patterns:
     1. Wildcard (apply to all containers):  nix-nri/pod: [type:]/etc/ssl=/nix/store/.../etc/ssl
@@ -105,10 +105,10 @@ def parse_fhs_mounts(
     Container-specific annotations override wildcard mounts for the same path.
     """
     # Get wildcard mounts first
-    wildcard_mounts = _parse_fhs_mounts_for_name(pod_annotations, "pod")
+    wildcard_mounts = _parse_store_mounts_for_name(pod_annotations, "pod")
 
     # Get container-specific mounts (these override wildcards)
-    container_mounts = _parse_fhs_mounts_for_name(pod_annotations, container_name)
+    container_mounts = _parse_store_mounts_for_name(pod_annotations, container_name)
 
     # Merge: container-specific overrides wildcard
     return {**wildcard_mounts, **container_mounts}
@@ -167,11 +167,11 @@ class NriPlugin(api_grpc.PluginBase):
             list(req.container.env) if req.container.env else [],
         )
 
-        # Combine env values, args and FHS mount annotation values for store path extraction
+        # Combine env values, args and store mount annotation values for store path extraction
         # Only extract from nix-nri/pod or nix-nri/{container-name} annotations
         pod_prefix = "nix-nri/pod"
         container_prefix = f"nix-nri/{req.container.name}"
-        fhs_annotation_values = [
+        store_annotation_values = [
             value
             for key, value in req.pod.annotations.items()
             if key == pod_prefix
@@ -180,7 +180,7 @@ class NriPlugin(api_grpc.PluginBase):
             or key.startswith(container_prefix + "-")
         ]
         combined = (
-            list(req.container.env) + list(req.container.args) + fhs_annotation_values
+            list(req.container.env) + list(req.container.args) + store_annotation_values
         )
         # Extract all store paths
         store_paths = extract_store_paths(combined)
@@ -189,11 +189,11 @@ class NriPlugin(api_grpc.PluginBase):
                 f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
             )
 
-        # Parse FHS mount annotations (nix-nri/[container-name/]path)
-        fhs_mounts = parse_fhs_mounts(req.pod.annotations, req.container.name)
-        if fhs_mounts:
+        # Parse store mount annotations (nix-nri/[container-name/]path)
+        store_mounts = parse_store_mounts(req.pod.annotations, req.container.name)
+        if store_mounts:
             logger.info(
-                f"[CreateContainer] Parsed FHS mounts for container={req.container.name}: {fhs_mounts}"
+                f"[CreateContainer] Parsed store mounts for container={req.container.name}: {store_mounts}"
             )
 
         adjust = api_pb2.ContainerAdjustment()
@@ -225,35 +225,35 @@ class NriPlugin(api_grpc.PluginBase):
                     volume_path,
                 )
 
-                # Create FHS mount directories and inject mounts
-                fhs_base = (
+                # Create store mount directories and inject mounts
+                store_base = (
                     Path(HOST_MOUNT_PATH) / "nix/var/nix-csi/volumes" / container_id
                 )
-                for container_path, (mount_type, _) in fhs_mounts.items():
+                for container_path, (mount_type, _) in store_mounts.items():
                     # container_path is Path("/etc/ssl") or Path("/lib64")
                     # Reparent absolute path to volume_path
                     relative_path = container_path.relative_to("/")
-                    fhs_volume_dir = volume_path / relative_path
+                    store_volume_dir = volume_path / relative_path
                     if mount_type == "file":
-                        fhs_volume_dir.parent.mkdir(parents=True, exist_ok=True)
-                        fhs_volume_dir.touch()
+                        store_volume_dir.parent.mkdir(parents=True, exist_ok=True)
+                        store_volume_dir.touch()
                     else:
-                        fhs_volume_dir.mkdir(parents=True, exist_ok=True)
+                        store_volume_dir.mkdir(parents=True, exist_ok=True)
                     logger.debug(
-                        f"Created FHS mount {mount_type} placeholder for {container_path} at {fhs_volume_dir}"
+                        f"Created store mount {mount_type} placeholder for {container_path} at {store_volume_dir}"
                     )
 
-                    # Create mount pointing to host-side FHS directory
-                    fhs_host_path = fhs_base / relative_path
+                    # Create mount pointing to host-side store directory
+                    store_host_path = store_base / relative_path
                     mount = api_pb2.Mount(
                         destination=str(container_path),
-                        source=str(fhs_host_path),
+                        source=str(store_host_path),
                         type="bind",
                         options=["bind", "ro"],
                     )
                     adjust.mounts.append(mount)
                     logger.info(
-                        f"Injected FHS mount {container_path} for container={container_id}"
+                        f"Injected store mount {container_path} for container={container_id}"
                     )
 
                 # Inject primary /nix mount (using host-side path as source)
@@ -297,7 +297,7 @@ class NriPlugin(api_grpc.PluginBase):
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
                         self._spawn_build_task(
-                            container_id, store_paths, volume_path, fhs_mounts
+                            container_id, store_paths, volume_path, store_mounts
                         )
                     )
                     # Log task completion
@@ -407,12 +407,12 @@ class NriPlugin(api_grpc.PluginBase):
         container_id: str,
         store_paths: set[Path],
         volume_path: Path,
-        fhs_mounts: dict[Path, tuple[str, Path]] | None = None,
+        store_mounts: dict[Path, tuple[str, Path]] | None = None,
     ) -> None:
         """Realize, get closure, and hardlink store paths into the mount directory.
 
-        Also backfills FHS mount directories if fhs_mounts is provided.
-        Uses deref_mount_hardlink_tree to dereference the mount path symlink in FHS mounts.
+        Also backfills store mount directories if store_mounts is provided.
+        Uses deref_mount_hardlink_tree to dereference the mount path symlink in store mounts.
         Periodically pumps progress updates to reset nri-wait timeout.
         """
         logger.info(
@@ -468,15 +468,15 @@ class NriPlugin(api_grpc.PluginBase):
                     container_id,
                 )
 
-            # Backfill FHS mounts with dereferenced store paths
-            if fhs_mounts:
-                for container_path, (_, store_path) in fhs_mounts.items():
-                    fhs_volume_dir = volume_path / container_path.relative_to("/")
+            # Backfill store mounts with dereferenced store paths
+            if store_mounts:
+                for container_path, (_, store_path) in store_mounts.items():
+                    store_volume_dir = volume_path / container_path.relative_to("/")
                     logger.info(
-                        f"[BUILD-TASK] Backfilling FHS mount {container_path} from {store_path}"
+                        f"[BUILD-TASK] Backfilling store mount {container_path} from {store_path}"
                     )
                     # Dereference the store path symlink once, then hardlink the tree
-                    deref_mount_hardlink_tree(store_path, fhs_volume_dir)
+                    deref_mount_hardlink_tree(store_path, store_volume_dir)
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id
