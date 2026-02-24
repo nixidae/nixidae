@@ -43,64 +43,51 @@ _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
 
 def _parse_store_mounts_for_name(
     pod_annotations, target_name: str
-) -> dict[Path, tuple[str, Path]]:
+) -> dict[Path, Path]:
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
-    Annotations format: nix-nri/{target-name}{-N}: [type:]/path/in/container=/nix/store/.../package
-    Where N is optional suffix for multiple mounts, and type is "file" or "dir" (default: "dir").
+    Annotations format: nix-nri/{target-name}{-N}: /path/in/container=/nix/store/.../package
+    Where N is optional suffix for multiple mounts.
 
     For wildcard (target_name="pod"):
-      nix-nri/pod-1: dir:/etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
-      nix-nri/pod-2: file:/etc/passwd=/nix/store/fakeNss-1.0/etc/passwd
+      nix-nri/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
+      nix-nri/pod-2: /etc/passwd=/nix/store/fakeNss-1.0/etc/passwd
 
     For container (target_name="myapp"):
-      nix-nri/myapp-1: file:/etc/ssl=/nix/store/cacert-2.0/etc/ssl
+      nix-nri/myapp-1: /etc/ssl=/nix/store/cacert-2.0/etc/ssl
 
-    Returns: {Path("/path/in/container"): ("file"|"dir", Path("/nix/store/.../package"))}
+    Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
     """
-    mounts: dict[Path, tuple[str, Path]] = {}
+    mounts: dict[Path, Path] = {}
     prefix = f"nix-nri/{target_name}"
 
     for key, value in pod_annotations.items():
         # Match exact key or key with any suffix (nix-nri/{target-name} or nix-nri/{target-name}-{suffix})
         if key == prefix or key.startswith(prefix + "-"):
-            # Parse optional type prefix: "file:..." or "dir:..." or bare "..."
-            if value.startswith("file:"):
-                mount_type = "file"
-                rest = value[len("file:") :]
-            elif value.startswith("dir:"):
-                mount_type = "dir"
-                rest = value[len("dir:") :]
-            else:
-                mount_type = "dir"
-                rest = value
-
-            if "=" in rest:
-                container_path_str, store_path_str = rest.split("=", 1)
-                mounts[Path(container_path_str)] = (mount_type, Path(store_path_str))
+            if "=" in value:
+                container_path_str, store_path_str = value.split("=", 1)
+                mounts[Path(container_path_str)] = Path(store_path_str)
 
     return mounts
 
 
 def parse_store_mounts(
     pod_annotations, container_name: str
-) -> dict[Path, tuple[str, Path]]:
+) -> dict[Path, Path]:
     """
     Parse store mount annotations from pod metadata.
 
     Supports two annotation patterns:
-    1. Wildcard (apply to all containers):  nix-nri/pod: [type:]/etc/ssl=/nix/store/.../etc/ssl
-    2. Container-specific (overrides wildcard): nix-nri/container-name: [type:]/etc/ssl=/nix/store/.../etc/ssl
-
-    type is "file" or "dir" (default: "dir").
+    1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/nix/store/.../etc/ssl
+    2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/nix/store/.../etc/ssl
 
     Example annotations:
-      nix-nri/pod: dir:/etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs  (wildcard)
-      nix-nri/pod: file:/etc/passwd=/nix/store/def-fakeNss/etc/passwd           (wildcard)
-      nix-nri/myapp: file:/etc/passwd=/nix/store/ghi-fakeNss/etc/passwd         (container-specific)
+      nix-nri/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs  (wildcard)
+      nix-nri/pod: /etc/passwd=/nix/store/def-fakeNss/etc/passwd            (wildcard)
+      nix-nri/myapp: /etc/passwd=/nix/store/ghi-fakeNss/etc/passwd          (container-specific)
 
-    Returns dict: {Path("/path/in/container"): ("file"|"dir", Path("/nix/store/.../package"))}
+    Returns dict: {Path("/path/in/container"): Path("/nix/store/.../package")}
     Container-specific annotations override wildcard mounts for the same path.
     """
     # Get wildcard mounts first
@@ -374,7 +361,7 @@ class NriPlugin(api_grpc.PluginBase):
         self,
         container_id: str,
         store_paths: set[Path],
-        store_mounts: dict[Path, tuple[str, Path]] | None = None,
+        store_mounts: dict[Path, Path] | None = None,
     ) -> None:
         """Realize store paths, link into the volume, then namespace-mount store mounts.
 
@@ -425,7 +412,7 @@ class NriPlugin(api_grpc.PluginBase):
                 if container_info is not None:
                     pid, bundle = container_info
                     ns_mounts = []
-                    for container_path, (_, store_path) in store_mounts.items():
+                    for container_path, store_path in store_mounts.items():
                         resolved = store_path.resolve()
                         if not resolved.exists():
                             raise ValueError(
