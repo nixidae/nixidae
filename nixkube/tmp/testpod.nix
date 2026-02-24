@@ -28,12 +28,18 @@ let
           # Will go into the default namespace
           kubernetes.resources.nix-csi.Pod.nritest = {
             metadata.annotations = {
-              "nix-nri/pod" = "/etc/ssl/certs=${pkgs.cacert}/etc/ssl/certs";
+              "nix-nri/pod-ssl" = "dir:/etc/ssl/certs=${pkgs.dockerTools.caCertificates}/etc/ssl/certs";
+              "nix-nri/pod-group" = "file:/etc/group=${pkgs.dockerTools.fakeNss}/etc/group";
+              "nix-nri/pod-passwd" = "file:/etc/passwd=${pkgs.dockerTools.fakeNss}/etc/passwd";
+              "nix-nri/pod-nsswitch" = "file:/etc/nsswitch.conf=${pkgs.dockerTools.fakeNss}/etc/nsswitch.conf";
+              "nix-nri/pod-binsh" = "file:/bin/sh=${pkgs.dockerTools.binSh}/bin/sh";
+              "nix-nri/pod-usrbinenv" = "file:/usr/bin/env=${pkgs.dockerTools.binSh}/usr/bin/env";
             };
             spec = {
               containers = lib.mkNamedList {
                 ${toString builtins.currentTime} = {
-                  image = "gcr.io/distroless/static:latest";
+                  # image = "gcr.io/distroless/static:latest";
+                  image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
 
                   env = lib.mkNamedList {
                     AFILE.value = pkgs.writeText "afile" "this is a file";

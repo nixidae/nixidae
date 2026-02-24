@@ -28,7 +28,7 @@ from .constants import (
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
 )
-from .hardlinks import deref_hardlink_tree
+from .hardlinks import deref_mount_hardlink_tree
 from .nix import build_packages, get_build_args, get_closure_paths
 from .store import extract_store_paths
 from .zmq_server import ZeroMQServer
@@ -41,51 +41,66 @@ logger = logging.getLogger("nix-nri")
 _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
 
 
-def _parse_fhs_mounts_for_name(pod_annotations, target_name: str) -> dict[Path, Path]:
+def _parse_fhs_mounts_for_name(
+    pod_annotations, target_name: str
+) -> dict[Path, tuple[str, Path]]:
     """
     Parse FHS mount annotations matching a specific name (container name or "pod" for wildcard).
 
-    Annotations format: nix-nri/{target-name}{-N}: path/in/container=/nix/store/.../package
-    Where N is optional numeric suffix (1, 2, 3...) for multiple mounts.
+    Annotations format: nix-nri/{target-name}{-N}: [type:]/path/in/container=/nix/store/.../package
+    Where N is optional suffix for multiple mounts, and type is "file" or "dir" (default: "dir").
 
     For wildcard (target_name="pod"):
-      nix-nri/pod-1: /etc/ssl=/nix/store/cacert-1.0/etc/ssl
-      nix-nri/pod-2: /lib64=/nix/store/glibc-2.37/lib64
+      nix-nri/pod-1: dir:/etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
+      nix-nri/pod-2: file:/etc/passwd=/nix/store/fakeNss-1.0/etc/passwd
 
     For container (target_name="myapp"):
-      nix-nri/myapp-1: /etc/ssl=/nix/store/cacert-2.0/etc/ssl
+      nix-nri/myapp-1: file:/etc/ssl=/nix/store/cacert-2.0/etc/ssl
 
-    Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
+    Returns: {Path("/path/in/container"): ("file"|"dir", Path("/nix/store/.../package"))}
     """
-    mounts: dict[Path, Path] = {}
+    mounts: dict[Path, tuple[str, Path]] = {}
     prefix = f"nix-nri/{target_name}"
 
     for key, value in pod_annotations.items():
         # Match exact key or key with any suffix (nix-nri/{target-name} or nix-nri/{target-name}-{suffix})
         if key == prefix or key.startswith(prefix + "-"):
-            # Parse value as "path=store_path"
-            if "=" in value:
-                container_path_str, store_path_str = value.split("=", 1)
-                container_path = Path(container_path_str)
-                store_path = Path(store_path_str)
-                mounts[container_path] = store_path
+            # Parse optional type prefix: "file:..." or "dir:..." or bare "..."
+            if value.startswith("file:"):
+                mount_type = "file"
+                rest = value[len("file:") :]
+            elif value.startswith("dir:"):
+                mount_type = "dir"
+                rest = value[len("dir:") :]
+            else:
+                mount_type = "dir"
+                rest = value
+
+            if "=" in rest:
+                container_path_str, store_path_str = rest.split("=", 1)
+                mounts[Path(container_path_str)] = (mount_type, Path(store_path_str))
 
     return mounts
 
 
-def parse_fhs_mounts(pod_annotations, container_name: str) -> dict[Path, Path]:
+def parse_fhs_mounts(
+    pod_annotations, container_name: str
+) -> dict[Path, tuple[str, Path]]:
     """
     Parse FHS mount annotations from pod metadata.
 
     Supports two annotation patterns:
-    1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/nix/store/.../etc/ssl
-    2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/nix/store/.../etc/ssl
+    1. Wildcard (apply to all containers):  nix-nri/pod: [type:]/etc/ssl=/nix/store/.../etc/ssl
+    2. Container-specific (overrides wildcard): nix-nri/container-name: [type:]/etc/ssl=/nix/store/.../etc/ssl
+
+    type is "file" or "dir" (default: "dir").
 
     Example annotations:
-      nix-nri/pod: /etc/ssl=/nix/store/abc-cacert-1.0/etc/ssl          (wildcard)
-      nix-nri/myapp: /etc/ssl=/nix/store/def-cacert-2.0/etc/ssl        (container-specific)
+      nix-nri/pod: dir:/etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs  (wildcard)
+      nix-nri/pod: file:/etc/passwd=/nix/store/def-fakeNss/etc/passwd           (wildcard)
+      nix-nri/myapp: file:/etc/passwd=/nix/store/ghi-fakeNss/etc/passwd         (container-specific)
 
-    Returns dict: {Path("/path/in/container"): Path("/nix/store/.../package")}
+    Returns dict: {Path("/path/in/container"): ("file"|"dir", Path("/nix/store/.../package"))}
     Container-specific annotations override wildcard mounts for the same path.
     """
     # Get wildcard mounts first
@@ -213,14 +228,18 @@ class NriPlugin(api_grpc.PluginBase):
                 fhs_base = (
                     Path(HOST_MOUNT_PATH) / "nix/var/nix-csi/volumes" / container_id
                 )
-                for container_path in fhs_mounts.keys():
+                for container_path, (mount_type, _) in fhs_mounts.items():
                     # container_path is Path("/etc/ssl") or Path("/lib64")
                     # Reparent absolute path to volume_path
                     relative_path = container_path.relative_to("/")
                     fhs_volume_dir = volume_path / relative_path
-                    fhs_volume_dir.mkdir(parents=True, exist_ok=True)
+                    if mount_type == "file":
+                        fhs_volume_dir.parent.mkdir(parents=True, exist_ok=True)
+                        fhs_volume_dir.touch()
+                    else:
+                        fhs_volume_dir.mkdir(parents=True, exist_ok=True)
                     logger.debug(
-                        f"Created FHS mount directory for {container_path} at {fhs_volume_dir}"
+                        f"Created FHS mount {mount_type} placeholder for {container_path} at {fhs_volume_dir}"
                     )
 
                     # Create mount pointing to host-side FHS directory
@@ -388,12 +407,12 @@ class NriPlugin(api_grpc.PluginBase):
         container_id: str,
         store_paths: set[Path],
         volume_path: Path,
-        fhs_mounts: dict[Path, Path] | None = None,
+        fhs_mounts: dict[Path, tuple[str, Path]] | None = None,
     ) -> None:
         """Realize, get closure, and hardlink store paths into the mount directory.
 
         Also backfills FHS mount directories if fhs_mounts is provided.
-        Uses deref_hardlink_tree to dereference symlinks in FHS mounts.
+        Uses deref_mount_hardlink_tree to dereference the mount path symlink in FHS mounts.
         Periodically pumps progress updates to reset nri-wait timeout.
         """
         logger.info(
@@ -434,13 +453,13 @@ class NriPlugin(api_grpc.PluginBase):
 
             # Backfill FHS mounts with dereferenced store paths
             if fhs_mounts:
-                for container_path, store_path in fhs_mounts.items():
+                for container_path, (_, store_path) in fhs_mounts.items():
                     fhs_volume_dir = volume_path / container_path.relative_to("/")
                     logger.info(
                         f"[BUILD-TASK] Backfilling FHS mount {container_path} from {store_path}"
                     )
-                    # Use deref_hardlink_tree to dereference symlinks and hardlink content
-                    deref_hardlink_tree(store_path, fhs_volume_dir)
+                    # Dereference the store path symlink once, then hardlink the tree
+                    deref_mount_hardlink_tree(store_path, fhs_volume_dir)
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id

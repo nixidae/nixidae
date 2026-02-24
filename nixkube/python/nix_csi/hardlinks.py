@@ -16,7 +16,13 @@ def hardlink_tree(src: Path, dst: Path) -> None:
         os.symlink(os.readlink(src), dst)
     elif src.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.hardlink_to(src)
+        if dst.is_file():
+            # Destination is a pre-created empty placeholder file (e.g. for a bind mount).
+            # Write content in-place so the inode stays the same — the bind mount is
+            # tied to the inode, so unlinking and re-creating would break it.
+            dst.write_bytes(src.read_bytes())
+        else:
+            dst.hardlink_to(src)
     elif src.is_dir():
         dst.mkdir(parents=True, exist_ok=True)
         for entry in os.scandir(src):
@@ -58,6 +64,45 @@ def hardlink_closure(store_paths: set[Path], dst: Path) -> None:
             "Failed to hardlink store paths to volume",
             logs=str(e),
         ) from e
+
+
+def deref_mount_hardlink_tree(src: Path, dst: Path) -> None:
+    """
+    Like hardlink_tree, but dereferences the top-level src symlink once.
+
+    If src is a symlink pointing into /nix/store, resolve it and call
+    hardlink_tree on the resolved path. Symlinks within the tree are
+    preserved as-is (not followed).
+
+    Symlink handling (top-level only):
+    - Symlinks to /nix/store that exist: dereference once, then hardlink_tree
+    - Symlinks to /nix/store that are broken: log warning and copy as-is
+    - Symlinks to outside /nix/store: log warning and copy as-is
+    """
+    src = Path(src)
+
+    if src.is_symlink():
+        target = os.readlink(src)
+        resolved = (src.parent / target).resolve()
+
+        try:
+            resolved.relative_to("/nix/store")
+            in_store = True
+        except ValueError:
+            in_store = False
+
+        if not in_store:
+            logger.warning(f"Symlink points outside /nix/store: {src} -> {target}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, dst)
+        elif not resolved.exists():
+            logger.warning(f"Broken symlink in /nix/store: {src} -> {target}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, dst)
+        else:
+            hardlink_tree(resolved, dst)
+    else:
+        hardlink_tree(src, dst)
 
 
 def deref_hardlink_tree(src: Path, dst: Path) -> None:
