@@ -33,7 +33,7 @@ let
               "nix-nri/pod-passwd" = "file:/etc/passwd=${pkgs.dockerTools.fakeNss}/etc/passwd";
               "nix-nri/pod-nsswitch" = "file:/etc/nsswitch.conf=${pkgs.dockerTools.fakeNss}/etc/nsswitch.conf";
               "nix-nri/pod-binsh" = "file:/bin/sh=${pkgs.dockerTools.binSh}/bin/sh";
-              "nix-nri/pod-usrbinenv" = "file:/usr/bin/env=${pkgs.dockerTools.binSh}/usr/bin/env";
+              "nix-nri/pod-usrbinenv" = "file:/usr/bin/env=${pkgs.dockerTools.usrBinEnv}/usr/bin/env";
             };
             spec = {
               containers = lib.mkNamedList {

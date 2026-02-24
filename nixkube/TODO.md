@@ -14,4 +14,4 @@
 
 ## NRI
 * lower registration timeout to 5s to match default containerd config
-* dump entire OCI hook config into ZMQ request?
+* investigate forcing environment variables

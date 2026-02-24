@@ -71,7 +71,7 @@ CLONE_NEWNS = 0x00020000
 def _mount_worker(
     container_pid: int,
     bundle: str,
-    mounts: list[tuple[str, str]],
+    mounts: list[tuple[Path, Path]],
     result_queue: "multiprocessing.Queue[Exception | None]",
     host_proc_path: str,
 ) -> None:
@@ -86,7 +86,7 @@ def _mount_worker(
       1. Open rootfs fd  — while still in host namespace (O_PATH, no exec)
       2. setns           — enter container's mount namespace
       3. fchdir+chroot   — enter container's rootfs using the pre-opened fd
-      4. For each mount: create the mount point, then call mount(2)
+      4. For each mount: resolve src, create mount point, call mount(2)
 
     All path operations after step 3 resolve inside the container's rootfs.
     """
@@ -123,26 +123,22 @@ def _mount_worker(
 
         # Step 4: Perform each bind mount inside the container's rootfs+namespace.
         for src, dst in mounts:
-            # If the source is a symlink, resolve it once so we mount the real
-            # target rather than the symlink itself.  Paths resolve in the
-            # container rootfs context because we chrooted above.
-            src_path = Path(src)
-            if src_path.is_symlink():
-                candidate = (src_path.parent / os.readlink(src_path)).resolve()
-                if candidate.exists():
-                    src = str(candidate)
+            # Resolve symlinks in the source path.  After chroot, this resolves
+            # through the container's rootfs, following any Nix store symlinks
+            # that point into other store paths visible via the /nix bind mount.
+            src = src.resolve()
 
             # Create the mount point with the right type (dir or file).
             # The kernel requires the mount point to exist and match the source type.
-            if Path(src).is_dir():
-                os.makedirs(dst, exist_ok=True)
+            if src.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
             else:
-                os.makedirs(str(Path(dst).parent), exist_ok=True)
-                Path(dst).touch()
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.touch()
 
             ret = libc.mount(
-                src.encode(),
-                dst.encode(),
+                str(src).encode(),
+                str(dst).encode(),
                 None,
                 MS_BIND | MS_RDONLY,
                 None,
@@ -158,21 +154,21 @@ def _mount_worker(
     except Exception as e:
         # Attach the traceback as a string so it survives pickling across the
         # process boundary back to the asyncio event loop.
-        e.__notes__ = [traceback.format_exc()]  # type: ignore[attr-defined]
+        e.__notes__ = [traceback.format_exc()]
         result_queue.put(e)
 
 
 async def mount_in_container(
     container_pid: int,
     bundle: str,
-    mounts: list[tuple[str, str]],
+    mounts: list[tuple[Path, Path]],
 ) -> None:
     """Bind-mount paths inside a container's mount namespace.
 
     bundle: OCI bundle path (e.g. /run/containerd/.../abc123), used to open
             the container's rootfs fd before entering the mount namespace.
-    mounts: list of (src, dst) pairs; both are resolved inside the container's
-            rootfs after setns+chroot.
+    mounts: list of (src, dst) Path pairs; src is resolved inside the
+            container's rootfs after setns+chroot.
     Raises the worker's original exception (with traceback) on failure.
     """
     ctx = multiprocessing.get_context("spawn")

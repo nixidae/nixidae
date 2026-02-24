@@ -28,7 +28,6 @@ from .constants import (
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
 )
-from .hardlinks import deref_mount_hardlink_tree
 from .nix import build_packages, get_build_args, get_closure_paths
 from .ns_mount import mount_in_container
 from .store import extract_store_paths
@@ -225,37 +224,6 @@ class NriPlugin(api_grpc.PluginBase):
                     volume_path,
                 )
 
-                # Create store mount directories and inject mounts
-                store_base = (
-                    Path(HOST_MOUNT_PATH) / "nix/var/nix-csi/volumes" / container_id
-                )
-                for container_path, (mount_type, _) in store_mounts.items():
-                    # container_path is Path("/etc/ssl") or Path("/lib64")
-                    # Reparent absolute path to volume_path
-                    relative_path = container_path.relative_to("/")
-                    store_volume_dir = volume_path / relative_path
-                    if mount_type == "file":
-                        store_volume_dir.parent.mkdir(parents=True, exist_ok=True)
-                        store_volume_dir.touch()
-                    else:
-                        store_volume_dir.mkdir(parents=True, exist_ok=True)
-                    logger.debug(
-                        f"Created store mount {mount_type} placeholder for {container_path} at {store_volume_dir}"
-                    )
-
-                    # Create mount pointing to host-side store directory
-                    store_host_path = store_base / relative_path
-                    mount = api_pb2.Mount(
-                        destination=str(container_path),
-                        source=str(store_host_path),
-                        type="bind",
-                        options=["bind", "ro"],
-                    )
-                    adjust.mounts.append(mount)
-                    logger.info(
-                        f"Injected store mount {container_path} for container={container_id}"
-                    )
-
                 # Inject primary /nix mount (using host-side path as source)
                 mount = api_pb2.Mount(
                     destination="/nix",
@@ -286,7 +254,7 @@ class NriPlugin(api_grpc.PluginBase):
                     self.nri_wait_bin,
                 )
 
-                # Phase 3: Spawn build task to build extracted store paths and backfill mounts
+                # Spawn build task to build store paths and namespace-mount them into the container
                 if container_id not in self.zmq_server.pending_builds:
                     self.zmq_server.pending_builds.add(container_id)
                     logger.info(
@@ -297,7 +265,7 @@ class NriPlugin(api_grpc.PluginBase):
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
                         self._spawn_build_task(
-                            container_id, store_paths, volume_path, store_mounts
+                            container_id, store_paths, store_mounts
                         )
                     )
                     # Log task completion
@@ -406,13 +374,10 @@ class NriPlugin(api_grpc.PluginBase):
         self,
         container_id: str,
         store_paths: set[Path],
-        volume_path: Path,
         store_mounts: dict[Path, tuple[str, Path]] | None = None,
     ) -> None:
-        """Realize, get closure, and hardlink store paths into the mount directory.
+        """Realize store paths, link into the volume, then namespace-mount store mounts.
 
-        Also backfills store mount directories if store_mounts is provided.
-        Uses deref_mount_hardlink_tree to dereference the mount path symlink in store mounts.
         Periodically pumps progress updates to reset nri-wait timeout.
         """
         logger.info(
@@ -452,31 +417,34 @@ class NriPlugin(api_grpc.PluginBase):
             await prepare_volume(container_id, paths, None)
 
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook starts).
-            # Then bind-mount /nix → /nix2 inside the container namespace as a minimal test.
-            container_info = await self.zmq_server.wait_for_pid(container_id)
-            if container_info is not None:
-                pid, bundle = container_info
-                logger.info(
-                    "[BUILD-TASK] Mounting /nix → /nix2 in container pid=%d bundle=%r",
-                    pid,
-                    bundle,
-                )
-                await mount_in_container(pid, bundle, [("/nix", "/nix2")])
-            else:
-                logger.warning(
-                    "[BUILD-TASK] No PID/bundle received for container=%r, skipping ns mount",
-                    container_id,
-                )
-
-            # Backfill store mounts with dereferenced store paths
+            # Namespace-mount each store path directly into the container after the build completes.
+            # The store paths are accessible inside the container via the /nix bind mount we injected,
+            # so no hardlink backfilling is needed — we mount directly from /nix/store/...
             if store_mounts:
-                for container_path, (_, store_path) in store_mounts.items():
-                    store_volume_dir = volume_path / container_path.relative_to("/")
+                container_info = await self.zmq_server.wait_for_pid(container_id)
+                if container_info is not None:
+                    pid, bundle = container_info
+                    ns_mounts = []
+                    for container_path, (_, store_path) in store_mounts.items():
+                        resolved = store_path.resolve()
+                        if not resolved.exists():
+                            raise ValueError(
+                                f"Invalid store path in annotation: {store_path!r} → {container_path!r} "
+                                f"(resolved: {resolved!r} does not exist)"
+                            )
+                        ns_mounts.append((resolved, container_path))
                     logger.info(
-                        f"[BUILD-TASK] Backfilling store mount {container_path} from {store_path}"
+                        "[BUILD-TASK] Namespace-mounting %d store mount(s) in container pid=%d bundle=%r",
+                        len(ns_mounts),
+                        pid,
+                        bundle,
                     )
-                    # Dereference the store path symlink once, then hardlink the tree
-                    deref_mount_hardlink_tree(store_path, store_volume_dir)
+                    await mount_in_container(pid, bundle, ns_mounts)
+                else:
+                    logger.warning(
+                        "[BUILD-TASK] No PID/bundle received for container=%r, skipping store mounts",
+                        container_id,
+                    )
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id
