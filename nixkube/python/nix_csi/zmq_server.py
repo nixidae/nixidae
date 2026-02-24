@@ -168,7 +168,7 @@ class ZeroMQServer:
                 logger.debug("Received query: %d bytes", len(query_bytes))
                 try:
                     query = json.loads(query_bytes.decode())
-                    container_id = query.get("container_id")
+                    container_id = query.get("id")
                     pid = query.get("pid")
                     bundle = query.get("bundle")
                     if (

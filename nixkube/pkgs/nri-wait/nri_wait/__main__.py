@@ -12,22 +12,23 @@ from . import check_build_status, wait_for_completion
 def main() -> None:
     """Main entry point - orchestrates query and wait phases."""
     # OCI runtime passes container state as JSON on stdin for createRuntime hooks.
-    container_pid: int | None = None
-    container_bundle: str | None = None
+    oci_state: dict = {}
     try:
         oci_state = json.load(sys.stdin)
-        container_pid = oci_state.get("pid")
-        container_bundle = oci_state.get("bundle")
         print(
-            f"[nri-wait] OCI state: id={oci_state.get('id')} pid={container_pid} bundle={container_bundle}",
+            f"[nri-wait] OCI state: id={oci_state.get('id')} pid={oci_state.get('pid')} bundle={oci_state.get('bundle')}",
             file=sys.stderr,
         )
     except Exception as e:
         print(f"[nri-wait] Could not parse OCI state from stdin: {e}", file=sys.stderr)
 
+    container_id = oci_state.get("id")
+    if not container_id:
+        print("[nri-wait] Error: OCI state missing 'id' field", file=sys.stderr)
+        sys.exit(1)
+
     # Read from environment variables (set by OCI hook)
     try:
-        container_id = os.environ["NRI_CONTAINER_ID"]
         query_socket = os.environ["NRI_QUERY_SOCKET"]
         pub_socket = os.environ["NRI_PUB_SOCKET"]
         timeout = int(os.environ.get("NRI_TIMEOUT", "30"))
@@ -46,10 +47,8 @@ def main() -> None:
         if check_build_status(
             context,
             query_socket,
-            container_id,
+            oci_state,
             timeout,
-            container_pid,
-            container_bundle,
         ):
             print(
                 f"[nri-wait] Build already completed for {container_id}",

@@ -274,7 +274,6 @@ class NriPlugin(api_grpc.PluginBase):
                     path="/usr/bin/env",  # This is POSIX
                     args=["chroot", HOST_MOUNT_PATH, self.nri_wait_bin],
                     env=[
-                        f"NRI_CONTAINER_ID={container_id}",
                         "NRI_QUERY_SOCKET=/nix/var/nix-csi/wait-req.sock",
                         "NRI_PUB_SOCKET=/nix/var/nix-csi/wait-pub.sock",
                         "NRI_TIMEOUT=30",

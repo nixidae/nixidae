@@ -81,9 +81,9 @@ Jujutsu can colocate with git repositories:
 | `git show` | `jj show` | Show current commit with full diff |
 | `git show <commit>` | `jj show <commit>` | Show specific commit with diff |
 | `git show --format=fuller` | `jj show --git` | Show commit in git diff format (clearer) |
-| `git diff` | `jj diff` | Changes in @ (defaults to `-r @`) |
-| `git diff <commit>` | `jj diff -r <commit>` | Changes in a specific commit |
-| `git diff HEAD` | `jj diff --from @ --to @` | Working copy vs @ (usually empty) |
+| `git diff` | `jj diff --git` | Changes in @ (defaults to `-r @`) |
+| `git diff <commit>` | `jj diff --git -r <commit>` | Changes in a specific commit |
+| `git diff HEAD` | `jj diff --git --from @ --to @` | Working copy vs @ (usually empty) |
 
 ### Creating and Editing Changes
 
@@ -194,8 +194,8 @@ jj log --summary           # Show commits with list of modified files
 jj show                    # Show current commit (@) with description and full diff
 jj show --git              # Same but in clearer git diff format (recommended)
 jj show <revision>         # Show specific commit with changes
-jj diff -r @               # Show changes in current commit (same as jj diff)
-jj diff -r <revision>      # Show changes in specific revision
+jj diff --git -r @               # Show changes in current commit (same as jj diff)
+jj diff --git -r <revision>      # Show changes in specific revision
 ```
 
 **Important**: `jj diff` by default shows changes IN the current commit @, NOT uncommitted working copy changes (since the working copy IS the commit @ in jujutsu).

@@ -12,10 +12,8 @@ __version__ = "0.1.0"
 def check_build_status(
     context: zmq.Context,
     query_socket_path: str,
-    container_id: str,
+    oci_state: dict,
     timeout: int,
-    container_pid: int | None = None,
-    container_bundle: str | None = None,
 ) -> bool:
     """Query REP socket to check if build is already done.
 
@@ -41,10 +39,8 @@ def check_build_status(
         req.close()
         return False  # Assume not done, will wait on pub socket
 
-    # Send query, including PID and bundle so nix-nri can enter the container rootfs.
-    query = json.dumps(
-        {"container_id": container_id, "pid": container_pid, "bundle": container_bundle}
-    )
+    # Send the full OCI state so nix-nri can extract id, pid, and bundle itself.
+    query = json.dumps(oci_state)
 
     try:
         req.send(query.encode())
