@@ -41,14 +41,13 @@ logger = logging.getLogger("nix-nri")
 _ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
 
 
-def _parse_store_mounts_for_name(
-    pod_annotations, target_name: str
-) -> dict[Path, Path]:
+def _parse_store_mounts_for_name(pod_annotations, target_name: str) -> dict[Path, Path]:
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
     Annotations format: nix-nri/{target-name}{-N}: /path/in/container=/nix/store/.../package
     Where N is optional suffix for multiple mounts.
+    Mount type (file or directory) is auto-detected from the source path.
 
     For wildcard (target_name="pod"):
       nix-nri/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
@@ -72,15 +71,15 @@ def _parse_store_mounts_for_name(
     return mounts
 
 
-def parse_store_mounts(
-    pod_annotations, container_name: str
-) -> dict[Path, Path]:
+def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]:
     """
     Parse store mount annotations from pod metadata.
 
     Supports two annotation patterns:
     1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/nix/store/.../etc/ssl
     2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/nix/store/.../etc/ssl
+
+    Mount type (file or directory) is auto-detected from the source path.
 
     Example annotations:
       nix-nri/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs  (wildcard)
@@ -190,12 +189,6 @@ class NriPlugin(api_grpc.PluginBase):
         # Enable NRI build if we have storepaths to inject and /nix isn't already mounted
         if store_paths and not nix_already_mounted:
             container_id = req.container.id
-            # Pod-side path: /nix is /var/lib/nix-csi/nix mounted into the pod
-            volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
-            # Host-side path: what gets injected into user containers
-            volume_path_host = Path(
-                f"{HOST_MOUNT_PATH}/nix/var/nix-csi/volumes/{container_id}/nix"
-            )
 
             logger.info(
                 "Enabling store injection for container=%r with %d storepaths",
@@ -204,24 +197,7 @@ class NriPlugin(api_grpc.PluginBase):
             )
 
             try:
-                # Create empty directory structure early (mount sources must exist at container creation time)
-                (volume_path / "nix").mkdir(parents=True, exist_ok=True)
-                logger.info(
-                    "Created empty volume directory at %r",
-                    volume_path,
-                )
-
-                # Inject primary /nix mount (using host-side path as source)
-                mount = api_pb2.Mount(
-                    destination="/nix",
-                    source=str(volume_path_host),
-                    type="bind",
-                    options=["bind", "ro"],
-                )
-                adjust.mounts.append(mount)
-                logger.info("Injected mount to /nix for container=%r", container_id)
-
-                #  Inject OCI hook to wait for build completion
+                # Inject OCI hook to wait for build completion and report PID+bundle
                 assert self.nri_wait_bin is not None, (
                     "nri-wait binary not found on PATH, wait hook won't be able to execute"
                 )
@@ -251,9 +227,7 @@ class NriPlugin(api_grpc.PluginBase):
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
-                        self._spawn_build_task(
-                            container_id, store_paths, store_mounts
-                        )
+                        self._spawn_build_task(container_id, store_paths, store_mounts)
                     )
                     # Log task completion
                     task.add_done_callback(
@@ -400,38 +374,37 @@ class NriPlugin(api_grpc.PluginBase):
             )
             # Get all paths
             paths = await get_closure_paths(store_paths)
-            # Link all paths
-            await prepare_volume(container_id, paths, None)
+            # Hardlink closure into volume and get the volume root
+            volume_root = await prepare_volume(container_id, paths, None)
+            nix_tree_path = volume_root / "nix"
 
-            # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook starts).
-            # Namespace-mount each store path directly into the container after the build completes.
-            # The store paths are accessible inside the container via the /nix bind mount we injected,
-            # so no hardlink backfilling is needed — we mount directly from /nix/store/...
+            # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
+            # We need the PID to enter the container's mount namespace and mount /nix + store mounts.
+            container_info = await self.zmq_server.wait_for_pid(container_id)
+            if container_info is None:
+                raise RuntimeError(
+                    f"No PID/bundle received for container={container_id!r}, cannot mount /nix"
+                )
+            pid, bundle = container_info
+
+            ns_mounts = []
             if store_mounts:
-                container_info = await self.zmq_server.wait_for_pid(container_id)
-                if container_info is not None:
-                    pid, bundle = container_info
-                    ns_mounts = []
-                    for container_path, store_path in store_mounts.items():
-                        resolved = store_path.resolve()
-                        if not resolved.exists():
-                            raise ValueError(
-                                f"Invalid store path in annotation: {store_path!r} → {container_path!r} "
-                                f"(resolved: {resolved!r} does not exist)"
-                            )
-                        ns_mounts.append((resolved, container_path))
-                    logger.info(
-                        "[BUILD-TASK] Namespace-mounting %d store mount(s) in container pid=%d bundle=%r",
-                        len(ns_mounts),
-                        pid,
-                        bundle,
-                    )
-                    await mount_in_container(pid, bundle, ns_mounts)
-                else:
-                    logger.warning(
-                        "[BUILD-TASK] No PID/bundle received for container=%r, skipping store mounts",
-                        container_id,
-                    )
+                for container_path, store_path in store_mounts.items():
+                    resolved = store_path.resolve()
+                    if not resolved.exists():
+                        raise ValueError(
+                            f"Invalid store path in annotation: {store_path!r} → {container_path!r} "
+                            f"(resolved: {resolved!r} does not exist)"
+                        )
+                    ns_mounts.append((resolved, container_path))
+
+            logger.info(
+                "[BUILD-TASK] Namespace-mounting /nix + %d store mount(s) in container pid=%d bundle=%r",
+                len(ns_mounts),
+                pid,
+                bundle,
+            )
+            await mount_in_container(pid, bundle, nix_tree_path, ns_mounts)
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id
