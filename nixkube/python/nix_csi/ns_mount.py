@@ -21,6 +21,14 @@ For FHS store mounts we use the traditional mount(2) MS_BIND approach (RW),
 executed inside the container namespace after /nix is attached so that
 /nix/store/... paths are reachable as bind-mount sources.
 
+Note on syscall families: open_tree/move_mount and fsopen/fsconfig/fsmount serve
+distinct purposes and always coexist — open_tree clones an existing mount tree
+(the new-API equivalent of MS_BIND), while fsopen creates a new filesystem instance
+(overlay, tmpfs, etc.). There is no fsopen("bind"). The meaningful future migration
+for store mounts is therefore open_tree+move_mount, not fsopen: grabbing the mount
+fds before setns would remove the ordering constraint where /nix must be mounted
+first so /nix/store/... sources are visible.
+
 ## Execution context
 
 When our createRuntime hook fires the container init process is alive with its
@@ -46,7 +54,8 @@ via picklable arguments.
   4. fchdir+chroot  — pivot into container rootfs
   5. move_mount     — attach /nix fd (RO: then remount read-only)
   6. MS_BIND        — bind each FHS store path (read-write) inside container;
-                      sources resolved after step 5 so /nix/store/... is visible
+                      sources resolved after step 5 so /nix/store/... is visible.
+                      (Future: open_tree+move_mount before setns removes this dependency)
 """
 
 import asyncio
@@ -54,6 +63,8 @@ import ctypes
 import logging
 import multiprocessing
 import os
+import platform
+import re
 import traceback
 from pathlib import Path
 
@@ -98,6 +109,51 @@ _NR_MOVE_MOUNT = 429
 _NR_FSOPEN = 430
 _NR_FSCONFIG = 431
 _NR_FSMOUNT = 432
+
+# Minimum Linux version for open_tree / move_mount (Linux 5.2).
+_MIN_KERNEL_NEW_MOUNT_API = (5, 2)
+
+# Minimum Linux version for overlayfs via fsopen/fsconfig/fsmount (Linux 6.5).
+# Overlayfs migrated from the legacy .mount callback to .init_fs_context in 6.5.
+# Before that, fsopen("overlay") would use a legacy compat shim that accumulates
+# options as strings and calls the old .mount path — a path that does not support
+# creating a detached mount fd, so fsmount() cannot return a usable fd.
+_MIN_KERNEL_OVERLAY_NEW_API = (6, 5)
+
+_cached_kernel_version: tuple[int, int] | None = None
+
+
+def _get_kernel_version() -> tuple[int, int]:
+    global _cached_kernel_version
+    if _cached_kernel_version is not None:
+        return _cached_kernel_version
+    release = platform.release()  # e.g. "6.8.0-45-generic" or "6.5.13"
+    m = re.match(r"(\d+)\.(\d+)", release)
+    if not m:
+        raise RuntimeError(
+            f"Cannot parse kernel version from platform.release()={release!r}"
+        )
+    _cached_kernel_version = (int(m.group(1)), int(m.group(2)))
+    return _cached_kernel_version
+
+
+def check_kernel_support(nix_rw: bool) -> None:
+    """Raise RuntimeError if the running kernel is too old for the required syscalls.
+
+    RO path (open_tree + move_mount): requires Linux 5.2+
+    RW path (fsopen + fsconfig + fsmount + overlay): requires Linux 6.5+
+    """
+    kv = _get_kernel_version()
+    if kv < _MIN_KERNEL_NEW_MOUNT_API:
+        raise RuntimeError(
+            f"Kernel {kv[0]}.{kv[1]} too old: open_tree/move_mount syscalls "
+            "require Linux 5.2+"
+        )
+    if nix_rw and kv < _MIN_KERNEL_OVERLAY_NEW_API:
+        raise RuntimeError(
+            f"Kernel {kv[0]}.{kv[1]} too old: overlayfs via the new mount API "
+            "(fsopen/fsconfig/fsmount) requires Linux 6.5+"
+        )
 
 
 def _open_tree(libc: ctypes.CDLL, path: Path) -> int:
