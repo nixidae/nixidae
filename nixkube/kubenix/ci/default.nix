@@ -26,6 +26,8 @@ let
   };
 in
 {
+  imports = [ ./nri.nix ];
+
   config = {
     nix-csi.loggingConfig = {
       version = 1;
@@ -43,6 +45,11 @@ in
       };
       loggers = {
         nix-csi = {
+          level = "DEBUG";
+          handlers = [ "console" ];
+          propagate = false;
+        };
+        nix-nri = {
           level = "DEBUG";
           handlers = [ "console" ];
           propagate = false;
