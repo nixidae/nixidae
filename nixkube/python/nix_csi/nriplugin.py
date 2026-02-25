@@ -27,6 +27,7 @@ from .constants import (
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
+    COREUTILS_STATIC,
 )
 from .nix import build_packages, get_build_args, get_closure_paths
 from .ns_mount import mount_in_container
@@ -226,9 +227,18 @@ class NriPlugin(api_grpc.PluginBase):
                 assert self.nri_wait_bin is not None, (
                     "nri-wait binary not found on PATH, wait hook won't be able to execute"
                 )
+                coreutils_binary = (
+                    HOST_MOUNT_PATH
+                    / COREUTILS_STATIC.relative_to("/")
+                    / "bin/coreutils"
+                )
                 hook = api_pb2.Hook(
-                    path="/usr/bin/env",  # This is POSIX
-                    args=["chroot", HOST_MOUNT_PATH, self.nri_wait_bin],
+                    path=str(coreutils_binary),
+                    args=[
+                        "chroot", # somehow this works in OCI hooks but not --coreutils-prog=chroot....
+                        str(HOST_MOUNT_PATH),
+                        self.nri_wait_bin,
+                    ],
                     env=[
                         "NRI_QUERY_SOCKET=/nix/var/nix-csi/wait-req.sock",
                         "NRI_PUB_SOCKET=/nix/var/nix-csi/wait-pub.sock",
@@ -237,9 +247,10 @@ class NriPlugin(api_grpc.PluginBase):
                 )
                 adjust.hooks.create_runtime.append(hook)
                 logger.info(
-                    "[CreateContainer] Injected createRuntime hook for container=%r (binary=%r)",
+                    "[CreateContainer] Injected createRuntime hook for container=%r (binary=%r) (chroot binary:%r)",
                     container_id,
                     self.nri_wait_bin,
+                    coreutils_binary,
                 )
 
                 # Spawn build task to build store paths and namespace-mount them into the container

@@ -53,7 +53,10 @@ NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
 
 # NRI host mount path for bind mounts (default: /var/lib/nix-csi)
 # Set via HOST_MOUNT_PATH environment variable from kubenix
-HOST_MOUNT_PATH = os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi")
+HOST_MOUNT_PATH = Path(os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi"))
+
+# Statically linked chroot binary used to execute OCI hooks from HOST_MOUNT_PATH
+COREUTILS_STATIC = Path(os.environ.get("COREUTILS_STATIC", "coreutils"))
 
 # Host /proc mounted into the daemonset for accessing container namespaces.
 # Set via HOST_PROC_PATH environment variable from kubenix.

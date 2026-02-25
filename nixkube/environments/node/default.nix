@@ -26,6 +26,7 @@ let
           env-file.variables = {
             PYTHONUNBUFFERED = "1"; # If something ends up print logging
             NIXPKGS_ALLOW_UNFREE = "1"; # Allow building anything
+            COREUTILS_STATIC = toString pkgs.pkgsStatic.coreutils;
           };
           # Umbrella service for CSI
           services.csi = {
