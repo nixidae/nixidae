@@ -71,6 +71,23 @@ def _parse_store_mounts_for_name(pod_annotations, target_name: str) -> dict[Path
     return mounts
 
 
+def parse_nix_rw(pod_annotations, container_name: str) -> bool:
+    """Return True if this container should get a read-write /nix overlayfs.
+
+    Container-specific annotation takes precedence over the pod-wide default,
+    including an explicit "false" to opt a single container out of pod-wide RW.
+
+    Annotations:
+      nix-nri/pod-rw: "true"              — all containers in the pod get RW /nix
+      nix-nri/{container-name}-rw: "true" — only this container gets RW /nix
+      nix-nri/{container-name}-rw: "false"— this container stays RO even if pod-rw is set
+    """
+    container_key = f"nix-nri/{container_name}-rw"
+    if container_key in pod_annotations:
+        return pod_annotations[container_key] == "true"
+    return pod_annotations.get("nix-nri/pod-rw") == "true"
+
+
 def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]:
     """
     Parse store mount annotations from pod metadata.
@@ -181,6 +198,14 @@ class NriPlugin(api_grpc.PluginBase):
                 f"[CreateContainer] Parsed store mounts for container={req.container.name}: {store_mounts}"
             )
 
+        # Parse RW flag (nix-nri/pod-rw or nix-nri/{container-name}-rw)
+        nix_rw = parse_nix_rw(req.pod.annotations, req.container.name)
+        if nix_rw:
+            logger.info(
+                "[CreateContainer] RW /nix overlayfs requested for container=%r",
+                req.container.name,
+            )
+
         adjust = api_pb2.ContainerAdjustment()
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
@@ -227,7 +252,9 @@ class NriPlugin(api_grpc.PluginBase):
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
-                        self._spawn_build_task(container_id, store_paths, store_mounts)
+                        self._spawn_build_task(
+                            container_id, store_paths, store_mounts, nix_rw
+                        )
                     )
                     # Log task completion
                     task.add_done_callback(
@@ -336,6 +363,7 @@ class NriPlugin(api_grpc.PluginBase):
         container_id: str,
         store_paths: set[Path],
         store_mounts: dict[Path, Path] | None = None,
+        nix_rw: bool = False,
     ) -> None:
         """Realize store paths, link into the volume, then namespace-mount store mounts.
 
@@ -404,7 +432,7 @@ class NriPlugin(api_grpc.PluginBase):
                 pid,
                 bundle,
             )
-            await mount_in_container(pid, bundle, nix_tree_path, ns_mounts)
+            await mount_in_container(pid, bundle, nix_tree_path, ns_mounts, nix_rw)
 
             logger.info(
                 "[BUILD-TASK] Completed all phases for container=%r", container_id

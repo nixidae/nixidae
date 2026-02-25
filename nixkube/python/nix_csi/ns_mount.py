@@ -4,17 +4,22 @@
 
 ## Approach
 
-For /nix we use the newer open_tree(2)/move_mount(2) API (Linux 5.2+):
-  - open_tree captures a detached clone of the source mount tree while still in
-    the daemonset's namespace, giving us an fd that survives setns(2) — the
-    source path no longer needs to be visible inside the container's namespace.
-  - move_mount attaches that fd at /nix inside the container's namespace.
-  - A subsequent mount(2) remount makes /nix read-only.
+/nix is mounted via one of two paths depending on whether the container
+requested read-write access (nix-nri/pod-rw or nix-nri/{container}-rw annotation):
 
-For FHS store mounts we use the traditional mount(2) MS_BIND approach, executed
-inside the container namespace after /nix has been attached (so /nix/store/...
-paths are reachable as bind-mount sources). These mounts are read-write to
-allow a writable overlayfs layer over /nix in the future.
+  RO (default): open_tree(2) clones the prepared nix tree as a detached fd while
+    still in the daemonset namespace; the fd survives setns(2) so the source
+    path never needs to be visible inside the container. move_mount(2) attaches
+    it at /nix, followed by MS_BIND|MS_REMOUNT|MS_RDONLY.
+
+  RW: fsopen/fsconfig/fsmount build a detached overlayfs fd before setns.
+    lowerdir=volume_root/nix (the hardlink tree), upperdir=volume_root/upper,
+    workdir=volume_root/work. These directories are pre-created by prepare_volume.
+    move_mount attaches the result at /nix read-write.
+
+For FHS store mounts we use the traditional mount(2) MS_BIND approach (RW),
+executed inside the container namespace after /nix is attached so that
+/nix/store/... paths are reachable as bind-mount sources.
 
 ## Execution context
 
@@ -33,13 +38,15 @@ via picklable arguments.
 
 ## Worker sequence
 
-  1. open_tree     — clone /nix mount tree fd while in daemonset namespace
-  2. rootfs fd     — O_PATH to bundle/rootfs while in daemonset namespace
-  3. setns         — enter container mount namespace
-  4. fchdir+chroot — pivot into container rootfs
-  5. move_mount    — attach /nix fd; then remount read-only
-  6. MS_BIND       — bind each FHS store path (read-write) inside container;
-                     sources resolved after step 5 so /nix/store/... is visible
+  1. /nix mount fd  — while in daemonset namespace:
+       RO: open_tree clone
+       RW: fsopen("overlay") → fsconfig(lowerdir/upper/work) → CMD_CREATE → fsmount
+  2. rootfs fd      — O_PATH to bundle/rootfs while in daemonset namespace
+  3. setns          — enter container mount namespace
+  4. fchdir+chroot  — pivot into container rootfs
+  5. move_mount     — attach /nix fd (RO: then remount read-only)
+  6. MS_BIND        — bind each FHS store path (read-write) inside container;
+                      sources resolved after step 5 so /nix/store/... is visible
 """
 
 import asyncio
@@ -73,11 +80,24 @@ AT_RECURSIVE = 0x8000  # recurse into sub-mounts within the subtree
 # move_mount(2) flags (Linux 5.2, include/uapi/linux/mount.h)
 MOVE_MOUNT_F_EMPTY_PATH = 0x4  # from_dirfd is the mount fd; from_pathname ignored
 
-# Linux syscall numbers for open_tree and move_mount.
-# Both were introduced in Linux 5.2 via the common syscall table
+# fsopen(2) flags (Linux 5.2, include/uapi/linux/mount.h)
+FSOPEN_CLOEXEC = 0x1
+
+# fsconfig(2) commands (Linux 5.2, include/uapi/linux/mount.h)
+FSCONFIG_SET_STRING = 1  # set a string-valued parameter
+FSCONFIG_CMD_CREATE = 6  # create the superblock (no key/value)
+
+# fsmount(2) flags (Linux 5.2, include/uapi/linux/mount.h)
+FSMOUNT_CLOEXEC = 0x1
+
+# Linux syscall numbers for the new mount API.
+# All introduced in Linux 5.2 via the common syscall table
 # (include/uapi/asm-generic/unistd.h), so x86_64 and aarch64 share them.
 _NR_OPEN_TREE = 428
 _NR_MOVE_MOUNT = 429
+_NR_FSOPEN = 430
+_NR_FSCONFIG = 431
+_NR_FSMOUNT = 432
 
 
 def _open_tree(libc: ctypes.CDLL, path: Path) -> int:
@@ -112,11 +132,81 @@ def _move_mount(libc: ctypes.CDLL, from_fd: int, to_path: Path) -> None:
         )
 
 
+def _make_overlay_fd(
+    libc: ctypes.CDLL, lowerdir: Path, upperdir: Path, workdir: Path
+) -> int:
+    """Build a detached RW overlayfs mount fd via fsopen/fsconfig/fsmount.
+
+    Paths are resolved in the caller's namespace (daemonset), so this must be
+    called before setns. The returned fd can be passed to move_mount after setns.
+    The internal fsopen context fd is always closed before returning.
+    """
+    ctx_fd = int(
+        libc.syscall(
+            ctypes.c_long(_NR_FSOPEN),
+            ctypes.c_char_p(b"overlay"),
+            ctypes.c_uint(FSOPEN_CLOEXEC),
+        )
+    )
+    if ctx_fd < 0:
+        errno = ctypes.get_errno()
+        raise OSError(errno, f"fsopen(overlay): {os.strerror(errno)}")
+
+    try:
+        for key, path in (
+            ("lowerdir", lowerdir),
+            ("upperdir", upperdir),
+            ("workdir", workdir),
+        ):
+            ret = libc.syscall(
+                ctypes.c_long(_NR_FSCONFIG),
+                ctypes.c_int(ctx_fd),
+                ctypes.c_uint(FSCONFIG_SET_STRING),
+                ctypes.c_char_p(key.encode()),
+                ctypes.c_char_p(os.fsencode(path)),
+                ctypes.c_int(0),
+            )
+            if ret < 0:
+                errno = ctypes.get_errno()
+                raise OSError(
+                    errno, f"fsconfig({key!r}={path!r}): {os.strerror(errno)}"
+                )
+
+        ret = libc.syscall(
+            ctypes.c_long(_NR_FSCONFIG),
+            ctypes.c_int(ctx_fd),
+            ctypes.c_uint(FSCONFIG_CMD_CREATE),
+            ctypes.c_char_p(None),
+            ctypes.c_char_p(None),
+            ctypes.c_int(0),
+        )
+        if ret < 0:
+            errno = ctypes.get_errno()
+            raise OSError(errno, f"fsconfig(CMD_CREATE): {os.strerror(errno)}")
+
+        mnt_fd = int(
+            libc.syscall(
+                ctypes.c_long(_NR_FSMOUNT),
+                ctypes.c_int(ctx_fd),
+                ctypes.c_uint(FSMOUNT_CLOEXEC),
+                ctypes.c_uint(0),  # attr_flags: 0 = read-write
+            )
+        )
+        if mnt_fd < 0:
+            errno = ctypes.get_errno()
+            raise OSError(errno, f"fsmount: {os.strerror(errno)}")
+
+        return mnt_fd
+    finally:
+        os.close(ctx_fd)
+
+
 def _mount_worker(
     container_pid: int,
     bundle: str,
     nix_tree_path: Path,
     store_mounts: list[tuple[Path, Path]],
+    nix_rw: bool,
     result_queue: "multiprocessing.Queue[Exception | None]",
     host_proc_path: str,
 ) -> None:
@@ -129,9 +219,17 @@ def _mount_worker(
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         libc.syscall.restype = ctypes.c_long
 
-        # Step 1: Clone the /nix mount tree while the source path is still visible.
-        # The fd references the clone by kernel object — it survives setns.
-        nix_fd = _open_tree(libc, nix_tree_path)
+        # Step 1: Build the /nix mount fd while source paths are still visible.
+        # Both open_tree and fsmount return fds that survive setns.
+        if nix_rw:
+            nix_fd = _make_overlay_fd(
+                libc,
+                lowerdir=nix_tree_path,
+                upperdir=nix_tree_path.parent / "upper",
+                workdir=nix_tree_path.parent / "work",
+            )
+        else:
+            nix_fd = _open_tree(libc, nix_tree_path)
 
         # Step 2: Open the container rootfs while still in the daemonset namespace.
         # /host/proc/{pid}/root reaches the container init's root; pre-pivot_root
@@ -152,17 +250,22 @@ def _mount_worker(
         os.close(rootfs_fd)
         os.chroot(".")
 
-        # Step 5: Attach /nix (read-write clone) then remount it read-only.
-        # MS_BIND | MS_REMOUNT | MS_RDONLY is the documented way to flip the RO bit
-        # on an existing bind-like mount without creating a new mount.
+        # Step 5: Attach /nix.
         nix_dest = Path("/nix")
         nix_dest.mkdir(exist_ok=True)
         _move_mount(libc, nix_fd, nix_dest)
         os.close(nix_fd)
-        ret = libc.mount(None, b"/nix", None, MS_BIND | MS_REMOUNT | MS_RDONLY, None)
-        if ret != 0:
-            errno = ctypes.get_errno()
-            raise OSError(errno, f"remount /nix RO: {os.strerror(errno)}")
+
+        if not nix_rw:
+            # Bind clone is RW by default; flip it to RO.
+            # MS_BIND | MS_REMOUNT | MS_RDONLY is the documented way to change
+            # only the RO flag on an existing bind-like mount.
+            ret = libc.mount(
+                None, b"/nix", None, MS_BIND | MS_REMOUNT | MS_RDONLY, None
+            )
+            if ret != 0:
+                errno = ctypes.get_errno()
+                raise OSError(errno, f"remount /nix RO: {os.strerror(errno)}")
 
         # Step 6: Bind-mount each FHS store path (read-write) into the container.
         # /nix is mounted now, so /nix/store/... source paths are reachable.
@@ -199,11 +302,13 @@ async def mount_in_container(
     bundle: str,
     nix_tree_path: Path,
     store_mounts: list[tuple[Path, Path]],
+    nix_rw: bool = False,
 ) -> None:
     """Mount /nix and FHS store paths inside a container's mount namespace.
 
-    nix_tree_path: prepared /nix tree to mount at /nix (read-only)
+    nix_tree_path: prepared /nix tree (lowerdir for overlayfs or bind source)
     store_mounts:  additional (src, dst) pairs for bind mounts (read-write)
+    nix_rw:        True → RW overlayfs over nix_tree_path; False → RO bind clone
     Raises the worker's original exception (with traceback) on failure.
     """
     ctx = multiprocessing.get_context("spawn")
@@ -216,6 +321,7 @@ async def mount_in_container(
             bundle,
             nix_tree_path,
             store_mounts,
+            nix_rw,
             result_queue,
             HOST_PROC_PATH,
         ),
@@ -232,7 +338,8 @@ async def mount_in_container(
         raise result
 
     logger.info(
-        "[NS-MOUNT] Mounted /nix + %d store mount(s) in container pid=%d",
+        "[NS-MOUNT] Mounted /nix (%s) + %d store mount(s) in container pid=%d",
+        "rw overlayfs" if nix_rw else "ro bind",
         len(store_mounts),
         container_pid,
     )

@@ -28,6 +28,7 @@ let
           # Will go into the default namespace
           kubernetes.resources.nix-csi.Pod.nritest = {
             metadata.annotations = {
+              "nix-nri/pod-rw" = "true";
               "nix-nri/pod-ssl" = "/etc/ssl/certs=${pkgs.dockerTools.caCertificates}/etc/ssl/certs";
               "nix-nri/pod-group" = "/etc/group=${pkgs.dockerTools.fakeNss}/etc/group";
               "nix-nri/pod-passwd" = "/etc/passwd=${pkgs.dockerTools.fakeNss}/etc/passwd";

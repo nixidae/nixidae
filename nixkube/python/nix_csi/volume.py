@@ -43,6 +43,11 @@ async def prepare_volume(
     NIX_STATE_DIR = volume_root / "nix/var/nix"
     NIX_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Pre-create overlayfs upper/work dirs so they're ready if the container
+    # requests a RW /nix mount; harmless when the bind-mount path is used.
+    (volume_root / "upper").mkdir(parents=True, exist_ok=True)
+    (volume_root / "work").mkdir(parents=True, exist_ok=True)
+
     # Verify all packages and their closures before processing
     if VERIFY_STORE_PATHS:
         await verify_store_paths(package_paths)
