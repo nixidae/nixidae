@@ -3,6 +3,8 @@
 Mount /nix into Kubernetes pods using the CSI Ephemeral Volume feature. Volumes
 share lifetime with Pods and are embedded into the Podspec.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Lillecarl/nix-csi)
+
 ## Deploying nix-csi
 
 Stick your pubkeys in ./keys and they will be imported into the module system
