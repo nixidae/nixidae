@@ -5,6 +5,7 @@
   hatchling, # Build system
   coreutils, # ln
   cryptography, # ssh-keygen Python
+  cri-proto-python, # CRI gRPC bindings
   csi-proto-python, # CSI gRPC bindings
   nri-proto-python, # NRI ttRPC bindings
   grpclib-ttrpc, # ttRPC server/client over grpclib primitives
@@ -32,6 +33,7 @@ buildPythonApplication {
   dependencies = [
     coreutils
     cryptography
+    cri-proto-python
     csi-proto-python
     nri-proto-python
     grpclib-ttrpc
