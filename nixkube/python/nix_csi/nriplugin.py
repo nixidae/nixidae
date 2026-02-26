@@ -19,7 +19,7 @@ from grpclib_ttrpc.protocol import (
 )
 from grpclib_ttrpc.server import TtrpcHandler
 from nix_csi.volume import prepare_volume
-from nri import api_grpc, api_pb2
+from nri import nri_grpc, nri_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
 from .constants import (
@@ -40,7 +40,7 @@ logger = logging.getLogger("nix-nri")
 # Subscribe to all valid NRI events.
 # Mirrors the Go formula: ValidEvents = (1 << (Event_LAST - 1)) - 1
 # containerd rejects any events bits outside this mask.
-_ALL_NRI_EVENTS = (1 << (api_pb2.Event.Value("LAST") - 1)) - 1
+_ALL_NRI_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
 
 
 def _parse_store_mounts_for_name(pod_annotations, target_name: str) -> dict[Path, Path]:
@@ -118,7 +118,7 @@ def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]
     return {**wildcard_mounts, **container_mounts}
 
 
-class NriPlugin(api_grpc.PluginBase):
+class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
     def __init__(self, zmq_server: ZeroMQServer):
@@ -129,31 +129,31 @@ class NriPlugin(api_grpc.PluginBase):
         logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
 
     async def Configure(self, stream) -> None:
-        req: api_pb2.ConfigureRequest | None = await stream.recv_message()
+        req: nri_pb2.ConfigureRequest | None = await stream.recv_message()
         logger.info(
             "Configure: runtime=%r version=%r",
             req.runtime_name if req else None,
             req.runtime_version if req else None,
         )
-        await stream.send_message(api_pb2.ConfigureResponse(events=_ALL_NRI_EVENTS))
+        await stream.send_message(nri_pb2.ConfigureResponse(events=_ALL_NRI_EVENTS))
 
     async def Synchronize(self, stream) -> None:
-        req: api_pb2.SynchronizeRequest | None = await stream.recv_message()
+        req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
             "Synchronize: %d pods, %d containers",
             len(req.pods),
             len(req.containers),
         )
-        await stream.send_message(api_pb2.SynchronizeResponse())
+        await stream.send_message(nri_pb2.SynchronizeResponse())
 
     async def Shutdown(self, stream) -> None:
         await stream.recv_message()
         logger.info("Shutdown")
-        await stream.send_message(api_pb2.Empty())
+        await stream.send_message(nri_pb2.Empty())
 
     async def CreateContainer(self, stream) -> None:
-        req: api_pb2.CreateContainerRequest | None = await stream.recv_message()
+        req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
             "CreateContainer: pod=%r container=%r",
@@ -208,7 +208,7 @@ class NriPlugin(api_grpc.PluginBase):
                 req.container.name,
             )
 
-        adjust = api_pb2.ContainerAdjustment()
+        adjust = nri_pb2.ContainerAdjustment()
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
         nix_already_mounted = any(m.destination == "/nix" for m in req.container.mounts)
@@ -233,7 +233,7 @@ class NriPlugin(api_grpc.PluginBase):
                     / COREUTILS_STATIC.relative_to("/")
                     / "bin/coreutils"
                 )
-                hook = api_pb2.Hook(
+                hook = nri_pb2.Hook(
                     path=str(coreutils_binary),
                     args=[
                         "chroot",  # somehow this works in OCI hooks but not --coreutils-prog=chroot....
@@ -292,20 +292,20 @@ class NriPlugin(api_grpc.PluginBase):
                     e,
                 )
 
-        resp = api_pb2.CreateContainerResponse(adjust=adjust)
+        resp = nri_pb2.CreateContainerResponse(adjust=adjust)
         await stream.send_message(resp)
 
     async def UpdateContainer(self, stream) -> None:
-        req: api_pb2.UpdateContainerRequest | None = await stream.recv_message()
+        req: nri_pb2.UpdateContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
             "UpdateContainer: container=%r",
             req.container.name,
         )
-        await stream.send_message(api_pb2.UpdateContainerResponse())
+        await stream.send_message(nri_pb2.UpdateContainerResponse())
 
     async def StopContainer(self, stream) -> None:
-        req: api_pb2.StopContainerRequest | None = await stream.recv_message()
+        req: nri_pb2.StopContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
             "StopContainer: container=%r",
@@ -328,36 +328,36 @@ class NriPlugin(api_grpc.PluginBase):
                     e,
                 )
 
-        await stream.send_message(api_pb2.StopContainerResponse())
+        await stream.send_message(nri_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
-        req: api_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
+        req: nri_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
             "UpdatePodSandbox: pod=%r",
             req.pod.name,
         )
-        await stream.send_message(api_pb2.UpdatePodSandboxResponse())
+        await stream.send_message(nri_pb2.UpdatePodSandboxResponse())
 
     async def StateChange(self, stream) -> None:
-        event: api_pb2.StateChangeEvent | None = await stream.recv_message()
+        event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
         logger.info(
             "StateChange: event=%r",
             event.event,
         )
-        await stream.send_message(api_pb2.Empty())
+        await stream.send_message(nri_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
         req: (
-            api_pb2.ValidateContainerAdjustmentRequest | None
+            nri_pb2.ValidateContainerAdjustmentRequest | None
         ) = await stream.recv_message()
         assert req is not None
         logger.info(
             "ValidateContainerAdjustment: container=%r",
             req.container.name,
         )
-        await stream.send_message(api_pb2.ValidateContainerAdjustmentResponse())
+        await stream.send_message(nri_pb2.ValidateContainerAdjustmentResponse())
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""
@@ -503,11 +503,11 @@ async def _register_plugin(
         ttrpc payload: ttrpc.Request{service, method, payload, timeout_nano}
             where payload = RegisterPluginRequest{plugin_name, plugin_idx}
     """
-    rpr = api_pb2.RegisterPluginRequest(
+    rpr = nri_pb2.RegisterPluginRequest(
         plugin_name=NRI_PLUGIN_NAME,
         plugin_idx=NRI_PLUGIN_IDX,
     )
-    inner_payload = codec.encode(rpr, api_pb2.RegisterPluginRequest)
+    inner_payload = codec.encode(rpr, nri_pb2.RegisterPluginRequest)
 
     req = Request(
         service="nri.pkg.api.v1alpha1.Runtime",

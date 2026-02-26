@@ -40,18 +40,22 @@ buildPythonPackage {
 
   format = "pyproject";
   preBuild = ''
+    mkdir -p $TMPDIR
+    cp ${nri}/pkg/api/api.proto $TMPDIR/nri.proto
+
     mkdir -p src/nri
     touch src/nri/py.typed
     touch src/nri/__init__.py
+
     protoc \
-      --proto_path="${nri}/pkg/api" \
+      --proto_path="$TMPDIR" \
       --python_out="src/nri" \
       --grpclib_python_out="src/nri" \
       --mypy_out="src/nri" \
-      api.proto
+      nri.proto
 
-    substituteInPlace src/nri/api_grpc.py \
-      --replace-fail "import api_pb2" "from . import api_pb2"
+    substituteInPlace src/nri/nri_grpc.py \
+      --replace-fail "import nri_pb2" "from . import nri_pb2"
   '';
 
   meta = with lib; {
