@@ -16,6 +16,7 @@ MOUNT_ALREADY_MOUNTED = 32
 NIX_ROOT = Path("/")
 CSI_ROOT = NIX_ROOT / "nix/var/nix-csi"
 CSI_VOLUMES = CSI_ROOT / "volumes"
+NRI_CONTAINERS = CSI_ROOT / "containers"
 CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
 # Configurable via kubenix option: rsyncConcurrency (default: 1)

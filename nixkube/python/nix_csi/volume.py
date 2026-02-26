@@ -5,13 +5,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .constants import (
-    CSI_GCROOTS,
-    CSI_VOLUMES,
-    MOUNT_ALREADY_MOUNTED,
-    NIX_BUILD_TIMEOUT,
-    VERIFY_STORE_PATHS,
-)
+from .constants import MOUNT_ALREADY_MOUNTED, NIX_BUILD_TIMEOUT, VERIFY_STORE_PATHS
 from .errors import FailedVolumeCleanupError, MountError, UnmountError
 from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import (
@@ -27,17 +21,14 @@ logger = logging.getLogger("nix-csi")
 
 
 async def prepare_volume(
-    volume_id: str,
+    volume_path: Path,
     package_paths: set[Path],
     primary_package: Path | None,
-) -> Path:
+) -> None:
     """
     Prepare a volume root with hardlinked store paths and initialized database.
-
-    Returns the volume_root path.
     """
-    (CSI_GCROOTS / volume_id).mkdir(parents=True, exist_ok=True)
-    volume_root = CSI_VOLUMES / volume_id
+    volume_root = volume_path
 
     # Capitalized to emphasise they're Nix environment variables
     NIX_STATE_DIR = volume_root / "nix/var/nix"
@@ -87,8 +78,6 @@ async def prepare_volume(
         logger.debug(
             f"Dereferenced hardlink tree in {time.perf_counter() - deref_start:.2f}s"
         )
-
-    return volume_root
 
 
 async def mount_volume(

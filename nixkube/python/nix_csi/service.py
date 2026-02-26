@@ -174,8 +174,8 @@ class NodeServicer(csi_grpc.NodeBase):
                 )
 
             try:
-                volume_root = await prepare_volume(
-                    request.volume_id,
+                await prepare_volume(
+                    volume_root,
                     package_paths,
                     primary_package,
                 )

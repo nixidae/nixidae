@@ -23,11 +23,12 @@ from nri import api_grpc, api_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
 from .constants import (
+    COREUTILS_STATIC,
     HOST_MOUNT_PATH,
+    NRI_CONTAINERS,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
-    COREUTILS_STATIC,
 )
 from .nix import build_packages, get_build_args, get_closure_paths
 from .ns_mount import mount_in_container
@@ -235,7 +236,7 @@ class NriPlugin(api_grpc.PluginBase):
                 hook = api_pb2.Hook(
                     path=str(coreutils_binary),
                     args=[
-                        "chroot", # somehow this works in OCI hooks but not --coreutils-prog=chroot....
+                        "chroot",  # somehow this works in OCI hooks but not --coreutils-prog=chroot....
                         str(HOST_MOUNT_PATH),
                         self.nri_wait_bin,
                     ],
@@ -314,7 +315,7 @@ class NriPlugin(api_grpc.PluginBase):
         # Phase 1: Cleanup volume directory if it was created
         container_id = req.container.id
         # Use pod-side path for cleanup (same as creation)
-        volume_path = Path(f"/nix/var/nix-csi/volumes/{container_id}")
+        volume_path = NRI_CONTAINERS / container_id
 
         if volume_path.exists():
             try:
@@ -408,14 +409,13 @@ class NriPlugin(api_grpc.PluginBase):
             extra_args = await get_build_args()
 
             # Realize storepaths
-            await build_packages(
-                store_paths, Path("/nix/var/nix-csi/volumes") / container_id, extra_args
-            )
+            volume_path = NRI_CONTAINERS / container_id
+            await build_packages(store_paths, volume_path, extra_args)
             # Get all paths
             paths = await get_closure_paths(store_paths)
-            # Hardlink closure into volume and get the volume root
-            volume_root = await prepare_volume(container_id, paths, None)
-            nix_tree_path = volume_root / "nix"
+            # Hardlink closure into volume
+            await prepare_volume(volume_path, paths, None)
+            nix_tree_path = volume_path / "nix"
 
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
             # We need the PID to enter the container's mount namespace and mount /nix + store mounts.
