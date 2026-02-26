@@ -49,6 +49,7 @@ self: pkgs: {
     inherit (self) ttrpc-proto-python;
   };
   csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { };
+  cri-proto-python = pkgs.python3Packages.callPackage ./cri-proto-python { };
   nri-proto-python = pkgs.python3Packages.callPackage ./nri-proto-python { };
   ttrpc-proto-python = pkgs.python3Packages.callPackage ./ttrpc-proto-python { };
   python-jsonpath = pkgs.python3Packages.callPackage ./python-jsonpath.nix { };
