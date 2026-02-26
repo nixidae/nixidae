@@ -28,16 +28,18 @@ async def get_cri_socket() -> Path:
         raise RuntimeError("KUBE_NODE_NAME environment variable not set")
 
     try:
-        api = kr8s.asyncio.Api()
+        api = await kr8s.asyncio.api()
         async with api.call_api(
             "GET",
-            url=f"/api/v1/nodes/{node_name}/proxy/configz",
+            url=f"nodes/{node_name}/proxy/configz",
         ) as response:
             config = response.json()
             endpoint = config.get("kubeletconfig", {}).get("containerRuntimeEndpoint")
 
             if not endpoint:
-                raise RuntimeError("containerRuntimeEndpoint not found in kubelet configz")
+                raise RuntimeError(
+                    "containerRuntimeEndpoint not found in kubelet configz"
+                )
 
             # Strip unix:// prefix if present
             endpoint = endpoint.removeprefix("unix://")

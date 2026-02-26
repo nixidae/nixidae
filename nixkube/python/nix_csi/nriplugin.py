@@ -30,6 +30,7 @@ from .constants import (
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
 )
+from .cri import get_cri_socket, list_container_ids
 from .nix import build_packages, get_build_args, get_closure_paths
 from .ns_mount import mount_in_container
 from .store import extract_store_paths
@@ -121,9 +122,10 @@ def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]
 class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
-    def __init__(self, zmq_server: ZeroMQServer):
+    def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
         super().__init__()
         self.zmq_server = zmq_server
+        self.cri_socket = cri_socket
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
         logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
@@ -312,11 +314,10 @@ class NriPlugin(nri_grpc.PluginBase):
             req.container.name,
         )
 
-        # Phase 1: Cleanup volume directory if it was created
         container_id = req.container.id
-        # Use pod-side path for cleanup (same as creation)
-        volume_path = NRI_CONTAINERS / container_id
 
+        # Phase 1: Cleanup volume directory for this container
+        volume_path = NRI_CONTAINERS / container_id
         if volume_path.exists():
             try:
                 shutil.rmtree(volume_path)
@@ -327,6 +328,44 @@ class NriPlugin(nri_grpc.PluginBase):
                     volume_path,
                     e,
                 )
+
+        # Phase 2: Garbage collect stale volumes from containers no longer in CRI
+        try:
+            # Get list of active containers from CRI, excluding the one stopping
+            # Access socket through host mount since we're in a container
+            socket_path = Path("/host") / self.cri_socket.relative_to("/")
+            active_ids = await list_container_ids(socket_path)
+            active_ids.discard(container_id)  # Remove the stopping container
+            logger.debug(
+                "GC: Active containers from CRI: %d (excluding stopping container)",
+                len(active_ids),
+            )
+
+            # Clean up volumes for containers not in active list
+            if NRI_CONTAINERS.exists():
+                stale_count = 0
+                for volume_dir in NRI_CONTAINERS.iterdir():
+                    if volume_dir.is_dir() and volume_dir.name not in active_ids:
+                        try:
+                            shutil.rmtree(volume_dir)
+                            stale_count += 1
+                            logger.debug(
+                                "GC: Removed stale volume for container=%r",
+                                volume_dir.name,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "GC: Failed to remove stale volume at %r: %s",
+                                volume_dir,
+                                e,
+                            )
+                if stale_count > 0:
+                    logger.info("GC: Cleaned up %d stale NRI volumes", stale_count)
+        except Exception as e:
+            logger.warning(
+                "GC: Failed to perform garbage collection: %s",
+                e,
+            )
 
         await stream.send_message(nri_pb2.StopContainerResponse())
 
@@ -582,8 +621,11 @@ async def _nri_run() -> None:
     zmq_server = ZeroMQServer()
     await zmq_server.initialize()
 
+    # Discover CRI socket for garbage collection
+    cri_socket = await get_cri_socket()
+
     mapping: dict = {}
-    plugin = NriPlugin(zmq_server)
+    plugin = NriPlugin(zmq_server, cri_socket)
     for h in [plugin]:
         mapping.update(h.__mapping__())
 

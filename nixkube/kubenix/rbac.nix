@@ -22,7 +22,7 @@ in
               "list"
             ];
           }
-          # Query kubelet configz via API server proxy for CRI socket discovery
+          # Kubelet configz via API server proxy for CRI socket discovery
           {
             apiGroups = [ "" ];
             resources = [ "nodes/proxy" ];
