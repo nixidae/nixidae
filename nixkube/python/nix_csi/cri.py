@@ -4,7 +4,9 @@ import logging
 import os
 from pathlib import Path
 
+import grpclib.client
 import kr8s
+from cri import cri_grpc, cri_pb2
 
 logger = logging.getLogger("nix-csi")
 
@@ -37,6 +39,9 @@ async def get_cri_socket() -> Path:
             if not endpoint:
                 raise RuntimeError("containerRuntimeEndpoint not found in kubelet configz")
 
+            # Strip unix:// prefix if present
+            endpoint = endpoint.removeprefix("unix://")
+
             logger.info("Discovered CRI socket: %s", endpoint)
             return Path(endpoint)
 
@@ -45,4 +50,42 @@ async def get_cri_socket() -> Path:
     except Exception as e:
         raise RuntimeError(
             f"Failed to query kubelet configz for node {node_name}: {e}"
+        ) from e
+
+
+async def list_container_ids(cri_socket: Path) -> set[str]:
+    """
+    List all container IDs from the container runtime via CRI API.
+
+    Connects to the CRI socket and calls RuntimeService.ListContainers()
+    to get all containers (running or stopped).
+
+    Args:
+        cri_socket: Path to the CRI socket (e.g., Path("/var/run/containerd/containerd.sock"))
+
+    Returns:
+        Set of container IDs as strings.
+
+    Raises:
+        RuntimeError if unable to connect to CRI or query containers.
+    """
+    try:
+        # Create gRPC channel to CRI socket
+        channel = grpclib.client.Channel(path=str(cri_socket))
+        stub = cri_grpc.RuntimeServiceStub(channel)
+
+        # Call ListContainers to get all containers
+        request = cri_pb2.ListContainersRequest()
+        response = await stub.ListContainers(request)
+
+        # Extract container IDs from response
+        container_ids = {container.id for container in response.containers}
+        logger.debug("Discovered %d containers via CRI", len(container_ids))
+
+        channel.close()
+        return container_ids
+
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to list containers from CRI socket {cri_socket}: {e}"
         ) from e
