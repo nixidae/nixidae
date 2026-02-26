@@ -13,6 +13,8 @@ license = { text = "MIT" }
 dependencies = [
   "kr8s",
   "csi",
+  "nri",
+  "cri",
   "pyzmq",
   "cachetools",
 ]

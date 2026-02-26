@@ -18,6 +18,7 @@ self: pkgs: {
   nix-csi = pkgs.python3Packages.callPackage ../python {
     inherit (self)
       csi-proto-python
+      cri-proto-python
       nri-proto-python
       grpclib-ttrpc
       kr8s

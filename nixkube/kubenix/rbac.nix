@@ -22,6 +22,12 @@ in
               "list"
             ];
           }
+          # Query kubelet configz via API server proxy for CRI socket discovery
+          {
+            apiGroups = [ "" ];
+            resources = [ "nodes/proxy" ];
+            verbs = [ "get" ];
+          }
           # Report events using events.k8s.io/v1 API across all namespaces
           {
             apiGroups = [ "events.k8s.io" ];
