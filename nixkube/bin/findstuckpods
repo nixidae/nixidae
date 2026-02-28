@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Find pods stuck in terminating state (have deletionTimestamp set)
+
+kubectl get pods --all-namespaces -o json | jq -r '
+  .items[]
+  | select(.metadata.deletionTimestamp != null)
+  | [
+      .metadata.namespace,
+      .metadata.name,
+      .status.phase,
+      (.metadata.deletionTimestamp | fromdateiso8601 | now - . | floor),
+      .spec.nodeName // "unknown"
+    ]
+  | @tsv
+' | awk '{printf "%-30s %-40s %-15s %8ds  %s\n", $1, $2, $3, $4, $5}' | {
+  echo "NAMESPACE                      POD NAME                                 STATUS          STUCK_TIME NODE"
+  echo "---------------------------------------------------------------------------------------------------"
+  cat
+}

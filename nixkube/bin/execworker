@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Execute a command on a Kubernetes worker node
+
+ssh "hetzkube@$(getworkerip)" -- "$@"

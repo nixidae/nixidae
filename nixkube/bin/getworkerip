@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Get the internal IP address of a Kubernetes worker node
+# Workers are nodes without the control-plane label
+
+kubectl get nodes -ojson | jq -r '
+  .items[]
+  | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null)
+  | .status.addresses[]
+  | select(.type == "ExternalIP")
+  | .address
+' | head -1

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Comprehensive pod debugging: status, events, logs, volumes
+
+POD_NAME="${1:?Pod name required}"
+NAMESPACE="${2:-nix-csi}"
+
+echo "=== POD BASIC INFO ==="
+kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o wide
+
+echo ""
+echo "=== POD STATUS ==="
+kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o json | jq '{
+  phase: .status.phase,
+  conditions: .status.conditions,
+  containerStatuses: .status.containerStatuses,
+  deletionTimestamp: .metadata.deletionTimestamp,
+  deletionGracePeriodSeconds: .metadata.deletionGracePeriodSeconds
+}'
+
+echo ""
+echo "=== POD EVENTS ==="
+kubectl describe pod "$POD_NAME" -n "$NAMESPACE" | grep -A 100 "^Events:"
+
+echo ""
+echo "=== VOLUMES ==="
+kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o json | jq '.spec.volumes // empty'
+
+echo ""
+echo "=== CONTAINER LOGS ==="
+for container in $(kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o json | jq -r '.spec.containers[].name'); do
+  echo "--- $container (last 50 lines) ---"
+  kubectl logs "$POD_NAME" -n "$NAMESPACE" -c "$container" --tail=50 2>&1 || echo "(no logs)"
+  echo ""
+done
+
+echo ""
+echo "=== CSI VOLUMES ==="
+kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o json | jq '.spec.volumes[] | select(.csi != null)' | head -50
+
+echo ""
+echo "=== POD UID (for worker debugging) ==="
+kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o json | jq -r '.metadata.uid'
