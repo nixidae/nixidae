@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Always use Jujutsu (jj) instead of Git** for all version control operations in this repository.
 
-**Format code before committing**: Run `direnv exec . treefmt` before any `jj describe` or `jj commit` to ensure all code (Nix, Python, YAML, etc.) is properly formatted according to project standards.
+**Format code before committing**: Run `just fmt` before any `jj describe` or `jj commit` to ensure all code (Nix, Python, YAML, etc.) is properly formatted according to project standards.
 
 ## Project Overview
 
@@ -57,59 +57,36 @@ All three services are packaged together in `python/` with a single `pyproject.t
 
 ## Common Commands
 
-### Building
+Use the `justfile` for common development tasks. Run `just --list` to see all available recipes.
 
-Build and verify all environments for both architectures:
+### Code Quality
+
+**Format code before committing:**
 ```bash
-nix build --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push --no-link
+just fmt
 ```
 
-Push to cachix and container registry (builds all architectures):
+**Check formatting without changes:**
 ```bash
-nix run --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push
-```
-**Note**: This command is whitelisted for Claude Code to run on demand for testing builds and pushes.
-
-Build specific outputs:
-```bash
-nix build --file . kubenixApply.manifestJSONFile  # Kubernetes manifests
-nix build --file . repoenv                         # Development environment
+just check-fmt
 ```
 
-### Deployment
-
-Deploy to Kubernetes cluster (reads SSH keys from `./keys/*.pub`):
+**Run Python type checker:**
 ```bash
-nix run --file . kubenixEval.deploymentScript -- --yes --prune
+just lint
 ```
-
-Generate YAML manifests:
-```bash
-nix build --file . easykubenix.manifestYAMLFile
-```
-
-### Development
-
-Enter development shell with all Python dependencies and tools:
-```bash
-nix-shell  # or use direnv
-```
-
-The development environment (`repoenv`) includes:
-- Python with nix-csi, csi-proto-python, kr8s
-- xonsh shell
-- ruff, pyright (linting/type checking)
-- kluctl, stern, kubectx (Kubernetes tools)
-- buildah, skopeo, regctl (container tools)
 
 ### Testing
 
-The integration test:
-2. Checks `/nix/store` is accessible in test pods
-3. Validates CSI driver registration
-4. Confirms cache and node pods are operational
+**Run Python tests:**
+```bash
+just test
+```
 
-Integration tests run automatically in CI via `.github/workflows/integration-test.yaml`:
+The integration test (runs in CI via `.github/workflows/integration-test.yaml`):
+- Checks `/nix/store` is accessible in test pods
+- Validates CSI driver registration
+- Confirms cache and node pods are operational
 
 **Build job** (runs once, pushes to cachix and container registry):
 1. Builds and pushes Lix image
@@ -119,6 +96,47 @@ Integration tests run automatically in CI via `.github/workflows/integration-tes
 **Test jobs** (can run in parallel, pull from caches):
 - `test-kind`: Tests deployment on Kind cluster using `kubenixApply` with `local="true"`
 - Future test jobs can be added for different deployment scenarios (e.g., different K8s versions, configurations)
+
+### Building
+
+**Build Kubernetes manifests:**
+```bash
+just build-manifests
+```
+
+**Build development environment:**
+```bash
+just build-dev
+```
+
+**Build all outputs for both architectures (requires builders):**
+```bash
+just build-all
+```
+
+### Deployment
+
+**Deploy to Kubernetes cluster** (reads SSH keys from `./keys/*.pub`):
+```bash
+just deploy
+```
+
+**Push to cachix and container registry:**
+```bash
+just push
+```
+
+### Development Environment
+
+The development environment includes:
+- Python with nix-csi, csi-proto-python, kr8s
+- xonsh shell
+- ruff, pyright (linting/type checking)
+- kluctl, stern, kubectx (Kubernetes tools)
+- buildah, skopeo, regctl (container tools)
+- just (for running recipes)
+
+Enter the environment with `direnv allow && direnv reload` (or open a new terminal).
 
 ### Python Development
 

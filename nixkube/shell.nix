@@ -23,6 +23,7 @@ pkgs.mkShell {
     xonsh
     pkgs.cachix
     pkgs.cargo
+    pkgs.just
     pkgs.kluctl
     pkgs.kubectx
     pkgs.pyright
