@@ -317,21 +317,9 @@ async def serve():
     Path(sock_path).unlink(missing_ok=True)
 
     identity_servicer = IdentityServicer()
-    # Fetch CSI pod and system once at startup, cache for entire service lifetime
+    # Fetch CSI pod once at startup, cache for entire service lifetime
     csi_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
-    try:
-        system = await get_current_system()
-    except CSIError as e:
-        # Report event for CSI pod system detection failure
-        await report_event(
-            csi_pod,
-            reason=e.reason,
-            note=e.message,
-            logs=e.logs,
-            event_type="Warning",
-        )
-        raise
-    node_servicer = NodeServicer(system, csi_pod)
+    node_servicer = NodeServicer(get_current_system(), csi_pod)
 
     server = Server(
         [

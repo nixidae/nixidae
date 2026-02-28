@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MIT
 
 import logging
+import subprocess
 import tempfile
+from functools import cache
 from pathlib import Path
 
 from kr8s.asyncio.objects import Pod
@@ -26,18 +28,30 @@ from .subprocessing import try_captured, try_console
 logger = logging.getLogger("nix-csi")
 
 
-async def get_current_system() -> str:
-    """Get system string evaluated by nix."""
+@cache
+def get_current_system() -> str:
+    """Get system string evaluated by nix (cached after first call)."""
     try:
-        return (
-            await try_captured(
-                "nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"
-            )
-        ).stdout
-    except SubprocessError as e:
+        result = subprocess.run(
+            [
+                "nix",
+                "eval",
+                "--raw",
+                "--impure",
+                "--store",
+                "dummy://",
+                "--expr",
+                "builtins.currentSystem",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
         raise SystemDetectionError(
             "Failed to detect system type",
-            logs=e.combined,
+            logs=str(e),
         ) from e
 
 

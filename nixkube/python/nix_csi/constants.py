@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 
 import os
-import subprocess
 from asyncio import Semaphore
 from importlib import metadata
 from pathlib import Path

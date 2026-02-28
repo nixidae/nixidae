@@ -167,11 +167,10 @@ def parse_store_mounts(
 class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
-    def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path, system: str):
+    def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
         super().__init__()
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
-        self.system = system
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
         logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
@@ -246,7 +245,7 @@ class NriPlugin(nri_grpc.PluginBase):
 
         # Parse store mount annotations (nix-nri/[container-name/]path), filtered by system
         store_mounts = parse_store_mounts(
-            req.pod.annotations, req.container.name, self.system
+            req.pod.annotations, req.container.name, get_current_system()
         )
         if store_mounts:
             logger.info(
@@ -254,7 +253,9 @@ class NriPlugin(nri_grpc.PluginBase):
             )
 
         # Parse RW flag (nix-nri/pod-rw or nix-nri/{container-name}-rw), filtered by system
-        nix_rw = parse_nix_rw(req.pod.annotations, req.container.name, self.system)
+        nix_rw = parse_nix_rw(
+            req.pod.annotations, req.container.name, get_current_system()
+        )
         if nix_rw:
             logger.info(
                 "[CreateContainer] RW /nix overlayfs requested for container=%r",
@@ -675,11 +676,8 @@ async def _nri_run() -> None:
     # Discover CRI socket for garbage collection
     cri_socket = await get_cri_socket()
 
-    # Detect current system for system-specific annotation filtering
-    system = await get_current_system()
-
     mapping: dict = {}
-    plugin = NriPlugin(zmq_server, cri_socket, system)
+    plugin = NriPlugin(zmq_server, cri_socket)
     for h in [plugin]:
         mapping.update(h.__mapping__())
 
