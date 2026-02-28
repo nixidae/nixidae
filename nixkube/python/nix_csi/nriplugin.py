@@ -31,7 +31,7 @@ from .constants import (
     NRI_RUNTIME_SOCKET,
 )
 from .cri import get_cri_socket, list_container_ids
-from .nix import build_packages, get_build_args, get_closure_paths
+from .nix import build_packages, get_build_args, get_closure_paths, get_current_system
 from .ns_mount import mount_in_container
 from .store import extract_store_paths
 from .zmq_server import ZeroMQServer
@@ -44,76 +44,121 @@ logger = logging.getLogger("nix-nri")
 _ALL_NRI_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
 
 
-def _parse_store_mounts_for_name(pod_annotations, target_name: str) -> dict[Path, Path]:
+def _parse_store_mounts_for_name(
+    pod_annotations, target_name: str, system: str
+) -> dict[Path, Path]:
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
-    Annotations format: nix-nri/{target-name}{-N}: /path/in/container=/nix/store/.../package
-    Where N is optional suffix for multiple mounts.
-    Mount type (file or directory) is auto-detected from the source path.
+    Annotations format: nix-nri/{target-name}(-{suffix})?(@{system})?: /path/in/container=/source
+    - suffix: optional, allows multiple mounts to same destination (ignored by parser)
+    - system: optional, filters annotation to specific system (e.g., x86_64-linux, aarch64-linux)
+    - source: auto-detected as store path, flake reference, or nix expression
 
     For wildcard (target_name="pod"):
       nix-nri/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
-      nix-nri/pod-2: /etc/passwd=/nix/store/fakeNss-1.0/etc/passwd
+      nix-nri/pod-2@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
 
     For container (target_name="myapp"):
-      nix-nri/myapp-1: /etc/ssl=/nix/store/cacert-2.0/etc/ssl
+      nix-nri/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64/etc/ssl
 
     Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
+    Annotations without @system apply to all systems.
     """
     mounts: dict[Path, Path] = {}
     prefix = f"nix-nri/{target_name}"
 
     for key, value in pod_annotations.items():
-        # Match exact key or key with any suffix (nix-nri/{target-name} or nix-nri/{target-name}-{suffix})
-        if key == prefix or key.startswith(prefix + "-"):
+        # Match annotations starting with prefix, optionally followed by -suffix and/or @system
+        if (
+            key == prefix
+            or key.startswith(prefix + "-")
+            or key.startswith(prefix + "@")
+        ):
+            # Parse system suffix if present
+            key_system = None
+            if "@" in key:
+                _, system_part = key.rsplit("@", 1)
+                key_system = system_part
+
+            # Skip if system filter is specified and doesn't match
+            if key_system is not None and key_system != system:
+                continue
+
             if "=" in value:
-                container_path_str, store_path_str = value.split("=", 1)
-                mounts[Path(container_path_str)] = Path(store_path_str)
+                container_path_str, source_str = value.split("=", 1)
+                mounts[Path(container_path_str)] = Path(source_str)
 
     return mounts
 
 
-def parse_nix_rw(pod_annotations, container_name: str) -> bool:
+def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
     """Return True if this container should get a read-write /nix overlayfs.
 
     Container-specific annotation takes precedence over the pod-wide default,
     including an explicit "false" to opt a single container out of pod-wide RW.
 
+    Supports system-specific variants with @{system} suffix.
+
     Annotations:
-      nix-nri/pod-rw: "true"              — all containers in the pod get RW /nix
-      nix-nri/{container-name}-rw: "true" — only this container gets RW /nix
-      nix-nri/{container-name}-rw: "false"— this container stays RO even if pod-rw is set
+      nix-nri/pod-rw: "true"                 — all containers get RW /nix
+      nix-nri/pod-rw@x86_64-linux: "true"   — all containers get RW /nix on x86_64
+      nix-nri/{container-name}-rw: "true"   — only this container gets RW /nix
+      nix-nri/{container-name}-rw@aarch64-linux: "false" — this container stays RO on aarch64
     """
+
+    # Helper to check annotation with optional system suffix
+    def check_annotation(key: str) -> bool:
+        if key in pod_annotations:
+            return pod_annotations[key] == "true"
+        # Also check system-specific variant
+        system_key = f"{key}@{system}"
+        if system_key in pod_annotations:
+            return pod_annotations[system_key] == "true"
+        return False
+
+    # Check container-specific first (takes precedence)
     container_key = f"nix-nri/{container_name}-rw"
-    if container_key in pod_annotations:
-        return pod_annotations[container_key] == "true"
-    return pod_annotations.get("nix-nri/pod-rw") == "true"
+    if (
+        container_key in pod_annotations
+        or f"{container_key}@{system}" in pod_annotations
+    ):
+        return check_annotation(container_key)
+
+    # Fall back to pod-wide setting
+    return check_annotation("nix-nri/pod-rw")
 
 
-def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]:
+def parse_store_mounts(
+    pod_annotations, container_name: str, system: str
+) -> dict[Path, Path]:
     """
-    Parse store mount annotations from pod metadata.
+    Parse store mount annotations from pod metadata with system filtering.
 
-    Supports two annotation patterns:
-    1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/nix/store/.../etc/ssl
-    2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/nix/store/.../etc/ssl
+    Supports annotation patterns:
+    1. Wildcard (apply to all containers):  nix-nri/pod: /etc/ssl=/source
+    2. Container-specific (overrides wildcard): nix-nri/container-name: /etc/ssl=/source
+    3. System-specific variants with @{system} suffix
 
-    Mount type (file or directory) is auto-detected from the source path.
+    Source is auto-detected: store path, flake reference, or nix expression.
 
     Example annotations:
-      nix-nri/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs  (wildcard)
-      nix-nri/pod: /etc/passwd=/nix/store/def-fakeNss/etc/passwd            (wildcard)
-      nix-nri/myapp: /etc/passwd=/nix/store/ghi-fakeNss/etc/passwd          (container-specific)
+      nix-nri/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs
+      nix-nri/pod@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
+      nix-nri/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64
 
-    Returns dict: {Path("/path/in/container"): Path("/nix/store/.../package")}
-    Container-specific annotations override wildcard mounts for the same path.
+    Returns dict: {Path("/path/in/container"): Path("/source")}
+    - Container-specific annotations override wildcard annotations for the same path
+    - System-specific annotations apply only to matching system
+    - Annotations without @system apply to all systems
     """
-    # Get wildcard mounts first
-    wildcard_mounts = _parse_store_mounts_for_name(pod_annotations, "pod")
+    # Get wildcard mounts first, filtered by system
+    wildcard_mounts = _parse_store_mounts_for_name(pod_annotations, "pod", system)
 
-    # Get container-specific mounts (these override wildcards)
-    container_mounts = _parse_store_mounts_for_name(pod_annotations, container_name)
+    # Get container-specific mounts (these override wildcards), filtered by system
+    container_mounts = _parse_store_mounts_for_name(
+        pod_annotations, container_name, system
+    )
 
     # Merge: container-specific overrides wildcard
     return {**wildcard_mounts, **container_mounts}
@@ -122,10 +167,11 @@ def parse_store_mounts(pod_annotations, container_name: str) -> dict[Path, Path]
 class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
-    def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
+    def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path, system: str):
         super().__init__()
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
+        self.system = system
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
         logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
@@ -175,6 +221,7 @@ class NriPlugin(nri_grpc.PluginBase):
 
         # Combine env values, args and store mount annotation values for store path extraction
         # Only extract from nix-nri/pod or nix-nri/{container-name} annotations
+        # Include system-specific variants (e.g., nix-nri/pod@x86_64-linux)
         pod_prefix = "nix-nri/pod"
         container_prefix = f"nix-nri/{req.container.name}"
         store_annotation_values = [
@@ -182,8 +229,10 @@ class NriPlugin(nri_grpc.PluginBase):
             for key, value in req.pod.annotations.items()
             if key == pod_prefix
             or key.startswith(pod_prefix + "-")
+            or key.startswith(pod_prefix + "@")
             or key == container_prefix
             or key.startswith(container_prefix + "-")
+            or key.startswith(container_prefix + "@")
         ]
         combined = (
             list(req.container.env) + list(req.container.args) + store_annotation_values
@@ -195,15 +244,17 @@ class NriPlugin(nri_grpc.PluginBase):
                 f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
             )
 
-        # Parse store mount annotations (nix-nri/[container-name/]path)
-        store_mounts = parse_store_mounts(req.pod.annotations, req.container.name)
+        # Parse store mount annotations (nix-nri/[container-name/]path), filtered by system
+        store_mounts = parse_store_mounts(
+            req.pod.annotations, req.container.name, self.system
+        )
         if store_mounts:
             logger.info(
                 f"[CreateContainer] Parsed store mounts for container={req.container.name}: {store_mounts}"
             )
 
-        # Parse RW flag (nix-nri/pod-rw or nix-nri/{container-name}-rw)
-        nix_rw = parse_nix_rw(req.pod.annotations, req.container.name)
+        # Parse RW flag (nix-nri/pod-rw or nix-nri/{container-name}-rw), filtered by system
+        nix_rw = parse_nix_rw(req.pod.annotations, req.container.name, self.system)
         if nix_rw:
             logger.info(
                 "[CreateContainer] RW /nix overlayfs requested for container=%r",
@@ -624,8 +675,11 @@ async def _nri_run() -> None:
     # Discover CRI socket for garbage collection
     cri_socket = await get_cri_socket()
 
+    # Detect current system for system-specific annotation filtering
+    system = await get_current_system()
+
     mapping: dict = {}
-    plugin = NriPlugin(zmq_server, cri_socket)
+    plugin = NriPlugin(zmq_server, cri_socket, system)
     for h in [plugin]:
         mapping.update(h.__mapping__())
 

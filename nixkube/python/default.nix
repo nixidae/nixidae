@@ -20,6 +20,8 @@
   util-linuxMinimal, # mount, umount
   pyzmq, # Talking to OCI hooks
   nri-wait, # OCI hook for waiting on NRI builds
+  pytest, # Unit tests
+  pytest-asyncio, # Async test support
 }:
 let
   pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -48,6 +50,10 @@ buildPythonApplication {
     util-linuxMinimal
     pyzmq
     nri-wait
+  ];
+  nativeCheckInputs = [
+    pytest
+    pytest-asyncio
   ];
   meta.mainProgram = "nix-csi";
 }

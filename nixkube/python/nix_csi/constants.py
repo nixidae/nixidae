@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: MIT
 
 import os
+import subprocess
 from asyncio import Semaphore
 from importlib import metadata
 from pathlib import Path
 
 CSI_PLUGIN_NAME = "nix.csi.store"
-CSI_VENDOR_VERSION = metadata.version("nix-csi")
+try:
+    CSI_VENDOR_VERSION = metadata.version("nix-csi")
+except metadata.PackageNotFoundError:
+    # When running tests or in development, package may not be installed
+    CSI_VENDOR_VERSION = "dev"
 
 # Exit code from mount command when target is already mounted
 MOUNT_ALREADY_MOUNTED = 32
@@ -67,6 +72,7 @@ HOST_PROC_PATH = os.environ.get("HOST_PROC_PATH", "/host/proc")
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 
 # CSI pod metadata for event reporting (from downwardAPI)
-KUBE_POD_NAME = os.environ["KUBE_POD_NAME"]
-KUBE_POD_UID = os.environ["KUBE_POD_UID"]
-KUBE_NODE_NAME = os.environ["KUBE_NODE_NAME"]
+# These are required at runtime but may be absent in test environments
+KUBE_POD_NAME = os.environ.get("KUBE_POD_NAME", "unknown")
+KUBE_POD_UID = os.environ.get("KUBE_POD_UID", "unknown")
+KUBE_NODE_NAME = os.environ.get("KUBE_NODE_NAME", "unknown")
