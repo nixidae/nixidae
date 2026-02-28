@@ -18,6 +18,8 @@ from grpclib_ttrpc.protocol import (
     TtrpcProtocol,
 )
 from grpclib_ttrpc.server import TtrpcHandler
+from kr8s.asyncio.objects import Pod
+from nix_csi.events import report_event
 from nix_csi.volume import prepare_volume
 from nri import nri_grpc, nri_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
@@ -278,6 +280,18 @@ class NriPlugin(nri_grpc.PluginBase):
             )
 
             try:
+                # Create Pod object for event reporting
+                pod = Pod(
+                    {
+                        "metadata": {
+                            "name": req.pod.name,
+                            "namespace": req.pod.namespace,
+                            "uid": req.pod.uid,
+                        },
+                    },
+                    namespace=req.pod.namespace,
+                )
+
                 # Inject OCI hook to wait for build completion and report PID+bundle
                 assert self.nri_wait_bin is not None, (
                     "nri-wait binary not found on PATH, wait hook won't be able to execute"
@@ -319,7 +333,12 @@ class NriPlugin(nri_grpc.PluginBase):
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
                         self._spawn_build_task(
-                            container_id, store_paths, store_mounts, nix_rw
+                            container_id,
+                            req.container.name,
+                            pod,
+                            store_paths,
+                            store_mounts,
+                            nix_rw,
                         )
                     )
                     # Log task completion
@@ -464,6 +483,8 @@ class NriPlugin(nri_grpc.PluginBase):
     async def _spawn_build_task(
         self,
         container_id: str,
+        container_name: str,
+        pod: Pod,
         store_paths: set[Path],
         store_mounts: dict[Path, Path] | None = None,
         nix_rw: bool = False,
@@ -550,9 +571,26 @@ class NriPlugin(nri_grpc.PluginBase):
                 "[BUILD-TASK] Removed from pending_builds for container=%r",
                 container_id,
             )
+
+            # Report successful build
+            await report_event(
+                pod,
+                reason="BuildSucceeded",
+                note=f"Successfully built {len(store_paths)} store path(s)",
+                event_type="Normal",
+            )
         except Exception as e:
             logger.error("Build task failed for container=%r: %s", container_id, e)
             self.zmq_server.pending_builds.discard(container_id)
+
+            # Report failed build
+            await report_event(
+                pod,
+                reason="BuildFailed",
+                note=f"Failed to build store paths for container {container_name}",
+                logs=str(e),
+                event_type="Warning",
+            )
         finally:
             # Cancel progress pump if it's still running
             if pump_task is not None:

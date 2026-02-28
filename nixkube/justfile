@@ -39,3 +39,11 @@ lint:
 # Check formatted code without changes
 check-fmt:
     direnv exec . treefmt --fail-on-change
+
+# Deploy to Hetzkube
+hetzkube:
+    nix run --show-trace --file ~/Code/hetzkube kubenix.deploymentScript --argstr stage full -- --write-command-result=false --prune --yes
+
+# Deploy test pod
+testpod:
+    nix run --file tmp/testpod.nix deploymentScript -- --prune --yes --force-replace-on-error
