@@ -6,12 +6,12 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
 in
 {
   config = lib.mkIf cfg.enable {
     kubernetes.resources.none = {
-      ClusterRole.nix-csi = {
+      ClusterRole.nixkube = {
         metadata.labels = cfg.labels;
         rules = [
           {
@@ -41,27 +41,27 @@ in
           }
         ];
       };
-      ClusterRoleBinding.nix-csi = {
+      ClusterRoleBinding.nixkube = {
         metadata.labels = cfg.labels;
         subjects = lib.mkNamedList {
-          nix-csi = {
+          nixkube = {
             kind = "ServiceAccount";
             namespace = cfg.namespace;
           };
         };
         roleRef = {
           kind = "ClusterRole";
-          name = "nix-csi";
+          name = "nixkube";
           apiGroup = "rbac.authorization.k8s.io";
         };
       };
     };
     kubernetes.resources.${cfg.namespace} = {
-      ServiceAccount.nix-csi = {
+      ServiceAccount.nixkube = {
         metadata.labels = cfg.labels;
       };
 
-      Role.nix-csi = {
+      Role.nixkube = {
         metadata.labels = cfg.labels;
         rules = [
           # Cache maintains up2date /etc/machines
@@ -93,14 +93,14 @@ in
       };
 
       # Binds the Role to the ServiceAccount.
-      RoleBinding.nix-csi = {
+      RoleBinding.nixkube = {
         metadata.labels = cfg.labels;
         subjects = lib.mkNamedList {
-          nix-csi.kind = "ServiceAccount";
+          nixkube.kind = "ServiceAccount";
         };
         roleRef = {
           kind = "Role";
-          name = "nix-csi";
+          name = "nixkube";
           apiGroup = "rbac.authorization.k8s.io";
         };
       };

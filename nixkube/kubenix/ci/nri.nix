@@ -16,7 +16,7 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
 in
 {
   config.kubernetes.resources.${cfg.namespace} = {

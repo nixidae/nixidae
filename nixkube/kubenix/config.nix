@@ -8,12 +8,12 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
 
 in
 {
   config = lib.mkIf cfg.enable {
-    nix-csi =
+    nixkube =
       let
         sharedSettings = {
           allowed-users = [ "*" ];

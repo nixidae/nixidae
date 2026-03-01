@@ -38,8 +38,8 @@ rec {
     module.imports = [
       ./kubenix/ci
       {
-        nix-csi.cache.enable = false;
-        nix-csi.builders.enable = false;
+        nixkube.cache.enable = false;
+        nixkube.builders.enable = false;
       }
     ];
   };
@@ -64,16 +64,16 @@ rec {
               fi
               cachix push nix-csi ${config.internal.manifestJSONFile}
             '';
-          nix-csi.cache.enable = true;
-          nix-csi.builders.enable = true;
-          nix-csi.push = true;
+          nixkube.cache.enable = true;
+          nixkube.builders.enable = true;
+          nixkube.push = true;
         }
       )
     ];
   };
   kubenixPush = kubenixInstance {
     module.config = {
-      nix-csi.push = true;
+      nixkube.push = true;
     };
   };
   kubenixInstance =
@@ -91,9 +91,9 @@ rec {
         {
           config = {
             # Disabled by default so you can include the module in an easykubenix project
-            nix-csi.enable = true;
+            nixkube.enable = true;
             # Allow easily adding your pubkeys to the cache
-            nix-csi.authorizedKeys = lib.pipe (lib.filesystem.listFilesRecursive ./keys) [
+            nixkube.authorizedKeys = lib.pipe (lib.filesystem.listFilesRecursive ./keys) [
               (lib.filter (name: lib.hasSuffix ".pub" name))
               (lib.map (name: builtins.readFile name))
               (lib.map (key: lib.trim key))

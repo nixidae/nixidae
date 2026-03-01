@@ -6,7 +6,7 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
   namespace = cfg.namespace;
 in
 {

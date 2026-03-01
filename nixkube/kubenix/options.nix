@@ -7,7 +7,7 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
   inputs =
     (
       let
@@ -26,8 +26,8 @@ let
     ).inputs;
 in
 {
-  options.nix-csi = {
-    enable = lib.mkEnableOption "nix-csi";
+  options.nixkube = {
+    enable = lib.mkEnableOption "nixkube";
     undeploy = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -167,16 +167,16 @@ in
       };
 
       # Set internal label options using the derived values
-      nix-csi.matchLabels = {
-        "app.kubernetes.io/name" = "nix-csi";
-        "app.kubernetes.io/part-of" = "nix-csi";
+      nixkube.matchLabels = {
+        "app.kubernetes.io/name" = "nixkube";
+        "app.kubernetes.io/part-of" = "nixkube";
         "app.kubernetes.io/managed-by" = "nix";
       };
-      nix-csi.labels = cfg.matchLabels // {
+      nixkube.labels = cfg.matchLabels // {
         "app.kubernetes.io/version" = cfg.version;
       };
 
-      nix-csi.loggingConfig = lib.mapAttrsRecursive (_: v: lib.mkDefault v) {
+      nixkube.loggingConfig = lib.mapAttrsRecursive (_: v: lib.mkDefault v) {
         version = 1;
         formatters = {
           standard = {

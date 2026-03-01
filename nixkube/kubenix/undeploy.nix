@@ -6,22 +6,22 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
 in
 {
   config = lib.mkIf cfg.undeploy {
     assertions = [
       {
         assertion = !(cfg.enable && cfg.undeploy);
-        message = "nix-csi.undeploy cannot be true when nix-csi.enable is also true.";
+        message = "nixkube.undeploy cannot be true when nixkube.enable is also true.";
       }
       {
         assertion = !(cfg.undeploy && lib.hasPrefix "/nix" cfg.hostMountPath);
-        message = "nix-csi.undeploy will not undeploy /nix based mount locations like ${cfg.hostMountPath}";
+        message = "nixkube.undeploy will not undeploy /nix based mount locations like ${cfg.hostMountPath}";
       }
     ];
 
-    kubernetes.resources.${cfg.namespace}.DaemonSet.nix-csi-cleanup =
+    kubernetes.resources.${cfg.namespace}.DaemonSet.nixkube-cleanup =
       let
         labels = cfg.labels // {
           "app.kubernetes.io/component" = "cleanup";

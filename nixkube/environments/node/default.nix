@@ -37,7 +37,7 @@ let
             ];
           };
           services.csi-daemon = {
-            command = "${lib.getExe pkgs.nix-csi} --loglevel DEBUG";
+            command = "${lib.getExe pkgs.nixkube} --loglevel DEBUG";
             log-type = "file";
             logfile = "/var/log/csi-daemon.log";
             depends-on = [

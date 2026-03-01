@@ -9,11 +9,11 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
   nsRes = config.kubernetes.resources.${cfg.namespace};
 in
 {
-  options.nix-csi.node = {
+  options.nixkube.node = {
     enable = (lib.mkEnableOption "cache") // {
       default = true;
     };

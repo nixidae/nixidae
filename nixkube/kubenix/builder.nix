@@ -9,11 +9,11 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
   nsRes = config.kubernetes.resources.${cfg.namespace};
 in
 {
-  options.nix-csi.builders =
+  options.nixkube.builders =
     let
       deployType = lib.types.submodule (
         { ... }:
@@ -92,7 +92,7 @@ in
       };
     in
     lib.mkIf (cfg.enable && cfg.builders.enable) {
-      nix-csi.builders.nixConfig.settings.sandbox = cfg.builders.privilegedSandboxedBuilds;
+      nixkube.builders.nixConfig.settings.sandbox = cfg.builders.privilegedSandboxedBuilds;
 
       kubernetes.resources.${cfg.namespace} =
         let

@@ -29,7 +29,7 @@ in
   imports = [ ./nri.nix ];
 
   config = {
-    nix-csi.loggingConfig = {
+    nixkube.loggingConfig = {
       version = 1;
       formatters = {
         standard = {
@@ -85,7 +85,7 @@ in
               restartPolicy = "Never";
               inherit containers;
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   volumeAttributes.flakeRef = "github:nixos/nixpkgs/nixos-unstable#hello";
                 };
@@ -115,7 +115,7 @@ in
                 };
               };
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.nixExpr = # nix
@@ -147,7 +147,7 @@ in
               restartPolicy = "Never";
               inherit containers;
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.${system} = curPkgs.hello;
@@ -169,7 +169,7 @@ in
                 hello.command = [ (lib.getExe curPkgs.hello) ];
               };
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   readOnly = true;
                 };
@@ -248,7 +248,7 @@ in
                 };
               };
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   readOnly = true;
                 };
@@ -268,7 +268,7 @@ in
               restartPolicy = "Never";
               inherit containers;
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.${system} = "/nix/store/0000000000000000000000000000000-nonexistent";
@@ -288,7 +288,7 @@ in
               restartPolicy = "Never";
               inherit containers;
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   volumeAttributes.flakeRef = "github:nonexistent/nonexistent-repo/nonexistent-ref#nonexistent";
                 };
@@ -307,7 +307,7 @@ in
               restartPolicy = "Never";
               inherit containers;
               volumes = lib.mkNamedList {
-                nix-csi.csi = {
+                nixkube.csi = {
                   driver = "nixkube";
                   volumeAttributes.nixExpr = # nix
                     ''
