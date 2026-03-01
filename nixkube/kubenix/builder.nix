@@ -100,7 +100,7 @@ in
             metadata.labels = v.labels;
             metadata.annotations = {
               "kubectl.kubernetes.io/default-container" = "nix-builder";
-              "nix-csi/discard" = "true";
+              "nixkube/discard" = "true";
               configHash = lib.hashAttrs (
                 { } // nsRes.ConfigMap.nix-builder or { } // nsRes.ConfigMap.ssh-config or { }
               );
@@ -232,7 +232,7 @@ in
                       metadata.labels = labels;
                       metadata.annotations = {
                         "kubectl.kubernetes.io/default-container" = "proxy";
-                        "nix-csi/discard" = "true";
+                        "nixkube/discard" = "true";
                       };
                       spec = {
                         containers = lib.mkNamedList {

@@ -58,7 +58,7 @@ in
               metadata.labels = labels;
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-node";
-                "nix-csi/discard" = "true";
+                "nixkube/discard" = "true";
                 configHash = lib.hashAttrs (
                   { } // nsRes.ConfigMap.nix-node or { } // nsRes.configMap.ssh-config or { }
                 );
