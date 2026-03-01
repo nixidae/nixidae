@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from nix_csi.nriplugin import (
+from nix_csi.nri.annotations import (
     _parse_store_mounts_for_name,
     parse_nix_rw,
     parse_store_mounts,

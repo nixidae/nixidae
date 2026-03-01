@@ -6,7 +6,8 @@ import logging
 import logging.config
 from pathlib import Path
 
-from . import nriplugin, service
+from . import service
+from .nri.server import nri_serve
 
 
 def log_effective_config() -> None:
@@ -65,7 +66,7 @@ async def async_main():
 
     async def nri_serve_safe() -> None:
         try:
-            await nriplugin.nri_serve()
+            await nri_serve()
         except Exception as e:
             logger.error("NRI plugin server exited unexpectedly: %s", e, exc_info=True)
 
