@@ -5,6 +5,8 @@ import shutil
 import time
 from pathlib import Path
 
+import aiofiles
+
 from .constants import MOUNT_ALREADY_MOUNTED, NIX_BUILD_TIMEOUT, VERIFY_STORE_PATHS
 from .errors import FailedVolumeCleanupError, MountError, UnmountError
 from .hardlinks import deref_hardlink_tree, hardlink_closure
@@ -147,15 +149,43 @@ def cleanup_failed_volume(gc_root: Path, volume_root: Path) -> None:
         )
 
 
-async def is_mount(path: Path) -> bool:
-    """Check if a path is a mount point."""
-    return (await run_captured("findmnt", "--mountpoint", path)).returncode == 0
+async def is_mount(path: Path, mounts_file: str | None = None) -> bool:
+    """Check if a path is a mount point by reading the mounts file asynchronously.
+
+    Format: filesystem mountpoint fstype options dump pass
+    We just need to check if path matches index 1 (mountpoint).
+
+    Args:
+        path: Path to check if it's a mount point
+        mounts_file: Path to mounts file (default: /proc/self/mounts)
+    """
+    if mounts_file is None:
+        mounts_file = "/proc/self/mounts"
+
+    try:
+        path_resolved = path.resolve()
+        path_str = str(path_resolved)
+
+        async with aiofiles.open(mounts_file, "r") as f:
+            async for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == path_str:
+                    return True
+        return False
+    except (FileNotFoundError, OSError) as e:
+        logger.warning(f"Failed to check mounts from {mounts_file}: {e}")
+        return False
 
 
-async def unmount(path: Path) -> None:
-    """Unmount a path. Raises UnmountError on failure if still mounted."""
+async def unmount(path: Path, mounts_file: str | None = None) -> None:
+    """Unmount a path. Raises UnmountError on failure if still mounted.
+
+    Args:
+        path: Path to unmount
+        mounts_file: Path to mounts file for checking (default: /proc/self/mounts)
+    """
     result = await run_captured("umount", "--verbose", path)
-    if result.returncode != 0 and await is_mount(path):
+    if result.returncode != 0 and is_mount(path, mounts_file=mounts_file):
         raise UnmountError(
             f"Failed to unmount volume (exit code {result.returncode})",
             logs=result.combined,

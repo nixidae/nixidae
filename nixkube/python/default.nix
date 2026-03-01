@@ -19,6 +19,7 @@
   rsync, # hardlinking
   util-linuxMinimal, # mount, umount
   pyzmq, # Talking to OCI hooks
+  aiofiles, # Async file I/O
   nri-wait, # OCI hook for waiting on NRI builds
   pytest, # Unit tests
   pytest-asyncio, # Async test support
@@ -49,6 +50,7 @@ buildPythonApplication {
     rsync
     util-linuxMinimal
     pyzmq
+    aiofiles
     nri-wait
   ];
   nativeCheckInputs = [
