@@ -6,7 +6,7 @@ import logging
 import logging.config
 from pathlib import Path
 
-from . import service
+from .csi.server import csi_serve
 from .nri.server import nri_serve
 
 
@@ -71,7 +71,7 @@ async def async_main():
             logger.error("NRI plugin server exited unexpectedly: %s", e, exc_info=True)
 
     try:
-        await asyncio.gather(service.serve(), nri_serve_safe())
+        await asyncio.gather(csi_serve(), nri_serve_safe())
     except Exception as e:
         logger.critical(f"CSI service failed: {e}", exc_info=True)
         raise

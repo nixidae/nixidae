@@ -7,7 +7,7 @@ from google.protobuf.wrappers_pb2 import BoolValue
 from grpclib import GRPCError
 from grpclib.const import Status
 
-from .constants import CSI_PLUGIN_NAME, CSI_VENDOR_VERSION
+from ..constants import CSI_PLUGIN_NAME, CSI_VENDOR_VERSION
 
 
 class IdentityServicer(csi_grpc.IdentityBase):

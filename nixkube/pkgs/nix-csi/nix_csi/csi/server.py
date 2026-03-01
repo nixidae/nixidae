@@ -15,9 +15,8 @@ from grpclib.const import Status
 from grpclib.server import Server, Stream
 from kr8s.asyncio.objects import Pod
 
-from .cache import copy_to_cache
-from .cleanup import cleanup_stale_entries, collect_active_volume_handles
-from .constants import (
+from ..cache import copy_to_cache
+from ..constants import (
     CSI_GCROOTS,
     CSI_SOCKET_PATH,
     CSI_VOLUMES,
@@ -25,22 +24,23 @@ from .constants import (
     KUBE_POD_NAME,
     NAMESPACE,
 )
-from .errors import CSIError
-from .events import report_event
-from .identityservicer import IdentityServicer
-from .nix import (
+from ..errors import CSIError
+from ..events import report_event
+from ..nix import (
     build_pod_packages,
     build_primary_package,
     get_build_args,
     get_current_system,
 )
-from .volume import (
+from ..volume import (
     cleanup_failed_volume,
     is_mount,
     mount_volume,
     prepare_volume,
     unmount,
 )
+from .cleanup import cleanup_stale_entries, collect_active_volume_handles
+from .identity import IdentityServicer
 
 logger = logging.getLogger("nix-csi")
 
@@ -320,7 +320,7 @@ class NodeServicer(csi_grpc.NodeBase):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeUnstageVolume not implemented")
 
 
-async def serve():
+async def csi_serve():
     sock_path = CSI_SOCKET_PATH
     Path(sock_path).unlink(missing_ok=True)
 

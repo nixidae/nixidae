@@ -5,7 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from .constants import CSI_GCROOTS, CSI_VOLUMES, KUBELET_PODS_PATH
+from ..constants import CSI_GCROOTS, CSI_VOLUMES, KUBELET_PODS_PATH
 
 logger = logging.getLogger("nix-csi")
 
