@@ -57,5 +57,5 @@ buildPythonApplication {
     pytest
     pytest-asyncio
   ];
-  meta.mainProgram = "nix-csi";
+  meta.mainProgram = "nixkube";
 }
