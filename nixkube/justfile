@@ -10,7 +10,7 @@ fmt:
 
 # Run Python tests
 test:
-    direnv exec . python -m pytest python/tests -v
+    direnv exec . python -m pytest pkgs/nix-csi/tests -v
 
 # Build all outputs for both architectures (requires builders)
 build-all:
@@ -34,7 +34,7 @@ deploy:
 
 # Run linter/type checker on Python code
 lint:
-    direnv exec . pyright python/nix_csi
+    direnv exec . pyright pkgs/nix-csi/nix_csi
 
 # Check formatted code without changes
 check-fmt:

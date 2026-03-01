@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 
 import pytest
-
 from nix_csi.errors import CommandTimeoutError, SubprocessError
 from nix_csi.subprocessing import run_captured, try_captured, try_console
 
@@ -116,10 +115,6 @@ async def test_large_output():
     assert "line_1000" in result.stdout
 
 
-
-
-
-
 @pytest.mark.asyncio
 async def test_unicode_output():
     """Test handling of unicode characters in output."""
@@ -132,9 +127,7 @@ async def test_unicode_output():
 @pytest.mark.asyncio
 async def test_error_message_preserved():
     """Test that error messages are preserved in stderr."""
-    result = await run_captured(
-        "sh", "-c", "echo important error >&2; exit 1"
-    )
+    result = await run_captured("sh", "-c", "echo important error >&2; exit 1")
     assert result.returncode == 1
     assert "important error" in result.stderr
     assert "important error" in result.combined
