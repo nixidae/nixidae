@@ -12,21 +12,35 @@ fmt:
 test:
     direnv exec . python -m pytest pkgs/nixkube/tests -v
 
-# Build all outputs for both architectures (requires builders)
-build-all:
-    nix build --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push --no-link
-
-# Build manifests only
+# Build manifests only (local, fast)
 build-manifests:
     nix build --file . kubenixApply.manifestJSONFile
+
+# Build all outputs for both architectures (local, uses cache)
+build-local:
+    nix build --file . push --no-link
+
+# Build all outputs for both architectures (remote nixbuild builders)
+build-nixbuild:
+    nix build --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push --no-link
+
+# Alias for nixbuild (legacy)
+build-all: build-nixbuild
 
 # Build development environment
 build-dev:
     nix build --file . repoenv
 
-# Push to cachix and registry (builds all architectures)
-push:
+# Push to cachix and registry (local builds, uses cache)
+push-local:
+    nix run --file . push
+
+# Push to cachix and registry (remote nixbuild builders)
+push-nixbuild:
     nix run --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push
+
+# Alias for nixbuild (legacy)
+push: push-nixbuild
 
 # Deploy to Kubernetes cluster
 deploy:
