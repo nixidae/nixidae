@@ -36,7 +36,7 @@ NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
 BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
 
 NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nixkube")
-BUILDERS_SERVICE = "nix-csi-builders"
+BUILDERS_SERVICE = "nixkube-builders"
 
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"

@@ -59,14 +59,14 @@ async def async_main():
     else:
         # Fallback to basic config if file doesn't exist
         # Root logger at WARN to suppress noise from libraries (grpclib, kr8s, etc.)
-        # Only nix-csi logger uses INFO level to avoid log spam from dependencies
+        # Only nixkube logger uses INFO level to avoid log spam from dependencies
         logging.basicConfig(
             level=logging.WARN,
             format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         )
         logger = logging.getLogger("nixkube")
         logger.setLevel(logging.INFO)
-        logger.info("Using fallback logging config (nix-csi: INFO, root: WARN)")
+        logger.info("Using fallback logging config (nixkube: INFO, root: WARN)")
 
     log_effective_config()
 

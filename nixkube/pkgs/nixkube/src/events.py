@@ -207,7 +207,7 @@ async def report_event(
                         "namespace": pod.metadata.namespace,
                         "uid": pod.metadata.uid,
                     },
-                    "reportingController": "nix-csi",
+                    "reportingController": "nixkube",
                     "reportingInstance": KUBE_POD_NAME,
                     "note": final_note,
                     "eventTime": now_iso,

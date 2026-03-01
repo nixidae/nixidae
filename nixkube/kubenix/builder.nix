@@ -326,7 +326,7 @@ in
           ) (lib.filterAttrs (n: v: v.enable) cfg.builders.daemonsets);
 
           # Headless service for DNS discovery of individual builder pods
-          Service.nix-csi-builders = {
+          Service.nixkube-builders = {
             metadata.labels = labels;
             spec = {
               clusterIP = "None";
