@@ -51,7 +51,7 @@ The nix-csi service uses:
 - `kr8s` for Kubernetes API interactions
 - `csi-proto-python` for CSI protobuf definitions (generated from upstream spec)
 
-The service is packaged in `pkgs/nix-csi/` with a single `pyproject.toml`.
+The service is packaged in `pkgs/nixkube/` with a single `pyproject.toml`.
 
 ## Common Commands
 
@@ -138,11 +138,12 @@ Enter the environment with `direnv allow && direnv reload` (or open a new termin
 
 ### Python Development
 
-The Python code is in `pkgs/nix-csi/nix_csi/`:
-- `nix_csi/service.py` - CSI driver (gRPC NodeServicer implementation)
-- `nix_csi/cli.py` - Service entry point that runs both CSI and NRI servers
+The Python code is in `pkgs/nixkube/src/`:
+- `src/csi/server.py` - CSI driver (gRPC NodeServicer implementation)
+- `src/nri/server.py` - NRI plugin (ttrpc handler implementation)
+- `src/cli.py` - Service entry point that runs both CSI and NRI servers
 
-Version is managed in `pkgs/nix-csi/pyproject.toml` and automatically imported into the Nix build.
+Version is managed in `pkgs/nixkube/pyproject.toml` and automatically imported into the Nix build.
 
 ## Key Configuration Points
 

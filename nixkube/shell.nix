@@ -11,7 +11,7 @@ let
       pytest
       pytest-asyncio
     ]
-    ++ pkgs.nix-csi.dependencies;
+    ++ pkgs.nixkube.dependencies;
   python = pkgs.python3.withPackages pypkgs;
   xonsh = pkgs.xonsh.override {
     extraPackages = pypkgs;

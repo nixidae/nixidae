@@ -62,7 +62,7 @@ in
       type = lib.types.str;
       default =
         let
-          pyproject = builtins.fromTOML (builtins.readFile ../pkgs/nix-csi/pyproject.toml);
+          pyproject = builtins.fromTOML (builtins.readFile ../pkgs/nixkube/pyproject.toml);
         in
         pyproject.project.version;
     };

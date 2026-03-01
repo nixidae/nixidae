@@ -15,7 +15,7 @@ self: pkgs: {
         nix-store --option store local --dump-db "$@" | NIX_STATE_DIR="$NSD" nix-store --load-db --option store local
       '';
 
-  nix-csi = pkgs.python3Packages.callPackage ./nix-csi {
+  nixkube = pkgs.python3Packages.callPackage ./nixkube {
     inherit (self)
       csi-proto-python
       cri-proto-python

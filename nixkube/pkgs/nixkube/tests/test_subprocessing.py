@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 
 import pytest
-from nix_csi.errors import CommandTimeoutError, SubprocessError
-from nix_csi.subprocessing import run_captured, try_captured, try_console
+from src.errors import CommandTimeoutError, SubprocessError
+from src.subprocessing import run_captured, try_captured, try_console
 
 
 @pytest.mark.asyncio
