@@ -30,7 +30,7 @@ from ..constants import (
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
 )
-from ..cri import get_cri_socket, list_container_ids
+from ..cri import get_cri_socket
 from ..events import report_event
 from ..nix import build_packages, get_build_args, get_closure_paths, get_current_system
 from ..ns_mount import mount_in_container
@@ -38,6 +38,7 @@ from ..store import extract_store_paths
 from ..volume import prepare_volume
 from ..zmq_server import ZeroMQServer
 from .annotations import parse_nix_rw, parse_store_mounts
+from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
 
 logger = logging.getLogger("nix-nri")
 
@@ -269,55 +270,10 @@ class NriPlugin(nri_grpc.PluginBase):
         container_id = req.container.id
 
         # Phase 1: Cleanup volume directory for this container
-        volume_path = NRI_CONTAINERS / container_id
-        if volume_path.exists():
-            try:
-                shutil.rmtree(volume_path)
-                logger.info("Cleaned up volume dir at %r", volume_path)
-            except Exception as e:
-                logger.warning(
-                    "Failed to remove volume dir at %r: %s",
-                    volume_path,
-                    e,
-                )
+        await cleanup_container_volume(container_id)
 
         # Phase 2: Garbage collect stale volumes from containers no longer in CRI
-        try:
-            # Get list of active containers from CRI, excluding the one stopping
-            # Access socket through host mount since we're in a container
-            socket_path = Path("/host") / self.cri_socket.relative_to("/")
-            active_ids = await list_container_ids(socket_path)
-            active_ids.discard(container_id)  # Remove the stopping container
-            logger.debug(
-                "GC: Active containers from CRI: %d (excluding stopping container)",
-                len(active_ids),
-            )
-
-            # Clean up volumes for containers not in active list
-            if NRI_CONTAINERS.exists():
-                stale_count = 0
-                for volume_dir in NRI_CONTAINERS.iterdir():
-                    if volume_dir.is_dir() and volume_dir.name not in active_ids:
-                        try:
-                            shutil.rmtree(volume_dir)
-                            stale_count += 1
-                            logger.debug(
-                                "GC: Removed stale volume for container=%r",
-                                volume_dir.name,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "GC: Failed to remove stale volume at %r: %s",
-                                volume_dir,
-                                e,
-                            )
-                if stale_count > 0:
-                    logger.info("GC: Cleaned up %d stale NRI volumes", stale_count)
-        except Exception as e:
-            logger.warning(
-                "GC: Failed to perform garbage collection: %s",
-                e,
-            )
+        await garbage_collect_stale_volumes(self.cri_socket)
 
         await stream.send_message(nri_pb2.StopContainerResponse())
 
