@@ -690,7 +690,7 @@ true
 
 
 
-Where on the host to put nix-csi store, / is untested and not recommended
+Where on the host to put nixkube store, / is untested and not recommended
 
 
 
@@ -762,7 +762,7 @@ attribute set of (string or absolute path)
 
 
 
-Python logging configuration dict for nix-csi service\.
+Python logging configuration dict for nixkube service\.
 Merged with built-in defaults, so you only need to override specific parts\.
 See https://docs\.python\.org/3/library/logging\.config\.html\#logging-config-dictschema
 
@@ -788,7 +788,7 @@ attribute set of (JSON value)
 
 
 
-Metadata (labels, annotations) applied to nix-csi resources
+Metadata (labels, annotations) applied to nixkube resources
 
 
 
