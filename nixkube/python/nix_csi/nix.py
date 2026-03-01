@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-import asyncio
 import logging
-import os
 import subprocess
 import tempfile
 from functools import cache
 from pathlib import Path
 
 from kr8s.asyncio.objects import Pod
+from shellous import sh
 
 from .builders import build_builder_args, get_builder_uris
 from .cache import check_cache_connectivity, get_substituter_args
@@ -219,53 +218,25 @@ async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
     Equivalent to: nix-store --dump-db <paths> | NIX_STATE_DIR=<state_dir> nix-store --load-db
     """
     try:
-        # Create dump process: nix-store --dump-db <store_paths>
-        # Uses default environment (no NIX_STATE_DIR needed for dumping)
-        dump_proc = await asyncio.create_subprocess_exec(
-            "nix-store",
-            "--option", "store", "local",
-            "--dump-db",
-            *store_paths,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        # Create load process with modified environment
-        # Only the load process needs NIX_STATE_DIR pointing to the target store
-        env = os.environ.copy()
-        env["NIX_STATE_DIR"] = str(state_dir)
-        env["USER"] = "nobody"
-
-        load_proc = await asyncio.create_subprocess_exec(
-            "nix-store",
-            "--option", "store", "local",
-            "--load-db",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-
-        # Read dump output and pipe to load input using communicate()
-        # communicate() avoids deadlocks by handling all I/O properly
-        dump_data, dump_stderr = await dump_proc.communicate()
-        dump_returncode = dump_proc.returncode
-
-        if dump_returncode != 0:
-            raise InitDatabaseError(
-                f"nix-store --dump-db failed (exit code {dump_returncode})",
-                logs=dump_stderr.decode(),
+        # Use shellous pipeline to pipe dump to load
+        # dump: nix-store --dump-db <store_paths>
+        # load: nix-store --load-db with NIX_STATE_DIR set
+        try:
+            await (
+                sh("nix-store",
+                    "--option", "store", "local",
+                    "--dump-db",
+                    *store_paths,
+                )
+                | sh("nix-store",
+                    "--option", "store", "local",
+                    "--load-db",
+                ).env(NIX_STATE_DIR=str(state_dir), USER="nobody")
             )
-
-        # Write dump data to load process via communicate(input=...)
-        # This is safer than manual stdin.write() which can cause deadlocks
-        load_stdout, load_stderr = await load_proc.communicate(input=dump_data)
-        load_returncode = load_proc.returncode
-
-        if load_returncode != 0:
+        except Exception as e:
             raise InitDatabaseError(
-                f"nix-store --load-db failed (exit code {load_returncode})",
-                logs=load_stderr.decode(),
+                "Failed to initialize Nix database",
+                logs=str(e),
             )
 
         logger.debug(f"Initialized Nix database at {state_dir} with {len(store_paths)} paths")
