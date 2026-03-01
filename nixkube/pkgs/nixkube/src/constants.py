@@ -35,7 +35,7 @@ NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
 # Set via environment variables from kubenix when builders are enabled
 BUILDERS_ENABLED = os.environ.get("BUILDERS_ENABLED", "false").lower() == "true"
 
-NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nix-csi")
+NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nixkube")
 BUILDERS_SERVICE = "nix-csi-builders"
 
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
@@ -53,7 +53,7 @@ NRI_RUNTIME_SOCKET = os.environ.get("NRI_RUNTIME_SOCKET", "/var/run/nri/nri.sock
 
 # NRI plugin identity — sent in RegisterPlugin; must match the index prefix
 # that containerd expects (two-digit zero-padded number, e.g. "00").
-NRI_PLUGIN_NAME = os.environ.get("NRI_PLUGIN_NAME", "nix-csi")
+NRI_PLUGIN_NAME = os.environ.get("NRI_PLUGIN_NAME", "nixkube")
 NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
 
 # NRI host mount path for bind mounts (default: /var/lib/nix-csi)

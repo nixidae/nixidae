@@ -17,6 +17,19 @@ in
     enable = (lib.mkEnableOption "cache") // {
       default = true;
     };
+    csi = {
+      compat = {
+        enable = (lib.mkEnableOption "nix.csi.store CSI driver (for backwards compatibility)") // {
+          default = true;
+          apply = value:
+            if value then
+              lib.warn "nixkube: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name."
+              value
+            else
+              value;
+        };
+      };
+    };
     nixConfig = lib.mkOption {
       description = "nix.conf for CSI/mounter/DaemonSet pods";
       type = (import ./nixOptions.nix) curPkgs;
@@ -51,7 +64,7 @@ in
                 );
               };
               spec = {
-                serviceAccountName = "nix-csi";
+                serviceAccountName = "nixkube";
                 priorityClassName = "system-node-critical";
                 subdomain = cfg.internalServiceName;
                 tolerations = [
@@ -105,7 +118,8 @@ in
                     env = lib.mkNamedList {
                       BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                       CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                      CSI_ENDPOINT.value = "unix:///csi/csi.sock";
+                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.csi.compat.enable;
+                      NRI_ENABLED.value = "true";
                       HOME.value = "/nix/var/nix-csi/root";
                       HOST_MOUNT_PATH.value = cfg.hostMountPath;
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
@@ -146,11 +160,50 @@ in
                       };
                     };
                   };
-                  csi-node-driver-registrar = {
+                  csi-node-driver-registrar-nix-csi = lib.mkIf cfg.node.csi.compat.enable {
                     image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0";
                     args = [
                       "--v=5"
-                      "--csi-address=/csi/csi.sock"
+                      "--csi-address=/csi/nix.csi.store/csi.sock"
+                      "--kubelet-registration-path=/var/lib/kubelet/plugins/nix.csi.store/csi.sock"
+                    ];
+                    env = lib.mkNamedList {
+                      KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
+                    };
+                    volumeMounts = lib.mkNamedList {
+                      csi-socket.mountPath = "/csi";
+                      kubelet.mountPath = "/var/lib/kubelet";
+                      registration.mountPath = "/registration";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "10Mi";
+                        cpu = "10m";
+                      };
+                    };
+                  };
+                  livenessprobe-nix-csi = lib.mkIf cfg.node.csi.compat.enable {
+                    image = "registry.k8s.io/sig-storage/livenessprobe:v2.18.0";
+                    args = [
+                      "--csi-address=/csi/nix.csi.store/csi.sock"
+                      "--health-port=9809"
+                    ];
+                    volumeMounts = lib.mkNamedList {
+                      csi-socket.mountPath = "/csi";
+                      registration.mountPath = "/registration";
+                    };
+                    resources = {
+                      requests = {
+                        memory = "10Mi";
+                        cpu = "10m";
+                      };
+                    };
+                  };
+                  csi-node-driver-registrar-nixkube = {
+                    image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0";
+                    args = [
+                      "--v=5"
+                      "--csi-address=/csi/nixkube/csi.sock"
                       "--kubelet-registration-path=/var/lib/kubelet/plugins/nixkube/csi.sock"
                     ];
                     env = lib.mkNamedList {
@@ -168,9 +221,12 @@ in
                       };
                     };
                   };
-                  livenessprobe = {
+                  livenessprobe-nixkube = {
                     image = "registry.k8s.io/sig-storage/livenessprobe:v2.18.0";
-                    args = [ "--csi-address=/csi/csi.sock" ];
+                    args = [
+                      "--csi-address=/csi/nixkube/csi.sock"
+                      "--health-port=9808"
+                    ];
                     volumeMounts = lib.mkNamedList {
                       csi-socket.mountPath = "/csi";
                       registration.mountPath = "/registration";
@@ -191,7 +247,7 @@ in
                     type = "DirectoryOrCreate";
                   };
                   csi-socket.hostPath = {
-                    path = "/var/lib/kubelet/plugins/nixkube/";
+                    path = "/var/lib/kubelet/plugins/";
                     type = "DirectoryOrCreate";
                   };
                   nri-socket.hostPath = {

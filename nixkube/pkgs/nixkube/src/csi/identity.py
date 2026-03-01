@@ -11,6 +11,9 @@ from ..constants import CSI_PLUGIN_NAME, CSI_VENDOR_VERSION
 
 
 class IdentityServicer(csi_grpc.IdentityBase):
+    def __init__(self, plugin_name: str = CSI_PLUGIN_NAME):
+        self.plugin_name = plugin_name
+
     async def GetPluginInfo(self, stream):
         request: csi_pb2.GetPluginInfoRequest | None = await stream.recv_message()
         if request is None:
@@ -18,7 +21,7 @@ class IdentityServicer(csi_grpc.IdentityBase):
                 Status.INVALID_ARGUMENT, "Received None request in GetPluginInfo"
             )
         reply = csi_pb2.GetPluginInfoResponse(
-            name=CSI_PLUGIN_NAME, vendor_version=CSI_VENDOR_VERSION
+            name=self.plugin_name, vendor_version=CSI_VENDOR_VERSION
         )
         await stream.send_message(reply)
 

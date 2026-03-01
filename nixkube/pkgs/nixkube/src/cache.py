@@ -10,7 +10,7 @@ from .constants import CACHE_ENABLED
 from .errors import SubprocessError
 from .subprocessing import run_captured, try_console
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube")
 
 # Locks that prevent the same derivation to be uploaded in parallel
 copy_lock: defaultdict[Path, Semaphore] = defaultdict(Semaphore)

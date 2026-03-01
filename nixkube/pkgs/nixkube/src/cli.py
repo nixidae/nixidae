@@ -4,15 +4,21 @@ import asyncio
 import json
 import logging
 import logging.config
+import os
 from pathlib import Path
 
 from .csi.server import csi_serve
 from .nri.server import nri_serve
 
+# Whether to enable compatibility driver (nix.csi.store alongside nixkube)
+ENABLE_COMPAT_DRIVER = os.getenv("ENABLE_COMPAT_DRIVER") == "true"
+# Whether to enable NRI plugin
+NRI_ENABLED = os.getenv("NRI_ENABLED") == "true"
+
 
 def log_effective_config() -> None:
     """Log the effective logging configuration for debugging."""
-    logger = logging.getLogger("nix-csi")
+    logger = logging.getLogger("nixkube")
     root = logging.getLogger()
 
     lines = ["Effective logging configuration:"]
@@ -48,7 +54,7 @@ async def async_main():
         with open(logging_config_path) as f:
             config_dict = json.load(f)
         logging.config.dictConfig(config_dict)
-        logger = logging.getLogger("nix-csi")
+        logger = logging.getLogger("nixkube")
         logger.info(f"Loaded logging config from {logging_config_path}")
     else:
         # Fallback to basic config if file doesn't exist
@@ -58,20 +64,30 @@ async def async_main():
             level=logging.WARN,
             format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         )
-        logger = logging.getLogger("nix-csi")
+        logger = logging.getLogger("nixkube")
         logger.setLevel(logging.INFO)
         logger.info("Using fallback logging config (nix-csi: INFO, root: WARN)")
 
     log_effective_config()
 
-    async def nri_serve_safe() -> None:
-        try:
-            await nri_serve()
-        except Exception as e:
-            logger.error("NRI plugin server exited unexpectedly: %s", e, exc_info=True)
+    logger.info(f"NRI plugin: {'enabled' if NRI_ENABLED else 'disabled'}")
+    logger.info(
+        f"CSI drivers: nixkube"
+        + (f" + nix.csi.store (compat)" if ENABLE_COMPAT_DRIVER else "")
+    )
 
     try:
-        await asyncio.gather(csi_serve(), nri_serve_safe())
+        tasks = [csi_serve(plugin_name="nixkube", socket_path=Path("/csi/nixkube/csi.sock"))]
+        if ENABLE_COMPAT_DRIVER:
+            tasks.append(
+                csi_serve(
+                    plugin_name="nix.csi.store",
+                    socket_path=Path("/csi/nix.csi.store/csi.sock"),
+                )
+            )
+        if NRI_ENABLED:
+            tasks.append(nri_serve())
+        await asyncio.gather(*tasks)
     except Exception as e:
         logger.critical(f"CSI service failed: {e}", exc_info=True)
         raise

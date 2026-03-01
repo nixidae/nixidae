@@ -22,7 +22,7 @@ from .nix import (
     verify_store_paths,
 )
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube")
 
 # Load libc for mount/umount syscalls
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)

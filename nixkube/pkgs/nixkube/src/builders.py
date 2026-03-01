@@ -6,7 +6,7 @@ import kr8s
 
 from .constants import BUILDERS_ENABLED, BUILDERS_SERVICE, NAMESPACE
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube")
 
 
 async def get_builder_uris() -> list[str]:

@@ -150,7 +150,8 @@ rec {
           opt
           // {
             # Remove internal options, modify declarations, etc.
-            visible = opt.visible or true && lib.hasPrefix "nix-csi" opt.name;
+            visible =
+              opt.visible or true && (lib.hasPrefix "nix-csi" opt.name || lib.hasPrefix "nixkube" opt.name);
           };
       };
     in

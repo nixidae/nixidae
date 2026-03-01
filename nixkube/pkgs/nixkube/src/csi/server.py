@@ -85,9 +85,10 @@ def csi_error_handler(func):
 class NodeServicer(csi_grpc.NodeBase):
     volume_locks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
 
-    def __init__(self, system: str, csi_pod: Pod):
+    def __init__(self, system: str, csi_pod: Pod, plugin_name: str = "nixkube"):
         self.system = system
         self.csi_pod = csi_pod
+        self.plugin_name = plugin_name
 
     @csi_error_handler
     async def NodePublishVolume(
@@ -129,6 +130,18 @@ class NodeServicer(csi_grpc.NodeBase):
             assert pod.metadata.uid == pod_uid, (
                 f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
             )
+
+            # Emit deprecation warning if using compatibility driver
+            if self.plugin_name == "nix.csi.store":
+                try:
+                    await report_event(
+                        pod,
+                        reason="DeprecatedDriverName",
+                        note="Using deprecated nix.csi.store driver. Please migrate to nixkube driver.",
+                        event_type="Warning",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to report deprecation warning: {e}")
 
             # Build primary package from volume attributes
             try:
@@ -320,14 +333,18 @@ class NodeServicer(csi_grpc.NodeBase):
         raise GRPCError(Status.UNIMPLEMENTED, "NodeUnstageVolume not implemented")
 
 
-async def csi_serve():
-    sock_path = CSI_SOCKET_PATH
-    Path(sock_path).unlink(missing_ok=True)
+async def csi_serve(plugin_name: str | None = None, socket_path: Path | None = None):
+    if socket_path is None:
+        socket_path = Path(CSI_SOCKET_PATH)
+    if plugin_name is None:
+        plugin_name = "nixkube"
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    socket_path.unlink(missing_ok=True)
 
-    identity_servicer = IdentityServicer()
+    identity_servicer = IdentityServicer(plugin_name)
     # Fetch CSI pod once at startup, cache for entire service lifetime
     csi_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
-    node_servicer = NodeServicer(get_current_system(), csi_pod)
+    node_servicer = NodeServicer(get_current_system(), csi_pod, plugin_name)
 
     server = Server(
         [
@@ -338,13 +355,13 @@ async def csi_serve():
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        sock.bind(sock_path)
+        sock.bind(str(socket_path))
         sock.listen(128)
 
         await server.start(sock=sock)
-        logger.info(f"CSI driver (grpclib) listening on unix://{sock_path}")
+        logger.info(f"CSI driver (grpclib) listening on unix://{socket_path}")
         await server.wait_closed()
     except Exception:
         sock.close()
-        Path(sock_path).unlink(missing_ok=True)
+        socket_path.unlink(missing_ok=True)
         raise

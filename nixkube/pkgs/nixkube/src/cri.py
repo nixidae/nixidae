@@ -8,7 +8,7 @@ import grpclib.client
 import kr8s
 from cri import cri_grpc, cri_pb2
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube")
 
 
 async def get_cri_socket() -> Path:

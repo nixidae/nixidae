@@ -6,7 +6,7 @@ from pathlib import Path
 from ..errors import StorePathClosureError, SubprocessError
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube")
 
 
 async def get_closure_paths(package_paths: set[Path]) -> set[Path]:
