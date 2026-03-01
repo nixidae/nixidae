@@ -1,14 +1,14 @@
-# nix-csi
+# nixkube
 
-Mount /nix into Kubernetes pods using the CSI Ephemeral Volume feature. Volumes
+Mount /nix into Kubernetes pods using the CSI Ephemeral Volume feature and NRI plugin. Volumes
 share lifetime with Pods and are embedded into the Podspec.
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Lillecarl/nix-csi)
 
-## Deploying nix-csi
+## Deploying nixkube
 
 Stick your pubkeys in ./keys and they will be imported into the module system
-then run the following command and you'll have nix-csi deployed.
+then run the following command and you'll have nixkube deployed.
 ```bash
 nix run --file . kubenixEval.deploymentScript -- --yes --prune
 ```
