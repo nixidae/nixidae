@@ -22,6 +22,7 @@ from kr8s.asyncio.objects import Pod
 from nri import nri_grpc, nri_pb2
 from ttrpc.ttrpc_pb2 import Request, Response
 
+from ..cache import copy_to_cache
 from ..constants import (
     COREUTILS_STATIC,
     HOST_MOUNT_PATH,
@@ -408,6 +409,19 @@ class NriPlugin(nri_grpc.PluginBase):
                 "[BUILD-TASK] Removed from pending_builds for container=%r",
                 container_id,
             )
+
+            # Copy all packages to cache in background
+            if paths:
+                task = asyncio.create_task(copy_to_cache(paths))
+                task.add_done_callback(
+                    lambda t: (
+                        logger.error(
+                            f"[BUILD-TASK] copy_to_cache failed: {t.exception()}"
+                        )
+                        if t.exception()
+                        else None
+                    )
+                )
 
             # Report successful build
             await report_event(
