@@ -33,12 +33,12 @@ from ..constants import (
 from ..cri import get_cri_socket
 from ..events import report_event
 from ..nix import build_packages, get_build_args, get_closure_paths, get_current_system
-from ..ns_mount import mount_in_container
 from ..store import extract_store_paths
 from ..volume import prepare_volume
 from ..zmq_server import ZeroMQServer
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
+from .ns_mount import mount_in_container
 
 logger = logging.getLogger("nix-nri")
 

@@ -68,7 +68,7 @@ import re
 import traceback
 from pathlib import Path
 
-from .constants import HOST_PROC_PATH
+from ..constants import HOST_PROC_PATH
 
 logger = logging.getLogger("nix-nri")
 
