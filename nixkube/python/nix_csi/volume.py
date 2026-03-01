@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: MIT
 
+import ctypes
+import ctypes.util
+import errno
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
 
 import aiofiles
 
-from .constants import MOUNT_ALREADY_MOUNTED, NIX_BUILD_TIMEOUT, VERIFY_STORE_PATHS
+from .constants import NIX_BUILD_TIMEOUT, VERIFY_STORE_PATHS
 from .errors import FailedVolumeCleanupError, MountError, UnmountError
 from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import (
@@ -17,9 +21,22 @@ from .nix import (
     install_result_link,
     verify_store_paths,
 )
-from .subprocessing import run_captured, run_console
 
 logger = logging.getLogger("nix-csi")
+
+# Load libc for mount/umount syscalls
+_libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+
+# Mount flags (from sys/mount.h)
+_MS_BIND = 4096
+_MS_RDONLY = 1
+_MS_REMOUNT = 32
+
+# Get references to syscall functions
+_libc.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_char_p]
+_libc.mount.restype = ctypes.c_int
+_libc.umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
+_libc.umount2.restype = ctypes.c_int
 
 
 async def prepare_volume(
@@ -87,22 +104,30 @@ async def mount_volume(
     target_path: Path,
     readonly: bool,
 ) -> None:
-    """Mount the volume root to the target path."""
+    """Mount the volume root to the target path using syscalls."""
     target_path.mkdir(parents=True, exist_ok=True)
 
     if readonly:
         # For readonly we use a bind mount, the benefit is that different
         # container stores using bindmounts will get the same inodes and
         # share page cache with others, reducing memory usage.
-        mount_command = [
-            "mount",
-            "--verbose",
-            "--bind",
-            "-o",
-            "ro",
-            volume_root,
-            target_path,
-        ]
+        logger.debug(f"Mounting bind (readonly): {volume_root} → {target_path}")
+        ret = _libc.mount(
+            ctypes.c_char_p(os.fsencode(volume_root)),
+            ctypes.c_char_p(os.fsencode(target_path)),
+            None,
+            _MS_BIND | _MS_RDONLY,
+            None,
+        )
+        if ret != 0:
+            err = ctypes.get_errno()
+            if err == errno.EEXIST:
+                pass  # Already mounted is fine
+            else:
+                raise MountError(
+                    f"Failed to mount bind volume: {os.strerror(err)} (errno {err})",
+                    logs="",
+                )
     else:
         # For readwrite we use an overlayfs mount, the benefit here is that
         # it works as CoW even if the underlying filesystem doesn't support
@@ -111,25 +136,27 @@ async def mount_volume(
         upperdir = volume_root / "upperdir"
         workdir.mkdir(parents=True, exist_ok=True)
         upperdir.mkdir(parents=True, exist_ok=True)
-        mount_command = [
-            "mount",
-            "--verbose",
-            "-t",
-            "overlay",
-            "overlay",
-            "-o",
-            f"rw,lowerdir={volume_root},upperdir={upperdir},workdir={workdir}",
-            target_path,
-        ]
 
-    mount = await run_console(*mount_command)
-    if mount.returncode == MOUNT_ALREADY_MOUNTED:
-        pass  # Already mounted is fine
-    elif mount.returncode != 0:
-        raise MountError(
-            f"Failed to mount volume (exit code {mount.returncode})",
-            logs=mount.combined,
+        options = f"lowerdir={volume_root},upperdir={upperdir},workdir={workdir}".encode()
+        logger.debug(
+            f"Mounting overlay: {volume_root} → {target_path}"
         )
+        ret = _libc.mount(
+            ctypes.c_char_p(b"overlay"),
+            ctypes.c_char_p(os.fsencode(target_path)),
+            ctypes.c_char_p(b"overlay"),
+            0,
+            ctypes.c_char_p(options),
+        )
+        if ret != 0:
+            err = ctypes.get_errno()
+            if err == errno.EEXIST:
+                pass  # Already mounted is fine
+            else:
+                raise MountError(
+                    f"Failed to mount overlay volume: {os.strerror(err)} (errno {err})",
+                    logs="",
+                )
 
 
 def cleanup_failed_volume(gc_root: Path, volume_root: Path) -> None:
@@ -178,15 +205,20 @@ async def is_mount(path: Path, mounts_file: str | None = None) -> bool:
 
 
 async def unmount(path: Path, mounts_file: str | None = None) -> None:
-    """Unmount a path. Raises UnmountError on failure if still mounted.
+    """Unmount a path using syscall. Raises UnmountError on failure if still mounted.
 
     Args:
         path: Path to unmount
         mounts_file: Path to mounts file for checking (default: /proc/self/mounts)
     """
-    result = await run_captured("umount", "--verbose", path)
-    if result.returncode != 0 and is_mount(path, mounts_file=mounts_file):
+    logger.debug(f"Unmounting: {path}")
+    ret = _libc.umount2(
+        ctypes.c_char_p(os.fsencode(path)),
+        ctypes.c_int(0),
+    )
+    if ret != 0 and await is_mount(path, mounts_file=mounts_file):
+        err = ctypes.get_errno()
         raise UnmountError(
-            f"Failed to unmount volume (exit code {result.returncode})",
-            logs=result.combined,
+            f"Failed to unmount volume: {os.strerror(err)} (errno {err})",
+            logs="",
         )
