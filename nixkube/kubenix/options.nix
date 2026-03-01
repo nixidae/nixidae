@@ -26,6 +26,9 @@ let
     ).inputs;
 in
 {
+  imports = [
+    (lib.mkRenamedOptionModule [ "nix-csi" ] [ "nixkube" ])
+  ];
   options.nixkube = {
     enable = lib.mkEnableOption "nixkube";
     undeploy = lib.mkOption {
