@@ -14,8 +14,6 @@ nix-csi is a Kubernetes CSI (Container Storage Interface) driver that mounts `/n
 
 1. **Node DaemonSet** - Runs on each Kubernetes node, implements the CSI driver protocol to mount Nix stores into pods
 2. **Cache StatefulSet** - Central cache/coordinator that manages distributed builds and binary substitution
-3. **Python Services** - Three main services packaged together:
-   - `nix-csi`: CSI driver implementation (gRPC server)
 
 ## Architecture
 
@@ -48,12 +46,12 @@ The project uses Nix with flake-compatish for backwards compatibility. Key build
 
 ### Python Service Architecture
 
-The Python services use:
+The nix-csi service uses:
 - `grpclib` for async gRPC (CSI protocol implementation)
 - `kr8s` for Kubernetes API interactions
 - `csi-proto-python` for CSI protobuf definitions (generated from upstream spec)
 
-All three services are packaged together in `python/` with a single `pyproject.toml`.
+The service is packaged in `pkgs/nix-csi/` with a single `pyproject.toml`.
 
 ## Common Commands
 
@@ -140,12 +138,11 @@ Enter the environment with `direnv allow && direnv reload` (or open a new termin
 
 ### Python Development
 
-The Python code is in `python/` with three packages:
-- `python/nix_csi/` - CSI driver (main entry: `service.py`)
-- `python/nix_cache/` - Cache manager (main entry: `cli.py`)
-- `python/nix_timegc/` - Garbage collector (main entry: `cli.py`)
+The Python code is in `pkgs/nix-csi/nix_csi/`:
+- `nix_csi/service.py` - CSI driver (gRPC NodeServicer implementation)
+- `nix_csi/cli.py` - Service entry point that runs both CSI and NRI servers
 
-Version is managed in `python/pyproject.toml` and automatically imported into the Nix build.
+Version is managed in `pkgs/nix-csi/pyproject.toml` and automatically imported into the Nix build.
 
 ## Key Configuration Points
 
