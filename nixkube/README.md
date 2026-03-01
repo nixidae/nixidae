@@ -21,28 +21,90 @@ and stuff the result into Kustomize, a blender or your Kubernetes cluster
 
 ## Deploying workloads
 
+nixkube supports two methods for injecting Nix stores into pods:
+
+### CSI Ephemeral Volumes (Explicit)
+
+Request Nix stores explicitly via CSI volumeAttributes. Specify one or more:
+- `storePath` - Direct nix store path (highest priority)
+- `flakeRef` - Flake reference to build
+- `nixExpr` - Nix expression to evaluate and build
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-csi
+spec:
+  containers:
+  - name: hello
+    image: nixos/nix:latest
+    volumeMounts:
+    - name: nix
+      mountPath: /nix
+  volumes:
+  - name: nix
+    ephemeral:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadOnlyMany"]
+          storageClassName: ephemeral-storage
+          resources:
+            requests:
+              storage: 1Gi
+          csi:
+            driver: nixkube
+            volumeAttributes:
+              x86_64-linux: /nix/store/hello-......
+              aarch64-linux: /nix/store/hello-......
+              flakeRef: github:nixos/nixpkgs/nixos-unstable#hello
+              nixExpr: |
+                let
+                  nixpkgs = builtins.fetchTree {
+                    type = "github";
+                    owner = "nixos";
+                    repo = "nixpkgs";
+                    ref = "nixos-unstable";
+                  };
+                  pkgs = import nixpkgs { };
+                in
+                pkgs.hello
+```
+
+The first successful option by priority wins.
+
+**Tip**: For command arrays and environment variables, use `lib.getExe` to reference executables without managing full store paths:
+
+```nix
+command = [ (lib.getExe pkgs.hello) ]
+env = {
+  name = "HELLO_CONFIG";
+  value = pkgs.hello-config;
+}
+```
+
+### NRI Plugin (Automatic via Annotations)
+
+Use pod annotations to automatically inject Nix stores without explicit volume requests:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-nri
+  annotations:
+    nix-nri/pod: |
+      /nix/store/hello-......
+    nix-nri/pod@aarch64-linux: |
+      /nix/store/hello-aarch64-......
+spec:
+  containers:
+  - name: hello
+    image: nixos/nix:latest
+    # /nix is automatically mounted by NRI plugin
+```
+
+Examples:
 * [multi-system example](https://github.com/Lillecarl/hetzkube/blob/4ed76ec77bfb104d1c2307b1ba178efa61dd34e2/kubenix/modules/cheapam.nix#L113)
 * [single-system ci example(s)](https://github.com/Lillecarl/nix-csi/blob/3179e5f8383e760bbef313300a224e44f18722c7/kubenix/ci/default.nix)
-* YAML example, because YAML is....cool
-```yaml
-volumeAttributes:
-  # Pull storePath without eval, prio 1
-  x86_64-linux: /nix/store/hello-......
-  aarch64-linux: /nix/store/hello-......
-  # Evaluates and builds flake, prio 2
-  flakeRef: github:nixos/nixpkgs/nixos-unstable#hello
-  # Evaluates and builds expression, prio 3
-  nixExpr: |
-    let
-      nixpkgs = builtins.fetchTree {
-        type = "github";
-        owner = "nixos";
-        repo = "nixpkgs";
-        ref = "nixos-unstable";
-      };
-      pkgs = import nixpkgs { };
-    in
-    pkgs.hello
-```
-You can specify all these options but the first successful one by priority wins
 

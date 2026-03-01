@@ -154,7 +154,7 @@ just push
 ### Development Environment
 
 The development environment includes:
-- Python with nix-csi, csi-proto-python, kr8s
+- Python with nixkube, csi-proto-python, kr8s
 - xonsh shell
 - ruff, pyright (linting/type checking)
 - kluctl, stern, kubectx (Kubernetes tools)
