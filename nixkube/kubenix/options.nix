@@ -40,9 +40,9 @@ in
       default = true;
     };
     namespace = lib.mkOption {
-      description = "Which namespace to deploy nix-csi to";
+      description = "Which namespace to deploy nixkube to";
       type = lib.types.str;
-      default = "nix-csi";
+      default = "nixkube";
     };
     authorizedKeys = lib.mkOption {
       description = "SSH public keys that can connect to cache and builders";

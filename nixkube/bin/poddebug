@@ -2,7 +2,7 @@
 # Comprehensive pod debugging: status, events, logs, volumes
 
 POD_NAME="${1:?Pod name required}"
-NAMESPACE="${2:-nix-csi}"
+NAMESPACE="${2:-nixkube}"
 
 echo "=== POD BASIC INFO ==="
 kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o wide
