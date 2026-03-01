@@ -82,7 +82,7 @@ let
               tmp.emptyDir.medium = "Memory";
               cgroup.hostPath.path = "/sys/fs/cgroup";
               nix.csi = {
-                driver = "nix.csi.store";
+                driver = "nixkube";
                 volumeAttributes.${pkgs.stdenv.hostPlatform.system} = pkgs.buildEnv {
                   name = "initenv";
                   paths = [

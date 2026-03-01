@@ -134,7 +134,7 @@ in
                   nix-config.configMap.name = "nix-cache";
                   nix-key.secret.secretName = "nix-key";
                   init-store.csi = {
-                    driver = "nix.csi.store";
+                    driver = "nixkube";
                     readOnly = true;
                     volumeAttributes = {
                       # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set

@@ -151,7 +151,7 @@ in
                     args = [
                       "--v=5"
                       "--csi-address=/csi/csi.sock"
-                      "--kubelet-registration-path=/var/lib/kubelet/plugins/nix.csi.store/csi.sock"
+                      "--kubelet-registration-path=/var/lib/kubelet/plugins/nixkube/csi.sock"
                     ];
                     env = lib.mkNamedList {
                       KUBE_NODE_NAME.valueFrom.fieldRef.fieldPath = "spec.nodeName";
@@ -191,7 +191,7 @@ in
                     type = "DirectoryOrCreate";
                   };
                   csi-socket.hostPath = {
-                    path = "/var/lib/kubelet/plugins/nix.csi.store/";
+                    path = "/var/lib/kubelet/plugins/nixkube/";
                     type = "DirectoryOrCreate";
                   };
                   nri-socket.hostPath = {

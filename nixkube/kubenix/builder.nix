@@ -164,7 +164,7 @@ in
               volumes = lib.mkNamedList {
                 nix-config.configMap.name = "nix-builder";
                 init-store.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                   volumeAttributes = {
                     # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
@@ -261,7 +261,7 @@ in
                         };
                         volumes = lib.mkNamedList {
                           nix-store.csi = {
-                            driver = "nix.csi.store";
+                            driver = "nixkube";
                             readOnly = true;
                             volumeAttributes = {
                               # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set

@@ -5,9 +5,9 @@ from asyncio import Semaphore
 from importlib import metadata
 from pathlib import Path
 
-CSI_PLUGIN_NAME = "nix.csi.store"
+CSI_PLUGIN_NAME = "nixkube"
 try:
-    CSI_VENDOR_VERSION = metadata.version("nix-csi")
+    CSI_VENDOR_VERSION = metadata.version("nixkube")
 except metadata.PackageNotFoundError:
     # When running tests or in development, package may not be installed
     CSI_VENDOR_VERSION = "dev"

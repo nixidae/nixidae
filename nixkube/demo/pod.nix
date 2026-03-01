@@ -65,7 +65,7 @@ let
             # into a list of attrset with name attribute set
             volumes = lib.mkNamedList {
               nix.csi = {
-                driver = "nix.csi.store";
+                driver = "nixkube";
                 # these are stringified into storePaths now the manifest depends
                 # on pkgs.hello so when we push it we bring the package environment and nix-csi
                 # can fetch it.

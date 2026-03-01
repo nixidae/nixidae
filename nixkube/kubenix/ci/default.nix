@@ -86,7 +86,7 @@ in
               inherit containers;
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   volumeAttributes.flakeRef = "github:nixos/nixpkgs/nixos-unstable#hello";
                 };
               };
@@ -116,7 +116,7 @@ in
               };
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.nixExpr = # nix
                     ''
@@ -148,7 +148,7 @@ in
               inherit containers;
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.${system} = curPkgs.hello;
                 };
@@ -170,7 +170,7 @@ in
               };
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                 };
               };
@@ -249,7 +249,7 @@ in
               };
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                 };
               };
@@ -269,7 +269,7 @@ in
               inherit containers;
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   readOnly = true;
                   volumeAttributes.${system} = "/nix/store/0000000000000000000000000000000-nonexistent";
                 };
@@ -289,7 +289,7 @@ in
               inherit containers;
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   volumeAttributes.flakeRef = "github:nonexistent/nonexistent-repo/nonexistent-ref#nonexistent";
                 };
               };
@@ -308,7 +308,7 @@ in
               inherit containers;
               volumes = lib.mkNamedList {
                 nix-csi.csi = {
-                  driver = "nix.csi.store";
+                  driver = "nixkube";
                   volumeAttributes.nixExpr = # nix
                     ''
                       let
