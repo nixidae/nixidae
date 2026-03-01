@@ -25,7 +25,7 @@ from .constants import (
     KUBE_POD_NAME,
     NAMESPACE,
 )
-from .errors import CleanupStaleEntriesError, CSIError, RemoveVolumeDirError
+from .errors import CSIError
 from .events import report_event
 from .identityservicer import IdentityServicer
 from .nix import (
@@ -238,30 +238,19 @@ class NodeServicer(csi_grpc.NodeBase):
         async with self.volume_locks[request.volume_id]:
             target_path = Path(request.target_path)
 
-            # Cleanup operations are intentionally fail-fast (not wrapped in individual try/except).
-            # Kubelet will retry NodeUnpublishVolume indefinitely on failure, so we want to
-            # stop at the first error and let the retry start from scratch. This is safer than
-            # attempting partial cleanup, as each retry re-attempts all steps in order.
-
-            # Unmount
+            # Unmount the volume. CSI driver is responsible for unmounting only,
+            # not for removing the kubelet-managed mount directory (that's kubelet's job).
             if await is_mount(target_path):
                 await unmount(target_path)
                 logger.debug(f"unmounted {target_path=}")
-
-            # Remove mount dir
-            if target_path.exists():
-                try:
-                    target_path.rmdir()
-                    logger.debug(f"removed {target_path=}")
-                except Exception as ex:
-                    raise RemoveVolumeDirError(
-                        f"Failed to remove volume directory {target_path}",
-                        logs=str(ex),
-                    )
+            else:
+                logger.debug(f"path not mounted, skipping unmount {target_path=}")
 
             # Clean up stale gcroots and volume directories based on active volumes.
             # This catches orphaned resources from volumes that failed to unpublish cleanly.
-            # TODO: distinguish between failures cleaning our own volume vs other volumes
+            # Note: we do this cleanup even if above steps fail, to ensure CSI driver
+            # resources in /nix/var/nix-csi are always cleaned up. Kubelet will retry
+            # NodeUnpublishVolume if needed, but we should not block cleanup of our own resources.
             try:
                 current_vol_data = target_path.parent / "vol_data.json"
                 active_handles = collect_active_volume_handles(
@@ -269,10 +258,29 @@ class NodeServicer(csi_grpc.NodeBase):
                 )
                 cleanup_stale_entries(active_handles)
             except Exception as ex:
-                raise CleanupStaleEntriesError(
-                    "Failed to cleanup stale volume entries",
-                    logs=str(ex),
+                logger.error(
+                    f"Failed to cleanup stale volume entries for {request.volume_id}: {ex}"
                 )
+                # Report error event on CSI driver controller since we don't have pod info here
+                try:
+                    controller_pod = Pod(
+                        {
+                            "metadata": {
+                                "name": KUBE_POD_NAME,
+                                "namespace": NAMESPACE,
+                            },
+                        },
+                        namespace=NAMESPACE,
+                    )
+                    await report_event(
+                        controller_pod,
+                        reason="VolumeCleanupFailed",
+                        note=f"Failed to cleanup stale entries for volume {request.volume_id}: {str(ex)[:100]}",
+                        event_type="Warning",
+                    )
+                except Exception as report_ex:
+                    logger.warning(f"Failed to report cleanup error event: {report_ex}")
+                # Don't raise - CSI driver should still return success if unmount succeeded
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
 
