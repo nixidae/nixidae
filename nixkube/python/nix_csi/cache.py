@@ -62,7 +62,10 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
     This will improve separation of concerns and allow dedicated builder infrastructure.
     """
     if not package_paths:
+        logger.debug("copy_to_cache: no package paths to copy")
         return
+
+    logger.debug(f"copy_to_cache: starting for {len(package_paths)} packages")
 
     # Create a lock key from all paths to prevent concurrent copies of the same set
     lock_key = tuple(sorted(package_paths))
@@ -79,7 +82,9 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
         if path_info.returncode == 0:
             paths.update(Path(p) for p in path_info.stdout.splitlines())
         else:
-            logger.debug("Failed to get regular paths for packages")
+            logger.warning(
+                f"Failed to get regular paths (rc={path_info.returncode}): {path_info.stderr}"
+            )
 
         # Try to get derivation paths recursively. This may fail if we only have
         # store paths without .drv files (e.g., fetched from substituters), which is normal.
@@ -94,7 +99,7 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         else:
             logger.debug(
-                "No derivation paths found for packages (normal if fetched from substituters)"
+                f"No derivation paths found (rc={path_info_drv.returncode}, normal if fetched from substituters): {path_info_drv.stderr}"
             )
 
         # Filter out .drv files and deduplicate
@@ -116,8 +121,11 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                     logger.debug(f"Successfully copied {len(paths)} paths to cache")
                     break
                 else:
-                    logger.debug(
-                        f"Copy attempt {attempt + 1}/6 failed: {nix_copy.combined}"
+                    logger.warning(
+                        f"Copy attempt {attempt + 1}/6 failed with rc={nix_copy.returncode}\n"
+                        f"  stdout: {nix_copy.stdout}\n"
+                        f"  stderr: {nix_copy.stderr}\n"
+                        f"  combined: {nix_copy.combined}"
                     )
             else:
                 logger.error(

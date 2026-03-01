@@ -223,13 +223,19 @@ async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
         # load: nix-store --load-db with NIX_STATE_DIR set
         try:
             await (
-                sh("nix-store",
-                    "--option", "store", "local",
+                sh(
+                    "nix-store",
+                    "--option",
+                    "store",
+                    "local",
                     "--dump-db",
                     *store_paths,
                 )
-                | sh("nix-store",
-                    "--option", "store", "local",
+                | sh(
+                    "nix-store",
+                    "--option",
+                    "store",
+                    "local",
                     "--load-db",
                 ).env(NIX_STATE_DIR=str(state_dir), USER="nobody")
             )
@@ -239,7 +245,9 @@ async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
                 logs=str(e),
             )
 
-        logger.debug(f"Initialized Nix database at {state_dir} with {len(store_paths)} paths")
+        logger.debug(
+            f"Initialized Nix database at {state_dir} with {len(store_paths)} paths"
+        )
 
     except InitDatabaseError:
         raise

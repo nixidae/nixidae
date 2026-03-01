@@ -33,7 +33,13 @@ _MS_RDONLY = 1
 _MS_REMOUNT = 32
 
 # Get references to syscall functions
-_libc.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_char_p]
+_libc.mount.argtypes = [
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.c_char_p,
+    ctypes.c_ulong,
+    ctypes.c_char_p,
+]
 _libc.mount.restype = ctypes.c_int
 _libc.umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
 _libc.umount2.restype = ctypes.c_int
@@ -137,10 +143,10 @@ async def mount_volume(
         workdir.mkdir(parents=True, exist_ok=True)
         upperdir.mkdir(parents=True, exist_ok=True)
 
-        options = f"lowerdir={volume_root},upperdir={upperdir},workdir={workdir}".encode()
-        logger.debug(
-            f"Mounting overlay: {volume_root} → {target_path}"
+        options = (
+            f"lowerdir={volume_root},upperdir={upperdir},workdir={workdir}".encode()
         )
+        logger.debug(f"Mounting overlay: {volume_root} → {target_path}")
         ret = _libc.mount(
             ctypes.c_char_p(b"overlay"),
             ctypes.c_char_p(os.fsencode(target_path)),
