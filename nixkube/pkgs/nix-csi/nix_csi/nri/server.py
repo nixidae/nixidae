@@ -43,10 +43,14 @@ from .ns_mount import mount_in_container
 
 logger = logging.getLogger("nix-nri")
 
-# Subscribe to all valid NRI events.
-# Mirrors the Go formula: ValidEvents = (1 << (Event_LAST - 1)) - 1
-# containerd rejects any events bits outside this mask.
-_ALL_NRI_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
+# Subscribe only to CreateContainer and StopContainer events.
+_SUBSCRIBED_EVENTS = sum(
+    1 << event
+    for event in [
+        nri_pb2.Event.CREATE_CONTAINER,
+        nri_pb2.Event.STOP_CONTAINER,
+    ]
+)
 
 
 class NriPlugin(nri_grpc.PluginBase):
@@ -67,7 +71,7 @@ class NriPlugin(nri_grpc.PluginBase):
             req.runtime_name if req else None,
             req.runtime_version if req else None,
         )
-        await stream.send_message(nri_pb2.ConfigureResponse(events=_ALL_NRI_EVENTS))
+        await stream.send_message(nri_pb2.ConfigureResponse(events=_SUBSCRIBED_EVENTS))
 
     async def Synchronize(self, stream) -> None:
         req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
