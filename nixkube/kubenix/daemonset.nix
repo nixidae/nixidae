@@ -21,10 +21,10 @@ in
       compat = {
         enable = (lib.mkEnableOption "nix.csi.store CSI driver (for backwards compatibility)") // {
           default = true;
-          apply = value:
+          apply =
+            value:
             if value then
-              lib.warn "nixkube: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name."
-              value
+              lib.warn "nixkube: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name." value
             else
               value;
         };

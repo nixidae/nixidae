@@ -111,7 +111,7 @@ in
               metadata.labels = labels;
               spec = {
                 restartPolicy = "OnFailure";
-                serviceAccountName = "nix-csi";
+                serviceAccountName = "nixkube";
                 containers = lib.mkNamedList {
                   init = {
                     # Use normal lix so we don't have to build lruLix locally

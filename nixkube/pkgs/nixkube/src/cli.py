@@ -72,12 +72,14 @@ async def async_main():
 
     logger.info(f"NRI plugin: {'enabled' if NRI_ENABLED else 'disabled'}")
     logger.info(
-        f"CSI drivers: nixkube"
-        + (f" + nix.csi.store (compat)" if ENABLE_COMPAT_DRIVER else "")
+        "CSI drivers: nixkube"
+        + (" + nix.csi.store (compat)" if ENABLE_COMPAT_DRIVER else "")
     )
 
     try:
-        tasks = [csi_serve(plugin_name="nixkube", socket_path=Path("/csi/nixkube/csi.sock"))]
+        tasks = [
+            csi_serve(plugin_name="nixkube", socket_path=Path("/csi/nixkube/csi.sock"))
+        ]
         if ENABLE_COMPAT_DRIVER:
             tasks.append(
                 csi_serve(

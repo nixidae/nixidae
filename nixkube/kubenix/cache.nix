@@ -60,7 +60,7 @@ in
                 );
               };
               spec = {
-                serviceAccountName = "nix-csi";
+                serviceAccountName = "nixkube";
                 priorityClassName = "system-cluster-critical";
                 initContainers = lib.mkNumberedList {
                   "1" = {
