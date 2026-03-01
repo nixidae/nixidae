@@ -10,10 +10,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-nix-csi is a Kubernetes CSI (Container Storage Interface) driver that mounts `/nix` stores into pods using ephemeral volumes. The system consists of:
+nixkube is a Kubernetes plugin system that injects Nix stores into pods using two complementary protocols:
 
-1. **Node DaemonSet** - Runs on each Kubernetes node, implements the CSI driver protocol to mount Nix stores into pods
+1. **CSI (Container Storage Interface)** - Ephemeral volumes with explicit pod requests via volumeAttributes
+2. **NRI (Node Resource Interface)** - Container runtime hooks for automatic injection via pod annotations
+
+The system consists of:
+
+1. **Node DaemonSet** - Runs on each Kubernetes node, implements both CSI and NRI protocols to mount Nix stores into pods
 2. **Cache StatefulSet** - Central cache/coordinator that manages distributed builds and binary substitution
+3. **Optional Builder Pods** - For offloading builds to dedicated builder nodes
+
+The CSI layer supports two driver names for backwards compatibility:
+- **nixkube** - Primary driver name (recommended for new deployments)
+- **nix.csi.store** - Legacy driver name (enabled via `cfg.node.csi.compat.enable`)
 
 ## Architecture
 
@@ -35,7 +45,7 @@ The project uses Nix with flake-compatish for backwards compatibility. Key build
 
 ### Communication Flow
 
-**Cache → Nodes**: The cache service watches for pods labeled `app=nix-csi-node` and updates `/etc/machines` with builder DNS names (`pod.name.nix-builders.namespace.svc.cluster.local`). This enables distributed builds.
+**Cache → Nodes**: The cache service watches for pods labeled `app.kubernetes.io/component=node` and updates `/etc/machines` with builder DNS names (`pod.name.nixkube-builders.namespace.svc.cluster.local`). This enables distributed builds.
 
 **Nodes → Cache**: Node pods use the cache as a binary substitute via `ssh-ng://nix@nix-cache?trusted=1` configured in `kubenix/config.nix`.
 
@@ -46,12 +56,29 @@ The project uses Nix with flake-compatish for backwards compatibility. Key build
 
 ### Python Service Architecture
 
-The nix-csi service uses:
-- `grpclib` for async gRPC (CSI protocol implementation)
-- `kr8s` for Kubernetes API interactions
-- `csi-proto-python` for CSI protobuf definitions (generated from upstream spec)
+The nixkube service is a single multi-protocol daemon running both CSI and NRI servers concurrently:
 
-The service is packaged in `pkgs/nixkube/` with a single `pyproject.toml`.
+**CSI Server** (`src/csi/`):
+- `grpclib` for async gRPC protocol implementation
+- `csi-proto-python` for CSI protobuf definitions (upstream spec)
+- Handles explicit ephemeral volume requests via volumeAttributes
+- Supports both nixkube and nix.csi.store driver names for backwards compatibility
+
+**NRI Plugin** (`src/nri/`):
+- ttrpc (transport-agnostic RPC) for NRI protocol
+- Pod annotation parsing for automatic store injection
+- OCI hook invocation for container initialization
+- ZeroMQ-based coordination with build tasks
+
+**Shared Infrastructure**:
+- `kr8s` for Kubernetes API interactions and event reporting
+- `nri-wait` for container initialization coordination
+- Subprocess orchestration for Nix operations
+
+Entry point (`src/cli.py`) starts both servers and features:
+- Configurable logging via `/etc/nix/logging.json` ConfigMap
+- Environment variable controls for feature flags (ENABLE_COMPAT_DRIVER, NRI_ENABLED)
+- Graceful multi-server error handling
 
 ## Common Commands
 
@@ -168,8 +195,11 @@ The `config-reconciler` service runs continuously to sync SSH keys and Nix confi
 - `environments/cache/default.nix`: Cache environment with shared + cache services
 - `environments/node/default.nix`: Node environment with shared + CSI services
 - `kubenix/options.nix`: Kubernetes module options and package builds
-- `python/nix_csi/service.py`: CSI NodeServicer gRPC implementation
-- `python/nix_cache/cli.py`: Cache service that maintains Nix machines file
+- `kubenix/daemonset.nix`: Node DaemonSet with CSI/NRI containers and registration
+- `kubenix/cache.nix`: Cache StatefulSet with build coordination services
+- `kubenix/builder.nix`: Optional builder pods for distributed builds
+- `pkgs/nixkube/src/csi/server.py`: CSI driver gRPC server
+- `pkgs/nixkube/src/nri/server.py`: NRI plugin ttrpc handler
 - `liximage.nix`: Builds the Lix container used by initContainers
 
 ## Code Review Standards

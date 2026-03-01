@@ -1,8 +1,8 @@
-## nix-csi\.enable
+## nixkube\.enable
 
 
 
-Whether to enable nix-csi\.
+Whether to enable nixkube\.
 
 
 
@@ -12,19 +12,25 @@ boolean
 
 
 *Default:*
-` false `
+
+```nix
+false
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.authorizedKeys
+## nixkube\.authorizedKeys
 
 SSH public keys that can connect to cache and builders
 
@@ -36,14 +42,17 @@ list of (string or absolute path)
 
 
 *Default:*
-` [ ] `
+
+```nix
+[ ]
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.builders\.enable
+## nixkube\.builders\.enable
 
 
 
@@ -57,19 +66,25 @@ boolean
 
 
 *Default:*
-` false `
+
+```nix
+true
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets
+## nixkube\.builders\.daemonsets
 
 
 
@@ -83,14 +98,17 @@ attribute set of (submodule)
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets\.\<name>\.enable
+## nixkube\.builders\.daemonsets\.\<name>\.enable
 
 
 
@@ -104,19 +122,25 @@ boolean
 
 
 *Default:*
-` true `
+
+```nix
+true
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets\.\<name>\.arch
+## nixkube\.builders\.daemonsets\.\<name>\.arch
 
 
 
@@ -130,14 +154,17 @@ non-empty string
 
 
 *Default:*
-` "amd64" `
+
+```nix
+"amd64"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets\.\<name>\.labels
+## nixkube\.builders\.daemonsets\.\<name>\.labels
 
 
 
@@ -151,14 +178,17 @@ attribute set of string
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets\.\<name>\.replicas
+## nixkube\.builders\.daemonsets\.\<name>\.replicas
 
 
 
@@ -172,14 +202,17 @@ positive integer, meaning >0
 
 
 *Default:*
-` 1 `
+
+```nix
+1
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.daemonsets\.\<name>\.resources
+## nixkube\.builders\.daemonsets\.\<name>\.resources
 
 
 
@@ -194,7 +227,7 @@ JSON value
 
 *Default:*
 
-```
+```nix
 {
   limits = {
     ephemeral-storage = "5Gi";
@@ -212,7 +245,7 @@ JSON value
 
 
 
-## nix-csi\.builders\.deployments
+## nixkube\.builders\.deployments
 
 
 
@@ -226,14 +259,17 @@ attribute set of (submodule)
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.deployments\.\<name>\.enable
+## nixkube\.builders\.deployments\.\<name>\.enable
 
 
 
@@ -247,19 +283,25 @@ boolean
 
 
 *Default:*
-` true `
+
+```nix
+true
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.deployments\.\<name>\.arch
+## nixkube\.builders\.deployments\.\<name>\.arch
 
 
 
@@ -273,14 +315,17 @@ non-empty string
 
 
 *Default:*
-` "amd64" `
+
+```nix
+"amd64"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.deployments\.\<name>\.labels
+## nixkube\.builders\.deployments\.\<name>\.labels
 
 
 
@@ -294,14 +339,17 @@ attribute set of string
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.deployments\.\<name>\.replicas
+## nixkube\.builders\.deployments\.\<name>\.replicas
 
 
 
@@ -315,14 +363,17 @@ positive integer, meaning >0
 
 
 *Default:*
-` 1 `
+
+```nix
+1
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.deployments\.\<name>\.resources
+## nixkube\.builders\.deployments\.\<name>\.resources
 
 
 
@@ -337,7 +388,7 @@ JSON value
 
 *Default:*
 
-```
+```nix
 {
   limits = {
     ephemeral-storage = "5Gi";
@@ -355,7 +406,7 @@ JSON value
 
 
 
-## nix-csi\.builders\.loadBalancerPort
+## nixkube\.builders\.loadBalancerPort
 
 
 
@@ -369,14 +420,17 @@ null or (positive integer, meaning >0)
 
 
 *Default:*
-` 2223 `
+
+```nix
+2223
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.nixConfig
+## nixkube\.builders\.nixConfig
 
 
 
@@ -392,7 +446,7 @@ submodule
 
 
 
-## nix-csi\.builders\.nixConfig\.extraOptions
+## nixkube\.builders\.nixConfig\.extraOptions
 
 
 
@@ -406,14 +460,17 @@ strings concatenated with “\\n”
 
 
 *Default:*
-` "" `
+
+```nix
+""
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.nixConfig\.settings
+## nixkube\.builders\.nixConfig\.settings
 
 
 
@@ -427,14 +484,17 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.builders\.privilegedSandboxedBuilds
+## nixkube\.builders\.privilegedSandboxedBuilds
 
 
 
@@ -448,14 +508,17 @@ boolean
 
 
 *Default:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/builder\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/builder.nix)
 
 
 
-## nix-csi\.cache\.enable
+## nixkube\.cache\.enable
 
 
 
@@ -469,19 +532,25 @@ boolean
 
 
 *Default:*
-` false `
+
+```nix
+true
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
 
 
-## nix-csi\.cache\.loadBalancerPort
+## nixkube\.cache\.loadBalancerPort
 
 
 
@@ -495,14 +564,17 @@ null or signed integer
 
 
 *Default:*
-` 2222 `
+
+```nix
+2222
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
 
 
-## nix-csi\.cache\.nixConfig
+## nixkube\.cache\.nixConfig
 
 
 
@@ -518,7 +590,7 @@ submodule
 
 
 
-## nix-csi\.cache\.nixConfig\.extraOptions
+## nixkube\.cache\.nixConfig\.extraOptions
 
 
 
@@ -532,14 +604,17 @@ strings concatenated with “\\n”
 
 
 *Default:*
-` "" `
+
+```nix
+""
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
 
 
-## nix-csi\.cache\.nixConfig\.settings
+## nixkube\.cache\.nixConfig\.settings
 
 
 
@@ -553,14 +628,17 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
 
 
-## nix-csi\.cache\.storageClassName
+## nixkube\.cache\.storageClassName
 
 
 
@@ -574,14 +652,17 @@ null or string
 
 
 *Default:*
-` null `
+
+```nix
+null
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
 
 
-## nix-csi\.deploySecrets
+## nixkube\.deploySecrets
 
 
 
@@ -595,14 +676,17 @@ boolean
 
 
 *Default:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.hostMountPath
+## nixkube\.hostMountPath
 
 
 
@@ -616,14 +700,17 @@ absolute path
 
 
 *Default:*
-` "/var/lib/nix-csi" `
+
+```nix
+"/var/lib/nix-csi"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.internalServiceName
+## nixkube\.internalServiceName
 
 
 
@@ -637,14 +724,17 @@ string
 
 
 *Default:*
-` "nix-builders" `
+
+```nix
+"nix-builders"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.knownHosts
+## nixkube\.knownHosts
 
 
 
@@ -658,67 +748,35 @@ attribute set of (string or absolute path)
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.loggingConfig
+## nixkube\.loggingConfig
 
 
 
 Python logging configuration dict for nix-csi service\.
+Merged with built-in defaults, so you only need to override specific parts\.
 See https://docs\.python\.org/3/library/logging\.config\.html\#logging-config-dictschema
 
 
 
 *Type:*
-JSON value
+attribute set of (JSON value)
 
 
 
 *Default:*
 
-```
-{
-  formatters = {
-    standard = {
-      format = "%(levelname)s [%(name)s] %(message)s";
-    };
-  };
-  handlers = {
-    console = {
-      class = "logging.StreamHandler";
-      formatter = "standard";
-      stream = "ext://sys.stdout";
-    };
-  };
-  loggers = {
-    httpx = {
-      handlers = [
-        "console"
-      ];
-      level = "WARNING";
-      propagate = false;
-    };
-    nix-csi = {
-      handlers = [
-        "console"
-      ];
-      level = "INFO";
-      propagate = false;
-    };
-  };
-  root = {
-    handlers = [
-      "console"
-    ];
-    level = "WARN";
-  };
-  version = 1;
-}
+```nix
+{ }
 ```
 
 *Declared by:*
@@ -726,11 +784,11 @@ JSON value
 
 
 
-## nix-csi\.metadata
+## nixkube\.metadata
 
 
 
-Labels added to nix-csi resources
+Metadata (labels, annotations) applied to nix-csi resources
 
 
 
@@ -740,18 +798,21 @@ JSON value
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.namespace
+## nixkube\.namespace
 
 
 
-Which namespace to deploy nix-csi to
+Which namespace to deploy nixkube to
 
 
 
@@ -761,14 +822,17 @@ string
 
 
 *Default:*
-` "nix-csi" `
+
+```nix
+"nixkube"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.node\.enable
+## nixkube\.node\.enable
 
 
 
@@ -782,19 +846,57 @@ boolean
 
 
 *Default:*
-` true `
+
+```nix
+true
+```
 
 
 
 *Example:*
-` true `
+
+```nix
+true
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
-## nix-csi\.node\.nixConfig
+## nixkube\.node\.csi\.compat\.enable
+
+
+
+Whether to enable nix\.csi\.store CSI driver (for backwards compatibility)\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
+
+
+
+## nixkube\.node\.nixConfig
 
 
 
@@ -810,7 +912,7 @@ submodule
 
 
 
-## nix-csi\.node\.nixConfig\.extraOptions
+## nixkube\.node\.nixConfig\.extraOptions
 
 
 
@@ -824,14 +926,17 @@ strings concatenated with “\\n”
 
 
 *Default:*
-` "" `
+
+```nix
+""
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
-## nix-csi\.node\.nixConfig\.settings
+## nixkube\.node\.nixConfig\.settings
 
 
 
@@ -845,14 +950,17 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 *Default:*
-` { } `
+
+```nix
+{ }
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/daemonset\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/daemonset.nix)
 
 
 
-## nix-csi\.nodeBuildTimeout
+## nixkube\.nodeBuildTimeout
 
 
 
@@ -867,14 +975,17 @@ positive integer, meaning >0
 
 
 *Default:*
-` 300 `
+
+```nix
+300
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.rsyncConcurrency
+## nixkube\.rsyncConcurrency
 
 
 
@@ -889,14 +1000,17 @@ positive integer, meaning >0
 
 
 *Default:*
-` 1 `
+
+```nix
+1
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.undeploy
+## nixkube\.undeploy
 
 
 
@@ -910,14 +1024,17 @@ boolean
 
 
 *Default:*
-` false `
+
+```nix
+false
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
 
-## nix-csi\.version
+## nixkube\.version
 
 
 
@@ -931,7 +1048,10 @@ string
 
 
 *Default:*
-` "0.3.2" `
+
+```nix
+"0.4.3"
+```
 
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
