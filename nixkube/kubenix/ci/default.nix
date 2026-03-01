@@ -9,7 +9,7 @@
   ...
 }:
 let
-  cfg = config.nix-csi;
+  cfg = config.nixkube;
   system = curPkgs.stdenv.hostPlatform.system;
 
   containers = lib.mkNamedList {
