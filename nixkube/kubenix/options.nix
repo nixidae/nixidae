@@ -151,10 +151,10 @@ in
                   };
               in
               {
-                nix-csi-node-env = callPackage ../environments/node;
-                nix-csi-cache-env = callPackage ../environments/cache;
-                nix-csi-builder-env = callPackage ../environments/builder;
-                nix-csi-proxy-env = callPackage ../environments/proxy;
+                nixkube-node-env = callPackage ../environments/node;
+                nixkube-cache-env = callPackage ../environments/cache;
+                nixkube-builder-env = callPackage ../environments/builder;
+                nixkube-proxy-env = callPackage ../environments/proxy;
               }
             )
           ];

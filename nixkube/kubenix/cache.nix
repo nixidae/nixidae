@@ -139,8 +139,8 @@ in
                     volumeAttributes = {
                       # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
                       # this is so users don't have to build locally to deploy.
-                      x86_64-linux = x86Pkgs.nix-csi-cache-env;
-                      aarch64-linux = armPkgs.nix-csi-cache-env;
+                      x86_64-linux = x86Pkgs.nixkube-cache-env;
+                      aarch64-linux = armPkgs.nixkube-cache-env;
                     };
                   };
 

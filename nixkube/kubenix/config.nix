@@ -48,14 +48,14 @@ in
       ConfigMap.push = lib.mkIf cfg.push {
         metadata.labels = cfg.labels;
         data = {
-          builder-aarch64-linux = armPkgs.nix-csi-builder-env;
-          builder-x86_64-linux = x86Pkgs.nix-csi-builder-env;
-          cache-aarch64-linux = armPkgs.nix-csi-cache-env;
-          cache-x86_64-linux = x86Pkgs.nix-csi-cache-env;
-          node-aarch64-linux = armPkgs.nix-csi-node-env;
-          node-x86_64-linux = x86Pkgs.nix-csi-node-env;
-          proxy-aarch64-linux = armPkgs.nix-csi-proxy-env;
-          proxy-x86_64-linux = x86Pkgs.nix-csi-proxy-env;
+          builder-aarch64-linux = armPkgs.nixkube-builder-env;
+          builder-x86_64-linux = x86Pkgs.nixkube-builder-env;
+          cache-aarch64-linux = armPkgs.nixkube-cache-env;
+          cache-x86_64-linux = x86Pkgs.nixkube-cache-env;
+          node-aarch64-linux = armPkgs.nixkube-node-env;
+          node-x86_64-linux = x86Pkgs.nixkube-node-env;
+          proxy-aarch64-linux = armPkgs.nixkube-proxy-env;
+          proxy-x86_64-linux = x86Pkgs.nixkube-proxy-env;
         };
       };
       ConfigMap.nix-node = {
