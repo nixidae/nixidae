@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..constants import CSI_GCROOTS, CSI_VOLUMES, KUBELET_PODS_PATH
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube.csi")
 
 
 def collect_active_volume_handles(exclude_vol_data_path: Path | None) -> set[str]:

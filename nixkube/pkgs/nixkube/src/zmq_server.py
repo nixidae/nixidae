@@ -11,7 +11,7 @@ from typing import Optional
 import zmq.asyncio
 from cachetools import TTLCache
 
-logger = logging.getLogger("nix-nri")
+logger = logging.getLogger("nixkube")
 
 
 class ZeroMQServer:

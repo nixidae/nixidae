@@ -191,8 +191,21 @@ in
           };
         };
         loggers = {
-          nix-csi.level = "INFO";
-          nix-nri.level = "INFO";
+          nixkube = {
+            level = "INFO";
+            handlers = [ "console" ];
+            propagate = false;
+          };
+          "nixkube.csi" = {
+            level = "INFO";
+            handlers = [ "console" ];
+            propagate = false;
+          };
+          "nixkube.nri" = {
+            level = "INFO";
+            handlers = [ "console" ];
+            propagate = false;
+          };
           httpx.level = "WARNING";
         };
         root = {

@@ -42,7 +42,7 @@ from ..volume import (
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .identity import IdentityServicer
 
-logger = logging.getLogger("nix-csi")
+logger = logging.getLogger("nixkube.csi")
 
 
 def csi_error_handler(func):

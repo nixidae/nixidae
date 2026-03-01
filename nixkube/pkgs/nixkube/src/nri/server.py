@@ -41,7 +41,7 @@ from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
 from .ns_mount import mount_in_container
 
-logger = logging.getLogger("nix-nri")
+logger = logging.getLogger("nixkube.nri")
 
 # Subscribe only to CreateContainer and StopContainer events.
 _SUBSCRIBED_EVENTS = sum(
@@ -108,10 +108,10 @@ class NriPlugin(nri_grpc.PluginBase):
         )
 
         # Combine env values, args and store mount annotation values for store path extraction
-        # Only extract from nix-nri/pod or nix-nri/{container-name} annotations
-        # Include system-specific variants (e.g., nix-nri/pod@x86_64-linux)
-        pod_prefix = "nix-nri/pod"
-        container_prefix = f"nix-nri/{req.container.name}"
+        # Only extract from nixkube/pod or nixkube/{container-name} annotations
+        # Include system-specific variants (e.g., nixkube/pod@x86_64-linux)
+        pod_prefix = "nixkube/pod"
+        container_prefix = f"nixkube/{req.container.name}"
         store_annotation_values = [
             value
             for key, value in req.pod.annotations.items()
@@ -132,7 +132,7 @@ class NriPlugin(nri_grpc.PluginBase):
                 f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
             )
 
-        # Parse store mount annotations (nix-nri/[container-name/]path), filtered by system
+        # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
         store_mounts = parse_store_mounts(
             req.pod.annotations, req.container.name, get_current_system()
         )
@@ -141,7 +141,7 @@ class NriPlugin(nri_grpc.PluginBase):
                 f"[CreateContainer] Parsed store mounts for container={req.container.name}: {store_mounts}"
             )
 
-        # Parse RW flag (nix-nri/pod-rw or nix-nri/{container-name}-rw), filtered by system
+        # Parse RW flag (nixkube/pod-rw or nixkube/{container-name}-rw), filtered by system
         nix_rw = parse_nix_rw(
             req.pod.annotations, req.container.name, get_current_system()
         )

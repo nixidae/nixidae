@@ -43,7 +43,7 @@ in
         "app.kubernetes.io/component" = "ci-test-nri";
       };
       spec.template = {
-        metadata.annotations."nix-nri/pod-rw" = "true";
+        metadata.annotations."nixkube/pod-rw" = "true";
         spec = {
           restartPolicy = "Never";
           containers = lib.mkNamedList {

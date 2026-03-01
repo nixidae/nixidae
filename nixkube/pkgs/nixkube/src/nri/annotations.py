@@ -10,23 +10,23 @@ def _parse_store_mounts_for_name(
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
-    Annotations format: nix-nri/{target-name}(-{suffix})?(@{system})?: /path/in/container=/source
+    Annotations format: nixkube/{target-name}(-{suffix})?(@{system})?: /path/in/container=/source
     - suffix: optional, allows multiple mounts to same destination (ignored by parser)
     - system: optional, filters annotation to specific system (e.g., x86_64-linux, aarch64-linux)
     - source: auto-detected as store path, flake reference, or nix expression
 
     For wildcard (target_name="pod"):
-      nix-nri/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
-      nix-nri/pod-2@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
+      nixkube/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
+      nixkube/pod-2@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
 
     For container (target_name="myapp"):
-      nix-nri/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64/etc/ssl
+      nixkube/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64/etc/ssl
 
     Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
     Annotations without @system apply to all systems.
     """
     mounts: dict[Path, Path] = {}
-    prefix = f"nix-nri/{target_name}"
+    prefix = f"nixkube/{target_name}"
 
     for key, value in pod_annotations.items():
         # Match annotations starting with prefix, optionally followed by -suffix and/or @system
@@ -61,10 +61,10 @@ def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
     Supports system-specific variants with @{system} suffix.
 
     Annotations:
-      nix-nri/pod-rw: "true"                 — all containers get RW /nix
-      nix-nri/pod-rw@x86_64-linux: "true"   — all containers get RW /nix on x86_64
-      nix-nri/{container-name}-rw: "true"   — only this container gets RW /nix
-      nix-nri/{container-name}-rw@aarch64-linux: "false" — this container stays RO on aarch64
+      nixkube/pod-rw: "true"                 — all containers get RW /nix
+      nixkube/pod-rw@x86_64-linux: "true"   — all containers get RW /nix on x86_64
+      nixkube/{container-name}-rw: "true"   — only this container gets RW /nix
+      nixkube/{container-name}-rw@aarch64-linux: "false" — this container stays RO on aarch64
     """
 
     # Helper to check annotation with optional system suffix
@@ -78,7 +78,7 @@ def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
         return False
 
     # Check container-specific first (takes precedence)
-    container_key = f"nix-nri/{container_name}-rw"
+    container_key = f"nixkube/{container_name}-rw"
     if (
         container_key in pod_annotations
         or f"{container_key}@{system}" in pod_annotations
@@ -86,7 +86,7 @@ def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
         return check_annotation(container_key)
 
     # Fall back to pod-wide setting
-    return check_annotation("nix-nri/pod-rw")
+    return check_annotation("nixkube/pod-rw")
 
 
 def parse_store_mounts(
@@ -96,16 +96,16 @@ def parse_store_mounts(
     Parse store mount annotations from pod metadata with system filtering.
 
     Supports annotation patterns:
-    1. Pod-wide (apply to all containers):  nix-nri/pod: /etc/ssl=/source
-    2. Container-specific (overrides pod-wide): nix-nri/container-name: /etc/ssl=/source
+    1. Pod-wide (apply to all containers):  nixkube/pod: /etc/ssl=/source
+    2. Container-specific (overrides pod-wide): nixkube/container-name: /etc/ssl=/source
     3. System-specific variants with @{system} suffix
 
     Source is auto-detected: store path, flake reference, or nix expression.
 
     Example annotations:
-      nix-nri/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs
-      nix-nri/pod@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
-      nix-nri/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64
+      nixkube/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs
+      nixkube/pod@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
+      nixkube/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64
 
     Returns dict: {Path("/path/in/container"): Path("/source")}
     - Container-specific annotations override pod-wide annotations for the same path

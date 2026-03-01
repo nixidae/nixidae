@@ -8,7 +8,7 @@ from pathlib import Path
 from ..constants import NRI_CONTAINERS
 from ..cri import list_container_ids
 
-logger = logging.getLogger("nix-nri")
+logger = logging.getLogger("nixkube.nri")
 
 
 async def cleanup_container_volume(container_id: str) -> None:

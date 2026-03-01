@@ -5,7 +5,7 @@
 ## Approach
 
 /nix is mounted via one of two paths depending on whether the container
-requested read-write access (nix-nri/pod-rw or nix-nri/{container}-rw annotation):
+requested read-write access (nixkube/pod-rw or nixkube/{container}-rw annotation):
 
   RO (default): open_tree(2) clones the prepared nix tree as a detached fd while
     still in the daemonset namespace; the fd survives setns(2) so the source
@@ -70,7 +70,7 @@ from pathlib import Path
 
 from ..constants import HOST_PROC_PATH
 
-logger = logging.getLogger("nix-nri")
+logger = logging.getLogger("nixkube.nri")
 
 # mount(2) flags
 MS_RDONLY = 1

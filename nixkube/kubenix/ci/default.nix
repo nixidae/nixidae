@@ -44,12 +44,17 @@ in
         };
       };
       loggers = {
-        nix-csi = {
+        nixkube = {
           level = "DEBUG";
           handlers = [ "console" ];
           propagate = false;
         };
-        nix-nri = {
+        "nixkube.csi" = {
+          level = "DEBUG";
+          handlers = [ "console" ];
+          propagate = false;
+        };
+        "nixkube.nri" = {
           level = "DEBUG";
           handlers = [ "console" ];
           propagate = false;
