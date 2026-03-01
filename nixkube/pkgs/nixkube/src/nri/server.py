@@ -196,8 +196,8 @@ class NriPlugin(nri_grpc.PluginBase):
                         self.nri_wait_bin,
                     ],
                     env=[
-                        "NRI_QUERY_SOCKET=/nix/var/nix-csi/wait-req.sock",
-                        "NRI_PUB_SOCKET=/nix/var/nix-csi/wait-pub.sock",
+                        "NRI_QUERY_SOCKET=/nix/var/nixkube/wait-req.sock",
+                        "NRI_PUB_SOCKET=/nix/var/nixkube/wait-pub.sock",
                         "NRI_TIMEOUT=30",
                     ],
                 )

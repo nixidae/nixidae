@@ -17,7 +17,7 @@ logger = logging.getLogger("nixkube")
 class ZeroMQServer:
     """Manages ZeroMQ PUB/REP sockets for build status coordination."""
 
-    def __init__(self, socket_base_dir: str = "/nix/var/nix-csi"):
+    def __init__(self, socket_base_dir: str = "/nix/var/nixkube"):
         """Initialize ZeroMQ server (sockets not yet created)."""
         self.socket_base_dir = socket_base_dir
         self.context: Optional[zmq.asyncio.Context] = None
