@@ -57,7 +57,7 @@ in
       default = { };
     };
     metadata = lib.mkOption {
-      description = "Metadata (labels, annotations) applied to nix-csi resources";
+      description = "Metadata (labels, annotations) applied to nixkube resources";
       type = (curPkgs.formats.json { }).type;
       default = { };
     };
@@ -70,7 +70,7 @@ in
         pyproject.project.version;
     };
     hostMountPath = lib.mkOption {
-      description = "Where on the host to put nix-csi store, / is untested and not recommended";
+      description = "Where on the host to put nixkube store, / is untested and not recommended";
       type = lib.types.path;
       default = "/var/lib/nix-csi";
     };
@@ -99,7 +99,7 @@ in
     };
     loggingConfig = lib.mkOption {
       description = ''
-        Python logging configuration dict for nix-csi service.
+        Python logging configuration dict for nixkube service.
         Merged with built-in defaults, so you only need to override specific parts.
         See https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
       '';
@@ -125,12 +125,12 @@ in
     labels = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       internal = true;
-      description = "All nix-csi labels including version (for metadata.labels)";
+      description = "All nixkube labels including version (for metadata.labels)";
     };
     matchLabels = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       internal = true;
-      description = "nix-csi base labels without version (for selector.matchLabels)";
+      description = "nixkube base labels without version (for selector.matchLabels)";
     };
   };
   config =
