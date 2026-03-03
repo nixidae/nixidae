@@ -143,12 +143,6 @@ class BuildError(CSIError):
     reason = "Build"
 
 
-# Backwards compatibility
-PathBuildError = BuildError
-FlakeBuildError = BuildError
-ExprBuildError = BuildError
-
-
 class SystemDetectionError(CSIError):
     """Error detecting system type."""
 
