@@ -70,7 +70,7 @@ from pathlib import Path
 
 from ..constants import HOST_PROC_PATH
 
-logger = logging.getLogger("nixkube.nri")
+logger = logging.getLogger("nixkube.nri.mount")
 
 # mount(2) flags
 MS_RDONLY = 1

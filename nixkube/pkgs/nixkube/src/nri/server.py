@@ -38,8 +38,8 @@ from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
-from .ns_mount import mount_in_container
-from .zmq_server import ZeroMQServer
+from .mount import mount_in_container
+from .zmq import ZeroMQServer
 
 # Subscribe to all valid NRI events (containerd may not send CreateContainer
 # unless we also subscribe to pod events and other related event types)
@@ -353,7 +353,7 @@ class NriPlugin(nri_grpc.PluginBase):
                 )
             pid, bundle = container_info
 
-            ns_mounts = []
+            mounts = []
             if store_mounts:
                 for container_path, store_path in store_mounts.items():
                     resolved = store_path.resolve()
@@ -362,12 +362,12 @@ class NriPlugin(nri_grpc.PluginBase):
                             f"Invalid store path in annotation: {store_path!r} → {container_path!r} "
                             f"(resolved: {resolved!r} does not exist)"
                         )
-                    ns_mounts.append((resolved, container_path))
+                    mounts.append((resolved, container_path))
 
             logger.info(
-                f"Namespace-mounting /nix + {len(ns_mounts)} store mount(s) in container pid={pid} bundle={bundle!r}"
+                f"Namespace-mounting /nix + {len(mounts)} store mount(s) in container pid={pid} bundle={bundle!r}"
             )
-            await mount_in_container(pid, bundle, nix_tree_path, ns_mounts, nix_rw)
+            await mount_in_container(pid, bundle, nix_tree_path, mounts, nix_rw)
 
             logger.info(f"Completed all phases for container={container_id!r}")
             self.zmq_server.build_status[container_id] = {"status": "done"}
