@@ -708,10 +708,8 @@ async def _nri_run() -> None:
     # Discover CRI socket for garbage collection
     cri_socket = await get_cri_socket()
 
-    mapping: dict = {}
     plugin = NriPlugin(zmq_server, cri_socket)
-    for h in [plugin]:
-        mapping.update(h.__mapping__())
+    mapping = plugin.__mapping__()
 
     handler = TtrpcHandler(mapping, codec)
     protocol = TtrpcProtocol(handler)
