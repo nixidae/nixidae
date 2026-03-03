@@ -57,10 +57,129 @@ from .zmq import ZeroMQServer
 _SUBSCRIBED_EVENTS = sum(
     1 << (event - 1)
     for event in [
-        nri_pb2.Event.CREATE_CONTAINER,   # Inject stores into containers
-        nri_pb2.Event.REMOVE_CONTAINER,   # Cleanup hardlink farm volumes
+        nri_pb2.Event.CREATE_CONTAINER,  # Inject stores into containers
+        nri_pb2.Event.REMOVE_CONTAINER,  # Cleanup hardlink farm volumes
     ]
 )
+
+
+# ============================================================================
+# NRI POD CREATION LIFECYCLE
+# ============================================================================
+#
+# The NRI plugin injects Nix stores into containers via a multi-phase process
+# coordinated through OCI hooks and ZeroMQ sockets. The overall flow:
+#
+# PHASE 1: CreateContainer Hook (NRI synchronous)
+# ────────────────────────────────────────────────
+# 1. Parse pod annotations (nixkube/pod, nixkube/{container}, with system variants)
+#    - Extract store paths from annotations, container args, and env vars
+#    - Parse store mount paths (e.g., nixkube/pod-path: /container/path → /nix/store/...)
+#    - Parse RW flag (e.g., nixkube/pod-rw: "true" for overlayfs instead of RO bind)
+#
+# 2. Skip if /nix already mounted
+#    - If CSI driver already mounted /nix, NRI skips (CSI takes precedence)
+#    - Prevents collision between two Nix injection methods
+#
+# 3. Inject createRuntime OCI hook
+#    - Creates a hook that will fire during container init, before exec
+#    - Executes: chroot ${HOST_MOUNT_PATH} wait (nri-wait binary from nixkube dependencies)
+#    - Hook will report container PID+bundle via ZeroMQ REQ/REP sockets
+#    - Uses OCI hooks (not NRI request handlers) because they lack forced low timeouts
+#    - Uses pkgsStatic.chroot to create a comfortable isolated execution environment
+#
+# 4. Spawn background build task (starts immediately, runs async)
+#    - Task ID = container_id, added to pending_builds set
+#    - Begins realizing all store paths via nix build immediately
+#    - Will hardlink closure into volume at /nix/var/nixkube/containers/{container_id}/nix
+#    - This build starts NOW and runs concurrently with OCI hook execution
+#
+#
+# PHASE 2: OCI Hook Execution (during container init)
+# ─────────────────────────────────────────────────────
+# The createRuntime hook fires while the container init process is alive with its
+# mount namespace established (but before pivot_root, so host paths are accessible).
+#
+# 1. nri-wait binary starts (executed via chrooted coreutils-static.chroot)
+#    - Connects to ZeroMQ REQ socket at /nix/var/nixkube/wait-req.sock
+#    - Sends RegisterContainerRequest with PID (getpid) and bundle path (from OCI state)
+#
+# 2. ZeroMQ REQ/REP coordination
+#    - Build task waits for pid_event[container_id] via zmq_server.wait_for_pid()
+#    - Once nri-wait sends PID+bundle, zmq_server stores them and signals the event
+#    - nri-wait's response is "container ready" (REP socket reply)
+#    - nri-wait then waits for a follow-up signal (via PUB socket) before exiting
+#
+# 3. Heartbeat via PUB socket
+#    - Build task spawns a _pump_build_progress task that publishes every 10 seconds
+#    - nri-wait subscribes and resets its 30-second timeout on each message
+#    - Ensures slow builds don't timeout during the mount operation
+#
+#
+# PHASE 3: Build Task Waits & Mounts
+# ────────────────────────────────────
+# After spawning the OCI hook, build task:
+#
+# 1. Realizes store paths
+#    - Calls nix build with extra args (builders, cache endpoints)
+#    - Outputs at /nix/var/nixkube/containers/{container_id}/nix
+#
+# 2. Hardslink closure
+#    - Calls prepare_volume() to hardlink all closure paths into the volume
+#    - Creates upper/ and work/ dirs if RW overlayfs requested
+#
+# 3. Wait for PID+bundle
+#    - Blocks on zmq_server.wait_for_pid(container_id, timeout=30)
+#    - When nri-wait reports, returns (pid, bundle_path)
+#
+# 4. Spawn mount subprocess
+#    - Calls mount_in_container(pid, bundle, nix_tree_path, store_mounts, nix_rw)
+#    - Uses multiprocessing.spawn to avoid contaminating asyncio event loop with setns(2)
+#    - Passes precomputed mount FDs created in the original namespace
+#
+#
+# PHASE 4: Mount Subprocess (FD-based namespace operations)
+# ───────────────────────────────────────────────────────────
+# The subprocess is spawned with file descriptors for isolated namespace ops:
+#
+# 1. Create detached mount FDs (while in daemonset namespace)
+#    - /nix (RO): open_tree clones the prepared nix tree as detached fd
+#      - Survives setns(2) so the source path is never visible inside container
+#      - Later remounted RO with move_mount(2)
+#    - /nix (RW): fsopen/fsconfig build a detached overlayfs fd
+#      - lowerdir=hardlink tree, upperdir=volume/upper, workdir=volume/work
+#
+# 2. Switch to container namespace
+#    - setns(2) to enter the container's mount namespace via PID
+#    - fchdir+chroot to enter the rootfs (using fd opened before setns)
+#    - Now inside the container's mount namespace and rootfs
+#
+# 3. Attach /nix mount
+#    - move_mount(2) attaches the detached /nix fd at /nix
+#    - If RO: followed by MS_REMOUNT|MS_RDONLY
+#
+# 4. Attach store mounts
+#    - For each store_mount (container_path → /nix/store/...) requested in annotations:
+#      - Use traditional mount(2) MS_BIND from /nix/store/... to container_path
+#      - Done after setns so /nix/store/... paths are reachable as bind-mount sources
+#
+# 5. Return to nri-wait
+#    - After all mounts attached, subprocess exits
+#    - nri-wait (waiting on PUB socket) receives "container ready" signal
+#    - nri-wait exits the hook, allowing container init to continue to exec
+#
+#
+# PHASE 5: Container Execution & Cleanup
+# ─────────────────────────────────────────
+# 1. Container runs with /nix and store mounts injected
+#
+# 2. On container removal (StateChange REMOVE_CONTAINER event)
+#    - cleanup_container_volume(container_id): Removes the specific volume directory
+#      for the container being removed (the hardlink farm at /nix/var/nixkube/containers/{id})
+#    - garbage_collect_stale_volumes(cri_socket): Queries CRI for active containers,
+#      removes any stale volumes orphaned by crashed containers or abrupt shutdowns
+#
+# ============================================================================
 
 
 class NriPlugin(nri_grpc.PluginBase):
@@ -305,7 +424,9 @@ class NriPlugin(nri_grpc.PluginBase):
         # Not used: We don't validate adjustments; we just make them during CreateContainer.
         # If needed in future for cross-plugin validation, implement here.
         # Kept as skeleton to satisfy NRI PluginBase type checker.
-        req: nri_pb2.ValidateContainerAdjustmentRequest | None = await stream.recv_message()
+        req: (
+            nri_pb2.ValidateContainerAdjustmentRequest | None
+        ) = await stream.recv_message()
         assert req is not None
         await stream.send_message(nri_pb2.ValidateContainerAdjustmentResponse())
 
