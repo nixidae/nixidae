@@ -41,9 +41,26 @@ from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
 from .mount import mount_in_container
 from .zmq import ZeroMQServer
 
-# Subscribe to all valid NRI events (containerd may not send CreateContainer
-# unless we also subscribe to pod events and other related event types)
-_SUBSCRIBED_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
+# Subscribe only to events we actually need for store injection and cleanup.
+#
+# NRI Event Subscription Bitmask Encoding:
+# Event enum values use 1-based indexing for bit positions: bit = (event_value - 1)
+# - Event 0 (UNKNOWN) → bit -1 (invalid, not used)
+# - Event 1 (RUN_POD_SANDBOX) → bit 0
+# - Event 4 (CREATE_CONTAINER) → bit 3: (1 << 3) = 8
+# - Event 11 (REMOVE_CONTAINER) → bit 10: (1 << 10) = 1024
+# - Event 15 (LAST, sentinel) → bit 14
+#
+# Previous Bug: Used (1 << (LAST - 1)) - 1 which set bits 0-13 (missing bit 14)
+# The fix: Calculate each event's bit position as (event_value - 1) before shifting
+#
+_SUBSCRIBED_EVENTS = sum(
+    1 << (event - 1)
+    for event in [
+        nri_pb2.Event.CREATE_CONTAINER,   # Inject stores into containers
+        nri_pb2.Event.REMOVE_CONTAINER,   # Cleanup hardlink farm volumes
+    ]
+)
 
 
 class NriPlugin(nri_grpc.PluginBase):
@@ -245,15 +262,7 @@ class NriPlugin(nri_grpc.PluginBase):
         req: nri_pb2.StopContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(f"container={req.container.name!r}")
-
-        container_id = req.container.id
-
-        # Phase 1: Cleanup volume directory for this container
-        await cleanup_container_volume(container_id)
-
-        # Phase 2: Garbage collect stale volumes from containers no longer in CRI
-        await garbage_collect_stale_volumes(self.cri_socket)
-
+        # Cleanup is handled in StateChange on REMOVE_CONTAINER event
         await stream.send_message(nri_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
@@ -283,6 +292,13 @@ class NriPlugin(nri_grpc.PluginBase):
             parts.append(container_info)
 
         logger.info(" ".join(parts))
+
+        # Cleanup hardlink farm volumes when container is removed
+        if event.event == nri_pb2.Event.REMOVE_CONTAINER:
+            container_id = event.container.id
+            await cleanup_container_volume(container_id)
+            await garbage_collect_stale_volumes(self.cri_socket)
+
         await stream.send_message(nri_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
