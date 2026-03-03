@@ -5,8 +5,6 @@ from functools import cache
 
 from ..errors import SystemDetectionError
 
-logger = None  # Imported lazily to avoid circular imports
-
 
 @cache
 def get_current_system() -> str:
