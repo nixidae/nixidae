@@ -17,8 +17,11 @@ NRI_ENABLED = os.getenv("NRI_ENABLED") == "true"
 
 
 def log_effective_config() -> None:
-    """Log the effective logging configuration for debugging."""
-    logger = logging.getLogger("nixkube")
+    """Print the effective logging configuration for debugging.
+
+    Uses print() instead of logger.info() to ensure output is always visible
+    regardless of configured log levels.
+    """
     root = logging.getLogger()
 
     lines = ["Effective logging configuration:"]
@@ -41,7 +44,7 @@ def log_effective_config() -> None:
                 handler_info += f" format='{handler.formatter._fmt}'"
             lines.append(handler_info)
 
-    logger.info("\n".join(lines))
+    print("\n".join(lines))
 
 
 async def async_main():
