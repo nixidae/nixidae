@@ -330,6 +330,8 @@ def _mount_worker(
             )
             if ret != 0:
                 errno = ctypes.get_errno()
+                # Unmount so we don't leave a writable /nix exposed
+                libc.umount2(b"/nix", 0)
                 raise OSError(errno, f"remount /nix RO: {os.strerror(errno)}")
 
         # Step 6: Bind-mount each FHS store path (read-write) into the container.
