@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import zmq.asyncio
 from cachetools import TTLCache
@@ -20,9 +19,9 @@ class ZeroMQServer:
     def __init__(self, socket_base_dir: str = "/nix/var/nixkube"):
         """Initialize ZeroMQ server (sockets not yet created)."""
         self.socket_base_dir = socket_base_dir
-        self.context: Optional[zmq.asyncio.Context] = None
-        self.rep_socket: Optional[zmq.asyncio.Socket] = None
-        self.pub_socket: Optional[zmq.asyncio.Socket] = None
+        self.context: zmq.asyncio.Context | None = None
+        self.rep_socket: zmq.asyncio.Socket | None = None
+        self.pub_socket: zmq.asyncio.Socket | None = None
         # Build status cache: container_id -> {"status": "done"|"pending", "timestamp": float}
         self.build_status: TTLCache = TTLCache(maxsize=10000, ttl=3600)
         self.pending_builds: set[str] = set()  # container IDs currently being built

@@ -4,7 +4,6 @@ import logging
 import shutil
 import struct
 from pathlib import Path
-from typing import Optional
 
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
@@ -461,7 +460,7 @@ class NriPlugin(nri_grpc.PluginBase):
         logger.info(
             f"Started for container={container_id!r} with {len(store_paths)} store paths"
         )
-        pump_task: Optional[asyncio.Task] = None
+        pump_task: asyncio.Task | None = None
         try:
             # If no store paths to build, just mark as done
             if not store_paths:
@@ -635,7 +634,7 @@ async def _register_plugin(
         remaining = deadline - loop.time()
         if remaining <= 0:
             raise asyncio.TimeoutError("Timed out waiting for RegisterPlugin response")
-        chunk: Optional[bytes] = await asyncio.wait_for(
+        chunk: bytes | None = await asyncio.wait_for(
             mux.read_channel(RUNTIME_SERVICE_CONN), timeout=remaining
         )
         if chunk is None:
