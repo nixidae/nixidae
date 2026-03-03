@@ -111,7 +111,19 @@ async def mount_volume(
     readonly: bool,
 ) -> None:
     """Mount the volume root to the target path using syscalls."""
+    # Check source and target paths before attempting mount
+    if not volume_root.exists():
+        raise MountError(
+            f"Source path does not exist: {volume_root}",
+            logs="",
+        )
+
     target_path.mkdir(parents=True, exist_ok=True)
+    if not target_path.exists():
+        raise MountError(
+            f"Target path could not be created: {target_path}",
+            logs="",
+        )
 
     if readonly:
         # For readonly we use a bind mount, the benefit is that different
@@ -131,7 +143,9 @@ async def mount_volume(
                 pass  # Already mounted is fine
             else:
                 raise MountError(
-                    f"Failed to mount bind volume: {os.strerror(err)} (errno {err})",
+                    f"Failed to mount bind volume: {os.strerror(err)} (errno {err}). "
+                    f"source_exists={volume_root.exists()}, target_exists={target_path.exists()}, "
+                    f"target_parent_exists={target_path.parent.exists()}",
                     logs="",
                 )
     else:
@@ -142,6 +156,12 @@ async def mount_volume(
         upperdir = volume_root / "upperdir"
         workdir.mkdir(parents=True, exist_ok=True)
         upperdir.mkdir(parents=True, exist_ok=True)
+
+        if not workdir.exists() or not upperdir.exists():
+            raise MountError(
+                f"Failed to create overlay directories: workdir={workdir.exists()}, upperdir={upperdir.exists()}",
+                logs="",
+            )
 
         options = (
             f"lowerdir={volume_root},upperdir={upperdir},workdir={workdir}".encode()
@@ -160,7 +180,9 @@ async def mount_volume(
                 pass  # Already mounted is fine
             else:
                 raise MountError(
-                    f"Failed to mount overlay volume: {os.strerror(err)} (errno {err})",
+                    f"Failed to mount overlay volume: {os.strerror(err)} (errno {err}). "
+                    f"lowerdir_exists={volume_root.exists()}, target_exists={target_path.exists()}, "
+                    f"target_parent_exists={target_path.parent.exists()}",
                     logs="",
                 )
 
