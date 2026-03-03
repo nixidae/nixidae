@@ -118,12 +118,6 @@ class UnmountError(CSIError):
     reason = "VolumeUnmount"
 
 
-class RemoveVolumeDirError(CSIError):
-    """Error removing volume directory after unmount."""
-
-    reason = "RemoveVolumeDir"
-
-
 class CleanupStaleEntriesError(CSIError):
     """Error cleaning up stale volume entries."""
 
