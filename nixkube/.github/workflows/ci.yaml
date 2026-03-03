@@ -82,20 +82,20 @@ jobs:
 
       - name: Wait for nix-csi node daemonset
         run: |
-          kubectl rollout status daemonset/nix-node -n nix-csi --timeout=60s
+          kubectl rollout status daemonset/nix-node -n nixkube --timeout=60s
 
       - name: Wait for nix-csi cache pod
         run: |
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=cache -n nix-csi --timeout=60s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=cache -n nixkube --timeout=60s
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nix-csi --timeout=120s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nixkube --timeout=120s
 
       - name: Validate success events
         run: |
           echo "=== Checking NixVolumeMount events ==="
-          EVENTS=$(kubectl get events -n nix-csi -o json)
+          EVENTS=$(kubectl get events -n nixkube -o json)
 
           MOUNT_EVENTS=$(echo "$EVENTS" | jq '[.items[] |
             select(.reason == "NixVolumeMount" and .type == "Normal")] | length')
@@ -114,13 +114,13 @@ jobs:
 
       - name: Delete jobs and verify CSI cleanup
         run: |
-          kubectl delete job flake-hello expr-hello path-hello invalid-storepath-hello invalid-flake-hello invalid-expr-hello nri-hello-ro nri-hello-rw -n nix-csi
-          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,invalid-storepath-hello,invalid-flake-hello,invalid-expr-hello,nri-hello-ro,nri-hello-rw)" -n nix-csi --timeout=60s
+          kubectl delete job flake-hello expr-hello path-hello invalid-storepath-hello invalid-flake-hello invalid-expr-hello nri-hello-ro nri-hello-rw -n nixkube
+          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,invalid-storepath-hello,invalid-flake-hello,invalid-expr-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=60s
 
       - name: Validate error events
         run: |
           echo "=== Checking error events ==="
-          EVENTS=$(kubectl get events -n nix-csi -o json)
+          EVENTS=$(kubectl get events -n nixkube -o json)
 
           # Check for the three expected error reasons (with Nix prefix)
           for reason in "NixPathBuild" "NixFlakeBuild" "NixExprBuild"; do
@@ -137,7 +137,7 @@ jobs:
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=node -n nix-csi --tail -1
+          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1
 
       - name: Cluster state all
         if: failure()
@@ -159,24 +159,24 @@ jobs:
       - name: Cache
         if: failure()
         run: |
-          kubectl logs -l app.kubernetes.io/component=cache -n nix-csi --tail -1 || true
-          kubectl describe pod -l app.kubernetes.io/component=cache -n nix-csi || true
+          kubectl logs -l app.kubernetes.io/component=cache -n nixkube --tail -1 || true
+          kubectl describe pod -l app.kubernetes.io/component=cache -n nixkube || true
 
       - name: Node
         if: failure()
         run: |
-          kubectl logs -l app.kubernetes.io/component=node -n nix-csi --tail -1 || true
-          kubectl describe pod -l app.kubernetes.io/component=node -n nix-csi || true
+          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1 || true
+          kubectl describe pod -l app.kubernetes.io/component=node -n nixkube || true
 
       - name: Init
         if: failure()
         run: |
-          kubectl logs -l app.kubernetes.io/component=init -n nix-csi --tail -1 || true
+          kubectl logs -l app.kubernetes.io/component=init -n nixkube --tail -1 || true
 
       - name: Events
         if: failure()
         run: |
-          kubectl get events -n nix-csi --sort-by='.lastTimestamp'
+          kubectl get events -n nixkube --sort-by='.lastTimestamp'
 
       - name: Troubleshoot with upterm
         if: failure()
@@ -213,21 +213,21 @@ jobs:
 
       - name: Wait for nix-csi node daemonset
         run: |
-          kubectl rollout status daemonset/nix-node -n nix-csi --timeout=60s
+          kubectl rollout status daemonset/nix-node -n nixkube --timeout=60s
 
       - name: Wait for test workload
         run: |
-          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nix-csi --timeout=120s
+          kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nixkube --timeout=120s
 
       - name: Delete jobs and verify CSI cleanup
         run: |
-          kubectl delete job flake-hello expr-hello path-hello nri-hello-ro nri-hello-rw -n nix-csi
-          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,nri-hello-ro,nri-hello-rw)" -n nix-csi --timeout=60s
+          kubectl delete job flake-hello expr-hello path-hello nri-hello-ro nri-hello-rw -n nixkube
+          kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=60s
 
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=node -n nix-csi --tail -1
+          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1
 
       - name: Debug on failure
         if: failure()
@@ -236,16 +236,16 @@ jobs:
           kubectl get all -A
 
           echo "=== Cache pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=cache -n nix-csi --tail -1 || true
+          kubectl logs -l app.kubernetes.io/name=cache -n nixkube --tail -1 || true
 
           echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=node -n nix-csi --tail -1 || true
+          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1 || true
 
           echo "=== Init pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=init -n nix-csi --tail -1 || true
+          kubectl logs -l app.kubernetes.io/component=init -n nixkube --tail -1 || true
 
           echo "=== Events ==="
-          kubectl get events -n nix-csi --sort-by='.lastTimestamp'
+          kubectl get events -n nixkube --sort-by='.lastTimestamp'
 
       - name: Troubleshoot with upterm
         if: failure()

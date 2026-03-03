@@ -22,6 +22,10 @@ runs:
         nix_conf: |
           experimental-features = nix-command flakes
           access-tokens = github.com=${{ inputs.github_token }}
+          # TODO: When ready to migrate from nix-csi to nixkube module naming:
+          # - Update trusted-public-keys: nix-csi.cachix.org-1 → nixkube.cachix.org-1
+          # - Update substituters: https://nix-csi.cachix.org → https://nixkube.cachix.org
+          # - Recreate/migrate Cachix cache from nix-csi to nixkube
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o= nixbuild.net/CHEAKK-1:IvfuR1Ldmkef8pMcSuCl9N2jppEb8KpBzdoB8uKQdxE= nix-csi.cachix.org-1:i4w33gR4efO67jpz8U7g/MdvRQ6mQ3LEF9fB8tES60g=
           builders = ssh-ng://eu.nixbuild.net aarch64-linux ; ssh-ng://eu.nixbuild.net x86_64-linux
           substituters = https://cache.nixos.org?priority=1 https://nix-csi.cachix.org?priority=2 https://cache.lix.systems?priority=3 ssh-ng://eu.nixbuild.net?priority=4
