@@ -20,7 +20,7 @@ self: pkgs: {
       csi-proto-python
       cri-proto-python
       nri-proto-python
-      grpclib-ttrpc
+      grpclib-nri
       kr8s
       nri-wait
       ;
@@ -48,6 +48,9 @@ self: pkgs: {
 
   grpclib-ttrpc = pkgs.python3Packages.callPackage ./grpclib-ttrpc {
     inherit (self) ttrpc-proto-python;
+  };
+  grpclib-nri = pkgs.python3Packages.callPackage ./grpclib-nri {
+    inherit (self) grpclib-ttrpc;
   };
   csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { };
   cri-proto-python = pkgs.python3Packages.callPackage ./cri-proto-python { };

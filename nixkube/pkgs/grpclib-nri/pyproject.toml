@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "grpclib-nri"
+version = "0.1.0"
+description = "NRI protocol utilities built on grpclib-ttrpc"
+authors = [{ name = "lillecarl", email = "github@lillecarl.com" }]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "grpclib-ttrpc",
+]

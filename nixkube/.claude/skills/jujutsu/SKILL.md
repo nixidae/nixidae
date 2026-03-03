@@ -198,7 +198,7 @@ jj diff --git -r @               # Show changes in current commit (same as jj di
 jj diff --git -r <revision>      # Show changes in specific revision
 ```
 
-**Important**: `jj diff` by default shows changes IN the current commit @, NOT uncommitted working copy changes (since the working copy IS the commit @ in jujutsu).
+**Important**: `jj diff --git` by default shows changes IN the current commit @, NOT uncommitted working copy changes (since the working copy IS the commit @ in jujutsu).
 
 ### Undoing Mistakes
 
@@ -229,8 +229,8 @@ When making file changes, follow this pattern to keep AI and human changesets se
    **Case B: Description does NOT contain @claude** (user work)
    ```bash
    # If no description set: auto-describe from diff
-   jj diff                                    # Review changes
-   jj describe -m "<description from diff>"  # Describe user's changes
+   jj diff --git                              # Review changes
+   jj describe -m "<description from diff>"   # Describe user's changes
    jj commit                                  # Commit user work
 
    # If description already exists: ASK user before proceeding

@@ -9,7 +9,7 @@ from typing import Optional
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
-from grpclib_ttrpc.mux import PLUGIN_SERVICE_CONN, RUNTIME_SERVICE_CONN, NriMux
+from grpclib_nri import PLUGIN_SERVICE_CONN, RUNTIME_SERVICE_CONN, NriMux
 from grpclib_ttrpc.protocol import (
     HEADER_SIZE,
     MAX_PAYLOAD,

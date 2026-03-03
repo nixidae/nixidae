@@ -8,7 +8,7 @@
   cri-proto-python, # CRI gRPC bindings
   csi-proto-python, # CSI gRPC bindings
   nri-proto-python, # NRI ttRPC bindings
-  grpclib-ttrpc, # ttRPC server/client over grpclib primitives
+  grpclib-nri, # NRI protocol utilities
   googleapis-common-protos, # Google Errors
   gitMinimal, # Lix requires Git since it doesn't use libgit2
   kr8s, # Kubernetes API
@@ -39,7 +39,7 @@ buildPythonApplication {
     cri-proto-python
     csi-proto-python
     nri-proto-python
-    grpclib-ttrpc
+    grpclib-nri
     googleapis-common-protos
     gitMinimal
     kr8s
