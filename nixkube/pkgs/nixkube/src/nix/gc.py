@@ -12,7 +12,7 @@ from ..errors import (
 )
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.nix")
 
 
 async def install_gcroots(

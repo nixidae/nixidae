@@ -9,7 +9,7 @@ from kr8s.asyncio.objects import Pod, new_class
 from .constants import KUBE_POD_NAME
 from .errors import CSIError
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.events")
 
 
 async def emit_event_for_exception(

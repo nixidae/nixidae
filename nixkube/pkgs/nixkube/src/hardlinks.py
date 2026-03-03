@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .errors import HardlinkClosureError
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.hardlinks")
 
 
 def hardlink_tree(src: Path, dst: Path) -> None:

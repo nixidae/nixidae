@@ -7,7 +7,7 @@ from shellous import sh
 
 from ..errors import InitDatabaseError
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.nix")
 
 
 async def init_database(state_dir: Path, store_paths: set[Path]) -> None:

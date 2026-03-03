@@ -6,7 +6,7 @@ from pathlib import Path
 from ..errors import SubprocessError, VerifyStorePathsError
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.nix")
 
 
 async def verify_store_paths(package_paths: set[Path]) -> None:

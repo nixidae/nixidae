@@ -13,7 +13,7 @@ from ..errors import BuildError, CommandTimeoutError, SubprocessError
 from ..store import extract_store_name, extract_store_paths
 from ..subprocessing import try_console
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.nix")
 
 
 async def get_build_args() -> list[str]:
