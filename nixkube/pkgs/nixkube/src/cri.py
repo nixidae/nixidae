@@ -2,13 +2,25 @@
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 import grpclib.client
 import kr8s
 from cri import cri_grpc, cri_pb2
 
 logger = logging.getLogger("nixkube.cri")
+
+
+@asynccontextmanager
+async def cri_channel(cri_socket: Path) -> AsyncIterator[grpclib.client.Channel]:
+    """Open a gRPC channel to the CRI socket, closing it on exit."""
+    channel = grpclib.client.Channel(path=str(cri_socket))
+    try:
+        yield channel
+    finally:
+        channel.close()
 
 
 async def get_cri_socket() -> Path:
@@ -72,20 +84,11 @@ async def list_container_ids(cri_socket: Path) -> set[str]:
         RuntimeError if unable to connect to CRI or query containers.
     """
     try:
-        # Create gRPC channel to CRI socket
-        channel = grpclib.client.Channel(path=str(cri_socket))
-        stub = cri_grpc.RuntimeServiceStub(channel)
-
-        # Call ListContainers to get all containers
-        request = cri_pb2.ListContainersRequest()
-        response = await stub.ListContainers(request)
-
-        # Extract container IDs from response
-        container_ids = {container.id for container in response.containers}
-
-        channel.close()
-        return container_ids
-
+        async with cri_channel(cri_socket) as channel:
+            stub = cri_grpc.RuntimeServiceStub(channel)
+            request = cri_pb2.ListContainersRequest()
+            response = await stub.ListContainers(request)
+            return {container.id for container in response.containers}
     except Exception as e:
         raise RuntimeError(
             f"Failed to list containers from CRI socket {cri_socket}: {e}"
