@@ -17,7 +17,7 @@ let
       image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
       command = [ "hello" ];
       volumeMounts = lib.mkNamedList {
-        nix-csi = {
+        nixkube = {
           mountPath = "/nix";
           subPath = "nix";
         };
@@ -107,7 +107,7 @@ in
                   image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                   command = [ "hello-unfree" ];
                   volumeMounts = lib.mkNamedList {
-                    nix-csi = {
+                    nixkube = {
                       mountPath = "/nix";
                       subPath = "nix";
                     };
@@ -223,7 +223,7 @@ in
                             if matched == null then null else builtins.head matched;
                         in
                         {
-                          name = "nix-csi";
+                          name = "nixkube";
                           mountPath = extractSuffix sPath;
                           subPath = subPath "${if lib.pathExists sPath then sPath else throw "path no good homes"}";
                           readOnly = true;
@@ -239,7 +239,7 @@ in
                     lib.mkForce [
                       (mkMount "${testEnv}/etc")
                       {
-                        name = "nix-csi";
+                        name = "nixkube";
                         mountPath = "/nix";
                         subPath = "nix";
                         readOnly = true;
