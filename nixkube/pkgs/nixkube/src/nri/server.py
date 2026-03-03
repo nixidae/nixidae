@@ -26,6 +26,8 @@ from ..cache import copy_to_cache
 from ..constants import (
     COREUTILS_STATIC,
     HOST_MOUNT_PATH,
+    KUBE_POD_NAME,
+    NAMESPACE,
     NRI_CONTAINERS,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
@@ -38,7 +40,7 @@ from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import garbage_collect_stale_volumes
-from .mount import check_kernel_support, mount_in_container
+from .mount import kernel_supports_ro, kernel_supports_rw, mount_in_container
 from .zmq import ZeroMQServer
 
 # Subscribe only to events we actually need for store injection and cleanup.
@@ -275,14 +277,15 @@ class NriPlugin(nri_grpc.PluginBase):
             logger.info(
                 f"RW /nix overlayfs requested for container={req.container.name!r}"
             )
-            # Verify kernel supports overlayfs via new mount API (6.5+)
-            try:
-                check_kernel_support(nix_rw=True)
-            except RuntimeError as e:
+            # Verify kernel supports new mount API for overlayfs (6.5+)
+            if not kernel_supports_rw():
                 logger.error(
-                    f"Cannot enable RW /nix for container={req.container.name!r}: {e}"
+                    f"Cannot enable RW /nix for container={req.container.name!r}: "
+                    "kernel does not support new mount API for overlayfs (requires Linux 6.5+)"
                 )
-                raise
+                raise RuntimeError(
+                    "RW overlay mounts not supported on this kernel (requires Linux 6.5+)"
+                )
 
         adjust = nri_pb2.ContainerAdjustment()
 
@@ -667,12 +670,47 @@ async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger = logging.getLogger("nixkube.nri.runtime")
 
-    # Verify kernel supports required syscalls for NRI mount operations
+    # Fetch nixkube pod for event reporting
     try:
-        check_kernel_support(nix_rw=False)  # Check minimum requirement (5.2+)
-    except RuntimeError as e:
-        logger.critical(f"Kernel compatibility check failed: {e}")
-        raise
+        nri_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
+    except Exception as e:
+        logger.warning(f"Could not fetch nixkube pod for event reporting: {e}")
+        nri_pod = None
+
+    # Test kernel capabilities at startup
+    if not kernel_supports_ro():
+        # RO support is required; fail hard
+        logger.critical(
+            "Kernel does not support RO mount operations (open_tree/move_mount)"
+        )
+        if nri_pod:
+            try:
+                await report_event(
+                    nri_pod,
+                    reason="KernelIncompatible",
+                    note="NRI plugin failed: kernel does not support open_tree/move_mount (requires Linux 5.2+)",
+                    event_type="Warning",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to emit kernel incompatible event: {e}")
+        raise RuntimeError("Kernel does not support required mount API syscalls")
+
+    if not kernel_supports_rw():
+        # RW support is optional; warn but continue
+        logger.warning(
+            "Kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount). "
+            "RW /nix mounts will be unavailable."
+        )
+        if nri_pod:
+            try:
+                await report_event(
+                    nri_pod,
+                    reason="KernelLimited",
+                    note="NRI plugin running in RO-only mode: kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount, requires Linux 6.5+)",
+                    event_type="Warning",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to emit kernel limited event: {e}")
 
     logger.info(
         f"Connecting to socket {NRI_RUNTIME_SOCKET} (plugin={NRI_PLUGIN_NAME} idx={NRI_PLUGIN_IDX})"

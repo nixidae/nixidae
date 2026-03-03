@@ -60,12 +60,12 @@ via picklable arguments.
 
 import asyncio
 import ctypes
+import errno
 import logging
 import multiprocessing
 import os
-import platform
-import re
 import traceback
+from functools import cache
 from pathlib import Path
 
 from ..constants import HOST_PROC_PATH
@@ -110,50 +110,59 @@ _NR_FSOPEN = 430
 _NR_FSCONFIG = 431
 _NR_FSMOUNT = 432
 
-# Minimum Linux version for open_tree / move_mount (Linux 5.2).
-_MIN_KERNEL_NEW_MOUNT_API = (5, 2)
 
-# Minimum Linux version for overlayfs via fsopen/fsconfig/fsmount (Linux 6.5).
-# Overlayfs migrated from the legacy .mount callback to .init_fs_context in 6.5.
-# Before that, fsopen("overlay") would use a legacy compat shim that accumulates
-# options as strings and calls the old .mount path — a path that does not support
-# creating a detached mount fd, so fsmount() cannot return a usable fd.
-_MIN_KERNEL_OVERLAY_NEW_API = (6, 5)
-
-_cached_kernel_version: tuple[int, int] | None = None
-
-
-def _get_kernel_version() -> tuple[int, int]:
-    global _cached_kernel_version
-    if _cached_kernel_version is not None:
-        return _cached_kernel_version
-    release = platform.release()  # e.g. "6.8.0-45-generic" or "6.5.13"
-    m = re.match(r"(\d+)\.(\d+)", release)
-    if not m:
-        raise RuntimeError(
-            f"Cannot parse kernel version from platform.release()={release!r}"
-        )
-    _cached_kernel_version = (int(m.group(1)), int(m.group(2)))
-    return _cached_kernel_version
+@cache
+def kernel_supports_ro() -> bool:
+    """Test if kernel supports RO mounts (open_tree/move_mount). Result is cached."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    test_path = Path("/tmp") if Path("/tmp").exists() else Path("/nix")
+    try:
+        fd = _open_tree(libc, test_path)
+        os.close(fd)
+        return True
+    except OSError as e:
+        if e.errno == errno.ENOSYS:
+            logger.error(
+                "Kernel does not support open_tree/move_mount (requires Linux 5.2+)"
+            )
+        else:
+            logger.error(f"Failed to test open_tree: {e}")
+        return False
 
 
-def check_kernel_support(nix_rw: bool) -> None:
-    """Raise RuntimeError if the running kernel is too old for the required syscalls.
+@cache
+def kernel_supports_rw() -> bool:
+    """Test if kernel supports new mount API for overlayfs (fsopen/fsconfig/fsmount). Result is cached."""
+    import tempfile
 
-    RO path (open_tree + move_mount): requires Linux 5.2+
-    RW path (fsopen + fsconfig + fsmount + overlay): requires Linux 6.5+
-    """
-    kv = _get_kernel_version()
-    if kv < _MIN_KERNEL_NEW_MOUNT_API:
-        raise RuntimeError(
-            f"Kernel {kv[0]}.{kv[1]} too old: open_tree/move_mount syscalls "
-            "require Linux 5.2+"
-        )
-    if nix_rw and kv < _MIN_KERNEL_OVERLAY_NEW_API:
-        raise RuntimeError(
-            f"Kernel {kv[0]}.{kv[1]} too old: overlayfs via the new mount API "
-            "(fsopen/fsconfig/fsmount) requires Linux 6.5+"
-        )
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            lowerdir = tmppath / "lower"
+            upperdir = tmppath / "upper"
+            workdir = tmppath / "work"
+
+            lowerdir.mkdir()
+            upperdir.mkdir()
+            workdir.mkdir()
+
+            try:
+                overlay_fd = _make_overlay_fd(libc, lowerdir, upperdir, workdir)
+                os.close(overlay_fd)
+                return True
+            except OSError as e:
+                if e.errno == errno.ENOSYS:
+                    logger.debug(
+                        "Kernel does not support new mount API for overlayfs "
+                        "(fsopen/fsconfig/fsmount, requires Linux 6.5+)"
+                    )
+                else:
+                    logger.debug(f"Failed to test new mount API for overlayfs: {e}")
+                return False
+    except Exception as e:
+        logger.debug(f"Unexpected error testing new mount API for overlayfs: {e}")
+        return False
 
 
 def _open_tree(libc: ctypes.CDLL, path: Path) -> int:
