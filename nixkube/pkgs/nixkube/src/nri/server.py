@@ -32,7 +32,7 @@ from ..constants import (
 )
 from ..cri import get_cri_socket, list_container_ids
 from ..events import report_event
-from ..nix import build_packages, get_build_args, get_closure_paths, get_current_system
+from ..nix import fetch_packages, get_build_args, get_closure_paths, get_current_system
 from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
@@ -480,10 +480,10 @@ class NriPlugin(nri_grpc.PluginBase):
             # Realize storepaths
             volume_path = NRI_CONTAINERS / container_id
             logger.debug(
-                f"Calling build_packages for container={container_id!r} with {len(store_paths)} paths"
+                f"Calling fetch_packages for container={container_id!r} with {len(store_paths)} paths"
             )
-            await build_packages(store_paths, volume_path, extra_args)
-            logger.debug(f"build_packages completed for container={container_id!r}")
+            await fetch_packages(store_paths, volume_path, extra_args)
+            logger.debug(f"fetch_packages completed for container={container_id!r}")
 
             # Get all paths
             paths = await get_closure_paths(store_paths)

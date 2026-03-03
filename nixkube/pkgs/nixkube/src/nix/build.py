@@ -133,18 +133,17 @@ async def build_nix_expr(
         ) from e
 
 
-async def build_packages(
+async def fetch_packages(
     package_paths: set[Path],
     gc_root: Path,
     extra_args: list[str] = [],
-) -> set[Path]:
-    """Batch build packages with a single nix build call."""
+) -> None:
+    """Realize store paths with a single nix build call and pin them via gc root."""
     if not package_paths:
-        return set()
+        return
 
     gc_root.mkdir(parents=True, exist_ok=True)
 
-    # Batch build all packages with single nix build call
     args: list[str | Path] = ["nix", "build"]
     args.extend(extra_args)
     args.extend(["--out-link", gc_root / "build"])
@@ -154,18 +153,17 @@ async def build_packages(
         await try_console(*args, timeout=NIX_BUILD_TIMEOUT)
     except SubprocessError as e:
         logger.error(
-            "Failed to build packages\n"
+            "Failed to fetch packages\n"
             + f"Command: {e.command}\n"
             + "Logs:\n"
             + e.combined
         )
         raise
     except Exception as e:
-        logger.error(f"Failed to build packages: {e}")
+        logger.error(f"Failed to fetch packages: {e}")
         raise
 
-    logger.debug(f"Built {len(package_paths)} packages")
-    return package_paths
+    logger.debug(f"Fetched {len(package_paths)} packages")
 
 
 async def build_pod_packages(
@@ -173,13 +171,14 @@ async def build_pod_packages(
     gc_root: Path,
     extra_args: list[str],
 ) -> set[Path]:
-    """Extract and batch build packages referenced in the pod spec."""
+    """Extract and fetch packages referenced in the pod spec."""
     pod_store_paths = extract_store_paths(pod.raw)
 
     if not pod_store_paths:
         return set()
 
-    return await build_packages(pod_store_paths, gc_root, extra_args)
+    await fetch_packages(pod_store_paths, gc_root, extra_args)
+    return pod_store_paths
 
 
 async def build_primary_package(
