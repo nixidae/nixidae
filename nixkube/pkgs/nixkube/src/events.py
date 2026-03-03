@@ -136,10 +136,8 @@ async def report_event(
     if isinstance(logs, Exception):
         logs = _extract_build_logs(logs)
 
-    # Combine note and logs, preserving the message part
-    full_note = note or ""
-    if logs:
-        full_note = f"{full_note}\n{logs}" if full_note else logs
+    # Extract logs from exception if needed (already done above)
+    message = note or ""
 
     # Ensure reason is prefixed with "Nix" if not already
     if not reason.startswith("Nix"):
@@ -150,7 +148,7 @@ async def report_event(
         now_iso = now.isoformat()
 
         # Format the final note with message and optional logs
-        final_note = _format_event_note(full_note, logs)
+        final_note = _format_event_note(message, logs)
 
         # Search for existing event with same pod and reason
         try:
