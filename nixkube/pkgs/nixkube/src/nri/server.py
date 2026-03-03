@@ -267,9 +267,22 @@ class NriPlugin(nri_grpc.PluginBase):
         logger = logging.getLogger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
-        logger.info(
-            f"StateChange: event={nri_pb2.Event.Name(event.event)} ({event.event})"
-        )
+
+        # Build log message with event type and context
+        # Pod is always set in StateChangeEvent; container is empty if event is pod-related
+        event_name = nri_pb2.Event.Name(event.event)
+        pod_str = f"pod={event.pod.namespace}/{event.pod.name}"
+        parts = [event_name, pod_str]
+
+        # Only include container info if this is a container event (container exists and has a name)
+        if event.container and event.container.name:
+            container_state = nri_pb2.ContainerState.Name(event.container.state)
+            container_info = f"container={event.container.name} state={container_state}"
+            if event.container.exit_code:
+                container_info += f" exit_code={event.container.exit_code}"
+            parts.append(container_info)
+
+        logger.info(" ".join(parts))
         await stream.send_message(nri_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
