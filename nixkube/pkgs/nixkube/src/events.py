@@ -7,30 +7,8 @@ from datetime import datetime, timezone
 from kr8s.asyncio.objects import Pod, new_class
 
 from .constants import KUBE_POD_NAME
-from .errors import CSIError
 
 logger = logging.getLogger("nixkube.events")
-
-
-async def emit_event_for_exception(
-    pod: Pod,
-    exception: CSIError,
-    event_type: str = "Warning",
-) -> None:
-    """Emit a Kubernetes event for a CSIError exception.
-
-    Args:
-        pod: Kubernetes Pod object for event targeting
-        exception: CSIError with reason and logs
-        event_type: "Normal" or "Warning" (default: "Warning")
-    """
-    await report_event(
-        pod,
-        reason=exception.reason,
-        note=exception.message,
-        logs=exception.logs,
-        event_type=event_type,
-    )
 
 
 # Create ModernEvent class for events.k8s.io/v1 API
