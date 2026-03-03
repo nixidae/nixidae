@@ -26,8 +26,6 @@ from ..cache import copy_to_cache
 from ..constants import (
     COREUTILS_STATIC,
     HOST_MOUNT_PATH,
-    KUBE_POD_NAME,
-    NAMESPACE,
     NRI_CONTAINERS,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
@@ -670,29 +668,18 @@ async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger = logging.getLogger("nixkube.nri.runtime")
 
-    # Fetch nixkube pod for event reporting
-    try:
-        nri_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
-    except Exception as e:
-        logger.warning(f"Could not fetch nixkube pod for event reporting: {e}")
-        nri_pod = None
-
     # Test kernel capabilities at startup
     if not kernel_supports_ro():
         # RO support is required; fail hard
         logger.critical(
             "Kernel does not support RO mount operations (open_tree/move_mount)"
         )
-        if nri_pod:
-            try:
-                await report_event(
-                    nri_pod,
-                    reason="KernelIncompatible",
-                    note="NRI plugin failed: kernel does not support open_tree/move_mount (requires Linux 5.2+)",
-                    event_type="Warning",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to emit kernel incompatible event: {e}")
+        await report_event(
+            None,
+            reason="KernelIncompatible",
+            note="NRI plugin failed: kernel does not support open_tree/move_mount (requires Linux 5.2+)",
+            event_type="Warning",
+        )
         raise RuntimeError("Kernel does not support required mount API syscalls")
 
     if not kernel_supports_rw():
@@ -701,16 +688,12 @@ async def _nri_run() -> None:
             "Kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount). "
             "RW /nix mounts will be unavailable."
         )
-        if nri_pod:
-            try:
-                await report_event(
-                    nri_pod,
-                    reason="KernelLimited",
-                    note="NRI plugin running in RO-only mode: kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount, requires Linux 6.5+)",
-                    event_type="Warning",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to emit kernel limited event: {e}")
+        await report_event(
+            None,
+            reason="KernelLimited",
+            note="NRI plugin running in RO-only mode: kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount, requires Linux 6.5+)",
+            event_type="Warning",
+        )
 
     logger.info(
         f"Connecting to socket {NRI_RUNTIME_SOCKET} (plugin={NRI_PLUGIN_NAME} idx={NRI_PLUGIN_IDX})"

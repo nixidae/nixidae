@@ -64,9 +64,9 @@ def csi_error_handler(func):
                         event_type="Warning",
                     )
             else:
-                # Unexpected exception: emit CSI pod event (use pre-fetched pod from __init__)
+                # Unexpected exception: emit event (pod will be fetched if needed)
                 await report_event(
-                    self.csi_pod,
+                    None,
                     reason="InternalError",
                     note=f"{func.__name__} failed: {type(e).__name__}",
                     logs=str(e),
@@ -84,9 +84,8 @@ def csi_error_handler(func):
 class NodeServicer(csi_grpc.NodeBase):
     volume_locks: defaultdict[str, Semaphore] = defaultdict(Semaphore)
 
-    def __init__(self, system: str, csi_pod: Pod, plugin_name: str = "nixkube"):
+    def __init__(self, system: str, plugin_name: str = "nixkube"):
         self.system = system
-        self.csi_pod = csi_pod
         self.plugin_name = plugin_name
 
     @csi_error_handler
@@ -340,9 +339,8 @@ async def csi_serve(plugin_name: str | None = None, socket_path: Path | None = N
     socket_path.unlink(missing_ok=True)
 
     identity_servicer = IdentityServicer(plugin_name)
-    # Fetch CSI pod once at startup, cache for entire service lifetime
-    csi_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
-    node_servicer = NodeServicer(get_current_system(), csi_pod, plugin_name)
+    # Pod will be fetched and cached on first use via get_nixkube_pod()
+    node_servicer = NodeServicer(get_current_system(), plugin_name)
 
     server = Server(
         [

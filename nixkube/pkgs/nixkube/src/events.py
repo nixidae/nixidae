@@ -6,9 +6,30 @@ from datetime import datetime, timezone
 
 from kr8s.asyncio.objects import Pod, new_class
 
-from .constants import KUBE_POD_NAME
+from .constants import KUBE_POD_NAME, NAMESPACE
 
 logger = logging.getLogger("nixkube.events")
+
+# Cached nixkube pod instance for event reporting
+_nixkube_pod: Pod | None = None
+
+
+async def get_nixkube_pod() -> Pod | None:
+    """Get cached nixkube pod instance for event reporting.
+
+    Fetches the pod once at first call, then returns cached instance.
+    Returns None if pod cannot be fetched (e.g., API unavailable).
+    """
+    global _nixkube_pod
+    if _nixkube_pod is not None:
+        return _nixkube_pod
+
+    try:
+        _nixkube_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
+        return _nixkube_pod
+    except Exception as e:
+        logger.warning(f"Could not fetch nixkube pod for event reporting: {e}")
+        return None
 
 
 # Create ModernEvent class for events.k8s.io/v1 API
@@ -82,7 +103,7 @@ def _extract_build_logs(exception: Exception) -> str:
 
 
 async def report_event(
-    pod: Pod,
+    pod: Pod | None,
     reason: str,
     note: str | None = None,
     event_type: str = "Normal",
@@ -96,7 +117,7 @@ async def report_event(
     blocking main operations.
 
     Args:
-        pod: PodInfo object with name, namespace, and uid
+        pod: Pod object with name, namespace, and uid (if None, uses get_nixkube_pod())
         reason: Short, UpperCamelCase reason code without "Nix" prefix (will be added)
                 e.g., "PodStoreBuildFailed" → "NixPodStoreBuildFailed"
         note: Human-readable description (will be combined with logs)
@@ -104,6 +125,13 @@ async def report_event(
         action: Machine-readable action taken (default: "Nix")
         logs: Optional build/subprocess logs (string or exception) to append to note (will be truncated)
     """
+    # Fetch nixkube pod if not provided
+    if pod is None:
+        pod = await get_nixkube_pod()
+        if pod is None:
+            logger.warning(f"Cannot report event {reason}: no pod available")
+            return
+
     # Extract logs from exception if needed
     if isinstance(logs, Exception):
         logs = _extract_build_logs(logs)
