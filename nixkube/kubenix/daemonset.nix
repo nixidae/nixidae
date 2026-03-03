@@ -17,18 +17,14 @@ in
     enable = (lib.mkEnableOption "cache") // {
       default = true;
     };
-    csi = {
-      compat = {
-        enable = (lib.mkEnableOption "nix.csi.store CSI driver (for backwards compatibility)") // {
-          default = true;
-          apply =
-            value:
-            if value then
-              lib.warn "nixkube: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name." value
-            else
-              value;
-        };
-      };
+    compat = (lib.mkEnableOption "nix.csi.store CSI driver (for backwards compatibility)") // {
+      default = true;
+      apply =
+        value:
+        if value then
+          lib.warn "nix-csi.node.compat: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name." value
+        else
+          value;
     };
     nixConfig = lib.mkOption {
       description = "nix.conf for CSI/mounter/DaemonSet pods";
@@ -118,7 +114,7 @@ in
                     env = lib.mkNamedList {
                       BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                       CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.csi.compat.enable;
+                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.compat;
                       NRI_ENABLED.value = "true";
                       HOME.value = "/nix/var/nix-csi/root";
                       HOST_MOUNT_PATH.value = cfg.hostMountPath;
@@ -160,7 +156,7 @@ in
                       };
                     };
                   };
-                  csi-node-driver-registrar-nix-csi = lib.mkIf cfg.node.csi.compat.enable {
+                  csi-node-driver-registrar-nix-csi = lib.mkIf cfg.node.compat {
                     image = "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0";
                     args = [
                       "--v=5"
@@ -182,7 +178,7 @@ in
                       };
                     };
                   };
-                  livenessprobe-nix-csi = lib.mkIf cfg.node.csi.compat.enable {
+                  livenessprobe-nix-csi = lib.mkIf cfg.node.compat {
                     image = "registry.k8s.io/sig-storage/livenessprobe:v2.18.0";
                     args = [
                       "--csi-address=/csi/nix.csi.store/csi.sock"

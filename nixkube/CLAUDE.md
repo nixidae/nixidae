@@ -23,7 +23,7 @@ The system consists of:
 
 The CSI layer supports two driver names for backwards compatibility:
 - **nixkube** - Primary driver name (recommended for new deployments)
-- **nix.csi.store** - Legacy driver name (enabled via `cfg.node.csi.compat.enable`)
+- **nix.csi.store** - Legacy driver name (enabled via `cfg.node.compat`)
 
 ## Architecture
 

@@ -22,7 +22,7 @@ in
           storageCapacity = false;
         };
       };
-      "nix.csi.store" = lib.mkIf cfg.node.csi.compat.enable {
+      "nix.csi.store" = lib.mkIf cfg.node.compat {
         metadata.labels = cfg.labels;
         spec = {
           attachRequired = false;
