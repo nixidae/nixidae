@@ -251,25 +251,25 @@ class NriPlugin(nri_grpc.PluginBase):
         await stream.send_message(resp)
 
     async def UpdateContainer(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.updatecontainer")
+        # Not used: Container resource updates don't affect store injection.
+        # Kept as skeleton to satisfy NRI PluginBase type checker.
         req: nri_pb2.UpdateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(f"container={req.container.name!r}")
         await stream.send_message(nri_pb2.UpdateContainerResponse())
 
     async def StopContainer(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.stopcontainer")
+        # Not used: Container stop events are handled via StateChange REMOVE_CONTAINER.
+        # Cleanup of hardlink farm happens post-removal when namespace is destroyed.
+        # Kept as skeleton to satisfy NRI PluginBase type checker.
         req: nri_pb2.StopContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(f"container={req.container.name!r}")
-        # Cleanup is handled in StateChange on REMOVE_CONTAINER event
         await stream.send_message(nri_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.updatepodsandbox")
+        # Not used: Pod overhead/resource updates don't affect store injection.
+        # Kept as skeleton to satisfy NRI PluginBase type checker.
         req: nri_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(f"pod={req.pod.name!r}")
         await stream.send_message(nri_pb2.UpdatePodSandboxResponse())
 
     async def StateChange(self, stream) -> None:
@@ -302,12 +302,11 @@ class NriPlugin(nri_grpc.PluginBase):
         await stream.send_message(nri_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.validatecontaineradjustment")
-        req: (
-            nri_pb2.ValidateContainerAdjustmentRequest | None
-        ) = await stream.recv_message()
+        # Not used: We don't validate adjustments; we just make them during CreateContainer.
+        # If needed in future for cross-plugin validation, implement here.
+        # Kept as skeleton to satisfy NRI PluginBase type checker.
+        req: nri_pb2.ValidateContainerAdjustmentRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(f"container={req.container.name!r}")
         await stream.send_message(nri_pb2.ValidateContainerAdjustmentResponse())
 
     async def _pump_build_progress(self, container_id: str) -> None:
