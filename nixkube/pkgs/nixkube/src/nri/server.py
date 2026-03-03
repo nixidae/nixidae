@@ -83,7 +83,9 @@ class NriPlugin(nri_grpc.PluginBase):
         logger = logging.getLogger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(f"pod={req.pod.name!r} container={req.container.name!r}")
+        logger.info(
+            f"pod={req.pod.namespace}/{req.pod.name} container={req.container.name}"
+        )
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
         if any(m.destination == "/nix" for m in req.container.mounts):
