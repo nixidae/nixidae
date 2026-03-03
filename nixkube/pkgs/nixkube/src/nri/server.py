@@ -43,14 +43,9 @@ from .ns_mount import mount_in_container
 
 logger = logging.getLogger("nixkube.nri")
 
-# Subscribe only to CreateContainer and StopContainer events.
-_SUBSCRIBED_EVENTS = sum(
-    1 << event
-    for event in [
-        nri_pb2.Event.CREATE_CONTAINER,
-        nri_pb2.Event.STOP_CONTAINER,
-    ]
-)
+# Subscribe to all valid NRI events (containerd may not send CreateContainer
+# unless we also subscribe to pod events and other related event types)
+_SUBSCRIBED_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
 
 
 class NriPlugin(nri_grpc.PluginBase):
@@ -364,7 +359,16 @@ class NriPlugin(nri_grpc.PluginBase):
 
             # Realize storepaths
             volume_path = NRI_CONTAINERS / container_id
+            logger.debug(
+                "[BUILD-TASK] Calling build_packages for container=%r with %d paths",
+                container_id,
+                len(store_paths),
+            )
             await build_packages(store_paths, volume_path, extra_args)
+            logger.debug(
+                "[BUILD-TASK] build_packages completed for container=%r", container_id
+            )
+
             # Get all paths
             paths = await get_closure_paths(store_paths)
             # Hardlink closure into volume
@@ -373,7 +377,16 @@ class NriPlugin(nri_grpc.PluginBase):
 
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
             # We need the PID to enter the container's mount namespace and mount /nix + store mounts.
+            logger.debug(
+                "[BUILD-TASK] Waiting for PID+bundle from nri-wait for container=%r",
+                container_id,
+            )
             container_info = await self.zmq_server.wait_for_pid(container_id)
+            logger.debug(
+                "[BUILD-TASK] Received PID+bundle for container=%r: pid=%s",
+                container_id,
+                container_info[0] if container_info else None,
+            )
             if container_info is None:
                 raise RuntimeError(
                     f"No PID/bundle received for container={container_id!r}, cannot mount /nix"

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Get logs from nix-node pod running on a worker node
+# Usage: workerlogs [--tail N] [--follow]
+
+namespace="nix-csi"
+tail_lines=100
+follow=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --tail)
+      tail_lines="$2"
+      shift 2
+      ;;
+    --follow|-f)
+      follow="-f"
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+# Get worker node(s)
+workers=$(kubectl get nodes -ojson | jq -r '
+  .items[]
+  | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null)
+  | .metadata.name
+')
+
+if [ -z "$workers" ]; then
+  echo "No worker nodes found"
+  exit 1
+fi
+
+# Get nix-node pods on worker nodes
+for node in $workers; do
+  pod=$(kubectl get pods -n "$namespace" -ojson | jq -r "
+    .items[]
+    | select(.spec.nodeName == \"$node\")
+    | select(.metadata.name | startswith(\"nix-node\"))
+    | .metadata.name
+  " | head -1)
+
+  if [ -n "$pod" ]; then
+    echo "Getting logs from $pod on node $node..."
+    kubectl logs -n "$namespace" "$pod" $follow --tail="$tail_lines"
+    exit 0
+  fi
+done
+
+echo "No nix-node pod found on worker nodes"
+exit 1

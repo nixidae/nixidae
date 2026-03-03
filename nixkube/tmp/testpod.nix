@@ -28,13 +28,13 @@ let
           # Will go into the default namespace
           kubernetes.resources.nix-csi.Pod.nritest = {
             metadata.annotations = {
-              "nix-nri/pod-rw" = "true";
-              "nix-nri/pod-ssl" = "/etc/ssl/certs=${pkgs.dockerTools.caCertificates}/etc/ssl/certs";
-              "nix-nri/pod-group" = "/etc/group=${pkgs.dockerTools.fakeNss}/etc/group";
-              "nix-nri/pod-passwd" = "/etc/passwd=${pkgs.dockerTools.fakeNss}/etc/passwd";
-              "nix-nri/pod-nsswitch" = "/etc/nsswitch.conf=${pkgs.dockerTools.fakeNss}/etc/nsswitch.conf";
-              "nix-nri/pod-binsh" = "/bin/sh=${pkgs.dockerTools.binSh}/bin/sh";
-              "nix-nri/pod-usrbinenv" = "/usr/bin/env=${pkgs.dockerTools.usrBinEnv}/usr/bin/env";
+              "nixkube/pod-rw" = "true";
+              "nixkube/pod-ssl" = "/etc/ssl/certs=${pkgs.dockerTools.caCertificates}/etc/ssl/certs";
+              "nixkube/pod-group" = "/etc/group=${pkgs.dockerTools.fakeNss}/etc/group";
+              "nixkube/pod-passwd" = "/etc/passwd=${pkgs.dockerTools.fakeNss}/etc/passwd";
+              "nixkube/pod-nsswitch" = "/etc/nsswitch.conf=${pkgs.dockerTools.fakeNss}/etc/nsswitch.conf";
+              "nixkube/pod-binsh" = "/bin/sh=${pkgs.dockerTools.binSh}/bin/sh";
+              "nixkube/pod-usrbinenv" = "/usr/bin/env=${pkgs.dockerTools.usrBinEnv}/usr/bin/env";
             };
             spec = {
               containers = lib.mkNamedList {

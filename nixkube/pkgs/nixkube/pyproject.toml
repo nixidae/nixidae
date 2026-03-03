@@ -15,6 +15,7 @@ dependencies = [
   "csi",
   "nri",
   "cri",
+  "grpclib-nri",
   "pyzmq",
   "cachetools",
   "aiofiles",
