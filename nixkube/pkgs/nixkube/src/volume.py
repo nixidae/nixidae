@@ -148,6 +148,23 @@ async def mount_volume(
                     f"target_parent_exists={target_path.parent.exists()}",
                     logs="",
                 )
+        # Older kernels silently ignore MS_RDONLY on initial bind mounts, so
+        # remount to guarantee the RO flag is enforced.
+        ret = _libc.mount(
+            None,
+            ctypes.c_char_p(os.fsencode(target_path)),
+            None,
+            _MS_BIND | _MS_REMOUNT | _MS_RDONLY,
+            None,
+        )
+        if ret != 0:
+            err = ctypes.get_errno()
+            # Unmount the writable bind mount so we don't leave it exposed
+            _libc.umount2(ctypes.c_char_p(os.fsencode(target_path)), ctypes.c_int(0))
+            raise MountError(
+                f"Failed to remount bind volume read-only: {os.strerror(err)} (errno {err})",
+                logs="",
+            )
     else:
         # For readwrite we use an overlayfs mount, the benefit here is that
         # it works as CoW even if the underlying filesystem doesn't support
