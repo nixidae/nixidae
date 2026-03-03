@@ -37,7 +37,7 @@ from ..nix import build_packages, get_build_args, get_closure_paths, get_current
 from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
-from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
+from .cleanup import garbage_collect_stale_volumes
 from .mount import mount_in_container
 from .zmq import ZeroMQServer
 
@@ -174,10 +174,9 @@ _SUBSCRIBED_EVENTS = sum(
 # 1. Container runs with /nix and store mounts injected
 #
 # 2. On container removal (StateChange REMOVE_CONTAINER event)
-#    - cleanup_container_volume(container_id): Removes the specific volume directory
-#      for the container being removed (the hardlink farm at /nix/var/nixkube/containers/{id})
 #    - garbage_collect_stale_volumes(cri_socket): Queries CRI for active containers,
-#      removes any stale volumes orphaned by crashed containers or abrupt shutdowns
+#      removes any stale volumes (including the one being removed) that are orphaned
+#      by crashed containers or abrupt shutdowns
 #
 # ============================================================================
 
@@ -412,10 +411,8 @@ class NriPlugin(nri_grpc.PluginBase):
 
         logger.info(" ".join(parts))
 
-        # Cleanup hardlink farm volumes when container is removed
+        # Cleanup stale hardlink farm volumes when container is removed
         if event.event == nri_pb2.Event.REMOVE_CONTAINER:
-            container_id = event.container.id
-            await cleanup_container_volume(container_id)
             await garbage_collect_stale_volumes(self.cri_socket)
 
         await stream.send_message(nri_pb2.Empty())

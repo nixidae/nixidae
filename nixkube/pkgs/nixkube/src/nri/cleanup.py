@@ -11,21 +11,6 @@ from ..cri import list_container_ids
 logger = logging.getLogger("nixkube.nri.cleanup")
 
 
-async def cleanup_container_volume(container_id: str) -> None:
-    """Remove the volume directory for a stopped container."""
-    volume_path = NRI_CONTAINERS / container_id
-    if volume_path.exists():
-        try:
-            shutil.rmtree(volume_path)
-            logger.info("Cleaned up volume dir at %r", volume_path)
-        except Exception as e:
-            logger.warning(
-                "Failed to remove volume dir at %r: %s",
-                volume_path,
-                e,
-            )
-
-
 async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
     """Remove volumes for containers no longer in CRI.
 
