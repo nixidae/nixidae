@@ -85,6 +85,13 @@ class NriPlugin(nri_grpc.PluginBase):
         assert req is not None
         logger.info(f"pod={req.pod.name!r} container={req.container.name!r}")
 
+        # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
+        if any(m.destination == "/nix" for m in req.container.mounts):
+            logger.debug("Container already has /nix mounted, skipping NRI injection")
+            resp = nri_pb2.CreateContainerResponse(adjust=nri_pb2.ContainerAdjustment())
+            await stream.send_message(resp)
+            return
+
         # Log container environment and args for debugging
         args = list(req.container.args) if req.container.args else []
         logger.debug(f"Container args: {args}")
@@ -134,11 +141,8 @@ class NriPlugin(nri_grpc.PluginBase):
 
         adjust = nri_pb2.ContainerAdjustment()
 
-        # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
-        nix_already_mounted = any(m.destination == "/nix" for m in req.container.mounts)
-
-        # Enable NRI build if we have storepaths to inject and /nix isn't already mounted
-        if store_paths and not nix_already_mounted:
+        # Enable NRI build if we have storepaths to inject
+        if store_paths:
             container_id = req.container.id
 
             logger.info(
