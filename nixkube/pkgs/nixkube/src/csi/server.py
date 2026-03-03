@@ -102,14 +102,6 @@ class NodeServicer(csi_grpc.NodeBase):
         if request is None:
             raise GRPCError(Status.INVALID_ARGUMENT, "NodePublishVolumeRequest is None")
 
-        logger.info(
-            "Publishing volume",
-            extra={
-                "volume_id": request.volume_id,
-                "target_path": request.target_path,
-            },
-        )
-
         if not request.volume_context.get("csi.storage.k8s.io/ephemeral"):
             raise GRPCError(
                 Status.INVALID_ARGUMENT,
@@ -125,6 +117,10 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_name = request.volume_context["csi.storage.k8s.io/pod.name"]
             pod_namespace = request.volume_context["csi.storage.k8s.io/pod.namespace"]
             pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
+
+            logger.info(
+                f"Publishing volume for pod {pod_namespace}/{pod_name}: {request.volume_id} → {request.target_path}"
+            )
             pod = await Pod.get(pod_name, namespace=pod_namespace)
             # Validate that fetched pod matches the UID from volume context
             assert pod.metadata.uid == pod_uid, (
