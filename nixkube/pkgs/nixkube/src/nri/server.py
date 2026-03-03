@@ -38,7 +38,7 @@ from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import garbage_collect_stale_volumes
-from .mount import mount_in_container
+from .mount import check_kernel_support, mount_in_container
 from .zmq import ZeroMQServer
 
 # Subscribe only to events we actually need for store injection and cleanup.
@@ -275,6 +275,14 @@ class NriPlugin(nri_grpc.PluginBase):
             logger.info(
                 f"RW /nix overlayfs requested for container={req.container.name!r}"
             )
+            # Verify kernel supports overlayfs via new mount API (6.5+)
+            try:
+                check_kernel_support(nix_rw=True)
+            except RuntimeError as e:
+                logger.error(
+                    f"Cannot enable RW /nix for container={req.container.name!r}: {e}"
+                )
+                raise
 
         adjust = nri_pb2.ContainerAdjustment()
 
@@ -658,6 +666,14 @@ async def _register_plugin(
 async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
     logger = logging.getLogger("nixkube.nri.runtime")
+
+    # Verify kernel supports required syscalls for NRI mount operations
+    try:
+        check_kernel_support(nix_rw=False)  # Check minimum requirement (5.2+)
+    except RuntimeError as e:
+        logger.critical(f"Kernel compatibility check failed: {e}")
+        raise
+
     logger.info(
         f"Connecting to socket {NRI_RUNTIME_SOCKET} (plugin={NRI_PLUGIN_NAME} idx={NRI_PLUGIN_IDX})"
     )
