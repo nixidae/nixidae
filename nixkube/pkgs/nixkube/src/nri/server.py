@@ -30,7 +30,7 @@ from ..constants import (
     NRI_PLUGIN_NAME,
     NRI_RUNTIME_SOCKET,
 )
-from ..cri import get_cri_socket
+from ..cri import get_cri_socket, list_container_ids
 from ..events import report_event
 from ..nix import build_packages, get_build_args, get_closure_paths, get_current_system
 from ..store import extract_store_paths
@@ -705,8 +705,11 @@ async def _nri_run() -> None:
     zmq_server = ZeroMQServer()
     await zmq_server.initialize()
 
-    # Discover CRI socket for garbage collection
+    # Discover CRI socket and verify connectivity. Without CRI access, garbage
+    # collection of stale volumes won't work and the node will fill up.
     cri_socket = await get_cri_socket()
+    containers = await list_container_ids(Path("/host") / cri_socket.relative_to("/"))
+    logger.info(f"CRI connectivity verified: {len(containers)} containers")
 
     plugin = NriPlugin(zmq_server, cri_socket)
     mapping = plugin.__mapping__()
