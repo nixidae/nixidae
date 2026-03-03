@@ -11,7 +11,7 @@ from typing import Optional
 import zmq.asyncio
 from cachetools import TTLCache
 
-logger = logging.getLogger("nixkube")
+logger = logging.getLogger("nixkube.nri.zmq")
 
 
 class ZeroMQServer:
@@ -36,25 +36,23 @@ class ZeroMQServer:
 
     async def initialize(self) -> None:
         """Create ZeroMQ context and bind sockets."""
-        logger.info(
-            "[ZMQ-INIT] Initializing ZeroMQ sockets in %r", self.socket_base_dir
-        )
+        logger.info(f"Initializing ZeroMQ sockets in {self.socket_base_dir!r}")
 
         # Ensure socket directory exists
         socket_dir = Path(self.socket_base_dir)
         try:
             socket_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug("[ZMQ-INIT] Socket directory ready: %s", socket_dir)
+            logger.debug(f"Socket directory ready: {socket_dir}")
         except Exception as e:
-            logger.error("[ZMQ-INIT] Failed to create socket directory: %s", e)
+            logger.error(f"Failed to create socket directory: {e}")
             raise
 
         # Create ZeroMQ context
         try:
             self.context = zmq.asyncio.Context()
-            logger.debug("[ZMQ-INIT] ZeroMQ context created")
+            logger.debug("ZeroMQ context created")
         except Exception as e:
-            logger.error("[ZMQ-INIT] Failed to create ZMQ context: %s", e)
+            logger.error(f"Failed to create ZMQ context: {e}")
             raise
 
         # Create REP socket (for queries)
@@ -62,9 +60,9 @@ class ZeroMQServer:
             req_socket_path = socket_dir / "wait-req.sock"
             self.rep_socket = self.context.socket(zmq.REP)
             self.rep_socket.bind(f"ipc://{req_socket_path}")
-            logger.info("[ZMQ-INIT] REP socket bound to ipc://%s", req_socket_path)
+            logger.info(f"REP socket bound to ipc://{req_socket_path}")
         except Exception as e:
-            logger.error("[ZMQ-INIT] Failed to create REP socket: %s", e)
+            logger.error(f"Failed to create REP socket: {e}")
             raise
 
         # Create PUB socket (for broadcasts)
@@ -72,12 +70,12 @@ class ZeroMQServer:
             pub_socket_path = socket_dir / "wait-pub.sock"
             self.pub_socket = self.context.socket(zmq.PUB)
             self.pub_socket.bind(f"ipc://{pub_socket_path}")
-            logger.info("[ZMQ-INIT] PUB socket bound to ipc://%s", pub_socket_path)
+            logger.info(f"PUB socket bound to ipc://{pub_socket_path}")
         except Exception as e:
-            logger.error("[ZMQ-INIT] Failed to create PUB socket: %s", e)
+            logger.error(f"Failed to create PUB socket: {e}")
             raise
 
-        logger.info("[ZMQ-INIT] Both ZeroMQ sockets initialized successfully")
+        logger.info("Both ZeroMQ sockets initialized successfully")
 
     def _pid_event(self, container_id: str) -> asyncio.Event:
         """Return (creating if needed) the Event for a container's PID arrival."""
@@ -94,18 +92,13 @@ class ZeroMQServer:
                 self._pid_event(container_id).wait(), timeout=timeout
             )
         except asyncio.TimeoutError:
-            logger.warning(
-                "[ZMQ] Timed out waiting for PID of container=%r", container_id
-            )
+            logger.warning(f"Timed out waiting for PID of container={container_id!r}")
             return None
         pid = self.container_pids.get(container_id)
         bundle = self.container_bundles.get(container_id)
         if pid is None or bundle is None:
             logger.warning(
-                "[ZMQ] Missing pid=%r or bundle=%r for container=%r",
-                pid,
-                bundle,
-                container_id,
+                f"Missing pid={pid!r} or bundle={bundle!r} for container={container_id!r}"
             )
             return None
         return (pid, bundle)
@@ -126,13 +119,11 @@ class ZeroMQServer:
             return
         try:
             msg = json.dumps({"container_id": container_id, "status": "progress"})
-            logger.debug("[ZMQ-PUB] Publishing progress: %s", msg)
+            logger.debug(f"Publishing progress: {msg}")
             await self.pub_socket.send(msg.encode())
         except Exception as e:
             logger.warning(
-                "[ZMQ-PUB] Failed to publish build progress for container=%r: %s",
-                container_id,
-                e,
+                f"Failed to publish build progress for container={container_id!r}: {e}"
             )
 
     async def publish_build_complete(self, container_id: str) -> None:
@@ -142,16 +133,12 @@ class ZeroMQServer:
             return
         try:
             msg = json.dumps({"container_id": container_id, "status": "done"})
-            logger.debug("[ZMQ-PUB] Publishing: %s", msg)
+            logger.debug(f"Publishing: {msg}")
             await self.pub_socket.send(msg.encode())
-            logger.info(
-                "[ZMQ-PUB] Published build completion for container=%r", container_id
-            )
+            logger.info(f"Published build completion for container={container_id!r}")
         except Exception as e:
             logger.error(
-                "[ZMQ-PUB] Failed to publish build completion for container=%r: %s",
-                container_id,
-                e,
+                f"Failed to publish build completion for container={container_id!r}: {e}"
             )
 
     async def start_request_handler(self) -> None:
@@ -165,7 +152,7 @@ class ZeroMQServer:
             while True:
                 logger.debug("Waiting for build status query on REP socket...")
                 query_bytes = await self.rep_socket.recv()
-                logger.debug("Received query: %d bytes", len(query_bytes))
+                logger.debug(f"Received query: {len(query_bytes)} bytes")
                 try:
                     query = json.loads(query_bytes.decode())
                     container_id = query.get("id")
@@ -180,37 +167,29 @@ class ZeroMQServer:
                         self.container_bundles[container_id] = bundle
                         self._pid_event(container_id).set()
                         logger.debug(
-                            "[ZMQ-REP] Stored pid=%d bundle=%r for container=%r",
-                            pid,
-                            bundle,
-                            container_id,
+                            f"Stored pid={pid} bundle={bundle!r} for container={container_id!r}"
                         )
                     logger.info(
-                        "[ZMQ-REP] Query for container=%r pid=%r bundle=%r",
-                        container_id,
-                        pid,
-                        bundle,
+                        f"Query for container={container_id!r} pid={pid!r} bundle={bundle!r}"
                     )
 
                     status = await self.query_build_status(container_id)
                     logger.debug(
-                        "[ZMQ-REP] Responding with status=%s for container=%r",
-                        status,
-                        container_id,
+                        f"Responding with status={status} for container={container_id!r}"
                     )
                     response = json.dumps(status)
                     await self.rep_socket.send(response.encode())
-                    logger.debug("[ZMQ-REP] Response sent")
+                    logger.debug("Response sent")
                 except Exception as e:
-                    logger.error("Error handling query: %s", e)
+                    logger.error(f"Error handling query: {e}")
                     await self.rep_socket.send(b'{"error":"internal error"}')
         except asyncio.CancelledError:
             logger.info("REP socket handler cancelled")
         except Exception as e:
-            logger.error("REP socket handler error: %s", e)
+            logger.error(f"REP socket handler error: {e}")
 
     def shutdown(self) -> None:
         """Terminate ZeroMQ context."""
         if self.context is not None:
             self.context.term()
-            logger.debug("[ZMQ-SHUTDOWN] ZeroMQ context terminated")
+            logger.debug("ZeroMQ context terminated")

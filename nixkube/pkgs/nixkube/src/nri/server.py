@@ -36,10 +36,10 @@ from ..events import report_event
 from ..nix import build_packages, get_build_args, get_closure_paths, get_current_system
 from ..store import extract_store_paths
 from ..volume import prepare_volume
-from ..zmq_server import ZeroMQServer
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
 from .ns_mount import mount_in_container
+from .zmq_server import ZeroMQServer
 
 # Subscribe to all valid NRI events (containerd may not send CreateContainer
 # unless we also subscribe to pod events and other related event types)
