@@ -10,7 +10,7 @@ from shellous import sh
 
 from .errors import CommandTimeoutError, SubprocessError
 
-logger = logging.getLogger("nix-csi.subprocessing")
+logger = logging.getLogger("nixkube.subprocessing")
 
 
 class SubprocessResult(NamedTuple):
