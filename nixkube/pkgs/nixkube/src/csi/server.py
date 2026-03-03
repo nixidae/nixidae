@@ -42,16 +42,15 @@ from ..volume import (
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .identity import IdentityServicer
 
-logger = logging.getLogger("nixkube.csi")
-
 
 def csi_error_handler(func):
     @wraps(func)
     async def wrapper(self, stream):
+        handler_logger = logging.getLogger(f"nixkube.csi.{func.__name__.lower()}")
         try:
             return await func(self, stream)
         except Exception as e:
-            logger.exception(f"{func.__name__} failed")
+            handler_logger.exception("Handler failed")
 
             # Emit events for all exceptions
             if isinstance(e, CSIError):
@@ -97,6 +96,7 @@ class NodeServicer(csi_grpc.NodeBase):
             csi_pb2.NodePublishVolumeRequest, csi_pb2.NodePublishVolumeResponse
         ],
     ) -> None:
+        logger = logging.getLogger("nixkube.csi.nodepublishvolume")
         start_time = time.perf_counter()
         request = await stream.recv_message()
         if request is None:
@@ -234,6 +234,7 @@ class NodeServicer(csi_grpc.NodeBase):
             csi_pb2.NodeUnpublishVolumeRequest, csi_pb2.NodeUnpublishVolumeResponse
         ],
     ) -> None:
+        logger = logging.getLogger("nixkube.csi.nodeunpublishvolume")
         request = await stream.recv_message()
         if request is None:
             raise GRPCError(
@@ -334,6 +335,7 @@ class NodeServicer(csi_grpc.NodeBase):
 
 
 async def csi_serve(plugin_name: str | None = None, socket_path: Path | None = None):
+    logger = logging.getLogger("nixkube.csi.serve")
     if socket_path is None:
         socket_path = Path(CSI_SOCKET_PATH)
     if plugin_name is None:
