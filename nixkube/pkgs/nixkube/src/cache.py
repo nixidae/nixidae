@@ -131,3 +131,17 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                 logger.error(
                     f"Failed to copy to cache after 6 attempts: {len(paths)} paths"
                 )
+
+
+def schedule_copy_to_cache(package_paths: set[Path]) -> None:
+    """Fire-and-forget background task to copy packages to cache."""
+    if not package_paths:
+        return
+    task = asyncio.create_task(copy_to_cache(package_paths))
+    task.add_done_callback(
+        lambda t: (
+            logger.error(f"copy_to_cache failed: {t.exception()}")
+            if t.exception()
+            else None
+        )
+    )

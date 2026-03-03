@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: MIT
 
-import asyncio
 import logging
 import socket
 import time
@@ -15,7 +14,7 @@ from grpclib.const import Status
 from grpclib.server import Server, Stream
 from kr8s.asyncio.objects import Pod
 
-from ..cache import copy_to_cache
+from ..cache import schedule_copy_to_cache
 from ..constants import (
     CSI_GCROOTS,
     CSI_SOCKET_PATH,
@@ -212,15 +211,7 @@ class NodeServicer(csi_grpc.NodeBase):
             await stream.send_message(csi_pb2.NodePublishVolumeResponse())
 
             # Copy all packages to cache in background
-            if package_paths:
-                task = asyncio.create_task(copy_to_cache(package_paths))
-                task.add_done_callback(
-                    lambda t: (
-                        logger.error(f"copy_to_cache failed: {t.exception()}")
-                        if t.exception()
-                        else None
-                    )
-                )
+            schedule_copy_to_cache(package_paths)
 
     @csi_error_handler
     async def NodeUnpublishVolume(
