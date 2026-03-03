@@ -56,7 +56,7 @@ async def get_cri_socket() -> Path:
             # Strip unix:// prefix if present
             endpoint = endpoint.removeprefix("unix://")
 
-            logger.info("Discovered CRI socket: %s", endpoint)
+            logger.info(f"Discovered CRI socket: {endpoint}")
             return Path(endpoint)
 
     except RuntimeError:

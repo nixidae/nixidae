@@ -292,9 +292,7 @@ class NriPlugin(nri_grpc.PluginBase):
             container_id = req.container.id
 
             logger.info(
-                "Enabling store injection for container=%r with %d storepaths",
-                container_id,
-                len(store_paths),
+                f"Enabling store injection for container={container_id!r} with {len(store_paths)} storepaths"
             )
 
             try:
