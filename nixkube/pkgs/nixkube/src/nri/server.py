@@ -25,6 +25,7 @@ from ..cache import copy_to_cache
 from ..constants import (
     COREUTILS_STATIC,
     HOST_MOUNT_PATH,
+    HOST_ROOT,
     NRI_CONTAINERS,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
@@ -708,7 +709,7 @@ async def _nri_run() -> None:
     # Discover CRI socket and verify connectivity. Without CRI access, garbage
     # collection of stale volumes won't work and the node will fill up.
     cri_socket = await get_cri_socket()
-    containers = await list_container_ids(Path("/host") / cri_socket.relative_to("/"))
+    containers = await list_container_ids(HOST_ROOT / cri_socket.relative_to("/"))
     logger.info(f"CRI connectivity verified: {len(containers)} containers")
 
     plugin = NriPlugin(zmq_server, cri_socket)

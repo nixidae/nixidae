@@ -63,9 +63,11 @@ HOST_MOUNT_PATH = Path(os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi"))
 # Statically linked chroot binary used to execute OCI hooks from HOST_MOUNT_PATH
 COREUTILS_STATIC = Path(os.environ.get("COREUTILS_STATIC", "coreutils"))
 
+# Host root filesystem mounted into the daemonset container.
+HOST_ROOT = Path(os.environ.get("HOST_ROOT", "/host"))
+
 # Host /proc mounted into the daemonset for accessing container namespaces.
-# Set via HOST_PROC_PATH environment variable from kubenix.
-HOST_PROC_PATH = os.environ.get("HOST_PROC_PATH", "/host/proc")
+HOST_PROC_PATH = str(HOST_ROOT / "proc")
 
 # Kubelet pods directory for discovering active volumes
 KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")

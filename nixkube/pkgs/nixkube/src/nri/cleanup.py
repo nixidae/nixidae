@@ -5,7 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from ..constants import NRI_CONTAINERS
+from ..constants import HOST_ROOT, NRI_CONTAINERS
 from ..cri import list_container_ids
 
 logger = logging.getLogger("nixkube.nri.cleanup")
@@ -20,7 +20,7 @@ async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
     try:
         # Get list of active containers from CRI
         # Access socket through host mount since we're in a container
-        socket_path = Path("/host") / cri_socket.relative_to("/")
+        socket_path = HOST_ROOT / cri_socket.relative_to("/")
         active_ids = await list_container_ids(socket_path)
         logger.debug(
             "GC: Active containers from CRI: %d",
