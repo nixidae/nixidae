@@ -41,8 +41,6 @@ from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import cleanup_container_volume, garbage_collect_stale_volumes
 from .ns_mount import mount_in_container
 
-logger = logging.getLogger("nixkube.nri")
-
 # Subscribe to all valid NRI events (containerd may not send CreateContainer
 # unless we also subscribe to pod events and other related event types)
 _SUBSCRIBED_EVENTS = (1 << (nri_pb2.Event.Value("LAST") - 1)) - 1
@@ -52,55 +50,46 @@ class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
     def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
+        logger = logging.getLogger("nixkube.nri.init")
         super().__init__()
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
-        logger.debug("nri-wait binary resolved to: %s", self.nri_wait_bin)
+        logger.debug(f"nri-wait binary resolved to: {self.nri_wait_bin}")
 
     async def Configure(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.configure")
         req: nri_pb2.ConfigureRequest | None = await stream.recv_message()
-        logger.info(
-            "Configure: runtime=%r version=%r",
-            req.runtime_name if req else None,
-            req.runtime_version if req else None,
-        )
+        runtime_name = req.runtime_name if req else None
+        runtime_version = req.runtime_version if req else None
+        logger.info(f"runtime={runtime_name!r} version={runtime_version!r}")
         await stream.send_message(nri_pb2.ConfigureResponse(events=_SUBSCRIBED_EVENTS))
 
     async def Synchronize(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.synchronize")
         req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "Synchronize: %d pods, %d containers",
-            len(req.pods),
-            len(req.containers),
-        )
+        logger.info(f"pods={len(req.pods)} containers={len(req.containers)}")
         await stream.send_message(nri_pb2.SynchronizeResponse())
 
     async def Shutdown(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.shutdown")
         await stream.recv_message()
         logger.info("Shutdown")
         await stream.send_message(nri_pb2.Empty())
 
     async def CreateContainer(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "CreateContainer: pod=%r container=%r",
-            req.pod.name,
-            req.container.name,
-        )
+        logger.info(f"pod={req.pod.name!r} container={req.container.name!r}")
 
         # Log container environment and args for debugging
-        logger.debug(
-            "[CreateContainer] Container args: %s",
-            list(req.container.args) if req.container.args else [],
-        )
-        logger.debug(
-            "[CreateContainer] Container env: %s",
-            list(req.container.env) if req.container.env else [],
-        )
+        args = list(req.container.args) if req.container.args else []
+        logger.debug(f"Container args: {args}")
+        env = list(req.container.env) if req.container.env else []
+        logger.debug(f"Container env: {env}")
 
         # Combine env values, args and store mount annotation values for store path extraction
         # Only extract from nixkube/pod or nixkube/{container-name} annotations
@@ -123,9 +112,7 @@ class NriPlugin(nri_grpc.PluginBase):
         # Extract all store paths
         store_paths = extract_store_paths(combined)
         if store_paths:
-            logger.info(
-                f"[CreateContainer] Extracted store paths from container: {sorted(store_paths)}"
-            )
+            logger.info(f"Extracted store paths from container: {sorted(store_paths)}")
 
         # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
         store_mounts = parse_store_mounts(
@@ -133,7 +120,7 @@ class NriPlugin(nri_grpc.PluginBase):
         )
         if store_mounts:
             logger.info(
-                f"[CreateContainer] Parsed store mounts for container={req.container.name}: {store_mounts}"
+                f"Parsed store mounts for container={req.container.name}: {store_mounts}"
             )
 
         # Parse RW flag (nixkube/pod-rw or nixkube/{container-name}-rw), filtered by system
@@ -142,8 +129,7 @@ class NriPlugin(nri_grpc.PluginBase):
         )
         if nix_rw:
             logger.info(
-                "[CreateContainer] RW /nix overlayfs requested for container=%r",
-                req.container.name,
+                f"RW /nix overlayfs requested for container={req.container.name!r}"
             )
 
         adjust = nri_pb2.ContainerAdjustment()
@@ -198,19 +184,14 @@ class NriPlugin(nri_grpc.PluginBase):
                 )
                 adjust.hooks.create_runtime.append(hook)
                 logger.info(
-                    "[CreateContainer] Injected createRuntime hook for container=%r (binary=%r) (chroot binary:%r)",
-                    container_id,
-                    self.nri_wait_bin,
-                    coreutils_binary,
+                    f"Injected createRuntime hook for container={container_id!r} (binary={self.nri_wait_bin!r}) (chroot binary={coreutils_binary!r})"
                 )
 
                 # Spawn build task to build store paths and namespace-mount them into the container
                 if container_id not in self.zmq_server.pending_builds:
                     self.zmq_server.pending_builds.add(container_id)
                     logger.info(
-                        "[CreateContainer] Spawning build task for container=%r with %d extracted store paths",
-                        container_id,
-                        len(store_paths),
+                        f"Spawning build task for container={container_id!r} with {len(store_paths)} extracted store paths"
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
@@ -227,8 +208,7 @@ class NriPlugin(nri_grpc.PluginBase):
                     task.add_done_callback(
                         lambda t: (
                             logger.info(
-                                "[CreateContainer] Build task completed for container=%r",
-                                container_id,
+                                f"Build task completed for container={container_id!r}"
                             )
                             if not t.cancelled()
                             else None
@@ -236,36 +216,29 @@ class NriPlugin(nri_grpc.PluginBase):
                     )
                 else:
                     logger.warning(
-                        "[CreateContainer] Build already pending for container=%r",
-                        container_id,
+                        f"Build already pending for container={container_id!r}"
                     )
 
             except Exception as e:
                 logger.exception(
-                    "Failed to set up volume for container=%r: %s",
-                    container_id,
-                    e,
+                    f"Failed to set up volume for container={container_id!r}: {e}"
                 )
 
         resp = nri_pb2.CreateContainerResponse(adjust=adjust)
         await stream.send_message(resp)
 
     async def UpdateContainer(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.updatecontainer")
         req: nri_pb2.UpdateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "UpdateContainer: container=%r",
-            req.container.name,
-        )
+        logger.info(f"container={req.container.name!r}")
         await stream.send_message(nri_pb2.UpdateContainerResponse())
 
     async def StopContainer(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.stopcontainer")
         req: nri_pb2.StopContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "StopContainer: container=%r",
-            req.container.name,
-        )
+        logger.info(f"container={req.container.name!r}")
 
         container_id = req.container.id
 
@@ -278,44 +251,39 @@ class NriPlugin(nri_grpc.PluginBase):
         await stream.send_message(nri_pb2.StopContainerResponse())
 
     async def UpdatePodSandbox(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.updatepodsandbox")
         req: nri_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "UpdatePodSandbox: pod=%r",
-            req.pod.name,
-        )
+        logger.info(f"pod={req.pod.name!r}")
         await stream.send_message(nri_pb2.UpdatePodSandboxResponse())
 
     async def StateChange(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
         logger.info(
-            "StateChange: event=%r",
-            event.event,
+            f"StateChange: event={nri_pb2.Event.Name(event.event)} ({event.event})"
         )
         await stream.send_message(nri_pb2.Empty())
 
     async def ValidateContainerAdjustment(self, stream) -> None:
+        logger = logging.getLogger("nixkube.nri.validatecontaineradjustment")
         req: (
             nri_pb2.ValidateContainerAdjustmentRequest | None
         ) = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "ValidateContainerAdjustment: container=%r",
-            req.container.name,
-        )
+        logger.info(f"container={req.container.name!r}")
         await stream.send_message(nri_pb2.ValidateContainerAdjustmentResponse())
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""
+        logger = logging.getLogger("nixkube.nri.buildpump")
         try:
             while True:
                 await asyncio.sleep(10)
                 await self.zmq_server.publish_build_progress(container_id)
         except asyncio.CancelledError:
-            logger.debug(
-                "[BUILD-PUMP] Progress pump cancelled for container=%r", container_id
-            )
+            logger.debug(f"Progress pump cancelled for container={container_id!r}")
 
     async def _spawn_build_task(
         self,
@@ -330,19 +298,15 @@ class NriPlugin(nri_grpc.PluginBase):
 
         Periodically pumps progress updates to reset nri-wait timeout.
         """
+        logger = logging.getLogger("nixkube.nri.buildtask")
         logger.info(
-            "[BUILD-TASK] Started for container=%r with %d store paths",
-            container_id,
-            len(store_paths),
+            f"Started for container={container_id!r} with {len(store_paths)} store paths"
         )
         pump_task: Optional[asyncio.Task] = None
         try:
             # If no store paths to build, just mark as done
             if not store_paths:
-                logger.info(
-                    "[BUILD-TASK] No store paths to build for container=%r",
-                    container_id,
-                )
+                logger.info(f"No store paths to build for container={container_id!r}")
                 self.zmq_server.build_status[container_id] = {"status": "done"}
                 await self.zmq_server.publish_build_complete(container_id)
                 self.zmq_server.pending_builds.discard(container_id)
@@ -350,9 +314,7 @@ class NriPlugin(nri_grpc.PluginBase):
 
             # Start progress pump to keep nri-wait timeout reset during long builds
             pump_task = asyncio.create_task(self._pump_build_progress(container_id))
-            logger.debug(
-                "[BUILD-TASK] Started progress pump for container=%r", container_id
-            )
+            logger.debug(f"Started progress pump for container={container_id!r}")
 
             # Get extra build args for builders and cache
             extra_args = await get_build_args()
@@ -360,14 +322,10 @@ class NriPlugin(nri_grpc.PluginBase):
             # Realize storepaths
             volume_path = NRI_CONTAINERS / container_id
             logger.debug(
-                "[BUILD-TASK] Calling build_packages for container=%r with %d paths",
-                container_id,
-                len(store_paths),
+                f"Calling build_packages for container={container_id!r} with {len(store_paths)} paths"
             )
             await build_packages(store_paths, volume_path, extra_args)
-            logger.debug(
-                "[BUILD-TASK] build_packages completed for container=%r", container_id
-            )
+            logger.debug(f"build_packages completed for container={container_id!r}")
 
             # Get all paths
             paths = await get_closure_paths(store_paths)
@@ -378,14 +336,12 @@ class NriPlugin(nri_grpc.PluginBase):
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
             # We need the PID to enter the container's mount namespace and mount /nix + store mounts.
             logger.debug(
-                "[BUILD-TASK] Waiting for PID+bundle from nri-wait for container=%r",
-                container_id,
+                f"Waiting for PID+bundle from nri-wait for container={container_id!r}"
             )
             container_info = await self.zmq_server.wait_for_pid(container_id)
+            pid_info = container_info[0] if container_info else None
             logger.debug(
-                "[BUILD-TASK] Received PID+bundle for container=%r: pid=%s",
-                container_id,
-                container_info[0] if container_info else None,
+                f"Received PID+bundle for container={container_id!r}: pid={pid_info}"
             )
             if container_info is None:
                 raise RuntimeError(
@@ -405,36 +361,23 @@ class NriPlugin(nri_grpc.PluginBase):
                     ns_mounts.append((resolved, container_path))
 
             logger.info(
-                "[BUILD-TASK] Namespace-mounting /nix + %d store mount(s) in container pid=%d bundle=%r",
-                len(ns_mounts),
-                pid,
-                bundle,
+                f"Namespace-mounting /nix + {len(ns_mounts)} store mount(s) in container pid={pid} bundle={bundle!r}"
             )
             await mount_in_container(pid, bundle, nix_tree_path, ns_mounts, nix_rw)
 
-            logger.info(
-                "[BUILD-TASK] Completed all phases for container=%r", container_id
-            )
+            logger.info(f"Completed all phases for container={container_id!r}")
             self.zmq_server.build_status[container_id] = {"status": "done"}
-            logger.debug(
-                "[BUILD-TASK] Added to build_status cache for container=%r",
-                container_id,
-            )
+            logger.debug(f"Added to build_status cache for container={container_id!r}")
             await self.zmq_server.publish_build_complete(container_id)
             self.zmq_server.pending_builds.discard(container_id)
-            logger.info(
-                "[BUILD-TASK] Removed from pending_builds for container=%r",
-                container_id,
-            )
+            logger.info(f"Removed from pending_builds for container={container_id!r}")
 
             # Copy all packages to cache in background
             if paths:
                 task = asyncio.create_task(copy_to_cache(paths))
                 task.add_done_callback(
                     lambda t: (
-                        logger.error(
-                            f"[BUILD-TASK] copy_to_cache failed: {t.exception()}"
-                        )
+                        logger.error(f"copy_to_cache failed: {t.exception()}")
                         if t.exception()
                         else None
                     )
@@ -448,7 +391,7 @@ class NriPlugin(nri_grpc.PluginBase):
                 event_type="Normal",
             )
         except Exception as e:
-            logger.error("Build task failed for container=%r: %s", container_id, e)
+            logger.error(f"Build task failed for container={container_id!r}: {e}")
             self.zmq_server.pending_builds.discard(container_id)
 
             # Report failed build
@@ -500,6 +443,7 @@ async def _register_plugin(
         ttrpc payload: ttrpc.Request{service, method, payload, timeout_nano}
             where payload = RegisterPluginRequest{plugin_name, plugin_idx}
     """
+    logger = logging.getLogger("nixkube.nri.registerplugin")
     rpr = nri_pb2.RegisterPluginRequest(
         plugin_name=NRI_PLUGIN_NAME,
         plugin_idx=NRI_PLUGIN_IDX,
@@ -519,9 +463,7 @@ async def _register_plugin(
     mux_hdr = struct.pack(">II", RUNTIME_SERVICE_CONN, len(ttrpc_frame))
 
     logger.debug(
-        "RegisterPlugin: sending %d-byte ttrpc frame on ConnID=%d",
-        len(ttrpc_frame),
-        RUNTIME_SERVICE_CONN,
+        f"Sending {len(ttrpc_frame)}-byte ttrpc frame on ConnID={RUNTIME_SERVICE_CONN}"
     )
     mux.writer.write(mux_hdr + ttrpc_frame)
     await mux.writer.drain()
@@ -557,17 +499,15 @@ async def _register_plugin(
         resp = Response.FromString(resp_bytes)
         if resp.status.code != 0:
             raise GRPCError(Status(resp.status.code), resp.status.message or None)
-        logger.debug("RegisterPlugin response: OK")
+        logger.debug("Response: OK")
         return
 
 
 async def _nri_run() -> None:
     """Connect to nri.sock, set up mux, register, then serve until disconnect."""
+    logger = logging.getLogger("nixkube.nri.runtime")
     logger.info(
-        "Connecting to socket %s (plugin=%s idx=%s)",
-        NRI_RUNTIME_SOCKET,
-        NRI_PLUGIN_NAME,
-        NRI_PLUGIN_IDX,
+        f"Connecting to socket {NRI_RUNTIME_SOCKET} (plugin={NRI_PLUGIN_NAME} idx={NRI_PLUGIN_IDX})"
     )
     reader, writer = await asyncio.wait_for(
         asyncio.open_unix_connection(NRI_RUNTIME_SOCKET), timeout=5.0
@@ -599,7 +539,7 @@ async def _nri_run() -> None:
     try:
         await _register_plugin(mux, codec)
         logger.info(
-            "Plugin registered (name=%r idx=%r)", NRI_PLUGIN_NAME, NRI_PLUGIN_IDX
+            f"Plugin registered (name={NRI_PLUGIN_NAME!r} idx={NRI_PLUGIN_IDX!r})"
         )
         # Block until the connection drops (read_loop exits → serve_task exits).
         await asyncio.gather(read_task, serve_task)
@@ -623,16 +563,14 @@ async def _nri_run() -> None:
 
 async def nri_serve() -> None:
     """Run the NRI plugin, reconnecting on failure with exponential backoff."""
+    logger = logging.getLogger("nixkube.nri.serve")
     delay = 1.0
     while True:
         try:
             await _nri_run()
         except Exception as e:
             logger.warning(
-                "Connection failed (%s: %s), retrying in %.0fs",
-                type(e).__name__,
-                e,
-                delay,
+                f"Connection failed ({type(e).__name__}: {e}), retrying in {delay:.0f}s"
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 30.0)

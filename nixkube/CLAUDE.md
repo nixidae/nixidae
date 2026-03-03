@@ -220,6 +220,19 @@ The `config-reconciler` service runs continuously to sync SSH keys and Nix confi
 - ❌ **Explaining standard patterns**: `exp_backoff`, `async with lock`, walrus operators, set comprehensions - trust the reader
 - ❌ **Obvious control flow**: for-else with clear error logging, early returns, simple conditionals
 
+### Python Logging
+
+**Always use f-strings for logging**, never % formatting:
+```python
+# ✅ Good
+logger.info(f"Value is {x}, status is {status}")
+
+# ❌ Avoid
+logger.info("Value is %s, status is %s", x, status)
+```
+
+This is cleaner, more readable, and consistent with modern Python practices.
+
 ### Testing Philosophy
 - **Integration tests over unit tests**: This project orchestrates subprocess calls to Nix, rsync, mount, etc. Unit testing these would require excessive mocking and wouldn't catch real issues.
 - **Test in real environments**: Use the GitHub Actions integration tests on actual Kind clusters to validate behavior.
