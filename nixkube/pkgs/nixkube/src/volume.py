@@ -46,14 +46,13 @@ _libc.umount2.restype = ctypes.c_int
 
 
 async def prepare_volume(
-    volume_path: Path,
+    volume_root: Path,
     package_paths: set[Path],
     primary_package: Path | None,
 ) -> None:
     """
     Prepare a volume root with hardlinked store paths and initialized database.
     """
-    volume_root = volume_path
 
     # Capitalized to emphasise they're Nix environment variables
     NIX_STATE_DIR = volume_root / "nix/var/nix"
