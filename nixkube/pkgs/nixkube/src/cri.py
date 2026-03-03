@@ -82,7 +82,6 @@ async def list_container_ids(cri_socket: Path) -> set[str]:
 
         # Extract container IDs from response
         container_ids = {container.id for container in response.containers}
-        logger.debug("Discovered %d containers via CRI", len(container_ids))
 
         channel.close()
         return container_ids
