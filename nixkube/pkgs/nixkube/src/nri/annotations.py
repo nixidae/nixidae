@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: MIT
 """NRI pod annotation parsing for Nix store mounts and RW /nix configuration."""
 
+from collections.abc import Mapping
 from pathlib import Path
+
+# Annotations from protobuf are ScalarMap[str, str], which implements Mapping.
+# Using Mapping keeps us compatible with both protobuf types and plain dicts (tests).
+Annotations = Mapping[str, str]
 
 
 def _parse_store_mounts_for_name(
-    pod_annotations, target_name: str, system: str
+    pod_annotations: Annotations, target_name: str, system: str
 ) -> dict[Path, Path]:
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
@@ -52,7 +57,9 @@ def _parse_store_mounts_for_name(
     return mounts
 
 
-def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
+def parse_nix_rw(
+    pod_annotations: Annotations, container_name: str, system: str
+) -> bool:
     """Return True if this container should get a read-write /nix overlayfs.
 
     Container-specific annotation takes precedence over the pod-wide default,
@@ -90,7 +97,7 @@ def parse_nix_rw(pod_annotations, container_name: str, system: str) -> bool:
 
 
 def parse_store_mounts(
-    pod_annotations, container_name: str, system: str
+    pod_annotations: Annotations, container_name: str, system: str
 ) -> dict[Path, Path]:
     """
     Parse store mount annotations from pod metadata with system filtering.
