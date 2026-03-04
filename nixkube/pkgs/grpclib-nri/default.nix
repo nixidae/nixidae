@@ -19,7 +19,9 @@ let
     version = "0.1.0";
 
     src = ./go;
-    vendorHash = "sha256-M5N/V51YeP9lplKsDL7faI4zzBPIRx24eqJQfEzIrUY=";
+    proxyVendor = true;
+    vendorHash = "sha256-bpKT8mHSlA5eP67C3B2ws+BF2S/B+dMH5GYqV2edcXg=";
+    doCheck = false;
 
     ldflags = [
       "-s"
