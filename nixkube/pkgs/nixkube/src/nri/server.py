@@ -3,6 +3,7 @@ import asyncio
 import logging
 import shutil
 import struct
+from functools import wraps
 from pathlib import Path
 
 from grpclib.const import Status
@@ -181,6 +182,28 @@ _SUBSCRIBED_EVENTS = sum(
 # ============================================================================
 
 
+def nri_error_handler(func):
+    """Decorator for NRI handlers: logs exceptions and reports events."""
+
+    @wraps(func)
+    async def wrapper(self, stream):
+        handler_logger = logging.getLogger(f"nixkube.nri.{func.__name__.lower()}")
+        try:
+            return await func(self, stream)
+        except Exception as e:
+            handler_logger.exception("Handler failed")
+            await report_event(
+                None,
+                reason="InternalError",
+                note=f"{func.__name__} failed: {type(e).__name__}",
+                logs=str(e),
+                event_type="Warning",
+            )
+            raise
+
+    return wrapper
+
+
 class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
@@ -193,6 +216,7 @@ class NriPlugin(nri_grpc.PluginBase):
         self.nri_wait_bin = shutil.which("wait")
         logger.debug(f"nri-wait binary resolved to: {self.nri_wait_bin}")
 
+    @nri_error_handler
     async def Configure(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.configure")
         req: nri_pb2.ConfigureRequest | None = await stream.recv_message()
@@ -201,6 +225,7 @@ class NriPlugin(nri_grpc.PluginBase):
         logger.info(f"runtime={runtime_name!r} version={runtime_version!r}")
         await stream.send_message(nri_pb2.ConfigureResponse(events=_SUBSCRIBED_EVENTS))
 
+    @nri_error_handler
     async def Synchronize(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.synchronize")
         req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
@@ -208,12 +233,14 @@ class NriPlugin(nri_grpc.PluginBase):
         logger.info(f"pods={len(req.pods)} containers={len(req.containers)}")
         await stream.send_message(nri_pb2.SynchronizeResponse())
 
+    @nri_error_handler
     async def Shutdown(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.shutdown")
         await stream.recv_message()
         logger.info("Shutdown")
         await stream.send_message(nri_pb2.Empty())
 
+    @nri_error_handler
     async def CreateContainer(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
@@ -375,6 +402,7 @@ class NriPlugin(nri_grpc.PluginBase):
         resp = nri_pb2.CreateContainerResponse(adjust=adjust)
         await stream.send_message(resp)
 
+    @nri_error_handler
     async def UpdateContainer(self, stream) -> None:
         # Not used: Container resource updates don't affect store injection.
         # Kept as skeleton to satisfy NRI PluginBase type checker.
@@ -382,6 +410,7 @@ class NriPlugin(nri_grpc.PluginBase):
         assert req is not None
         await stream.send_message(nri_pb2.UpdateContainerResponse())
 
+    @nri_error_handler
     async def StopContainer(self, stream) -> None:
         # Not used: Container stop events are handled via StateChange REMOVE_CONTAINER.
         # Cleanup of hardlink farm happens post-removal when namespace is destroyed.
@@ -390,6 +419,7 @@ class NriPlugin(nri_grpc.PluginBase):
         assert req is not None
         await stream.send_message(nri_pb2.StopContainerResponse())
 
+    @nri_error_handler
     async def UpdatePodSandbox(self, stream) -> None:
         # Not used: Pod overhead/resource updates don't affect store injection.
         # Kept as skeleton to satisfy NRI PluginBase type checker.
@@ -397,6 +427,7 @@ class NriPlugin(nri_grpc.PluginBase):
         assert req is not None
         await stream.send_message(nri_pb2.UpdatePodSandboxResponse())
 
+    @nri_error_handler
     async def StateChange(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
@@ -424,6 +455,7 @@ class NriPlugin(nri_grpc.PluginBase):
 
         await stream.send_message(nri_pb2.Empty())
 
+    @nri_error_handler
     async def ValidateContainerAdjustment(self, stream) -> None:
         # Not used: We don't validate adjustments; we just make them during CreateContainer.
         # If needed in future for cross-plugin validation, implement here.
