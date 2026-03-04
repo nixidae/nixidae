@@ -250,7 +250,7 @@ async def is_mount(path: Path, mounts_file: str | None = None) -> bool:
 
 
 async def unmount(path: Path, mounts_file: str | None = None) -> None:
-    """Unmount a path using syscall. Raises UnmountError on failure if still mounted.
+    """Unmount a path using syscall. Raises UnmountError if the mount persists.
 
     Args:
         path: Path to unmount
@@ -261,9 +261,20 @@ async def unmount(path: Path, mounts_file: str | None = None) -> None:
         ctypes.c_char_p(os.fsencode(path)),
         ctypes.c_int(0),
     )
-    if ret != 0 and await is_mount(path, mounts_file=mounts_file):
-        err = ctypes.get_errno()
+    err = ctypes.get_errno() if ret != 0 else 0
+
+    if ret != 0:
+        logger.warning(
+            f"umount2 returned error for {path}: {os.strerror(err)} (errno {err})"
+        )
+
+    # Always verify the mount is actually gone — umount2 can return 0
+    # but leave the mount (e.g. propagation), or return non-zero for a
+    # non-fatal reason (e.g. EINVAL when already unmounted).
+    if await is_mount(path, mounts_file=mounts_file):
         raise UnmountError(
-            f"Failed to unmount volume: {os.strerror(err)} (errno {err})",
+            f"Mount still present after unmount: {os.strerror(err)} (errno {err})"
+            if err
+            else f"umount2 succeeded but mount still present at {path}",
             logs="",
         )

@@ -238,8 +238,13 @@ class NodeServicer(csi_grpc.NodeBase):
         async with self.volume_locks[request.volume_id]:
             target_path = Path(request.target_path)
 
-            # Unmount the volume. CSI driver is responsible for unmounting only,
-            # not for removing the kubelet-managed mount directory (that's kubelet's job).
+            # CRITICAL: This handler MUST NOT return success unless the mount is
+            # fully gone. If we return OK while the mount persists, kubelet considers
+            # the volume cleaned up and won't retry — leaving pods stuck in
+            # Terminating indefinitely, requiring manual node-level intervention.
+            #
+            # CSI driver is responsible for unmounting only, not for removing the
+            # kubelet-managed mount directory (that's kubelet's job).
             if await is_mount(target_path):
                 await unmount(target_path)
                 logger.debug(f"unmounted {target_path=}")
