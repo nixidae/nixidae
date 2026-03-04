@@ -667,7 +667,7 @@ async def _register_plugin(
         buf.extend(chunk)
         if len(buf) < HEADER_SIZE:
             continue
-        payload_len, _stream_id, msg_type, _flags = struct.unpack_from(">IIBB", buf)
+        payload_len, _, msg_type, _ = struct.unpack_from(">IIBB", buf)
         if payload_len > MAX_PAYLOAD:
             raise ProtocolError(
                 f"RegisterPlugin response payload too large: {payload_len}"
