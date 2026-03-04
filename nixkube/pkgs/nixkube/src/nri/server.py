@@ -379,16 +379,20 @@ class NriPlugin(nri_grpc.PluginBase):
                             nix_rw,
                         )
                     )
-                    # Log task completion
-                    task.add_done_callback(
-                        lambda t: (
-                            logger.info(
-                                f"Build task completed for container={container_id!r}"
+
+                    def _build_done(t, cid=container_id):
+                        if t.cancelled():
+                            logger.warning(
+                                f"Build task cancelled for container={cid!r}"
                             )
-                            if not t.cancelled()
-                            else None
-                        )
-                    )
+                        elif t.exception():
+                            logger.error(
+                                f"Build task failed for container={cid!r}: {t.exception()}"
+                            )
+                        else:
+                            logger.info(f"Build task completed for container={cid!r}")
+
+                    task.add_done_callback(_build_done)
                 else:
                     logger.warning(
                         f"Build already pending for container={container_id!r}"
@@ -585,6 +589,7 @@ class NriPlugin(nri_grpc.PluginBase):
                 logs=str(e),
                 event_type="Warning",
             )
+            raise
         finally:
             # Cancel progress pump if it's still running
             if pump_task is not None:
