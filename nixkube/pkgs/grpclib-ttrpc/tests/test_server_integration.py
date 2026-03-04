@@ -176,6 +176,80 @@ async def test_divide_stream(streaming_client: TtrpcClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_method_not_found(streaming_client: TtrpcClient) -> None:
+    """Test calling non-existent method returns UNIMPLEMENTED error."""
+    from grpclib.const import Status
+    from ttrpc.ttrpc_pb2 import Response
+
+    req = EchoPayload(seq=1, msg="test")
+    resp_bytes = await streaming_client.send_unary_request(
+        "ttrpc.integration.streaming.Streaming",
+        "NonExistentMethod",
+        enc(req),
+    )
+    resp = Response.FromString(resp_bytes)
+    assert resp.status.code == Status.UNIMPLEMENTED.value
+
+
+@pytest.mark.asyncio
+async def test_service_not_found(streaming_client: TtrpcClient) -> None:
+    """Test calling non-existent service returns UNIMPLEMENTED error."""
+    from grpclib.const import Status
+    from ttrpc.ttrpc_pb2 import Response
+
+    req = EchoPayload(seq=1, msg="test")
+    resp_bytes = await streaming_client.send_unary_request(
+        "com.example.NonExistent",
+        "SomeMethod",
+        enc(req),
+    )
+    resp = Response.FromString(resp_bytes)
+    assert resp.status.code == Status.UNIMPLEMENTED.value
+
+
+@pytest.mark.asyncio
+async def test_malformed_payload(streaming_client: TtrpcClient) -> None:
+    """Test sending malformed payload returns error."""
+    from ttrpc.ttrpc_pb2 import Response
+
+    # Send garbage bytes instead of valid protobuf
+    malformed = b"\x00\x01\x02\x03\xff\xfe\xfd"
+    resp_bytes = await streaming_client.send_unary_request(
+        "ttrpc.integration.streaming.Streaming",
+        "Echo",
+        malformed,
+    )
+    resp = Response.FromString(resp_bytes)
+    # Server should return an error status (likely INVALID_ARGUMENT or UNKNOWN)
+    assert resp.status.code != 0  # Not OK
+
+
+@pytest.mark.asyncio
+async def test_streaming_with_invalid_message(streaming_client: TtrpcClient) -> None:
+    """Test server streaming with malformed input message."""
+    from ttrpc.ttrpc_pb2 import Response
+
+    # Send garbage as initial payload
+    malformed = b"\xff\xfe\xfd\xfc"
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "EchoStream",
+        malformed,
+    )
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Server should respond with error
+    resp_bytes = await streaming_client._read_response()
+    resp = Response.FromString(resp_bytes)
+    assert resp.status.code != 0  # Not OK
+
+
+# ---------------------------------------------------------------------------
 # Smoke tests
 # ---------------------------------------------------------------------------
 
