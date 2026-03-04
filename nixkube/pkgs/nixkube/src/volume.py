@@ -169,8 +169,8 @@ async def mount_volume(
         # For readwrite we use an overlayfs mount, the benefit here is that
         # it works as CoW even if the underlying filesystem doesn't support
         # it, reducing host storage usage.
-        workdir = volume_root / "workdir"
-        upperdir = volume_root / "upperdir"
+        workdir = volume_root / "work"
+        upperdir = volume_root / "upper"
         workdir.mkdir(parents=True, exist_ok=True)
         upperdir.mkdir(parents=True, exist_ok=True)
 
