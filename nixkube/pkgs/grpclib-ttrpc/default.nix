@@ -5,12 +5,11 @@
   hatchling,
   grpclib,
   multidict,
-  fetchFromGitHub,
   mypy-protobuf,
   grpcio-tools,
   protobuf,
   ttrpc-proto-python,
-  pytest,
+  pytestCheckHook,
   pytest-asyncio,
 }:
 let
@@ -39,7 +38,7 @@ buildPythonPackage {
   ];
 
   nativeCheckInputs = [
-    pytest
+    pytestCheckHook
     pytest-asyncio
   ];
 }

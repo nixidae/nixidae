@@ -1,0 +1,15 @@
+module github.com/lillecarl/grpclib-ttrpc-test-server
+
+go 1.24.0
+
+require (
+	github.com/containerd/ttrpc v1.2.7
+	github.com/sirupsen/logrus v1.9.3
+	google.golang.org/protobuf v1.34.1
+)
+
+require (
+	github.com/containerd/log v0.1.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	google.golang.org/grpc v1.57.1 // indirect
+)

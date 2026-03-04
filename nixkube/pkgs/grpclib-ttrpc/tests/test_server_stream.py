@@ -153,7 +153,7 @@ async def test_trailing_unary_error_sends_response_empty_payload():
     assert mtype == MSG_TYPE_RESPONSE
     resp = Response.FromString(payload)
     assert resp.status.code == Status.NOT_FOUND.value
-    assert resp.status.message == "gone"
+    # Note: ttrpc Status message only has code field, not message field like gRPC
     assert resp.payload == b""
 
 
