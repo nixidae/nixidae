@@ -9,8 +9,6 @@ import shutil
 import time
 from pathlib import Path
 
-import aiofiles
-
 from .constants import (
     MS_BIND,
     MS_RDONLY,
@@ -221,35 +219,37 @@ def cleanup_failed_volume(gc_root: Path, volume_root: Path) -> None:
         )
 
 
-async def is_mount(path: Path, mounts_file: str | None = None) -> bool:
-    """Check if a path is a mount point by reading the mounts file asynchronously.
+async def is_mount(path: Path, mounts_file: Path | None = None) -> bool:
+    """Check if a path is a mount point by reading the mounts file.
 
     Format: filesystem mountpoint fstype options dump pass
     We just need to check if path matches index 1 (mountpoint).
+
+    /proc/self/mounts is a virtual file that never blocks, so synchronous read is safe.
 
     Args:
         path: Path to check if it's a mount point
         mounts_file: Path to mounts file (default: /proc/self/mounts)
     """
     if mounts_file is None:
-        mounts_file = "/proc/self/mounts"
+        mounts_file = Path("/proc/self/mounts")
 
     try:
         path_resolved = path.resolve()
         path_str = str(path_resolved)
 
-        async with aiofiles.open(mounts_file, "r") as f:
-            async for line in f:
-                parts = line.split()
-                if len(parts) >= 2 and parts[1] == path_str:
-                    return True
+        content = mounts_file.read_text()
+        for line in content.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == path_str:
+                return True
         return False
     except (FileNotFoundError, OSError) as e:
         logger.warning(f"Failed to check mounts from {mounts_file}: {e}")
         return False
 
 
-async def unmount(path: Path, mounts_file: str | None = None) -> None:
+async def unmount(path: Path, mounts_file: Path | None = None) -> None:
     """Unmount a path using syscall. Raises UnmountError if the mount persists.
 
     Args:
