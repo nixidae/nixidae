@@ -34,7 +34,7 @@ from ..constants import (
 )
 from ..cri import get_cri_socket, list_container_ids
 from ..events import report_event
-from ..nix import fetch_packages, get_build_args, get_closure_paths, get_current_system
+from ..nix import fetch_packages, get_build_args, get_current_system
 from ..store import extract_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
@@ -522,10 +522,8 @@ class NriPlugin(nri_grpc.PluginBase):
             await fetch_packages(store_paths, volume_path, extra_args)
             logger.debug(f"fetch_packages completed for container={container_id!r}")
 
-            # Get all paths
-            paths = await get_closure_paths(store_paths)
-            # Hardlink closure into volume
-            await prepare_volume(volume_path, paths, None)
+            # Hardlink closure into volume (prepare_volume handles closure expansion)
+            await prepare_volume(volume_path, store_paths, None)
             nix_tree_path = volume_path / "nix"
 
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
@@ -568,7 +566,7 @@ class NriPlugin(nri_grpc.PluginBase):
             logger.info(f"Removed from pending_builds for container={container_id!r}")
 
             # Copy all packages to cache in background
-            schedule_copy_to_cache(paths)
+            schedule_copy_to_cache(store_paths)
 
             # Report successful build
             await report_event(
