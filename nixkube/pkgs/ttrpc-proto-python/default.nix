@@ -43,6 +43,7 @@ buildPythonPackage {
     mkdir -p $TMPDIR/proto
     cp ${ttrpc}/request.proto $TMPDIR/ttrpc.proto
     cp ${ttrpc}/proto/status.proto $TMPDIR/proto/status.proto
+    cp ${ttrpc}/integration/streaming/test.proto $TMPDIR/streaming.proto
 
     mkdir -p src/ttrpc/proto
     touch src/ttrpc/py.typed
@@ -54,7 +55,7 @@ buildPythonPackage {
       --python_out=src/ttrpc \
       --grpclib_python_out=src/ttrpc \
       --mypy_out=src/ttrpc \
-      ttrpc.proto proto/status.proto
+      ttrpc.proto proto/status.proto streaming.proto
 
     # Fix relative imports in generated code
     substituteInPlace src/ttrpc/ttrpc_pb2.py \
