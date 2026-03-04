@@ -61,3 +61,11 @@ hetzkube:
 # Deploy test pod
 testpod:
     nix run --file tmp/testpod.nix deploymentScript -- --prune --yes --force-replace-on-error
+
+# Run NixOS integration test (requires KVM)
+nixos-test:
+    nix build --file . nixosTests.containerd --no-link --print-build-logs
+
+# Run NixOS integration test interactively (opens test driver shell)
+nixos-test-interactive:
+    nix build --file . nixosTests.containerd.driverInteractive && ./result/bin/nixos-test-driver

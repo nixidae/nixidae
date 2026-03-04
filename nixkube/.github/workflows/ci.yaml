@@ -254,6 +254,32 @@ jobs:
           limit-access-to-actor: true
           wait-timeout-minutes: 5
 
+  test-nixos:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Nix environment
+        uses: ./.github/actions/setup-nix
+        with:
+          nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: test-nixos
+
+      - name: Ensure KVM is available
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::warning::KVM not available, test will likely fail"
+          fi
+          sudo chmod 666 /dev/kvm || true
+
+      - name: Run NixOS integration test
+        run: |
+          nix build --show-trace --file . nixosTests.containerd --print-build-logs
+
   release:
     needs: [build, test-kind-cache, test-kind-nocache]
     runs-on: ubuntu-latest

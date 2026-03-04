@@ -161,6 +161,14 @@ rec {
         cp --no-preserve=mode ${optionsDocs.optionsCommonMark} $GIT_ROOT/doc/options.md
       '';
 
+  # NixOS integration tests — spin up real kubeadm clusters in VMs
+  nixosTests = {
+    containerd = import ./tests/nixos/integration.nix {
+      inherit pkgs lib;
+      manifests = kubenixCI2.manifestYAMLFile;
+    };
+  };
+
   lixImage = pkgs.callPackage ./liximage.nix { };
   scratchImage = pkgs.callPackage ./scratchimage.nix { };
 }
