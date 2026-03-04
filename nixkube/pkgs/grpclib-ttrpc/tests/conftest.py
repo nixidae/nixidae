@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
@@ -32,9 +32,26 @@ def test_server_bin() -> Path:
 
 
 @pytest.fixture
-def socket_path(tmp_path: Path) -> Path:
-    """Create a unique socket path for each test."""
-    return tmp_path / "ttrpc.sock"
+def socket_path() -> Generator[Path, None, None]:
+    """Create a unique socket path for each test.
+
+    Uses /tmp to avoid "AF_UNIX path too long" error when running in Nix build
+    (pytest's tmp_path is too deep in the Nix store, exceeding 108-byte limit).
+    """
+    path = Path(f"/tmp/ttrpc_{os.getpid()}.sock")
+    # Clean up any stale socket file from previous runs
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+    yield path
+    # Clean up after the test
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
 
 
 @pytest_asyncio.fixture

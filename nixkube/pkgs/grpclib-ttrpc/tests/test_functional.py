@@ -1,6 +1,7 @@
 """End-to-end functional tests for grpclib_ttrpc.Server."""
 
 import asyncio
+import os
 from typing import cast
 
 import pytest
@@ -56,8 +57,10 @@ async def tcp_client(tcp_server):
 
 
 @pytest_asyncio.fixture
-async def unix_server(tmp_path):
-    sock_path = str(tmp_path / "ttrpc_test.sock")
+async def unix_server():
+    # Use /tmp to avoid "AF_UNIX path too long" error when running in Nix build
+    # (pytest's tmp_path is too deep in the Nix store, exceeding 108-byte limit)
+    sock_path = f"/tmp/ttrpc_test_{os.getpid()}.sock"
     svc = DummyServiceImpl()
     server = Server([svc])
     await server.start(path=sock_path)
