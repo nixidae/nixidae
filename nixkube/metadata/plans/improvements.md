@@ -68,9 +68,8 @@ Fixed to pass `message` and `logs` separately.
 - **Status**: NOT STARTED — Low priority, needs measurement before optimizing.
 - **Suggestion**: Consider `os.walk()` or compiled helper for truly large closures.
 
-### 4.2 `nix/build.py` — `get_build_args()` called on every request
-- **Status**: NOT STARTED
-- **Suggestion**: Cache with 30s TTL. It queries k8s API and pings cache on every volume request.
+### 4.2 `nix/build.py` — `get_build_args()` called on every request ✅ DONE
+Cached with 30s TTL using `TTLCache`. Avoids redundant k8s API and cache connectivity queries during burst volume creation.
 
 ### 4.3 `nri/server.py` — `get_current_system()` called per-container
 - **Status**: WON'T FIX — `get_current_system()` is `@cache`-decorated so it's effectively free after first call. The double call per `CreateContainer` has zero cost.
@@ -85,9 +84,8 @@ Created `nri_error_handler` decorator applied to all NRI handlers.
 ### 5.2 `nix/database.py` — Double exception wrapping ✅ DONE
 Flattened to single try/except.
 
-### 5.3 `hardlinks.py:60-62` — Bare re-raise of `HardlinkClosureError`
-- **Status**: NOT STARTED — Low priority.
-- **Note**: The bare re-raise IS needed because `HardlinkClosureError` inherits from `Exception` via `CSIError` → `GRPCError`. Without it, the general `except Exception` would double-wrap it. Consider adding a brief comment.
+### 5.3 `hardlinks.py:60-62` — Bare re-raise of `HardlinkClosureError` ✅ DONE
+Added comment explaining why the bare re-raise is needed: prevents outer `except Exception` from double-wrapping.
 
 ---
 
@@ -106,14 +104,14 @@ Replaced during ZeroMQ TTLCache consolidation.
 
 ## 7. Testing Opportunities
 
-### 7.1 `store.py` — Pure logic unit tests
-- **Status**: NOT STARTED
+### 7.1 `store.py` — Pure logic unit tests ✅ DONE
+16 tests covering: empty inputs, single/multiple paths, nested dicts/lists, deduplication, volumeAttributes exclusion, edge cases.
 
-### 7.2 `events.py:_format_event_note` — Truncation logic tests
-- **Status**: NOT STARTED
+### 7.2 `events.py:_format_event_note` — Truncation logic tests ✅ DONE
+13 tests covering: message-only, logs truncation, UTF-8 multi-byte boundaries, newlines, exact boundary fits, result size validation.
 
-### 7.3 `hardlinks.py` — Symlink handling edge case tests
-- **Status**: NOT STARTED
+### 7.3 `hardlinks.py` — Symlink handling edge case tests ✅ DONE
+9 tests covering: hardlink single files/dirs, symlink preservation, in-store dereference, broken symlinks, external symlinks, nested structures. Verified working in Nix sandbox.
 
 ### 7.4 `annotations.py` — Already has good coverage ✅ EXISTING
 38 tests covering annotation parsing. Could add edge cases.
@@ -149,7 +147,7 @@ Removed.
 ## 10. Dependency & Import Hygiene
 
 ### 10.1 `volume.py` — `aiofiles` dependency ✅ DONE
-Replaced with synchronous `Path.read_text()` since `/proc/self/mounts` is virtual and never blocks. Removed `aiofiles` from `pyproject.toml` and `default.nix`. Made `is_mount()` a sync function.
+Replaced with synchronous `Path.read_text()` since `/proc/self/mounts` is virtual and never blocks. Removed `aiofiles` from `pyproject.toml` and `default.nix`. Made `is_mount()` sync function. All 76 tests passing.
 
 ### 10.2 `nri/server.py` — Heavy import surface
 - **Status**: NOT STARTED — Low priority.
@@ -186,14 +184,17 @@ NRI server now calls `list_container_ids` at startup and fails fast if CRI is un
 
 | Status | Count |
 |--------|-------|
-| ✅ DONE | 28 |
-| NOT STARTED | 6 |
+| ✅ DONE | 33 |
+| NOT STARTED | 2 |
 | WON'T FIX | 1 |
 | DOCS ONLY | 2 |
 
-### Remaining items (by priority)
-1. **4.2** Cache `get_build_args()` with 30s TTL
-2. **5.3** Add comment to hardlinks.py bare re-raise
-3. **7.1-7.3** Unit tests for pure functions (store.py, events.py, hardlinks.py)
-4. **10.2** Extract NRI protocol module
-5. **4.1** Hardlinks performance (measure first)
+### Remaining items (low priority)
+1. **10.2** Extract NRI protocol module — Separate wire-protocol concerns from business logic
+2. **4.1** Hardlinks performance — Measure first, then optimize if needed
+
+### Test Summary
+- **Store tests**: 16 tests for path extraction and name formatting
+- **Events tests**: 13 tests for truncation logic and UTF-8 handling
+- **Hardlinks tests**: 9 tests for symlink handling and dereference edge cases
+- **Total tests**: 76 passing (all pass in Nix sandbox too)
