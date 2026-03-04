@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from google.protobuf.empty_pb2 import Empty
 from grpclib.encoding.proto import ProtoCodec
 from ttrpc.streaming_pb2 import EchoPayload, Part, Sum
 
@@ -173,6 +174,108 @@ async def test_divide_stream(streaming_client: TtrpcClient) -> None:
     assert len(parts) == 5
     for part in parts:
         assert part.add == 20  # 100 / 5 = 20
+
+
+# ---------------------------------------------------------------------------
+# Empty/null message handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_echo_null(streaming_client: TtrpcClient) -> None:
+    """Test client streaming that returns empty response.
+
+    Server receives multiple EchoPayload messages but returns google.protobuf.Empty.
+    """
+    from ttrpc.ttrpc_pb2 import Response
+
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "EchoNull",
+    )
+
+    # Send multiple EchoPayload messages
+    for i in range(3):
+        payload = EchoPayload(seq=i, msg=f"msg{i}")
+        await streaming_client.send_data_frame(sid, enc(payload))
+
+    # Close stream
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Read response (should be empty)
+    resp_bytes = await streaming_client._read_response()
+    resp = Response.FromString(resp_bytes)
+    assert resp.status.code == 0  # OK
+    # Response payload should be empty
+    assert resp.payload == b""
+
+
+@pytest.mark.asyncio
+async def test_echo_null_stream(streaming_client: TtrpcClient) -> None:
+    """Test bidirectional streaming that sends empty messages.
+
+    Server receives EchoPayload messages and responds with google.protobuf.Empty.
+    """
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "EchoNullStream",
+    )
+
+    # Send EchoPayload messages
+    for i in range(2):
+        payload = EchoPayload(seq=i, msg=f"msg{i}")
+        await streaming_client.send_data_frame(sid, enc(payload))
+
+    # Close stream
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Collect empty responses (should get 2 empty DATA frames + final close)
+    count = 0
+    while True:
+        flags, payload = await streaming_client.read_data_frame()
+        # Each response should be empty
+        if payload:
+            # Empty message should decode as empty bytes
+            empty = dec(payload, Empty)
+            assert empty.ByteSize() == 0
+        if flags & FLAG_REMOTE_CLOSED:
+            break
+        count += 1
+
+
+@pytest.mark.asyncio
+async def test_empty_payload_stream(streaming_client: TtrpcClient) -> None:
+    """Test server streaming from empty input.
+
+    Client sends google.protobuf.Empty, server responds with 5 EchoPayload messages.
+    """
+    # Send empty request
+    req = Empty()
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "EmptyPayloadStream",
+        enc(req),
+    )
+
+    # Close stream (client side)
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Collect EchoPayload responses (should get 5)
+    payloads = []
+    while True:
+        flags, payload = await streaming_client.read_data_frame()
+        if payload:
+            echo = dec(payload, EchoPayload)
+            payloads.append(echo)
+        if flags & FLAG_REMOTE_CLOSED:
+            break
+
+    # Server should send exactly 5 payloads
+    assert len(payloads) == 5
+    # Each payload should have incrementing seq and message
+    for i, echo in enumerate(payloads):
+        assert echo.seq == i
+        assert echo.msg == f"payload {i}"
 
 
 # ---------------------------------------------------------------------------
