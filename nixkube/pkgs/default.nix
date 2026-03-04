@@ -50,7 +50,7 @@ self: pkgs: {
     inherit (self) ttrpc-proto-python;
   };
   grpclib-nri = pkgs.python3Packages.callPackage ./grpclib-nri {
-    inherit (self) grpclib-ttrpc;
+    inherit (self) grpclib-ttrpc nri-proto-python;
   };
   csi-proto-python = pkgs.python3Packages.callPackage ./csi-proto-python { };
   cri-proto-python = pkgs.python3Packages.callPackage ./cri-proto-python { };

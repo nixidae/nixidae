@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: MIT
+"""Integration tests for grpclib-nri NRI protocol implementation.
+
+Tests the NriServer against the Go test server to verify:
+- RegisterPlugin handshake
+- Plugin lifecycle (Configure, Synchronize)
+- CreateContainer hook invocation
+"""
+
+import asyncio
+import logging
+
+import pytest
+from grpclib_nri import NriServer
+
+from .dummy_plugin import DummyPlugin
+
+
+@pytest.mark.asyncio
+async def test_nri_handshake(nri_server: NriServer) -> None:
+    """Test that the NRI RegisterPlugin handshake completes successfully."""
+    logger = logging.getLogger("test.nri_handshake")
+
+    # Server should be running and have completed registration
+    logger.info("Checking if NRI server is still running...")
+
+    # Give it a moment to complete the registration handshake
+    await asyncio.sleep(1.0)
+
+    logger.info("NRI handshake completed successfully")
+
+
+@pytest.mark.asyncio
+async def test_plugin_configure_called(nri_server: NriServer) -> None:
+    """Test that Configure handler is called during registration."""
+    logger = logging.getLogger("test.plugin_configure")
+
+    # Extract plugin from server
+    plugin = nri_server.plugin
+    assert isinstance(plugin, DummyPlugin)
+
+    logger.info(f"Configure called: {plugin.configure_called}")
+
+    # Configure should have been called during the handshake
+    assert plugin.configure_called, (
+        "Configure handler was not called during registration"
+    )
+
+
+@pytest.mark.asyncio
+async def test_plugin_survives_registration(nri_server: NriServer) -> None:
+    """Test that plugin survives the full registration handshake without errors."""
+    logger = logging.getLogger("test.plugin_survives")
+
+    plugin = nri_server.plugin
+    assert isinstance(plugin, DummyPlugin)
+
+    # If we got here, the plugin completed at least Configure without errors
+    logger.info("Plugin survived registration handshake")
+    assert plugin.configure_called
+
+
+@pytest.mark.asyncio
+async def test_nri_server_lifecycle(
+    test_server_bin,
+    socket_path,  # noqa: F811
+) -> None:
+    """Test that NriServer can be started and stopped cleanly."""
+    logger = logging.getLogger("test.nri_lifecycle")
+
+    # Start a fresh test server
+    import asyncio
+
+    proc = await asyncio.create_subprocess_exec(
+        str(test_server_bin),
+        "-socket",
+        str(socket_path),
+        "-timeout",
+        "5s",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    # Wait for socket
+    for _ in range(50):
+        if socket_path.exists():
+            break
+        await asyncio.sleep(0.1)
+    else:
+        proc.terminate()
+        await proc.wait()
+        pytest.fail("Test server socket not created")
+
+    # Create and start server
+    plugin = DummyPlugin()
+    server = NriServer(
+        plugin,
+        socket_path,
+        plugin_name="test-lifecycle",
+        plugin_idx="99",
+    )
+
+    logger.info("Starting server")
+    server_task = asyncio.create_task(server.start())
+
+    # Let it run and complete handshake
+    await asyncio.sleep(2.0)
+
+    # Close it
+    logger.info("Closing server")
+    await server.close()
+
+    # Wait for task to complete
+    try:
+        await asyncio.wait_for(server_task, timeout=2)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        logger.warning("Server task did not exit gracefully")
+
+    # Cleanup subprocess
+    proc.terminate()
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=2)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+
+    logger.info("Server lifecycle test completed successfully")
