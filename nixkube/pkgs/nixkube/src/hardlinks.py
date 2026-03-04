@@ -58,6 +58,7 @@ def hardlink_closure(store_paths: set[Path], dst: Path) -> None:
                     logs=str(e),
                 ) from e
     except HardlinkClosureError:
+        # Re-raise to prevent outer except Exception from double-wrapping
         raise
     except Exception as e:
         raise HardlinkClosureError(

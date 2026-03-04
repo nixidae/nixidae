@@ -4,6 +4,7 @@ import logging
 import tempfile
 from pathlib import Path
 
+from cachetools import TTLCache
 from kr8s.asyncio.objects import Pod
 
 from ..builders import build_builder_args, get_builder_uris
@@ -15,9 +16,23 @@ from ..subprocessing import try_console
 
 logger = logging.getLogger("nixkube.nix")
 
+# Cache build args for 30s to avoid redundant k8s API calls and cache pings
+# during burst volume creation. Builder pods and cache connectivity are stable
+# during a pod's lifetime.
+_build_args_cache: TTLCache = TTLCache(maxsize=1, ttl=30)
+
 
 async def get_build_args() -> list[str]:
-    """Get extra build arguments for builders and cache."""
+    """Get extra build arguments for builders and cache.
+
+    Result is cached for 30 seconds to avoid redundant k8s API queries
+    and cache connectivity checks during burst volume creation.
+    """
+    # Check cache first
+    cache_key = "build_args"
+    if cache_key in _build_args_cache:
+        return _build_args_cache[cache_key]
+
     extra_args = []
 
     # Discover builder pods when builders are enabled
@@ -31,6 +46,7 @@ async def get_build_args() -> list[str]:
     if await check_cache_connectivity():
         extra_args.extend(get_substituter_args())
 
+    _build_args_cache[cache_key] = extra_args
     return extra_args
 
 
