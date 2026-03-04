@@ -20,6 +20,7 @@ import pytest
 import pytest_asyncio
 from google.protobuf.empty_pb2 import Empty
 from grpclib.encoding.proto import ProtoCodec
+from grpclib_ttrpc import Client
 from ttrpc.streaming_pb2 import EchoPayload, Part, Sum
 
 from .helpers import FLAG_REMOTE_CLOSED, TtrpcClient
@@ -491,3 +492,101 @@ async def test_server_starts(test_server_process, socket_path: Path) -> None:
     )
 
     logger.info("Go test server is running and socket is accessible")
+
+
+# ---------------------------------------------------------------------------
+# Client API tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_client_unary(socket_path: Path, test_server_process) -> None:
+    """Test Client API for unary RPC."""
+    client = Client(path=str(socket_path))
+    try:
+        req = EchoPayload(seq=1, msg="hello")
+        resp = await client.unary(
+            "ttrpc.integration.streaming.Streaming",
+            "Echo",
+            req,
+            EchoPayload,
+            EchoPayload,
+        )
+        assert resp.seq == 2
+        assert resp.msg == "hello"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_server_streaming(socket_path: Path, test_server_process) -> None:
+    """Test Client API for server streaming RPC."""
+    client = Client(path=str(socket_path))
+    try:
+        req = Sum(sum=100, num=5)
+        results = []
+        async for resp in client.server_stream(
+            "ttrpc.integration.streaming.Streaming",
+            "DivideStream",
+            req,
+            Sum,
+            Part,
+        ):
+            results.append(resp)
+        assert len(results) == 5
+        for part in results:
+            assert part.add == 20
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_client_streaming(socket_path: Path, test_server_process) -> None:
+    """Test Client API for client streaming RPC."""
+    client = Client(path=str(socket_path))
+    try:
+        async with await client.client_stream(
+            "ttrpc.integration.streaming.Streaming",
+            "SumStream",
+            Sum,
+        ) as stream:
+            for value in [5, 10, 15]:
+                part = Part(add=value)
+                await stream.send(part)
+            result = await stream.recv()
+
+        assert result.sum == 30
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_bidirectional_streaming(
+    socket_path: Path, test_server_process
+) -> None:
+    """Test Client API for bidirectional streaming RPC."""
+    client = Client(path=str(socket_path))
+    try:
+        async with await client.bidirectional_stream(
+            "ttrpc.integration.streaming.Streaming",
+            "EchoStream",
+            EchoPayload,
+        ) as stream:
+            # Send three echo messages
+            for seq in range(1, 4):
+                msg = EchoPayload(seq=seq, msg=f"echo{seq}")
+                await stream.send(msg)
+            await stream.close()
+
+            # Receive echoes
+            results = []
+            async for resp in stream:
+                results.append(resp)
+
+        # Server echoes back all messages - expect 3 echoed messages
+        assert len(results) >= 3
+        # Collect the echoed messages (seq values should match sent messages)
+        echoed_seqs = sorted([resp.seq for resp in results if resp.seq in (1, 2, 3)])
+        assert echoed_seqs == [1, 2, 3]
+    finally:
+        await client.close()
