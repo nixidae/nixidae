@@ -219,7 +219,7 @@ def cleanup_failed_volume(gc_root: Path, volume_root: Path) -> None:
         )
 
 
-async def is_mount(path: Path, mounts_file: Path | None = None) -> bool:
+def is_mount(path: Path, mounts_file: Path | None = None) -> bool:
     """Check if a path is a mount point by reading the mounts file.
 
     Format: filesystem mountpoint fstype options dump pass
@@ -271,7 +271,7 @@ async def unmount(path: Path, mounts_file: Path | None = None) -> None:
     # Always verify the mount is actually gone — umount2 can return 0
     # but leave the mount (e.g. propagation), or return non-zero for a
     # non-fatal reason (e.g. EINVAL when already unmounted).
-    if await is_mount(path, mounts_file=mounts_file):
+    if is_mount(path, mounts_file=mounts_file):
         raise UnmountError(
             f"Mount still present after unmount: {os.strerror(err)} (errno {err})"
             if err

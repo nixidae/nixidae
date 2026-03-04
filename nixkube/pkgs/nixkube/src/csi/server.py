@@ -245,7 +245,7 @@ class NodeServicer(csi_grpc.NodeBase):
             #
             # CSI driver is responsible for unmounting only, not for removing the
             # kubelet-managed mount directory (that's kubelet's job).
-            if await is_mount(target_path):
+            if is_mount(target_path):
                 await unmount(target_path)
                 logger.debug(f"unmounted {target_path=}")
             else:
