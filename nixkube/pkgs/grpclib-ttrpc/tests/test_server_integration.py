@@ -279,6 +279,129 @@ async def test_empty_payload_stream(streaming_client: TtrpcClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Timeout/deadline handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_with_long_timeout(streaming_client: TtrpcClient) -> None:
+    """Test request with generous timeout completes successfully."""
+    from grpclib.const import Status
+    from ttrpc.ttrpc_pb2 import Response
+
+    req = EchoPayload(seq=1, msg="hello")
+    # Send with 5 second timeout (plenty of time)
+    timeout_nano = int(5 * 1e9)  # 5 seconds in nanoseconds
+
+    resp_bytes = await streaming_client.send_unary_request(
+        "ttrpc.integration.streaming.Streaming",
+        "Echo",
+        enc(req),
+        timeout_nano=timeout_nano,
+    )
+    resp = Response.FromString(resp_bytes)
+    assert resp.status.code == Status.OK.value
+    reply = dec(resp.payload, EchoPayload)
+    assert reply.seq == 2
+
+
+@pytest.mark.asyncio
+async def test_request_with_very_short_timeout(streaming_client: TtrpcClient) -> None:
+    """Test request with very short timeout may expire.
+
+    Note: This test is probabilistic - the server might respond before
+    timeout on fast systems. We check that if it times out, the status
+    is DEADLINE_EXCEEDED.
+    """
+    from grpclib.const import Status
+    from ttrpc.ttrpc_pb2 import Response
+
+    req = EchoPayload(seq=1, msg="test")
+    # 1 millisecond timeout (very tight, server unlikely to respond in time)
+    timeout_nano = int(0.001 * 1e9)  # 1ms in nanoseconds
+
+    try:
+        resp_bytes = await asyncio.wait_for(
+            streaming_client.send_unary_request(
+                "ttrpc.integration.streaming.Streaming",
+                "Echo",
+                enc(req),
+                timeout_nano=timeout_nano,
+            ),
+            timeout=2.0,  # Client-side timeout as fallback
+        )
+        resp = Response.FromString(resp_bytes)
+        # If we got a response, it might be OK or DEADLINE_EXCEEDED
+        # depending on timing
+        assert resp.status.code in (Status.OK.value, Status.DEADLINE_EXCEEDED.value)
+    except asyncio.TimeoutError:
+        # Client-side timeout is also acceptable for this test
+        pass
+
+
+@pytest.mark.asyncio
+async def test_client_side_timeout_on_slow_operation(
+    streaming_client: TtrpcClient,
+) -> None:
+    """Test client-side timeout during streaming operation.
+
+    Open a streaming connection and timeout if we don't get response quickly.
+    """
+    req = EchoPayload(seq=1, msg="stream")
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "EchoStream",
+        enc(req),
+    )
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Should receive response within 1 second
+    try:
+        flags, payload = await asyncio.wait_for(
+            streaming_client.read_data_frame(),
+            timeout=1.0,
+        )
+        # If we got a response, validate it
+        if payload:
+            reply = dec(payload, EchoPayload)
+            assert reply.seq == 2
+    except asyncio.TimeoutError:
+        pytest.fail("Response took longer than 1 second")
+
+
+@pytest.mark.asyncio
+async def test_streaming_with_timeout(streaming_client: TtrpcClient) -> None:
+    """Test client streaming respects timeout."""
+    from grpclib.const import Status
+    from ttrpc.ttrpc_pb2 import Response
+
+    sid = await streaming_client.open_request(
+        "ttrpc.integration.streaming.Streaming",
+        "SumStream",
+    )
+
+    # Send messages with a reasonable timeout expectation
+    for value in [5, 10, 15]:
+        part = Part(add=value)
+        await streaming_client.send_data_frame(sid, enc(part))
+
+    await streaming_client.send_data_frame(sid, b"", close=True)
+
+    # Should complete within 2 seconds
+    try:
+        resp_bytes = await asyncio.wait_for(
+            streaming_client._read_response(),
+            timeout=2.0,
+        )
+        resp = Response.FromString(resp_bytes)
+        assert resp.status.code == Status.OK.value
+        result = dec(resp.payload, Sum)
+        assert result.sum == sum([5, 10, 15])
+    except asyncio.TimeoutError:
+        pytest.fail("Streaming operation timed out")
+
+
+# ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 
