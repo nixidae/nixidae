@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Format code before committing**: Run `just fmt` before any `jj describe` or `jj commit` to ensure all code (Nix, Python, YAML, etc.) is properly formatted according to project standards.
 
+**Running `just` recipes**: You do NOT need `direnv exec . ` to run `just` recipes—they're already part of the dev environment. Only use `direnv exec . ` when running Python introspection code (e.g., `direnv exec . python3 -c ...` or `direnv exec . python3 << 'EOF'`) that depends on rebuilt dependencies in Nix.
+
 ## Project Overview
 
 nixkube is a Kubernetes plugin system that injects Nix stores into pods using two complementary protocols:

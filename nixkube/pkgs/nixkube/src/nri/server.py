@@ -2,25 +2,12 @@
 import asyncio
 import logging
 import shutil
-import struct
 from functools import wraps
 from pathlib import Path
 
-from grpclib.const import Status
-from grpclib.encoding.proto import ProtoCodec
-from grpclib.exceptions import GRPCError, ProtocolError
-from grpclib_nri import PLUGIN_SERVICE_CONN, RUNTIME_SERVICE_CONN, NriMux
-from grpclib_ttrpc.protocol import (
-    HEADER_SIZE,
-    MAX_PAYLOAD,
-    MSG_TYPE_REQUEST,
-    MSG_TYPE_RESPONSE,
-    TtrpcProtocol,
-)
-from grpclib_ttrpc.server import TtrpcHandler
+from grpclib_nri import NriServer
 from kr8s.asyncio.objects import Pod
 from nri import nri_grpc, nri_pb2
-from ttrpc.ttrpc_pb2 import Request, Response
 
 from ..cache import schedule_copy_to_cache
 from ..constants import (
@@ -598,100 +585,9 @@ class NriPlugin(nri_grpc.PluginBase):
                     pass
 
 
-async def _serve_plugin_channel(
-    mux: NriMux,
-    protocol: TtrpcProtocol,
-) -> None:
-    """Feed mux chunks for ConnID=1 into the ttrpc protocol until EOF."""
-    try:
-        while True:
-            chunk = await mux.read_channel(PLUGIN_SERVICE_CONN)
-            if chunk is None:
-                protocol.connection_lost(None)
-                return
-            protocol.data_received(chunk)
-    except Exception as exc:
-        protocol.connection_lost(exc)
-
-
-async def _register_plugin(
-    mux: NriMux,
-    codec: ProtoCodec,
-    *,
-    timeout: float = 5.0,
-) -> None:
-    """Send RegisterPlugin on ConnID=2 and wait for the response.
-
-    Wire format (ConnID=2 channel):
-        mux header:   [conn_id=2: uint32 BE][length: uint32 BE]
-        ttrpc header: [payload_len: uint32 BE][stream_id=1: uint32 BE]
-                      [msg_type=REQUEST=0x01: uint8][flags=0x00: uint8]
-        ttrpc payload: ttrpc.Request{service, method, payload, timeout_nano}
-            where payload = RegisterPluginRequest{plugin_name, plugin_idx}
-    """
-    logger = logging.getLogger("nixkube.nri.registerplugin")
-    rpr = nri_pb2.RegisterPluginRequest(
-        plugin_name=NRI_PLUGIN_NAME,
-        plugin_idx=NRI_PLUGIN_IDX,
-    )
-    inner_payload = codec.encode(rpr, nri_pb2.RegisterPluginRequest)
-
-    req = Request(
-        service="nri.pkg.api.v1alpha1.Runtime",
-        method="RegisterPlugin",
-        payload=inner_payload,
-        timeout_nano=int(timeout * 1e9),
-    )
-    req_bytes = req.SerializeToString()
-
-    ttrpc_hdr = struct.pack(">IIBB", len(req_bytes), 1, MSG_TYPE_REQUEST, 0)
-    ttrpc_frame = ttrpc_hdr + req_bytes
-    mux_hdr = struct.pack(">II", RUNTIME_SERVICE_CONN, len(ttrpc_frame))
-
-    logger.debug(
-        f"Sending {len(ttrpc_frame)}-byte ttrpc frame on ConnID={RUNTIME_SERVICE_CONN}"
-    )
-    mux.writer.write(mux_hdr + ttrpc_frame)
-    await mux.writer.drain()
-
-    # Accumulate mux chunks for ConnID=2 until we have a complete ttRPC frame.
-    buf = bytearray()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while True:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            raise asyncio.TimeoutError("Timed out waiting for RegisterPlugin response")
-        chunk: bytes | None = await asyncio.wait_for(
-            mux.read_channel(RUNTIME_SERVICE_CONN), timeout=remaining
-        )
-        if chunk is None:
-            raise ProtocolError("Connection closed waiting for RegisterPlugin response")
-        buf.extend(chunk)
-        if len(buf) < HEADER_SIZE:
-            continue
-        payload_len, _, msg_type, _ = struct.unpack_from(">IIBB", buf)
-        if payload_len > MAX_PAYLOAD:
-            raise ProtocolError(
-                f"RegisterPlugin response payload too large: {payload_len}"
-            )
-        if len(buf) < HEADER_SIZE + payload_len:
-            continue  # wait for more chunks
-        if msg_type != MSG_TYPE_RESPONSE:
-            raise ProtocolError(
-                f"Expected RESPONSE (0x{MSG_TYPE_RESPONSE:02x}), got 0x{msg_type:02x}"
-            )
-        resp_bytes = bytes(buf[HEADER_SIZE : HEADER_SIZE + payload_len])
-        resp = Response.FromString(resp_bytes)
-        if resp.status.code != 0:
-            raise GRPCError(Status(resp.status.code), resp.status.message or None)
-        logger.debug("Response: OK")
-        return
-
-
-async def _nri_run() -> None:
-    """Connect to nri.sock, set up mux, register, then serve until disconnect."""
-    logger = logging.getLogger("nixkube.nri.runtime")
+async def nri_serve() -> None:
+    """Run the NRI plugin server with automatic reconnection and kernel checks."""
+    logger = logging.getLogger("nixkube.nri.serve")
 
     # Test kernel capabilities at startup
     if not kernel_supports_ro():
@@ -720,15 +616,6 @@ async def _nri_run() -> None:
             event_type="Warning",
         )
 
-    logger.info(
-        f"Connecting to socket {NRI_RUNTIME_SOCKET} (plugin={NRI_PLUGIN_NAME} idx={NRI_PLUGIN_IDX})"
-    )
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_unix_connection(NRI_RUNTIME_SOCKET), timeout=5.0
-    )
-    mux = NriMux(reader, writer)
-    codec = ProtoCodec()
-
     # Initialize ZeroMQ server
     zmq_server = ZeroMQServer()
     await zmq_server.initialize()
@@ -739,58 +626,22 @@ async def _nri_run() -> None:
     containers = await list_container_ids(HOST_ROOT / cri_socket.relative_to("/"))
     logger.info(f"CRI connectivity verified: {len(containers)} containers")
 
+    # Create plugin instance and NRI server
     plugin = NriPlugin(zmq_server, cri_socket)
-    mapping = plugin.__mapping__()
+    server = NriServer(
+        plugin,
+        socket_path=Path(NRI_RUNTIME_SOCKET),
+        plugin_name=NRI_PLUGIN_NAME,
+        plugin_idx=NRI_PLUGIN_IDX,
+    )
 
-    handler = TtrpcHandler(mapping, codec)
-    protocol = TtrpcProtocol(handler)
-    protocol.connection_made(mux.channel_transport(PLUGIN_SERVICE_CONN))
-
+    # Start ZeroMQ handler in background
     loop = asyncio.get_running_loop()
-    read_task = loop.create_task(mux.read_loop())
-    serve_task = loop.create_task(_serve_plugin_channel(mux, protocol))
-    zmq_task = loop.create_task(zmq_server.start_request_handler())
+    loop.create_task(zmq_server.start_request_handler())
 
     try:
-        await _register_plugin(mux, codec)
-        logger.info(
-            f"Plugin registered (name={NRI_PLUGIN_NAME!r} idx={NRI_PLUGIN_IDX!r})"
-        )
-        # Block until the connection drops (read_loop exits → serve_task exits).
-        await asyncio.gather(read_task, serve_task)
+        # Start server (handles reconnection with exponential backoff internally)
+        await server.start()
     finally:
-        read_task.cancel()
-        serve_task.cancel()
-        zmq_task.cancel()
-        # Await cancelled tasks so they finish before we reconnect — prevents
-        # a second connection racing with cleanup of the first.
-        await asyncio.gather(read_task, serve_task, zmq_task, return_exceptions=True)
-        handler.close()
-        await handler.wait_closed()
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except Exception:
-            pass
-        # Clean up ZeroMQ server
+        await server.close()
         zmq_server.shutdown()
-
-
-async def nri_serve() -> None:
-    """Run the NRI plugin, reconnecting on failure with exponential backoff."""
-    logger = logging.getLogger("nixkube.nri.serve")
-    delay = 1.0
-    while True:
-        try:
-            await _nri_run()
-        except Exception as e:
-            logger.warning(
-                f"Connection failed ({type(e).__name__}: {e}), retrying in {delay:.0f}s"
-            )
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 30.0)
-        else:
-            # Clean disconnect: brief pause so containerd processes the old
-            # connection's close before we re-register the same plugin identity.
-            await asyncio.sleep(1.0)
-            delay = 1.0

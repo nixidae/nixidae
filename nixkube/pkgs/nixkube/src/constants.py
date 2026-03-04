@@ -52,9 +52,10 @@ CSI_SOCKET_PATH = os.environ.get("CSI_SOCKET_PATH", "/csi/csi.sock")
 NRI_RUNTIME_SOCKET = os.environ.get("NRI_RUNTIME_SOCKET", "/var/run/nri/nri.sock")
 
 # NRI plugin identity — sent in RegisterPlugin; must match the index prefix
-# that containerd expects (two-digit zero-padded number, e.g. "00").
+# that containerd expects (two-digit zero-padded number, e.g. "69").
+# Default "69" is high enough to avoid collision with early-stage plugins (00-50).
 NRI_PLUGIN_NAME = os.environ.get("NRI_PLUGIN_NAME", "nixkube")
-NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "00")
+NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "69")
 
 # NRI host mount path for bind mounts (default: /var/lib/nix-csi)
 # Set via HOST_MOUNT_PATH environment variable from kubenix
