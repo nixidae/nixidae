@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Find pods stuck in terminating state (have deletionTimestamp set)
+# Find pods stuck in error/pending/unknown state or terminating (have deletionTimestamp set)
 
 kubectl get pods --all-namespaces -o json | jq -r '
   .items[]
-  | select(.metadata.deletionTimestamp != null)
+  | select(.metadata.deletionTimestamp != null or .status.phase == "Failed" or .status.phase == "Pending" or .status.phase == "Unknown" or (.status.phase == "Running" and (.status.containerStatuses[]? | select(.state.waiting != null))))
   | [
       .metadata.namespace,
       .metadata.name,
+      .metadata.uid,
       .status.phase,
-      (.metadata.deletionTimestamp | fromdateiso8601 | now - . | floor),
-      .spec.nodeName // "unknown"
+      (.spec.nodeName // "unknown"),
+      ([.status.containerStatuses[]? | select(.containerID != null) | .containerID] | join("|")),
+      (if .metadata.deletionTimestamp != null then (.metadata.deletionTimestamp | fromdateiso8601 | now - . | floor) else 0 end)
     ]
   | @tsv
-' | awk '{printf "%-30s %-40s %-15s %8ds  %s\n", $1, $2, $3, $4, $5}' | {
-  echo "NAMESPACE                      POD NAME                                 STATUS          STUCK_TIME NODE"
-  echo "---------------------------------------------------------------------------------------------------"
+' | awk '{printf "%-30s %-30s %-36s %-10s %-30s %-70s %8ds\n", $1, $2, $3, $4, $5, $6, $7}' | {
+  echo "NAMESPACE                      POD NAME                       UID                                  STATUS     NODE                          CONTAINER IDS                                                           STUCK_TIME"
+  echo "==========================================================================================================================================================================================================================================================================="
   cat
 }
