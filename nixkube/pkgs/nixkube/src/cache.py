@@ -12,8 +12,8 @@ from .subprocessing import run_captured, try_console
 
 logger = logging.getLogger("nixkube.cache")
 
-# Locks that prevent the same derivation to be uploaded in parallel
-copy_lock: defaultdict[Path, Semaphore] = defaultdict(Semaphore)
+# Locks that prevent the same set of paths from being uploaded in parallel
+copy_lock: defaultdict[frozenset[Path], Semaphore] = defaultdict(Semaphore)
 
 
 async def check_cache_connectivity() -> bool:
@@ -67,9 +67,7 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
 
     logger.debug(f"copy_to_cache: starting for {len(package_paths)} packages")
 
-    # Create a lock key from all paths to prevent concurrent copies of the same set
-    lock_key = tuple(sorted(package_paths))
-    async with copy_lock[lock_key[0] if lock_key else Path("")]:
+    async with copy_lock[frozenset(package_paths)]:
         paths: set[Path] = {Path(p) for p in package_paths}
 
         # Get regular closure paths for all packages
