@@ -68,14 +68,9 @@ import traceback
 from functools import cache
 from pathlib import Path
 
-from ..constants import HOST_PROC_PATH
+from ..constants import HOST_PROC_PATH, MS_BIND, MS_RDONLY, MS_REMOUNT
 
 logger = logging.getLogger("nixkube.nri.mount")
-
-# mount(2) flags
-MS_RDONLY = 1
-MS_REMOUNT = 32
-MS_BIND = 4096
 
 # setns(2) namespace flag
 CLONE_NEWNS = 0x00020000

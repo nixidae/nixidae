@@ -77,3 +77,8 @@ KUBELET_PODS_PATH = Path("/var/lib/kubelet/pods")
 KUBE_POD_NAME = os.environ.get("KUBE_POD_NAME", "unknown")
 KUBE_POD_UID = os.environ.get("KUBE_POD_UID", "unknown")
 KUBE_NODE_NAME = os.environ.get("KUBE_NODE_NAME", "unknown")
+
+# mount(2) flags (from sys/mount.h)
+MS_RDONLY = 1
+MS_REMOUNT = 32
+MS_BIND = 4096

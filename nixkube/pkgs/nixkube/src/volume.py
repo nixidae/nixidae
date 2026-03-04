@@ -11,7 +11,13 @@ from pathlib import Path
 
 import aiofiles
 
-from .constants import NIX_BUILD_TIMEOUT, VERIFY_STORE_PATHS
+from .constants import (
+    MS_BIND,
+    MS_RDONLY,
+    MS_REMOUNT,
+    NIX_BUILD_TIMEOUT,
+    VERIFY_STORE_PATHS,
+)
 from .errors import FailedVolumeCleanupError, MountError, UnmountError
 from .hardlinks import deref_hardlink_tree, hardlink_closure
 from .nix import (
@@ -26,11 +32,6 @@ logger = logging.getLogger("nixkube.volume")
 
 # Load libc for mount/umount syscalls
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
-
-# Mount flags (from sys/mount.h)
-_MS_BIND = 4096
-_MS_RDONLY = 1
-_MS_REMOUNT = 32
 
 # Get references to syscall functions
 _libc.mount.argtypes = [
@@ -133,7 +134,7 @@ async def mount_volume(
             ctypes.c_char_p(os.fsencode(volume_root)),
             ctypes.c_char_p(os.fsencode(target_path)),
             None,
-            _MS_BIND | _MS_RDONLY,
+            MS_BIND | MS_RDONLY,
             None,
         )
         if ret != 0:
@@ -153,7 +154,7 @@ async def mount_volume(
             None,
             ctypes.c_char_p(os.fsencode(target_path)),
             None,
-            _MS_BIND | _MS_REMOUNT | _MS_RDONLY,
+            MS_BIND | MS_REMOUNT | MS_RDONLY,
             None,
         )
         if ret != 0:
