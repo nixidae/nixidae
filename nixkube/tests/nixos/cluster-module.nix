@@ -20,6 +20,12 @@
 
   environment.variables.EDITOR = "hx";
 
+  # -- OpenSSH for interactive debugging --
+  services.openssh = {
+    enable = true;
+    settings.PasswordAuthentication = true;
+  };
+
   # -- Containerd CRI --
   virtualisation.containerd = {
     enable = true;
