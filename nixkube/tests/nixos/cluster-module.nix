@@ -15,7 +15,10 @@
   environment.systemPackages = [
     pkgs.kubernetes # kubectl, kubeadm, kubelet
     pkgs.cri-tools # crictl
+    pkgs.helix # editor
   ];
+
+  environment.variables.EDITOR = "hx";
 
   # -- Containerd CRI --
   virtualisation.containerd = {
@@ -130,6 +133,16 @@
     cores = 4;
   };
 
+  # -- Interactive debug user --
+  users.users.nixkube = {
+    isNormalUser = true;
+    initialPassword = "nixkube";
+    extraGroups = [ "wheel" ];
+  };
+
+  # Allow nixkube to use sudo without password
+  security.sudo.wheelNeedsPassword = false;
+
   # Disable COW on etcd data dir (etcd doesn't tolerate COW filesystems)
   system.activationScripts.noCOWs.text = ''
     ${lib.getExe' pkgs.coreutils "mkdir"} --parents /var/lib/etcd
@@ -140,4 +153,11 @@
   systemd.tmpfiles.rules = [
     "d /var/run/nri 0755 root root -"
   ];
+
+  # Enable external networking for image pulls and nix binary cache access
+  networking = {
+    useDHCP = true;
+    firewall.enable = false;
+  };
+  systemd.services.systemd-resolved.enable = true;
 }
