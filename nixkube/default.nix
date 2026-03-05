@@ -179,6 +179,7 @@ rec {
     let
       wrappedDriver = pkgs.writeShellScriptBin "nixos-test-driver" ''
         export QEMU_NET_OPTS="hostfwd=tcp::2222-:22"
+        sudo chmod 666 /dev/vhost-vsock 2>/dev/null || true
         exec ${test.driverInteractive}/bin/nixos-test-driver "$@"
       '';
     in
