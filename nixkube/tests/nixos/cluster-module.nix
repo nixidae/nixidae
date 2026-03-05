@@ -158,6 +158,6 @@
   networking = {
     useDHCP = true;
     firewall.enable = false;
+    nameservers = [ "9.9.9.9" ];
   };
-  systemd.services.systemd-resolved.enable = true;
 }
