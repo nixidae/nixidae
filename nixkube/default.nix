@@ -34,12 +34,15 @@ rec {
       ./kubenix/ci
     ];
   };
+  # kubenixCI2 is used by tests/nixos/integration.nix for the containerd nixos test.
+  # Disables aarch64-linux to avoid needing cross-compilation support.
   kubenixCI2 = kubenixInstance {
     module.imports = [
       ./kubenix/ci
       {
         nixkube.cache.enable = false;
         nixkube.builders.enable = false;
+        nixkube.systems.aarch64-linux = false;
       }
     ];
   };
