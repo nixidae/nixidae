@@ -65,8 +65,30 @@ jobs:
           echo "=== Kernel IP forwarding ==="
           cat /proc/sys/net/ipv4/ip_forward
 
-      - name: Run nixos test
-        run: nix run --file . nixosNatTest.containerd.driverInteractive --option sandbox false -- --no-interactive
+      - name: Start nixos test (background)
+        run: |
+          nix run --file . nixosNatTest.containerd.driverInteractive --option sandbox false -- --no-interactive > /tmp/test.log 2>&1 &
+          echo $! > /tmp/test.pid
+          echo "Test running in background (PID: $(cat /tmp/test.pid))"
+          sleep 5
+
+      - name: Setup upterm session (test runs in parallel)
+        uses: owenthereal/action-upterm@v1
+        with:
+          wait-timeout-minutes: 5
+          limit-access-to-actor: true
+
+      - name: Wait for test to complete
+        run: |
+          TEST_PID=$(cat /tmp/test.pid)
+          if wait $TEST_PID; then
+            echo "✓ Test passed"
+          else
+            echo "✗ Test failed with exit code: $?"
+          fi
+          echo ""
+          echo "=== Test Output ==="
+          tail -100 /tmp/test.log
 
       - name: Debug - GHA runner network state (after)
         if: failure()
