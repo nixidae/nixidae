@@ -172,6 +172,19 @@ rec {
     };
   };
 
+  # Wrapped test drivers with SSH port forwarding via QEMU_NET_OPTS
+  # Forwards host:2222 → VM:22 through SLiRP so you can SSH into the VM
+  nixosTestsSSH = lib.mapAttrs (
+    _: test:
+    let
+      wrappedDriver = pkgs.writeShellScriptBin "nixos-test-driver" ''
+        export QEMU_NET_OPTS="hostfwd=tcp::2222-:22"
+        exec ${test.driverInteractive}/bin/nixos-test-driver "$@"
+      '';
+    in
+    test // { driverInteractive = wrappedDriver; }
+  ) nixosTests;
+
   lixImage = pkgs.callPackage ./liximage.nix { };
   scratchImage = pkgs.callPackage ./scratchimage.nix { };
 }
