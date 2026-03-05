@@ -39,7 +39,7 @@ jobs:
           install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
 
       - name: Run nixos test
-        run: nix run --file . nixosTests.containerd.driverInteractive --option sandbox false -- --no-interactive
+        run: nix run --file . nixosNatTest.containerd.driverInteractive --option sandbox false -- --no-interactive
 
       - name: Setup upterm session
         if: failure()
