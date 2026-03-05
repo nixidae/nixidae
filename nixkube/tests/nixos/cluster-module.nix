@@ -161,9 +161,6 @@
   ];
 
   # Enable external networking for image pulls and nix binary cache access
-  networking = {
-    useDHCP = true;
-    firewall.enable = false;
-    nameservers = [ "9.9.9.9" ];
-  };
+  # SLiRP provides DHCP + DNS automatically
+  networking.firewall.enable = false;
 }

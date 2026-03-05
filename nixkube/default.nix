@@ -172,65 +172,6 @@ rec {
     };
   };
 
-  # Wrapper that adds iptables masquerading setup for tests requiring external network access
-  nixosNatTest = lib.mapAttrs (
-    name: test:
-    let
-      iptablesSetup = pkgs.writeShellScript "iptables-nat-setup" ''
-        set -euo pipefail
-
-        # Get the primary network interface (excluding loopback)
-        HOST_IFACE=$(ip route | grep "^default" | awk '{print $5}' | head -1)
-        if [ -z "$HOST_IFACE" ]; then
-          echo "ERROR: Could not determine primary network interface" >&2
-          exit 1
-        fi
-
-        echo "Setting up iptables masquerading on $HOST_IFACE..."
-
-        # Enable IP forwarding
-        sudo sysctl -w net.ipv4.ip_forward=1
-
-        # Add masquerade rule for outbound traffic
-        sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-
-        # Allow forwarding of established connections
-        sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT || true
-
-        # Allow forward traffic from vde/qemu interfaces
-        sudo iptables -A FORWARD -i vnet+ -o "$HOST_IFACE" -j ACCEPT || true
-      '';
-
-      iptablesCleanup = pkgs.writeShellScript "iptables-nat-cleanup" ''
-        set -euo pipefail
-
-        HOST_IFACE=$(ip route | grep "^default" | awk '{print $5}' | head -1)
-        if [ -z "$HOST_IFACE" ]; then
-          exit 0
-        fi
-
-        echo "Cleaning up iptables rules..."
-        sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-        sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT || true
-        sudo iptables -D FORWARD -i vnet+ -o "$HOST_IFACE" -j ACCEPT || true
-      '';
-
-      wrappedDriver = pkgs.writeShellScriptBin "nixos-test-driver" ''
-        set -euo pipefail
-
-        # Setup and cleanup traps
-        trap "${iptablesCleanup}" EXIT
-
-        # Setup iptables
-        ${iptablesSetup}
-
-        # Run the actual test driver
-        exec ${test.driverInteractive}/bin/nixos-test-driver "$@"
-      '';
-    in
-    test // { driverInteractive = wrappedDriver; }
-  ) nixosTests;
-
   lixImage = pkgs.callPackage ./liximage.nix { };
   scratchImage = pkgs.callPackage ./scratchimage.nix { };
 }

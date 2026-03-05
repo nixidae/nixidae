@@ -28,6 +28,8 @@
 pkgs.testers.nixosTest {
   name = "nixkube-containerd";
 
+  sshBackdoor.enable = true;
+
   nodes.control =
     { config, pkgs, ... }:
     {
