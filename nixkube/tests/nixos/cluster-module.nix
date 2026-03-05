@@ -126,11 +126,16 @@
     "kernel.panic_on_oops" = 1;
   };
 
-  # -- VM sizing for kubeadm cluster --
+  # -- VM sizing and networking for kubeadm cluster --
   virtualisation = {
     memorySize = 4096;
     diskSize = 10240;
     cores = 4;
+    # Use macvtap for direct external network access
+    # Taps directly into host physical interface, no bridge needed
+    qemu.networkingOptions = [
+      "-nic type=macvtap,ifname=eth0,model=virtio-net-pci"
+    ];
   };
 
   # -- Interactive debug user --
