@@ -48,9 +48,22 @@ pkgs.testers.nixosTest {
     # Debug: Check if networking is available
     with control.nested("check networking"):
         control.wait_for_unit("network-online.target", timeout=30)
-        control.succeed("ping -c 1 1.1.1.1 || ping -c 1 9.9.9.9 || echo 'WARNING: No external ping response'")
+
+        # Capture VM network state
+        control.succeed("echo '=== IP Addresses ===' && ip addr")
+        control.succeed("echo '=== Routing Table ===' && ip route")
+        control.succeed("echo '=== Default Route ===' && ip route | grep default")
+        control.succeed("echo '=== Kernel IP Forwarding ===' && cat /proc/sys/net/ipv4/ip_forward")
+
+        # Capture DNS state
         control.succeed("cat /etc/resolv.conf || echo 'No resolv.conf'")
         control.succeed("systemctl status systemd-resolved || echo 'systemd-resolved not active'")
+
+        # Try DNS resolution before ping
+        control.succeed("echo '=== Testing DNS ===' && nslookup google.com || dig google.com || echo 'DNS lookup failed'")
+
+        # Try pings
+        control.succeed("ping -c 1 1.1.1.1 || ping -c 1 9.9.9.9 || echo 'WARNING: No external ping response'")
 
     control.wait_for_unit("containerd.service")
 

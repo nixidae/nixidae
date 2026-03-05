@@ -38,8 +38,66 @@ jobs:
           echo "${{ secrets.NIXBUILD_KEY }}" | install -D -m 600 /dev/stdin ~/.ssh/nixbuild_key
           install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
 
+      - name: Debug - GHA runner network state (before)
+        shell: bash
+        run: |
+          echo "=== IP Addresses ==="
+          ip addr
+          echo ""
+          echo "=== Routing Table ==="
+          ip route
+          echo ""
+          echo "=== Network Interfaces ==="
+          ip link
+          echo ""
+          echo "=== Iptables Rules (filter) ==="
+          sudo iptables -L -v
+          echo ""
+          echo "=== Iptables Rules (nat) ==="
+          sudo iptables -t nat -L -v
+          echo ""
+          echo "=== Iptables Rules (mangle) ==="
+          sudo iptables -t mangle -L -v
+          echo ""
+          echo "=== Netstat listening ports ==="
+          sudo ss -tlnp || netstat -tlnp || echo "ss/netstat not available"
+          echo ""
+          echo "=== Kernel IP forwarding ==="
+          cat /proc/sys/net/ipv4/ip_forward
+
       - name: Run nixos test
         run: nix run --file . nixosNatTest.containerd.driverInteractive --option sandbox false -- --no-interactive
+
+      - name: Debug - GHA runner network state (after)
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== IP Addresses ==="
+          ip addr
+          echo ""
+          echo "=== Routing Table ==="
+          ip route
+          echo ""
+          echo "=== Network Interfaces ==="
+          ip link
+          echo ""
+          echo "=== Iptables Rules (filter) ==="
+          sudo iptables -L -v
+          echo ""
+          echo "=== Iptables Rules (nat) ==="
+          sudo iptables -t nat -L -v
+          echo ""
+          echo "=== Iptables Rules (mangle) ==="
+          sudo iptables -t mangle -L -v
+          echo ""
+          echo "=== Check for vde interfaces ==="
+          ip link | grep -i vde || echo "No vde interfaces found"
+          echo ""
+          echo "=== Kernel IP forwarding ==="
+          cat /proc/sys/net/ipv4/ip_forward
+          echo ""
+          echo "=== Dmesg last 50 lines ==="
+          sudo dmesg | tail -50
 
       - name: Setup upterm session
         if: failure()
