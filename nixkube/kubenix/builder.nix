@@ -3,8 +3,7 @@
 {
   config,
   lib,
-  x86Pkgs,
-  armPkgs,
+  csiPkgs,
   curPkgs,
   ...
 }:
@@ -166,12 +165,9 @@ in
                 init-store.csi = {
                   driver = "nixkube";
                   readOnly = true;
-                  volumeAttributes = {
-                    # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
-                    # this is so users don't have to build locally to deploy.
-                    x86_64-linux = x86Pkgs.nixkube-builder-env;
-                    aarch64-linux = armPkgs.nixkube-builder-env;
-                  };
+                  # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                  # this is so users don't have to build locally to deploy.
+                  volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-builder-env) csiPkgs;
                 };
                 nix-store.emptyDir = { };
 
@@ -263,12 +259,9 @@ in
                           nix-store.csi = {
                             driver = "nixkube";
                             readOnly = true;
-                            volumeAttributes = {
-                              # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
-                              # this is so users don't have to build locally to deploy.
-                              x86_64-linux = x86Pkgs.nixkube-proxy-env;
-                              aarch64-linux = armPkgs.nixkube-proxy-env;
-                            };
+                            # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                            # this is so users don't have to build locally to deploy.
+                            volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-proxy-env) csiPkgs;
                           };
 
                           ssh-config.configMap = {

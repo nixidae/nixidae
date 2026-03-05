@@ -3,8 +3,7 @@
 {
   config,
   lib,
-  x86Pkgs,
-  armPkgs,
+  csiPkgs,
   ...
 }:
 let
@@ -47,16 +46,14 @@ in
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.push = lib.mkIf cfg.push {
         metadata.labels = cfg.labels;
-        data = {
-          builder-aarch64-linux = armPkgs.nixkube-builder-env;
-          builder-x86_64-linux = x86Pkgs.nixkube-builder-env;
-          cache-aarch64-linux = armPkgs.nixkube-cache-env;
-          cache-x86_64-linux = x86Pkgs.nixkube-cache-env;
-          node-aarch64-linux = armPkgs.nixkube-node-env;
-          node-x86_64-linux = x86Pkgs.nixkube-node-env;
-          proxy-aarch64-linux = armPkgs.nixkube-proxy-env;
-          proxy-x86_64-linux = x86Pkgs.nixkube-proxy-env;
-        };
+        data = lib.mergeAttrsList (
+          lib.mapAttrsToList (system: pkgs: {
+            "builder-${system}" = pkgs.nixkube-builder-env;
+            "cache-${system}" = pkgs.nixkube-cache-env;
+            "node-${system}" = pkgs.nixkube-node-env;
+            "proxy-${system}" = pkgs.nixkube-proxy-env;
+          }) csiPkgs
+        );
       };
       ConfigMap.nix-node = {
         metadata.labels = cfg.labels;

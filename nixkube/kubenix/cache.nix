@@ -3,8 +3,7 @@
 {
   config,
   lib,
-  x86Pkgs,
-  armPkgs,
+  csiPkgs,
   curPkgs,
   ...
 }:
@@ -136,12 +135,9 @@ in
                   init-store.csi = {
                     driver = "nixkube";
                     readOnly = true;
-                    volumeAttributes = {
-                      # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
-                      # this is so users don't have to build locally to deploy.
-                      x86_64-linux = x86Pkgs.nixkube-cache-env;
-                      aarch64-linux = armPkgs.nixkube-cache-env;
-                    };
+                    # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
+                    # this is so users don't have to build locally to deploy.
+                    volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-cache-env) csiPkgs;
                   };
 
                   ssh-config.configMap = {

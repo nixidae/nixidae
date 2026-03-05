@@ -106,6 +106,14 @@ in
       type = lib.types.attrsOf (curPkgs.formats.json { }).type;
       default = { };
     };
+    systems = lib.mkOption {
+      description = "Which systems to build nixkube environments for";
+      type = lib.types.attrsOf lib.types.bool;
+      default = {
+        "x86_64-linux" = true;
+        "aarch64-linux" = true;
+      };
+    };
 
     pkgs = lib.mkOption {
       type = lib.types.path;
@@ -163,8 +171,10 @@ in
     lib.mkIf cfg.enable {
       # Provide helpers to all modules via _module.args
       _module.args = {
-        x86Pkgs = mkPkgs "x86_64-linux";
-        armPkgs = mkPkgs "aarch64-linux";
+        csiPkgs = lib.pipe cfg.systems [
+          (lib.filterAttrs (_: enabled: enabled))
+          (lib.mapAttrs (system: _: mkPkgs system))
+        ];
         curPkgs = mkPkgs builtins.currentSystem;
         subPath = spath: lib.removePrefix "/" (toString spath);
       };
