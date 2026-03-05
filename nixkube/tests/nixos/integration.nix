@@ -44,6 +44,14 @@ pkgs.testers.nixosTest {
     import json
 
     control.start()
+
+    # Debug: Check if networking is available
+    with control.nested("check networking"):
+        control.wait_for_unit("network-online.target", timeout=30)
+        control.succeed("ping -c 1 1.1.1.1 || ping -c 1 9.9.9.9 || echo 'WARNING: No external ping response'")
+        control.succeed("cat /etc/resolv.conf || echo 'No resolv.conf'")
+        control.succeed("systemctl status systemd-resolved || echo 'systemd-resolved not active'")
+
     control.wait_for_unit("containerd.service")
 
     # ── Phase 1: Bootstrap kubeadm cluster ──────────────────────────────
