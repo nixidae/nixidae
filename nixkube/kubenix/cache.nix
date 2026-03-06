@@ -45,6 +45,7 @@ in
       kubernetes.resources.${cfg.namespace} = {
         StatefulSet.nix-cache = {
           metadata.labels = labels;
+          metadata.annotations."nixkube/discard" = "true";
           spec = {
             serviceName = "nix-cache";
             replicas = 1;
@@ -53,7 +54,6 @@ in
               metadata.labels = labels;
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-cache";
-                "nixkube/discard" = "true";
                 configHash = lib.hashAttrs (
                   { } // nsRes.ConfigMap.nix-cache or { } // nsRes.ConfigMap.ssh-config or { }
                 );

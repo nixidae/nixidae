@@ -43,6 +43,7 @@ in
       kubernetes.resources.${cfg.namespace} = {
         DaemonSet.nix-node = {
           metadata.labels = labels;
+          metadata.annotations."nixkube/discard" = "true";
           spec = {
             updateStrategy = {
               type = "RollingUpdate";
@@ -53,7 +54,6 @@ in
               metadata.labels = labels;
               metadata.annotations = {
                 "kubectl.kubernetes.io/default-container" = "nix-node";
-                "nixkube/discard" = "true";
                 configHash = lib.hashAttrs (
                   { } // nsRes.ConfigMap.nix-node or { } // nsRes.configMap.ssh-config or { }
                 );

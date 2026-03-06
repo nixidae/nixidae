@@ -99,7 +99,6 @@ in
             metadata.labels = v.labels;
             metadata.annotations = {
               "kubectl.kubernetes.io/default-container" = "nix-builder";
-              "nixkube/discard" = "true";
               configHash = lib.hashAttrs (
                 { } // nsRes.ConfigMap.nix-builder or { } // nsRes.ConfigMap.ssh-config or { }
               );
@@ -199,6 +198,7 @@ in
               in
               {
                 metadata.labels = v2.labels;
+                metadata.annotations."nixkube/discard" = "true";
                 spec = {
                   replicas = v.replicas;
                   selector.matchLabels = cfg.matchLabels // {
@@ -219,6 +219,7 @@ in
                 in
                 {
                   metadata.labels = labels;
+                  metadata.annotations."nixkube/discard" = "true";
                   spec = {
                     replicas = 1;
                     selector.matchLabels = cfg.matchLabels // labels;
@@ -226,7 +227,6 @@ in
                       metadata.labels = labels;
                       metadata.annotations = {
                         "kubectl.kubernetes.io/default-container" = "proxy";
-                        "nixkube/discard" = "true";
                       };
                       spec = {
                         containers = lib.mkNamedList {
@@ -292,6 +292,7 @@ in
             in
             {
               metadata.labels = v2.labels;
+              metadata.annotations."nixkube/discard" = "true";
               spec = {
                 selector.matchLabels = cfg.matchLabels // {
                   "app.kubernetes.io/component" = "builder";
