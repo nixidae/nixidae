@@ -44,17 +44,6 @@ in
         };
       };
     kubernetes.resources.${cfg.namespace} = {
-      ConfigMap.push = lib.mkIf cfg.push {
-        metadata.labels = cfg.labels;
-        data = lib.mergeAttrsList (
-          lib.mapAttrsToList (system: pkgs: {
-            "builder-${system}" = pkgs.nixkube-builder-env;
-            "cache-${system}" = pkgs.nixkube-cache-env;
-            "node-${system}" = pkgs.nixkube-node-env;
-            "proxy-${system}" = pkgs.nixkube-proxy-env;
-          }) csiPkgs
-        );
-      };
       ConfigMap.nix-node = {
         metadata.labels = cfg.labels;
         data = {

@@ -165,8 +165,6 @@ in
                 init-store.csi = {
                   driver = "nixkube";
                   readOnly = true;
-                  # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
-                  # this is so users don't have to build locally to deploy.
                   volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-builder-env) csiPkgs;
                 };
                 nix-store.emptyDir = { };
@@ -259,8 +257,6 @@ in
                           nix-store.csi = {
                             driver = "nixkube";
                             readOnly = true;
-                            # Only render storePaths here, building is done with a ConfigMap (config.nix) only if cfg.push is set
-                            # this is so users don't have to build locally to deploy.
                             volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-proxy-env) csiPkgs;
                           };
 
