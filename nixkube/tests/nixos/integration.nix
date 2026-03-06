@@ -181,10 +181,10 @@ pkgs.testers.nixosTest {
         )
         assert result.strip().strip("'") == "1", f"nri-hello-ro job did not succeed: {result}"
 
-        # Verify DaemonSet is healthy (per-arch DaemonSets, check via label)
+        # Verify DaemonSet is healthy
         result = control.succeed(
-            "kubectl -n nixkube get daemonset -l app.kubernetes.io/component=node"
-            " -o jsonpath='{.items[0].status.numberReady}'"
+            "kubectl -n nixkube get daemonset nix-node"
+            " -o jsonpath='{.status.numberReady}'"
         )
         assert result.strip().strip("'") == "1", f"DaemonSet not ready: {result}"
 

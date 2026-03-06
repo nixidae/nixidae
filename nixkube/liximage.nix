@@ -47,6 +47,10 @@ rec {
             mkdir /tmp
             rsync --archive ${fakeNss}/ /
 
+            # Resolve the correct store path for this architecture from the JSON NODE_ENV
+            STORE_PATH=$(nix eval --store dummy:// --raw --impure --expr \
+              '(builtins.fromJSON (builtins.getEnv "NODE_ENV")).''${builtins.currentSystem}')
+
             # Check if we can SSH to nix-cache
             EXTRA_SUBSTITUTERS="local?trusted=true"
             if nix store ping --store ssh-ng://nix@nix-cache; then
@@ -61,7 +65,7 @@ rec {
                 --store /nix-volume \
                 --out-link /nix-volume/nix/var/result \
                 --fallback \
-                "$NODE_ENV"
+                "$STORE_PATH"
           '';
       };
 
@@ -105,17 +109,15 @@ rec {
       };
     }
   );
-  push =
-    let
-      copyToRegistry =
-        arch:
-        "${images.${arch}} | gzip --fast | skopeo copy docker-archive:/dev/stdin docker://${imageRef arch}";
-      imageRef = arch: "${images.${arch}.imageName}:${images.${arch}.imageTag}"; # AI: imageName and imageTag exists
-    in
+
+  imageRef = system: "${images.${system}.imageName}:${images.${system}.imageTag}";
+
+  # Per-arch push scripts (one per system, used by per-arch CI jobs)
+  pushArch = lib.mapAttrs (
+    system: image:
     pkgs.writeShellApplication {
-      name = "push";
+      name = "push-lix-${system}";
       runtimeInputs = [
-        pkgs.regctl
         pkgs.skopeo
         pkgs.gzip
         pkgs.cachix
@@ -123,17 +125,25 @@ rec {
       text = # bash
         ''
           skopeo login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
-          regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
-          ${copyToRegistry "aarch64-linux"}
-          ${copyToRegistry "x86_64-linux"}
-          cachix push nix-csi ${images."aarch64-linux"}
-          cachix push nix-csi ${images."x86_64-linux"}
-          regctl index create ${repo}/lix:${pkgs.lruLix.version}-${nixkubeVersion} \
-            --ref ${imageRef "aarch64-linux"} \
-            --ref ${imageRef "x86_64-linux"}
-          regctl index create ${repo}/lix:latest \
-            --ref ${imageRef "aarch64-linux"} \
-            --ref ${imageRef "x86_64-linux"}
+          ${image} | gzip --fast | skopeo copy docker-archive:/dev/stdin docker://${imageRef system}
+          cachix push nix-csi ${image}
         '';
-    };
+    }
+  ) images;
+
+  # Manifest creation (used by dependent CI job after both arches are pushed)
+  pushManifest = pkgs.writeShellApplication {
+    name = "push-lix-manifest";
+    runtimeInputs = [ pkgs.regctl ];
+    text = # bash
+      ''
+        regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
+        regctl index create ${repo}/lix:${pkgs.lruLix.version}-${nixkubeVersion} \
+          --ref ${imageRef "aarch64-linux"} \
+          --ref ${imageRef "x86_64-linux"}
+        regctl index create ${repo}/lix:latest \
+          --ref ${imageRef "aarch64-linux"} \
+          --ref ${imageRef "x86_64-linux"}
+      '';
+  };
 }

@@ -21,8 +21,7 @@ permissions:
   actions: write
 
 jobs:
-  # Build and push all components
-  build:
+  build-amd64:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,7 +32,7 @@ jobs:
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          cache_key: build
+          cache_key: build-amd64
 
       - name: Build and push environments
         run: |
@@ -41,12 +40,56 @@ jobs:
           nix build --show-trace --file . push --out-link nix-envs
           ./nix-envs/bin/push
 
-      # Build and push all components sequentially to reuse Nix store
-      - name: Build and push Lix image
+      - name: Build and push amd64 lix image
         run: |
-          unlink nix-images || true
-          nix build --show-trace --file . lixImage.push --out-link nix-images
-          ./nix-images/bin/push
+          unlink nix-lix || true
+          nix build --show-trace --file . lixImage.pushArch.x86_64-linux --out-link nix-lix
+          ./nix-lix/bin/push-lix-x86_64-linux
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Nix environment
+        uses: ./.github/actions/setup-nix
+        with:
+          nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: build-arm64
+
+      - name: Build and push environments
+        run: |
+          unlink nix-envs || true
+          nix build --show-trace --file . push --out-link nix-envs
+          ./nix-envs/bin/push
+
+      - name: Build and push arm64 lix image
+        run: |
+          unlink nix-lix || true
+          nix build --show-trace --file . lixImage.pushArch.aarch64-linux --out-link nix-lix
+          ./nix-lix/bin/push-lix-aarch64-linux
+
+  build-manifests:
+    needs: [build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Nix environment
+        uses: ./.github/actions/setup-nix
+        with:
+          nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache_key: build-manifests
+
+      - name: Create lix multi-arch manifest
+        run: |
+          unlink nix-manifest || true
+          nix build --show-trace --file . lixImage.pushManifest --out-link nix-manifest
+          ./nix-manifest/bin/push-lix-manifest
 
       - name: Build and push scratch image
         run: |
@@ -55,7 +98,7 @@ jobs:
           ./nix-scratches/bin/push
 
   test-kind-cache:
-    needs: build
+    needs: build-manifests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -187,7 +230,7 @@ jobs:
           wait-timeout-minutes: 5
 
   test-kind-nocache:
-    needs: build
+    needs: build-manifests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -256,7 +299,7 @@ jobs:
           wait-timeout-minutes: 5
 
   release:
-    needs: [build, test-kind-cache, test-kind-nocache]
+    needs: [build-manifests, test-kind-cache, test-kind-nocache]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
