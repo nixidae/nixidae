@@ -1,18 +1,14 @@
 # SPDX-License-Identifier: MIT
-
 on:
   push:
     branches:
       - cidev
   workflow_dispatch:
-
 env:
   REPO_USERNAME: ${{ github.actor }}
   REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 permissions:
   contents: read
-
 jobs:
   test-nixos:
     runs-on: ubuntu-latest
@@ -20,7 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Install Nix
         uses: nixbuild/nix-quick-install-action@master
         with:
@@ -31,13 +26,11 @@ jobs:
             # builders = ssh-ng://eu.nixbuild.net aarch64-linux ; ssh-ng://eu.nixbuild.net x86_64-linux
             substituters = https://cache.nixos.org?priority=1 https://nix-csi.cachix.org?priority=2 https://cache.lix.systems?priority=3 ssh-ng://eu.nixbuild.net?priority=4
             sandbox = relaxed
-
       - name: Configure SSH Keys
         shell: bash
         run: |
           echo "${{ secrets.NIXBUILD_KEY }}" | install -D -m 600 /dev/stdin ~/.ssh/nixbuild_key
           install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
-
       - name: Debug - GHA runner network state (before)
         shell: bash
         run: |
@@ -64,20 +57,17 @@ jobs:
           echo ""
           echo "=== Kernel IP forwarding ==="
           cat /proc/sys/net/ipv4/ip_forward
-
       - name: Start nixos test (background)
         run: |
           nix run --file . nixosTests.containerd.driverInteractive --option sandbox false -- --no-interactive > /tmp/test.log 2>&1 &
           echo $! > /tmp/test.pid
           echo "Test running in background (PID: $(cat /tmp/test.pid))"
           sleep 5
-
       - name: Setup upterm session (test runs in parallel)
         uses: owenthereal/action-upterm@v1
         with:
           wait-timeout-minutes: 5
           limit-access-to-actor: true
-
       - name: Wait for test to complete
         run: |
           TEST_PID=$(cat /tmp/test.pid)
@@ -89,7 +79,6 @@ jobs:
           echo ""
           echo "=== Test Output ==="
           tail -100 /tmp/test.log
-
       - name: Debug - GHA runner network state (after)
         if: failure()
         shell: bash
@@ -120,7 +109,6 @@ jobs:
           echo ""
           echo "=== Dmesg last 50 lines ==="
           sudo dmesg | tail -50
-
       - name: Setup upterm session
         if: failure()
         uses: owenthereal/action-upterm@v1

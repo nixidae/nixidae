@@ -46,6 +46,8 @@ pkgs.mkShell {
       programs.ruff-check.enable = true;
       programs.ruff-format.enable = true;
       programs.shellcheck.enable = true;
+      programs.typos.enable = true;
+      programs.yamlfmt.enable = true;
     })
   ];
   shellHook = # bash

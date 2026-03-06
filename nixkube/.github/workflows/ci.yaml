@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: MIT
-
 on:
   pull_request:
   push:
@@ -9,133 +8,110 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-
 env:
   REPO_USERNAME: ${{ github.actor }}
   REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
 permissions:
   contents: write
   packages: write
   actions: write
-
 jobs:
   build-amd64:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: build-amd64
-
       - name: Build and push environments
         run: |
           unlink nix-envs || true
           nix build --show-trace --file . push --out-link nix-envs
           ./nix-envs/bin/push
-
       - name: Build and push amd64 lix image
         run: |
           unlink nix-lix || true
           nix build --show-trace --file . lixImage.pushArch.x86_64-linux --out-link nix-lix
           ./nix-lix/bin/push-lix-x86_64-linux
-
   build-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: build-arm64
-
       - name: Build and push environments
         run: |
           unlink nix-envs || true
           nix build --show-trace --file . push --out-link nix-envs
           ./nix-envs/bin/push
-
       - name: Build and push arm64 lix image
         run: |
           unlink nix-lix || true
           nix build --show-trace --file . lixImage.pushArch.aarch64-linux --out-link nix-lix
           ./nix-lix/bin/push-lix-aarch64-linux
-
   build-manifests:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: build-manifests
-
       - name: Create lix multi-arch manifest
         run: |
           unlink nix-manifest || true
           nix build --show-trace --file . lixImage.pushManifest --out-link nix-manifest
           ./nix-manifest/bin/push-lix-manifest
-
       - name: Build and push scratch image
         run: |
           unlink nix-scratches || true
           nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
-
   test-kind-cache:
     needs: build-manifests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: test-kind-cache
-
       - name: Create Kind cluster
         uses: helm/kind-action@main
-
       - name: Clean runner
         run: |
           # Remove cache because permissions can get fucked up preventing kluctl from creating it's cache directory
           sudo rm --recursive --force /home/runner/.cache
-
       - name: Deploy nix-csi
         run: |
           nix build --show-trace --file . kubenixCI1.deploymentScript
           ./result/bin/kubenixDeploy --yes
-
       - name: Wait for nix-csi node daemonset
         run: |
           kubectl rollout status daemonset -l app.kubernetes.io/component=node -n nixkube --timeout=60s
-
       - name: Wait for nix-csi cache pod
         run: |
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=cache -n nixkube --timeout=60s
-
       - name: Wait for test workload
         run: |
           kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nixkube --timeout=120s
-
       - name: Validate success events
         run: |
           echo "=== Checking NixVolumeMount events ==="
@@ -155,12 +131,10 @@ jobs:
             echo "ERROR: Expected at least 3 mount events, found $MOUNT_EVENTS"
             exit 1
           fi
-
       - name: Delete jobs and verify CSI cleanup
         run: |
           kubectl delete job flake-hello expr-hello path-hello invalid-storepath-hello invalid-flake-hello invalid-expr-hello nri-hello-ro nri-hello-rw -n nixkube
           kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,invalid-storepath-hello,invalid-flake-hello,invalid-expr-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=60s
-
       - name: Validate error events
         run: |
           echo "=== Checking error events ==="
@@ -177,102 +151,83 @@ jobs:
               select(.reason == $r and .type == "Warning") |
               "  - \(.involvedObject.name): \(.message)"' || true
           done
-
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1
-
       - name: Cluster state all
         if: failure()
         run: |
           echo "=== Cluster state all ==="
           kubectl get all -A || true
-
       - name: Cluster state configmaps
         if: failure()
         run: |
           echo "=== Cluster configmaps ==="
           kubectl get configmaps -A || true
-
       - name: Cluster state secrets
         if: failure()
         run: |
           kubectl get secrets -A || true
-
       - name: Cache
         if: failure()
         run: |
           kubectl logs -l app.kubernetes.io/component=cache -n nixkube --tail -1 || true
           kubectl describe pod -l app.kubernetes.io/component=cache -n nixkube || true
-
       - name: Node
         if: failure()
         run: |
           kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1 || true
           kubectl describe pod -l app.kubernetes.io/component=node -n nixkube || true
-
       - name: Init
         if: failure()
         run: |
           kubectl logs -l app.kubernetes.io/component=init -n nixkube --tail -1 || true
-
       - name: Events
         if: failure()
         run: |
           kubectl get events -n nixkube --sort-by='.lastTimestamp'
-
       - name: Troubleshoot with upterm
         if: failure()
         uses: owenthereal/action-upterm@main
         with:
           limit-access-to-actor: true
           wait-timeout-minutes: 5
-
   test-kind-nocache:
     needs: build-manifests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: test-kind-nocache
-
       - name: Create Kind cluster
         uses: helm/kind-action@main
-
       - name: Clean runner
         run: |
           sudo rm --recursive --force /home/runner/.cache
-
       - name: Deploy nix-csi
         run: |
           nix build --show-trace --file . kubenixCI2.deploymentScript
           ./result/bin/kubenixDeploy --yes
-
       - name: Wait for nix-csi node daemonset
         run: |
           kubectl rollout status daemonset -l app.kubernetes.io/component=node -n nixkube --timeout=60s
-
       - name: Wait for test workload
         run: |
           kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nixkube --timeout=120s
-
       - name: Delete jobs and verify CSI cleanup
         run: |
           kubectl delete job flake-hello expr-hello path-hello nri-hello-ro nri-hello-rw -n nixkube
           kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=60s
-
       - name: Print node logs
         run: |
           echo "=== Node pod logs ==="
           kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail -1
-
       - name: Debug on failure
         if: failure()
         run: |
@@ -290,14 +245,12 @@ jobs:
 
           echo "=== Events ==="
           kubectl get events -n nixkube --sort-by='.lastTimestamp'
-
       - name: Troubleshoot with upterm
         if: failure()
         uses: owenthereal/action-upterm@main
         with:
           limit-access-to-actor: true
           wait-timeout-minutes: 5
-
   release:
     needs: [build-manifests, test-kind-cache, test-kind-nocache]
     runs-on: ubuntu-latest
@@ -305,19 +258,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@main
-
       - name: Setup Nix environment
         uses: ./.github/actions/setup-nix
         with:
           nixbuild_key: ${{ secrets.NIXBUILD_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache_key: release
-
       - name: Render deployment manifest
         run: |
           nix build --show-trace --file . kubenixApply.manifestYAMLFile
           cp result nix-csi-deployment.yaml
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:

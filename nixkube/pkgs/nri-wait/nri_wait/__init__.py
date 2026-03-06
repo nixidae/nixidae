@@ -144,7 +144,7 @@ def wait_for_completion(
                         )
 
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
-                # Ignore unparseable messages
+                # Ignore unparsable messages
                 pass
 
         except zmq.error.Again:
