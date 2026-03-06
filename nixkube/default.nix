@@ -80,6 +80,9 @@ rec {
   kubenixPush = kubenixInstance {
     module.config = {
       nixkube.push = true;
+      nixkube.systems = {
+        ${builtins.currentSystem} = true;
+      };
     };
   };
   kubenixInstance =
