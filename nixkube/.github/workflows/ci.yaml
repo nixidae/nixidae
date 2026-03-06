@@ -83,7 +83,7 @@ jobs:
 
       - name: Wait for nix-csi node daemonset
         run: |
-          kubectl rollout status daemonset/nix-node -n nixkube --timeout=60s
+          kubectl rollout status daemonset -l app.kubernetes.io/component=node -n nixkube --timeout=60s
 
       - name: Wait for nix-csi cache pod
         run: |
@@ -214,7 +214,7 @@ jobs:
 
       - name: Wait for nix-csi node daemonset
         run: |
-          kubectl rollout status daemonset/nix-node -n nixkube --timeout=60s
+          kubectl rollout status daemonset -l app.kubernetes.io/component=node -n nixkube --timeout=60s
 
       - name: Wait for test workload
         run: |

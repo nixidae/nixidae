@@ -115,7 +115,7 @@ in
                 containers = lib.mkNamedList {
                   init = {
                     # Use normal lix so we don't have to build lruLix locally
-                    image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.stdLix.version}";
+                    image = "ghcr.io/lillecarl/nix-csi/lix:${curPkgs.lruLix.version}-${cfg.version}";
                     imagePullPolicy = "Always";
                     command = [ "init-secrets" ];
                     volumeMounts = lib.mkNamedList {

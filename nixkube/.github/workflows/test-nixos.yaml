@@ -67,7 +67,7 @@ jobs:
 
       - name: Start nixos test (background)
         run: |
-          nix run --file . nixosTestsSSH.containerd.driverInteractive --option sandbox false -- --no-interactive > /tmp/test.log 2>&1 &
+          nix run --file . nixosTests.containerd.driverInteractive --option sandbox false -- --no-interactive > /tmp/test.log 2>&1 &
           echo $! > /tmp/test.pid
           echo "Test running in background (PID: $(cat /tmp/test.pid))"
           sleep 5

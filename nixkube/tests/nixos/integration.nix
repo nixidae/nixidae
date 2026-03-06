@@ -28,8 +28,6 @@
 pkgs.testers.nixosTest {
   name = "nixkube-containerd";
 
-  sshBackdoor.enable = true;
-
   nodes.control =
     { config, pkgs, ... }:
     {
@@ -37,6 +35,15 @@ pkgs.testers.nixosTest {
 
       # Make the manifest YAML available inside the VM
       virtualisation.additionalPaths = [ manifests ];
+
+      # Forward host:2222 → VM:22 for interactive SSH debugging
+      virtualisation.forwardPorts = [
+        {
+          from = "host";
+          host.port = 2222;
+          guest.port = 22;
+        }
+      ];
     };
 
   # Skip lint checks that fail on test environments
@@ -174,9 +181,10 @@ pkgs.testers.nixosTest {
         )
         assert result.strip().strip("'") == "1", f"nri-hello-ro job did not succeed: {result}"
 
-        # Verify DaemonSet is healthy
+        # Verify DaemonSet is healthy (per-arch DaemonSets, check via label)
         result = control.succeed(
-            "kubectl -n nixkube get daemonset nix-node -o jsonpath='{.status.numberReady}'"
+            "kubectl -n nixkube get daemonset -l app.kubernetes.io/component=node"
+            " -o jsonpath='{.items[0].status.numberReady}'"
         )
         assert result.strip().strip("'") == "1", f"DaemonSet not ready: {result}"
 

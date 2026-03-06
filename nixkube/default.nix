@@ -42,7 +42,10 @@ rec {
       {
         nixkube.cache.enable = false;
         nixkube.builders.enable = false;
-        nixkube.systems.aarch64-linux = false;
+        nixkube.systems = {
+          x86_64-linux = true;
+          aarch64-linux = false;
+        };
       }
     ];
   };
@@ -171,20 +174,6 @@ rec {
       manifests = kubenixCI2.manifestYAMLFile;
     };
   };
-
-  # Wrapped test drivers with SSH port forwarding via QEMU_NET_OPTS
-  # Forwards host:2222 → VM:22 through SLiRP so you can SSH into the VM
-  nixosTestsSSH = lib.mapAttrs (
-    _: test:
-    let
-      wrappedDriver = pkgs.writeShellScriptBin "nixos-test-driver" ''
-        export QEMU_NET_OPTS="hostfwd=tcp::2222-:22"
-        sudo chmod 666 /dev/vhost-vsock 2>/dev/null || true
-        exec ${test.driverInteractive}/bin/nixos-test-driver "$@"
-      '';
-    in
-    test // { driverInteractive = wrappedDriver; }
-  ) nixosTests;
 
   lixImage = pkgs.callPackage ./liximage.nix { };
   scratchImage = pkgs.callPackage ./scratchimage.nix { };

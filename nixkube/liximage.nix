@@ -3,6 +3,8 @@
 {
   pkgs,
   lib,
+  nixkubeVersion ?
+    (builtins.fromTOML (builtins.readFile ./pkgs/nixkube/pyproject.toml)).project.version,
 }:
 rec {
   server = "ghcr.io";
@@ -59,7 +61,7 @@ rec {
                 --store /nix-volume \
                 --out-link /nix-volume/nix/var/result \
                 --fallback \
-                "''${!ARCH}"
+                "$NODE_ENV"
           '';
       };
 
@@ -80,7 +82,7 @@ rec {
     in
     pkgs.dockerTools.streamLayeredImage {
       name = "${repo}/lix";
-      tag = "${sysPkgs.lruLix.version}-${sysPkgs.stdenv.hostPlatform.system}";
+      tag = "${sysPkgs.lruLix.version}-${nixkubeVersion}-${sysPkgs.stdenv.hostPlatform.system}";
       architecture = sysPkgs.go.GOARCH;
 
       maxLayers = 125;
@@ -99,7 +101,6 @@ rec {
               init-secrets
             ]
           }"
-          "ARCH=${sysPkgs.go.GOARCH}"
         ];
       };
     }
@@ -127,7 +128,7 @@ rec {
           ${copyToRegistry "x86_64-linux"}
           cachix push nix-csi ${images."aarch64-linux"}
           cachix push nix-csi ${images."x86_64-linux"}
-          regctl index create ${repo}/lix:${pkgs.lruLix.version} \
+          regctl index create ${repo}/lix:${pkgs.lruLix.version}-${nixkubeVersion} \
             --ref ${imageRef "aarch64-linux"} \
             --ref ${imageRef "x86_64-linux"}
           regctl index create ${repo}/lix:latest \
