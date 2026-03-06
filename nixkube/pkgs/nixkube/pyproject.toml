@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nixkube"
-version = "0.4.3"
+version = "0.5.0"
 description = "Kubernetes CSI driver and NRI plugin for mounting Nix stores"
 authors = [{ name = "lillecarl", email = "github@lillecarl.com" }]
 readme = "README.md"
