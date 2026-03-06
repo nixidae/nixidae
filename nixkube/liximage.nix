@@ -49,7 +49,7 @@ rec {
 
             # Resolve the correct store path for this architecture from the JSON NODE_ENV
             STORE_PATH=$(nix eval --store dummy:// --raw --impure --expr \
-              '(builtins.fromJSON (builtins.getEnv "NODE_ENV")).''${builtins.currentSystem}')
+              '(builtins.fromJSON (builtins.getEnv "NODE_ENV")).${system}')
 
             # Check if we can SSH to nix-cache
             EXTRA_SUBSTITUTERS="local?trusted=true"
