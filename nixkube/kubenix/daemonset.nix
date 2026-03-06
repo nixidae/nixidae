@@ -142,6 +142,7 @@ in
                       ssh-config.mountPath = "/etc/ssh";
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
+                      nix-key.mountPath = "/etc/nix-key";
                     };
                     resources = {
                       requests = {
@@ -263,6 +264,10 @@ in
                   };
                   ssh-key.secret = {
                     secretName = "ssh-key";
+                    defaultMode = 256; # 400
+                  };
+                  nix-key.secret = {
+                    secretName = "nix-key";
                     defaultMode = 256; # 400
                   };
                 };

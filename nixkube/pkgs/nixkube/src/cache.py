@@ -104,6 +104,19 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
         paths = {p for p in paths if p.suffix != ".drv"}
 
         if len(paths) > 0:
+            sign_result = await run_captured(
+                "nix",
+                "store",
+                "sign",
+                "--key-file",
+                "/etc/nix-key/nix_ed25519",
+                *paths,
+            )
+            if sign_result.returncode != 0:
+                logger.warning(
+                    f"Failed to sign paths (rc={sign_result.returncode}): {sign_result.stderr}"
+                )
+
             for attempt in range(6):
                 if attempt > 0:
                     exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
