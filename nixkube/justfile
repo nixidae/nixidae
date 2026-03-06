@@ -20,9 +20,9 @@ build-manifests:
 build-local:
     nix build --file . push --no-link
 
-# Build all outputs for both architectures (remote nixbuild builders)
+# Build all outputs for both architectures (remote nixbuild builders, disabled)
 build-nixbuild:
-    nix build --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push --no-link
+    nix build --file . push --no-link
 
 # Alias for nixbuild (legacy)
 build-all: build-nixbuild
@@ -35,9 +35,9 @@ build-dev:
 push-local:
     nix run --file . push
 
-# Push to cachix and registry (remote nixbuild builders)
+# Push to cachix and registry (remote nixbuild builders, disabled)
 push-nixbuild:
-    nix run --builders "eu.nixbuild.net aarch64-linux; eu.nixbuild.net x86_64-linux" --file . push
+    nix run --file . push
 
 # Alias for nixbuild (legacy)
 push: push-nixbuild
