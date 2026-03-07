@@ -4,6 +4,7 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 
+from cachetools import TTLCache
 from kr8s.asyncio.objects import Pod, new_class
 
 from .constants import KUBE_POD_NAME, NAMESPACE
@@ -12,23 +13,29 @@ logger = logging.getLogger("nixkube.events")
 
 # Cached nixkube pod instance for event reporting
 _nixkube_pod: Pod | None = None
+# Cache failure state for 15s so we don't hammer the API on every event report
+_nixkube_pod_fetch_failed: TTLCache[str, bool] = TTLCache(maxsize=1, ttl=15)
 
 
 async def get_nixkube_pod() -> Pod | None:
     """Get cached nixkube pod instance for event reporting.
 
-    Fetches the pod once at first call, then returns cached instance.
-    Returns None if pod cannot be fetched (e.g., API unavailable).
+    On success: caches forever (pod identity is stable for the daemon's lifetime).
+    On failure: retries after 15s to recover from transient API unavailability at startup.
     """
     global _nixkube_pod
     if _nixkube_pod is not None:
         return _nixkube_pod
+
+    if "failed" in _nixkube_pod_fetch_failed:
+        return None
 
     try:
         _nixkube_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
         return _nixkube_pod
     except Exception as e:
         logger.warning(f"Could not fetch nixkube pod for event reporting: {e}")
+        _nixkube_pod_fetch_failed["failed"] = True
         return None
 
 
