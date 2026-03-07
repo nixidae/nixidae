@@ -10,6 +10,7 @@ let
     [
       pytest
       pytest-asyncio
+      hypothesis
     ]
     ++ pkgs.nixkube.dependencies;
   python = pkgs.python3.withPackages pypkgs;

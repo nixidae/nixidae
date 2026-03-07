@@ -22,6 +22,7 @@
   nri-wait, # OCI hook for waiting on NRI builds
   pytest, # Unit tests
   pytest-asyncio, # Async test support
+  hypothesis, # Property-based testing
 }:
 let
   pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -54,6 +55,7 @@ buildPythonApplication {
   nativeCheckInputs = [
     pytest
     pytest-asyncio
+    hypothesis
   ];
   meta.mainProgram = "nixkube";
 }

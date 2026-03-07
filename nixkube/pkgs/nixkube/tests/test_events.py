@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: MIT
 
+from hypothesis import assume, given
+from hypothesis import strategies as st
 from src.events import _format_event_note
 
 
@@ -125,3 +127,33 @@ class TestFormatEventNote:
             assert len(result.encode()) <= self.MAX_SIZE, (
                 f"Result exceeded limit: {len(result.encode())} > {self.MAX_SIZE}"
             )
+
+
+class TestFormatEventNoteProperties:
+    """Property-based tests for _format_event_note using Hypothesis.
+
+    These complement the example-based tests above by generating hundreds of
+    random Unicode strings — including emoji, Arabic, Chinese, null bytes, and
+    strings at exact byte boundaries — to verify invariants the implementation
+    must always uphold.
+    """
+
+    @given(
+        message=st.text(),
+        logs=st.one_of(st.none(), st.text()),
+    )
+    def test_byte_limit_always_holds(self, message, logs):
+        """Output is always at most 1000 bytes for any valid input."""
+        assume(len(message.encode()) <= 1000)
+        result = _format_event_note(message, logs)
+        assert len(result.encode()) <= 1000
+
+    @given(
+        message=st.text(),
+        logs=st.one_of(st.none(), st.text()),
+    )
+    def test_message_always_preserved(self, message, logs):
+        """Message is always present verbatim in the output."""
+        assume(len(message.encode()) <= 1000)
+        result = _format_event_note(message, logs)
+        assert message in result

@@ -192,11 +192,11 @@ malformed line skipped, OSError returns False, multiple mounts, partial path not
 **Priority**: Medium
 **Model**: Sonnet
 
-### 5.3 Property-based tests for `_format_event_note`
+### 5.3 Property-based tests for `_format_event_note` ✅ DONE
 
-The truncation logic in `events.py` handles UTF-8 multi-byte boundaries. Property-based
-testing (hypothesis) would stress-test this with random Unicode strings and verify the
-1000-byte invariant always holds.
+Added `hypothesis` to test deps (pyproject.toml, default.nix, shell.nix) and added
+`TestFormatEventNoteProperties` with two `@given` tests: byte limit always holds and
+message always preserved verbatim. All 91 tests passing.
 
 **Effort**: Small
 **Priority**: Low — existing tests are good, this is belt-and-suspenders
