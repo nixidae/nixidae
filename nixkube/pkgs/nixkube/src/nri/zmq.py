@@ -63,17 +63,14 @@ class ZeroMQServer:
             self.rep_socket = self.context.socket(zmq.REP)
             self.rep_socket.bind(f"ipc://{req_socket_path}")
             logger.info(f"REP socket bound to ipc://{req_socket_path}")
-        except Exception as e:
-            logger.error(f"Failed to create REP socket: {e}")
-            raise
 
-        try:
             pub_socket_path = socket_dir / "wait-pub.sock"
             self.pub_socket = self.context.socket(zmq.PUB)
             self.pub_socket.bind(f"ipc://{pub_socket_path}")
             logger.info(f"PUB socket bound to ipc://{pub_socket_path}")
         except Exception as e:
-            logger.error(f"Failed to create PUB socket: {e}")
+            logger.error(f"Failed to create ZeroMQ sockets: {e}")
+            self.shutdown()
             raise
 
         logger.info("Both ZeroMQ sockets initialized successfully")
