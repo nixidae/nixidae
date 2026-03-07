@@ -136,7 +136,6 @@ async def report_event(
     if isinstance(logs, Exception):
         logs = _extract_build_logs(logs)
 
-    # Extract logs from exception if needed (already done above)
     message = note or ""
 
     # Ensure reason is prefixed with "Nix" if not already

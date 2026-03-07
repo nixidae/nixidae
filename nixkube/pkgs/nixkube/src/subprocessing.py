@@ -21,7 +21,20 @@ class SubprocessResult(NamedTuple):
     elapsed: float
 
 
-async def try_captured(*args, timeout: float | None = None):
+async def try_captured(*args, timeout: float | None = None) -> SubprocessResult:
+    """Run a command, capture output, and raise SubprocessError if it fails.
+
+    Args:
+        *args: Command and arguments
+        timeout: Optional timeout in seconds (raises CommandTimeoutError on timeout)
+
+    Returns:
+        SubprocessResult with stdout, stderr, combined output, and elapsed time
+
+    Raises:
+        SubprocessError: If the command returns non-zero exit code
+        CommandTimeoutError: If timeout is exceeded
+    """
     result = await run_captured(*args, timeout=timeout)
     if result.returncode != 0:
         raise SubprocessError(
@@ -36,7 +49,21 @@ async def try_captured(*args, timeout: float | None = None):
 
 async def try_console(
     *args, log_level: int = logging.DEBUG, timeout: float | None = None
-):
+) -> SubprocessResult:
+    """Run a command with output forwarded to logs, and raise SubprocessError if it fails.
+
+    Args:
+        *args: Command and arguments
+        log_level: Logging level for output (default DEBUG)
+        timeout: Optional timeout in seconds (raises CommandTimeoutError on timeout)
+
+    Returns:
+        SubprocessResult with stdout, stderr, combined output, and elapsed time
+
+    Raises:
+        SubprocessError: If the command returns non-zero exit code
+        CommandTimeoutError: If timeout is exceeded
+    """
     result = await run_console(*args, log_level=log_level, timeout=timeout)
     if result.returncode != 0:
         raise SubprocessError(
@@ -49,15 +76,32 @@ async def try_console(
     return result
 
 
-# Run async subprocess, capture output and returncode
-async def run_captured(*args, timeout: float | None = None):
+async def run_captured(*args, timeout: float | None = None) -> SubprocessResult:
+    """Run a command and capture output without raising on non-zero exit.
+
+    Args:
+        *args: Command and arguments
+        timeout: Optional timeout in seconds (raises CommandTimeoutError on timeout)
+
+    Returns:
+        SubprocessResult with stdout, stderr, combined output, returncode, and elapsed time
+    """
     return await run_console(*args, log_level=logging.NOTSET, timeout=timeout)
 
 
-# Run async subprocess, forward output to console and return returncode
 async def run_console(
     *args, log_level: int = logging.DEBUG, timeout: float | None = None
-):
+) -> SubprocessResult:
+    """Run a command with output forwarded to logs, without raising on non-zero exit.
+
+    Args:
+        *args: Command and arguments
+        log_level: Logging level for output (default DEBUG)
+        timeout: Optional timeout in seconds (raises CommandTimeoutError on timeout)
+
+    Returns:
+        SubprocessResult with stdout, stderr, combined output, returncode, and elapsed time
+    """
     start_time = time.perf_counter()
     log_command(*args, log_level=log_level)
 
@@ -144,7 +188,13 @@ async def _read_stream(
         logger.error(f"Error reading subprocess stream: {e}")
 
 
-def log_command(*args, log_level: int):
+def log_command(*args, log_level: int) -> None:
+    """Log a command with its arguments at the specified log level.
+
+    Args:
+        *args: Command and arguments to log
+        log_level: Logging level (e.g., logging.DEBUG, logging.INFO)
+    """
     logger.log(
         log_level,
         f"Running command: {shlex.join([str(arg) for arg in args])}",

@@ -43,6 +43,13 @@ from .identity import IdentityServicer
 
 
 def csi_error_handler(func):
+    """Decorator for CSI handlers: logs exceptions, emits events, and re-raises as gRPC errors.
+
+    Wraps CSI handler methods to catch exceptions, emit Kubernetes events for debugging,
+    and convert them to appropriate gRPC error codes. CSIError exceptions have pod info
+    and descriptive messages; unexpected exceptions emit generic warning events.
+    """
+
     @wraps(func)
     async def wrapper(self, stream):
         handler_logger = logging.getLogger(f"nixkube.csi.{func.__name__.lower()}")

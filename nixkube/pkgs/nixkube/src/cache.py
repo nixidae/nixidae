@@ -12,7 +12,10 @@ from .subprocessing import run_captured, try_console
 
 logger = logging.getLogger("nixkube.cache")
 
-# Locks that prevent the same set of paths from being uploaded in parallel
+# Prevent concurrent cache uploads of the same store paths.
+# Uses frozenset of paths as key (all paths in a copy operation are serialized together)
+# and Semaphore as value (asyncio.Semaphore allows concurrent access limits).
+# Ensures only one copy_to_cache() call per unique path set can run at a time.
 copy_lock: defaultdict[frozenset[Path], Semaphore] = defaultdict(Semaphore)
 
 
@@ -70,13 +73,24 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
     async with copy_lock[frozenset(package_paths)]:
         paths: set[Path] = {Path(p) for p in package_paths}
 
-        # Get regular closure paths for all packages
-        path_info = await run_captured(
-            "nix",
-            "path-info",
-            "--recursive",
-            *package_paths,
+        # Run path-info calls concurrently (regular + derivation)
+        path_info, path_info_drv = await asyncio.gather(
+            run_captured(
+                "nix",
+                "path-info",
+                "--recursive",
+                *package_paths,
+            ),
+            run_captured(
+                "nix",
+                "path-info",
+                "--recursive",
+                "--derivation",
+                *package_paths,
+            ),
         )
+
+        # Get regular closure paths for all packages
         if path_info.returncode == 0:
             paths.update(Path(p) for p in path_info.stdout.splitlines())
         else:
@@ -86,13 +100,6 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
 
         # Try to get derivation paths recursively. This may fail if we only have
         # store paths without .drv files (e.g., fetched from substituters), which is normal.
-        path_info_drv = await run_captured(
-            "nix",
-            "path-info",
-            "--recursive",
-            "--derivation",
-            *package_paths,
-        )
         if path_info_drv.returncode == 0:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         else:

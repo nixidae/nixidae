@@ -195,6 +195,12 @@ class NriPlugin(nri_grpc.PluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
     def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
+        """Initialize the NRI plugin with ZeroMQ and CRI socket coordination.
+
+        Args:
+            zmq_server: ZeroMQ server for build task coordination and PID/bundle reporting
+            cri_socket: Path to the CRI socket for container introspection
+        """
         logger = logging.getLogger("nixkube.nri.init")
         super().__init__()
         self.zmq_server = zmq_server

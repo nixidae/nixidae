@@ -38,6 +38,22 @@ class SubprocessError(Exception):
         self.command = command
         super().__init__(f"Subprocess failed with return code {returncode}")
 
+    def __str__(self) -> str:
+        """Return detailed error message including command and return code."""
+        cmd_str = " ".join(str(arg) for arg in self.command)
+        # Truncate command if too long to avoid massive log lines
+        if len(cmd_str) > 200:
+            cmd_str = cmd_str[:197] + "..."
+        return f"Subprocess failed (rc={self.returncode}): {cmd_str}"
+
+    def __repr__(self) -> str:
+        """Return repr including command for debugging."""
+        cmd_str = repr(self.command)
+        # Truncate command if too long
+        if len(cmd_str) > 150:
+            cmd_str = cmd_str[:147] + "...]"
+        return f"{type(self).__name__}(rc={self.returncode}, cmd={cmd_str})"
+
 
 class CSIError(GRPCError):
     """Base CSI error with Kubernetes event mapping capability.

@@ -4,16 +4,11 @@ import asyncio
 import json
 import logging
 import logging.config
-import os
 from pathlib import Path
 
+from .constants import ENABLE_COMPAT_DRIVER, NRI_ENABLED
 from .csi.server import csi_serve
 from .nri.server import nri_serve
-
-# Whether to enable compatibility driver (nix.csi.store alongside nixkube)
-ENABLE_COMPAT_DRIVER = os.getenv("ENABLE_COMPAT_DRIVER") == "true"
-# Whether to enable NRI plugin
-NRI_ENABLED = os.getenv("NRI_ENABLED") == "true"
 
 
 def log_effective_config() -> None:
@@ -48,6 +43,12 @@ def log_effective_config() -> None:
 
 
 async def async_main():
+    """Start CSI and NRI servers with configured logging.
+
+    Loads logging configuration from /etc/nix/logging.json (ConfigMap-mounted) and starts
+    the CSI gRPC server(s) and optionally the NRI plugin server based on environment flags
+    (ENABLE_COMPAT_DRIVER, NRI_ENABLED).
+    """
     # Configurable via kubenix option: loggingConfig
     # Mounted to /etc/nix/logging.json via ConfigMap
     logging_config_path = Path("/etc/nix/logging.json")
@@ -99,6 +100,7 @@ async def async_main():
 
 
 def main():
+    """Entry point for the nixkube daemon."""
     asyncio.run(async_main())
 
 

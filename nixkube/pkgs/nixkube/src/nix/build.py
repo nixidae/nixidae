@@ -152,7 +152,7 @@ async def build_nix_expr(
 async def fetch_packages(
     package_paths: set[Path],
     gc_root: Path,
-    extra_args: list[str] = [],
+    extra_args: list[str] | None = None,
 ) -> None:
     """Realize store paths with a single nix build call and pin them via gc root."""
     if not package_paths:
@@ -161,7 +161,7 @@ async def fetch_packages(
     gc_root.mkdir(parents=True, exist_ok=True)
 
     args: list[str | Path] = ["nix", "build"]
-    args.extend(extra_args)
+    args.extend(extra_args or [])
     args.extend(["--out-link", gc_root / "build"])
     args.extend(package_paths)
 

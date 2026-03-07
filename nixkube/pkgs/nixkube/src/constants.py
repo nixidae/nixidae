@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: MIT
 
+"""Configuration constants and environment variable parsing.
+
+This module is the single source of truth for all nixkube configuration. All environment
+variables are read here with their defaults, and exported as module-level constants for
+use throughout the application. Configuration is centralized to prevent scattered env var
+reads and ensure consistent defaults across the codebase.
+"""
+
 import os
 from asyncio import Semaphore
 from importlib import metadata
@@ -40,6 +48,14 @@ BUILDERS_SERVICE = "nixkube-builders"
 
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"
+
+# Whether to enable NRI plugin
+# Set via NRI_ENABLED environment variable (default: true)
+NRI_ENABLED = os.environ.get("NRI_ENABLED", "true") == "true"
+
+# Whether to enable compatibility driver (nix.csi.store alongside nixkube)
+# Set via ENABLE_COMPAT_DRIVER environment variable (default: false)
+ENABLE_COMPAT_DRIVER = os.environ.get("ENABLE_COMPAT_DRIVER", "false") == "true"
 
 # Verify store paths before mounting to detect corruption early
 # Set via VERIFY_STORE_PATHS environment variable

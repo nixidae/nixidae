@@ -21,10 +21,9 @@ The codebase has good comments in complex areas (NRI lifecycle, mount.py) but in
 docstring coverage elsewhere. Inline docs are the primary developer documentation strategy
 since developers (and AI) discover code through their editor.
 
-### 1.1 Missing docstrings on public functions
+### 1.1 Missing docstrings on public functions ✅ DONE
 
-Several public functions lack docstrings. Add concise docstrings explaining *what* and *why*,
-not restating obvious parameter names.
+Added docstrings to all public functions: cli.py (main, async_main), subprocessing.py (log_command, run_console, run_captured, try_captured, try_console), store.py (extract_store_name), nri/server.py (NriPlugin.__init__), csi/server.py (csi_error_handler), constants.py (module docstring).
 
 | File | Function | Notes |
 |------|----------|-------|
@@ -55,10 +54,9 @@ Most code has good type hints but a few spots are lax:
 **Priority**: Medium — helps pyright catch more issues
 **Model**: Sonnet
 
-### 1.3 Add module-level docstrings to all `__init__.py` files
+### 1.3 Add module-level docstrings to all `__init__.py` files ✅ DONE
 
-Currently the `__init__.py` files have re-exports but no module docstrings. A one-line
-docstring per package helps editors show package purpose on hover.
+Added "nixkube: Kubernetes plugin for injecting Nix stores into pods." to src/__init__.py. Other packages (nix, csi, nri) already had docstrings.
 
 **Effort**: Tiny
 **Priority**: Low
@@ -81,13 +79,9 @@ while still caching successful results indefinitely.
 **Priority**: High — silent event loss in production
 **Model**: Sonnet
 
-### 2.2 Structured error context in SubprocessError
+### 2.2 Structured error context in SubprocessError ✅ DONE
 
-`SubprocessError` stores command as `list[str]` but the string representation only shows
-the return code. When these bubble up through CSIError/BuildError, the original command
-is lost from logs.
-
-**Fix**: Include the command in `__str__`/`__repr__` (truncated to reasonable length).
+Added __str__() and __repr__() methods to SubprocessError to include command and return code (truncated to 200/150 chars respectively).
 
 **Effort**: Tiny
 **Priority**: Medium — improves debuggability
@@ -105,10 +99,9 @@ except block.
 **Priority**: Medium — resource leak on startup failure
 **Model**: Sonnet
 
-### 2.4 `events.py` duplicate comment on line 139
+### 2.4 `events.py` duplicate comment on line 139 ✅ DONE
 
-Line 139 has `# Extract logs from exception if needed (already done above)` — this is
-a leftover from a refactor. Remove it.
+Removed duplicate comment leftover from refactor.
 
 **Effort**: Tiny
 **Priority**: Low — cosmetic
@@ -132,22 +125,17 @@ construct their specific args.
 **Priority**: Medium — reduces ~40 lines of duplicated error handling
 **Model**: Sonnet
 
-### 3.2 Remove mutable default argument in `fetch_packages`
+### 3.2 Remove mutable default argument in `fetch_packages` ✅ DONE
 
-`fetch_packages(extra_args: list[str] = [])` uses a mutable default. While not currently
-a bug (the list is only read, never mutated), it's a Python anti-pattern that linters flag.
-
-**Fix**: Change to `extra_args: list[str] | None = None` with `extra_args = extra_args or []`.
+Changed to `extra_args: list[str] | None = None` with `extra_args or []` pattern.
 
 **Effort**: Tiny
 **Priority**: Low — correctness/lint
 **Model**: Haiku
 
-### 3.3 Consolidate `ENABLE_COMPAT_DRIVER` and `NRI_ENABLED` into constants.py
+### 3.3 Consolidate `ENABLE_COMPAT_DRIVER` and `NRI_ENABLED` into constants.py ✅ DONE
 
-These two env var reads live in `cli.py` rather than `constants.py` where all other
-environment configuration lives. Moving them centralizes the "single source of truth"
-for configuration.
+Moved both from cli.py to constants.py. Updated NRI_ENABLED default from false to true per user preference.
 
 **Effort**: Tiny
 **Priority**: Low — consistency
@@ -373,10 +361,9 @@ Similarly, formatting could regress. `just check-fmt` should be a CI check.
 **Priority**: High — prevents formatting regressions
 **Model**: Sonnet
 
-### 8.3 Pin GitHub Actions versions
+### 8.3 Pin GitHub Actions versions ⏭️ DEFERRED
 
-The CI workflows should use pinned action versions (SHA or tag) to prevent
-supply chain issues from compromised actions.
+Skipped per user decision: keeping main branch references for convenience; planning to minimize GHA usage in favor of NixOS tests.
 
 **Effort**: Small
 **Priority**: Medium — security hygiene
@@ -430,10 +417,9 @@ thread pool for the I/O-bound hardlink operations.
 **Priority**: Low — needs measurement to justify
 **Model**: Sonnet
 
-### 10.2 Batch nix path-info calls in copy_to_cache
+### 10.2 Batch nix path-info calls in copy_to_cache ✅ DONE
 
-`copy_to_cache()` makes two sequential `nix path-info` calls (regular + derivation).
-These could run concurrently with `asyncio.gather()`.
+Use asyncio.gather() to run regular and derivation path-info calls concurrently.
 
 **Effort**: Tiny
 **Priority**: Low — small optimization

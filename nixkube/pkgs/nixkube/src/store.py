@@ -30,4 +30,15 @@ def extract_store_paths(value: Any) -> set[Path]:
 
 
 def extract_store_name(path: Path | str) -> str:
+    """Extract the store name from a Nix store path.
+
+    Strips the /nix/store/ prefix, returning just the hash-name portion.
+    For example: /nix/store/abc123-hello → abc123-hello
+
+    Args:
+        path: A Nix store path (absolute or relative)
+
+    Returns:
+        The store name without the /nix/store/ prefix
+    """
     return str(path).removeprefix("/nix/store/")
