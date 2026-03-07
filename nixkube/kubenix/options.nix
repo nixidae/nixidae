@@ -32,10 +32,12 @@ in
   options.nixkube = {
     enable = lib.mkEnableOption "nixkube";
     undeploy = lib.mkOption {
+      description = "When true, removes all nixkube Kubernetes resources on the next apply.";
       type = lib.types.bool;
       default = false;
     };
     deploySecrets = lib.mkOption {
+      description = "Deploy SSH keypair Secrets to Kubernetes. Disable if managing secrets externally (e.g., with Vault or Sealed Secrets).";
       type = lib.types.bool;
       default = true;
     };
@@ -45,16 +47,30 @@ in
       default = "nixkube";
     };
     authorizedKeys = lib.mkOption {
-      description = "SSH public keys that can connect to cache and builders";
+      description = "SSH public keys that can connect to cache and builders. Used by nodes to push built store paths to the cache.";
       type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
       apply = lib.map (v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = [ ];
+      example = lib.literalExpression ''
+        [
+          "ssh-ed25519 AAAA... user@host"
+          ./keys/deploy.pub
+        ]
+      '';
     };
     knownHosts = lib.mkOption {
-      description = "SSH host keys to accept when connecting";
+      description = ''
+        SSH host keys to accept when connecting to cache and builders.
+        Keys are written to known_hosts on nodes so they can connect without interactive verification.
+      '';
       type = lib.types.attrsOf (lib.types.either lib.types.str lib.types.path);
       apply = lib.mapAttrs (n: v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = { };
+      example = lib.literalExpression ''
+        {
+          "nix-cache" = "ssh-ed25519 AAAA...";
+        }
+      '';
     };
     metadata = lib.mkOption {
       description = "Metadata (labels, annotations) applied to nixkube resources";
@@ -62,6 +78,7 @@ in
       default = { };
     };
     version = lib.mkOption {
+      internal = true;
       type = lib.types.str;
       default =
         let
@@ -105,14 +122,28 @@ in
       '';
       type = lib.types.attrsOf (curPkgs.formats.json { }).type;
       default = { };
+      example = lib.literalExpression ''
+        {
+          loggers.nixkube.level = "DEBUG";
+        }
+      '';
     };
     systems = lib.mkOption {
-      description = "Which systems to build nixkube environments for";
+      description = ''
+        Which CPU architectures to build nixkube environments for.
+        Disable aarch64-linux to skip cross-compilation if your cluster is x86_64-only.
+      '';
       type = lib.types.attrsOf lib.types.bool;
       default = {
         "x86_64-linux" = true;
         "aarch64-linux" = true;
       };
+      example = lib.literalExpression ''
+        {
+          "x86_64-linux" = true;
+          "aarch64-linux" = false;
+        }
+      '';
     };
 
     pkgs = lib.mkOption {

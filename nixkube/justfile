@@ -58,6 +58,13 @@ lint:
 check-fmt:
     direnv exec . treefmt --fail-on-change
 
+# Generate doc/options.md from kubenix module options
+gendoc:
+    nix run --file . genModDoc
+
+# Run all checks and regenerate docs (run before committing)
+precommit: fmt lint test gendoc
+
 # Deploy to Hetzkube
 hetzkube:
     direnv exec ~/Code/hetzkube nix run --show-trace --file ~/Code/hetzkube kubenix.deploymentScript --argstr stage full -- --write-command-result=false --prune --yes --force-replace-on-error

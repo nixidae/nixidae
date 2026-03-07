@@ -222,15 +222,17 @@ The README has deployment commands but no guided walkthrough. A quickstart shoul
 **Priority**: High — biggest barrier to adoption
 **Model**: Opus
 
-### 6.2 Configuration reference
+### 6.2 Configuration reference ✅ DONE
 
-The kubenix options are auto-generated in `doc/options.md` but lack:
-- Example values for each option
-- Explanation of when you'd change defaults
-- Interaction between options (e.g., `cache.enable` + `builders.enable`)
-
-**Fix**: Enhance option descriptions in `kubenix/options.nix` with `example` attributes
-and richer `description` text. The auto-generated docs will inherit these improvements.
+Enhanced option descriptions across all four kubenix option files:
+- `options.nix`: descriptions for `undeploy`, `deploySecrets`; `version` marked `internal`;
+  examples for `authorizedKeys`, `knownHosts`, `loggingConfig`, `systems`
+- `daemonset.nix`: fixed copy-paste bug (`node.enable` said "cache")
+- `cache.nix`: improved `cache.enable`, `storageClassName`, `loadBalancerPort` descriptions
+- `builder.nix`: added descriptions + examples for `deployments`/`daemonsets`; rewrote
+  `privilegedSandboxedBuilds`; improved `loadBalancerPort`
+- `doc/options.md`: regenerated via new `just gendoc` recipe
+- `justfile`: added `just gendoc` and `just precommit` (fmt+lint+test+gendoc)
 
 **Effort**: Medium
 **Priority**: High — options.nix is 7K+ lines, but most are already documented

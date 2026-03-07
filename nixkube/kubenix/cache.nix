@@ -13,7 +13,7 @@ let
 in
 {
   options.nixkube.cache = {
-    enable = (lib.mkEnableOption "cache") // {
+    enable = (lib.mkEnableOption "cache StatefulSet (shared Nix binary cache)") // {
       default = true;
     };
     nixConfig = lib.mkOption {
@@ -22,12 +22,16 @@ in
     };
 
     storageClassName = lib.mkOption {
-      description = "Which SC to use, defaults to null which will use default SC";
+      description = "StorageClass for the cache PVC. null uses the cluster's default StorageClass.";
       type = lib.types.nullOr lib.types.str;
       default = null;
+      example = "fast-ssd";
     };
     loadBalancerPort = lib.mkOption {
-      description = "Port to run public SSH on for Nix cache";
+      description = ''
+        External SSH port for the cache LoadBalancer Service.
+        Set to null to disable the LoadBalancer (cluster-internal access only).
+      '';
       type = lib.types.nullOr lib.types.int;
       default = 2222;
     };

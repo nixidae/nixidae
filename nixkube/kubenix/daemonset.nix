@@ -13,7 +13,7 @@ let
 in
 {
   options.nixkube.node = {
-    enable = (lib.mkEnableOption "cache") // {
+    enable = (lib.mkEnableOption "node DaemonSet (CSI driver and NRI plugin)") // {
       default = true;
     };
     compat = (lib.mkEnableOption "nix.csi.store CSI driver (for backwards compatibility)") // {

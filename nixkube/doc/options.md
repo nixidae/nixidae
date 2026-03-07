@@ -32,7 +32,7 @@ true
 
 ## nixkube\.authorizedKeys
 
-SSH public keys that can connect to cache and builders
+SSH public keys that can connect to cache and builders\. Used by nodes to push built store paths to the cache\.
 
 
 
@@ -45,6 +45,18 @@ list of (string or absolute path)
 
 ```nix
 [ ]
+```
+
+
+
+*Example:*
+
+```nix
+[
+  "ssh-ed25519 AAAA... user@host"
+  ./keys/deploy.pub
+]
+
 ```
 
 *Declared by:*
@@ -88,7 +100,8 @@ true
 
 
 
-This option has no description\.
+DaemonSet-based builders: runs one builder pod per matching node\.
+Use when you want every node of a given arch to participate in builds\.
 
 
 
@@ -101,6 +114,17 @@ attribute set of (submodule)
 
 ```nix
 { }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  arm64 = { arch = "arm64"; };
+}
+
 ```
 
 *Declared by:*
@@ -249,7 +273,8 @@ JSON value
 
 
 
-This option has no description\.
+Deployment-based builders: fixed replica count, suitable for dedicated builder nodes
+selected by nodeSelector labels\. Each entry becomes a separate Deployment\.
 
 
 
@@ -262,6 +287,17 @@ attribute set of (submodule)
 
 ```nix
 { }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  amd64 = { arch = "amd64"; replicas = 2; };
+}
+
 ```
 
 *Declared by:*
@@ -410,7 +446,8 @@ JSON value
 
 
 
-Port to run public SSH on for builder jumpbox
+External SSH port for the builders LoadBalancer Service\.
+Set to null to disable the LoadBalancer (cluster-internal access only)\.
 
 
 
@@ -498,7 +535,9 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 
-To set up the sandbox Nix must run with privileges, without the sandbox Nix builds can run unprivileged
+Run builder pods with elevated privileges to enable the Nix sandbox\.
+The sandbox isolates builds from the host network and filesystem, improving reproducibility\.
+Disable only if your cluster policy prohibits privileged pods and you accept unsandboxed builds\.
 
 
 
@@ -522,7 +561,7 @@ true
 
 
 
-Whether to enable cache\.
+Whether to enable cache StatefulSet (shared Nix binary cache)\.
 
 
 
@@ -554,7 +593,8 @@ true
 
 
 
-Port to run public SSH on for Nix cache
+External SSH port for the cache LoadBalancer Service\.
+Set to null to disable the LoadBalancer (cluster-internal access only)\.
 
 
 
@@ -642,7 +682,7 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 
 
-Which SC to use, defaults to null which will use default SC
+StorageClass for the cache PVC\. null uses the cluster’s default StorageClass\.
 
 
 
@@ -657,6 +697,14 @@ null or string
 null
 ```
 
+
+
+*Example:*
+
+```nix
+"fast-ssd"
+```
+
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/cache\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/cache.nix)
 
@@ -666,7 +714,7 @@ null
 
 
 
-This option has no description\.
+Deploy SSH keypair Secrets to Kubernetes\. Disable if managing secrets externally (e\.g\., with Vault or Sealed Secrets)\.
 
 
 
@@ -738,7 +786,8 @@ string
 
 
 
-SSH host keys to accept when connecting
+SSH host keys to accept when connecting to cache and builders\.
+Keys are written to known_hosts on nodes so they can connect without interactive verification\.
 
 
 
@@ -751,6 +800,17 @@ attribute set of (string or absolute path)
 
 ```nix
 { }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  "nix-cache" = "ssh-ed25519 AAAA...";
+}
+
 ```
 
 *Declared by:*
@@ -777,6 +837,17 @@ attribute set of (JSON value)
 
 ```nix
 { }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  loggers.nixkube.level = "DEBUG";
+}
+
 ```
 
 *Declared by:*
@@ -836,7 +907,7 @@ string
 
 
 
-Whether to enable cache\.
+Whether to enable node DaemonSet (CSI driver and NRI plugin)\.
 
 
 
@@ -864,7 +935,7 @@ true
 
 
 
-## nixkube\.node\.csi\.compat\.enable
+## nixkube\.node\.compat
 
 
 
@@ -1010,11 +1081,51 @@ positive integer, meaning >0
 
 
 
+## nixkube\.systems
+
+
+
+Which CPU architectures to build nixkube environments for\.
+Disable aarch64-linux to skip cross-compilation if your cluster is x86_64-only\.
+
+
+
+*Type:*
+attribute set of boolean
+
+
+
+*Default:*
+
+```nix
+{
+  aarch64-linux = true;
+  x86_64-linux = true;
+}
+```
+
+
+
+*Example:*
+
+```nix
+{
+  "x86_64-linux" = true;
+  "aarch64-linux" = false;
+}
+
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
 ## nixkube\.undeploy
 
 
 
-This option has no description\.
+When true, removes all nixkube Kubernetes resources on the next apply\.
 
 
 
@@ -1027,30 +1138,6 @@ boolean
 
 ```nix
 false
-```
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
-
-
-
-## nixkube\.version
-
-
-
-This option has no description\.
-
-
-
-*Type:*
-string
-
-
-
-*Default:*
-
-```nix
-"0.4.3"
 ```
 
 *Declared by:*

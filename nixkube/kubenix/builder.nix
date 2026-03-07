@@ -59,12 +59,19 @@ in
         default = true;
       };
       loadBalancerPort = lib.mkOption {
-        description = "Port to run public SSH on for builder jumpbox";
+        description = ''
+          External SSH port for the builders LoadBalancer Service.
+          Set to null to disable the LoadBalancer (cluster-internal access only).
+        '';
         type = lib.types.nullOr lib.types.ints.positive;
         default = 2223;
       };
       privilegedSandboxedBuilds = lib.mkOption {
-        description = "To set up the sandbox Nix must run with privileges, without the sandbox Nix builds can run unprivileged";
+        description = ''
+          Run builder pods with elevated privileges to enable the Nix sandbox.
+          The sandbox isolates builds from the host network and filesystem, improving reproducibility.
+          Disable only if your cluster policy prohibits privileged pods and you accept unsandboxed builds.
+        '';
         type = lib.types.bool;
         default = true;
       };
@@ -73,12 +80,30 @@ in
         type = (import ./nixOptions.nix) curPkgs;
       };
       deployments = lib.mkOption {
+        description = ''
+          Deployment-based builders: fixed replica count, suitable for dedicated builder nodes
+          selected by nodeSelector labels. Each entry becomes a separate Deployment.
+        '';
         type = lib.types.attrsOf deployType;
         default = { };
+        example = lib.literalExpression ''
+          {
+            amd64 = { arch = "amd64"; replicas = 2; };
+          }
+        '';
       };
       daemonsets = lib.mkOption {
+        description = ''
+          DaemonSet-based builders: runs one builder pod per matching node.
+          Use when you want every node of a given arch to participate in builds.
+        '';
         type = lib.types.attrsOf deployType;
         default = { };
+        example = lib.literalExpression ''
+          {
+            arm64 = { arch = "arm64"; };
+          }
+        '';
       };
     };
   config =
