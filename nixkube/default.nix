@@ -85,6 +85,15 @@ rec {
       };
     };
   };
+  kubenixPushBoth = kubenixInstance {
+    module.config = {
+      nixkube.push = true;
+      nixkube.systems = {
+        x86_64-linux = true;
+        aarch64-linux = true;
+      };
+    };
+  };
   kubenixInstance =
     {
       module ? { },
@@ -119,6 +128,17 @@ rec {
         export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
         # ${lib.concatStrings (lib.attrValues inputs)}
         nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.deploymentScript}) | grep -v '\.drv$' | cachix push nix-csi
+      '';
+
+  # Push environments for both x86_64-linux and aarch64-linux to cachix.
+  # Requires builders that support both architectures (e.g. nixbuild.net or ssh builders).
+  push-env =
+    pkgs.writeScriptBin "push-env" # bash
+      ''
+        #! ${pkgs.runtimeShell}
+        export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
+        # ${lib.concatStrings (lib.attrValues inputs)}
+        nix-store -qR --include-outputs $(nix-store -qd ${kubenixPushBoth.deploymentScript}) | grep -v '\.drv$' | cachix push nix-csi
       '';
 
   uploadScratch =

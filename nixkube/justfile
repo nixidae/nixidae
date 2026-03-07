@@ -42,6 +42,10 @@ push-nixbuild:
 # Alias for nixbuild (legacy)
 push: push-nixbuild
 
+# Push environments for both x86_64-linux and aarch64-linux to cachix (requires builders for both arches)
+push-env:
+    nix run --file . push-env
+
 # Deploy to Kubernetes cluster
 deploy:
     nix run --file . kubenixEval.deploymentScript -- --yes --prune
