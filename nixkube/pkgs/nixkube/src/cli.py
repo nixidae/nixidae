@@ -6,12 +6,25 @@ import logging
 import logging.config
 from pathlib import Path
 
-from .constants import ENABLE_COMPAT_DRIVER, NRI_ENABLED
+from .constants import (
+    BUILDERS_ENABLED,
+    CACHE_ENABLED,
+    ENABLE_COMPAT_DRIVER,
+    HOST_MOUNT_PATH,
+    KUBE_NODE_NAME,
+    NAMESPACE,
+    NIX_BUILD_TIMEOUT,
+    NRI_ENABLED,
+    NRI_PLUGIN_IDX,
+    NRI_PLUGIN_NAME,
+    RSYNC_CONCURRENCY_COUNT,
+    VERIFY_STORE_PATHS,
+)
 from .csi.server import csi_serve
 from .nri.server import nri_serve
 
 
-def log_effective_config() -> None:
+def log_effective_log_config() -> None:
     """Print the effective logging configuration for debugging.
 
     Uses print() instead of logger.info() to ensure output is always visible
@@ -40,6 +53,27 @@ def log_effective_config() -> None:
             lines.append(handler_info)
 
     print("\n".join(lines))
+
+
+def log_effective_app_config() -> None:
+    """Print the effective application configuration for debugging.
+
+    Uses print() instead of logger.info() to ensure output is always visible
+    regardless of configured log levels.
+    """
+    print(
+        "Effective application configuration:\n"
+        f"  {NIX_BUILD_TIMEOUT=}\n"
+        f"  {RSYNC_CONCURRENCY_COUNT=}\n"
+        f"  {CACHE_ENABLED=}\n"
+        f"  {BUILDERS_ENABLED=}\n"
+        f"  {VERIFY_STORE_PATHS=}\n"
+        f"  {HOST_MOUNT_PATH=}\n"
+        f"  {NRI_PLUGIN_NAME=}\n"
+        f"  {NRI_PLUGIN_IDX=}\n"
+        f"  {NAMESPACE=}\n"
+        f"  {KUBE_NODE_NAME=}"
+    )
 
 
 async def async_main():
@@ -72,7 +106,8 @@ async def async_main():
         logger.setLevel(logging.INFO)
         logger.info("Using fallback logging config (nixkube: INFO, root: WARN)")
 
-    log_effective_config()
+    log_effective_log_config()
+    log_effective_app_config()
 
     logger.info(f"NRI plugin: {'enabled' if NRI_ENABLED else 'disabled'}")
     logger.info(

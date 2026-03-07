@@ -33,7 +33,8 @@ CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
 # Configurable via kubenix option: rsyncConcurrency (default: 1)
 # Set via RSYNC_CONCURRENCY environment variable
-RSYNC_CONCURRENCY = Semaphore(max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1))
+RSYNC_CONCURRENCY_COUNT: int = max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1)
+RSYNC_CONCURRENCY: Semaphore = Semaphore(RSYNC_CONCURRENCY_COUNT)
 
 # Configurable via kubenix option: nodeBuildTimeout (default: 300)
 # Set via NIX_BUILD_TIMEOUT environment variable
