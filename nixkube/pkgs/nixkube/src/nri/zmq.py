@@ -32,7 +32,9 @@ class ZeroMQServer:
         self.context: zmq.asyncio.Context | None = None
         self.rep_socket: zmq.asyncio.Socket | None = None
         self.pub_socket: zmq.asyncio.Socket | None = None
-        self.build_status: TTLCache = TTLCache(maxsize=10000, ttl=3600)
+        self.build_status: TTLCache[str, dict[str, str]] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
         self.pending_builds: set[str] = set()
         # Container metadata from nri-wait, TTL-evicted to avoid unbounded growth
         self._container_info: TTLCache[str, ContainerInfo] = TTLCache(

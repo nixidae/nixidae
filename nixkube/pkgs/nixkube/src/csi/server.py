@@ -7,6 +7,7 @@ from asyncio import Semaphore
 from collections import defaultdict
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
@@ -42,7 +43,9 @@ from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .identity import IdentityServicer
 
 
-def csi_error_handler(func):
+def csi_error_handler(
+    func: Any,
+) -> Any:  # decorator wraps arbitrary async handler methods
     """Decorator for CSI handlers: logs exceptions, emits events, and re-raises as gRPC errors.
 
     Wraps CSI handler methods to catch exceptions, emit Kubernetes events for debugging,

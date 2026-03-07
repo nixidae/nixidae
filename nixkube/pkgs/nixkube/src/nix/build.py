@@ -19,7 +19,7 @@ logger = logging.getLogger("nixkube.nix")
 # Cache build args for 30s to avoid redundant k8s API calls and cache pings
 # during burst volume creation. Builder pods and cache connectivity are stable
 # during a pod's lifetime.
-_build_args_cache: TTLCache = TTLCache(maxsize=1, ttl=30)
+_build_args_cache: TTLCache[str, list[str]] = TTLCache(maxsize=1, ttl=30)
 
 
 async def get_build_args() -> list[str]:

@@ -4,6 +4,7 @@ import logging
 import shutil
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from grpclib_nri import NriServer
 from kr8s.asyncio.objects import Pod
@@ -169,7 +170,9 @@ _SUBSCRIBED_EVENTS = sum(
 # ============================================================================
 
 
-def nri_error_handler(func):
+def nri_error_handler(
+    func: Any,
+) -> Any:  # decorator wraps arbitrary async handler methods
     """Decorator for NRI handlers: logs exceptions and reports events."""
 
     @wraps(func)
