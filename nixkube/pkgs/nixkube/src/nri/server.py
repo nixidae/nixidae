@@ -6,9 +6,10 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from grpclib_nri import NriPlugin as NriPluginBase
 from grpclib_nri import NriServer
 from kr8s.asyncio.objects import Pod
-from nri import nri_grpc, nri_pb2
+from nri import nri_pb2
 
 from ..cache import schedule_copy_to_cache
 from ..constants import (
@@ -30,26 +31,10 @@ from .cleanup import garbage_collect_stale_volumes
 from .mount import kernel_supports_ro, kernel_supports_rw, mount_in_container
 from .zmq import ZeroMQServer
 
-# Subscribe only to events we actually need for store injection and cleanup.
-#
-# NRI Event Subscription Bitmask Encoding:
-# Event enum values use 1-based indexing for bit positions: bit = (event_value - 1)
-# - Event 0 (UNKNOWN) → bit -1 (invalid, not used)
-# - Event 1 (RUN_POD_SANDBOX) → bit 0
-# - Event 4 (CREATE_CONTAINER) → bit 3: (1 << 3) = 8
-# - Event 11 (REMOVE_CONTAINER) → bit 10: (1 << 10) = 1024
-# - Event 15 (LAST, sentinel) → bit 14
-#
-# Previous Bug: Used (1 << (LAST - 1)) - 1 which set bits 0-13 (missing bit 14)
-# The fix: Calculate each event's bit position as (event_value - 1) before shifting
-#
-_SUBSCRIBED_EVENTS = sum(
-    1 << (event - 1)
-    for event in [
-        nri_pb2.Event.CREATE_CONTAINER,  # Inject stores into containers
-        nri_pb2.Event.REMOVE_CONTAINER,  # Cleanup hardlink farm volumes
-    ]
-)
+_SUBSCRIBED_EVENTS = [
+    nri_pb2.Event.CREATE_CONTAINER,  # Inject stores into containers
+    nri_pb2.Event.REMOVE_CONTAINER,  # Cleanup hardlink farm volumes
+]
 
 
 # ============================================================================
@@ -194,7 +179,7 @@ def nri_error_handler(
     return wrapper
 
 
-class NriPlugin(nri_grpc.PluginBase):
+class NriPlugin(NriPluginBase):
     """NRI plugin with ZeroMQ build coordination."""
 
     def __init__(self, zmq_server: ZeroMQServer, cri_socket: Path):
@@ -205,36 +190,12 @@ class NriPlugin(nri_grpc.PluginBase):
             cri_socket: Path to the CRI socket for container introspection
         """
         logger = logging.getLogger("nixkube.nri.init")
-        super().__init__()
+        super().__init__(_SUBSCRIBED_EVENTS)
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
         logger.debug(f"nri-wait binary resolved to: {self.nri_wait_bin}")
-
-    @nri_error_handler
-    async def Configure(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.configure")
-        req: nri_pb2.ConfigureRequest | None = await stream.recv_message()
-        runtime_name = req.runtime_name if req else None
-        runtime_version = req.runtime_version if req else None
-        logger.info(f"runtime={runtime_name!r} version={runtime_version!r}")
-        await stream.send_message(nri_pb2.ConfigureResponse(events=_SUBSCRIBED_EVENTS))
-
-    @nri_error_handler
-    async def Synchronize(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.synchronize")
-        req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
-        assert req is not None
-        logger.info(f"pods={len(req.pods)} containers={len(req.containers)}")
-        await stream.send_message(nri_pb2.SynchronizeResponse())
-
-    @nri_error_handler
-    async def Shutdown(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.shutdown")
-        await stream.recv_message()
-        logger.info("Shutdown")
-        await stream.send_message(nri_pb2.Empty())
 
     @nri_error_handler
     async def CreateContainer(self, stream) -> None:
@@ -403,31 +364,6 @@ class NriPlugin(nri_grpc.PluginBase):
         await stream.send_message(resp)
 
     @nri_error_handler
-    async def UpdateContainer(self, stream) -> None:
-        # Not used: Container resource updates don't affect store injection.
-        # Kept as skeleton to satisfy NRI PluginBase type checker.
-        req: nri_pb2.UpdateContainerRequest | None = await stream.recv_message()
-        assert req is not None
-        await stream.send_message(nri_pb2.UpdateContainerResponse())
-
-    @nri_error_handler
-    async def StopContainer(self, stream) -> None:
-        # Not used: Container stop events are handled via StateChange REMOVE_CONTAINER.
-        # Cleanup of hardlink farm happens post-removal when namespace is destroyed.
-        # Kept as skeleton to satisfy NRI PluginBase type checker.
-        req: nri_pb2.StopContainerRequest | None = await stream.recv_message()
-        assert req is not None
-        await stream.send_message(nri_pb2.StopContainerResponse())
-
-    @nri_error_handler
-    async def UpdatePodSandbox(self, stream) -> None:
-        # Not used: Pod overhead/resource updates don't affect store injection.
-        # Kept as skeleton to satisfy NRI PluginBase type checker.
-        req: nri_pb2.UpdatePodSandboxRequest | None = await stream.recv_message()
-        assert req is not None
-        await stream.send_message(nri_pb2.UpdatePodSandboxResponse())
-
-    @nri_error_handler
     async def StateChange(self, stream) -> None:
         logger = logging.getLogger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
@@ -454,17 +390,6 @@ class NriPlugin(nri_grpc.PluginBase):
             await garbage_collect_stale_volumes(self.cri_socket)
 
         await stream.send_message(nri_pb2.Empty())
-
-    @nri_error_handler
-    async def ValidateContainerAdjustment(self, stream) -> None:
-        # Not used: We don't validate adjustments; we just make them during CreateContainer.
-        # If needed in future for cross-plugin validation, implement here.
-        # Kept as skeleton to satisfy NRI PluginBase type checker.
-        req: (
-            nri_pb2.ValidateContainerAdjustmentRequest | None
-        ) = await stream.recv_message()
-        assert req is not None
-        await stream.send_message(nri_pb2.ValidateContainerAdjustmentResponse())
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""

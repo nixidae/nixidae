@@ -173,21 +173,20 @@ ZeroMQ socket state.
 
 ## 5. Testing
 
-### 5.1 Add unit tests for `cache.py` retry logic
+### 5.1 Add unit tests for `cache.py` retry logic ✅ DONE
 
-The exponential backoff retry loop in `copy_to_cache()` is complex (6 attempts, capped
-at 60s) but has no unit tests. The retry logic is pure enough to test with a mock
-subprocess.
+Added `tests/test_cache.py` with 6 tests covering: empty paths early return, first-attempt
+success (no sleep), all-6-attempts failure (5 sleeps), mid-retry success, backoff sequence
+(5, 10, 20, 40, 60s), and sign failure not aborting copy.
 
 **Effort**: Small
 **Priority**: Medium
 **Model**: Sonnet
 
-### 5.2 Add unit tests for `volume.py:is_mount()`
+### 5.2 Add unit tests for `volume.py:is_mount()` ✅ DONE
 
-`is_mount()` parses `/proc/self/mounts` — this is easily testable with a temp file
-containing sample mount entries. Test cases: path present, path absent, malformed
-entries, OSError handling.
+Added `tests/test_volume.py` with 7 tests covering: path present, path absent, empty file,
+malformed line skipped, OSError returns False, multiple mounts, partial path not matched.
 
 **Effort**: Small — already accepts `mounts_file` parameter for testing
 **Priority**: Medium
@@ -278,15 +277,11 @@ Trade-offs:
 
 ## 7. Architecture & Design
 
-### 7.1 Extract NRI wire protocol from server.py
+### 7.1 Extract NRI wire protocol from server.py ✅ DONE
 
-From improvements v1 item 10.2 (NOT STARTED). `nri/server.py` (647 lines) mixes
-NRI protocol handling (registration, event subscription) with business logic (build
-task spawning, annotation parsing).
-
-**Fix**: Extract `_register_plugin()` and `_serve_plugin_channel()` equivalents to
-`nri/protocol.py`. The `NriPlugin` class focuses on business logic; protocol wire
-details are hidden.
+Added `NriPlugin` base class to `grpclib_nri/plugin.py` handling Configure/Synchronize/Shutdown
+and all stub handlers. `nixkube/nri/server.py` now only implements `CreateContainer` and
+`StateChange`, mirroring `csi/server.py` structure.
 
 **Effort**: Medium
 **Priority**: Low — the current structure works fine, this is a clarity improvement

@@ -21,3 +21,6 @@
 
 ## Configuration
 * Investigate integrating OpenSSH config module from NixOS
+
+## Documentation
+* Document all project loggers (grpclib_nri.*, nixkube.*) in doc/logging.md so operators know what to filter/enable per subsystem
