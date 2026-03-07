@@ -41,14 +41,11 @@ Added docstrings to all public functions: cli.py (main, async_main), subprocessi
 **Priority**: High — immediate developer experience improvement
 **Model**: Haiku
 
-### 1.2 Type annotations on remaining untyped code
+### 1.2 Type annotations on remaining untyped code ✅ DONE
 
-Most code has good type hints but a few spots are lax:
-
-- `csi/server.py`: `csi_error_handler` and `nri_error_handler` lack typed signatures
-  (should use `ParamSpec`/`Callable` or at minimum document the expected signature)
-- `ZeroMQServer.build_status: TTLCache` — should be `TTLCache[str, dict[str, str]]`
-- `_build_args_cache: TTLCache` — should be `TTLCache[str, list[str]]`
+Added `func: Any) -> Any` signatures to both `csi_error_handler` and `nri_error_handler`
+with inline comment explaining the Any usage. Typed `_build_args_cache` as
+`TTLCache[str, list[str]]` and `build_status` as `TTLCache[str, dict[str, str]]`.
 
 **Effort**: Small
 **Priority**: Medium — helps pyright catch more issues
@@ -66,14 +63,10 @@ Added "nixkube: Kubernetes plugin for injecting Nix stores into pods." to src/__
 
 ## 2. Error Handling & Resilience
 
-### 2.1 Graceful handling of Kubernetes API unavailability
+### 2.1 Graceful handling of Kubernetes API unavailability ✅ DONE
 
-`events.py:get_nixkube_pod()` caches the pod on first call but has no retry if the
-initial fetch fails (returns None forever). If the K8s API is temporarily down at startup,
-no events will ever be reported.
-
-**Fix**: Use a TTLCache with short TTL (e.g., 60s) for the failure case so it retries,
-while still caching successful results indefinitely.
+Added `_nixkube_pod_fetch_failed: TTLCache[str, bool]` with 15s TTL so failures retry
+after a short delay instead of either hammering the API or blocking forever.
 
 **Effort**: Small
 **Priority**: High — silent event loss in production
@@ -87,13 +80,10 @@ Added __str__() and __repr__() methods to SubprocessError to include command and
 **Priority**: Medium — improves debuggability
 **Model**: Haiku
 
-### 2.3 ZeroMQ socket cleanup on initialization failure
+### 2.3 ZeroMQ socket cleanup on initialization failure ✅ DONE
 
-In `zmq.py:initialize()`, if the PUB socket bind fails after the REP socket succeeds,
-the REP socket is leaked. The sequential try/except blocks don't clean up earlier resources.
-
-**Fix**: Use a single try/except around all socket creation, or add cleanup in each
-except block.
+Combined socket creation into a single try/except that calls `self.shutdown()` on failure,
+ensuring the ZMQ context and any partial sockets are cleaned up.
 
 **Effort**: Small
 **Priority**: Medium — resource leak on startup failure
@@ -111,15 +101,10 @@ Removed duplicate comment leftover from refactor.
 
 ## 3. Code Simplification & Cleanup
 
-### 3.1 Deduplicate build functions in `nix/build.py`
+### 3.1 Deduplicate build functions in `nix/build.py` ✅ DONE
 
-`build_store_path()`, `build_flake_ref()`, and `build_nix_expr()` share identical
-error handling patterns (catch CommandTimeoutError → BuildError, catch SubprocessError →
-BuildError). Only the nix build arguments differ.
-
-**Fix**: Extract a `_run_nix_build(args, gc_root, label, timeout)` helper that handles
-the try/except pattern once. The three public functions become thin wrappers that
-construct their specific args.
+Extracted `_run_nix_build(args, timeout, timeout_msg, error_msg)` helper. The three
+public functions are now thin wrappers that construct their specific args.
 
 **Effort**: Small
 **Priority**: Medium — reduces ~40 lines of duplicated error handling
@@ -159,15 +144,12 @@ and optionally ship a default JSON logging config as an alternative ConfigMap.
 **Priority**: Medium — helps operators with log aggregation (Loki, ELK, etc.)
 **Model**: Sonnet
 
-### 4.2 Startup configuration summary
+### 4.2 Startup configuration summary ✅ DONE
 
-`cli.py:log_effective_config()` logs the logging configuration, but doesn't log the
-effective *application* configuration (timeouts, enabled features, paths). Operators
-debugging issues need to know what config the daemon started with.
-
-**Fix**: Add a `log_effective_app_config()` that logs key constants: `NIX_BUILD_TIMEOUT`,
-`CACHE_ENABLED`, `BUILDERS_ENABLED`, `VERIFY_STORE_PATHS`, `RSYNC_CONCURRENCY`,
-`HOST_MOUNT_PATH`, `NRI_PLUGIN_IDX`, etc.
+Added `log_effective_app_config()` using `f"{var=}"` style. Also renamed
+`log_effective_config()` → `log_effective_log_config()` for clarity. Both are called
+from `async_main()`. Added `RSYNC_CONCURRENCY` (int) to constants; renamed old semaphore
+to `RSYNC_SEM`.
 
 **Effort**: Small
 **Priority**: High — essential for production debugging
@@ -342,20 +324,18 @@ configurable; exotic destinations can come later.
 
 ## 8. Build System & CI
 
-### 8.1 Add `just lint` to CI pipeline
+### 8.1 Add `just lint` to CI pipeline ✅ DONE
 
-The `just lint` recipe (pyright) exists but isn't run in CI. Type errors could regress
-silently.
-
-**Fix**: Add a CI job that runs `just lint` and fails on errors.
+Added `check` CI job with `nix-shell --run "pyright pkgs/nixkube/src"`. Release job
+now requires `check` to pass.
 
 **Effort**: Small
 **Priority**: High — prevents type regressions
 **Model**: Sonnet
 
-### 8.2 Add `just check-fmt` to CI pipeline
+### 8.2 Add `just check-fmt` to CI pipeline ✅ DONE
 
-Similarly, formatting could regress. `just check-fmt` should be a CI check.
+Added `nix-shell --run "treefmt --fail-on-change"` step to the same `check` CI job.
 
 **Effort**: Small
 **Priority**: High — prevents formatting regressions
@@ -388,14 +368,11 @@ The project makes several security-sensitive decisions that should be documented
 **Priority**: Medium — important for enterprise adoption
 **Model**: Opus
 
-### 9.2 Validate environment variable types at startup
+### 9.2 Validate environment variable types at startup ✅ DONE
 
-`constants.py` reads environment variables with string defaults but doesn't validate
-them. Invalid values (e.g., `RSYNC_CONCURRENCY=abc`) would cause runtime crashes
-instead of clear startup errors.
-
-**Fix**: Add validation in `constants.py` with clear error messages, or create a
-`validate_config()` function called from `cli.py:async_main()`.
+Added `_parse_int_env()` and `_parse_float_env()` helpers in `constants.py` that exit
+with a clear error message on invalid input. Used for `RSYNC_CONCURRENCY` and
+`NIX_BUILD_TIMEOUT`.
 
 **Effort**: Small
 **Priority**: Medium — prevents confusing runtime errors
