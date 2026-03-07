@@ -9,9 +9,37 @@ reads and ensure consistent defaults across the codebase.
 """
 
 import os
+import sys
 from asyncio import Semaphore
 from importlib import metadata
 from pathlib import Path
+
+
+def _parse_int_env(name: str, default: str) -> int:
+    """Parse an integer environment variable, exiting with a clear error on invalid input."""
+    val = os.environ.get(name, default)
+    try:
+        return int(val)
+    except ValueError:
+        print(
+            f"Configuration error: {name}={val!r} must be an integer",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _parse_float_env(name: str, default: str) -> float:
+    """Parse a float environment variable, exiting with a clear error on invalid input."""
+    val = os.environ.get(name, default)
+    try:
+        return float(val)
+    except ValueError:
+        print(
+            f"Configuration error: {name}={val!r} must be a number",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 
 CSI_PLUGIN_NAME = "nixkube"
 try:
@@ -33,12 +61,12 @@ CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
 # Configurable via kubenix option: rsyncConcurrency (default: 1)
 # Set via RSYNC_CONCURRENCY environment variable
-RSYNC_CONCURRENCY_COUNT: int = max(int(os.environ.get("RSYNC_CONCURRENCY", "1")), 1)
-RSYNC_CONCURRENCY: Semaphore = Semaphore(RSYNC_CONCURRENCY_COUNT)
+RSYNC_CONCURRENCY: int = max(_parse_int_env("RSYNC_CONCURRENCY", "1"), 1)
+RSYNC_SEM: Semaphore = Semaphore(RSYNC_CONCURRENCY)
 
 # Configurable via kubenix option: nodeBuildTimeout (default: 300)
 # Set via NIX_BUILD_TIMEOUT environment variable
-NIX_BUILD_TIMEOUT = float(os.environ.get("NIX_BUILD_TIMEOUT", "300"))
+NIX_BUILD_TIMEOUT: float = _parse_float_env("NIX_BUILD_TIMEOUT", "300")
 
 # Builder configuration
 # Set via environment variables from kubenix when builders are enabled

@@ -17,7 +17,7 @@ from .constants import (
     NRI_ENABLED,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
-    RSYNC_CONCURRENCY_COUNT,
+    RSYNC_CONCURRENCY,
     VERIFY_STORE_PATHS,
 )
 from .csi.server import csi_serve
@@ -64,7 +64,7 @@ def log_effective_app_config() -> None:
     print(
         "Effective application configuration:\n"
         f"  {NIX_BUILD_TIMEOUT=}\n"
-        f"  {RSYNC_CONCURRENCY_COUNT=}\n"
+        f"  {RSYNC_CONCURRENCY=}\n"
         f"  {CACHE_ENABLED=}\n"
         f"  {BUILDERS_ENABLED=}\n"
         f"  {VERIFY_STORE_PATHS=}\n"
