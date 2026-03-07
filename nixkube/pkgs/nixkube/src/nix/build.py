@@ -50,6 +50,22 @@ async def get_build_args() -> list[str]:
     return extra_args
 
 
+async def _run_nix_build(
+    args: list[str | Path],
+    timeout: float,
+    timeout_msg: str,
+    error_msg: str,
+) -> Path:
+    """Run `nix build` with given args and translate errors to BuildError."""
+    try:
+        result = await try_console("nix", "build", *args, timeout=timeout)
+        return Path(result.stdout.splitlines()[0])
+    except CommandTimeoutError as e:
+        raise BuildError(timeout_msg, logs=e.combined) from e
+    except SubprocessError as e:
+        raise BuildError(error_msg, logs=e.combined) from e
+
+
 async def build_store_path(
     store_path: str,
     gc_root: Path,
@@ -57,29 +73,13 @@ async def build_store_path(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build/fetch a store path and create a gc root."""
-    try:
-        name = extract_store_name(store_path)
-        result = await try_console(
-            "nix",
-            "build",
-            *extra_args,
-            "--print-out-paths",
-            "--out-link",
-            gc_root / name,
-            store_path,
-            timeout=timeout,
-        )
-        return Path(result.stdout.splitlines()[0])
-    except CommandTimeoutError as e:
-        raise BuildError(
-            f"Build timeout for {store_path} after {timeout}s",
-            logs=e.combined,
-        ) from e
-    except SubprocessError as e:
-        raise BuildError(
-            f"Failed to build store path {store_path}",
-            logs=e.combined,
-        ) from e
+    name = extract_store_name(store_path)
+    return await _run_nix_build(
+        [*extra_args, "--print-out-paths", "--out-link", gc_root / name, store_path],
+        timeout=timeout,
+        timeout_msg=f"Build timeout for {store_path} after {timeout}s",
+        error_msg=f"Failed to build store path {store_path}",
+    )
 
 
 async def build_flake_ref(
@@ -89,28 +89,12 @@ async def build_flake_ref(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build a flake reference and create a gc root."""
-    try:
-        result = await try_console(
-            "nix",
-            "build",
-            *extra_args,
-            "--print-out-paths",
-            "--out-link",
-            gc_root / "flake",
-            flake_ref,
-            timeout=timeout,
-        )
-        return Path(result.stdout.splitlines()[0])
-    except CommandTimeoutError as e:
-        raise BuildError(
-            f"Build timeout for flake {flake_ref} after {timeout}s",
-            logs=e.combined,
-        ) from e
-    except SubprocessError as e:
-        raise BuildError(
-            f"Failed to build flake {flake_ref}",
-            logs=e.combined,
-        ) from e
+    return await _run_nix_build(
+        [*extra_args, "--print-out-paths", "--out-link", gc_root / "flake", flake_ref],
+        timeout=timeout,
+        timeout_msg=f"Build timeout for flake {flake_ref} after {timeout}s",
+        error_msg=f"Failed to build flake {flake_ref}",
+    )
 
 
 async def build_nix_expr(
@@ -120,33 +104,22 @@ async def build_nix_expr(
     timeout: float = NIX_BUILD_TIMEOUT,
 ) -> Path:
     """Build a Nix expression and create a gc root."""
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
-            tmp.write(nix_expr)
-            tmp.flush()
-
-            result = await try_console(
-                "nix",
-                "build",
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".nix") as tmp:
+        tmp.write(nix_expr)
+        tmp.flush()
+        return await _run_nix_build(
+            [
                 *extra_args,
                 "--print-out-paths",
                 "--out-link",
                 gc_root / "expr",
                 "--file",
                 tmp.name,
-                timeout=timeout,
-            )
-            return Path(result.stdout.splitlines()[0])
-    except CommandTimeoutError as e:
-        raise BuildError(
-            f"Build timeout for Nix expression after {timeout}s",
-            logs=e.combined,
-        ) from e
-    except SubprocessError as e:
-        raise BuildError(
-            "Failed to build Nix expression",
-            logs=e.combined,
-        ) from e
+            ],
+            timeout=timeout,
+            timeout_msg=f"Build timeout for Nix expression after {timeout}s",
+            error_msg="Failed to build Nix expression",
+        )
 
 
 async def fetch_packages(
