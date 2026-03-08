@@ -3,8 +3,10 @@
 
 import asyncio
 import logging
+import shutil
+import tempfile
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
@@ -30,9 +32,18 @@ def test_server_bin() -> Path:
 
 
 @pytest.fixture
-def socket_path(tmp_path: Path) -> Path:
-    """Create a unique socket path for each test."""
-    return tmp_path / "nri.sock"
+def socket_path() -> Generator[Path, None, None]:
+    """Create a unique socket path for each test.
+
+    Uses /tmp directly instead of pytest's tmp_path because Unix sockets have
+    a 108-byte path limit, and Nix build sandboxes set TMPDIR to a long path
+    that causes bind() to fail with EINVAL.
+    """
+    tmp_dir = Path(tempfile.mkdtemp(prefix="nri", dir="/tmp"))
+    try:
+        yield tmp_dir / "s"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @pytest_asyncio.fixture
@@ -100,6 +111,7 @@ async def nri_server(
     """
     logger = logging.getLogger("test.nri_server")
 
+    assert test_server_process.returncode is None, "Test server should still be running"
     plugin = DummyPlugin()
     server = NriServer(
         plugin,
