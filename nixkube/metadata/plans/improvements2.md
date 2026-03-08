@@ -130,15 +130,12 @@ Moved both from cli.py to constants.py. Updated NRI_ENABLED default from false t
 
 ## 4. Observability & Debugging
 
-### 4.1 Structured logging preparation
+### 4.1 Structured logging preparation ✅ DONE
 
-The codebase uses f-string logging consistently, which is good for readability. However,
-for production debugging at scale, structured logging (JSON) would be valuable. The
-logging config already supports dictConfig — adding a JSON formatter option would let
-operators switch to structured output without code changes.
-
-**Fix**: Add a `json_formatter` example to the kubenix `loggingConfig` option documentation,
-and optionally ship a default JSON logging config as an alternative ConfigMap.
+Added `python-json-logger` as a bundled nixkube dependency. Updated the `loggingConfig`
+option example to show two patterns: a simple level override and a full JSON formatter
+config using `pythonjsonlogger.jsonlogger.JsonFormatter`. Default output remains
+human-readable; JSON is opt-in via `loggingConfig`.
 
 **Effort**: Small
 **Priority**: Medium — helps operators with log aggregation (Loki, ELK, etc.)
@@ -300,19 +297,21 @@ ZeroMQ is also worth having experience with as a library.
 **Priority**: N/A
 **Model**: Opus
 
-### 7.3 Make cache destination configurable
+### 7.3 Investigate alternative binary cache backends ⏭️ DEFERRED
 
-From `cache.py` TODO: the cache copy destination is hardcoded to `ssh-ng://nix@nix-cache`.
-Supporting configurable destinations (S3, GCS, custom caches) would make nixkube
-more flexible.
+The built-in cache is an SSH-based optimization for hot-path builds. Operators either
+use it as-is, skip it, or roll their own solution. Worth investigating mature alternatives
+before designing a plugin API:
 
-**Fix**: Add a `cacheDestination` kubenix option that generates an env var. `copy_to_cache`
-reads from env instead of hardcoding. Start with just the SSH destination being
-configurable; exotic destinations can come later.
+- **cachix**: Managed binary cache, widely used in the Nix community
+- **attic**: Self-hosted S3-backed Nix binary cache server
+- **ncps**: Nix cache proxy server (caching proxy in front of upstream caches)
 
-**Effort**: Small (env var) to Large (full plugin system)
-**Priority**: Medium — enables more deployment scenarios
-**Model**: Sonnet (env var), Opus (plugin system)
+Revisit if there is concrete demand for pluggable cache backends.
+
+**Effort**: Investigation → Small to Large depending on chosen approach
+**Priority**: Low — no concrete demand yet
+**Model**: Opus (design), Sonnet (implementation)
 
 ---
 

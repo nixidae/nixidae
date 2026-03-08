@@ -842,12 +842,28 @@ attribute set of (JSON value)
 
 
 *Example:*
+Enable DEBUG logging for nixkube:
+
+```nix
+{ loggers.nixkube.level = "DEBUG"; }
+```
+
+Switch to JSON output for log aggregation (Loki, ELK, etc\.)\.
+Python logging uses a ` formatters ` map where each key is a name you invent
+(here ` json `) and the value describes how to format log records\. ` "()" ` is
+Python dictConfig syntax meaning “construct this class as the formatter”\.
+` handlers.console ` is the default console handler from the built-in config —
+pointing it at ` "json" ` swaps its formatter\. ` python-json-logger ` is bundled
+with nixkube; the default remains human-readable text\.
 
 ```nix
 {
-  loggers.nixkube.level = "DEBUG";
+  formatters.json = {
+    "()" = "pythonjsonlogger.jsonlogger.JsonFormatter";
+    fmt = "%(asctime)s %(name)s %(levelname)s %(message)s";
+  };
+  handlers.console.formatter = "json";
 }
-
 ```
 
 *Declared by:*
