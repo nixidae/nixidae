@@ -30,7 +30,7 @@ async def get_builder_uris() -> list[str]:
                 # Skip pods with missing or malformed metadata
                 continue
 
-        logger.debug(f"Discovered {len(uris)} builder pods: {uris}")
+        logger.debug(f"Discovered {len(uris)} builder pods", extra={"uris": uris})
         return uris
     except Exception as e:
         logger.warning(f"Failed to discover builder pods: {e}")

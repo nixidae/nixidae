@@ -142,10 +142,12 @@ async def fetch_packages(
         await try_console(*args, timeout=NIX_BUILD_TIMEOUT)
     except SubprocessError as e:
         logger.error(
-            "Failed to fetch packages\n"
-            + f"Command: {e.command}\n"
-            + "Logs:\n"
-            + e.combined
+            "Failed to fetch packages",
+            extra={
+                "returncode": e.returncode,
+                "command": e.command,
+                "logs": e.combined,
+            },
         )
         raise
     except Exception as e:

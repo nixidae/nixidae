@@ -152,6 +152,28 @@ to `RSYNC_SEM`.
 **Priority**: High — essential for production debugging
 **Model**: Sonnet
 
+### 4.4 Go all-in on structured logging
+
+Now that `python-json-logger` is bundled and `loggingConfig` supports JSON opt-in,
+convert the codebase to emit structured data via `extra={}` instead of interpolating
+objects into f-strings. Key changes:
+
+- `nri/server.py`: `Container env` and `Container args` logs → `extra={"env": env, "args": args}`
+- Audit all `logger.*` calls that embed dicts, lists, or Path objects in the message
+  string and move them to `extra={}` so they become queryable JSON fields
+- Keep message strings as human-readable summaries; structured data goes in `extra`
+- Update `loggingConfig` option example to show minimal (no asctime) and full variants,
+  and document that `extra={}` fields always appear regardless of `fmt`
+
+Key properties of `extra={}` with `python-json-logger`:
+- Always emitted as top-level JSON keys — not controlled by `fmt`
+- Silently dropped by the default text formatter (acceptable trade-off)
+- Enables Loki queries like `{app="nixkube"} | json | env =~ "GRAFANA_SERVICE"`
+
+**Effort**: Small — mechanical audit, no logic changes
+**Priority**: Medium — unlocks full value of JSON logging for production operators
+**Model**: Sonnet
+
 ### 4.3 Health check / readiness probe
 
 The daemon has no health check endpoint. If the gRPC server is listening but the

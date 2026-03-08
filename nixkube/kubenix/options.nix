@@ -144,6 +144,17 @@ in
           handlers.console.formatter = "json";
         }
         ```
+
+        nixkube uses `extra={}` in many log calls to attach structured context
+        (store paths, container env/args, subprocess results, command timings).
+        These fields always appear as top-level JSON keys regardless of `fmt`,
+        and are silently dropped by the default text formatter. Switching to
+        JSON unlocks Loki queries like:
+        ```
+        {app="nixkube"} | json | env =~ "MY_VAR"
+        {app="nixkube"} | json | elapsed_time > 10
+        {app="nixkube"} | json | returncode != 0
+        ```
       '';
     };
     systems = lib.mkOption {
@@ -242,7 +253,7 @@ in
         version = 1;
         formatters = {
           standard = {
-            format = "%(levelname)s [%(name)s] %(message)s";
+            format = "%(levelname)s [%(name)s] %(funcName)s:%(lineno)d %(message)s";
           };
         };
         handlers = {

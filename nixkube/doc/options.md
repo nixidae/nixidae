@@ -866,6 +866,18 @@ with nixkube; the default remains human-readable text\.
 }
 ```
 
+nixkube uses ` extra={} ` in many log calls to attach structured context
+(store paths, container env/args, subprocess results, command timings)\.
+These fields always appear as top-level JSON keys regardless of ` fmt `,
+and are silently dropped by the default text formatter\. Switching to
+JSON unlocks Loki queries like:
+
+```
+{app="nixkube"} | json | env =~ "MY_VAR"
+{app="nixkube"} | json | elapsed_time > 10
+{app="nixkube"} | json | returncode != 0
+```
+
 *Declared by:*
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 

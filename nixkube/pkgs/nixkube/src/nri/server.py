@@ -213,11 +213,9 @@ class NriPlugin(NriPluginBase):
             await stream.send_message(resp)
             return
 
-        # Log container environment and args for debugging
         args = list(req.container.args) if req.container.args else []
-        logger.debug(f"Container args: {args}")
         env = list(req.container.env) if req.container.env else []
-        logger.debug(f"Container env: {env}")
+        logger.debug("Container args and env", extra={"cargs": args, "cenv": env})
 
         # Combine env values, args and store mount annotation values for store path extraction
         # Only extract from nixkube/pod or nixkube/{container-name} annotations
@@ -240,7 +238,10 @@ class NriPlugin(NriPluginBase):
         # Extract all store paths
         store_paths = extract_store_paths(combined)
         if store_paths:
-            logger.info(f"Extracted store paths from container: {sorted(store_paths)}")
+            logger.info(
+                f"Extracted {len(store_paths)} store paths from container",
+                extra={"store_paths": sorted(store_paths)},
+            )
 
         # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
         store_mounts = parse_store_mounts(
@@ -248,7 +249,8 @@ class NriPlugin(NriPluginBase):
         )
         if store_mounts:
             logger.info(
-                f"Parsed store mounts for container={req.container.name}: {store_mounts}"
+                f"Parsed {len(store_mounts)} store mounts for container={req.container.name!r}",
+                extra={"store_mounts": store_mounts},
             )
 
         # Parse RW flag (nixkube/pod-rw or nixkube/{container-name}-rw), filtered by system

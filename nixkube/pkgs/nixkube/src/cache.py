@@ -95,7 +95,8 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info.stdout.splitlines())
         else:
             logger.warning(
-                f"Failed to get regular paths (rc={path_info.returncode}): {path_info.stderr}"
+                "Failed to get regular paths",
+                extra={"returncode": path_info.returncode, "stderr": path_info.stderr},
             )
 
         # Try to get derivation paths recursively. This may fail if we only have
@@ -104,7 +105,11 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         else:
             logger.debug(
-                f"No derivation paths found (rc={path_info_drv.returncode}, normal if fetched from substituters): {path_info_drv.stderr}"
+                "No derivation paths found (normal if fetched from substituters)",
+                extra={
+                    "returncode": path_info_drv.returncode,
+                    "stderr": path_info_drv.stderr,
+                },
             )
 
         # Filter out .drv files and deduplicate
@@ -121,7 +126,11 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             )
             if sign_result.returncode != 0:
                 logger.warning(
-                    f"Failed to sign paths (rc={sign_result.returncode}): {sign_result.stderr}"
+                    "Failed to sign paths",
+                    extra={
+                        "returncode": sign_result.returncode,
+                        "stderr": sign_result.stderr,
+                    },
                 )
 
             for attempt in range(6):
@@ -140,10 +149,12 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                     break
                 else:
                     logger.warning(
-                        f"Copy attempt {attempt + 1}/6 failed with rc={nix_copy.returncode}\n"
-                        f"  stdout: {nix_copy.stdout}\n"
-                        f"  stderr: {nix_copy.stderr}\n"
-                        f"  combined: {nix_copy.combined}"
+                        f"Copy attempt {attempt + 1}/6 failed",
+                        extra={
+                            "returncode": nix_copy.returncode,
+                            "stdout": nix_copy.stdout,
+                            "stderr": nix_copy.stderr,
+                        },
                     )
             else:
                 logger.error(

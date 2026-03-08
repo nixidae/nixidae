@@ -156,11 +156,19 @@ async def run_console(
     logger.log(
         log_level,
         f"Command completed in {elapsed_time:.2f}s (rc={returncode}): {cmd_str}",
+        extra={
+            "elapsed_time": elapsed_time,
+            "returncode": returncode,
+            "command": cmd_str,
+        },
     )
 
     # Also log slow commands to main logger
     if elapsed_time > 5:
-        logger.info(f"Slow command executed in {elapsed_time:.2f}s: {cmd_str}")
+        logger.info(
+            f"Slow command executed in {elapsed_time:.2f}s: {cmd_str}",
+            extra={"elapsed_time": elapsed_time, "command": cmd_str},
+        )
 
     return SubprocessResult(
         returncode,
