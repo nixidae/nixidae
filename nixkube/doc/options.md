@@ -860,7 +860,7 @@ with nixkube; the default remains human-readable text\.
 {
   formatters.json = {
     "()" = "pythonjsonlogger.jsonlogger.JsonFormatter";
-    fmt = "%(asctime)s %(name)s %(levelname)s %(message)s";
+    fmt = "%(asctime)s %(name)s %(levelname)s %(funcName)s:%(lineno)d %(message)s";
   };
   handlers.console.formatter = "json";
 }
