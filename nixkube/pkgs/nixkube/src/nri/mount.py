@@ -61,16 +61,17 @@ via picklable arguments.
 import asyncio
 import ctypes
 import errno
-import logging
 import multiprocessing
 import os
 import traceback
 from functools import cache
 from pathlib import Path
 
+import structlog
+
 from ..constants import HOST_PROC_PATH, MS_BIND, MS_RDONLY, MS_REMOUNT
 
-logger = logging.getLogger("nixkube.nri.mount")
+logger = structlog.get_logger("nixkube.nri.mount")
 
 # setns(2) namespace flag
 CLONE_NEWNS = 0x00020000
@@ -117,11 +118,9 @@ def kernel_supports_ro() -> bool:
         return True
     except OSError as e:
         if e.errno == errno.ENOSYS:
-            logger.error(
-                "Kernel does not support open_tree/move_mount (requires Linux 5.2+)"
-            )
+            logger.error("kernel_no_open_tree", requires="linux_5.2")
         else:
-            logger.error(f"Failed to test open_tree: {e}")
+            logger.error("open_tree_test_failed", exc_info=e)
         return False
 
 
@@ -148,15 +147,12 @@ def kernel_supports_rw() -> bool:
                 return True
             except OSError as e:
                 if e.errno == errno.ENOSYS:
-                    logger.debug(
-                        "Kernel does not support new mount API for overlayfs "
-                        "(fsopen/fsconfig/fsmount, requires Linux 6.5+)"
-                    )
+                    logger.debug("kernel_no_overlay_mount_api", requires="linux_6.5")
                 else:
-                    logger.debug(f"Failed to test new mount API for overlayfs: {e}")
+                    logger.debug("overlay_mount_api_test_failed", exc_info=e)
                 return False
-    except Exception as e:
-        logger.debug(f"Unexpected error testing new mount API for overlayfs: {e}")
+    except Exception:
+        logger.debug("overlay_mount_api_test_unexpected", exc_info=True)
         return False
 
 
@@ -394,14 +390,12 @@ async def mount_in_container(
 
     result = result_queue.get_nowait()
     if isinstance(result, Exception):
-        notes = getattr(result, "__notes__", [])
-        if notes:
-            logger.error("[NS-MOUNT] Worker traceback:\n%s", notes[0])
+        logger.error("worker_spawn_failed", exc_info=result)
         raise result
 
     logger.info(
-        "[NS-MOUNT] Mounted /nix (%s) + %d store mount(s) in container pid=%d",
-        "rw overlayfs" if nix_rw else "ro bind",
-        len(store_mounts),
-        container_pid,
+        "mounted_nix",
+        mode="rw_overlayfs" if nix_rw else "ro_bind",
+        store_mounts=len(store_mounts),
+        pid=container_pid,
     )

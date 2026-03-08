@@ -13,11 +13,11 @@ The Go server implements the Streaming service:
 """
 
 import asyncio
-import logging
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import structlog
 from google.protobuf.empty_pb2 import Empty
 from grpclib.encoding.proto import ProtoCodec
 from grpclib_ttrpc import Client
@@ -39,8 +39,8 @@ def dec(payload: bytes, msg_type):
 @pytest_asyncio.fixture
 async def streaming_client(test_server_process, socket_path: Path):
     """Create a raw TtrpcClient connected to the Go test server via Unix socket."""
-    logger = logging.getLogger("test.streaming_client")
-    logger.info(f"Connecting client to socket: {socket_path}")
+    logger = structlog.get_logger("test.streaming_client")
+    logger.info("connecting_client", socket=str(socket_path))
 
     reader, writer = await asyncio.open_unix_connection(str(socket_path))
     client = TtrpcClient(reader, writer)
@@ -484,14 +484,14 @@ async def test_streaming_with_invalid_message(streaming_client: TtrpcClient) -> 
 @pytest.mark.asyncio
 async def test_server_starts(test_server_process, socket_path: Path) -> None:
     """Smoke test: Verify Go test server starts and creates socket."""
-    logger = logging.getLogger("test.server_starts")
+    logger = structlog.get_logger("test.server_starts")
 
     assert socket_path.exists(), f"Server socket not created at {socket_path}"
     assert test_server_process.returncode is None, (
         f"Server exited with code {test_server_process.returncode}"
     )
 
-    logger.info("Go test server is running and socket is accessible")
+    logger.info("server_running")
 
 
 # ---------------------------------------------------------------------------

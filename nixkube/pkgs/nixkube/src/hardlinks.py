@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 import os
 from pathlib import Path
 
+import structlog
+
 from .errors import HardlinkClosureError
 
-logger = logging.getLogger("nixkube.hardlinks")
+logger = structlog.get_logger("nixkube.hardlinks")
 
 
 def hardlink_tree(src: Path, dst: Path) -> None:
@@ -92,12 +93,12 @@ def deref_hardlink_tree(src: Path, dst: Path) -> None:
 
         if not in_store:
             # Target is outside /nix/store, log warning and copy symlink as-is
-            logger.warning(f"Symlink points outside /nix/store: {src} -> {target}")
+            logger.warning("symlink_outside_store", src=str(src), target=target)
             dst.parent.mkdir(parents=True, exist_ok=True)
             os.symlink(target, dst)
         elif not resolved.exists():
             # Target is in /nix/store but broken, log warning and copy as-is
-            logger.warning(f"Broken symlink in /nix/store: {src} -> {target}")
+            logger.warning("broken_symlink", src=str(src), target=target)
             dst.parent.mkdir(parents=True, exist_ok=True)
             os.symlink(target, dst)
         else:

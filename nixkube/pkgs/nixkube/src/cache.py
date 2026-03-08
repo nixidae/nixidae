@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: MIT
 
 import asyncio
-import logging
+import json
 from asyncio import Semaphore, sleep
 from collections import defaultdict
 from pathlib import Path
 
-from .constants import CACHE_ENABLED
-from .errors import SubprocessError
-from .subprocessing import run_captured, try_console
+import structlog
 
-logger = logging.getLogger("nixkube.cache")
+from .constants import CACHE_ENABLED
+from .subprocessing import run_captured
+
+logger = structlog.get_logger("nixkube.cache")
 
 # Prevent concurrent cache uploads of the same store paths.
 # Uses frozenset of paths as key (all paths in a copy operation are serialized together)
@@ -25,22 +26,29 @@ async def check_cache_connectivity() -> bool:
         return False
 
     try:
-        logger.debug("Trying to connect to cache")
-        await asyncio.wait_for(
-            try_console(
+        logger.debug("cache_connectivity_check")
+        result = await asyncio.wait_for(
+            run_captured(
                 "nix",
                 "store",
                 "ping",
+                "--json",
                 "--store",
                 "ssh-ng://nix@nix-cache",
-                log_level=logging.DEBUG,
             ),
             timeout=10.0,
         )
-        logger.debug("Cache connectivity check succeeded")
+        if result.returncode != 0:
+            logger.warning("cache_connectivity_failed", stderr=result.stderr)
+            return False
+        try:
+            ping_data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            ping_data = {}
+        logger.debug("cache_connectivity_ok", **ping_data)
         return True
-    except (SubprocessError, OSError, asyncio.TimeoutError):
-        logger.warning("Cache connectivity check failed")
+    except (OSError, asyncio.TimeoutError):
+        logger.warning("cache_connectivity_failed")
         return False
 
 
@@ -65,10 +73,10 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
     This will improve separation of concerns and allow dedicated builder infrastructure.
     """
     if not package_paths:
-        logger.debug("copy_to_cache: no package paths to copy")
+        logger.debug("copy_to_cache_skipped", reason="no_paths")
         return
 
-    logger.debug(f"copy_to_cache: starting for {len(package_paths)} packages")
+    logger.debug("copy_to_cache_start", count=len(package_paths))
 
     async with copy_lock[frozenset(package_paths)]:
         paths: set[Path] = {Path(p) for p in package_paths}
@@ -95,8 +103,9 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info.stdout.splitlines())
         else:
             logger.warning(
-                "Failed to get regular paths",
-                extra={"returncode": path_info.returncode, "stderr": path_info.stderr},
+                "path_info_failed",
+                returncode=path_info.returncode,
+                stderr=path_info.stderr,
             )
 
         # Try to get derivation paths recursively. This may fail if we only have
@@ -105,11 +114,9 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         else:
             logger.debug(
-                "No derivation paths found (normal if fetched from substituters)",
-                extra={
-                    "returncode": path_info_drv.returncode,
-                    "stderr": path_info_drv.stderr,
-                },
+                "no_derivation_paths",
+                returncode=path_info_drv.returncode,
+                stderr=path_info_drv.stderr,
             )
 
         # Filter out .drv files and deduplicate
@@ -126,18 +133,20 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             )
             if sign_result.returncode != 0:
                 logger.warning(
-                    "Failed to sign paths",
-                    extra={
-                        "returncode": sign_result.returncode,
-                        "stderr": sign_result.stderr,
-                    },
+                    "sign_paths_failed",
+                    returncode=sign_result.returncode,
+                    stderr=sign_result.stderr,
                 )
 
             for attempt in range(6):
                 if attempt > 0:
                     exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
                     logger.warning(
-                        f"Retry {attempt}/6 copying to cache after {exp_backoff}s: {len(paths)} paths"
+                        "copy_retry",
+                        attempt=attempt,
+                        max_attempts=6,
+                        backoff=exp_backoff,
+                        count=len(paths),
                     )
                     await sleep(exp_backoff)
 
@@ -145,21 +154,19 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
                 )
                 if nix_copy.returncode == 0:
-                    logger.debug(f"Successfully copied {len(paths)} paths to cache")
+                    logger.debug("copy_to_cache_done", count=len(paths))
                     break
                 else:
                     logger.warning(
-                        f"Copy attempt {attempt + 1}/6 failed",
-                        extra={
-                            "returncode": nix_copy.returncode,
-                            "stdout": nix_copy.stdout,
-                            "stderr": nix_copy.stderr,
-                        },
+                        "copy_attempt_failed",
+                        attempt=attempt + 1,
+                        max_attempts=6,
+                        returncode=nix_copy.returncode,
+                        stdout=nix_copy.stdout,
+                        stderr=nix_copy.stderr,
                     )
             else:
-                logger.error(
-                    f"Failed to copy to cache after 6 attempts: {len(paths)} paths"
-                )
+                logger.error("copy_to_cache_exhausted", count=len(paths))
 
 
 def schedule_copy_to_cache(package_paths: set[Path]) -> None:
@@ -169,7 +176,7 @@ def schedule_copy_to_cache(package_paths: set[Path]) -> None:
     task = asyncio.create_task(copy_to_cache(package_paths))
     task.add_done_callback(
         lambda t: (
-            logger.error(f"copy_to_cache failed: {t.exception()}")
+            logger.error("copy_to_cache_failed", exc_info=t.exception())
             if t.exception()
             else None
         )

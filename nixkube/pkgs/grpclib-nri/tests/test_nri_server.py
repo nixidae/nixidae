@@ -8,9 +8,9 @@ Tests the NriServer against the Go test server to verify:
 """
 
 import asyncio
-import logging
 
 import pytest
+import structlog
 from grpclib_nri import NriServer
 
 from .dummy_plugin import DummyPlugin
@@ -19,28 +19,28 @@ from .dummy_plugin import DummyPlugin
 @pytest.mark.asyncio
 async def test_nri_handshake(nri_server: NriServer) -> None:
     """Test that the NRI RegisterPlugin handshake completes successfully."""
-    logger = logging.getLogger("test.nri_handshake")
+    logger = structlog.get_logger("test.nri_handshake")
 
     # Server should be running and have completed registration
-    logger.info("Checking if NRI server is still running...")
+    logger.info("checking_nri_server")
 
     # Give it a moment to complete the registration handshake
     await asyncio.sleep(1.0)
 
     assert nri_server is not None
-    logger.info("NRI handshake completed successfully")
+    logger.info("nri_handshake_ok")
 
 
 @pytest.mark.asyncio
 async def test_plugin_configure_called(nri_server: NriServer) -> None:
     """Test that Configure handler is called during registration."""
-    logger = logging.getLogger("test.plugin_configure")
+    logger = structlog.get_logger("test.plugin_configure")
 
     # Extract plugin from server
     plugin = nri_server.plugin
     assert isinstance(plugin, DummyPlugin)
 
-    logger.info(f"Configure called: {plugin.configure_called}")
+    logger.info("configure_called", value=plugin.configure_called)
 
     # Configure should have been called during the handshake
     assert plugin.configure_called, (
@@ -51,13 +51,13 @@ async def test_plugin_configure_called(nri_server: NriServer) -> None:
 @pytest.mark.asyncio
 async def test_plugin_survives_registration(nri_server: NriServer) -> None:
     """Test that plugin survives the full registration handshake without errors."""
-    logger = logging.getLogger("test.plugin_survives")
+    logger = structlog.get_logger("test.plugin_survives")
 
     plugin = nri_server.plugin
     assert isinstance(plugin, DummyPlugin)
 
     # If we got here, the plugin completed at least Configure without errors
-    logger.info("Plugin survived registration handshake")
+    logger.info("plugin_survived_registration")
     assert plugin.configure_called
 
 
@@ -67,7 +67,7 @@ async def test_nri_server_lifecycle(
     socket_path,  # noqa: F811
 ) -> None:
     """Test that NriServer can be started and stopped cleanly."""
-    logger = logging.getLogger("test.nri_lifecycle")
+    logger = structlog.get_logger("test.nri_lifecycle")
 
     # Start a fresh test server
     import asyncio
@@ -108,21 +108,21 @@ async def test_nri_server_lifecycle(
         plugin_idx="99",
     )
 
-    logger.info("Starting server")
+    logger.info("starting_server")
     server_task = asyncio.create_task(server.start())
 
     # Let it run and complete handshake
     await asyncio.sleep(2.0)
 
     # Close it
-    logger.info("Closing server")
+    logger.info("closing_server")
     await server.close()
 
     # Wait for task to complete
     try:
         await asyncio.wait_for(server_task, timeout=2)
     except (asyncio.TimeoutError, asyncio.CancelledError):
-        logger.warning("Server task did not exit gracefully")
+        logger.warning("server_task_exit_timeout")
 
     # Cleanup subprocess
     proc.terminate()
@@ -132,4 +132,4 @@ async def test_nri_server_lifecycle(
         proc.kill()
         await proc.wait()
 
-    logger.info("Server lifecycle test completed successfully")
+    logger.info("server_lifecycle_ok")

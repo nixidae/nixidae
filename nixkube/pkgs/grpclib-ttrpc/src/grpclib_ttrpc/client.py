@@ -1,10 +1,10 @@
 """ttrpc client: unary_call() and streaming Client for ttrpc RPC calls."""
 
 import asyncio
-import logging
 import struct
 from typing import Any, AsyncIterator, Optional, Type, TypeVar
 
+import structlog
 from grpclib.const import Status
 from grpclib.encoding.base import CodecBase
 from grpclib.encoding.proto import ProtoCodec
@@ -21,7 +21,7 @@ from .protocol import (
     MSG_TYPE_RESPONSE,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
 _RequestT = TypeVar("_RequestT")
@@ -67,7 +67,7 @@ async def unary_call(
     if codec is None:
         codec = ProtoCodec()
 
-    log.debug("ttrpc unary_call: connecting to %s for %s/%s", path, service, method)
+    log.debug("unary_call_connecting", path=path, service=service, method=method)
     reader, writer = await asyncio.wait_for(
         asyncio.open_unix_connection(path), timeout=connect_timeout
     )
@@ -92,33 +92,29 @@ async def unary_call(
         # FLAG_REMOTE_CLOSED (0x01) signals streaming (client done sending
         # but expects multiple server responses) — NOT for unary calls.
         header = struct.pack(">IIBB", len(req_bytes), 1, MSG_TYPE_REQUEST, 0)
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug(
-                "ttrpc unary_call: sending %d-byte request (header=%s payload_hex=%s)",
-                len(req_bytes),
-                header.hex(),
-                req_bytes[:64].hex(),
-            )
+        log.debug(
+            "unary_call_sending",
+            bytes=len(req_bytes),
+            header_hex=header.hex(),
+            payload_hex=req_bytes[:64].hex(),
+        )
         writer.write(header + req_bytes)
         await writer.drain()
 
         # Read response frame header (10 bytes).
         # response_timeout must be long enough for the server to do any
         # back-connects (e.g. containerd RegisterPlugin → Configure/Synchronize).
-        log.debug(
-            "ttrpc unary_call: waiting for response (timeout=%.0fs)", response_timeout
-        )
+        log.debug("unary_call_waiting_response", timeout=response_timeout)
         raw_header = await asyncio.wait_for(
             reader.readexactly(HEADER_SIZE), timeout=response_timeout
         )
         length, _stream_id, msg_type, resp_flags = struct.unpack(">IIBB", raw_header)
         log.debug(
-            "ttrpc unary_call: response header: length=%d stream_id=%d "
-            "msg_type=0x%02x flags=0x%02x",
-            length,
-            _stream_id,
-            msg_type,
-            resp_flags,
+            "unary_call_response_header",
+            length=length,
+            stream_id=_stream_id,
+            msg_type=hex(msg_type),
+            flags=hex(resp_flags),
         )
 
         if msg_type != MSG_TYPE_RESPONSE:
@@ -133,26 +129,25 @@ async def unary_call(
         resp_bytes = await asyncio.wait_for(
             reader.readexactly(length), timeout=response_timeout
         )
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug(
-                "ttrpc unary_call: response payload (%d bytes): %s",
-                length,
-                resp_bytes[:64].hex(),
-            )
+        log.debug(
+            "unary_call_response_payload",
+            length=length,
+            payload_hex=resp_bytes[:64].hex(),
+        )
         resp = Response.FromString(resp_bytes)
 
         if resp.status.code != 0:
             log.debug(
-                "ttrpc unary_call: RPC error code=%d message=%r",
-                resp.status.code,
-                resp.status.message,
+                "unary_call_rpc_error",
+                code=resp.status.code,
+                message=resp.status.message,
             )
             raise GRPCError(
                 Status(resp.status.code),
                 resp.status.message or None,
             )
 
-        log.debug("ttrpc unary_call: success")
+        log.debug("unary_call_success")
         return codec.decode(resp.payload, response_type)
 
     finally:
@@ -160,7 +155,7 @@ async def unary_call(
         try:
             await writer.wait_closed()
         except Exception as exc:
-            log.debug("Error closing connection: %r", exc)
+            log.debug("close_error", exc=repr(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -214,13 +209,13 @@ class Client:
                 asyncio.open_unix_connection(self.path),
                 timeout=self.connect_timeout,
             )
-            log.debug(f"Connected to unix socket: {self.path}")
+            log.debug("connected_unix", path=self.path)
         else:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
                 timeout=self.connect_timeout,
             )
-            log.debug(f"Connected to {self.host}:{self.port}")
+            log.debug("connected_tcp", host=self.host, port=self.port)
 
     async def close(self) -> None:
         """Close the connection."""
@@ -229,7 +224,7 @@ class Client:
             try:
                 await self._writer.wait_closed()
             except Exception as exc:
-                log.debug(f"Error closing connection: {exc}")
+                log.debug("close_error", exc=repr(exc))
             self._writer = None
             self._reader = None
 

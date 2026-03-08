@@ -152,7 +152,7 @@ to `RSYNC_SEM`.
 **Priority**: High — essential for production debugging
 **Model**: Sonnet
 
-### 4.4 Go all-in on structured logging
+### 4.4 Go all-in on structured logging ✅ DONE
 
 Now that `python-json-logger` is bundled and `loggingConfig` supports JSON opt-in,
 convert the codebase to emit structured data via `extra={}` instead of interpolating

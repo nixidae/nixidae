@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 from pathlib import Path
+
+import structlog
 
 from ..errors import StorePathClosureError, SubprocessError
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nixkube.nix")
+logger = structlog.get_logger("nixkube.nix")
 
 
 async def get_closure_paths(package_paths: set[Path]) -> set[Path]:

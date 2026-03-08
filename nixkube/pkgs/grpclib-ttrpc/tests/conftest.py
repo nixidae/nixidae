@@ -2,7 +2,6 @@
 """Pytest configuration and fixtures for grpclib_ttrpc tests."""
 
 import asyncio
-import logging
 import os
 import sys
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+import structlog
 
 # Ensure tests/ is on sys.path so helpers.py and dummy_pb2.py are importable.
 _here = os.path.dirname(os.path.abspath(__file__))
@@ -62,8 +62,8 @@ async def test_server_process(
 
     Waits for the server to be ready by checking if the socket exists.
     """
-    logger = logging.getLogger("test.server_process")
-    logger.info(f"Starting test server: {test_server_bin}")
+    logger = structlog.get_logger("test.server_process")
+    logger.info("starting_test_server", path=str(test_server_bin))
 
     proc = await asyncio.create_subprocess_exec(
         str(test_server_bin),
@@ -79,15 +79,16 @@ async def test_server_process(
     max_retries = 50
     for _ in range(max_retries):
         if socket_path.exists():
-            logger.info(f"Server ready: socket created at {socket_path}")
+            logger.info("server_ready", socket=str(socket_path))
             break
         if proc.returncode is not None:
             stdout, stderr = await proc.communicate()
-            logger.error(f"Server exited prematurely with code {proc.returncode}")
-            if stdout:
-                logger.error(f"stdout: {stdout.decode()}")
-            if stderr:
-                logger.error(f"stderr: {stderr.decode()}")
+            logger.error(
+                "server_exited_prematurely",
+                returncode=proc.returncode,
+                stdout=stdout.decode(),
+                stderr=stderr.decode(),
+            )
             pytest.skip("Test server failed to start")
         await asyncio.sleep(0.1)
     else:
@@ -103,7 +104,7 @@ async def test_server_process(
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except asyncio.TimeoutError:
-            logger.warning("Test server did not terminate gracefully, killing...")
+            logger.warning("server_terminate_timeout")
             proc.kill()
             await proc.wait()
 

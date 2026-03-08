@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 import tempfile
 from pathlib import Path
 
+import structlog
 from cachetools import TTLCache
 from kr8s.asyncio.objects import Pod
 
@@ -14,7 +14,7 @@ from ..errors import BuildError, CommandTimeoutError, SubprocessError
 from ..store import extract_store_name, extract_store_paths
 from ..subprocessing import try_console
 
-logger = logging.getLogger("nixkube.nix")
+logger = structlog.get_logger("nixkube.nix")
 
 # Cache build args for 30s to avoid redundant k8s API calls and cache pings
 # during burst volume creation. Builder pods and cache connectivity are stable
@@ -40,7 +40,7 @@ async def get_build_args() -> list[str]:
     builder_uris = await get_builder_uris()
     if builder_uris:
         extra_args.extend(build_builder_args(builder_uris))
-        logger.info(f"Using {len(builder_uris)} builder pods for builds")
+        logger.info("using_builders", count=len(builder_uris))
 
     # Add cache as substituter if available
     if await check_cache_connectivity():
@@ -142,19 +142,17 @@ async def fetch_packages(
         await try_console(*args, timeout=NIX_BUILD_TIMEOUT)
     except SubprocessError as e:
         logger.error(
-            "Failed to fetch packages",
-            extra={
-                "returncode": e.returncode,
-                "command": e.command,
-                "logs": e.combined,
-            },
+            "fetch_packages_failed",
+            returncode=e.returncode,
+            command=e.command,
+            logs=e.combined,
         )
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch packages: {e}")
+    except Exception:
+        logger.exception("fetch_packages_failed")
         raise
 
-    logger.debug(f"Fetched {len(package_paths)} packages")
+    logger.debug("fetched_packages", count=len(package_paths))
 
 
 async def build_pod_packages(
@@ -190,7 +188,7 @@ async def build_primary_package(
     Users can specify multiple; first non-None in priority order is used.
     """
     if store_path is not None:
-        logger.debug(f"{store_path=}")
+        logger.debug("building_store_path", store_path=store_path)
         return await build_store_path(
             store_path,
             gc_root,
@@ -199,7 +197,7 @@ async def build_primary_package(
         )
 
     if flake_ref is not None:
-        logger.debug(f"{flake_ref=}")
+        logger.debug("building_flake_ref", flake_ref=flake_ref)
         return await build_flake_ref(
             flake_ref,
             gc_root,
@@ -208,7 +206,7 @@ async def build_primary_package(
         )
 
     if nix_expr is not None:
-        logger.debug(f"{nix_expr=}")
+        logger.debug("building_nix_expr", nix_expr=nix_expr)
         return await build_nix_expr(
             nix_expr,
             gc_root,

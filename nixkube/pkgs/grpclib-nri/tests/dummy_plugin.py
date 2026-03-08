@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Minimal NRI plugin for testing the NRI protocol."""
 
-import logging
-
+import structlog
 from nri import nri_grpc, nri_pb2
 
 
@@ -11,18 +10,18 @@ class DummyPlugin(nri_grpc.PluginBase):
 
     def __init__(self):
         super().__init__()
-        self.logger = logging.getLogger("test.dummy_plugin")
+        self.logger = structlog.get_logger("test.dummy_plugin")
         self.configure_called = False
         self.synchronize_called = False
         self.create_container_called = False
 
     async def Configure(self, stream) -> None:
         """Handle Configure request: just echo back with no event subscriptions."""
-        self.logger.debug("Configure called")
+        self.logger.debug("configure_called")
         req = await stream.recv_message()
         assert req is not None
         self.logger.info(
-            f"Configure: runtime={req.runtime_name!r} version={req.runtime_version!r}"
+            "configure", runtime=req.runtime_name, version=req.runtime_version
         )
         self.configure_called = True
         # Subscribe to all events using the same bit position formula as server.py:
@@ -32,30 +31,31 @@ class DummyPlugin(nri_grpc.PluginBase):
 
     async def Synchronize(self, stream) -> None:
         """Handle Synchronize request: just echo back empty response."""
-        self.logger.debug("Synchronize called")
+        self.logger.debug("synchronize_called")
         req = await stream.recv_message()
         assert req is not None
         self.logger.info(
-            f"Synchronize: pods={len(req.pods)} containers={len(req.containers)}"
+            "synchronize", pods=len(req.pods), containers=len(req.containers)
         )
         self.synchronize_called = True
         await stream.send_message(nri_pb2.SynchronizeResponse())
 
     async def Shutdown(self, stream) -> None:
         """Handle Shutdown request."""
-        self.logger.debug("Shutdown called")
+        self.logger.debug("shutdown_called")
         await stream.recv_message()
         await stream.send_message(nri_pb2.Empty())
 
     async def CreateContainer(self, stream) -> None:
         """Handle CreateContainer request: do nothing."""
-        self.logger.debug("CreateContainer called")
+        self.logger.debug("create_container_called")
         req = await stream.recv_message()
         assert req is not None
         self.logger.info(
-            f"CreateContainer: pod={req.pod.namespace}/{req.pod.name} "  # type: ignore
-            f"container={req.container.name}"  # type: ignore
-        )
+            "create_container",
+            pod=f"{req.pod.namespace}/{req.pod.name}",
+            container=req.container.name,
+        )  # type: ignore
         self.create_container_called = True
         # Return empty adjustment (no modifications)
         adjust = nri_pb2.ContainerAdjustment()

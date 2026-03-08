@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 from pathlib import Path
+
+import structlog
 
 from ..errors import SubprocessError, VerifyStorePathsError
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nixkube.nix")
+logger = structlog.get_logger("nixkube.nix")
 
 
 async def verify_store_paths(package_paths: set[Path]) -> None:

@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: MIT
 """NRI container cleanup and garbage collection."""
 
-import logging
 import shutil
 from pathlib import Path
+
+import structlog
 
 from ..constants import HOST_ROOT, NRI_CONTAINERS
 from ..cri import list_container_ids
 
-logger = logging.getLogger("nixkube.nri.cleanup")
+logger = structlog.get_logger("nixkube.nri.cleanup")
 
 
 async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
@@ -22,10 +23,7 @@ async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
         # Access socket through host mount since we're in a container
         socket_path = HOST_ROOT / cri_socket.relative_to("/")
         active_ids = await list_container_ids(socket_path)
-        logger.debug(
-            "GC: Active containers from CRI: %d",
-            len(active_ids),
-        )
+        logger.debug("gc_active_containers", count=len(active_ids))
 
         # Clean up volumes for containers not in active list
         if NRI_CONTAINERS.exists():
@@ -36,19 +34,15 @@ async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
                         shutil.rmtree(volume_dir)
                         stale_count += 1
                         logger.debug(
-                            "GC: Removed stale volume for container=%r",
-                            volume_dir.name,
+                            "gc_removed_stale_volume", container=volume_dir.name
                         )
-                    except Exception as e:
+                    except Exception:
                         logger.warning(
-                            "GC: Failed to remove stale volume at %r: %s",
-                            volume_dir,
-                            e,
+                            "gc_remove_failed",
+                            volume=str(volume_dir),
+                            exc_info=True,
                         )
             if stale_count > 0:
-                logger.info("GC: Cleaned up %d stale NRI volumes", stale_count)
-    except Exception as e:
-        logger.warning(
-            "GC: Failed to perform garbage collection: %s",
-            e,
-        )
+                logger.info("gc_cleaned_nri_volumes", count=stale_count)
+    except Exception:
+        logger.warning("gc_failed", exc_info=True)

@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: MIT
 
-import logging
-
 import kr8s
+import structlog
 
 from .constants import BUILDERS_ENABLED, BUILDERS_SERVICE, NAMESPACE
 
-logger = logging.getLogger("nixkube.builders")
+logger = structlog.get_logger("nixkube.builders")
 
 
 async def get_builder_uris() -> list[str]:
@@ -30,10 +29,10 @@ async def get_builder_uris() -> list[str]:
                 # Skip pods with missing or malformed metadata
                 continue
 
-        logger.debug(f"Discovered {len(uris)} builder pods", extra={"uris": uris})
+        logger.debug("discovered_builders", count=len(uris), uris=uris)
         return uris
-    except Exception as e:
-        logger.warning(f"Failed to discover builder pods: {e}")
+    except Exception:
+        logger.warning("builder_discovery_failed", exc_info=True)
         return []
 
 

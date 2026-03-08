@@ -9,6 +9,7 @@
   mypy-protobuf,
   grpcio-tools,
   protobuf,
+  structlog,
   ttrpc-proto-python,
   pytestCheckHook,
   pytest-asyncio,
@@ -45,6 +46,7 @@ buildPythonPackage {
     protobuf
     grpclib
     multidict
+    structlog
     ttrpc-proto-python
   ];
 

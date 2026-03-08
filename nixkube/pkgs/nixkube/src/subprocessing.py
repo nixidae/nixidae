@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: MIT
 
 import asyncio
-import logging
+import logging  # for log level constants (logging.DEBUG, logging.NOTSET, etc.)
 import shlex
 import time
 from typing import NamedTuple
 
+import structlog
 from shellous import sh
 
 from .errors import CommandTimeoutError, SubprocessError
 
-logger = logging.getLogger("nixkube.subprocessing")
+logger = structlog.get_logger("nixkube.subprocessing")
 
 
 class SubprocessResult(NamedTuple):
@@ -152,22 +153,20 @@ async def run_console(
     elapsed_time = time.perf_counter() - start_time
     cmd_str = shlex.join([str(arg) for arg in args])
 
-    # Log all command timings for profiling
-    logger.log(
-        log_level,
-        f"Command completed in {elapsed_time:.2f}s (rc={returncode}): {cmd_str}",
-        extra={
-            "elapsed_time": elapsed_time,
-            "returncode": returncode,
-            "command": cmd_str,
-        },
-    )
+    # Log all command timings for profiling (skip if NOTSET = silent capture)
+    if log_level != logging.NOTSET:
+        logger.log(
+            log_level,
+            "command_completed",
+            elapsed_time=round(elapsed_time, 3),
+            returncode=returncode,
+            command=cmd_str,
+        )
 
-    # Also log slow commands to main logger
+    # Also log slow commands at INFO regardless of caller's log_level
     if elapsed_time > 5:
         logger.info(
-            f"Slow command executed in {elapsed_time:.2f}s: {cmd_str}",
-            extra={"elapsed_time": elapsed_time, "command": cmd_str},
+            "slow_command", elapsed_time=round(elapsed_time, 3), command=cmd_str
         )
 
     return SubprocessResult(
@@ -191,9 +190,10 @@ async def _read_stream(
             decoded = line.decode().strip()
             stream_buffer.append(decoded)
             combined_buffer.append(decoded)
-            logger.log(log_level, decoded)
-    except Exception as e:
-        logger.error(f"Error reading subprocess stream: {e}")
+            if log_level != logging.NOTSET:
+                logger.log(log_level, "subprocess_output", line=decoded)
+    except Exception:
+        logger.error("stream_read_error", exc_info=True)
 
 
 def log_command(*args, log_level: int) -> None:
@@ -201,9 +201,12 @@ def log_command(*args, log_level: int) -> None:
 
     Args:
         *args: Command and arguments to log
-        log_level: Logging level (e.g., logging.DEBUG, logging.INFO)
+        log_level: Logging level (e.g., logging.DEBUG, logging.INFO). NOTSET (0) suppresses logging.
     """
+    if log_level == logging.NOTSET:
+        return
     logger.log(
         log_level,
-        f"Running command: {shlex.join([str(arg) for arg in args])}",
+        "running_command",
+        command=shlex.join([str(arg) for arg in args]),
     )

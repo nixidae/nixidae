@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: MIT
 
 import json
-import logging
 import shutil
 from pathlib import Path
 
+import structlog
+
 from ..constants import CSI_GCROOTS, CSI_VOLUMES, KUBELET_PODS_PATH
 
-logger = logging.getLogger("nixkube.csi")
+logger = structlog.get_logger("nixkube.csi")
 
 
 def collect_active_volume_handles(exclude_vol_data_path: Path | None) -> set[str]:
@@ -30,8 +31,10 @@ def collect_active_volume_handles(exclude_vol_data_path: Path | None) -> set[str
             data = json.loads(vol_data_path.read_text())
             if handle := data.get("volumeHandle"):
                 active_handles.add(handle)
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning(f"Failed to read {vol_data_path}: {e}")
+        except (OSError, json.JSONDecodeError):
+            logger.warning(
+                "vol_data_read_failed", path=str(vol_data_path), exc_info=True
+            )
 
     return active_handles
 
@@ -47,14 +50,14 @@ def cleanup_stale_entries(active_handles: set[str]) -> None:
         if gcroot.name not in active_handles:
             try:
                 shutil.rmtree(gcroot, ignore_errors=True)
-                logger.debug(f"Removed stale gcroot {gcroot}")
-            except Exception as e:
-                logger.warning(f"Failed to remove stale gcroot {gcroot}: {e}")
+                logger.debug("removed_stale_gcroot", path=str(gcroot))
+            except Exception:
+                logger.warning("remove_gcroot_failed", path=str(gcroot), exc_info=True)
 
     for volume in CSI_VOLUMES.iterdir():
         if volume.name not in active_handles:
             try:
                 shutil.rmtree(volume)
-                logger.debug(f"Removed stale volume {volume}")
-            except Exception as e:
-                logger.warning(f"Failed to remove stale volume {volume}: {e}")
+                logger.debug("removed_stale_volume", path=str(volume))
+            except Exception:
+                logger.warning("remove_volume_failed", path=str(volume), exc_info=True)

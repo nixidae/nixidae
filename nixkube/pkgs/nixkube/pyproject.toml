@@ -19,7 +19,8 @@ dependencies = [
   "pyzmq",
   "cachetools",
   "shellous",
-  "python-json-logger",
+  "structlog",
+  "rich",
 ]
 
 [project.scripts]

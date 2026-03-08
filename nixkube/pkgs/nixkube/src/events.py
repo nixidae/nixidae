@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: MIT
 
 import hashlib
-import logging
 from datetime import datetime, timezone
 
+import structlog
 from cachetools import TTLCache
 from kr8s.asyncio.objects import Pod, new_class
 
 from .constants import KUBE_POD_NAME, NAMESPACE
 
-logger = logging.getLogger("nixkube.events")
+logger = structlog.get_logger("nixkube.events")
 
 # Cached nixkube pod instance for event reporting
 _nixkube_pod: Pod | None = None
@@ -33,8 +33,8 @@ async def get_nixkube_pod() -> Pod | None:
     try:
         _nixkube_pod = await Pod.get(KUBE_POD_NAME, namespace=NAMESPACE)
         return _nixkube_pod
-    except Exception as e:
-        logger.warning(f"Could not fetch nixkube pod for event reporting: {e}")
+    except Exception:
+        logger.warning("pod_fetch_failed", exc_info=True)
         _nixkube_pod_fetch_failed["failed"] = True
         return None
 
@@ -136,7 +136,7 @@ async def report_event(
     if pod is None:
         pod = await get_nixkube_pod()
         if pod is None:
-            logger.warning(f"Cannot report event {reason}: no pod available")
+            logger.warning("event_skipped_no_pod", reason=reason)
             return
 
     # Extract logs from exception if needed
@@ -148,7 +148,7 @@ async def report_event(
     # Ensure reason is prefixed with "Nix" if not already
     if not reason.startswith("Nix"):
         reason = f"Nix{reason}"
-    logger.debug(f"report_event: {reason} for pod {pod.metadata.name}")
+    logger.debug("report_event", reason=reason, pod=pod.metadata.name)
     try:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
@@ -167,8 +167,8 @@ async def report_event(
                 },
             ):
                 events.append(event)
-        except Exception as e:
-            logger.warning(f"Failed to list events: {e}")
+        except Exception:
+            logger.warning("event_list_failed", exc_info=True)
             events = []
 
         if events:
@@ -186,11 +186,13 @@ async def report_event(
 
                 await event.patch()
                 logger.debug(
-                    f"Incremented event {reason} for pod {pod.metadata.name}",
-                    extra={"count": event["series"]["count"]},
+                    "event_incremented",
+                    reason=reason,
+                    pod=pod.metadata.name,
+                    count=event["series"]["count"],
                 )
-            except Exception as e:
-                logger.warning(f"Failed to patch existing event: {e}")
+            except Exception:
+                logger.warning("event_patch_failed", exc_info=True)
         else:
             # Create new event
             try:
@@ -224,12 +226,10 @@ async def report_event(
                 }
                 event = await ModernEvent(event_spec, namespace=pod.metadata.namespace)
                 await event.create()
-                logger.debug(
-                    f"Created event {reason} for pod {pod.metadata.name}",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to create event: {e}")
+                logger.debug("event_created", reason=reason, pod=pod.metadata.name)
+            except Exception:
+                logger.warning("event_create_failed", exc_info=True)
 
-    except Exception as e:
+    except Exception:
         # Catch-all to ensure events never block operations
-        logger.warning(f"Unexpected error reporting event: {e}")
+        logger.warning("event_unexpected_error", exc_info=True)

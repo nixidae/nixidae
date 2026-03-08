@@ -2,7 +2,6 @@
 """Pytest fixtures for grpclib-nri testing."""
 
 import asyncio
-import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+import structlog
 from grpclib_nri import NriServer
 
 from .dummy_plugin import DummyPlugin
@@ -54,8 +54,8 @@ async def test_server_process(
 
     Waits for the server to be ready by checking if the socket exists.
     """
-    logger = logging.getLogger("test.server_process")
-    logger.info(f"Starting test server: {test_server_bin}")
+    logger = structlog.get_logger("test.server_process")
+    logger.info("starting_test_server", path=str(test_server_bin))
 
     proc = await asyncio.create_subprocess_exec(
         str(test_server_bin),
@@ -71,15 +71,16 @@ async def test_server_process(
     max_retries = 50
     for _ in range(max_retries):
         if socket_path.exists():
-            logger.info(f"Server ready: socket created at {socket_path}")
+            logger.info("server_ready", socket=str(socket_path))
             break
         if proc.returncode is not None:
             stdout, stderr = await proc.communicate()
-            logger.error(f"Server exited prematurely with code {proc.returncode}")
-            if stdout:
-                logger.error(f"stdout: {stdout.decode()}")
-            if stderr:
-                logger.error(f"stderr: {stderr.decode()}")
+            logger.error(
+                "server_exited_prematurely",
+                returncode=proc.returncode,
+                stdout=stdout.decode(),
+                stderr=stderr.decode(),
+            )
             pytest.skip("Test server failed to start")
         await asyncio.sleep(0.1)
     else:
@@ -95,7 +96,7 @@ async def test_server_process(
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except asyncio.TimeoutError:
-            logger.warning("Test server did not terminate gracefully, killing...")
+            logger.warning("server_terminate_timeout")
             proc.kill()
             await proc.wait()
 
@@ -109,7 +110,7 @@ async def nri_server(
     The test server is already running and listening on socket_path.
     We create a dummy plugin and start the NriServer to connect to it.
     """
-    logger = logging.getLogger("test.nri_server")
+    logger = structlog.get_logger("test.nri_server")
 
     assert test_server_process.returncode is None, "Test server should still be running"
     plugin = DummyPlugin()
@@ -120,7 +121,7 @@ async def nri_server(
         plugin_idx="42",
     )
 
-    logger.info(f"Starting NriServer on {socket_path}")
+    logger.info("starting_nri_server", socket=str(socket_path))
 
     # Start server in background task
     server_task = asyncio.create_task(server.start())
@@ -131,14 +132,14 @@ async def nri_server(
     try:
         yield server
     finally:
-        logger.info("Closing NriServer")
+        logger.info("closing_nri_server")
         await server.close()
 
         # Give background task time to exit
         try:
             await asyncio.wait_for(server_task, timeout=2)
         except (asyncio.TimeoutError, asyncio.CancelledError):
-            logger.warning("Server task did not exit gracefully")
+            logger.warning("server_task_exit_timeout")
 
 
 @pytest.fixture

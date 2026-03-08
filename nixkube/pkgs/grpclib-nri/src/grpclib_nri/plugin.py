@@ -10,9 +10,9 @@ NRI Event Subscription Bitmask Encoding:
 """
 
 import abc
-import logging
 from typing import Sequence
 
+import structlog
 from nri import nri_grpc, nri_pb2
 
 
@@ -36,25 +36,25 @@ class NriPlugin(nri_grpc.PluginBase):
         self._event_mask = make_event_bitmask(subscribed_events)
 
     async def Configure(self, stream) -> None:
-        logger = logging.getLogger("grpclib_nri.configure")
+        logger = structlog.get_logger("grpclib_nri.configure")
         req: nri_pb2.ConfigureRequest | None = await stream.recv_message()
         runtime_name = req.runtime_name if req else None
         runtime_version = req.runtime_version if req else None
-        logger.debug(f"runtime={runtime_name!r} version={runtime_version!r}")
+        logger.debug("configure", runtime=runtime_name, version=runtime_version)
         await stream.send_message(nri_pb2.ConfigureResponse(events=self._event_mask))
 
     async def Synchronize(self, stream) -> None:
-        logger = logging.getLogger("grpclib_nri.synchronize")
+        logger = structlog.get_logger("grpclib_nri.synchronize")
         req: nri_pb2.SynchronizeRequest | None = await stream.recv_message()
         pods = len(req.pods) if req else 0
         containers = len(req.containers) if req else 0
-        logger.debug(f"pods={pods} containers={containers}")
+        logger.debug("synchronize", pods=pods, containers=containers)
         await stream.send_message(nri_pb2.SynchronizeResponse())
 
     async def Shutdown(self, stream) -> None:
-        logger = logging.getLogger("grpclib_nri.shutdown")
+        logger = structlog.get_logger("grpclib_nri.shutdown")
         await stream.recv_message()
-        logger.debug("Shutdown")
+        logger.debug("shutdown")
         await stream.send_message(nri_pb2.Empty())
 
     async def UpdateContainer(self, stream) -> None:

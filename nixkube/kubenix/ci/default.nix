@@ -30,45 +30,12 @@ in
 
   config = {
     nixkube.loggingConfig = {
-      version = 1;
-      formatters = {
-        standard = {
-          format = "%(levelname)s [%(name)s] %(message)s";
-        };
-      };
-      handlers = {
-        console = {
-          class = "logging.StreamHandler";
-          formatter = "standard";
-          stream = "ext://sys.stdout";
-        };
-      };
+      renderer = "json";
       loggers = {
-        nixkube = {
-          level = "DEBUG";
-          handlers = [ "console" ];
-          propagate = false;
-        };
-        "nixkube.csi" = {
-          level = "DEBUG";
-          handlers = [ "console" ];
-          propagate = false;
-        };
-        "nixkube.nri" = {
-          level = "DEBUG";
-          handlers = [ "console" ];
-          propagate = false;
-        };
-        httpx = {
-          level = "WARNING";
-          handlers = [ "console" ];
-          propagate = false;
-        };
+        nixkube.level = "DEBUG";
+        httpx.level = "WARNING";
       };
-      root = {
-        level = "INFO";
-        handlers = [ "console" ];
-      };
+      root.level = "INFO";
     };
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.inputs = {

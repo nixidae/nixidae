@@ -12,11 +12,12 @@ Source: nri/pkg/net/multiplex/{mux.go,ttrpc.go}
 """
 
 import asyncio
-import logging
 import struct
 from typing import Dict, Optional
 
-log = logging.getLogger(__name__)
+import structlog
+
+log = structlog.get_logger(__name__)
 
 MUX_HEADER_FMT = ">II"
 MUX_HEADER_SIZE = 8
@@ -114,24 +115,19 @@ class NriMux:
                 raw = await self._reader.readexactly(MUX_HEADER_SIZE)
                 conn_id, length = struct.unpack(MUX_HEADER_FMT, raw)
                 if length > MAX_MUX_PAYLOAD:
-                    log.warning(
-                        "mux payload too large (%d bytes) on conn_id=%d, "
-                        "dropping connection",
-                        length,
-                        conn_id,
-                    )
+                    log.warning("mux_payload_too_large", bytes=length, conn_id=conn_id)
                     return
                 payload = await self._reader.readexactly(length)
-                log.debug("mux recv: conn_id=%d length=%d", conn_id, length)
+                log.debug("mux_recv", conn_id=conn_id, length=length)
                 q = self._channels.get(conn_id)
                 if q is None:
-                    log.debug("mux: ignoring unknown conn_id=%d", conn_id)
+                    log.debug("mux_unknown_conn_id", conn_id=conn_id)
                 else:
                     await q.put(payload)
         except asyncio.IncompleteReadError:
-            log.debug("mux read_loop: connection closed (EOF)")
+            log.debug("mux_connection_closed")
         except Exception as exc:
-            log.warning("mux read_loop error: %r", exc)
+            log.warning("mux_read_loop_error", exc=repr(exc))
         finally:
             # Signal EOF to all channel consumers.
             # put_nowait is safe here: all queues are unbounded (maxsize=0).

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 from pathlib import Path
+
+import structlog
 
 from ..constants import NIX_BUILD_TIMEOUT
 from ..errors import (
@@ -12,7 +13,7 @@ from ..errors import (
 )
 from ..subprocessing import try_captured
 
-logger = logging.getLogger("nixkube.nix")
+logger = structlog.get_logger("nixkube.nix")
 
 
 async def install_gcroots(

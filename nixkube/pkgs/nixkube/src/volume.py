@@ -3,11 +3,12 @@
 import ctypes
 import ctypes.util
 import errno
-import logging
 import os
 import shutil
 import time
 from pathlib import Path
+
+import structlog
 
 from .constants import (
     MS_BIND,
@@ -26,7 +27,7 @@ from .nix import (
     verify_store_paths,
 )
 
-logger = logging.getLogger("nixkube.volume")
+logger = structlog.get_logger("nixkube.volume")
 
 # Load libc for mount/umount syscalls
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
@@ -76,7 +77,9 @@ async def prepare_volume(
     hardlink_start = time.perf_counter()
     hardlink_closure(store_paths, volume_root / "nix/store")
     logger.debug(
-        f"Hardlinked {len(store_paths)} paths in {time.perf_counter() - hardlink_start:.2f}s"
+        "hardlinked_paths",
+        count=len(store_paths),
+        elapsed=round(time.perf_counter() - hardlink_start, 3),
     )
 
     # Create Nix database
@@ -99,7 +102,8 @@ async def prepare_volume(
         deref_start = time.perf_counter()
         deref_hardlink_tree(primary_package, volume_root)
         logger.debug(
-            f"Dereferenced hardlink tree in {time.perf_counter() - deref_start:.2f}s"
+            "deref_hardlink_tree_done",
+            elapsed=round(time.perf_counter() - deref_start, 3),
         )
 
 
@@ -127,7 +131,9 @@ async def mount_volume(
         # For readonly we use a bind mount, the benefit is that different
         # container stores using bindmounts will get the same inodes and
         # share page cache with others, reducing memory usage.
-        logger.debug(f"Mounting bind (readonly): {volume_root} → {target_path}")
+        logger.debug(
+            "mounting_bind_readonly", src=str(volume_root), dst=str(target_path)
+        )
         ret = _libc.mount(
             ctypes.c_char_p(os.fsencode(volume_root)),
             ctypes.c_char_p(os.fsencode(target_path)),
@@ -181,7 +187,7 @@ async def mount_volume(
         options = (
             f"lowerdir={volume_root},upperdir={upperdir},workdir={workdir}".encode()
         )
-        logger.debug(f"Mounting overlay: {volume_root} → {target_path}")
+        logger.debug("mounting_overlay", src=str(volume_root), dst=str(target_path))
         ret = _libc.mount(
             ctypes.c_char_p(b"overlay"),
             ctypes.c_char_p(os.fsencode(target_path)),
@@ -244,8 +250,10 @@ def is_mount(path: Path, mounts_file: Path | None = None) -> bool:
             if len(parts) >= 2 and parts[1] == path_str:
                 return True
         return False
-    except (FileNotFoundError, OSError) as e:
-        logger.warning(f"Failed to check mounts from {mounts_file}: {e}")
+    except (FileNotFoundError, OSError):
+        logger.warning(
+            "mounts_check_failed", mounts_file=str(mounts_file), exc_info=True
+        )
         return False
 
 
@@ -256,7 +264,7 @@ async def unmount(path: Path, mounts_file: Path | None = None) -> None:
         path: Path to unmount
         mounts_file: Path to mounts file for checking (default: /proc/self/mounts)
     """
-    logger.debug(f"Unmounting: {path}")
+    logger.debug("unmounting", path=str(path))
     ret = _libc.umount2(
         ctypes.c_char_p(os.fsencode(path)),
         ctypes.c_int(0),
@@ -265,7 +273,10 @@ async def unmount(path: Path, mounts_file: Path | None = None) -> None:
 
     if ret != 0:
         logger.warning(
-            f"umount2 returned error for {path}: {os.strerror(err)} (errno {err})"
+            "umount2_error",
+            path=str(path),
+            error=os.strerror(err),
+            errno=err,
         )
 
     # Always verify the mount is actually gone — umount2 can return 0

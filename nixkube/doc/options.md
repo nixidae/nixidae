@@ -822,14 +822,12 @@ attribute set of (string or absolute path)
 
 
 
-Python logging configuration dict for nixkube service\.
-Merged with built-in defaults, so you only need to override specific parts\.
-See https://docs\.python\.org/3/library/logging\.config\.html\#logging-config-dictschema
+Logging configuration for the nixkube service (structlog-based)\.
 
 
 
 *Type:*
-attribute set of (JSON value)
+submodule
 
 
 
@@ -842,40 +840,191 @@ attribute set of (JSON value)
 
 
 *Example:*
-Enable DEBUG logging for nixkube:
 
 ```nix
-{ loggers.nixkube.level = "DEBUG"; }
+# JSON renderer (default) — production/Loki
+{
+  renderer = "json";
+  loggers.nixkube.level = "DEBUG";
+  root.level = "WARNING";
+}
+
+# Logfmt renderer — stern / grep-friendly
+{
+  renderer = "logfmt";
+  loggers.nixkube.level = "INFO";
+}
+
+# Console renderer — local development
+{
+  renderer = "console";
+  loggers.nixkube.level = "DEBUG";
+  root.level = "DEBUG";
+}
+
 ```
 
-Switch to JSON output for log aggregation (Loki, ELK, etc\.)\.
-Python logging uses a ` formatters ` map where each key is a name you invent
-(here ` json `) and the value describes how to format log records\. ` "()" ` is
-Python dictConfig syntax meaning “construct this class as the formatter”\.
-` handlers.console ` is the default console handler from the built-in config —
-pointing it at ` "json" ` swaps its formatter\. ` python-json-logger ` is bundled
-with nixkube; the default remains human-readable text\.
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nixkube\.loggingConfig\.loggers
+
+
+
+Per-logger level overrides\. Keys are Python logger names (dotted hierarchy)\.
+All loggers under ` nixkube.* ` inherit from ` nixkube ` unless individually overridden\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
 
 ```nix
 {
-  formatters.json = {
-    "()" = "pythonjsonlogger.jsonlogger.JsonFormatter";
-    fmt = "%(asctime)s %(name)s %(levelname)s %(funcName)s:%(lineno)d %(message)s";
+  httpx = {
+    level = "WARNING";
   };
-  handlers.console.formatter = "json";
+  nixkube = {
+    level = "INFO";
+  };
 }
 ```
 
-nixkube uses ` extra={} ` in many log calls to attach structured context
-(store paths, container env/args, subprocess results, command timings)\.
-These fields always appear as top-level JSON keys regardless of ` fmt `,
-and are silently dropped by the default text formatter\. Switching to
-JSON unlocks Loki queries like:
+
+
+*Example:*
+
+```nix
+{
+  nixkube.level = "DEBUG";
+  "nixkube.nri".level = "DEBUG";
+  httpx.level = "ERROR";
+}
 
 ```
-{app="nixkube"} | json | env =~ "MY_VAR"
-{app="nixkube"} | json | elapsed_time > 10
-{app="nixkube"} | json | returncode != 0
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nixkube\.loggingConfig\.loggers\.\<name>\.level
+
+
+
+Log level for this logger\.
+
+
+
+*Type:*
+one of “DEBUG”, “INFO”, “WARNING”, “ERROR”, “CRITICAL”
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nixkube\.loggingConfig\.renderer
+
+
+
+Log output renderer:
+
+ - ` "json" ` (default): Structured JSON, one object per line\. Recommended
+   for production and log aggregation (Loki, ELK, Datadog)\. Each
+   structured field is a top-level JSON key, enabling rich queries:
+   
+   ```
+   {app="nixkube"} | json | elapsed_time > 10
+   {app="nixkube"} | json | returncode != 0
+   {app="nixkube"} | json | container_id =~ "abc"
+   ```
+
+ - ` "logfmt" `: ` key=value ` pairs on a single line\. Human-readable and
+   machine-parseable\. Works well with ` stern `, ` kubectl logs | grep `,
+   and log shippers with native logfmt support (Vector, Fluentd)\.
+   Example line:
+   
+   ```
+   level=info logger=nixkube.nri event=build_task_completed container_id=abc123
+   ```
+
+ - ` "console" `: Coloured, aligned output for local development\.
+   Not suitable for log aggregation or machine parsing\.
+
+
+
+*Type:*
+one of “json”, “logfmt”, “console”
+
+
+
+*Default:*
+
+```nix
+"json"
+```
+
+
+
+*Example:*
+
+```nix
+"logfmt"
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nixkube\.loggingConfig\.root
+
+
+
+Root logger configuration (catch-all for third-party libraries)\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+
+
+## nixkube\.loggingConfig\.root\.level
+
+
+
+Root logger level\. All loggers inherit this unless overridden in ` loggers `\.
+
+
+
+*Type:*
+one of “DEBUG”, “INFO”, “WARNING”, “ERROR”, “CRITICAL”
+
+
+
+*Default:*
+
+```nix
+"WARNING"
 ```
 
 *Declared by:*

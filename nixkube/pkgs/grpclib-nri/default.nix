@@ -9,6 +9,7 @@
   nri-proto-python,
   pytestCheckHook,
   pytest-asyncio,
+  structlog,
   typing-extensions,
 }:
 let
@@ -42,6 +43,7 @@ buildPythonPackage {
   dependencies = [
     grpclib-ttrpc
     nri-proto-python
+    structlog
     typing-extensions
   ];
 

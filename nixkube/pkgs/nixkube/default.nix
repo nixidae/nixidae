@@ -20,7 +20,8 @@
   util-linuxMinimal, # mount, umount
   pyzmq, # Talking to OCI hooks
   nri-wait, # OCI hook for waiting on NRI builds
-  python-json-logger, # JSON log formatter (for structured logging / Loki / ELK)
+  structlog, # Structured logging library
+  rich, # Rich terminal output (used for structlog RichTracebackFormatter)
   pytest, # Unit tests
   pytest-asyncio, # Async test support
   hypothesis, # Property-based testing
@@ -52,7 +53,8 @@ buildPythonApplication {
     util-linuxMinimal
     pyzmq
     nri-wait
-    python-json-logger
+    structlog
+    rich
   ];
   nativeCheckInputs = [
     pytest

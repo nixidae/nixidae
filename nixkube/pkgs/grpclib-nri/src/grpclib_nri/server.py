@@ -2,11 +2,11 @@
 """NRI server: async context for running a plugin with automatic registration and reconnection."""
 
 import asyncio
-import logging
 import struct
 from pathlib import Path
 from typing import Optional
 
+import structlog
 from grpclib.const import Status
 from grpclib.encoding.proto import ProtoCodec
 from grpclib.exceptions import GRPCError, ProtocolError
@@ -57,7 +57,7 @@ async def _register_plugin(
         ttrpc payload: ttrpc.Request{service, method, payload, timeout_nano}
             where payload = RegisterPluginRequest{plugin_name, plugin_idx}
     """
-    logger = logging.getLogger("grpclib_nri.registerplugin")
+    logger = structlog.get_logger("grpclib_nri.registerplugin")
     rpr = nri_pb2.RegisterPluginRequest(
         plugin_name=plugin_name,
         plugin_idx=plugin_idx,
@@ -77,7 +77,9 @@ async def _register_plugin(
     mux_hdr = struct.pack(">II", RUNTIME_SERVICE_CONN, len(ttrpc_frame))
 
     logger.debug(
-        f"Sending {len(ttrpc_frame)}-byte ttrpc frame on ConnID={RUNTIME_SERVICE_CONN}"
+        "sending_register_plugin_frame",
+        bytes=len(ttrpc_frame),
+        conn_id=RUNTIME_SERVICE_CONN,
     )
     mux.writer.write(mux_hdr + ttrpc_frame)
     await mux.writer.drain()
@@ -113,7 +115,7 @@ async def _register_plugin(
         resp = Response.FromString(resp_bytes)
         if resp.status.code != 0:
             raise GRPCError(Status(resp.status.code), resp.status.message or None)
-        logger.debug("Response: OK")
+        logger.debug("register_plugin_ok")
         return
 
 
@@ -163,7 +165,7 @@ class NriServer:
         Handles reconnection with exponential backoff on failure.
         This method blocks until the connection is closed.
         """
-        logger = logging.getLogger("grpclib_nri.server")
+        logger = structlog.get_logger("grpclib_nri.server")
         delay = 1.0
         while not self._is_closed:
             try:
@@ -172,7 +174,10 @@ class NriServer:
                 if self._is_closed:
                     break
                 logger.warning(
-                    f"Connection failed ({type(e).__name__}: {e}), retrying in {delay:.0f}s"
+                    "connection_failed",
+                    error_type=type(e).__name__,
+                    error=str(e),
+                    retry_delay=round(delay),
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)
@@ -191,7 +196,7 @@ class NriServer:
 
     async def close(self) -> None:
         """Gracefully close the connection and cancel all tasks."""
-        logger = logging.getLogger("grpclib_nri.server")
+        logger = structlog.get_logger("grpclib_nri.server")
         self._is_closed = True
 
         # Cancel tasks
@@ -217,13 +222,13 @@ class NriServer:
             except Exception:
                 pass
 
-        logger.debug("Server closed")
+        logger.debug("server_closed")
 
     async def _run(self) -> None:
         """Run one connection cycle: connect, register, serve until disconnect."""
-        logger = logging.getLogger("grpclib_nri.server.run")
+        logger = structlog.get_logger("grpclib_nri.server.run")
 
-        logger.info(f"Connecting to socket {self.socket_path}")
+        logger.info("connecting", socket=str(self.socket_path))
         self._reader, self._writer = await asyncio.wait_for(
             asyncio.open_unix_connection(str(self.socket_path)), timeout=5.0
         )
@@ -246,9 +251,7 @@ class NriServer:
             self.plugin_name,
             self.plugin_idx,
         )
-        logger.info(
-            f"Plugin registered (name={self.plugin_name!r} idx={self.plugin_idx!r})"
-        )
+        logger.info("plugin_registered", name=self.plugin_name, idx=self.plugin_idx)
 
         # Block until the connection drops (read_loop exits → serve_task exits)
         await asyncio.gather(self._read_task, self._serve_task)

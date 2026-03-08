@@ -1,7 +1,6 @@
 """ttrpc server: Stream, request_handler, TtrpcHandler, Server."""
 
 import asyncio
-import logging
 import socket
 from contextlib import nullcontext
 from types import TracebackType
@@ -17,6 +16,7 @@ from typing import (
     Type,
 )
 
+import structlog
 from grpclib._typing import IServable
 from grpclib.const import Cardinality, Status
 from grpclib.encoding.base import CodecBase
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from grpclib import const
 
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +202,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
         elif not self._cardinality.server_streaming and not self._send_message_done:
             status = Status.UNKNOWN
             status_message = "Internal Server Error"
-            log.error(
-                "Unary handler %r exited without sending a message",
-                self._method_name,
-            )
+            log.error("handler_no_response", method=self._method_name)
         else:
             status = Status.OK
             status_message = None
@@ -215,7 +212,7 @@ class Stream(StreamIterator[_RecvType], Generic[_RecvType, _SendType]):
                 status=status, status_message=status_message
             )
         except Exception:
-            log.exception("Error sending trailing metadata")
+            log.error("trailing_metadata_error", exc_info=True)
 
         return True  # suppress the original exception
 
@@ -286,29 +283,29 @@ async def request_handler(
                 raise
             except asyncio.TimeoutError:
                 if wrapper.cancel_failed:
-                    log.exception("Failed to handle deadline cancellation")
+                    log.error("deadline_cancellation_failed", exc_info=True)
                     raise GRPCError(Status.DEADLINE_EXCEEDED)
                 elif wrapper.cancelled:
-                    log.info("Deadline exceeded")
+                    log.info("deadline_exceeded")
                     raise GRPCError(Status.DEADLINE_EXCEEDED)
                 else:
-                    log.exception("Timeout error")
+                    log.error("timeout_error", exc_info=True)
                     raise
             except StreamTerminatedError as err:
                 if wrapper.cancel_failed:
-                    log.exception("Failed to handle cancellation")
+                    log.error("cancellation_failed", exc_info=True)
                     raise
                 else:
                     assert wrapper.cancelled
-                    log.info("Request cancelled: %s", err)
+                    log.info("request_cancelled", error=str(err))
                     raise
             except Exception:
-                log.exception("Application error")
+                log.error("application_error", exc_info=True)
                 raise
     except ProtocolError:
-        log.exception("Protocol error")
+        log.error("protocol_error", exc_info=True)
     except Exception:
-        log.exception("Server error")
+        log.error("server_error", exc_info=True)
     finally:
         release_stream()
 
@@ -356,7 +353,7 @@ class TtrpcHandler(_GC, AbstractTtrpcHandler):
         try:
             req = Request.FromString(initial_payload)
         except Exception:
-            log.exception("Failed to parse ttrpc Request")
+            log.error("parse_request_failed", exc_info=True)
             release()
             return
 

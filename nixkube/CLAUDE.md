@@ -224,16 +224,28 @@ The `config-reconciler` service runs continuously to sync SSH keys and Nix confi
 
 ### Python Logging
 
-**Always use f-strings for logging**, never % formatting:
-```python
-# ✅ Good
-logger.info(f"Value is {x}, status is {status}")
+This project uses **structlog**. All log calls use a plain event string plus structured kwargs — no f-string interpolation in the event itself:
 
-# ❌ Avoid
-logger.info("Value is %s, status is %s", x, status)
+```python
+# ✅ Good — plain event + kwargs
+logger.info("fetched_packages", count=n, store=str(path))
+logger.debug("build_task_started", container_id=container_id, count=len(store_paths))
+
+# ❌ Avoid — f-strings in event, or % formatting
+logger.info(f"Fetched {n} packages from {path}")
+logger.info("Fetched %d packages", n)
 ```
 
-This is cleaner, more readable, and consistent with modern Python practices.
+**Exception logging:**
+- Inside `except` blocks that re-raise: `logger.exception("event_name")` — shorthand for ERROR + full traceback
+- Inside `except` blocks that swallow: `logger.warning("event_name", exc_info=True)` — WARNING + full traceback
+- In callbacks with an exception object (not in `except`): `logger.error("event_name", exc_info=t.exception())`
+
+**Context binding** — attach per-request metadata to a logger:
+```python
+log = structlog.get_logger("nixkube.nri.buildtask").bind(container_id=container_id)
+log.info("build_task_started")  # container_id included in every call
+```
 
 ### Testing Philosophy
 - **Integration tests over unit tests**: This project orchestrates subprocess calls to Nix, rsync, mount, etc. Unit testing these would require excessive mocking and wouldn't catch real issues.

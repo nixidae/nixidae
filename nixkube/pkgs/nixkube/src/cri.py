@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,9 +7,10 @@ from typing import AsyncIterator
 
 import grpclib.client
 import kr8s
+import structlog
 from cri import cri_grpc, cri_pb2
 
-logger = logging.getLogger("nixkube.cri")
+logger = structlog.get_logger("nixkube.cri")
 
 
 @asynccontextmanager
@@ -56,7 +56,7 @@ async def get_cri_socket() -> Path:
             # Strip unix:// prefix if present
             endpoint = endpoint.removeprefix("unix://")
 
-            logger.info(f"Discovered CRI socket: {endpoint}")
+            logger.info("cri_socket_discovered", socket=endpoint)
             return Path(endpoint)
 
     except RuntimeError:

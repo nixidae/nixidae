@@ -3,8 +3,10 @@
 import asyncio
 import json
 import logging
-import logging.config
+import sys
 from pathlib import Path
+
+import structlog
 
 from .constants import (
     BUILDERS_ENABLED,
@@ -24,41 +26,90 @@ from .csi.server import csi_serve
 from .nri.server import nri_serve
 
 
-def log_effective_log_config() -> None:
+def configure_structlog(renderer: str = "json") -> None:
+    """Configure structlog with stdlib integration and chosen renderer.
+
+    Sets up a shared processor chain for both structlog and stdlib loggers
+    (third-party libraries like kr8s, grpclib). The ProcessorFormatter routes
+    all log records through structlog processors so output format is uniform
+    regardless of source.
+
+    Args:
+        renderer: "json" (default, for production/Kubernetes) or "console" (for dev)
+    """
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.ExceptionRenderer(),
+    ]
+
+    if renderer == "console":
+        # Auto-detect colors: use ANSI only when stdout is a real terminal.
+        # In a Kubernetes container stdout is a pipe (isatty=False), so colors are
+        # disabled and the output stays plain text — safe for log aggregators and
+        # copy-paste. Colors are enabled automatically when running in a local terminal.
+        final_renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer(
+            colors=sys.stdout.isatty()
+        )
+    elif renderer == "logfmt":
+        # Logfmt: key=value pairs on a single line, human-readable and machine-parseable.
+        final_renderer = structlog.processors.LogfmtRenderer()
+    else:
+        # JSON (default). No asctime — Kubernetes captures stdout with its own timestamps.
+        # default=str converts non-serializable types (e.g. Path values) to strings.
+        final_renderer = structlog.processors.JSONRenderer(default=str)
+
+    structlog.configure(
+        processors=shared_processors
+        + [
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            final_renderer,
+        ],
+    )
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+
+
+def log_effective_log_config(renderer: str) -> None:
     """Print the effective logging configuration for debugging.
 
-    Uses print() instead of logger.info() to ensure output is always visible
+    Uses print() instead of logger to ensure output is always visible
     regardless of configured log levels.
     """
     root = logging.getLogger()
-
-    lines = ["Effective logging configuration:"]
-    lines.append(f"  Root logger: level={logging.getLevelName(root.level)}")
-
-    # Collect all configured loggers
+    lines = [
+        "Effective logging configuration:",
+        f"  structlog renderer: {renderer}",
+        f"  Root logger: level={logging.getLevelName(root.level)}",
+    ]
     for name in sorted(logging.Logger.manager.loggerDict.keys()):
         log = logging.getLogger(name)
         if log.level != logging.NOTSET:
             lines.append(f"  Logger '{name}': level={logging.getLevelName(log.level)}")
-
-    # Document handlers on root logger
-    if root.handlers:
-        lines.append("  Root handlers:")
-        for handler in root.handlers:
-            handler_info = f"    {type(handler).__name__}"
-            if hasattr(handler, "level"):
-                handler_info += f" level={logging.getLevelName(handler.level)}"
-            if hasattr(handler, "formatter") and handler.formatter:
-                handler_info += f" format='{handler.formatter._fmt}'"
-            lines.append(handler_info)
-
     print("\n".join(lines))
 
 
 def log_effective_app_config() -> None:
     """Print the effective application configuration for debugging.
 
-    Uses print() instead of logger.info() to ensure output is always visible
+    Uses print() instead of logger to ensure output is always visible
     regardless of configured log levels.
     """
     print(
@@ -79,40 +130,42 @@ def log_effective_app_config() -> None:
 async def async_main():
     """Start CSI and NRI servers with configured logging.
 
-    Loads logging configuration from /etc/nix/logging.json (ConfigMap-mounted) and starts
-    the CSI gRPC server(s) and optionally the NRI plugin server based on environment flags
-    (ENABLE_COMPAT_DRIVER, NRI_ENABLED).
+    Loads logging configuration from /etc/nix/logging.json (ConfigMap-mounted).
+    The config controls the renderer ("json" or "console") and per-logger levels.
+    Starts the CSI gRPC server(s) and optionally the NRI plugin server based on
+    environment flags (ENABLE_COMPAT_DRIVER, NRI_ENABLED).
     """
-    # Configurable via kubenix option: loggingConfig
-    # Mounted to /etc/nix/logging.json via ConfigMap
+    config: dict = {}
     logging_config_path = Path("/etc/nix/logging.json")
 
     if logging_config_path.exists():
-        # Load logging config from file
         with open(logging_config_path) as f:
-            config_dict = json.load(f)
-        logging.config.dictConfig(config_dict)
-        logger = logging.getLogger("nixkube")
-        logger.info(f"Loaded logging config from {logging_config_path}")
-    else:
-        # Fallback to basic config if file doesn't exist
-        # Root logger at WARN to suppress noise from libraries (grpclib, kr8s, etc.)
-        # Only nixkube logger uses INFO level to avoid log spam from dependencies
-        logging.basicConfig(
-            level=logging.WARN,
-            format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        )
-        logger = logging.getLogger("nixkube")
-        logger.setLevel(logging.INFO)
-        logger.info("Using fallback logging config (nixkube: INFO, root: WARN)")
+            config = json.load(f)
 
-    log_effective_log_config()
+    renderer = config.pop("renderer", "json")
+    configure_structlog(renderer)
+
+    # Apply per-logger levels from config
+    for name, settings in config.get("loggers", {}).items():
+        if isinstance(settings, dict) and "level" in settings:
+            logging.getLogger(name).setLevel(settings["level"])
+
+    root_level = config.get("root", {}).get("level", "WARNING")
+    logging.getLogger().setLevel(root_level)
+
+    logger = structlog.get_logger("nixkube")
+    if logging_config_path.exists():
+        logger.info("logging_config_loaded", path=str(logging_config_path))
+    else:
+        logger.info("logging_config_fallback", path=str(logging_config_path))
+
+    log_effective_log_config(renderer)
     log_effective_app_config()
 
-    logger.info(f"NRI plugin: {'enabled' if NRI_ENABLED else 'disabled'}")
+    logger.info("nri_plugin", enabled=NRI_ENABLED)
     logger.info(
-        "CSI drivers: nixkube"
-        + (" + nix.csi.store (compat)" if ENABLE_COMPAT_DRIVER else "")
+        "csi_drivers",
+        drivers=["nixkube"] + (["nix.csi.store"] if ENABLE_COMPAT_DRIVER else []),
     )
 
     try:
@@ -129,8 +182,8 @@ async def async_main():
         if NRI_ENABLED:
             tasks.append(nri_serve())
         await asyncio.gather(*tasks)
-    except Exception as e:
-        logger.critical(f"CSI service failed: {e}", exc_info=True)
+    except Exception:
+        logger.critical("csi_service_failed", exc_info=True)
         raise
 
 

@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 import socket
 import time
 from asyncio import Semaphore
@@ -9,6 +8,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+import structlog
 from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
@@ -55,11 +55,11 @@ def csi_error_handler(
 
     @wraps(func)
     async def wrapper(self, stream):
-        handler_logger = logging.getLogger(f"nixkube.csi.{func.__name__.lower()}")
+        handler_logger = structlog.get_logger(f"nixkube.csi.{func.__name__.lower()}")
         try:
             return await func(self, stream)
         except Exception as e:
-            handler_logger.exception("Handler failed")
+            handler_logger.exception("handler_failed")
 
             # Emit events for all exceptions
             if isinstance(e, CSIError):
@@ -104,7 +104,7 @@ class NodeServicer(csi_grpc.NodeBase):
             csi_pb2.NodePublishVolumeRequest, csi_pb2.NodePublishVolumeResponse
         ],
     ) -> None:
-        logger = logging.getLogger("nixkube.csi.nodepublishvolume")
+        logger = structlog.get_logger("nixkube.csi.nodepublishvolume")
         start_time = time.perf_counter()
         request = await stream.recv_message()
         if request is None:
@@ -127,7 +127,10 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
 
             logger.info(
-                f"Publishing volume for pod {pod_namespace}/{pod_name}: {request.volume_id} → {request.target_path}"
+                "publishing_volume",
+                pod=f"{pod_namespace}/{pod_name}",
+                volume_id=request.volume_id,
+                target_path=request.target_path,
             )
             pod = await Pod.get(pod_name, namespace=pod_namespace)
             # Validate that fetched pod matches the UID from volume context
@@ -144,8 +147,8 @@ class NodeServicer(csi_grpc.NodeBase):
                         note="Using deprecated nix.csi.store driver. Please migrate to nixkube driver.",
                         event_type="Warning",
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to report deprecation warning: {e}")
+                except Exception:
+                    logger.warning("deprecation_warning_failed", exc_info=True)
 
             # Build primary package from volume attributes
             try:
@@ -181,10 +184,10 @@ class NodeServicer(csi_grpc.NodeBase):
 
             if primary_package is not None:
                 package_paths.add(primary_package)
-                logger.debug(f"Primary package {primary_package=}")
+                logger.debug("primary_package", path=str(primary_package))
 
             if not package_paths:
-                logger.error("No packages to mount after building")
+                logger.error("no_packages_to_mount")
                 raise GRPCError(
                     Status.INVALID_ARGUMENT,
                     "No packages to mount",
@@ -230,7 +233,7 @@ class NodeServicer(csi_grpc.NodeBase):
             csi_pb2.NodeUnpublishVolumeRequest, csi_pb2.NodeUnpublishVolumeResponse
         ],
     ) -> None:
-        logger = logging.getLogger("nixkube.csi.nodeunpublishvolume")
+        logger = structlog.get_logger("nixkube.csi.nodeunpublishvolume")
         request = await stream.recv_message()
         if request is None:
             raise GRPCError(
@@ -238,11 +241,9 @@ class NodeServicer(csi_grpc.NodeBase):
             )
 
         logger.info(
-            "Unpublishing volume",
-            extra={
-                "volume_id": request.volume_id,
-                "target_path": request.target_path,
-            },
+            "unpublishing_volume",
+            volume_id=request.volume_id,
+            target_path=request.target_path,
         )
 
         async with self.volume_locks[request.volume_id]:
@@ -257,9 +258,9 @@ class NodeServicer(csi_grpc.NodeBase):
             # kubelet-managed mount directory (that's kubelet's job).
             if is_mount(target_path):
                 await unmount(target_path)
-                logger.debug(f"unmounted {target_path=}")
+                logger.debug("unmounted", target_path=str(target_path))
             else:
-                logger.debug(f"path not mounted, skipping unmount {target_path=}")
+                logger.debug("not_mounted", target_path=str(target_path))
 
             # Clean up stale gcroots and volume directories based on active volumes.
             # This catches orphaned resources from volumes that failed to unpublish cleanly.
@@ -272,9 +273,11 @@ class NodeServicer(csi_grpc.NodeBase):
                     exclude_vol_data_path=current_vol_data
                 )
                 cleanup_stale_entries(active_handles)
-            except Exception as ex:
+            except Exception:
                 logger.error(
-                    f"Failed to cleanup stale volume entries for {request.volume_id}: {ex}"
+                    "stale_cleanup_failed",
+                    volume_id=request.volume_id,
+                    exc_info=True,
                 )
                 # Report error event on CSI driver controller since we don't have pod info here
                 try:
@@ -290,11 +293,11 @@ class NodeServicer(csi_grpc.NodeBase):
                     await report_event(
                         controller_pod,
                         reason="VolumeCleanupFailed",
-                        note=f"Failed to cleanup stale entries for volume {request.volume_id}: {str(ex)[:100]}",
+                        note=f"Failed to cleanup stale entries for volume {request.volume_id}",
                         event_type="Warning",
                     )
-                except Exception as report_ex:
-                    logger.warning(f"Failed to report cleanup error event: {report_ex}")
+                except Exception:
+                    logger.warning("cleanup_event_failed", exc_info=True)
                 # Don't raise - CSI driver should still return success if unmount succeeded
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())
@@ -336,7 +339,7 @@ class NodeServicer(csi_grpc.NodeBase):
 
 
 async def csi_serve(plugin_name: str | None = None, socket_path: Path | None = None):
-    logger = logging.getLogger("nixkube.csi.serve")
+    logger = structlog.get_logger("nixkube.csi.serve")
     if socket_path is None:
         socket_path = Path(CSI_SOCKET_PATH)
     if plugin_name is None:
@@ -361,7 +364,7 @@ async def csi_serve(plugin_name: str | None = None, socket_path: Path | None = N
         sock.listen(128)
 
         await server.start(sock=sock)
-        logger.info(f"CSI driver (grpclib) listening on unix://{socket_path}")
+        logger.info("csi_listening", socket=str(socket_path))
         await server.wait_closed()
     except Exception:
         sock.close()

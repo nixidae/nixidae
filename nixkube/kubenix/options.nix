@@ -115,46 +115,112 @@ in
       default = 300; # 5 minutes
     };
     loggingConfig = lib.mkOption {
-      description = ''
-        Python logging configuration dict for nixkube service.
-        Merged with built-in defaults, so you only need to override specific parts.
-        See https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
-      '';
-      type = lib.types.attrsOf (curPkgs.formats.json { }).type;
+      description = "Logging configuration for the nixkube service (structlog-based).";
       default = { };
-      example = lib.literalMD ''
-        Enable DEBUG logging for nixkube:
-        ```nix
-        { loggers.nixkube.level = "DEBUG"; }
-        ```
+      type = lib.types.submodule {
+        options = {
+          renderer = lib.mkOption {
+            type = lib.types.enum [
+              "json"
+              "logfmt"
+              "console"
+            ];
+            default = "json";
+            description = ''
+              Log output renderer:
 
-        Switch to JSON output for log aggregation (Loki, ELK, etc.).
-        Python logging uses a `formatters` map where each key is a name you invent
-        (here `json`) and the value describes how to format log records. `"()"` is
-        Python dictConfig syntax meaning "construct this class as the formatter".
-        `handlers.console` is the default console handler from the built-in config —
-        pointing it at `"json"` swaps its formatter. `python-json-logger` is bundled
-        with nixkube; the default remains human-readable text.
-        ```nix
-        {
-          formatters.json = {
-            "()" = "pythonjsonlogger.jsonlogger.JsonFormatter";
-            fmt = "%(asctime)s %(name)s %(levelname)s %(funcName)s:%(lineno)d %(message)s";
+              - `"json"` (default): Structured JSON, one object per line. Recommended
+                for production and log aggregation (Loki, ELK, Datadog). Each
+                structured field is a top-level JSON key, enabling rich queries:
+                ```
+                {app="nixkube"} | json | elapsed_time > 10
+                {app="nixkube"} | json | returncode != 0
+                {app="nixkube"} | json | container_id =~ "abc"
+                ```
+
+              - `"logfmt"`: `key=value` pairs on a single line. Human-readable and
+                machine-parseable. Works well with `stern`, `kubectl logs | grep`,
+                and log shippers with native logfmt support (Vector, Fluentd).
+                Example line:
+                ```
+                level=info logger=nixkube.nri event=build_task_completed container_id=abc123
+                ```
+
+              - `"console"`: Coloured, aligned output for local development.
+                Not suitable for log aggregation or machine parsing.
+            '';
+            example = "logfmt";
           };
-          handlers.console.formatter = "json";
+          loggers = lib.mkOption {
+            type = lib.types.attrsOf (
+              lib.types.submodule {
+                options.level = lib.mkOption {
+                  type = lib.types.enum [
+                    "DEBUG"
+                    "INFO"
+                    "WARNING"
+                    "ERROR"
+                    "CRITICAL"
+                  ];
+                  description = "Log level for this logger.";
+                };
+              }
+            );
+            default = {
+              nixkube.level = "INFO";
+              httpx.level = "WARNING";
+            };
+            description = ''
+              Per-logger level overrides. Keys are Python logger names (dotted hierarchy).
+              All loggers under `nixkube.*` inherit from `nixkube` unless individually overridden.
+            '';
+            example = lib.literalExpression ''
+              {
+                nixkube.level = "DEBUG";
+                "nixkube.nri".level = "DEBUG";
+                httpx.level = "ERROR";
+              }
+            '';
+          };
+          root = lib.mkOption {
+            description = "Root logger configuration (catch-all for third-party libraries).";
+            default = { };
+            type = lib.types.submodule {
+              options.level = lib.mkOption {
+                type = lib.types.enum [
+                  "DEBUG"
+                  "INFO"
+                  "WARNING"
+                  "ERROR"
+                  "CRITICAL"
+                ];
+                default = "WARNING";
+                description = "Root logger level. All loggers inherit this unless overridden in `loggers`.";
+              };
+            };
+          };
+        };
+      };
+      example = lib.literalExpression ''
+        # JSON renderer (default) — production/Loki
+        {
+          renderer = "json";
+          loggers.nixkube.level = "DEBUG";
+          root.level = "WARNING";
         }
-        ```
 
-        nixkube uses `extra={}` in many log calls to attach structured context
-        (store paths, container env/args, subprocess results, command timings).
-        These fields always appear as top-level JSON keys regardless of `fmt`,
-        and are silently dropped by the default text formatter. Switching to
-        JSON unlocks Loki queries like:
-        ```
-        {app="nixkube"} | json | env =~ "MY_VAR"
-        {app="nixkube"} | json | elapsed_time > 10
-        {app="nixkube"} | json | returncode != 0
-        ```
+        # Logfmt renderer — stern / grep-friendly
+        {
+          renderer = "logfmt";
+          loggers.nixkube.level = "INFO";
+        }
+
+        # Console renderer — local development
+        {
+          renderer = "console";
+          loggers.nixkube.level = "DEBUG";
+          root.level = "DEBUG";
+        }
       '';
     };
     systems = lib.mkOption {
@@ -247,30 +313,6 @@ in
       };
       nixkube.labels = cfg.matchLabels // {
         "app.kubernetes.io/version" = cfg.version;
-      };
-
-      nixkube.loggingConfig = lib.mapAttrsRecursive (_: v: lib.mkDefault v) {
-        version = 1;
-        formatters = {
-          standard = {
-            format = "%(levelname)s [%(name)s] %(funcName)s:%(lineno)d %(message)s";
-          };
-        };
-        handlers = {
-          console = {
-            class = "logging.StreamHandler";
-            formatter = "standard";
-            stream = "ext://sys.stdout";
-          };
-        };
-        loggers = {
-          nixkube.level = "INFO";
-          httpx.level = "WARNING";
-        };
-        root = {
-          level = "WARN";
-          handlers = [ "console" ];
-        };
       };
 
       kubernetes.transformers = lib.optional (!cfg.push) (

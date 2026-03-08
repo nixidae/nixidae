@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 
-import logging
 from pathlib import Path
 
+import structlog
 from shellous import sh
 
 from ..errors import InitDatabaseError
 
-logger = logging.getLogger("nixkube.nix")
+logger = structlog.get_logger("nixkube.nix")
 
 
 async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
@@ -41,5 +41,5 @@ async def init_database(state_dir: Path, store_paths: set[Path]) -> None:
         ) from e
 
     logger.debug(
-        f"Initialized Nix database at {state_dir} with {len(store_paths)} paths"
+        "nix_database_initialized", state_dir=str(state_dir), count=len(store_paths)
     )

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 import asyncio
-import logging
 import shutil
 from functools import wraps
 from pathlib import Path
 from typing import Any
 
+import structlog
 from grpclib_nri import NriPlugin as NriPluginBase
 from grpclib_nri import NriServer
 from kr8s.asyncio.objects import Pod
@@ -162,11 +162,11 @@ def nri_error_handler(
 
     @wraps(func)
     async def wrapper(self, stream):
-        handler_logger = logging.getLogger(f"nixkube.nri.{func.__name__.lower()}")
+        handler_logger = structlog.get_logger(f"nixkube.nri.{func.__name__.lower()}")
         try:
             return await func(self, stream)
         except Exception as e:
-            handler_logger.exception("Handler failed")
+            handler_logger.exception("handler_failed")
             await report_event(
                 None,
                 reason="InternalError",
@@ -189,33 +189,31 @@ class NriPlugin(NriPluginBase):
             zmq_server: ZeroMQ server for build task coordination and PID/bundle reporting
             cri_socket: Path to the CRI socket for container introspection
         """
-        logger = logging.getLogger("nixkube.nri.init")
+        logger = structlog.get_logger("nixkube.nri.init")
         super().__init__(_SUBSCRIBED_EVENTS)
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
         # Find nri-wait binary on PATH (available as nix-csi dependency)
         self.nri_wait_bin = shutil.which("wait")
-        logger.debug(f"nri-wait binary resolved to: {self.nri_wait_bin}")
+        logger.debug("nri_wait_resolved", binary=self.nri_wait_bin)
 
     @nri_error_handler
     async def CreateContainer(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.createcontainer")
+        logger = structlog.get_logger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
         logger.info(
-            f"pod={req.pod.namespace}/{req.pod.name} container={req.container.name}"
+            "create_container",
+            pod=f"{req.pod.namespace}/{req.pod.name}",
+            container=req.container.name,
         )
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
         if any(m.destination == "/nix" for m in req.container.mounts):
-            logger.debug("Container already has /nix mounted, skipping NRI injection")
+            logger.debug("nix_already_mounted")
             resp = nri_pb2.CreateContainerResponse(adjust=nri_pb2.ContainerAdjustment())
             await stream.send_message(resp)
             return
-
-        args = list(req.container.args) if req.container.args else []
-        env = list(req.container.env) if req.container.env else []
-        logger.debug("Container args and env", extra={"cargs": args, "cenv": env})
 
         # Combine env values, args and store mount annotation values for store path extraction
         # Only extract from nixkube/pod or nixkube/{container-name} annotations
@@ -239,8 +237,9 @@ class NriPlugin(NriPluginBase):
         store_paths = extract_store_paths(combined)
         if store_paths:
             logger.info(
-                f"Extracted {len(store_paths)} store paths from container",
-                extra={"store_paths": sorted(store_paths)},
+                "extracted_store_paths",
+                count=len(store_paths),
+                store_paths=sorted(str(p) for p in store_paths),
             )
 
         # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
@@ -249,8 +248,10 @@ class NriPlugin(NriPluginBase):
         )
         if store_mounts:
             logger.info(
-                f"Parsed {len(store_mounts)} store mounts for container={req.container.name!r}",
-                extra={"store_mounts": store_mounts},
+                "parsed_store_mounts",
+                count=len(store_mounts),
+                container=req.container.name,
+                store_mounts={str(k): str(v) for k, v in store_mounts.items()},
             )
 
         # Parse RW flag (nixkube/pod-rw or nixkube/{container-name}-rw), filtered by system
@@ -258,14 +259,12 @@ class NriPlugin(NriPluginBase):
             req.pod.annotations, req.container.name, get_current_system()
         )
         if nix_rw:
-            logger.info(
-                f"RW /nix overlayfs requested for container={req.container.name!r}"
-            )
+            logger.info("nix_rw_requested", container=req.container.name)
             # Verify kernel supports new mount API for overlayfs (6.5+)
             if not kernel_supports_rw():
                 logger.error(
-                    f"Cannot enable RW /nix for container={req.container.name!r}: "
-                    "kernel does not support new mount API for overlayfs (requires Linux 6.5+)"
+                    "nix_rw_kernel_unsupported",
+                    container=req.container.name,
                 )
                 raise RuntimeError(
                     "RW overlay mounts not supported on this kernel (requires Linux 6.5+)"
@@ -278,7 +277,9 @@ class NriPlugin(NriPluginBase):
             container_id = req.container.id
 
             logger.info(
-                f"Enabling store injection for container={container_id!r} with {len(store_paths)} storepaths"
+                "store_injection_enabled",
+                container_id=container_id,
+                count=len(store_paths),
             )
 
             try:
@@ -318,14 +319,19 @@ class NriPlugin(NriPluginBase):
                 )
                 adjust.hooks.create_runtime.append(hook)
                 logger.info(
-                    f"Injected createRuntime hook for container={container_id!r} (binary={self.nri_wait_bin!r}) (chroot binary={coreutils_binary!r})"
+                    "hook_injected",
+                    container_id=container_id,
+                    nri_wait_bin=self.nri_wait_bin,
+                    coreutils_binary=str(coreutils_binary),
                 )
 
                 # Spawn build task to build store paths and namespace-mount them into the container
                 if container_id not in self.zmq_server.pending_builds:
                     self.zmq_server.pending_builds.add(container_id)
                     logger.info(
-                        f"Spawning build task for container={container_id!r} with {len(store_paths)} extracted store paths"
+                        "build_task_spawning",
+                        container_id=container_id,
+                        count=len(store_paths),
                     )
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
@@ -341,51 +347,48 @@ class NriPlugin(NriPluginBase):
 
                     def _build_done(t, cid=container_id):
                         if t.cancelled():
-                            logger.warning(
-                                f"Build task cancelled for container={cid!r}"
-                            )
+                            logger.warning("build_task_cancelled", container_id=cid)
                         elif t.exception():
                             logger.error(
-                                f"Build task failed for container={cid!r}: {t.exception()}"
+                                "build_task_failed",
+                                container_id=cid,
+                                exc_info=t.exception(),
                             )
                         else:
-                            logger.info(f"Build task completed for container={cid!r}")
+                            logger.info("build_task_completed", container_id=cid)
 
                     task.add_done_callback(_build_done)
                 else:
-                    logger.warning(
-                        f"Build already pending for container={container_id!r}"
-                    )
+                    logger.warning("build_already_pending", container_id=container_id)
 
-            except Exception as e:
-                logger.exception(
-                    f"Failed to set up volume for container={container_id!r}: {e}"
-                )
+            except Exception:
+                logger.exception("volume_setup_failed", container_id=container_id)
 
         resp = nri_pb2.CreateContainerResponse(adjust=adjust)
         await stream.send_message(resp)
 
     @nri_error_handler
     async def StateChange(self, stream) -> None:
-        logger = logging.getLogger("nixkube.nri.statechange")
+        logger = structlog.get_logger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
 
-        # Build log message with event type and context
-        # Pod is always set in StateChangeEvent; container is empty if event is pod-related
         event_name = nri_pb2.Event.Name(event.event)
-        pod_str = f"pod={event.pod.namespace}/{event.pod.name}"
-        parts = [event_name, pod_str]
+        log_kwargs: dict[str, Any] = {
+            "nri_event": event_name,
+            "pod": f"{event.pod.namespace}/{event.pod.name}",
+        }
 
         # Only include container info if this is a container event (container exists and has a name)
         if event.container and event.container.name:
-            container_state = nri_pb2.ContainerState.Name(event.container.state)
-            container_info = f"container={event.container.name} state={container_state}"
+            log_kwargs["container"] = event.container.name
+            log_kwargs["container_state"] = nri_pb2.ContainerState.Name(
+                event.container.state
+            )
             if event.container.exit_code:
-                container_info += f" exit_code={event.container.exit_code}"
-            parts.append(container_info)
+                log_kwargs["exit_code"] = event.container.exit_code
 
-        logger.info(" ".join(parts))
+        logger.info("state_change", **log_kwargs)
 
         # Cleanup stale hardlink farm volumes when container is removed
         if event.event == nri_pb2.Event.REMOVE_CONTAINER:
@@ -395,13 +398,13 @@ class NriPlugin(NriPluginBase):
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""
-        logger = logging.getLogger("nixkube.nri.buildpump")
+        logger = structlog.get_logger("nixkube.nri.buildpump")
         try:
             while True:
                 await asyncio.sleep(10)
                 await self.zmq_server.publish_build_progress(container_id)
         except asyncio.CancelledError:
-            logger.debug(f"Progress pump cancelled for container={container_id!r}")
+            logger.debug("progress_pump_cancelled", container_id=container_id)
 
     async def _spawn_build_task(
         self,
@@ -416,15 +419,15 @@ class NriPlugin(NriPluginBase):
 
         Periodically pumps progress updates to reset nri-wait timeout.
         """
-        logger = logging.getLogger("nixkube.nri.buildtask")
-        logger.info(
-            f"Started for container={container_id!r} with {len(store_paths)} store paths"
+        log = structlog.get_logger("nixkube.nri.buildtask").bind(
+            container_id=container_id
         )
+        log.info("build_task_started", count=len(store_paths))
         pump_task: asyncio.Task | None = None
         try:
             # If no store paths to build, just mark as done
             if not store_paths:
-                logger.info(f"No store paths to build for container={container_id!r}")
+                log.info("no_store_paths")
                 self.zmq_server.build_status[container_id] = {"status": "done"}
                 await self.zmq_server.publish_build_complete(container_id)
                 self.zmq_server.pending_builds.discard(container_id)
@@ -432,18 +435,16 @@ class NriPlugin(NriPluginBase):
 
             # Start progress pump to keep nri-wait timeout reset during long builds
             pump_task = asyncio.create_task(self._pump_build_progress(container_id))
-            logger.debug(f"Started progress pump for container={container_id!r}")
+            log.debug("progress_pump_started")
 
             # Get extra build args for builders and cache
             extra_args = await get_build_args()
 
             # Realize storepaths
             volume_path = NRI_CONTAINERS / container_id
-            logger.debug(
-                f"Calling fetch_packages for container={container_id!r} with {len(store_paths)} paths"
-            )
+            log.debug("fetch_packages_starting", count=len(store_paths))
             await fetch_packages(store_paths, volume_path, extra_args)
-            logger.debug(f"fetch_packages completed for container={container_id!r}")
+            log.debug("fetch_packages_done")
 
             # Hardlink closure into volume (prepare_volume handles closure expansion)
             await prepare_volume(volume_path, store_paths, None)
@@ -451,14 +452,10 @@ class NriPlugin(NriPluginBase):
 
             # Wait for nri-wait to report PID+bundle (arrives when the createRuntime hook fires).
             # We need the PID to enter the container's mount namespace and mount /nix + store mounts.
-            logger.debug(
-                f"Waiting for PID+bundle from nri-wait for container={container_id!r}"
-            )
+            log.debug("pid_bundle_waiting")
             container_info = await self.zmq_server.wait_for_pid(container_id)
             pid_info = container_info[0] if container_info else None
-            logger.debug(
-                f"Received PID+bundle for container={container_id!r}: pid={pid_info}"
-            )
+            log.debug("pid_bundle_received", pid=pid_info)
             if container_info is None:
                 raise RuntimeError(
                     f"No PID/bundle received for container={container_id!r}, cannot mount /nix"
@@ -476,17 +473,15 @@ class NriPlugin(NriPluginBase):
                         )
                     mounts.append((resolved, container_path))
 
-            logger.info(
-                f"Namespace-mounting /nix + {len(mounts)} store mount(s) in container pid={pid} bundle={bundle!r}"
-            )
+            log.info("namespace_mounting", pid=pid, bundle=bundle, mounts=len(mounts))
             await mount_in_container(pid, bundle, nix_tree_path, mounts, nix_rw)
 
-            logger.info(f"Completed all phases for container={container_id!r}")
+            log.info("build_task_completed")
             self.zmq_server.build_status[container_id] = {"status": "done"}
-            logger.debug(f"Added to build_status cache for container={container_id!r}")
+            log.debug("build_status_updated")
             await self.zmq_server.publish_build_complete(container_id)
             self.zmq_server.pending_builds.discard(container_id)
-            logger.info(f"Removed from pending_builds for container={container_id!r}")
+            log.info("removed_from_pending")
 
             # Copy all packages to cache in background
             schedule_copy_to_cache(store_paths)
@@ -499,7 +494,7 @@ class NriPlugin(NriPluginBase):
                 event_type="Normal",
             )
         except Exception as e:
-            logger.error(f"Build task failed for container={container_id!r}: {e}")
+            log.exception("build_task_failed")
             self.zmq_server.pending_builds.discard(container_id)
 
             # Report failed build
@@ -523,14 +518,12 @@ class NriPlugin(NriPluginBase):
 
 async def nri_serve() -> None:
     """Run the NRI plugin server with automatic reconnection and kernel checks."""
-    logger = logging.getLogger("nixkube.nri.serve")
+    logger = structlog.get_logger("nixkube.nri.serve")
 
     # Test kernel capabilities at startup
     if not kernel_supports_ro():
         # RO support is required; fail hard
-        logger.critical(
-            "Kernel does not support RO mount operations (open_tree/move_mount)"
-        )
+        logger.critical("kernel_ro_unsupported")
         await report_event(
             None,
             reason="KernelIncompatible",
@@ -542,8 +535,8 @@ async def nri_serve() -> None:
     if not kernel_supports_rw():
         # RW support is optional; warn but continue
         logger.warning(
-            "Kernel does not support new mount API for overlayfs (fsopen/fsconfig/fsmount). "
-            "RW /nix mounts will be unavailable."
+            "kernel_rw_unsupported",
+            note="RW /nix mounts will be unavailable (requires Linux 6.5+ for fsopen/fsconfig/fsmount)",
         )
         await report_event(
             None,
@@ -560,7 +553,7 @@ async def nri_serve() -> None:
     # collection of stale volumes won't work and the node will fill up.
     cri_socket = await get_cri_socket()
     containers = await list_container_ids(HOST_ROOT / cri_socket.relative_to("/"))
-    logger.info(f"CRI connectivity verified: {len(containers)} containers")
+    logger.info("cri_connected", container_count=len(containers))
 
     # Create plugin instance and NRI server
     plugin = NriPlugin(zmq_server, cri_socket)
