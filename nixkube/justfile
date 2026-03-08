@@ -56,7 +56,7 @@ lint:
 
 # Check formatted code without changes
 check-fmt:
-    direnv exec . treefmt --fail-on-change
+    nix run --file . treefmt -- --fail-on-change
 
 # Generate doc/options.md from kubenix module options
 gendoc:

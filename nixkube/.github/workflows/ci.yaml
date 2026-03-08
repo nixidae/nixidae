@@ -31,7 +31,7 @@ jobs:
       - name: Run type checker
         run: nix-shell --run "pyright pkgs/nixkube/src"
       - name: Check formatting
-        run: nix-shell --run "treefmt --fail-on-change"
+        run: nix run --file . treefmt -- --fail-on-change
   build-amd64:
     runs-on: ubuntu-latest
     steps:
