@@ -1,6 +1,30 @@
 # SPDX-License-Identifier: MIT
 
-"""ZeroMQ server for NRI build coordination."""
+"""ZeroMQ server for NRI build coordination.
+
+Why ZeroMQ instead of raw asyncio streams or queues?
+
+1. **Cross-namespace IPC**: nri-wait runs inside the container's network namespace
+   after the OCI hook fires. Unix domain sockets work across Linux namespaces at the
+   filesystem level, and ZeroMQ's IPC transport uses exactly that. Replicating this
+   cleanly with asyncio streams would require the same Unix socket plumbing but without
+   ZeroMQ's framing, reconnection, and buffering guarantees.
+
+2. **PUB/SUB heartbeat pump**: The build daemon publishes periodic progress messages
+   so nri-wait can distinguish "build still running" from "daemon crashed". ZeroMQ's
+   PUB/SUB gives us fan-out (multiple nri-wait processes can subscribe) and late-join
+   semantics for free. Reimplementing this with asyncio would mean maintaining a set of
+   writer streams and handling partial failures manually.
+
+3. **Battle-tested**: pyzmq is a mature, well-maintained binding to the ZeroMQ C
+   library. The socket lifecycle (bind/connect, context cleanup) is well-understood and
+   the async support integrates cleanly with asyncio event loops.
+
+Design:
+- REP socket (`wait-req.sock`): nri-wait sends its PID/bundle and polls for build status.
+- PUB socket (`wait-pub.sock`): build daemon broadcasts progress/done events; nri-wait
+  subscribes and resets its timeout on each heartbeat.
+"""
 
 import asyncio
 import json

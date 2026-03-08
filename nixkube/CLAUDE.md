@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Always use Jujutsu (jj) instead of Git** for all version control operations in this repository.
 
-**Format code before committing**: Run `just fmt` before any `jj describe` or `jj commit` to ensure all code (Nix, Python, YAML, etc.) is properly formatted according to project standards.
+**Before committing**: Run `just precommit` (formats, lints, tests, and regenerates docs). This is the single command to run before every `jj commit`. Do not run `just fmt`, `just lint`, `just test`, or `just gendoc` individually when preparing a commit — use `just precommit` instead.
 
 **Running `just` recipes**: You do NOT need `direnv exec . ` to run `just` recipes—they're already part of the dev environment. Only use `direnv exec . ` when running Python introspection code (e.g., `direnv exec . python3 -c ...` or `direnv exec . python3 << 'EOF'`) that depends on rebuilt dependencies in Nix.
 

@@ -289,18 +289,15 @@ and all stub handlers. `nixkube/nri/server.py` now only implements `CreateContai
 **Priority**: Low — the current structure works fine, this is a clarity improvement
 **Model**: Sonnet
 
-### 7.2 Consider replacing ZeroMQ with asyncio primitives
+### 7.2 Consider replacing ZeroMQ with asyncio primitives ❌ WONTFIX
 
-The ZeroMQ dependency adds complexity (socket lifecycle, IPC files on disk, separate
-context management) for what is essentially inter-process coordination. Since both
-the build task and the OCI hook run on the same node, Unix domain sockets with asyncio
-streams could achieve the same result with fewer moving parts.
-
-**Caveat**: ZeroMQ's PUB/SUB pattern is convenient for the heartbeat pump. Evaluate
-whether the simplification is worth the migration effort.
+ZeroMQ stays. pyzmq is battle-tested, and the PUB/SUB pattern across Unix domain
+sockets (including across Linux network namespaces) is genuinely the right tool here —
+reimplementing that with raw asyncio streams would be reinventing the wheel badly.
+ZeroMQ is also worth having experience with as a library.
 
 **Effort**: Large
-**Priority**: Low — only if ZeroMQ causes operational issues
+**Priority**: N/A
 **Model**: Opus
 
 ### 7.3 Make cache destination configurable
