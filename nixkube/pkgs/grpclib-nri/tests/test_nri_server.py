@@ -27,6 +27,7 @@ async def test_nri_handshake(nri_server: NriServer) -> None:
     # Give it a moment to complete the registration handshake
     await asyncio.sleep(1.0)
 
+    assert nri_server is not None
     logger.info("NRI handshake completed successfully")
 
 
@@ -85,10 +86,17 @@ async def test_nri_server_lifecycle(
     for _ in range(50):
         if socket_path.exists():
             break
+        if proc.returncode is not None:
+            stdout, stderr = await proc.communicate()
+            pytest.fail(
+                f"Test server exited prematurely (code {proc.returncode})\n"
+                f"stdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+            )
         await asyncio.sleep(0.1)
     else:
-        proc.terminate()
-        await proc.wait()
+        if proc.returncode is None:
+            proc.terminate()
+            await proc.wait()
         pytest.fail("Test server socket not created")
 
     # Create and start server
