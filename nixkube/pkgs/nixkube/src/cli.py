@@ -46,7 +46,6 @@ def configure_structlog(renderer: str = "json") -> None:
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
-        structlog.processors.ExceptionRenderer(),
     ]
 
     if renderer == "console":
@@ -75,10 +74,17 @@ def configure_structlog(renderer: str = "json") -> None:
         cache_logger_on_first_use=True,
     )
 
+    # ConsoleRenderer formats exceptions natively; ExceptionRenderer is only
+    # needed for machine-readable formats (json/logfmt) to serialize exc_info.
+    pre_render: list[structlog.types.Processor] = (
+        [] if renderer == "console" else [structlog.processors.ExceptionRenderer()]
+    )
+
     formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared_processors,
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            *pre_render,
             final_renderer,
         ],
     )

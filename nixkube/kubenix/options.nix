@@ -8,6 +8,11 @@
 }:
 let
   cfg = config.nixkube;
+  defaultLoggers = {
+    "nixkube".level = "INFO";
+    "nixkube.nix_daemon".level = "WARNING";
+    "httpx".level = "WARNING";
+  };
   inputs =
     (
       let
@@ -158,11 +163,7 @@ in
                 };
               }
             );
-            default = {
-              "nixkube".level = "INFO";
-              "nixkube.nix_daemon".level = "WARNING";
-              "httpx".level = "WARNING";
-            };
+            default = defaultLoggers;
             description = ''
               Per-logger level overrides. Keys are Python logger names (dotted hierarchy).
               All loggers under `nixkube.*` inherit from `nixkube` unless individually overridden.
@@ -297,6 +298,9 @@ in
         curPkgs = mkPkgs builtins.currentSystem;
         subPath = spath: lib.removePrefix "/" (toString spath);
       };
+
+      # Set default loggers
+      nixkube.loggingConfig.loggers = lib.mapAttrsRecursive (_: v: lib.mkDefault v) defaultLoggers;
 
       # Set internal label options using the derived values
       nixkube.matchLabels = {
