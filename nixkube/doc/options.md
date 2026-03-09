@@ -893,6 +893,9 @@ attribute set of (submodule)
   nixkube = {
     level = "INFO";
   };
+  "nixkube.nix_daemon" = {
+    level = "WARNING";
+  };
 }
 ```
 
@@ -902,9 +905,9 @@ attribute set of (submodule)
 
 ```nix
 {
-  nixkube.level = "DEBUG";
+  "nixkube".level = "DEBUG";
   "nixkube.nri".level = "DEBUG";
-  httpx.level = "ERROR";
+  "httpx".level = "ERROR";
 }
 
 ```

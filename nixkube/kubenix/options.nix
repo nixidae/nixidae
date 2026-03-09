@@ -159,8 +159,9 @@ in
               }
             );
             default = {
-              nixkube.level = "INFO";
-              httpx.level = "WARNING";
+              "nixkube".level = "INFO";
+              "nixkube.nix_daemon".level = "WARNING";
+              "httpx".level = "WARNING";
             };
             description = ''
               Per-logger level overrides. Keys are Python logger names (dotted hierarchy).
@@ -168,9 +169,9 @@ in
             '';
             example = lib.literalExpression ''
               {
-                nixkube.level = "DEBUG";
+                "nixkube".level = "DEBUG";
                 "nixkube.nri".level = "DEBUG";
-                httpx.level = "ERROR";
+                "httpx".level = "ERROR";
               }
             '';
           };
