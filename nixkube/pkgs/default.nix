@@ -24,6 +24,7 @@ self: pkgs: {
       kr8s
       nri-wait
       ;
+    coreutils = pkgs.pkgsStatic.coreutils;
   };
 
   # kluctl = pkgs.kluctl.override {

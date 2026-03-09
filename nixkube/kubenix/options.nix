@@ -98,14 +98,6 @@ in
       type = lib.types.str;
       default = "nix-builders";
     };
-    rsyncConcurrency = lib.mkOption {
-      description = ''
-        Maximum number of concurrent rsync operations when copying store paths.
-        Higher values can improve performance but increase I/O load.
-      '';
-      type = lib.types.ints.positive;
-      default = 1;
-    };
     nodeBuildTimeout = lib.mkOption {
       description = ''
         Timeout in seconds for Nix build operations on node pods.

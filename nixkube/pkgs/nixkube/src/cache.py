@@ -112,13 +112,6 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
         # store paths without .drv files (e.g., fetched from substituters), which is normal.
         if path_info_drv.returncode == 0:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
-        else:
-            logger.debug(
-                "no_derivation_paths",
-                returncode=path_info_drv.returncode,
-                stderr=path_info_drv.stderr,
-            )
-
         # Filter out .drv files and deduplicate
         paths = {p for p in paths if p.suffix != ".drv"}
 

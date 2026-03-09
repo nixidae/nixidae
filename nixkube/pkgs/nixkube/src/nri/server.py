@@ -13,7 +13,6 @@ from nri import nri_pb2
 
 from ..cache import schedule_copy_to_cache
 from ..constants import (
-    COREUTILS_STATIC,
     HOST_MOUNT_PATH,
     HOST_ROOT,
     NRI_CONTAINERS,
@@ -299,13 +298,13 @@ class NriPlugin(NriPluginBase):
                 assert self.nri_wait_bin is not None, (
                     "nri-wait binary not found on PATH, wait hook won't be able to execute"
                 )
-                coreutils_binary = (
-                    HOST_MOUNT_PATH
-                    / COREUTILS_STATIC.relative_to("/")
-                    / "bin/coreutils"
-                )
+                coreutils_container = shutil.which("coreutils")
+                assert coreutils_container is not None, "coreutils not found on PATH"
+                coreutils_host = HOST_MOUNT_PATH / Path(
+                    coreutils_container
+                ).relative_to("/")
                 hook = nri_pb2.Hook(
-                    path=str(coreutils_binary),
+                    path=str(coreutils_host),
                     args=[
                         "chroot",  # somehow this works in OCI hooks but not --coreutils-prog=chroot....
                         str(HOST_MOUNT_PATH),
@@ -322,7 +321,7 @@ class NriPlugin(NriPluginBase):
                     "hook_injected",
                     container_id=container_id,
                     nri_wait_bin=self.nri_wait_bin,
-                    coreutils_binary=str(coreutils_binary),
+                    coreutils_host=coreutils_host,
                 )
 
                 # Spawn build task to build store paths and namespace-mount them into the container

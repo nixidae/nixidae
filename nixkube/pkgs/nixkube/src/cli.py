@@ -19,11 +19,14 @@ from .constants import (
     NRI_ENABLED,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
-    RSYNC_CONCURRENCY,
     VERIFY_STORE_PATHS,
 )
 from .csi.server import csi_serve
+from .gc_task import gc_loop
+from .nix_daemon import supervise_nix_daemon
 from .nri.server import nri_serve
+from .startup import run_setup
+from .supervision import supervised
 
 
 def configure_structlog(renderer: str = "json") -> None:
@@ -115,7 +118,6 @@ def log_effective_app_config() -> None:
     print(
         "Effective application configuration:\n"
         f"  {NIX_BUILD_TIMEOUT=}\n"
-        f"  {RSYNC_CONCURRENCY=}\n"
         f"  {CACHE_ENABLED=}\n"
         f"  {BUILDERS_ENABLED=}\n"
         f"  {VERIFY_STORE_PATHS=}\n"
@@ -128,12 +130,13 @@ def log_effective_app_config() -> None:
 
 
 async def async_main():
-    """Start CSI and NRI servers with configured logging.
+    """Run one-shot setup, then supervise nix-daemon, GC, CSI, and NRI concurrently.
 
     Loads logging configuration from /etc/nix/logging.json (ConfigMap-mounted).
-    The config controls the renderer ("json" or "console") and per-logger levels.
-    Starts the CSI gRPC server(s) and optionally the NRI plugin server based on
-    environment flags (ENABLE_COMPAT_DRIVER, NRI_ENABLED).
+    Runs run_setup() synchronously first, then spawns supervised tasks for
+    nix-daemon, GC loop, CSI server(s), and optionally the NRI plugin.
+    CrashLoopError from any task propagates through asyncio.gather(), cancels
+    siblings, and exits the process (Kubernetes restarts the pod with backoff).
     """
     config: dict = {}
     logging_config_path = Path("/etc/nix/logging.json")
@@ -168,23 +171,42 @@ async def async_main():
         drivers=["nixkube"] + (["nix.csi.store"] if ENABLE_COMPAT_DRIVER else []),
     )
 
-    try:
-        tasks = [
-            csi_serve(plugin_name="nixkube", socket_path=Path("/csi/nixkube/csi.sock"))
-        ]
-        if ENABLE_COMPAT_DRIVER:
-            tasks.append(
-                csi_serve(
-                    plugin_name="nix.csi.store",
-                    socket_path=Path("/csi/nix.csi.store/csi.sock"),
-                )
+    await run_setup()
+
+    tasks: list[asyncio.Task] = [
+        asyncio.create_task(supervise_nix_daemon(), name="nix-daemon"),
+        asyncio.create_task(gc_loop(), name="gc"),
+        asyncio.create_task(
+            supervised(
+                lambda: csi_serve(
+                    plugin_name="nixkube", socket_path=Path("/csi/nixkube/csi.sock")
+                ),
+                "csi",
+            ),
+            name="csi",
+        ),
+    ]
+    if ENABLE_COMPAT_DRIVER:
+        tasks.append(
+            asyncio.create_task(
+                supervised(
+                    lambda: csi_serve(
+                        plugin_name="nix.csi.store",
+                        socket_path=Path("/csi/nix.csi.store/csi.sock"),
+                    ),
+                    "csi-compat",
+                ),
+                name="csi-compat",
             )
-        if NRI_ENABLED:
-            tasks.append(nri_serve())
-        await asyncio.gather(*tasks)
-    except Exception:
-        logger.critical("csi_service_failed", exc_info=True)
-        raise
+        )
+    if NRI_ENABLED:
+        tasks.append(
+            asyncio.create_task(
+                supervised(lambda: nri_serve(), "nri"),
+                name="nri",
+            )
+        )
+    await asyncio.gather(*tasks)
 
 
 def main():

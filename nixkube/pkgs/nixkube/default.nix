@@ -2,6 +2,7 @@
 
 {
   buildPythonApplication, # Builder
+  dockerTools, # binSh, caCertificates, usrBinEnv for container setup
   hatchling, # Build system
   coreutils, # ln
   cryptography, # ssh-keygen Python
@@ -16,7 +17,6 @@
   lruLix, # We need a Nix implementation.... :)
   nix_init_db, # Import from one nix DB to another
   openssh, # Copying to cache
-  rsync, # hardlinking
   util-linuxMinimal, # mount, umount
   pyzmq, # Talking to OCI hooks
   nri-wait, # OCI hook for waiting on NRI builds
@@ -49,7 +49,6 @@ buildPythonApplication {
     lruLix
     nix_init_db
     openssh
-    rsync
     util-linuxMinimal
     pyzmq
     nri-wait
@@ -60,6 +59,17 @@ buildPythonApplication {
     pytest
     pytest-asyncio
     hypothesis
+  ];
+  makeWrapperArgs = [
+    "--set"
+    "SETUP_BINSH"
+    "${dockerTools.binSh}"
+    "--set"
+    "SETUP_CACERTS"
+    "${dockerTools.caCertificates}"
+    "--set"
+    "SETUP_USRBINENV"
+    "${dockerTools.usrBinEnv}"
   ];
   meta.mainProgram = "nixkube";
 }

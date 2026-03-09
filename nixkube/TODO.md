@@ -24,3 +24,5 @@
 
 ## Documentation
 * Document all project loggers (grpclib_nri.*, nixkube.*) in doc/logging.md so operators know what to filter/enable per subsystem
+
+* Remove format_exc_info from the "dev logger"

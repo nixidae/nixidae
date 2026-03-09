@@ -98,11 +98,9 @@ in
                   nix-node = {
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     command = [
-                      "dinit"
-                      "--log-file"
-                      "/var/log/dinit.log"
-                      "--quiet"
-                      "csi"
+                      "tini"
+                      "--"
+                      "nixkube"
                     ];
                     securityContext.privileged = true;
                     env = lib.mkNamedList {
@@ -118,7 +116,7 @@ in
                       KUBE_POD_NAME.valueFrom.fieldRef.fieldPath = "metadata.name";
                       KUBE_POD_UID.valueFrom.fieldRef.fieldPath = "metadata.uid";
                       NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
-                      RSYNC_CONCURRENCY.value = toString cfg.rsyncConcurrency;
+                      NIXPKGS_ALLOW_UNFREE.value = "1";
                       USER.value = "root";
                     };
                     volumeMounts = lib.mkNamedList {

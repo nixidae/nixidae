@@ -10,7 +10,6 @@ reads and ensure consistent defaults across the codebase.
 
 import os
 import sys
-from asyncio import Semaphore
 from importlib import metadata
 from pathlib import Path
 
@@ -59,11 +58,6 @@ CSI_VOLUMES = CSI_ROOT / "volumes"
 NRI_CONTAINERS = CSI_ROOT / "containers"
 CSI_GCROOTS = NIX_ROOT / "nix/var/nix/gcroots/nix-csi"
 
-# Configurable via kubenix option: rsyncConcurrency (default: 1)
-# Set via RSYNC_CONCURRENCY environment variable
-RSYNC_CONCURRENCY: int = max(_parse_int_env("RSYNC_CONCURRENCY", "1"), 1)
-RSYNC_SEM: Semaphore = Semaphore(RSYNC_CONCURRENCY)
-
 # Configurable via kubenix option: nodeBuildTimeout (default: 300)
 # Set via NIX_BUILD_TIMEOUT environment variable
 NIX_BUILD_TIMEOUT: float = _parse_float_env("NIX_BUILD_TIMEOUT", "300")
@@ -106,9 +100,6 @@ NRI_PLUGIN_IDX = os.environ.get("NRI_PLUGIN_IDX", "69")
 # Set via HOST_MOUNT_PATH environment variable from kubenix
 HOST_MOUNT_PATH = Path(os.environ.get("HOST_MOUNT_PATH", "/var/lib/nix-csi"))
 
-# Statically linked chroot binary used to execute OCI hooks from HOST_MOUNT_PATH
-COREUTILS_STATIC = Path(os.environ.get("COREUTILS_STATIC", "coreutils"))
-
 # Host root filesystem mounted into the daemonset container.
 HOST_ROOT = Path(os.environ.get("HOST_ROOT", "/host"))
 
@@ -128,3 +119,13 @@ KUBE_NODE_NAME = os.environ.get("KUBE_NODE_NAME", "unknown")
 MS_RDONLY = 1
 MS_REMOUNT = 32
 MS_BIND = 4096
+
+# GC loop configuration
+# Set via GC_KEEP_SECONDS / GC_INTERVAL_SECONDS environment variables
+GC_KEEP_SECONDS: int = _parse_int_env("GC_KEEP_SECONDS", "3600")
+GC_INTERVAL_SECONDS: int = _parse_int_env("GC_INTERVAL_SECONDS", "3600")
+
+# Paths baked in at build time by makeWrapperArgs (empty in dev/test environments)
+SETUP_BINSH = os.environ.get("SETUP_BINSH", "")
+SETUP_CACERTS = os.environ.get("SETUP_CACERTS", "")
+SETUP_USRBINENV = os.environ.get("SETUP_USRBINENV", "")

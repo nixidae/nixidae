@@ -1233,31 +1233,6 @@ positive integer, meaning >0
 
 
 
-## nixkube\.rsyncConcurrency
-
-
-
-Maximum number of concurrent rsync operations when copying store paths\.
-Higher values can improve performance but increase I/O load\.
-
-
-
-*Type:*
-positive integer, meaning >0
-
-
-
-*Default:*
-
-```nix
-1
-```
-
-*Declared by:*
- - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
-
-
-
 ## nixkube\.systems
 
 

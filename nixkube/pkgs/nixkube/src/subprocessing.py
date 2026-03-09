@@ -186,8 +186,27 @@ async def _read_stream(
 ) -> None:
     """Read lines from a stream and append to both stream-specific and combined buffers."""
     try:
-        async for line in stream:
-            decoded = line.decode().strip()
+        while True:
+            try:
+                raw = await stream.readline()
+                if not raw:
+                    break
+            except ValueError:
+                # Line exceeds asyncio's 64KB StreamReader limit (e.g. nix path-info --json).
+                # Drain the rest of the oversized line in chunks until newline or EOF.
+                chunks: list[bytes] = []
+                while True:
+                    chunk = await stream.read(65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    if b"\n" in chunk:
+                        break
+                if not chunks:
+                    break
+                raw = b"".join(chunks)
+
+            decoded = raw.decode(errors="replace").strip()
             stream_buffer.append(decoded)
             combined_buffer.append(decoded)
             if log_level != logging.NOTSET:
