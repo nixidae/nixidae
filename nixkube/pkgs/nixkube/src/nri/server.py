@@ -201,11 +201,11 @@ class NriPlugin(NriPluginBase):
         logger = structlog.get_logger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger.info(
-            "create_container",
+        logger = logger.bind(
             pod=f"{req.pod.namespace}/{req.pod.name}",
             container=req.container.name,
         )
+        logger.info("create_container")
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
         if any(m.destination == "/nix" for m in req.container.mounts):
@@ -249,7 +249,6 @@ class NriPlugin(NriPluginBase):
             logger.info(
                 "parsed_store_mounts",
                 count=len(store_mounts),
-                container=req.container.name,
                 store_mounts={str(k): str(v) for k, v in store_mounts.items()},
             )
 
@@ -258,13 +257,10 @@ class NriPlugin(NriPluginBase):
             req.pod.annotations, req.container.name, get_current_system()
         )
         if nix_rw:
-            logger.info("nix_rw_requested", container=req.container.name)
+            logger.info("nix_rw_requested")
             # Verify kernel supports new mount API for overlayfs (6.5+)
             if not kernel_supports_rw():
-                logger.error(
-                    "nix_rw_kernel_unsupported",
-                    container=req.container.name,
-                )
+                logger.error("nix_rw_kernel_unsupported")
                 raise RuntimeError(
                     "RW overlay mounts not supported on this kernel (requires Linux 6.5+)"
                 )
@@ -373,21 +369,21 @@ class NriPlugin(NriPluginBase):
         assert event is not None
 
         event_name = nri_pb2.Event.Name(event.event)
-        log_kwargs: dict[str, Any] = {
-            "nri_event": event_name,
-            "pod": f"{event.pod.namespace}/{event.pod.name}",
-        }
+        logger = logger.bind(
+            nri_event=event_name,
+            pod=f"{event.pod.namespace}/{event.pod.name}",
+        )
 
         # Only include container info if this is a container event (container exists and has a name)
         if event.container and event.container.name:
-            log_kwargs["container"] = event.container.name
-            log_kwargs["container_state"] = nri_pb2.ContainerState.Name(
-                event.container.state
+            logger = logger.bind(
+                container=event.container.name,
+                container_state=nri_pb2.ContainerState.Name(event.container.state),
             )
             if event.container.exit_code:
-                log_kwargs["exit_code"] = event.container.exit_code
+                logger = logger.bind(exit_code=event.container.exit_code)
 
-        logger.info("state_change", **log_kwargs)
+        logger.info("state_change")
 
         # Cleanup stale hardlink farm volumes when container is removed
         if event.event == nri_pb2.Event.REMOVE_CONTAINER:
@@ -397,13 +393,15 @@ class NriPlugin(NriPluginBase):
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""
-        logger = structlog.get_logger("nixkube.nri.buildpump")
+        logger = structlog.get_logger("nixkube.nri.buildpump").bind(
+            container_id=container_id
+        )
         try:
             while True:
                 await asyncio.sleep(10)
                 await self.zmq_server.publish_build_progress(container_id)
         except asyncio.CancelledError:
-            logger.debug("progress_pump_cancelled", container_id=container_id)
+            logger.debug("progress_pump_cancelled")
 
     async def _spawn_build_task(
         self,
@@ -419,7 +417,8 @@ class NriPlugin(NriPluginBase):
         Periodically pumps progress updates to reset nri-wait timeout.
         """
         log = structlog.get_logger("nixkube.nri.buildtask").bind(
-            container_id=container_id
+            container_id=container_id,
+            container=container_name,
         )
         log.info("build_task_started", count=len(store_paths))
         pump_task: asyncio.Task | None = None
