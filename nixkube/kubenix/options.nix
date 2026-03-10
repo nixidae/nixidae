@@ -324,7 +324,7 @@ in
             else
               f value;
         in
-        if resource.metadata.annotations."nixkube/discard" or null != null then
+        if resource.metadata.annotations."nixkube/discard" or null == "true" then
           mapRecursive (x: if lib.isString x then builtins.unsafeDiscardStringContext x else x) resource
         else
           resource
