@@ -198,12 +198,13 @@ class NriPlugin(NriPluginBase):
 
     @nri_error_handler
     async def CreateContainer(self, stream) -> None:
+        structlog.contextvars.clear_contextvars()
         logger = structlog.get_logger("nixkube.nri.createcontainer")
         req: nri_pb2.CreateContainerRequest | None = await stream.recv_message()
         assert req is not None
-        logger = logger.bind(
-            pod=f"{req.pod.namespace}/{req.pod.name}",
-            container=req.container.name,
+        structlog.contextvars.bind_contextvars(
+            pod={"namespace": req.pod.namespace, "name": req.pod.name},
+            container={"name": req.container.name, "id": req.container.id},
         )
         logger.info("create_container")
 
@@ -271,11 +272,7 @@ class NriPlugin(NriPluginBase):
         if store_paths:
             container_id = req.container.id
 
-            logger.info(
-                "store_injection_enabled",
-                container_id=container_id,
-                count=len(store_paths),
-            )
+            logger.info("store_injection_enabled", count=len(store_paths))
 
             try:
                 # Create Pod object for event reporting
@@ -315,7 +312,6 @@ class NriPlugin(NriPluginBase):
                 adjust.hooks.create_runtime.append(hook)
                 logger.info(
                     "hook_injected",
-                    container_id=container_id,
                     nri_wait_bin=self.nri_wait_bin,
                     coreutils_host=coreutils_host,
                 )
@@ -323,11 +319,7 @@ class NriPlugin(NriPluginBase):
                 # Spawn build task to build store paths and namespace-mount them into the container
                 if container_id not in self.zmq_server.pending_builds:
                     self.zmq_server.pending_builds.add(container_id)
-                    logger.info(
-                        "build_task_spawning",
-                        container_id=container_id,
-                        count=len(store_paths),
-                    )
+                    logger.info("build_task_spawning", count=len(store_paths))
                     # Spawn background task (fire and forget with exception logging)
                     task = asyncio.create_task(
                         self._spawn_build_task(
@@ -340,48 +332,46 @@ class NriPlugin(NriPluginBase):
                         )
                     )
 
-                    def _build_done(t, cid=container_id):
+                    def _build_done(t):
                         if t.cancelled():
-                            logger.warning("build_task_cancelled", container_id=cid)
+                            logger.warning("build_task_cancelled")
                         elif t.exception():
-                            logger.error(
-                                "build_task_failed",
-                                container_id=cid,
-                                exc_info=t.exception(),
-                            )
+                            logger.error("build_task_failed", exc_info=t.exception())
                         else:
-                            logger.info("build_task_completed", container_id=cid)
+                            logger.info("build_task_completed")
 
                     task.add_done_callback(_build_done)
                 else:
-                    logger.warning("build_already_pending", container_id=container_id)
+                    logger.warning("build_already_pending")
 
             except Exception:
-                logger.exception("volume_setup_failed", container_id=container_id)
+                logger.exception("volume_setup_failed")
 
         resp = nri_pb2.CreateContainerResponse(adjust=adjust)
         await stream.send_message(resp)
 
     @nri_error_handler
     async def StateChange(self, stream) -> None:
+        structlog.contextvars.clear_contextvars()
         logger = structlog.get_logger("nixkube.nri.statechange")
         event: nri_pb2.StateChangeEvent | None = await stream.recv_message()
         assert event is not None
 
         event_name = nri_pb2.Event.Name(event.event)
-        logger = logger.bind(
+        structlog.contextvars.bind_contextvars(
             nri_event=event_name,
-            pod=f"{event.pod.namespace}/{event.pod.name}",
+            pod={"namespace": event.pod.namespace, "name": event.pod.name},
         )
 
         # Only include container info if this is a container event (container exists and has a name)
         if event.container and event.container.name:
-            logger = logger.bind(
-                container=event.container.name,
-                container_state=nri_pb2.ContainerState.Name(event.container.state),
-            )
+            container_info: dict = {
+                "name": event.container.name,
+                "state": nri_pb2.ContainerState.Name(event.container.state),
+            }
             if event.container.exit_code:
-                logger = logger.bind(exit_code=event.container.exit_code)
+                container_info["exit_code"] = event.container.exit_code
+            structlog.contextvars.bind_contextvars(container=container_info)
 
         logger.info("state_change")
 
@@ -393,9 +383,7 @@ class NriPlugin(NriPluginBase):
 
     async def _pump_build_progress(self, container_id: str) -> None:
         """Periodically publish build progress heartbeats to reset nri-wait timeout."""
-        logger = structlog.get_logger("nixkube.nri.buildpump").bind(
-            container_id=container_id
-        )
+        logger = structlog.get_logger("nixkube.nri.buildpump")
         try:
             while True:
                 await asyncio.sleep(10)
@@ -416,10 +404,7 @@ class NriPlugin(NriPluginBase):
 
         Periodically pumps progress updates to reset nri-wait timeout.
         """
-        log = structlog.get_logger("nixkube.nri.buildtask").bind(
-            container_id=container_id,
-            container=container_name,
-        )
+        log = structlog.get_logger("nixkube.nri.buildtask")
         log.info("build_task_started", count=len(store_paths))
         pump_task: asyncio.Task | None = None
         try:

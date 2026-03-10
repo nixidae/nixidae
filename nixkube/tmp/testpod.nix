@@ -25,7 +25,31 @@ let
                   -v || true
               '';
           };
-          # Will go into the default namespace
+          kubernetes.resources.nix-csi.Pod.csitest = {
+            spec = {
+              containers = lib.mkNamedList {
+                ${toString builtins.currentTime} = {
+                  image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
+                  command = [
+                    (lib.getExe pkgs.tini)
+                    "--"
+                    (lib.getExe' pkgs.coreutils "sleep")
+                    "infinity"
+                  ];
+                  volumeMounts = lib.mkNamedList {
+                    nix-store.mountPath = "/nix";
+                  };
+                };
+              };
+              volumes = lib.mkNamedList {
+                nix-store.csi = {
+                  driver = "nixkube";
+                  readOnly = true;
+                };
+              };
+            };
+          };
+
           kubernetes.resources.nix-csi.Pod.nritest = {
             metadata.annotations = {
               "nixkube/pod-rw" = "true";

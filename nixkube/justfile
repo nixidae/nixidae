@@ -69,9 +69,13 @@ precommit: fmt lint test gendoc
 hetzkube:
     direnv exec ~/Code/hetzkube nix run --show-trace --file ~/Code/hetzkube kubenix.deploymentScript --argstr stage full -- --write-command-result=false --prune --yes --force-replace-on-error
 
-# Deploy test pod
+# Deploy test pods (NRI + CSI), waiting for node DaemonSet to be ready first
 testpod:
+    kubectl rollout status daemonset/nix-node -n nix-csi --timeout=120s
     nix run --file tmp/testpod.nix deploymentScript -- --prune --yes --force-replace-on-error
+
+# Deploy to Hetzkube then deploy test pods
+livetest: hetzkube testpod
 
 # Run NixOS integration test (requires KVM)
 nixos-test:
