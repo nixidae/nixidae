@@ -13,6 +13,7 @@ from csi import csi_grpc, csi_pb2
 from grpclib import GRPCError
 from grpclib.const import Status
 from grpclib.server import Server, Stream
+from kr8s import NotFoundError
 from kr8s.asyncio.objects import Pod
 
 from ..cache import schedule_copy_to_cache
@@ -185,11 +186,28 @@ class NodeServicer(csi_grpc.NodeBase):
                 target_path=request.target_path,
             )
             log.info("publishing_volume")
-            pod = await Pod.get(pod_name, namespace=pod_namespace)
+            try:
+                pod = await Pod.get(pod_name, namespace=pod_namespace)
+            except NotFoundError:
+                # Pod was deleted before we could mount — stale request from kubelet.
+                # Return success so kubelet stops retrying; it will call
+                # NodeUnpublishVolume next, which will also return success.
+                log.warning("pod_not_found_skip_mount")
+                await stream.send_message(csi_pb2.NodePublishVolumeResponse())
+                return
+
             # Validate that fetched pod matches the UID from volume context
             assert pod.metadata.uid == pod_uid, (
                 f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
             )
+
+            # If the pod is terminating, mounting makes no sense — it's going away.
+            # Return success to break kubelet's retry loop; it will call
+            # NodeUnpublishVolume to clean up.
+            if pod.raw.get("metadata", {}).get("deletionTimestamp"):
+                log.info("pod_terminating_skip_mount")
+                await stream.send_message(csi_pb2.NodePublishVolumeResponse())
+                return
 
             try:
                 await check_csi_volume_mounts(pod)
