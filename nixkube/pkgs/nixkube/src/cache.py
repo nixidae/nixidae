@@ -114,6 +114,7 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
         # Filter out .drv files and deduplicate
         paths = {p for p in paths if p.suffix != ".drv"}
+        log = logger.bind(count=len(paths))
 
         if len(paths) > 0:
             sign_result = await run_captured(
@@ -125,7 +126,7 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                 *paths,
             )
             if sign_result.returncode != 0:
-                logger.warning(
+                log.warning(
                     "sign_paths_failed",
                     returncode=sign_result.returncode,
                     stderr=sign_result.stderr,
@@ -134,12 +135,11 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
             for attempt in range(6):
                 if attempt > 0:
                     exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
-                    logger.warning(
+                    log.warning(
                         "copy_retry",
                         attempt=attempt,
                         max_attempts=6,
                         backoff=exp_backoff,
-                        count=len(paths),
                     )
                     await sleep(exp_backoff)
 
@@ -147,10 +147,10 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                     "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
                 )
                 if nix_copy.returncode == 0:
-                    logger.debug("copy_to_cache_done", count=len(paths))
+                    log.debug("copy_to_cache_done")
                     break
                 else:
-                    logger.warning(
+                    log.warning(
                         "copy_attempt_failed",
                         attempt=attempt + 1,
                         max_attempts=6,
@@ -159,7 +159,7 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
                         stderr=nix_copy.stderr,
                     )
             else:
-                logger.error("copy_to_cache_exhausted", count=len(paths))
+                log.error("copy_to_cache_exhausted")
 
 
 def schedule_copy_to_cache(package_paths: set[Path]) -> None:

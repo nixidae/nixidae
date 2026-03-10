@@ -116,7 +116,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 "This CSI driver only supports ephemeral volumes",
             )
 
-        logger = logger.bind(volume_id=request.volume_id)
+        log = logger.bind(volume_id=request.volume_id)
 
         async with self.volume_locks[request.volume_id]:
             gc_root = CSI_GCROOTS / request.volume_id
@@ -128,11 +128,11 @@ class NodeServicer(csi_grpc.NodeBase):
             pod_namespace = request.volume_context["csi.storage.k8s.io/pod.namespace"]
             pod_uid = request.volume_context["csi.storage.k8s.io/pod.uid"]
 
-            logger = logger.bind(
+            log = log.bind(
                 pod=f"{pod_namespace}/{pod_name}",
                 target_path=request.target_path,
             )
-            logger.info("publishing_volume")
+            log.info("publishing_volume")
             pod = await Pod.get(pod_name, namespace=pod_namespace)
             # Validate that fetched pod matches the UID from volume context
             assert pod.metadata.uid == pod_uid, (
@@ -149,7 +149,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         event_type="Warning",
                     )
                 except Exception:
-                    logger.warning("deprecation_warning_failed", exc_info=True)
+                    log.warning("deprecation_warning_failed", exc_info=True)
 
             # Build primary package from volume attributes
             try:
@@ -185,10 +185,10 @@ class NodeServicer(csi_grpc.NodeBase):
 
             if primary_package is not None:
                 package_paths.add(primary_package)
-                logger.debug("primary_package", path=str(primary_package))
+                log.debug("primary_package", path=str(primary_package))
 
             if not package_paths:
-                logger.error("no_packages_to_mount")
+                log.error("no_packages_to_mount")
                 raise GRPCError(
                     Status.INVALID_ARGUMENT,
                     "No packages to mount",
@@ -241,11 +241,11 @@ class NodeServicer(csi_grpc.NodeBase):
                 Status.INVALID_ARGUMENT, "NodeUnpublishVolumeRequest is None"
             )
 
-        logger = logger.bind(
+        log = logger.bind(
             volume_id=request.volume_id,
             target_path=request.target_path,
         )
-        logger.info("unpublishing_volume")
+        log.info("unpublishing_volume")
 
         async with self.volume_locks[request.volume_id]:
             target_path = Path(request.target_path)
@@ -259,9 +259,9 @@ class NodeServicer(csi_grpc.NodeBase):
             # kubelet-managed mount directory (that's kubelet's job).
             if is_mount(target_path):
                 await unmount(target_path)
-                logger.debug("unmounted")
+                log.debug("unmounted")
             else:
-                logger.debug("not_mounted")
+                log.debug("not_mounted")
 
             # Clean up stale gcroots and volume directories based on active volumes.
             # This catches orphaned resources from volumes that failed to unpublish cleanly.
@@ -275,7 +275,7 @@ class NodeServicer(csi_grpc.NodeBase):
                 )
                 cleanup_stale_entries(active_handles)
             except Exception:
-                logger.error("stale_cleanup_failed", exc_info=True)
+                log.error("stale_cleanup_failed", exc_info=True)
                 # Report error event on CSI driver controller since we don't have pod info here
                 try:
                     controller_pod = Pod(
@@ -294,7 +294,7 @@ class NodeServicer(csi_grpc.NodeBase):
                         event_type="Warning",
                     )
                 except Exception:
-                    logger.warning("cleanup_event_failed", exc_info=True)
+                    log.warning("cleanup_event_failed", exc_info=True)
                 # Don't raise - CSI driver should still return success if unmount succeeded
 
             await stream.send_message(csi_pb2.NodeUnpublishVolumeResponse())

@@ -404,7 +404,9 @@ class NriPlugin(NriPluginBase):
 
         Periodically pumps progress updates to reset nri-wait timeout.
         """
-        log = structlog.get_logger("nixkube.nri.buildtask")
+        log = structlog.get_logger("nixkube.nri.buildtask").bind(
+            container_id=container_id
+        )
         log.info("build_task_started", count=len(store_paths))
         pump_task: asyncio.Task | None = None
         try:
