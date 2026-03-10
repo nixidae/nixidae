@@ -1299,3 +1299,27 @@ false
  - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
 
 
+
+## nixkube\.verifyStorePaths
+
+
+
+Verify Nix store paths after building or fetching, before mounting into pods\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [/home/lillecarl/Code/nix-csi/kubenix/options\.nix](file:///home/lillecarl/Code/nix-csi/kubenix/options.nix)
+
+

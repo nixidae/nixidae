@@ -116,6 +116,7 @@ in
                       KUBE_POD_NAME.valueFrom.fieldRef.fieldPath = "metadata.name";
                       KUBE_POD_UID.valueFrom.fieldRef.fieldPath = "metadata.uid";
                       NIX_BUILD_TIMEOUT.value = toString cfg.nodeBuildTimeout;
+                      VERIFY_STORE_PATHS.value = lib.boolToString cfg.verifyStorePaths;
                       NIXPKGS_ALLOW_UNFREE.value = "1";
                       USER.value = "root";
                     };

@@ -103,6 +103,11 @@ in
       type = lib.types.str;
       default = "nix-builders";
     };
+    verifyStorePaths = lib.mkOption {
+      description = "Verify Nix store paths after building or fetching, before mounting into pods.";
+      type = lib.types.bool;
+      default = true;
+    };
     nodeBuildTimeout = lib.mkOption {
       description = ''
         Timeout in seconds for Nix build operations on node pods.

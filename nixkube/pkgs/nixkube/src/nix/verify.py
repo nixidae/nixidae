@@ -18,6 +18,7 @@ async def verify_store_paths(package_paths: set[Path]) -> None:
             "store",
             "verify",
             "--recursive",
+            "--no-trust",
             *package_paths,
         )
     except SubprocessError as e:
