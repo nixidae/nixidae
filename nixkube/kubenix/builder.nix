@@ -143,6 +143,7 @@ in
                     init-store = {
                       mountPath = "/nix";
                       subPath = "nix";
+                      readOnly = true;
                     };
                     nix-store.mountPath = "/nix-volume";
                     nix-config.mountPath = "/etc/nix";

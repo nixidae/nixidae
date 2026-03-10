@@ -12,6 +12,13 @@ let
     modules = [
       (
         { config, lib, ... }:
+        let
+          PATH = lib.makeBinPath [
+            pkgs.coreutils
+            pkgs.fishMinimal
+            pkgs.bash
+          ];
+        in
         {
           kluctl = {
             discriminator = "nixtest";
@@ -36,6 +43,9 @@ let
                     (lib.getExe' pkgs.coreutils "sleep")
                     "infinity"
                   ];
+                  env = lib.mkNamedList {
+                    PATH.value = PATH;
+                  };
                   volumeMounts = lib.mkNamedList {
                     nix-store = {
                       mountPath = "/nix";
@@ -71,10 +81,7 @@ let
 
                   env = lib.mkNamedList {
                     AFILE.value = pkgs.writeText "afile" "this is a file";
-                    PATH.value = lib.makeBinPath [
-                      pkgs.bash
-                      pkgs.coreutils
-                    ];
+                    PATH.value = PATH;
                   };
                   command = [
                     (lib.getExe pkgs.tini)
