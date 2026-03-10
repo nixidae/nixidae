@@ -33,9 +33,7 @@ async def garbage_collect_stale_volumes(cri_socket: Path) -> None:
                     try:
                         shutil.rmtree(volume_dir)
                         stale_count += 1
-                        logger.debug(
-                            "gc_removed_stale_volume", container=volume_dir.name
-                        )
+                        logger.debug("gc_removed_stale_volume", volume=volume_dir.name)
                     except Exception:
                         logger.warning(
                             "gc_remove_failed",

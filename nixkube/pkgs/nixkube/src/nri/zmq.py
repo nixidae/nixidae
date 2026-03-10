@@ -111,19 +111,15 @@ class ZeroMQServer:
         self, container_id: str, timeout: float = 30.0
     ) -> tuple[int, str] | None:
         """Wait until nri-wait reports the container PID and bundle, then return (pid, bundle)."""
+        log = logger.bind(container_id=container_id)
         info = self._get_info(container_id)
         try:
             await asyncio.wait_for(info.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning("zmq_pid_timeout", container_id=container_id)
+            log.warning("zmq_pid_timeout")
             return None
         if info.pid is None or info.bundle is None:
-            logger.warning(
-                "zmq_pid_missing",
-                container_id=container_id,
-                pid=info.pid,
-                bundle=info.bundle,
-            )
+            log.warning("zmq_pid_missing", pid=info.pid, bundle=info.bundle)
             return None
         return (info.pid, info.bundle)
 
@@ -141,33 +137,27 @@ class ZeroMQServer:
         if self.pub_socket is None:
             logger.warning("zmq_pub_not_initialized")
             return
+        log = logger.bind(container_id=container_id)
         try:
             msg = json.dumps({"container_id": container_id, "status": "progress"})
-            logger.debug("zmq_publishing_progress", container_id=container_id)
+            log.debug("zmq_publishing_progress")
             await self.pub_socket.send(msg.encode())
         except Exception:
-            logger.warning(
-                "zmq_publish_progress_failed",
-                container_id=container_id,
-                exc_info=True,
-            )
+            log.warning("zmq_publish_progress_failed", exc_info=True)
 
     async def publish_build_complete(self, container_id: str) -> None:
         """Publish build completion message on PUB socket."""
         if self.pub_socket is None:
             logger.warning("zmq_pub_not_initialized")
             return
+        log = logger.bind(container_id=container_id)
         try:
             msg = json.dumps({"container_id": container_id, "status": "done"})
-            logger.debug("zmq_publishing_done", container_id=container_id)
+            log.debug("zmq_publishing_done")
             await self.pub_socket.send(msg.encode())
-            logger.info("zmq_published_done", container_id=container_id)
+            log.info("zmq_published_done")
         except Exception:
-            logger.error(
-                "zmq_publish_done_failed",
-                container_id=container_id,
-                exc_info=True,
-            )
+            log.error("zmq_publish_done_failed", exc_info=True)
 
     async def start_request_handler(self) -> None:
         """Handle build status queries on REP socket (blocks until cancelled)."""
@@ -186,6 +176,7 @@ class ZeroMQServer:
                     container_id = query.get("id")
                     pid = query.get("pid")
                     bundle = query.get("bundle")
+                    log = logger.bind(container_id=container_id)
                     if (
                         pid is not None
                         and bundle is not None
@@ -195,28 +186,14 @@ class ZeroMQServer:
                         info.pid = pid
                         info.bundle = bundle
                         info.event.set()
-                        logger.debug(
-                            "zmq_rep_stored_pid",
-                            container_id=container_id,
-                            pid=pid,
-                            bundle=bundle,
-                        )
-                    logger.info(
-                        "zmq_rep_query",
-                        container_id=container_id,
-                        pid=pid,
-                        bundle=bundle,
-                    )
+                        log.debug("zmq_rep_stored_pid", pid=pid, bundle=bundle)
+                    log.info("zmq_rep_query", pid=pid, bundle=bundle)
 
                     status = await self.query_build_status(container_id)
-                    logger.debug(
-                        "zmq_rep_responding",
-                        container_id=container_id,
-                        status=status,
-                    )
+                    log.debug("zmq_rep_responding", status=status)
                     response = json.dumps(status)
                     await self.rep_socket.send(response.encode())
-                    logger.debug("zmq_rep_response_sent")
+                    log.debug("zmq_rep_response_sent")
                 except Exception:
                     logger.error("zmq_rep_query_error", exc_info=True)
                     await self.rep_socket.send(b'{"error":"internal error"}')
