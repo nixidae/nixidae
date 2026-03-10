@@ -78,6 +78,7 @@ async def prepare_volume(
     hardlink_closure(store_paths, volume_root / "nix/store")
     logger.debug(
         "hardlinked_paths",
+        volume_root=volume_root,
         count=len(store_paths),
         elapsed=round(time.perf_counter() - hardlink_start, 3),
     )
@@ -146,6 +147,15 @@ async def mount_volume(
             if err == errno.EEXIST:
                 pass  # Already mounted is fine
             else:
+                logger.error(
+                    "volume_mount_failed",
+                    error=os.strerror(err),
+                    error_code=err,
+                    source=volume_root,
+                    target=target_path,
+                    source_exists=volume_root.exists(),
+                    target_exists=target_path.exists(),
+                )
                 raise MountError(
                     f"Failed to mount bind volume: {os.strerror(err)} (errno {err}). "
                     f"source_exists={volume_root.exists()}, target_exists={target_path.exists()}, "
