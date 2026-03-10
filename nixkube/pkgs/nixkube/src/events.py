@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import structlog
 from cachetools import TTLCache
+from kr8s import NotFoundError
 from kr8s.asyncio.objects import Pod, new_class
 
 from .constants import KUBE_POD_NAME, NAMESPACE
@@ -148,6 +149,7 @@ async def report_event(
     # Ensure reason is prefixed with "Nix" if not already
     if not reason.startswith("Nix"):
         reason = f"Nix{reason}"
+
     logger.debug("report_event", reason=reason, pod=pod.metadata.name)
     try:
         now = datetime.now(timezone.utc)
@@ -156,54 +158,36 @@ async def report_event(
         # Format the final note with message and optional logs
         final_note = _format_event_note(message, logs)
 
-        # Search for existing event with same pod and reason
+        # Generate deterministic event name from pod uid + reason so we can
+        # look it up directly without listing
+        event_hash = hashlib.md5(f"{pod.metadata.uid}{reason}".encode()).hexdigest()[:8]
+        event_name = f"{pod.metadata.name}.{event_hash}"
+
         try:
-            events = []
-            async for event in ModernEvent.list(
-                namespace=pod.metadata.namespace,
-                field_selector={
-                    "regarding.uid": pod.metadata.uid,
-                    "reason": reason,
-                },
-            ):
-                events.append(event)
-        except Exception:
-            logger.warning("event_list_failed", exc_info=True)
-            events = []
-
-        if events:
+            event = await ModernEvent.get(event_name, namespace=pod.metadata.namespace)
             # Event already exists - patch to increment count
-            event = events[0]
             try:
-                # Initialize or increment series count
-                if "series" not in event:
-                    event["series"] = {"count": 2, "lastObservedTime": now_iso}
+                existing_series = event.raw.get("series")
+                if existing_series is None:
+                    new_series = {"count": 2, "lastObservedTime": now_iso}
                 else:
-                    # Increment existing count
-                    current_count = event["series"].get("count", 1)
-                    event["series"]["count"] = current_count + 1
-                    event["series"]["lastObservedTime"] = now_iso
+                    new_series = {
+                        "count": existing_series.get("count", 1) + 1,
+                        "lastObservedTime": now_iso,
+                    }
 
-                await event.patch()
+                await event.patch({"series": new_series})
                 logger.debug(
                     "event_incremented",
                     reason=reason,
                     pod=pod.metadata.name,
-                    count=event["series"]["count"],
+                    count=new_series["count"],
                 )
             except Exception:
                 logger.warning("event_patch_failed", exc_info=True)
-        else:
-            # Create new event
+        except NotFoundError:
+            # Event does not exist yet - create it
             try:
-                # Generate event name using hash of pod uid and reason
-                # This ensures the same event (same pod + reason) gets the same name
-                # so we can find and patch it to update series when it recurs
-                event_hash = hashlib.md5(
-                    f"{pod.metadata.uid}{reason}".encode()
-                ).hexdigest()[:8]
-                event_name = f"{pod.metadata.name}.{event_hash}"
-
                 event_spec = {
                     "metadata": {
                         "name": event_name,
