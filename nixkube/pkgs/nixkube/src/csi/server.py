@@ -42,6 +42,58 @@ from ..volume import (
 from .cleanup import cleanup_stale_entries, collect_active_volume_handles
 from .identity import IdentityServicer
 
+_NIXKUBE_DRIVERS = {"nixkube", "nix.csi.store"}
+
+
+async def check_csi_volume_mounts(pod: Pod) -> None:
+    """Emit warning events for nixkube CSI volumes with common mount misconfigurations.
+
+    Checks two conditions for each nixkube CSI volume in the pod spec:
+    - MissingSubPath: a volumeMount exists without subPath='nix', which causes
+      the volume root (not the nix/ subtree) to be mounted, making /nix/store
+      paths inaccessible at the expected location.
+    - MissingNixMount: no container mounts the volume at /nix, so /nix/store
+      paths will never be reachable regardless of subPath.
+    """
+    spec = pod.raw.get("spec", {})
+    all_containers = spec.get("containers", []) + spec.get("initContainers", [])
+
+    for volume in spec.get("volumes", []):
+        if volume.get("csi", {}).get("driver") not in _NIXKUBE_DRIVERS:
+            continue
+        vol_name = volume["name"]
+
+        vol_mounts = [
+            (container, vm)
+            for container in all_containers
+            for vm in container.get("volumeMounts", [])
+            if vm["name"] == vol_name
+        ]
+
+        for container, vm in vol_mounts:
+            if not vm.get("subPath"):
+                await report_event(
+                    pod,
+                    reason="MissingSubPath",
+                    note=(
+                        f"Volume '{vol_name}' in container '{container['name']}' "
+                        f"mounted at '{vm['mountPath']}' is missing subPath='nix'. "
+                        f"Nix store paths will not be accessible at the mount point."
+                    ),
+                    event_type="Warning",
+                )
+
+        if not any(vm["mountPath"] == "/nix" for _, vm in vol_mounts):
+            await report_event(
+                pod,
+                reason="MissingNixMount",
+                note=(
+                    f"Volume '{vol_name}' has no mount at '/nix' in any container. "
+                    f"Nix store paths will not be accessible."
+                ),
+                event_type="Warning",
+            )
+
 
 def csi_error_handler(
     func: Any,
@@ -138,6 +190,11 @@ class NodeServicer(csi_grpc.NodeBase):
             assert pod.metadata.uid == pod_uid, (
                 f"Pod UID mismatch: {pod.metadata.uid} != {pod_uid}"
             )
+
+            try:
+                await check_csi_volume_mounts(pod)
+            except Exception:
+                log.warning("csi_mount_check_failed", exc_info=True)
 
             # Emit deprecation warning if using compatibility driver
             if self.plugin_name == "nix.csi.store":

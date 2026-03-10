@@ -37,7 +37,10 @@ let
                     "infinity"
                   ];
                   volumeMounts = lib.mkNamedList {
-                    nix-store.mountPath = "/nix";
+                    nix-store = {
+                      mountPath = "/nix";
+                      subPath = "nix";
+                    };
                   };
                 };
               };
