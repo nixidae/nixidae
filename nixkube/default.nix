@@ -181,6 +181,13 @@ rec {
             # Remove internal options, modify declarations, etc.
             visible =
               opt.visible or true && (lib.hasPrefix "nix-csi" opt.name || lib.hasPrefix "nixkube" opt.name);
+            declarations = map (
+              decl:
+              let
+                prefix = builtins.toString ./.;
+              in
+              if lib.hasPrefix prefix (toString decl) then lib.removePrefix prefix (toString decl) else decl
+            ) opt.declarations;
           };
       };
     in
