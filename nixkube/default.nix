@@ -42,10 +42,20 @@ rec {
       {
         nixkube.cache.enable = false;
         nixkube.builders.enable = false;
+        # push = true retains Nix string context on DaemonSet store paths so
+        # they become part of the manifest's closure.  The NixOS test VM then
+        # has every path in /nix/store, where nix-serve makes them available
+        # as a substituter for nixkube's separate /var/lib/nix-csi store.
+        nixkube.push = true;
         nixkube.systems = {
           x86_64-linux = true;
           aarch64-linux = false;
         };
+        # 10.113.37.1 is the PTP CNI gateway — the host-side veth IP reachable
+        # from all pods.  nix-serve runs there during the NixOS test.
+        nixkube.node.nixConfig.settings.substituters = [
+          "http://10.113.37.1:5000?trusted=1"
+        ];
       }
     ];
   };

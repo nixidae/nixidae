@@ -16,6 +16,9 @@
     pkgs.kubernetes # kubectl, kubeadm, kubelet
     pkgs.cri-tools # crictl
     pkgs.helix # editor
+    pkgs.k9s
+    pkgs.fish
+    pkgs.stern
   ];
 
   environment.variables.EDITOR = "hx";
@@ -47,20 +50,23 @@
     };
   };
 
-  # -- CNI bridge config --
-  # Simple bridge CNI — no cluster-level setup needed, just this config file.
-  environment.etc."cni/net.d/10-bridge.conflist".text = builtins.toJSON {
+  # -- CNI ptp config --
+  # PTP (point-to-point) CNI: each pod gets a veth pair, no shared bridge.
+  # Traffic between pods is routed at L3 on the host, which lets kube-proxy
+  # iptables/ipvs rules see and rewrite service traffic correctly.
+  environment.etc."cni/net.d/10-ptp.conflist".text = builtins.toJSON {
     cniVersion = "1.0.0";
-    name = "bridge";
+    name = "ptp";
     plugins = [
       {
-        type = "bridge";
-        bridge = "cni0";
-        isGateway = true;
+        type = "ptp";
         ipMasq = true;
         ipam = {
           type = "host-local";
-          ranges = [ [ { subnet = "10.244.0.0/16"; } ] ];
+          subnet = "10.113.37.0/24";
+          # Explicit gateway ensures the host-side veth always gets this IP,
+          # which nixkube pods use to reach nix-serve on the VM.
+          gateway = "10.113.37.1";
           routes = [ { dst = "0.0.0.0/0"; } ];
         };
       }
@@ -135,8 +141,28 @@
   # -- VM sizing for kubeadm cluster --
   virtualisation = {
     memorySize = 4096;
-    diskSize = 10240;
+    diskSize = 30720; # 30GB: 20GB system + 8GB swap + headroom
     cores = 4;
+  };
+
+  # Increase 9p max packet size for Nix store mounts (default 16 KB is slow).
+  virtualisation.msize = 131072;
+
+
+  # Swap so the 10GB tmpfs below can exceed physical RAM without OOM.
+  swapDevices = [
+    {
+      device = "/swapfile";
+      size = 8192; # 8GB in MiB
+    }
+  ];
+
+  # nixkube's initContainer copies the full node-env closure here — potentially
+  # several GB.  Keeping it on tmpfs avoids thrashing the qcow2 disk image.
+  fileSystems."/var/lib/nix-csi" = {
+    device = "tmpfs";
+    fsType = "tmpfs";
+    options = [ "size=10g" "mode=755" ];
   };
 
   # -- Interactive debug user --
@@ -159,6 +185,16 @@
   systemd.tmpfiles.rules = [
     "d /var/run/nri 0755 root root -"
   ];
+
+  # Serve the VM's /nix/store as an unsigned binary cache on port 5000.
+  # nixkube pods use this as a trusted substituter so test workload paths can be
+  # fetched without going to the internet (paths pre-populated via additionalPaths).
+  services.nix-serve = {
+    enable = true;
+    package = pkgs.nix-serve-ng;
+    bindAddress = "0.0.0.0";
+    port = 5000;
+  };
 
   # Enable external networking for image pulls and nix binary cache access
   # SLiRP provides DHCP + DNS automatically

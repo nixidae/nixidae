@@ -31,84 +31,24 @@ jobs:
         run: |
           echo "${{ secrets.NIXBUILD_KEY }}" | install -D -m 600 /dev/stdin ~/.ssh/nixbuild_key
           install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
-      - name: Debug - GHA runner network state (before)
-        shell: bash
-        run: |
-          echo "=== IP Addresses ==="
-          ip addr
-          echo ""
-          echo "=== Routing Table ==="
-          ip route
-          echo ""
-          echo "=== Network Interfaces ==="
-          ip link
-          echo ""
-          echo "=== Iptables Rules (filter) ==="
-          sudo iptables -L -v
-          echo ""
-          echo "=== Iptables Rules (nat) ==="
-          sudo iptables -t nat -L -v
-          echo ""
-          echo "=== Iptables Rules (mangle) ==="
-          sudo iptables -t mangle -L -v
-          echo ""
-          echo "=== Netstat listening ports ==="
-          sudo ss -tlnp || netstat -tlnp || echo "ss/netstat not available"
-          echo ""
-          echo "=== Kernel IP forwarding ==="
-          cat /proc/sys/net/ipv4/ip_forward
+
+      - name: Build nixos test driver
+        run: nix build --file . nixosTests.containerd.driverInteractive
+
       - name: Start nixos test (background)
         run: |
-          nix run --file . nixosTests.containerd.driverInteractive --option sandbox false -- --no-interactive > /tmp/test.log 2>&1 &
+          # The nixos-test-driver uses XDG_RUNTIME_DIR as its temp dir and
+          # propagates it to VM subprocesses automatically.  GHA's default
+          # XDG_RUNTIME_DIR is /run/user/1001 (1.6 GB tmpfs) which fills up
+          # quickly — redirect to the root filesystem (87 GB free) instead.
+          mkdir -p /tmp/nixos-test-tmp
+          XDG_RUNTIME_DIR=/tmp/nixos-test-tmp ./result/bin/nixos-test-driver --no-interactive > /tmp/test.log 2>&1 &
           echo $! > /tmp/test.pid
           echo "Test running in background (PID: $(cat /tmp/test.pid))"
           sleep 5
+
       - name: Setup upterm session (test runs in parallel)
         uses: owenthereal/action-upterm@v1
         with:
           wait-timeout-minutes: 5
           limit-access-to-actor: true
-      - name: Wait for test to complete
-        run: |
-          TEST_PID=$(cat /tmp/test.pid)
-          if wait $TEST_PID; then
-            echo "✓ Test passed"
-          else
-            echo "✗ Test failed with exit code: $?"
-          fi
-          echo ""
-          echo "=== Test Output ==="
-          tail -100 /tmp/test.log
-      - name: Debug - GHA runner network state (after)
-        if: failure()
-        shell: bash
-        run: |
-          echo "=== IP Addresses ==="
-          ip addr
-          echo ""
-          echo "=== Routing Table ==="
-          ip route
-          echo ""
-          echo "=== Network Interfaces ==="
-          ip link
-          echo ""
-          echo "=== Iptables Rules (filter) ==="
-          sudo iptables -L -v
-          echo ""
-          echo "=== Iptables Rules (nat) ==="
-          sudo iptables -t nat -L -v
-          echo ""
-          echo "=== Iptables Rules (mangle) ==="
-          sudo iptables -t mangle -L -v
-          echo ""
-          echo "=== Check for vde interfaces ==="
-          ip link | grep -i vde || echo "No vde interfaces found"
-          echo ""
-          echo "=== Kernel IP forwarding ==="
-          cat /proc/sys/net/ipv4/ip_forward
-          echo ""
-          echo "=== Dmesg last 50 lines ==="
-          sudo dmesg | tail -50
-      - name: Setup upterm session
-        if: failure()
-        uses: owenthereal/action-upterm@v1
