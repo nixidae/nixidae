@@ -21,7 +21,7 @@ in
       apply =
         value:
         if value then
-          lib.warn "nix-csi.node.compat: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name." value
+          lib.warn "nixkube.node.compat: CSI compatibility driver (nix.csi.store) is enabled. This is deprecated and will be removed in a future release. Please migrate to the nixkube driver name." value
         else
           value;
     };

@@ -1,12 +1,37 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+from nri import nri_pb2
 
 from src.nri.annotations import (
     _parse_store_mounts_for_name,
+    extract_container_store_paths,
     parse_nix_rw,
     parse_store_mounts,
 )
+
+
+def _make_req(
+    container_name: str,
+    annotations: dict,
+    env: list[str] | None = None,
+    args: list[str] | None = None,
+) -> nri_pb2.CreateContainerRequest:
+    """Build a minimal CreateContainerRequest-like object for testing."""
+    return cast(
+        nri_pb2.CreateContainerRequest,
+        SimpleNamespace(
+            pod=SimpleNamespace(annotations=annotations),
+            container=SimpleNamespace(
+                name=container_name,
+                env=env or [],
+                args=args or [],
+            ),
+        ),
+    )
 
 
 class TestParseStoreMountsForName:
@@ -60,14 +85,29 @@ class TestParseStoreMountsForName:
         assert result_x86 == {Path("/etc/ssl"): Path("/nix/store/cacert/etc/ssl")}
         assert result_arm == {Path("/etc/ssl"): Path("/nix/store/cacert/etc/ssl")}
 
-    def test_system_specific_with_suffix(self):
-        """Parse system-specific annotations with multiple mount suffix."""
+    def test_system_specific_with_index(self):
+        """Parse system-specific annotations with index suffix (system before index)."""
         annotations = {
-            "nixkube/pod-ssl-1@x86_64-linux": "/etc/ssl=/nix/store/x86-cacert",
-            "nixkube/pod-ssl-1@aarch64-linux": "/etc/ssl=/nix/store/arm-cacert",
+            "nixkube/pod@x86_64-linux-1": "/etc/ssl=/nix/store/x86-cacert",
+            "nixkube/pod@aarch64-linux-1": "/etc/ssl=/nix/store/arm-cacert",
         }
         result_x86 = _parse_store_mounts_for_name(annotations, "pod", "x86_64-linux")
         assert result_x86 == {Path("/etc/ssl"): Path("/nix/store/x86-cacert")}
+        result_arm = _parse_store_mounts_for_name(annotations, "pod", "aarch64-linux")
+        assert result_arm == {Path("/etc/ssl"): Path("/nix/store/arm-cacert")}
+
+    def test_old_format_suffix_before_system_is_unfiltered(self):
+        """Old format (suffix before system: nixkube/pod-1@system) is treated as
+        an unqualified annotation (no system filtering) because the @system part
+        is absorbed into the index group and doesn't match the system group."""
+        annotations = {
+            "nixkube/pod-1@aarch64-linux": "/etc/ssl=/nix/store/arm-cacert",
+        }
+        # The old format is NOT correctly filtered — it matches on any system
+        # This test documents the behaviour so users know to use the new format
+        result_x86 = _parse_store_mounts_for_name(annotations, "pod", "x86_64-linux")
+        result_arm = _parse_store_mounts_for_name(annotations, "pod", "aarch64-linux")
+        assert result_x86 == result_arm  # both match: system filter is lost
 
     def test_container_specific_prefix(self):
         """Parse container-specific annotations."""
@@ -228,3 +268,59 @@ class TestParseNixRW:
         }
         assert parse_nix_rw(annotations, "myapp", "x86_64-linux") is True
         assert parse_nix_rw(annotations, "myapp", "aarch64-linux") is False
+
+
+class TestExtractContainerStorePaths:
+    """Test extract_container_store_paths combining env, args, and annotations."""
+
+    STORE_PATH = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-hello-1.0"
+
+    def test_extracts_from_env(self):
+        req = _make_req("myapp", {}, env=[f"NIX_PATH={self.STORE_PATH}"])
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert Path(self.STORE_PATH) in result
+
+    def test_extracts_from_args(self):
+        req = _make_req("myapp", {}, args=[self.STORE_PATH])
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert Path(self.STORE_PATH) in result
+
+    def test_extracts_from_pod_annotation(self):
+        req = _make_req("myapp", {"nixkube/pod": self.STORE_PATH})
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert Path(self.STORE_PATH) in result
+
+    def test_extracts_from_container_annotation(self):
+        req = _make_req("myapp", {"nixkube/myapp": self.STORE_PATH})
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert Path(self.STORE_PATH) in result
+
+    def test_system_filtered_annotation(self):
+        store_x86 = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x86-1.0"
+        store_arm = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-arm-1.0"
+        req = _make_req("myapp", {
+            "nixkube/pod@x86_64-linux": store_x86,
+            "nixkube/pod@aarch64-linux": store_arm,
+        })
+        result_x86 = extract_container_store_paths(req, "x86_64-linux")
+        result_arm = extract_container_store_paths(req, "aarch64-linux")
+        assert Path(store_x86) in result_x86
+        assert Path(store_arm) not in result_x86
+        assert Path(store_arm) in result_arm
+        assert Path(store_x86) not in result_arm
+
+    def test_other_container_annotation_ignored(self):
+        """Annotations for a different container are not extracted."""
+        req = _make_req("myapp", {"nixkube/otherapp": self.STORE_PATH})
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert result == set()
+
+    def test_deduplication(self):
+        """Same store path appearing in env and annotation is deduplicated."""
+        req = _make_req(
+            "myapp",
+            {"nixkube/pod": self.STORE_PATH},
+            env=[f"PATH={self.STORE_PATH}/bin"],
+        )
+        result = extract_container_store_paths(req, "x86_64-linux")
+        assert result == {Path(self.STORE_PATH)}

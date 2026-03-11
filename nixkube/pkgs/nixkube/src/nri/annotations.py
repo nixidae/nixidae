@@ -1,12 +1,51 @@
 # SPDX-License-Identifier: MIT
 """NRI pod annotation parsing for Nix store mounts and RW /nix configuration."""
 
-from collections.abc import Mapping
+import re
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+
+from nri import nri_pb2
+
+from ..store import extract_store_paths
 
 # Annotations from protobuf are ScalarMap[str, str], which implements Mapping.
 # Using Mapping keeps us compatible with both protobuf types and plain dicts (tests).
 Annotations = Mapping[str, str]
+
+
+def _iter_annotations(annotations: Annotations, target: str, system: str) -> Iterator[str]:
+    """Yield annotation values for nixkube/{target}(@{system})?(-{index})? annotations.
+
+    Annotations without @system apply to all systems. System-qualified annotations
+    (@system) are only yielded when system matches.
+
+    The optional -index suffix (always last) allows multiple annotations for the same
+    target (e.g., nixkube/pod-1, nixkube/pod-2) and is ignored by the parser.
+    """
+    pattern = re.compile(
+        rf"^nixkube/{re.escape(target)}(@{re.escape(system)}|)(-.*|)$"
+    )
+    return (value for key, value in annotations.items() if pattern.fullmatch(key))
+
+
+def extract_container_store_paths(
+    req: nri_pb2.CreateContainerRequest, system: str
+) -> set[Path]:
+    """Extract Nix store paths from an NRI CreateContainerRequest.
+
+    Scans container env, args, and pod annotations with nixkube/pod or
+    nixkube/{container-name} prefixes. System-specific annotations (@{system})
+    are only included when they match the current system; unqualified annotations
+    apply to all systems.
+    """
+    annotation_values = [
+        *_iter_annotations(req.pod.annotations, "pod", system),
+        *_iter_annotations(req.pod.annotations, req.container.name, system),
+    ]
+    return extract_store_paths(
+        [*req.container.env, *req.container.args, *annotation_values]
+    )
 
 
 def _parse_store_mounts_for_name(
@@ -15,46 +54,27 @@ def _parse_store_mounts_for_name(
     """
     Parse store mount annotations matching a specific name (container name or "pod" for wildcard).
 
-    Annotations format: nixkube/{target-name}(-{suffix})?(@{system})?: /path/in/container=/source
-    - suffix: optional, allows multiple mounts to same destination (ignored by parser)
+    Annotations format: nixkube/{target-name}(@{system})?(-{index})?: /path/in/container=/source
     - system: optional, filters annotation to specific system (e.g., x86_64-linux, aarch64-linux)
+    - index: optional, allows multiple mounts per target (ignored by parser)
     - source: auto-detected as store path, flake reference, or nix expression
 
     For wildcard (target_name="pod"):
       nixkube/pod-1: /etc/ssl/certs=/nix/store/cacert-1.0/etc/ssl/certs
-      nixkube/pod-2@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
+      nixkube/pod@x86_64-linux-2: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
 
     For container (target_name="myapp"):
-      nixkube/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64/etc/ssl
+      nixkube/myapp@aarch64-linux-1: /etc/ssl=/nix/store/cacert-aarch64/etc/ssl
 
     Returns: {Path("/path/in/container"): Path("/nix/store/.../package")}
     Annotations without @system apply to all systems.
     """
-    mounts: dict[Path, Path] = {}
-    prefix = f"nixkube/{target_name}"
-
-    for key, value in pod_annotations.items():
-        # Match annotations starting with prefix, optionally followed by -suffix and/or @system
-        if (
-            key == prefix
-            or key.startswith(prefix + "-")
-            or key.startswith(prefix + "@")
-        ):
-            # Parse system suffix if present
-            key_system = None
-            if "@" in key:
-                _, system_part = key.rsplit("@", 1)
-                key_system = system_part
-
-            # Skip if system filter is specified and doesn't match
-            if key_system is not None and key_system != system:
-                continue
-
-            if "=" in value:
-                container_path_str, source_str = value.split("=", 1)
-                mounts[Path(container_path_str)] = Path(source_str)
-
-    return mounts
+    return {
+        Path(container_path): Path(source)
+        for value in _iter_annotations(pod_annotations, target_name, system)
+        if "=" in value
+        for container_path, source in [value.split("=", 1)]
+    }
 
 
 def parse_nix_rw(
@@ -73,27 +93,10 @@ def parse_nix_rw(
       nixkube/{container-name}-rw: "true"   — only this container gets RW /nix
       nixkube/{container-name}-rw@aarch64-linux: "false" — this container stays RO on aarch64
     """
-
-    # Helper to check annotation with optional system suffix
-    def check_annotation(key: str) -> bool:
-        if key in pod_annotations:
-            return pod_annotations[key] == "true"
-        # Also check system-specific variant
-        system_key = f"{key}@{system}"
-        if system_key in pod_annotations:
-            return pod_annotations[system_key] == "true"
-        return False
-
-    # Check container-specific first (takes precedence)
-    container_key = f"nixkube/{container_name}-rw"
-    if (
-        container_key in pod_annotations
-        or f"{container_key}@{system}" in pod_annotations
-    ):
-        return check_annotation(container_key)
-
-    # Fall back to pod-wide setting
-    return check_annotation("nixkube/pod-rw")
+    container_values = list(_iter_annotations(pod_annotations, f"{container_name}-rw", system))
+    if container_values:
+        return any(v == "true" for v in container_values)
+    return any(v == "true" for v in _iter_annotations(pod_annotations, "pod-rw", system))
 
 
 def parse_store_mounts(
@@ -112,20 +115,15 @@ def parse_store_mounts(
     Example annotations:
       nixkube/pod: /etc/ssl/certs=/nix/store/abc-cacert-1.0/etc/ssl/certs
       nixkube/pod@x86_64-linux: /etc/passwd=/nix/store/fakeNss-x86/etc/passwd
-      nixkube/myapp-1@aarch64-linux: /etc/ssl=/nix/store/cacert-aarch64
+      nixkube/myapp@aarch64-linux-1: /etc/ssl=/nix/store/cacert-aarch64
 
     Returns dict: {Path("/path/in/container"): Path("/source")}
     - Container-specific annotations override pod-wide annotations for the same path
     - System-specific annotations apply only to matching system
     - Annotations without @system apply to all systems
     """
-    # Get pod-wide mounts first, filtered by system
-    pod_mounts = _parse_store_mounts_for_name(pod_annotations, "pod", system)
-
-    # Get container-specific mounts (these override pod-wide), filtered by system
-    container_mounts = _parse_store_mounts_for_name(
-        pod_annotations, container_name, system
-    )
-
-    # Merge: container-specific overrides pod-wide
-    return {**pod_mounts, **container_mounts}
+    # Container-specific overrides pod-wide for the same path
+    return {
+        **_parse_store_mounts_for_name(pod_annotations, "pod", system),
+        **_parse_store_mounts_for_name(pod_annotations, container_name, system),
+    }

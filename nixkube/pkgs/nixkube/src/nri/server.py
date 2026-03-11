@@ -23,18 +23,12 @@ from ..constants import (
 from ..cri import get_cri_socket, list_container_ids
 from ..events import report_event
 from ..nix import fetch_packages, get_build_args, get_current_system
-from ..store import extract_store_paths
+from .annotations import extract_container_store_paths
 from ..volume import prepare_volume
 from .annotations import parse_nix_rw, parse_store_mounts
 from .cleanup import garbage_collect_stale_volumes
 from .mount import kernel_supports_ro, kernel_supports_rw, mount_in_container
 from .zmq import ZeroMQServer
-
-_SUBSCRIBED_EVENTS = [
-    nri_pb2.Event.CREATE_CONTAINER,  # Inject stores into containers
-    nri_pb2.Event.REMOVE_CONTAINER,  # Cleanup hardlink farm volumes
-]
-
 
 # ============================================================================
 # NRI POD CREATION LIFECYCLE
@@ -189,7 +183,13 @@ class NriPlugin(NriPluginBase):
             cri_socket: Path to the CRI socket for container introspection
         """
         logger = structlog.get_logger("nixkube.nri.init")
-        super().__init__(_SUBSCRIBED_EVENTS)
+        # Call NirPluginBase init that registers plugin and which events we listen to
+        super().__init__(
+            [
+                nri_pb2.Event.CREATE_CONTAINER,  # Inject stores into containers
+                nri_pb2.Event.REMOVE_CONTAINER,  # Cleanup hardlink farm volumes
+            ]
+        )
         self.zmq_server = zmq_server
         self.cri_socket = cri_socket
         # Find nri-wait binary on PATH (available as nix-csi dependency)
@@ -206,7 +206,7 @@ class NriPlugin(NriPluginBase):
             pod={"namespace": req.pod.namespace, "name": req.pod.name},
             container={"name": req.container.name, "id": req.container.id},
         )
-        logger.info("create_container")
+        logger.debug("create_container")
 
         # Check if /nix is already mounted (e.g., by nix-csi) to avoid collision
         if any(m.destination == "/nix" for m in req.container.mounts):
@@ -215,26 +215,9 @@ class NriPlugin(NriPluginBase):
             await stream.send_message(resp)
             return
 
-        # Combine env values, args and store mount annotation values for store path extraction
-        # Only extract from nixkube/pod or nixkube/{container-name} annotations
-        # Include system-specific variants (e.g., nixkube/pod@x86_64-linux)
-        pod_prefix = "nixkube/pod"
-        container_prefix = f"nixkube/{req.container.name}"
-        store_annotation_values = [
-            value
-            for key, value in req.pod.annotations.items()
-            if key == pod_prefix
-            or key.startswith(pod_prefix + "-")
-            or key.startswith(pod_prefix + "@")
-            or key == container_prefix
-            or key.startswith(container_prefix + "-")
-            or key.startswith(container_prefix + "@")
-        ]
-        combined = (
-            list(req.container.env) + list(req.container.args) + store_annotation_values
-        )
-        # Extract all store paths
-        store_paths = extract_store_paths(combined)
+        system = get_current_system()
+
+        store_paths = extract_container_store_paths(req, system)
         if store_paths:
             logger.info(
                 "extracted_store_paths",
@@ -243,9 +226,7 @@ class NriPlugin(NriPluginBase):
             )
 
         # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
-        store_mounts = parse_store_mounts(
-            req.pod.annotations, req.container.name, get_current_system()
-        )
+        store_mounts = parse_store_mounts(req.pod.annotations, req.container.name, system)
         if store_mounts:
             logger.info(
                 "parsed_store_mounts",
@@ -254,9 +235,7 @@ class NriPlugin(NriPluginBase):
             )
 
         # Parse RW flag (nixkube/pod-rw or nixkube/{container-name}-rw), filtered by system
-        nix_rw = parse_nix_rw(
-            req.pod.annotations, req.container.name, get_current_system()
-        )
+        nix_rw = parse_nix_rw(req.pod.annotations, req.container.name, system)
         if nix_rw:
             logger.info("nix_rw_requested")
             # Verify kernel supports new mount API for overlayfs (6.5+)
