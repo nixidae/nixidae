@@ -31,10 +31,8 @@ jobs:
         run: |
           echo "${{ secrets.NIXBUILD_KEY }}" | install -D -m 600 /dev/stdin ~/.ssh/nixbuild_key
           install -m 644 "${{ github.workspace }}/.github/assets/ssh-config" ~/.ssh/config
-
       - name: Build nixos test driver
         run: nix build --file . nixosTests.containerd.driverInteractive
-
       - name: Start nixos test (background)
         run: |
           # The nixos-test-driver uses XDG_RUNTIME_DIR as its temp dir and
@@ -46,7 +44,6 @@ jobs:
           echo $! > /tmp/test.pid
           echo "Test running in background (PID: $(cat /tmp/test.pid))"
           sleep 5
-
       - name: Setup upterm session (test runs in parallel)
         uses: owenthereal/action-upterm@v1
         with:

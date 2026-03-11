@@ -72,7 +72,7 @@ hetzkube:
 
 # Deploy test pods (NRI + CSI), waiting for node DaemonSet to be ready first
 testpod:
-    kubectl rollout status daemonset/nix-node -n nix-csi --timeout=120s
+    kubectl rollout status daemonset/nix-node -n nixkube --timeout=120s
     nix run --file tmp/testpod.nix deploymentScript -- --prune --yes --force-replace-on-error
 
 # Deploy to Hetzkube then deploy test pods

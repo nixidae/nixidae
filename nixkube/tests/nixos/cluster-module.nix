@@ -141,29 +141,17 @@
   # -- VM sizing for kubeadm cluster --
   virtualisation = {
     memorySize = 4096;
-    diskSize = 30720; # 30GB: 20GB system + 8GB swap + headroom
+    diskSize = 10240;
     cores = 4;
   };
-
-  # Increase 9p max packet size for Nix store mounts (default 16 KB is slow).
-  virtualisation.msize = 131072;
-
 
   # Swap so the 10GB tmpfs below can exceed physical RAM without OOM.
   swapDevices = [
     {
       device = "/swapfile";
-      size = 8192; # 8GB in MiB
+      size = 4096;
     }
   ];
-
-  # nixkube's initContainer copies the full node-env closure here — potentially
-  # several GB.  Keeping it on tmpfs avoids thrashing the qcow2 disk image.
-  fileSystems."/var/lib/nix-csi" = {
-    device = "tmpfs";
-    fsType = "tmpfs";
-    options = [ "size=10g" "mode=755" ];
-  };
 
   # -- Interactive debug user --
   users.users.nixkube = {
@@ -180,11 +168,6 @@
     ${lib.getExe' pkgs.coreutils "mkdir"} --parents /var/lib/etcd
     ${lib.getExe' pkgs.e2fsprogs "chattr"} -R +C /var/lib/etcd 2>/dev/null || true
   '';
-
-  # NRI socket directory
-  systemd.tmpfiles.rules = [
-    "d /var/run/nri 0755 root root -"
-  ];
 
   # Serve the VM's /nix/store as an unsigned binary cache on port 5000.
   # nixkube pods use this as a trusted substituter so test workload paths can be

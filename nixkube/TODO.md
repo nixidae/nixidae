@@ -17,6 +17,7 @@
 
 ## Testing
 * NixOS tests!
+  * pkgs.kubernetes.pause -> buildImage -> ctr for air-gapped Kubernetes
 * Test RO/RW functionality
 
 ## Configuration

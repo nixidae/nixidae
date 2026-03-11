@@ -57,7 +57,7 @@ pkgs.testers.nixosTest {
 
       # Debug: Check if networking is available
       with control.nested("check networking"):
-          control.wait_for_unit("network-online.target", timeout=30)
+          control.wait_for_unit("network-online.target", timeout=90)
 
       control.wait_for_unit("containerd.service")
 

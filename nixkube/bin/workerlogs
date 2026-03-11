@@ -2,7 +2,7 @@
 # Get logs from nix-node pod running on a worker node
 # Usage: workerlogs [--tail N] [--follow]
 
-namespace="nix-csi"
+namespace="nixkube"
 tail_lines=100
 follow=""
 

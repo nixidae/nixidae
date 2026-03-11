@@ -32,7 +32,7 @@ let
                   -v || true
               '';
           };
-          kubernetes.resources.nix-csi.Pod.csitest = {
+          kubernetes.resources.nixkube.Pod.csitest = {
             spec = {
               containers = lib.mkNamedList {
                 ${toString builtins.currentTime} = {
@@ -63,7 +63,7 @@ let
             };
           };
 
-          kubernetes.resources.nix-csi.Pod.nritest = {
+          kubernetes.resources.nixkube.Pod.nritest = {
             metadata.annotations = {
               "nixkube/pod-rw" = "true";
               "nixkube/pod-ssl" = "/etc/ssl/certs=${pkgs.dockerTools.caCertificates}/etc/ssl/certs";
