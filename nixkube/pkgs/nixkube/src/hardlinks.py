@@ -44,6 +44,7 @@ def hardlink_closure(store_paths: set[Path], dst: Path) -> None:
     dst: volume_root/nix/store
     result: dst/abc-foo/..., dst/def-bar/...
     """
+    logger.debug("hardlink_closure", paths=store_paths, dst=dst)
     try:
         dst.mkdir(parents=True, exist_ok=True)
 

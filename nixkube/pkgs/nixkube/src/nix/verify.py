@@ -13,6 +13,7 @@ logger = structlog.get_logger("nixkube.nix")
 async def verify_store_paths(package_paths: set[Path]) -> None:
     """Verify the integrity of all packages and their closures."""
     try:
+        logger.debug("verify_store_paths", paths=package_paths)
         await try_captured(
             "nix",
             "store",
