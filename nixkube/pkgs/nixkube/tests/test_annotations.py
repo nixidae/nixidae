@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import cast
 
 from nri import nri_pb2
-
 from src.nri.annotations import (
     _parse_store_mounts_for_name,
     extract_container_store_paths,
@@ -298,10 +297,13 @@ class TestExtractContainerStorePaths:
     def test_system_filtered_annotation(self):
         store_x86 = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x86-1.0"
         store_arm = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-arm-1.0"
-        req = _make_req("myapp", {
-            "nixkube/pod@x86_64-linux": store_x86,
-            "nixkube/pod@aarch64-linux": store_arm,
-        })
+        req = _make_req(
+            "myapp",
+            {
+                "nixkube/pod@x86_64-linux": store_x86,
+                "nixkube/pod@aarch64-linux": store_arm,
+            },
+        )
         result_x86 = extract_container_store_paths(req, "x86_64-linux")
         result_arm = extract_container_store_paths(req, "aarch64-linux")
         assert Path(store_x86) in result_x86

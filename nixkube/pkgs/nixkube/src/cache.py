@@ -60,9 +60,11 @@ def get_substituter_args() -> list[str]:
     ]
 
 
-async def copy_to_cache(package_paths: set[Path]) -> None:
+async def copy_to_cache(package_paths: set[Path] | None) -> None:
     """
     Copy packages and their closures to the cache.
+
+    If package_paths is None, copies all paths in the local store (used by GC).
 
     TODO: Rewrite this entire copy process to support user-supplied copy scripts.
     This will allow end-users to copy to arbitrary destinations (S3, GCS, custom caches, etc.)
@@ -72,94 +74,105 @@ async def copy_to_cache(package_paths: set[Path]) -> None:
     within the CSI daemonset. The daemonset should only handle mounting pre-built paths.
     This will improve separation of concerns and allow dedicated builder infrastructure.
     """
-    if not package_paths:
+    if package_paths is not None and not package_paths:
         logger.debug("copy_to_cache_skipped", reason="no_paths")
         return
 
-    logger.debug("copy_to_cache_start", count=len(package_paths))
+    lock_key = frozenset(package_paths) if package_paths is not None else frozenset()
 
-    async with copy_lock[frozenset(package_paths)]:
-        paths: set[Path] = {Path(p) for p in package_paths}
-
-        # Run path-info calls concurrently (regular + derivation)
-        path_info, path_info_drv = await asyncio.gather(
-            run_captured(
-                "nix",
-                "path-info",
-                "--recursive",
-                *package_paths,
-            ),
-            run_captured(
-                "nix",
-                "path-info",
-                "--recursive",
-                "--derivation",
-                *package_paths,
-            ),
-        )
-
-        # Get regular closure paths for all packages
-        if path_info.returncode == 0:
-            paths.update(Path(p) for p in path_info.stdout.splitlines())
+    async with copy_lock[lock_key]:
+        if package_paths is None:
+            # All-paths mode: sign and copy everything in the local store.
+            path_args: list[str | Path] = ["--all"]
+            log = logger.bind(all=True)
         else:
-            logger.warning(
-                "path_info_failed",
-                returncode=path_info.returncode,
-                stderr=path_info.stderr,
+            logger.debug("copy_to_cache_start", count=len(package_paths))
+            paths: set[Path] = {Path(p) for p in package_paths}
+
+            # Run path-info calls concurrently (regular + derivation)
+            path_info, path_info_drv = await asyncio.gather(
+                run_captured(
+                    "nix",
+                    "path-info",
+                    "--recursive",
+                    *package_paths,
+                ),
+                run_captured(
+                    "nix",
+                    "path-info",
+                    "--recursive",
+                    "--derivation",
+                    *package_paths,
+                ),
             )
 
-        # Try to get derivation paths recursively. This may fail if we only have
-        # store paths without .drv files (e.g., fetched from substituters), which is normal.
-        if path_info_drv.returncode == 0:
-            paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
-        # Filter out .drv files and deduplicate
-        paths = {p for p in paths if p.suffix != ".drv"}
-        log = logger.bind(count=len(paths))
-
-        if len(paths) > 0:
-            sign_result = await run_captured(
-                "nix",
-                "store",
-                "sign",
-                "--key-file",
-                "/etc/nix-key/nix_ed25519",
-                *paths,
-            )
-            if sign_result.returncode != 0:
-                log.warning(
-                    "sign_paths_failed",
-                    returncode=sign_result.returncode,
-                    stderr=sign_result.stderr,
-                )
-
-            for attempt in range(6):
-                if attempt > 0:
-                    exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
-                    log.warning(
-                        "copy_retry",
-                        attempt=attempt,
-                        max_attempts=6,
-                        backoff=exp_backoff,
-                    )
-                    await sleep(exp_backoff)
-
-                nix_copy = await run_captured(
-                    "nix", "copy", "--to", "ssh-ng://nix@nix-cache", *paths
-                )
-                if nix_copy.returncode == 0:
-                    log.debug("copy_to_cache_done")
-                    break
-                else:
-                    log.warning(
-                        "copy_attempt_failed",
-                        attempt=attempt + 1,
-                        max_attempts=6,
-                        returncode=nix_copy.returncode,
-                        stdout=nix_copy.stdout,
-                        stderr=nix_copy.stderr,
-                    )
+            # Get regular closure paths for all packages
+            if path_info.returncode == 0:
+                paths.update(Path(p) for p in path_info.stdout.splitlines())
             else:
-                log.error("copy_to_cache_exhausted")
+                logger.warning(
+                    "path_info_failed",
+                    returncode=path_info.returncode,
+                    stderr=path_info.stderr,
+                )
+
+            # Try to get derivation paths recursively. This may fail if we only have
+            # store paths without .drv files (e.g., fetched from substituters), which is normal.
+            if path_info_drv.returncode == 0:
+                paths.update(Path(p) for p in path_info_drv.stdout.splitlines())
+            # Filter out .drv files and deduplicate
+            paths = {p for p in paths if p.suffix != ".drv"}
+            path_args = list(paths)
+            log = logger.bind(count=len(paths))
+
+        sign_result = await run_captured(
+            "nix",
+            "store",
+            "sign",
+            "--key-file",
+            "/etc/nix-key/nix_ed25519",
+            *path_args,
+        )
+        if sign_result.returncode != 0:
+            log.warning(
+                "sign_paths_failed",
+                returncode=sign_result.returncode,
+                stderr=sign_result.stderr,
+            )
+
+        for attempt in range(6):
+            if attempt > 0:
+                exp_backoff = min(5 * (2 ** (attempt - 1)), 60)
+                log.warning(
+                    "copy_retry",
+                    attempt=attempt,
+                    max_attempts=6,
+                    backoff=exp_backoff,
+                )
+                await sleep(exp_backoff)
+
+            nix_copy = await run_captured(
+                "nix",
+                "copy",
+                "--no-check-sigs",
+                "--to",
+                "ssh-ng://nix@nix-cache",
+                *path_args,
+            )
+            if nix_copy.returncode == 0:
+                log.debug("copy_to_cache_done")
+                break
+            else:
+                log.warning(
+                    "copy_attempt_failed",
+                    attempt=attempt + 1,
+                    max_attempts=6,
+                    returncode=nix_copy.returncode,
+                    stdout=nix_copy.stdout,
+                    stderr=nix_copy.stderr,
+                )
+        else:
+            log.error("copy_to_cache_exhausted")
 
 
 def schedule_copy_to_cache(package_paths: set[Path]) -> None:

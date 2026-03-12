@@ -23,9 +23,8 @@ from ..constants import (
 from ..cri import get_cri_socket, list_container_ids
 from ..events import report_event
 from ..nix import fetch_packages, get_build_args, get_current_system
-from .annotations import extract_container_store_paths
 from ..volume import prepare_volume
-from .annotations import parse_nix_rw, parse_store_mounts
+from .annotations import extract_container_store_paths, parse_nix_rw, parse_store_mounts
 from .cleanup import garbage_collect_stale_volumes
 from .mount import kernel_supports_ro, kernel_supports_rw, mount_in_container
 from .zmq import ZeroMQServer
@@ -226,7 +225,9 @@ class NriPlugin(NriPluginBase):
             )
 
         # Parse store mount annotations (nixkube/[container-name/]path), filtered by system
-        store_mounts = parse_store_mounts(req.pod.annotations, req.container.name, system)
+        store_mounts = parse_store_mounts(
+            req.pod.annotations, req.container.name, system
+        )
         if store_mounts:
             logger.info(
                 "parsed_store_mounts",

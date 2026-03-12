@@ -16,6 +16,7 @@ import time
 import structlog
 from shellous import sh
 
+from .cache import copy_to_cache
 from .constants import CACHE_ENABLED, GC_INTERVAL_SECONDS, GC_KEEP_SECONDS
 
 logger = structlog.get_logger("nixkube.gc")
@@ -43,15 +44,7 @@ async def _run_gc_cycle() -> None:
     """Execute one GC cycle: optionally copy to cache, then delete old paths."""
     if CACHE_ENABLED:
         try:
-            await sh(
-                "nix",
-                "copy",
-                "--all",
-                "--store",
-                "local",
-                "--to",
-                "ssh-ng://nix@nix-cache",
-            )
+            await copy_to_cache(None)
         except Exception:
             logger.warning("gc_cache_copy_failed", exc_info=True)
 

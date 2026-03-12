@@ -14,7 +14,9 @@ from ..store import extract_store_paths
 Annotations = Mapping[str, str]
 
 
-def _iter_annotations(annotations: Annotations, target: str, system: str) -> Iterator[str]:
+def _iter_annotations(
+    annotations: Annotations, target: str, system: str
+) -> Iterator[str]:
     """Yield annotation values for nixkube/{target}(@{system})?(-{index})? annotations.
 
     Annotations without @system apply to all systems. System-qualified annotations
@@ -23,9 +25,7 @@ def _iter_annotations(annotations: Annotations, target: str, system: str) -> Ite
     The optional -index suffix (always last) allows multiple annotations for the same
     target (e.g., nixkube/pod-1, nixkube/pod-2) and is ignored by the parser.
     """
-    pattern = re.compile(
-        rf"^nixkube/{re.escape(target)}(@{re.escape(system)}|)(-.*|)$"
-    )
+    pattern = re.compile(rf"^nixkube/{re.escape(target)}(@{re.escape(system)}|)(-.*|)$")
     return (value for key, value in annotations.items() if pattern.fullmatch(key))
 
 
@@ -93,10 +93,14 @@ def parse_nix_rw(
       nixkube/{container-name}-rw: "true"   — only this container gets RW /nix
       nixkube/{container-name}-rw@aarch64-linux: "false" — this container stays RO on aarch64
     """
-    container_values = list(_iter_annotations(pod_annotations, f"{container_name}-rw", system))
+    container_values = list(
+        _iter_annotations(pod_annotations, f"{container_name}-rw", system)
+    )
     if container_values:
         return any(v == "true" for v in container_values)
-    return any(v == "true" for v in _iter_annotations(pod_annotations, "pod-rw", system))
+    return any(
+        v == "true" for v in _iter_annotations(pod_annotations, "pod-rw", system)
+    )
 
 
 def parse_store_mounts(
