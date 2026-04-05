@@ -40,7 +40,7 @@ rec {
     module.imports = [
       ./kubenix/ci
       {
-        nixkube.cache.enable = false;
+        nixkube.pynixd.enable = false;
         nixkube.builders.enable = false;
         # push = true retains Nix string context on DaemonSet store paths so
         # they become part of the manifest's closure.  The NixOS test VM then
@@ -80,7 +80,7 @@ rec {
               fi
               cachix push nix-csi ${config.internal.manifestJSONFile}
             '';
-          nixkube.cache.enable = true;
+          nixkube.pynixd.enable = true;
           nixkube.builders.enable = true;
           nixkube.push = true;
         }

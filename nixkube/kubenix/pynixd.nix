@@ -12,24 +12,24 @@ let
   nsRes = config.kubernetes.resources.${cfg.namespace};
 in
 {
-  options.nixkube.cache = {
-    enable = (lib.mkEnableOption "cache StatefulSet (shared Nix binary cache)") // {
+  options.nixkube.pynixd = {
+    enable = (lib.mkEnableOption "pynixd StatefulSet (shared Nix binary cache and build distributor)") // {
       default = true;
     };
     nixConfig = lib.mkOption {
-      description = "nix.conf for cache pod";
+      description = "nix.conf for pynixd pod";
       type = (import ./nixOptions.nix) curPkgs;
     };
 
     storageClassName = lib.mkOption {
-      description = "StorageClass for the cache PVC. null uses the cluster's default StorageClass.";
+      description = "StorageClass for the pynixd PVC. null uses the cluster's default StorageClass.";
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "fast-ssd";
     };
     loadBalancerPort = lib.mkOption {
       description = ''
-        External SSH port for the cache LoadBalancer Service.
+        External SSH port for the pynixd LoadBalancer Service.
         Set to null to disable the LoadBalancer (cluster-internal access only).
       '';
       type = lib.types.nullOr lib.types.int;
@@ -39,27 +39,27 @@ in
   config =
     let
       labels = cfg.labels // {
-        "app.kubernetes.io/component" = "cache";
+        "app.kubernetes.io/component" = "pynixd";
       };
       matchLabels = cfg.matchLabels // {
-        "app.kubernetes.io/component" = "cache";
+        "app.kubernetes.io/component" = "pynixd";
       };
     in
-    lib.mkIf (cfg.enable && cfg.cache.enable) {
+    lib.mkIf (cfg.enable && cfg.pynixd.enable) {
       kubernetes.resources.${cfg.namespace} = {
-        StatefulSet.nix-cache = {
+        StatefulSet.pynixd = {
           metadata.labels = labels;
           metadata.annotations."nixkube/discard" = "true";
           spec = {
-            serviceName = "nix-cache";
+            serviceName = "pynixd";
             replicas = 1;
             selector.matchLabels = labels;
             template = {
               metadata.labels = labels;
               metadata.annotations = {
-                "kubectl.kubernetes.io/default-container" = "nix-cache";
+                "kubectl.kubernetes.io/default-container" = "pynixd";
                 configHash = lib.hashAttrs (
-                  { } // nsRes.ConfigMap.nix-cache or { } // nsRes.ConfigMap.ssh-config or { }
+                  { } // nsRes.ConfigMap.pynixd or { } // nsRes.ConfigMap.ssh-config or { }
                 );
               };
               spec = {
@@ -94,20 +94,14 @@ in
                   };
                 };
                 containers = lib.mkNamedList {
-                  nix-cache = {
+                  pynixd = {
                     command = [
-                      "dinit"
-                      "--log-file"
-                      "/var/log/dinit.log"
-                      "--quiet"
-                      "cache"
+                      "pynixd-nixkube"
                     ];
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     env = lib.mkNamedList {
                       BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
-                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable; # copy to itself is a bit weird?
-                      IS_CACHE.value = lib.boolToString true;
-                      GC_KEEP_SECONDS.value = "86400";
+                      PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                     };
@@ -135,12 +129,12 @@ in
                   };
                 };
                 volumes = lib.mkNamedList {
-                  nix-config.configMap.name = "nix-cache";
+                  nix-config.configMap.name = "pynixd";
                   nix-key.secret.secretName = "nix-key";
                   init-store.csi = {
                     driver = "nixkube";
                     readOnly = true;
-                    volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-cache-env) csiPkgs;
+                    volumeAttributes = lib.mapAttrs (_: pkgs: pkgs.nixkube-pynixd-env) csiPkgs;
                   };
 
                   ssh-config.configMap = {
@@ -164,14 +158,14 @@ in
                 spec = {
                   accessModes = [ "ReadWriteOnce" ];
                   resources.requests.storage = "10Gi";
-                  inherit (cfg.cache) storageClassName;
+                  inherit (cfg.pynixd) storageClassName;
                 };
               };
             };
           };
         };
 
-        Service.nix-cache = {
+        Service.pynixd = {
           metadata.labels = labels;
           spec = {
             selector = matchLabels;
@@ -184,13 +178,13 @@ in
             type = "ClusterIP";
           };
         };
-        Service.nix-cache-lb = lib.mkIf (cfg.cache.loadBalancerPort != null) {
+        Service.pynixd-lb = lib.mkIf (cfg.pynixd.loadBalancerPort != null) {
           metadata.labels = labels;
           spec = {
             selector = matchLabels;
             ports = lib.mkNamedList {
               ssh = {
-                port = cfg.cache.loadBalancerPort;
+                port = cfg.pynixd.loadBalancerPort;
                 targetPort = "ssh";
               };
             };

@@ -8,7 +8,7 @@
     ./daemonset.nix
     ./csidriver.nix
     ./config.nix
-    ./cache.nix
+    ./pynixd.nix
     ./builder.nix
     ./rbac.nix
     ./undeploy.nix

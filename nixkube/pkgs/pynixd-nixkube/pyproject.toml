@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pynixd-nixkube"
+version = "0.1.0"
+description = "Nixkube integration for pynixd"
+
+dependencies = [
+    "pynixd",
+    "kr8s",
+    "structlog",
+]
+
+[project.scripts]
+pynixd-nixkube = "pynixd_nixkube.__main__:main"

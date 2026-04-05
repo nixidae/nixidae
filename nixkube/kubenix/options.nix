@@ -33,6 +33,7 @@ in
 {
   imports = [
     (lib.mkRenamedOptionModule [ "nix-csi" ] [ "nixkube" ])
+    (lib.mkRenamedOptionModule [ "nixkube" "cache" ] [ "nixkube" "pynixd" ])
   ];
   options.nixkube = {
     enable = lib.mkEnableOption "nixkube";
@@ -285,7 +286,7 @@ in
               in
               {
                 nixkube-node-env = callPackage ../environments/node;
-                nixkube-cache-env = callPackage ../environments/cache;
+                nixkube-pynixd-env = callPackage ../environments/cache;
                 nixkube-builder-env = callPackage ../environments/builder;
                 nixkube-proxy-env = callPackage ../environments/proxy;
               }

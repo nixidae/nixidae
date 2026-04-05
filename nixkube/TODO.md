@@ -1,5 +1,8 @@
 # TODO
 
+## Environs
+Use the "environs" library for environment variable reading
+
 ## Support Nix signing
   * Implement signing paths as soon as the touch cache
 

@@ -105,9 +105,8 @@ in
                     securityContext.privileged = true;
                     env = lib.mkNamedList {
                       BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
-                      CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.compat;
-                      NRI_ENABLED.value = "true";
+                      PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
+                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.compat;                      NRI_ENABLED.value = "true";
                       HOME.value = "/nix/var/nix-csi/root";
                       HOST_MOUNT_PATH.value = cfg.hostMountPath;
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";

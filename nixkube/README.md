@@ -1,6 +1,6 @@
-# nixkube
+# nixkube / nix + kube / nix-csi / nix-nri
 
-Mount /nix into Kubernetes pods using the CSI Ephemeral Volume feature and NRI plugin. Volumes
+Mount /nix into Kubernetes pods using the CSI ephemeral volumes or NRI(Node Resource Interface). Volumes
 share lifetime with Pods and are embedded into the Podspec.
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Lillecarl/nix-csi)

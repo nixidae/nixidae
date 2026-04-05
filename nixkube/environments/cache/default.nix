@@ -46,6 +46,7 @@ let
       coreutils
       lruLix
       openssh
+      pynixd-nixkube
       # dev
       fishMinimal
     ];

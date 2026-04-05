@@ -166,9 +166,8 @@ in
                   image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                   env = lib.mkNamedList {
                     BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
-                    CACHE_ENABLED.value = lib.boolToString cfg.cache.enable;
-                    HOME.value = "/nix/var/nix-csi/root";
-                    KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
+                    PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
+                    HOME.value = "/nix/var/nix-csi/root";                    KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                   };
                   resources = v.resources;
                   volumeMounts = lib.mkNamedList {

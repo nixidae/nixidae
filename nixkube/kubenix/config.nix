@@ -36,7 +36,7 @@ in
         node.nixConfig.settings = sharedSettings // {
           keep-outputs = true; # Remove when we have separate builders
         };
-        cache.nixConfig.settings = sharedSettings // {
+        pynixd.nixConfig.settings = sharedSettings // {
           max-jobs = 0;
         };
         builders.nixConfig.settings = sharedSettings // {
@@ -51,10 +51,10 @@ in
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
-      ConfigMap.nix-cache = {
+      ConfigMap.pynixd = {
         metadata.labels = cfg.labels;
         data = {
-          "nix.conf" = builtins.readFile (cfg.cache.nixConfig.nixConf);
+          "nix.conf" = builtins.readFile (cfg.pynixd.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
