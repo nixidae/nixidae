@@ -22,13 +22,11 @@ async def test_builders() -> None:
         id="local",
         store_path=STORE_PREFIX / "local",
         nix_bin=NIX_BIN,
-        extra_args=["--log-format", "raw"],
     )
     builder_store = LocalSocketStore(
         id="builder",
         store_path=STORE_PREFIX / "builder",
         nix_bin=NIX_BIN,
-        extra_args=["--log-format", "raw"],
     )
 
     async with Server(
@@ -47,7 +45,8 @@ async def test_builders() -> None:
             "--print-out-paths",
         ]
         rc, stdout, stderr = await run_captured(cmd)
-        assert rc == 0, f"build failed:\n{stderr}"
+        assert rc == 0, f"""build failed:
+{stderr}"""
 
 
 async def test_store() -> None:
@@ -55,15 +54,13 @@ async def test_store() -> None:
     test_nix = Path("test.nix")
     local_store = LocalSocketStore(
         id="local",
-        store_path=STORE_PREFIX / "local",
+        store_path=STORE_PREFIX / "local-store",
         nix_bin=NIX_BIN,
-        extra_args=["--log-format", "internal-json"],
     )
     builder_store = LocalSocketStore(
         id="builder",
-        store_path=STORE_PREFIX / "builder",
+        store_path=STORE_PREFIX / "builder-store",
         nix_bin=NIX_BIN,
-        extra_args=["--log-format", "internal-json"],
     )
 
     # AddToStore is muted to INFO because it produces ~4500 DEBUG log lines
@@ -71,10 +68,6 @@ async def test_store() -> None:
     # DEBUG output is NOT the cause of any test failure. Do NOT remove this
     # silencing unless you want to drown the AI in thousands of log lines.
     with set_log_levels({"pynixd.op.AddToStore": logging.INFO}):
-        log.info(
-            "IMPORTANT: pynixd.op.AddToStore is configured to INFO "
-            "so you won't see it here unless it errors out"
-        )
         async with Server(
             local_store=local_store, stores={"builder": builder_store}, ssh_port=0
         ) as server:
@@ -91,4 +84,5 @@ async def test_store() -> None:
                 "--print-out-paths",
             ]
             rc, stdout, stderr = await run_captured(cmd)
-            assert rc == 0, f"build failed:\n{stderr}"
+            assert rc == 0, f"""build failed:
+{stderr}"""
