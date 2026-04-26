@@ -47,6 +47,9 @@ buildPythonApplication {
     "--set"
     "FAKE_NSS"
     fakeNss
+    "--set"
+    "CA_CERTS"
+    dockerTools.caCertificates
   ];
   meta.mainProgram = "pynixd-nixkube";
   passthru.fakeNss = fakeNss;

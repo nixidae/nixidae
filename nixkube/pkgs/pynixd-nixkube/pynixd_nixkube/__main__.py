@@ -12,6 +12,7 @@ from pynixd.store import LocalSocketStore
 log = structlog.get_logger(__name__)
 
 FAKE_NSS = Path(os.environ["FAKE_NSS"])
+CA_CERTS = Path(os.environ["CA_CERTS"])
 
 
 def install_nss() -> None:
@@ -21,6 +22,13 @@ def install_nss() -> None:
         if src.exists() and not dst.exists():
             dst.write_text(src.read_text())
             log.info("installed_nss_file", name=name)
+
+    ssl_certs_dst = Path("/etc/ssl/certs")
+    if not ssl_certs_dst.exists():
+        ssl_certs_src = CA_CERTS / "etc" / "ssl" / "certs"
+        ssl_certs_dst.parent.mkdir(parents=True, exist_ok=True)
+        ssl_certs_dst.symlink_to(ssl_certs_src)
+        log.info("installed_ssl_certs", target=str(ssl_certs_src))
 
     sh_dst = Path("/bin/sh")
     if not sh_dst.exists():
