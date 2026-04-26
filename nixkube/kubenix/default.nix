@@ -9,6 +9,7 @@
     ./csidriver.nix
     ./config.nix
     ./pynixd.nix
+    ./builder.nix
 
     ./rbac.nix
     ./undeploy.nix

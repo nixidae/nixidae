@@ -37,6 +37,16 @@ in
       type = lib.types.nullOr lib.types.int;
       default = 2222;
     };
+    builderMax = lib.mkOption {
+      description = "Maximum number of ephemeral builder Jobs that pynixd can create.";
+      type = lib.types.ints.positive;
+      default = 3;
+    };
+    builderIdleTimeout = lib.mkOption {
+      description = "Seconds of inactivity before an ephemeral builder pod shuts down.";
+      type = lib.types.ints.positive;
+      default = 300;
+    };
   };
   config =
     let
@@ -100,7 +110,7 @@ in
                     command = [
                       "tini"
                       "--"
-                      "pynixd-nixkube"
+                      "pynixd-nixkube-central"
                     ];
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     env = lib.mkNamedList {
@@ -111,6 +121,8 @@ in
                       PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
+                      BUILDER_MAX.value = toString cfg.pynixd.builderMax;
+                      PYNIXD_SCHEDULE_MODE.value = "scheduler";
                     };
                     ports = lib.mkNamedList {
                       ssh.containerPort = 2222;

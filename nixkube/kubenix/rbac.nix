@@ -65,6 +65,7 @@ in
         metadata.labels = cfg.labels;
         rules = [
           # Cache maintains up2date /etc/machines
+          # Builder manager watches builder pods
           {
             apiGroups = [ "" ];
             resources = [ "pods" ];
@@ -87,6 +88,26 @@ in
               "create"
               "patch"
               "delete"
+            ];
+          }
+          # Builder manager creates Jobs for ephemeral builders
+          {
+            apiGroups = [ "batch" ];
+            resources = [ "jobs" ];
+            verbs = [
+              "get"
+              "list"
+              "watch"
+              "create"
+            ];
+          }
+          # Builder manager reads PodTemplate for builder pod spec
+          {
+            apiGroups = [ "" ];
+            resources = [ "podtemplates" ];
+            verbs = [
+              "get"
+              "list"
             ];
           }
         ];

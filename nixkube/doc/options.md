@@ -32,7 +32,7 @@ true
 
 ## nixkube\.authorizedKeys
 
-SSH public keys that can connect to cache and builders\. Used by nodes to push built store paths to the cache\.
+SSH public keys that can connect to cache\. Used by nodes to push built store paths to the cache\.
 
 
 
@@ -64,79 +64,11 @@ list of (string or absolute path)
 
 
 
-## nixkube\.builders\.enable
+## nixkube\.builder\.enable
 
 
 
-Whether to enable builder pods\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-true
-```
-
-
-
-*Example:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.daemonsets
-
-
-
-DaemonSet-based builders: runs one builder pod per matching node\.
-Use when you want every node of a given arch to participate in builds\.
-
-
-
-*Type:*
-attribute set of (submodule)
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-
-
-*Example:*
-
-```nix
-{
-  arm64 = { arch = "arm64"; };
-}
-
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.daemonsets\.\<name>\.enable
-
-
-
-Whether to enable builder pods\.
+Whether to enable ephemeral builder Job infrastructure (PodTemplate, ConfigMap)\.
 
 
 
@@ -164,310 +96,7 @@ true
 
 
 
-## nixkube\.builders\.daemonsets\.\<name>\.arch
-
-
-
-GOARCH / kubernetes\.io/arch to deploy to
-
-
-
-*Type:*
-non-empty string
-
-
-
-*Default:*
-
-```nix
-"amd64"
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.daemonsets\.\<name>\.labels
-
-
-
-Pod labels
-
-
-
-*Type:*
-attribute set of string
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.daemonsets\.\<name>\.replicas
-
-
-
-Number of builder pod replicas
-
-
-
-*Type:*
-positive integer, meaning >0
-
-
-
-*Default:*
-
-```nix
-1
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.daemonsets\.\<name>\.resources
-
-
-
-Resource requests/limits for builder pods
-
-
-
-*Type:*
-JSON value
-
-
-
-*Default:*
-
-```nix
-{
-  limits = {
-    ephemeral-storage = "5Gi";
-  };
-  requests = {
-    cpu = "1";
-    ephemeral-storage = "5Gi";
-    memory = "2Gi";
-  };
-}
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments
-
-
-
-Deployment-based builders: fixed replica count, suitable for dedicated builder nodes
-selected by nodeSelector labels\. Each entry becomes a separate Deployment\.
-
-
-
-*Type:*
-attribute set of (submodule)
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-
-
-*Example:*
-
-```nix
-{
-  amd64 = { arch = "amd64"; replicas = 2; };
-}
-
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments\.\<name>\.enable
-
-
-
-Whether to enable builder pods\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-true
-```
-
-
-
-*Example:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments\.\<name>\.arch
-
-
-
-GOARCH / kubernetes\.io/arch to deploy to
-
-
-
-*Type:*
-non-empty string
-
-
-
-*Default:*
-
-```nix
-"amd64"
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments\.\<name>\.labels
-
-
-
-Pod labels
-
-
-
-*Type:*
-attribute set of string
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments\.\<name>\.replicas
-
-
-
-Number of builder pod replicas
-
-
-
-*Type:*
-positive integer, meaning >0
-
-
-
-*Default:*
-
-```nix
-1
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.deployments\.\<name>\.resources
-
-
-
-Resource requests/limits for builder pods
-
-
-
-*Type:*
-JSON value
-
-
-
-*Default:*
-
-```nix
-{
-  limits = {
-    ephemeral-storage = "5Gi";
-  };
-  requests = {
-    cpu = "1";
-    ephemeral-storage = "5Gi";
-    memory = "2Gi";
-  };
-}
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.loadBalancerPort
-
-
-
-External SSH port for the builders LoadBalancer Service\.
-Set to null to disable the LoadBalancer (cluster-internal access only)\.
-
-
-
-*Type:*
-null or (positive integer, meaning >0)
-
-
-
-*Default:*
-
-```nix
-2223
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.nixConfig
+## nixkube\.builder\.nixConfig
 
 
 
@@ -483,7 +112,7 @@ submodule
 
 
 
-## nixkube\.builders\.nixConfig\.extraOptions
+## nixkube\.builder\.nixConfig\.extraOptions
 
 
 
@@ -507,7 +136,7 @@ strings concatenated with “\\n”
 
 
 
-## nixkube\.builders\.nixConfig\.settings
+## nixkube\.builder\.nixConfig\.settings
 
 
 
@@ -528,185 +157,6 @@ open submodule of attribute set of (Nix config atom (null, bool, int, float, str
 
 *Declared by:*
  - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builders\.privilegedSandboxedBuilds
-
-
-
-Run builder pods with elevated privileges to enable the Nix sandbox\.
-The sandbox isolates builds from the host network and filesystem, improving reproducibility\.
-Disable only if your cluster policy prohibits privileged pods and you accept unsandboxed builds\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.cache\.enable
-
-
-
-Whether to enable cache StatefulSet (shared Nix binary cache)\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-true
-```
-
-
-
-*Example:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
-
-
-
-## nixkube\.cache\.loadBalancerPort
-
-
-
-External SSH port for the cache LoadBalancer Service\.
-Set to null to disable the LoadBalancer (cluster-internal access only)\.
-
-
-
-*Type:*
-null or signed integer
-
-
-
-*Default:*
-
-```nix
-2222
-```
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
-
-
-
-## nixkube\.cache\.nixConfig
-
-
-
-nix\.conf for cache pod
-
-
-
-*Type:*
-submodule
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
-
-
-
-## nixkube\.cache\.nixConfig\.extraOptions
-
-
-
-Extra lines to add to nix\.conf
-
-
-
-*Type:*
-strings concatenated with “\\n”
-
-
-
-*Default:*
-
-```nix
-""
-```
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
-
-
-
-## nixkube\.cache\.nixConfig\.settings
-
-
-
-Settings rendered to nix\.conf
-
-
-
-*Type:*
-open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
-
-
-
-## nixkube\.cache\.storageClassName
-
-
-
-StorageClass for the cache PVC\. null uses the cluster’s default StorageClass\.
-
-
-
-*Type:*
-null or string
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-
-
-*Example:*
-
-```nix
-"fast-ssd"
-```
-
-*Declared by:*
- - [/kubenix/cache\.nix](file:///kubenix/cache.nix)
 
 
 
@@ -758,35 +208,11 @@ absolute path
 
 
 
-## nixkube\.internalServiceName
-
-
-
-Internal service name used for reaching builder nodes from cache node
-
-
-
-*Type:*
-string
-
-
-
-*Default:*
-
-```nix
-"nix-builders"
-```
-
-*Declared by:*
- - [/kubenix/options\.nix](file:///kubenix/options.nix)
-
-
-
 ## nixkube\.knownHosts
 
 
 
-SSH host keys to accept when connecting to cache and builders\.
+SSH host keys to accept when connecting to cache\.
 Keys are written to known_hosts on nodes so they can connect without interactive verification\.
 
 
@@ -1233,6 +659,207 @@ positive integer, meaning >0
 
 *Declared by:*
  - [/kubenix/options\.nix](file:///kubenix/options.nix)
+
+
+
+## nixkube\.pynixd\.enable
+
+
+
+Whether to enable pynixd StatefulSet (shared Nix binary cache and build distributor)\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builderIdleTimeout
+
+
+
+Seconds of inactivity before an ephemeral builder pod shuts down\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+300
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builderMax
+
+
+
+Maximum number of ephemeral builder Jobs that pynixd can create\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+3
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.loadBalancerPort
+
+
+
+External SSH port for the pynixd LoadBalancer Service\.
+Set to null to disable the LoadBalancer (cluster-internal access only)\.
+
+
+
+*Type:*
+null or signed integer
+
+
+
+*Default:*
+
+```nix
+2222
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.nixConfig
+
+
+
+nix\.conf for pynixd pod
+
+
+
+*Type:*
+submodule
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.nixConfig\.extraOptions
+
+
+
+Extra lines to add to nix\.conf
+
+
+
+*Type:*
+strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+""
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.nixConfig\.settings
+
+
+
+Settings rendered to nix\.conf
+
+
+
+*Type:*
+open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.storageClassName
+
+
+
+StorageClass for the pynixd PVC\. null uses the cluster’s default StorageClass\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"fast-ssd"
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
 
 
 
