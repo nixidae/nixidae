@@ -66,5 +66,5 @@ self: pkgs: {
   nri-wait = pkgs.python3Packages.callPackage ./nri-wait { };
 
   pynixd = (import ../../pynixd { inherit pkgs; lib = pkgs.lib; }).library;
-  pynixd-nixkube = pkgs.python3Packages.callPackage ./pynixd-nixkube { inherit (self) pynixd; };
+  pynixd-nixkube = pkgs.python3Packages.callPackage ./pynixd-nixkube { inherit (self) pynixd kr8s; };
 }

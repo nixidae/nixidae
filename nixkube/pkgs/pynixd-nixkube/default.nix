@@ -4,6 +4,7 @@
   buildPythonApplication,
   hatchling,
   pynixd,
+  kr8s,
 }:
 let
   pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -16,6 +17,7 @@ buildPythonApplication {
   build-system = [ hatchling ];
   dependencies = [
     pynixd
+    kr8s
   ];
   meta.mainProgram = "pynixd-nixkube";
 }

@@ -61,7 +61,6 @@ in
               spec = {
                 serviceAccountName = "nixkube";
                 priorityClassName = "system-node-critical";
-                subdomain = cfg.internalServiceName;
                 tolerations = [
                   {
                     key = "node-role.kubernetes.io/control-plane";
@@ -104,9 +103,9 @@ in
                     ];
                     securityContext.privileged = true;
                     env = lib.mkNamedList {
-                      BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                       PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
-                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.compat;                      NRI_ENABLED.value = "true";
+                      ENABLE_COMPAT_DRIVER.value = lib.boolToString cfg.node.compat;
+                      NRI_ENABLED.value = "true";
                       HOME.value = "/nix/var/nix-csi/root";
                       HOST_MOUNT_PATH.value = cfg.hostMountPath;
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
@@ -270,16 +269,6 @@ in
                   };
                 };
               };
-            };
-          };
-        };
-        Service.${cfg.internalServiceName} = {
-          metadata.labels = labels;
-          spec = {
-            clusterIP = "None";
-            selector = matchLabels;
-            ports = lib.mkNamedList {
-              ssh.port = 22;
             };
           };
         };

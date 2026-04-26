@@ -47,6 +47,7 @@ let
       lruLix
       openssh
       pynixd-nixkube
+      tini
       # dev
       fishMinimal
     ];

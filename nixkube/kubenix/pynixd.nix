@@ -13,9 +13,11 @@ let
 in
 {
   options.nixkube.pynixd = {
-    enable = (lib.mkEnableOption "pynixd StatefulSet (shared Nix binary cache and build distributor)") // {
-      default = true;
-    };
+    enable =
+      (lib.mkEnableOption "pynixd StatefulSet (shared Nix binary cache and build distributor)")
+      // {
+        default = true;
+      };
     nixConfig = lib.mkOption {
       description = "nix.conf for pynixd pod";
       type = (import ./nixOptions.nix) curPkgs;
@@ -96,11 +98,12 @@ in
                 containers = lib.mkNamedList {
                   pynixd = {
                     command = [
+                      "tini"
+                      "--"
                       "pynixd-nixkube"
                     ];
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     env = lib.mkNamedList {
-                      BUILDERS_ENABLED.value = lib.boolToString cfg.builders.enable;
                       PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";

@@ -24,6 +24,9 @@ in
             "nix-command"
             "flakes"
             "read-only-local-store"
+            # "ca-derivations"
+            # "dynamic-derivations"
+            # "recursive-nix"
           ];
           builders-use-substitutes = true;
           narinfo-cache-negative-ttl = 0;
@@ -34,13 +37,10 @@ in
       in
       {
         node.nixConfig.settings = sharedSettings // {
-          keep-outputs = true; # Remove when we have separate builders
+          keep-outputs = true;
         };
         pynixd.nixConfig.settings = sharedSettings // {
           max-jobs = 0;
-        };
-        builders.nixConfig.settings = sharedSettings // {
-          max-jobs = "auto";
         };
       };
     kubernetes.resources.${cfg.namespace} = {
@@ -55,13 +55,6 @@ in
         metadata.labels = cfg.labels;
         data = {
           "nix.conf" = builtins.readFile (cfg.pynixd.nixConfig.nixConf);
-          "logging.json" = builtins.toJSON cfg.loggingConfig;
-        };
-      };
-      ConfigMap.nix-builder = {
-        metadata.labels = cfg.labels;
-        data = {
-          "nix.conf" = builtins.readFile (cfg.builders.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };

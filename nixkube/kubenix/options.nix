@@ -53,7 +53,7 @@ in
       default = "nixkube";
     };
     authorizedKeys = lib.mkOption {
-      description = "SSH public keys that can connect to cache and builders. Used by nodes to push built store paths to the cache.";
+      description = "SSH public keys that can connect to cache. Used by nodes to push built store paths to the cache.";
       type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
       apply = lib.map (v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
       default = [ ];
@@ -66,7 +66,7 @@ in
     };
     knownHosts = lib.mkOption {
       description = ''
-        SSH host keys to accept when connecting to cache and builders.
+        SSH host keys to accept when connecting to cache.
         Keys are written to known_hosts on nodes so they can connect without interactive verification.
       '';
       type = lib.types.attrsOf (lib.types.either lib.types.str lib.types.path);
@@ -97,13 +97,7 @@ in
       type = lib.types.path;
       default = "/var/lib/nix-csi";
     };
-    internalServiceName = lib.mkOption {
-      description = ''
-        Internal service name used for reaching builder nodes from cache node
-      '';
-      type = lib.types.str;
-      default = "nix-builders";
-    };
+
     verifyStorePaths = lib.mkOption {
       description = "Verify Nix store paths after building or fetching, before mounting into pods.";
       type = lib.types.bool;
@@ -287,8 +281,7 @@ in
               {
                 nixkube-node-env = callPackage ../environments/node;
                 nixkube-pynixd-env = callPackage ../environments/cache;
-                nixkube-builder-env = callPackage ../environments/builder;
-                nixkube-proxy-env = callPackage ../environments/proxy;
+
               }
             )
           ];

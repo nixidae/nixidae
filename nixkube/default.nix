@@ -41,7 +41,6 @@ rec {
       ./kubenix/ci
       {
         nixkube.pynixd.enable = false;
-        nixkube.builders.enable = false;
         # push = true retains Nix string context on DaemonSet store paths so
         # they become part of the manifest's closure.  The NixOS test VM then
         # has every path in /nix/store, where nix-serve makes them available
@@ -81,7 +80,6 @@ rec {
               cachix push nix-csi ${config.internal.manifestJSONFile}
             '';
           nixkube.pynixd.enable = true;
-          nixkube.builders.enable = true;
           nixkube.push = true;
         }
       )

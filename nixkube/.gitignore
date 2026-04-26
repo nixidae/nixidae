@@ -1,6 +1,7 @@
 result
 .aider*
 .privrc
+private
 
 # Python
 __pycache__/
