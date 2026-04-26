@@ -105,11 +105,15 @@ in
                     image = "ghcr.io/lillecarl/nix-csi/scratch:1.0.1";
                     env = lib.mkNamedList {
                       PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
+                      PYNIXD_SSH_HOST.value = "";
+                      PYNIXD_SSH_PORT.value = "2222";
+                      PYNIXD_HTTP_PORT.value = "8080";
+                      PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
                       HOME.value = "/nix/var/nix-csi/root";
                       KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                     };
                     ports = lib.mkNamedList {
-                      ssh.containerPort = 22;
+                      ssh.containerPort = 2222;
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
@@ -174,7 +178,7 @@ in
             selector = matchLabels;
             ports = lib.mkNamedList {
               ssh = {
-                port = 22;
+                port = 2222;
                 targetPort = "ssh";
               };
             };

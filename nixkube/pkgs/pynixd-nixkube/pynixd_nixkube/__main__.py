@@ -5,13 +5,9 @@ import os
 from pathlib import Path
 
 import structlog
-from environs import Env
 from pynixd.config import PynixdSettings
 from pynixd.instance import Server
 from pynixd.store import LocalSocketStore
-
-env = Env()
-env.read_env()
 
 log = structlog.get_logger(__name__)
 
@@ -31,6 +27,10 @@ def install_nss() -> None:
         sh_dst.parent.mkdir(parents=True, exist_ok=True)
         sh_dst.symlink_to("/nix/var/result/bin/bash")
         log.info("installed_bin_sh", target="/nix/var/result/bin/bash")
+
+    host_key_dir = Path("/nix/var/pynixd")
+    host_key_dir.mkdir(parents=True, exist_ok=True)
+    log.info("ensured_host_key_dir", path=str(host_key_dir))
 
 
 async def _main():
@@ -52,10 +52,7 @@ async def _main():
         monitor=False,
     )
 
-    settings = PynixdSettings(
-        ssh_port=env.int("PYNIXD_SSH_PORT", 2222),
-        http_port=env.int("PYNIXD_HTTP_PORT", 8080),
-    )
+    settings = PynixdSettings()
 
     server = Server(local_store=local_store, settings=settings)
 

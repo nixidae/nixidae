@@ -25,6 +25,7 @@ in
 
             Host nix-cache
                 User nix
+                Port 2222
                 IdentityFile /etc/ssh-key/id_ed25519
                 IdentitiesOnly yes
                 StrictHostKeyChecking yes
