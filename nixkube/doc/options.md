@@ -30,43 +30,7 @@ true
 
 
 
-## nixkube\.authorizedKeys
-
-SSH public keys that can connect to cache\. Used by nodes to push built store paths to the cache\.
-
-
-
-*Type:*
-list of (string or absolute path)
-
-
-
-*Default:*
-
-```nix
-[ ]
-```
-
-
-
-*Example:*
-
-```nix
-[
-  "ssh-ed25519 AAAA... user@host"
-  ./keys/deploy.pub
-]
-
-```
-
-*Declared by:*
- - [/kubenix/options\.nix](file:///kubenix/options.nix)
-
-
-
 ## nixkube\.builder\.enable
-
-
 
 Whether to enable ephemeral builder Job infrastructure (PodTemplate, ConfigMap)\.
 
@@ -687,6 +651,42 @@ true
 
 ```nix
 true
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.authorizedKeys
+
+
+
+SSH public keys that can connect to cache\. Used by nodes to push built store paths to the cache\.
+
+
+
+*Type:*
+list of (string or absolute path)
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+
+
+*Example:*
+
+```nix
+[
+  "ssh-ed25519 AAAA... user@host"
+  ./keys/deploy.pub
+]
+
 ```
 
 *Declared by:*

@@ -52,18 +52,6 @@ in
       type = lib.types.str;
       default = "nixkube";
     };
-    authorizedKeys = lib.mkOption {
-      description = "SSH public keys that can connect to cache. Used by nodes to push built store paths to the cache.";
-      type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
-      apply = lib.map (v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
-      default = [ ];
-      example = lib.literalExpression ''
-        [
-          "ssh-ed25519 AAAA... user@host"
-          ./keys/deploy.pub
-        ]
-      '';
-    };
     knownHosts = lib.mkOption {
       description = ''
         SSH host keys to accept when connecting to cache.

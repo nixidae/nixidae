@@ -51,10 +51,10 @@ rec {
             STORE_PATH=$(nix eval --store dummy:// --raw --impure --expr \
               '(builtins.fromJSON (builtins.getEnv "NODE_ENV")).${system}')
 
-            # Check if we can SSH to nix-cache
+            # Check if we can SSH to pynixd
             EXTRA_SUBSTITUTERS="local?trusted=true"
-            if nix store ping --store ssh-ng://nix@nix-cache; then
-              EXTRA_SUBSTITUTERS="$EXTRA_SUBSTITUTERS ssh-ng://nix@nix-cache?trusted=true"
+            if nix store ping --store ssh-ng://nix@pynixd; then
+              EXTRA_SUBSTITUTERS="$EXTRA_SUBSTITUTERS ssh-ng://nix@pynixd?trusted=true"
             fi
 
             nix \

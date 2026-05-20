@@ -119,7 +119,7 @@ rec {
             # Disabled by default so you can include the module in an easykubenix project
             nixkube.enable = true;
             # Allow easily adding your pubkeys to the cache
-            nixkube.authorizedKeys = lib.pipe (lib.filesystem.listFilesRecursive ./keys) [
+            nixkube.pynixd.authorizedKeys = lib.pipe (lib.filesystem.listFilesRecursive ./keys) [
               (lib.filter (name: lib.hasSuffix ".pub" name))
               (lib.map (name: builtins.readFile name))
               (lib.map (key: lib.trim key))

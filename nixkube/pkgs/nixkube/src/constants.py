@@ -70,7 +70,7 @@ NAMESPACE = os.environ.get("KUBE_NAMESPACE", "nixkube")
 BUILDERS_SERVICE = "nixkube-builders"
 
 # Simple string check is fine - value controlled by easykubenix (always "true" or "false")
-CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "false") == "true"
+PYNIXD_ENABLED = os.environ.get("PYNIXD_ENABLED", "false") == "true"
 
 # Whether to enable NRI plugin
 # Set via NRI_ENABLED environment variable (default: true)

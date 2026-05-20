@@ -8,7 +8,7 @@ from pathlib import Path
 
 import structlog
 
-from .constants import CACHE_ENABLED
+from .constants import PYNIXD_ENABLED
 from .subprocessing import run_captured
 
 logger = structlog.get_logger("nixkube.cache")
@@ -22,7 +22,7 @@ copy_lock: defaultdict[frozenset[Path], Semaphore] = defaultdict(Semaphore)
 
 async def check_cache_connectivity() -> bool:
     """Check if the cache is reachable via SSH."""
-    if not CACHE_ENABLED:
+    if not PYNIXD_ENABLED:
         return False
 
     try:
@@ -34,7 +34,7 @@ async def check_cache_connectivity() -> bool:
                 "ping",
                 "--json",
                 "--store",
-                "ssh-ng://nix@nix-cache",
+                "ssh-ng://nix@pynixd",
             ),
             timeout=10.0,
         )
@@ -56,7 +56,7 @@ def get_substituter_args() -> list[str]:
     """Get nix command arguments for using the cache as a substituter."""
     return [
         "--extra-substituters",
-        "ssh-ng://nix@nix-cache?trusted=1&priority=20",
+        "ssh-ng://nix@pynixd?trusted=1&priority=20",
     ]
 
 
@@ -156,7 +156,7 @@ async def copy_to_cache(package_paths: set[Path] | None) -> None:
                 "copy",
                 "--no-check-sigs",
                 "--to",
-                "ssh-ng://nix@nix-cache",
+                "ssh-ng://nix@pynixd",
                 *path_args,
             )
             if nix_copy.returncode == 0:

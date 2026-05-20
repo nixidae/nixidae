@@ -9,6 +9,7 @@ from pynixd.instance import Server
 from pynixd.store import LocalSocketStore
 
 from .setup import configure_logging, install_nss
+from .ssh_keys import watch_authorized_keys
 
 log = structlog.get_logger(__name__)
 
@@ -31,6 +32,8 @@ async def _main():
 
     async with server:
         await server.add_store(local_store)
+        keys_watch = asyncio.create_task(watch_authorized_keys(server))
+        server.background_tasks.append(keys_watch)
         log.info("pynixd_nixkube_running")
         await server.wait_finished()
 

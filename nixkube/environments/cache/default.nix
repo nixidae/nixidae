@@ -12,7 +12,6 @@ let
     inherit pkgs;
     modules = [
       ../modules/gc.nix
-      ../modules/ssh.nix
       ../modules/users.nix
       ../modules/nix-daemon.nix
       ../modules/setup.nix
@@ -27,10 +26,8 @@ let
           services.cache = {
             type = "internal";
             depends-on = [
-              "logger"
+              "nix-daemon"
               "gc"
-              "openssh"
-              "ssh-reloader"
             ];
           };
         };

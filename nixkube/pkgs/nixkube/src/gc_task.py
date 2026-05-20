@@ -17,7 +17,7 @@ import structlog
 from shellous import sh
 
 from .cache import copy_to_cache
-from .constants import CACHE_ENABLED, GC_INTERVAL_SECONDS, GC_KEEP_SECONDS
+from .constants import GC_INTERVAL_SECONDS, GC_KEEP_SECONDS, PYNIXD_ENABLED
 
 logger = structlog.get_logger("nixkube.gc")
 
@@ -42,7 +42,7 @@ async def gc_loop() -> None:
 
 async def _run_gc_cycle() -> None:
     """Execute one GC cycle: optionally copy to cache, then delete old paths."""
-    if CACHE_ENABLED:
+    if PYNIXD_ENABLED:
         try:
             await copy_to_cache(None)
         except Exception:

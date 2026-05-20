@@ -22,7 +22,18 @@ in
       description = "nix.conf for pynixd pod";
       type = (import ./nixOptions.nix) curPkgs;
     };
-
+    authorizedKeys = lib.mkOption {
+      description = "SSH public keys that can connect to cache. Used by nodes to push built store paths to the cache.";
+      type = lib.types.listOf (lib.types.either lib.types.str lib.types.path);
+      apply = lib.map (v: lib.trim (if lib.typeOf v == "path" then builtins.readFile v else v));
+      default = [ ];
+      example = lib.literalExpression ''
+        [
+          "ssh-ed25519 AAAA... user@host"
+          ./keys/deploy.pub
+        ]
+      '';
+    };
     storageClassName = lib.mkOption {
       description = "StorageClass for the pynixd PVC. null uses the cluster's default StorageClass.";
       type = lib.types.nullOr lib.types.str;
@@ -116,7 +127,7 @@ in
                     env = lib.mkNamedList {
                       PYNIXD_ENABLED.value = lib.boolToString cfg.pynixd.enable;
                       PYNIXD_SSH_HOST.value = "";
-                      PYNIXD_SSH_PORT.value = "2222";
+                      PYNIXD_SSH_PORT.value = "22";
                       PYNIXD_HTTP_PORT.value = "8080";
                       PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
                       HOME.value = "/nix/var/nix-csi/root";
@@ -125,7 +136,7 @@ in
                       PYNIXD_SCHEDULE_MODE.value = "scheduler";
                     };
                     ports = lib.mkNamedList {
-                      ssh.containerPort = 2222;
+                      ssh.containerPort = 22;
                     };
                     volumeMounts = lib.mkNamedList {
                       nix-config.mountPath = "/etc/nix";
@@ -190,7 +201,7 @@ in
             selector = matchLabels;
             ports = lib.mkNamedList {
               ssh = {
-                port = 2222;
+                port = 22;
                 targetPort = "ssh";
               };
             };

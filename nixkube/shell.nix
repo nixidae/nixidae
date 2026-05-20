@@ -12,7 +12,8 @@ let
       pytest-asyncio
       hypothesis
     ]
-    ++ pkgs.nixkube.dependencies;
+    ++ pkgs.nixkube.dependencies
+    ++ pkgs.pynixd-nixkube.dependencies;
   python = pkgs.python3.withPackages pypkgs;
   xonsh = pkgs.xonsh.override {
     extraPackages = pypkgs;
@@ -39,6 +40,7 @@ pkgs.mkShell {
     pkgs.ty
     pkgs.skopeo
     pkgs.stern
+    pkgs.dive
     default.treefmt
   ];
   shellHook = # bash

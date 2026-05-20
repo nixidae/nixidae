@@ -11,6 +11,7 @@ from pynixd.store import LocalSocketStore
 
 from .builder_manager import BuilderManager
 from .setup import configure_logging, install_nss
+from .ssh_keys import watch_authorized_keys
 
 log = structlog.get_logger(__name__)
 
@@ -34,6 +35,9 @@ async def _main() -> None:
     builder_manager: BuilderManager | None = None
 
     async with server:
+        keys_watch = asyncio.create_task(watch_authorized_keys(server))
+        server.background_tasks.append(keys_watch)
+
         if settings.schedule_mode != "scheduler":
             await server.add_store(local_store)
 

@@ -6,12 +6,12 @@
   pynixd,
   kr8s,
   dockerTools,
+  asyncinotify,
   lib,
-  range ? lib.range,
-  toString ? builtins.toString,
 }:
 let
-  pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
+  pyproject = fromTOML (builtins.readFile ./pyproject.toml);
+  range = lib.range;
   nixbldPasswdLines = map (
     i:
     "nixbld${toString i}:x:${toString (30000 + i)}:30000:Nix build user ${toString i}:/var/empty:/bin/sh"
@@ -42,6 +42,7 @@ buildPythonApplication {
   dependencies = [
     pynixd
     kr8s
+    asyncinotify
   ];
   makeWrapperArgs = [
     "--set"

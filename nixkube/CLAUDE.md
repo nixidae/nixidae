@@ -49,7 +49,7 @@ The project uses Nix with flake-compatish for backwards compatibility. Key build
 
 **Cache → Nodes**: The cache service watches for pods labeled `app.kubernetes.io/component=node` and updates `/etc/machines` with builder DNS names (`pod.name.nixkube-builders.namespace.svc.cluster.local`). This enables distributed builds.
 
-**Nodes → Cache**: Node pods use the cache as a binary substitute via `ssh-ng://nix@nix-cache?trusted=1` configured in `kubenix/config.nix`.
+**Nodes → Cache**: Node pods use the cache as a binary substitute via `ssh-ng://nix@pynixd?trusted=1` configured in `kubenix/config.nix`.
 
 **CSI Protocol**: When a pod requests a volume with `storePath` or `nixExpr` or `flakeRef` in volumeAttributes, the node CSI driver:
 1. Builds/fetches the requested Nix store path

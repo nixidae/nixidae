@@ -36,11 +36,11 @@
           ''
             while :; do
               # Copy everything to cache
-              CACHE_ENABLED="''${CACHE_ENABLED:-"false"}"
+              PYNIXD_ENABLED="''${PYNIXD_ENABLED:-"false"}"
               GC_KEEP_SECONDS="''${GC_KEEP_SECONDS:-"3600"}"
               IS_CACHE="''${IS_CACHE:-"false"}"
-              if test "$CACHE_ENABLED" = "true"; then
-                nix copy --all --store local --to ssh-ng://nix@nix-cache || true
+              if test "$PYNIXD_ENABLED" = "true"; then
+                nix copy --all --store local --to ssh-ng://nix@pynixd || true
               fi
               # Garbage collect anything older than an hour
               echo "Collecting garbage"

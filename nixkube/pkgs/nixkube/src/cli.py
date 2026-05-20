@@ -10,7 +10,6 @@ import structlog
 
 from .constants import (
     BUILDERS_ENABLED,
-    CACHE_ENABLED,
     ENABLE_COMPAT_DRIVER,
     HOST_MOUNT_PATH,
     KUBE_NODE_NAME,
@@ -19,6 +18,7 @@ from .constants import (
     NRI_ENABLED,
     NRI_PLUGIN_IDX,
     NRI_PLUGIN_NAME,
+    PYNIXD_ENABLED,
     VERIFY_STORE_PATHS,
 )
 from .csi.server import csi_serve
@@ -124,7 +124,7 @@ def log_effective_app_config() -> None:
     print(
         "Effective application configuration:\n"
         f"  {NIX_BUILD_TIMEOUT=}\n"
-        f"  {CACHE_ENABLED=}\n"
+        f"  {PYNIXD_ENABLED=}\n"
         f"  {BUILDERS_ENABLED=}\n"
         f"  {VERIFY_STORE_PATHS=}\n"
         f"  {HOST_MOUNT_PATH=}\n"
