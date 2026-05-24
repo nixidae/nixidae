@@ -377,6 +377,30 @@ string
 
 
 
+## nixkube\.nix\.package
+
+
+
+Nix package to use for nix\.conf generation and daemon
+
+
+
+*Type:*
+package
+
+
+
+*Default:*
+
+```nix
+<derivation nix-2.31.3>
+```
+
+*Declared by:*
+ - [/kubenix/options\.nix](file:///kubenix/options.nix)
+
+
+
 ## nixkube\.node\.enable
 
 
@@ -703,6 +727,30 @@ positive integer, meaning >0
 
 ```nix
 3
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builderMin
+
+
+
+Minimum number of builder Jobs to keep alive even when idle\.
+
+
+
+*Type:*
+unsigned integer, meaning >=0
+
+
+
+*Default:*
+
+```nix
+1
 ```
 
 *Declared by:*

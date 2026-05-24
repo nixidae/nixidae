@@ -18,7 +18,6 @@ log = structlog.get_logger(__name__)
 BUILDER_LABEL = "app.kubernetes.io/component"
 BUILDER_LABEL_VALUE = "builder"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
-STORE_VERSION_LABEL = "nixkube/store-version"
 
 _COOLDOWN_SECONDS = 60.0
 _RECONNECT_DELAY = 10.0
@@ -65,12 +64,12 @@ class BuilderManager:
 
     async def _run(self) -> None:
         await asyncio.gather(
-            self._watch_pods(),
+            self._watch_jobs(),
             self._watch_queue(),
             self._reap_idle(),
         )
 
-    async def _watch_pods(self) -> None:
+    async def _watch_jobs(self) -> None:
         import kr8s.asyncio as kr8s_asyncio
 
         while True:
@@ -78,44 +77,43 @@ class BuilderManager:
                 api = await kr8s_asyncio.api()
 
                 seen: set[str] = set()
-                async for pod in api.get(
-                    "pods",
+                async for job in api.get(
+                    "jobs",
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
-                    pod_name = pod.metadata.name
-                    seen.add(pod_name)
-                    await self._reconcile_pod(pod)
+                    seen.add(job.metadata.name)
+                    await self._reconcile_job(job)
 
                 for store_id in list(self._registered):
                     store_id_prefix = "builder-"
                     if store_id.startswith(store_id_prefix):
-                        pod_name = store_id[len(store_id_prefix):]
-                        if pod_name not in seen:
+                        job_name = store_id[len(store_id_prefix) :]
+                        if job_name not in seen:
                             await self._unregister_builder(store_id)
 
                 await self._ensure_min_builders()
 
                 async for event in api.watch(
-                    "pods",
+                    "jobs",
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
                     if isinstance(event, tuple):
-                        event_type, pod = event
+                        event_type, job = event
                     else:
                         event_type = event.get("type")
-                        pod = event.get("object")
-                    if pod is None:
+                        job = event.get("object")
+                    if job is None:
                         continue
 
                     if event_type == "DELETED":
-                        store_id = f"builder-{pod.metadata.name}"
+                        store_id = f"builder-{job.metadata.name}"
                         if store_id in self._registered:
                             await self._unregister_builder(store_id)
                         await self._ensure_min_builders()
                     elif event_type in ("ADDED", "MODIFIED"):
-                        await self._reconcile_pod(pod)
+                        await self._reconcile_job(job)
                         await self._ensure_min_builders()
             except asyncio.CancelledError:
                 return
@@ -124,39 +122,33 @@ class BuilderManager:
 
             await asyncio.sleep(_RECONNECT_DELAY)
 
-    async def _reconcile_pod(self, pod: object) -> None:
-        raw = getattr(pod, "raw", {})
-        pod_name = pod.metadata.name
-        store_id = f"builder-{pod_name}"
-        job_name = raw.get("metadata", {}).get("labels", {}).get("job-name", pod_name)
+    async def _reconcile_job(self, job: object) -> None:
+        raw = getattr(job, "raw", {})
+        job_name = job.metadata.name
+        store_id = f"builder-{job_name}"
 
-        if await self._is_stale_builder(pod):
+        if await self._is_stale_builder(job):
             log.info("builder_stale", store_id=store_id, job_name=job_name)
             await self._unregister_builder(store_id)
-            await self._delete_builder_job(store_id)
+            await self._delete_job(job)
             return
 
-        conditions = raw.get("status", {}).get("conditions", [])
-        ready = any(
-            c.get("type") == "Ready" and c.get("status") == "True" for c in conditions
-        )
-        container_statuses = raw.get("status", {}).get("containerStatuses", [])
-        running = any(cs.get("ready", False) for cs in container_statuses)
+        status = raw.get("status", {})
+        if status.get("succeeded") or status.get("failed"):
+            if store_id in self._registered:
+                await self._unregister_builder(store_id)
+            return
 
-        if ready and running and store_id not in self._registered:
-            pod_ip = raw.get("status", {}).get("podIP")
+        if store_id not in self._registered:
+            pod_ip = await self._get_job_pod_ip(job)
             if pod_ip:
                 await self._register_builder(store_id, pod_ip, job_name)
-        elif (not running or not ready) and store_id in self._registered:
-            await self._unregister_builder(store_id)
-        elif ready and running:
+        else:
             self._job_names[store_id] = job_name
 
-        phase = raw.get("status", {}).get("phase", "")
-        if phase in ("Succeeded", "Failed") and store_id in self._registered:
-            await self._unregister_builder(store_id)
-
-    async def _register_builder(self, store_id: str, pod_ip: str, job_name: str = "") -> None:
+    async def _register_builder(
+        self, store_id: str, pod_ip: str, job_name: str = ""
+    ) -> None:
         store = SSHSubprocessStore(
             host=pod_ip,
             store_id=store_id,
@@ -186,19 +178,30 @@ class BuilderManager:
         except Exception:
             log.exception("builder_unregister_failed", store_id=store_id)
 
-    async def _is_stale_builder(self, pod: object) -> bool:
-        raw = getattr(pod, "raw", {})
-        pod_version = (
-            raw.get("metadata", {})
-            .get("labels", {})
-            .get(STORE_VERSION_LABEL)
-        )
-        if pod_version is None:
-            return False
+    async def _is_stale_builder(self, job: object) -> bool:
         expected = await self._get_expected_store_versions()
         if not expected:
             return False
-        return pod_version not in expected
+        job_versions = self._get_job_store_versions(job)
+        return not job_versions <= expected
+
+    @staticmethod
+    def _get_job_store_versions(job: object) -> set[str]:
+        for vol in (
+            getattr(job, "raw", {})
+            .get("spec", {})
+            .get("template", {})
+            .get("spec", {})
+            .get("volumes", [])
+        ):
+            csi = vol.get("csi", {})
+            if csi.get("driver") == "nixkube" and csi.get("readOnly") is False:
+                found = set()
+                for val in csi.get("volumeAttributes", {}).values():
+                    if isinstance(val, str) and val.startswith("/nix/store/"):
+                        found.add(val)
+                return found
+        return set()
 
     async def _get_expected_store_versions(self) -> set[str]:
         template = await self._get_pod_template()
@@ -214,6 +217,23 @@ class BuilderManager:
                         found.add(val)
                 return found
         return set()
+
+    async def _get_job_pod_ip(self, job: object) -> str | None:
+        import kr8s.asyncio as kr8s_asyncio
+
+        try:
+            api = await kr8s_asyncio.api()
+            async for pod in api.get(
+                "pods",
+                namespace=self.namespace,
+                label_selector={"job-name": job.metadata.name},
+            ):
+                pod_ip = pod.raw.get("status", {}).get("podIP")
+                if pod_ip:
+                    return pod_ip
+        except Exception:
+            log.exception("job_pod_ip_fetch_failed", job=job.metadata.name)
+        return None
 
     async def _ensure_min_builders(self) -> None:
         active = await self._count_active_jobs()
@@ -236,8 +256,6 @@ class BuilderManager:
             await asyncio.sleep(0.5)
 
     async def _reap_idle(self) -> None:
-        import kr8s.asyncio as kr8s_asyncio
-
         while True:
             try:
                 total = len(self._registered)
@@ -274,15 +292,20 @@ class BuilderManager:
 
             await asyncio.sleep(60)
 
+    async def _delete_job(self, job: object) -> None:
+        try:
+            await job.delete()
+            log.info("builder_job_deleted", job=job.metadata.name)
+        except Exception:
+            log.exception("builder_job_delete_failed", job=job.metadata.name)
+
     async def _delete_builder_job(self, store_id: str) -> None:
         job_name = self._job_names.get(store_id)
         if not job_name:
             return
 
-        import kr8s.asyncio as kr8s_asyncio
         try:
-            api = await kr8s_asyncio.api()
-            job = await Job.get(job_name, namespace=self.namespace, api=api)
+            job = await Job.get(job_name, namespace=self.namespace)
             await job.delete()
             log.info("builder_job_deleted_idle", job=job_name, store_id=store_id)
         except Exception:
@@ -343,20 +366,12 @@ class BuilderManager:
             return self.max_builders
 
     async def _create_builder_job(self) -> None:
-        import kr8s.asyncio as kr8s_asyncio
-
         template = await self._get_pod_template()
         if not template:
             log.error("builder_podtemplate_not_found", name=BUILDER_PODTEMPLATE_NAME)
             return
 
         pod_spec = template.raw.get("template", {})
-
-        expected_versions = await self._get_expected_store_versions()
-        if expected_versions:
-            expected_version = next(iter(expected_versions))
-            pod_labels = pod_spec.setdefault("metadata", {}).setdefault("labels", {})
-            pod_labels[STORE_VERSION_LABEL] = expected_version
 
         job_id = str(uuid.uuid4())[:8]
         job_name = f"nixkube-builder-{job_id}"
@@ -378,9 +393,8 @@ class BuilderManager:
             },
         }
 
-        api = await kr8s_asyncio.api()
-        job = Job(job_resource, api=api)
         try:
+            job = await Job(job_resource)
             await job.create()
             log.info("builder_job_created", job=job_name)
         except Exception as e:

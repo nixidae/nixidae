@@ -90,7 +90,7 @@ in
               "delete"
             ];
           }
-          # Builder manager creates Jobs for ephemeral builders
+          # Builder manager creates and deletes Jobs for ephemeral builders
           {
             apiGroups = [ "batch" ];
             resources = [ "jobs" ];
@@ -99,6 +99,7 @@ in
               "list"
               "watch"
               "create"
+              "delete"
             ];
           }
           # Builder manager reads PodTemplate for builder pod spec
