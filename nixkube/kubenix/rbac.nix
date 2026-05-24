@@ -84,6 +84,7 @@ in
               "get"
               "list"
               "watch"
+              "delete"
             ];
           }
           # ssh secret, CRUD

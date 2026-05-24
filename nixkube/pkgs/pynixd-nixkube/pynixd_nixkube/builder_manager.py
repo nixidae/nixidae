@@ -59,6 +59,7 @@ class BuilderManager:
 
     async def start(self) -> None:
         await self._sync_node_features()
+        await self._reap_orphaned_builder_pods()
         self._task = asyncio.create_task(self._run())
         log.info(
             "builder_manager_started",
@@ -455,7 +456,7 @@ class BuilderManager:
 
     async def _delete_job(self, job: object) -> None:
         try:
-            await job.delete()
+            await job.delete(propagation_policy="Background")
             log.info("builder_job_deleted", job=job.metadata.name)
         except Exception:
             log.exception("builder_job_delete_failed", job=job.metadata.name)
@@ -467,10 +468,26 @@ class BuilderManager:
 
         try:
             job = await Job.get(job_name, namespace=self.namespace)
-            await job.delete()
-            log.info("builder_job_deleted_idle", job=job_name, store_id=store_id)
+            await self._delete_job(job)
         except Exception:
             log.exception("builder_job_delete_idle_failed", job=job_name)
+
+    async def _reap_orphaned_builder_pods(self) -> None:
+        import kr8s.asyncio as kr8s_asyncio
+
+        try:
+            api = await kr8s_asyncio.api()
+            async for pod in api.get(
+                "pods",
+                namespace=self.namespace,
+                label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
+            ):
+                refs = getattr(pod.metadata, "ownerReferences", None)
+                if not refs:
+                    log.info("orphaned_builder_pod_found", pod=pod.metadata.name)
+                    await pod.delete(propagation_policy="Background")
+        except Exception:
+            log.exception("orphaned_builder_pod_cleanup_error")
 
     # ---- Queue watching for reactive builder creation ----
 
