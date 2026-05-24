@@ -41,7 +41,7 @@ let
       dinixEval.config.containerWrapper
       bash
       coreutils
-      lruLix
+      nix
       openssh
       pynixd-nixkube
       pynixd-nixkube.fakeNss
@@ -56,7 +56,7 @@ let
   initCopy = pkgs.writeShellApplication {
     name = "initCopy";
     runtimeInputs = [
-      pkgs.lruLix
+      pkgs.nix
       pkgs.rsync
     ];
     text = # bash

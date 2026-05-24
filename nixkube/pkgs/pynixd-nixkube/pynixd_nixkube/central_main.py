@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 
 import asyncio
-import os
 from pathlib import Path
 
 import structlog
@@ -10,6 +9,7 @@ from pynixd.instance import Server
 from pynixd.store import LocalSocketStore
 
 from .builder_manager import BuilderManager
+from .config import NixkubeCentralSettings
 from .setup import configure_logging, install_nss
 from .ssh_keys import watch_authorized_keys
 
@@ -28,9 +28,10 @@ async def _main() -> None:
         monitor=False,
     )
 
-    settings = PynixdSettings()
+    pynixd_settings = PynixdSettings()
+    settings = NixkubeCentralSettings()
 
-    server = Server(local_store=local_store, settings=settings)
+    server = Server(local_store=local_store, settings=pynixd_settings)
 
     builder_manager: BuilderManager | None = None
 
@@ -38,11 +39,8 @@ async def _main() -> None:
         keys_watch = asyncio.create_task(watch_authorized_keys(server))
         server.background_tasks.append(keys_watch)
 
-        if settings.schedule_mode != "scheduler":
+        if pynixd_settings.schedule_mode != "scheduler":
             await server.add_store(local_store)
-
-        namespace = os.environ.get("KUBE_NAMESPACE")
-        max_builders = int(os.environ.get("BUILDER_MAX", "3"))
 
         if server.scheduler:
             server.scheduler.add_dynamic_features(
@@ -55,11 +53,13 @@ async def _main() -> None:
                 features=server.scheduler.dynamic_feature_matrix,
             )
 
-        if namespace:
+        if settings.kube_namespace:
             builder_manager = BuilderManager(
                 server=server,
-                namespace=namespace,
-                max_builders=max_builders,
+                namespace=settings.kube_namespace,
+                max_builders=settings.builder_max,
+                min_builders=settings.builder_min,
+                idle_timeout=settings.idle_timeout,
             )
             await builder_manager.start()
 

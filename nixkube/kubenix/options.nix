@@ -80,6 +80,13 @@ in
         in
         pyproject.project.version;
     };
+    nix = {
+      package = lib.mkOption {
+        description = "Nix package to use for nix.conf generation and daemon";
+        type = lib.types.package;
+        default = curPkgs.nix;
+      };
+    };
     hostMountPath = lib.mkOption {
       description = "Where on the host to put nixkube store, / is untested and not recommended";
       type = lib.types.path;

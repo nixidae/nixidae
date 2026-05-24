@@ -34,7 +34,10 @@ in
       };
     nixConfig = lib.mkOption {
       description = "nix.conf for pynixd pod";
-      type = (import ./nixOptions.nix) curPkgs;
+      type = (import ./nixOptions.nix) {
+        pkgs = curPkgs;
+        nix = config.nixkube.nix.package;
+      };
     };
     authorizedKeys = lib.mkOption {
       description = "SSH public keys that can connect to cache. Used by nodes to push built store paths to the cache.";
@@ -67,6 +70,11 @@ in
       type = lib.types.ints.positive;
       default = 3;
     };
+    builderMin = lib.mkOption {
+      description = "Minimum number of builder Jobs to keep alive even when idle.";
+      type = lib.types.ints.unsigned;
+      default = 1;
+    };
     builderIdleTimeout = lib.mkOption {
       description = "Seconds of inactivity before an ephemeral builder pod shuts down.";
       type = lib.types.ints.positive;
@@ -75,28 +83,17 @@ in
     builder = {
       nixConfig = lib.mkOption {
         description = "nix.conf for builder pods";
-        type = (import ./nixOptions.nix) curPkgs;
+        type = (import ./nixOptions.nix) {
+          pkgs = curPkgs;
+          nix = config.nixkube.nix.package;
+        };
       };
     };
   };
   config = lib.mkIf (cfg.enable && cfg.pynixd.enable) {
     nixkube.pynixd.builder.nixConfig.settings = {
-      allowed-users = [ "*" ];
-      trusted-users = [
-        "root"
-        "nix"
-      ];
-      experimental-features = [
-        "nix-command"
-        "flakes"
-        "read-only-local-store"
-      ];
       max-jobs = 5;
-      builders-use-substitutes = true;
-      narinfo-cache-negative-ttl = 0;
-      narinfo-cache-positive-ttl = 0;
       warn-dirty = false;
-      store = "daemon";
     };
 
     kubernetes.resources.${cfg.namespace} = {
@@ -161,8 +158,10 @@ in
                     PYNIXD_HTTP_PORT.value = "8080";
                     PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
                     HOME.value = "/nix/var/nix-csi/root";
-                    KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
-                    BUILDER_MAX.value = toString cfg.pynixd.builderMax;
+                    PYNIXD_KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
+                    PYNIXD_BUILDER_MAX.value = toString cfg.pynixd.builderMax;
+                    PYNIXD_BUILDER_MIN.value = toString cfg.pynixd.builderMin;
+                    PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
                     PYNIXD_SCHEDULE_MODE.value = "scheduler";
                   };
                   ports = lib.mkNamedList {

@@ -12,7 +12,7 @@ pkgs.buildEnv {
     bash
     coreutils
     fishMinimal
-    lruLix
+    nix
     openssh
     util-linuxMinimal
     gnugrep

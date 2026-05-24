@@ -3,7 +3,6 @@
 {
   config,
   lib,
-  csiPkgs,
   ...
 }:
 let
@@ -24,9 +23,9 @@ in
             "nix-command"
             "flakes"
             "read-only-local-store"
-            # "ca-derivations"
-            # "dynamic-derivations"
-            # "recursive-nix"
+            "ca-derivations"
+            "dynamic-derivations"
+            "recursive-nix"
           ];
           builders-use-substitutes = true;
           narinfo-cache-negative-ttl = 0;
@@ -36,12 +35,9 @@ in
         };
       in
       {
-        node.nixConfig.settings = sharedSettings // {
-          keep-outputs = true;
-        };
-        pynixd.nixConfig.settings = sharedSettings // {
-          max-jobs = 0;
-        };
+        node.nixConfig.settings = sharedSettings;
+        pynixd.nixConfig.settings = sharedSettings;
+        pynixd.builder.nixConfig.settings = sharedSettings;
       };
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.nix-node = {

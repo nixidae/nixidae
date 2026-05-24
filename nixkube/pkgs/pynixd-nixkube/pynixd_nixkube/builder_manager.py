@@ -29,16 +29,20 @@ class BuilderManager:
         server: "Server",
         namespace: str,
         max_builders: int = 3,
+        min_builders: int = 1,
         idle_timeout: int = 300,
         cooldown_seconds: float = _COOLDOWN_SECONDS,
     ) -> None:
         self.server = server
         self.namespace = namespace
         self.max_builders = max_builders
+        self.min_builders = min_builders
         self.idle_timeout = idle_timeout
         self.cooldown_seconds = cooldown_seconds
         self._last_create_time: float = 0.0
         self._registered: dict[str, str] = {}
+        self._idle_since: dict[str, float] = {}
+        self._job_names: dict[str, str] = {}
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -61,6 +65,7 @@ class BuilderManager:
         await asyncio.gather(
             self._poll_pods(),
             self._watch_queue(),
+            self._reap_idle(),
         )
 
     async def _poll_pods(self) -> None:
@@ -69,12 +74,21 @@ class BuilderManager:
         while True:
             try:
                 api = await kr8s_asyncio.api()
+                seen: set[str] = set()
                 async for pod in api.get(
                     "pods",
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
+                    pod_name = pod.metadata.name
+                    seen.add(pod_name)
                     await self._reconcile_pod(pod)
+                for store_id in list(self._registered):
+                    store_id_prefix = "builder-"
+                    if store_id.startswith(store_id_prefix):
+                        pod_name = store_id[len(store_id_prefix):]
+                        if pod_name not in seen:
+                            await self._unregister_builder(store_id)
             except Exception as e:
                 log.warning("builder_pod_poll_error", error=f"{type(e).__name__}: {e}")
 
@@ -84,6 +98,7 @@ class BuilderManager:
         raw = getattr(pod, "raw", {})
         pod_name = pod.metadata.name
         store_id = f"builder-{pod_name}"
+        job_name = raw.get("metadata", {}).get("labels", {}).get("job-name", pod_name)
 
         conditions = raw.get("status", {}).get("conditions", [])
         ready = any(
@@ -95,15 +110,17 @@ class BuilderManager:
         if ready and running and store_id not in self._registered:
             pod_ip = raw.get("status", {}).get("podIP")
             if pod_ip:
-                await self._register_builder(store_id, pod_ip)
+                await self._register_builder(store_id, pod_ip, job_name)
         elif (not running or not ready) and store_id in self._registered:
             await self._unregister_builder(store_id)
+        elif ready and running:
+            self._job_names[store_id] = job_name
 
         phase = raw.get("status", {}).get("phase", "")
         if phase in ("Succeeded", "Failed") and store_id in self._registered:
             await self._unregister_builder(store_id)
 
-    async def _register_builder(self, store_id: str, pod_ip: str) -> None:
+    async def _register_builder(self, store_id: str, pod_ip: str, job_name: str = "") -> None:
         store = SSHSubprocessStore(
             host=pod_ip,
             store_id=store_id,
@@ -116,6 +133,9 @@ class BuilderManager:
         try:
             await self.server.add_store(store, dynamic=True)
             self._registered[store_id] = pod_ip
+            self._idle_since[store_id] = time.monotonic()
+            if job_name:
+                self._job_names[store_id] = job_name
             log.info("builder_registered", store_id=store_id, pod_ip=pod_ip)
         except Exception:
             log.exception("builder_register_failed", store_id=store_id, pod_ip=pod_ip)
@@ -124,9 +144,64 @@ class BuilderManager:
         try:
             await self.server.remove_store(store_id)
             self._registered.pop(store_id, None)
+            self._idle_since.pop(store_id, None)
+            self._job_names.pop(store_id, None)
             log.info("builder_unregistered", store_id=store_id)
         except Exception:
             log.exception("builder_unregister_failed", store_id=store_id)
+
+    async def _reap_idle(self) -> None:
+        import kr8s.asyncio as kr8s_asyncio
+
+        while True:
+            try:
+                total = len(self._registered)
+                if total <= self.min_builders:
+                    await asyncio.sleep(60)
+                    continue
+
+                now = time.monotonic()
+                for store_id, pod_ip in list(self._registered.items()):
+                    store = self.server.stores.get(store_id)
+                    if store is None:
+                        continue
+
+                    if store.in_flight > 0:
+                        self._idle_since[store_id] = now
+                        continue
+
+                    idle_seconds = now - self._idle_since.get(store_id, now)
+                    if idle_seconds < self.idle_timeout:
+                        continue
+
+                    if len(self._registered) <= self.min_builders:
+                        break
+
+                    log.info(
+                        "builder_idle_timeout",
+                        store_id=store_id,
+                        pod_ip=pod_ip,
+                        idle_seconds=idle_seconds,
+                    )
+                    await self._delete_builder_job(store_id)
+            except Exception:
+                log.exception("builder_idle_reap_error")
+
+            await asyncio.sleep(60)
+
+    async def _delete_builder_job(self, store_id: str) -> None:
+        job_name = self._job_names.get(store_id)
+        if not job_name:
+            return
+
+        import kr8s.asyncio as kr8s_asyncio
+        try:
+            api = await kr8s_asyncio.api()
+            job = await Job.get(job_name, namespace=self.namespace, api=api)
+            await job.delete()
+            log.info("builder_job_deleted_idle", job=job_name, store_id=store_id)
+        except Exception:
+            log.exception("builder_job_delete_idle_failed", job=job_name)
 
     async def _watch_queue(self) -> None:
         scheduler = self.server.scheduler

@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: MIT
 
-pkgs:
+{
+  pkgs,
+  nix ? pkgs.nix,
+}:
 let
   inherit (pkgs) lib;
   defaultSystemFeatures = [
@@ -85,8 +88,8 @@ types.submodule (
             checkConfig
             extraOptions
             ;
-          package = pkgs.stdLix.out;
-          inherit (pkgs.stdLix) version;
+          package = nix.out;
+          inherit (nix) version;
         }).generate
           "nix.conf"
           config.settings;
