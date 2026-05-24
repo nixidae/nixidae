@@ -267,6 +267,19 @@ in
           spec = {
             serviceAccountName = "nixkube";
             restartPolicy = "Never";
+            affinity = {
+              podAntiAffinity = {
+                preferredDuringSchedulingIgnoredDuringExecution = [
+                  {
+                    weight = 100;
+                    podAffinityTerm = {
+                      topologyKey = "kubernetes.io/hostname";
+                      labelSelector.matchLabels = builderLabels;
+                    };
+                  }
+                ];
+              };
+            };
             containers = lib.mkNamedList {
               pynixd = {
                 command = [
