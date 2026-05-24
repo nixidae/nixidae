@@ -8,3 +8,4 @@ class NixkubeCentralSettings(BaseSettings):
     builder_max: int = 3
     builder_min: int = 1
     idle_timeout: int = 300
+    systems: str = "x86_64-linux"

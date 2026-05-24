@@ -24,6 +24,9 @@ let
   builderLabels = cfg.labels // {
     "app.kubernetes.io/component" = "builder";
   };
+
+  # Only enabled systems
+  enabledSystems = lib.filterAttrs (_: v: v) cfg.systems;
 in
 {
   options.nixkube.pynixd = {
@@ -163,6 +166,7 @@ in
                     PYNIXD_BUILDER_MIN.value = toString cfg.pynixd.builderMin;
                     PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
                     PYNIXD_SCHEDULE_MODE.value = "scheduler";
+                    PYNIXD_SYSTEMS.value = lib.concatStringsSep "," (builtins.attrNames enabledSystems);
                   };
                   ports = lib.mkNamedList {
                     ssh.containerPort = 22;

@@ -42,17 +42,6 @@ async def _main() -> None:
         if pynixd_settings.schedule_mode != "scheduler":
             await server.add_store(local_store)
 
-        if server.scheduler:
-            server.scheduler.add_dynamic_features(
-                {
-                    "x86_64-linux": {"nixos-test", "big-parallel", "benchmark"},
-                }
-            )
-            log.info(
-                "dynamic_features_registered",
-                features=server.scheduler.dynamic_feature_matrix,
-            )
-
         if settings.kube_namespace:
             builder_manager = BuilderManager(
                 server=server,
@@ -60,6 +49,7 @@ async def _main() -> None:
                 max_builders=settings.builder_max,
                 min_builders=settings.builder_min,
                 idle_timeout=settings.idle_timeout,
+                systems=[s.strip() for s in settings.systems.split(",") if s.strip()],
             )
             await builder_manager.start()
 

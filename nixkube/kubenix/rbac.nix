@@ -28,6 +28,17 @@ in
             resources = [ "nodes/proxy" ];
             verbs = [ "get" ];
           }
+          # Builder manager discovers cluster node architectures
+          {
+            apiGroups = [ "" ];
+            resources = [ "nodes" ];
+            verbs = [
+              "get"
+              "list"
+              "watch"
+              "patch"
+            ];
+          }
           # Report events using events.k8s.io/v1 API across all namespaces
           {
             apiGroups = [ "events.k8s.io" ];
