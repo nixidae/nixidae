@@ -18,6 +18,7 @@ log = structlog.get_logger(__name__)
 BUILDER_LABEL = "app.kubernetes.io/component"
 BUILDER_LABEL_VALUE = "builder"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
+STORE_VERSION_LABEL = "nixkube/store-version"
 
 _COOLDOWN_SECONDS = 60.0
 _RECONNECT_DELAY = 10.0
@@ -100,8 +101,11 @@ class BuilderManager:
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
-                    event_type = event.get("type")
-                    pod = event.get("object")
+                    if isinstance(event, tuple):
+                        event_type, pod = event
+                    else:
+                        event_type = event.get("type")
+                        pod = event.get("object")
                     if pod is None:
                         continue
 
@@ -125,6 +129,12 @@ class BuilderManager:
         pod_name = pod.metadata.name
         store_id = f"builder-{pod_name}"
         job_name = raw.get("metadata", {}).get("labels", {}).get("job-name", pod_name)
+
+        if await self._is_stale_builder(pod):
+            log.info("builder_stale", store_id=store_id, job_name=job_name)
+            await self._unregister_builder(store_id)
+            await self._delete_builder_job(store_id)
+            return
 
         conditions = raw.get("status", {}).get("conditions", [])
         ready = any(
@@ -175,6 +185,35 @@ class BuilderManager:
             log.info("builder_unregistered", store_id=store_id)
         except Exception:
             log.exception("builder_unregister_failed", store_id=store_id)
+
+    async def _is_stale_builder(self, pod: object) -> bool:
+        raw = getattr(pod, "raw", {})
+        pod_version = (
+            raw.get("metadata", {})
+            .get("labels", {})
+            .get(STORE_VERSION_LABEL)
+        )
+        if pod_version is None:
+            return False
+        expected = await self._get_expected_store_versions()
+        if not expected:
+            return False
+        return pod_version not in expected
+
+    async def _get_expected_store_versions(self) -> set[str]:
+        template = await self._get_pod_template()
+        if template is None:
+            return set()
+        pod_spec = template.raw.get("template", {})
+        for vol in pod_spec.get("spec", {}).get("volumes", []):
+            csi = vol.get("csi", {})
+            if csi.get("driver") == "nixkube" and csi.get("readOnly") is False:
+                found = set()
+                for val in csi.get("volumeAttributes", {}).values():
+                    if isinstance(val, str) and val.startswith("/nix/store/"):
+                        found.add(val)
+                return found
+        return set()
 
     async def _ensure_min_builders(self) -> None:
         active = await self._count_active_jobs()
@@ -312,6 +351,12 @@ class BuilderManager:
             return
 
         pod_spec = template.raw.get("template", {})
+
+        expected_versions = await self._get_expected_store_versions()
+        if expected_versions:
+            expected_version = next(iter(expected_versions))
+            pod_labels = pod_spec.setdefault("metadata", {}).setdefault("labels", {})
+            pod_labels[STORE_VERSION_LABEL] = expected_version
 
         job_id = str(uuid.uuid4())[:8]
         job_name = f"nixkube-builder-{job_id}"
