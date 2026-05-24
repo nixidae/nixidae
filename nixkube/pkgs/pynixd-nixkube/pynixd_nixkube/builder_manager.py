@@ -21,7 +21,7 @@ BUILDER_LABEL_VALUE = "builder"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
 SYSTEM_LABEL = "nixkube/system"
 PROBED_LABEL = "nixkube/probed"
-FEATURE_ANNOTATION_PREFIX = "nixkube/feature-"
+FEATURES_ANNOTATION = "nixkube/features"
 
 KUBE_ARCH_TO_NIX_SYSTEM = {
     "amd64": "x86_64-linux",
@@ -58,14 +58,13 @@ class BuilderManager:
         self._idle_since: dict[str, float] = {}
         self._job_names: dict[str, str] = {}
         self._available_systems: set[str] = set()
+        self._pending_probes: set[str] = set()
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         await self._reap_orphaned_builder_pods()
-        await self._optimistic_systems()
         await self._reconcile_systems()
         self._task = asyncio.create_task(self._run())
-        await self._probe_nodes()
         log.info(
             "builder_manager_started",
             namespace=self.namespace,
@@ -87,37 +86,51 @@ class BuilderManager:
             self._watch_jobs(),
             self._watch_queue(),
             self._reap_idle(),
-            self._reconcile_loop(),
+            self._watch_nodes(),
         )
 
     # ---- Node probing ----
 
-    async def _probe_nodes(self) -> None:
-        """Find unprobed nodes and launch a background probe task per node."""
-        try:
-            api = await k8s.api()
-            async for node in api.get("nodes"):
-                labels = getattr(node.metadata, "labels", {}) or {}
-                if labels.get(PROBED_LABEL) == "true":
-                    continue
-                kube_arch = labels.get("kubernetes.io/arch", "")
-                nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
-                if nix_system and nix_system in set(self.systems):
-                    asyncio.create_task(
-                        self._probe_node(node.metadata.name, nix_system)
-                    )
-        except Exception:
-            log.exception("probe_nodes_error")
+    async def _watch_nodes(self) -> None:
+        """Watch for unprobed nodes and probe them automatically."""
+        while True:
+            try:
+                api = await k8s.api()
+                async for event in api.watch(
+                    "nodes",
+                    label_selector=f"!{PROBED_LABEL}",
+                ):
+                    event_type = event[0] if isinstance(event, tuple) else event.get("type", "")
+                    if event_type not in {"ADDED", "MODIFIED"}:
+                        continue
+                    resource = event[1] if isinstance(event, tuple) else event.get("object", {})
+                    labels = resource.get("metadata", {}).get("labels", {}) or {}
+                    node_name = resource.get("metadata", {}).get("name")
+                    if not node_name or node_name in self._pending_probes:
+                        continue
+                    kube_arch = labels.get("kubernetes.io/arch", "")
+                    nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
+                    if not nix_system or nix_system not in set(self.systems):
+                        log.warning("probe_node_unsupported", node=node_name, arch=kube_arch)
+                        continue
+                    self._pending_probes.add(node_name)
+                    asyncio.create_task(self._probe_node(node_name, nix_system))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.warning("node_watch_error", exc_info=True)
+                await asyncio.sleep(10)
 
     async def _probe_node(self, node_name: str, system: str) -> None:
         """Probe one node: create builder, wait for probe, label, cleanup."""
         log.info("probe_node_started", node=node_name, system=system)
-        job_name = await self._create_builder_job(system=system, node_name=node_name)
-        if not job_name:
-            return
-
-        store_id = f"builder-{job_name}"
+        job_name = None
         try:
+            job_name = await self._create_builder_job(system=system, node_name=node_name)
+            if not job_name:
+                return
+
+            store_id = f"builder-{job_name}"
             for _ in range(30):
                 store = self.server.stores.get(store_id)
                 if store is not None:
@@ -132,23 +145,21 @@ class BuilderManager:
             if features:
                 await self._label_node(node_name, next(iter(features)), features)
         finally:
-            try:
-                job = await Job.get(job_name, namespace=self.namespace)
-                await self._delete_job(job)
-            except Exception:
-                log.warning("probe_job_cleanup_failed", job=job_name)
+            self._pending_probes.discard(node_name)
+            if job_name:
+                try:
+                    job = await Job.get(job_name, namespace=self.namespace)
+                    await self._delete_job(job)
+                except Exception:
+                    log.warning("probe_job_cleanup_failed", job=job_name)
 
         await self._reconcile_systems()
 
     async def _label_node(
         self, node_name: str, system: str, features: dict[str, set[str]]
     ) -> None:
-        """Store probe results on the node as labels and per-feature annotations."""
-        annotations: dict[str, str] = {
-            f"{FEATURE_ANNOTATION_PREFIX}{f}": "true"
-            for feats in features.values()
-            for f in feats
-        }
+        """Store probe results on the node as labels and a features annotation."""
+        all_feats = sorted({f for feats in features.values() for f in feats})
         try:
             api = await k8s.api()
             async for node in api.get("nodes", node_name):
@@ -156,10 +167,11 @@ class BuilderManager:
                     {
                         "metadata": {
                             "labels": {
-                                SYSTEM_LABEL: system,
                                 PROBED_LABEL: "true",
                             },
-                            "annotations": annotations,
+                            "annotations": {
+                                FEATURES_ANNOTATION: ",".join(all_feats),
+                            },
                         },
                     },
                     type="merge",
@@ -169,7 +181,7 @@ class BuilderManager:
                 "node_labeled_with_probe",
                 node=node_name,
                 system=system,
-                features=sorted(annotations.keys()),
+                features=all_feats,
             )
         except Exception:
             log.exception("node_labeling_failed", node=node_name)
@@ -192,20 +204,21 @@ class BuilderManager:
             log.info("dynamic_features_added", systems=sorted(added))
 
     async def _read_node_features(self, systems: set[str]) -> dict[str, set[str]]:
-        """Read feature matrix from per-feature node annotations."""
+        """Read feature matrix from nixkube/features annotation."""
         feature_matrix: dict[str, set[str]] = {}
         try:
             api = await k8s.api()
             async for node in api.get("nodes"):
                 labels = getattr(node.metadata, "labels", {}) or {}
-                sys_label = labels.get(SYSTEM_LABEL)
+                if labels.get(PROBED_LABEL) != "true":
+                    continue
+                kube_arch = labels.get("kubernetes.io/arch", "")
+                sys_label = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
                 if sys_label not in systems or sys_label in feature_matrix:
                     continue
                 annotations = getattr(node.metadata, "annotations", {}) or {}
-                features: set[str] = set()
-                for key, val in annotations.items():
-                    if key.startswith(FEATURE_ANNOTATION_PREFIX) and val == "true":
-                        features.add(key[len(FEATURE_ANNOTATION_PREFIX) :])
+                raw = annotations.get(FEATURES_ANNOTATION, "")
+                features = set(filter(None, raw.split(","))) if raw else set()
                 feature_matrix[sys_label] = features or set(_DEFAULT_FEATURES)
         except Exception:
             log.exception("read_node_features_error")
@@ -213,37 +226,8 @@ class BuilderManager:
             feature_matrix.setdefault(s, set(_DEFAULT_FEATURES))
         return feature_matrix
 
-    async def _optimistic_systems(self) -> None:
-        """Fallback: infer systems from kubernetes.io/arch before probes finish."""
-        try:
-            api = await k8s.api()
-            already_probed = False
-            async for node in api.get("nodes"):
-                labels = getattr(node.metadata, "labels", {}) or {}
-                if labels.get(PROBED_LABEL) == "true":
-                    already_probed = True
-                    break
-            if already_probed:
-                return
-
-            enabled = set(self.systems)
-            available: set[str] = set()
-            async for node in api.get("nodes"):
-                labels = getattr(node.metadata, "labels", {}) or {}
-                kube_arch = labels.get("kubernetes.io/arch")
-                nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch or "")
-                if nix_system and nix_system in enabled:
-                    available.add(nix_system)
-
-            if available:
-                self._available_systems = available
-                await self._sync_dynamic_features()
-                log.info("optimistic_systems", systems=sorted(available))
-        except Exception:
-            log.exception("optimistic_systems_error")
-
     async def _reconcile_systems(self) -> None:
-        """Read node nixkube/system labels to determine available systems."""
+        """Read node kubernetes.io/arch to determine available systems."""
         enabled = set(self.systems)
         any_probed = False
         available: set[str] = set()
@@ -252,10 +236,10 @@ class BuilderManager:
             api = await k8s.api()
             async for node in api.get("nodes"):
                 labels = getattr(node.metadata, "labels", {}) or {}
-                probed = labels.get(PROBED_LABEL)
-                if probed == "true":
+                if labels.get(PROBED_LABEL) == "true":
                     any_probed = True
-                    system = labels.get(SYSTEM_LABEL)
+                    kube_arch = labels.get("kubernetes.io/arch", "")
+                    system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
                     if system and system in enabled:
                         available.add(system)
         except Exception:
@@ -276,14 +260,6 @@ class BuilderManager:
                 removed=sorted(old - available),
                 added=sorted(available - old),
             )
-
-    async def _reconcile_loop(self) -> None:
-        while True:
-            try:
-                await self._reconcile_systems()
-            except Exception:
-                log.exception("reconcile_loop_error")
-            await asyncio.sleep(60)
 
     # ---- Job watching and reconciliation ----
 
