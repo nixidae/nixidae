@@ -168,6 +168,8 @@ in
                   ports = lib.mkNamedList {
                     ssh.containerPort = 22;
                   };
+                  readinessProbe.tcpSocket.port = "ssh";
+                  livenessProbe.tcpSocket.port = "ssh";
                   volumeMounts = lib.mkNamedList {
                     nix-config.mountPath = "/etc/nix";
                     nix-key.mountPath = "/etc/nix-key";
