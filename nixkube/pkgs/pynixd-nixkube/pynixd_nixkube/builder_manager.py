@@ -18,8 +18,6 @@ log = structlog.get_logger(__name__)
 
 BUILDER_LABEL = "app.kubernetes.io/component"
 BUILDER_LABEL_VALUE = "builder"
-PROBE_LABEL = "app.kubernetes.io/component"
-PROBE_LABEL_VALUE = "probe"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
 SYSTEM_LABEL = "nixkube/system"
 PROBED_LABEL = "nixkube/probed"
@@ -60,16 +58,14 @@ class BuilderManager:
         self._idle_since: dict[str, float] = {}
         self._job_names: dict[str, str] = {}
         self._available_systems: set[str] = set()
-        self._pending_probes: dict[str, str] = {}  # store_id -> node_name
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         await self._reap_orphaned_builder_pods()
-        await self._ensure_probe_jobs()
-        await self._manage_probes()
         await self._optimistic_systems()
         await self._reconcile_systems()
         self._task = asyncio.create_task(self._run())
+        await self._probe_nodes()
         log.info(
             "builder_manager_started",
             namespace=self.namespace,
@@ -91,14 +87,94 @@ class BuilderManager:
             self._watch_jobs(),
             self._watch_queue(),
             self._reap_idle(),
-            self._probe_loop(),
+            self._reconcile_loop(),
         )
 
-    # ---- Probe store management ----
-    # Probe Jobs are temporary builder Jobs created for unprobed nodes.
-    # They run a nix-daemon scaffold; the central pynixd connects via SSH,
-    # runs system+feature probes (build derivations), stores results on
-    # the node as labels/annotations, then deletes the probe Job.
+    # ---- Node probing ----
+
+    async def _probe_nodes(self) -> None:
+        """Find unprobed nodes and launch a background probe task per node."""
+        try:
+            api = await k8s.api()
+            async for node in api.get("nodes"):
+                labels = getattr(node.metadata, "labels", {}) or {}
+                if labels.get(PROBED_LABEL) == "true":
+                    continue
+                kube_arch = labels.get("kubernetes.io/arch", "")
+                nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
+                if nix_system and nix_system in set(self.systems):
+                    asyncio.create_task(
+                        self._probe_node(node.metadata.name, nix_system)
+                    )
+        except Exception:
+            log.exception("probe_nodes_error")
+
+    async def _probe_node(self, node_name: str, system: str) -> None:
+        """Probe one node: create builder, wait for probe, label, cleanup."""
+        log.info("probe_node_started", node=node_name, system=system)
+        job_name = await self._create_builder_job(system=system, node_name=node_name)
+        if not job_name:
+            return
+
+        store_id = f"builder-{job_name}"
+        try:
+            for _ in range(30):
+                store = self.server.stores.get(store_id)
+                if store is not None:
+                    break
+                await asyncio.sleep(1)
+            else:
+                log.warning("probe_store_not_found", job=job_name, node=node_name)
+                return
+
+            await store._probe_event.wait()
+            features = store.feature_matrix
+            if features:
+                await self._label_node(node_name, next(iter(features)), features)
+        finally:
+            try:
+                job = await Job.get(job_name, namespace=self.namespace)
+                await self._delete_job(job)
+            except Exception:
+                log.warning("probe_job_cleanup_failed", job=job_name)
+
+        await self._reconcile_systems()
+
+    async def _label_node(
+        self, node_name: str, system: str, features: dict[str, set[str]]
+    ) -> None:
+        """Store probe results on the node as labels and per-feature annotations."""
+        annotations: dict[str, str] = {
+            f"{FEATURE_ANNOTATION_PREFIX}{f}": "true"
+            for feats in features.values()
+            for f in feats
+        }
+        try:
+            api = await k8s.api()
+            async for node in api.get("nodes", node_name):
+                await node.patch(
+                    {
+                        "metadata": {
+                            "labels": {
+                                SYSTEM_LABEL: system,
+                                PROBED_LABEL: "true",
+                            },
+                            "annotations": annotations,
+                        },
+                    },
+                    type="merge",
+                )
+                break
+            log.info(
+                "node_labeled_with_probe",
+                node=node_name,
+                system=system,
+                features=sorted(annotations.keys()),
+            )
+        except Exception:
+            log.exception("node_labeling_failed", node=node_name)
+
+    # ---- Dynamic features ----
 
     async def _sync_dynamic_features(self) -> None:
         scheduler = self.server.scheduler
@@ -117,7 +193,6 @@ class BuilderManager:
 
     async def _read_node_features(self, systems: set[str]) -> dict[str, set[str]]:
         """Read feature matrix from per-feature node annotations."""
-
         feature_matrix: dict[str, set[str]] = {}
         try:
             api = await k8s.api()
@@ -139,10 +214,7 @@ class BuilderManager:
         return feature_matrix
 
     async def _optimistic_systems(self) -> None:
-        """Fallback: infer systems from kubernetes.io/arch before probes finish.
-        Only sets systems when no nodes have been probed yet (startup fallback).
-        """
-
+        """Fallback: infer systems from kubernetes.io/arch before probes finish."""
         try:
             api = await k8s.api()
             already_probed = False
@@ -166,19 +238,12 @@ class BuilderManager:
             if available:
                 self._available_systems = available
                 await self._sync_dynamic_features()
-                log.info(
-                    "optimistic_systems",
-                    systems=sorted(available),
-                )
+                log.info("optimistic_systems", systems=sorted(available))
         except Exception:
             log.exception("optimistic_systems_error")
 
     async def _reconcile_systems(self) -> None:
-        """Read node nixkube/system labels to determine available systems.
-        Only updates when at least one node has been probed — before that,
-        the optimistic fallback from _optimistic_systems remains.
-        """
-
+        """Read node nixkube/system labels to determine available systems."""
         enabled = set(self.systems)
         any_probed = False
         available: set[str] = set()
@@ -212,213 +277,17 @@ class BuilderManager:
                 added=sorted(available - old),
             )
 
-    async def _ensure_probe_jobs(self) -> None:
-        """Create probe Jobs for nodes lacking nixkube/probed=true."""
-
-        enabled = set(self.systems)
-
-        try:
-            api = await k8s.api()
-
-            unprobed: list[tuple[str, str]] = []
-            async for node in api.get("nodes"):
-                labels = getattr(node.metadata, "labels", {}) or {}
-                if labels.get(PROBED_LABEL) == "true":
-                    continue
-                kube_arch = labels.get("kubernetes.io/arch", "")
-                nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
-                if nix_system and nix_system in enabled:
-                    unprobed.append((node.metadata.name, nix_system))
-
-            if not unprobed:
-                return
-
-            existing_job_nodes: set[str] = set()
-            async for job in api.get(
-                "jobs",
-                namespace=self.namespace,
-                label_selector={PROBE_LABEL: PROBE_LABEL_VALUE},
-            ):
-                annotations = getattr(job.metadata, "annotations", {}) or {}
-                target = annotations.get("nixkube/target-node")
-                if target:
-                    existing_job_nodes.add(target)
-
-            for node_name, system in unprobed:
-                if node_name not in existing_job_nodes:
-                    await self._create_probe_job(node_name, system=system)
-        except Exception:
-            log.exception("probe_job_creation_error")
-
-    async def _create_probe_job(self, node_name: str, system: str) -> None:
-        """Create a temporary builder Job pinned to a specific node for probing."""
-        try:
-            template = await PodTemplate.get(
-                BUILDER_PODTEMPLATE_NAME, namespace=self.namespace
-            )
-        except Exception:
-            log.error("probe_podtemplate_not_found")
-            return
-
-        pod_spec = template.raw.get("template", {})
-        spec = pod_spec.setdefault("spec", {})
-        spec["restartPolicy"] = "Never"
-        spec["nodeName"] = node_name
-
-        safe_name = node_name.replace(".", "-").replace("_", "-")[:63]
-        job_id = str(uuid.uuid4())[:8]
-        job_name = f"nixkube-probe-{safe_name}-{job_id}"
-
-        job_resource = {
-            "apiVersion": "batch/v1",
-            "kind": "Job",
-            "metadata": {
-                "name": job_name,
-                "namespace": self.namespace,
-                "labels": {
-                    PROBE_LABEL: PROBE_LABEL_VALUE,
-                    SYSTEM_LABEL: system,
-                },
-                "annotations": {
-                    "nixkube/target-node": node_name,
-                },
-            },
-            "spec": {
-                "ttlSecondsAfterFinished": 300,
-                "backoffLimit": 0,
-                "template": pod_spec,
-            },
-        }
-
-        try:
-            job = await Job(job_resource)
-            await job.create()
-            log.info("probe_job_created", job=job_name, node=node_name, system=system)
-        except Exception:
-            log.exception("probe_job_create_failed", job=job_name, node=node_name)
-
-    async def _manage_probes(self) -> None:
-        """Process existing probe Jobs: connect, probe, label node, cleanup."""
-
-        try:
-            api = await k8s.api()
-            probe_jobs: list = []
-            async for job in api.get(
-                "jobs",
-                namespace=self.namespace,
-                label_selector={PROBE_LABEL: PROBE_LABEL_VALUE},
-            ):
-                probe_jobs.append(job)
-
-            if not probe_jobs:
-                return
-
-            tasks = [self._process_probe_job(j) for j in probe_jobs]
-            await asyncio.gather(*tasks)
-        except Exception:
-            log.exception("probe_management_error")
-
-    async def _process_probe_job(self, job: object) -> None:
-        job_name = job.metadata.name
-        annotations = getattr(job.metadata, "annotations", {}) or {}
-        target_node = annotations.get("nixkube/target-node")
-        if not target_node:
-            return
-
-        store_id = f"probe-{job_name}"
-        raw_status = getattr(job, "raw", {}).get("status", {})
-        if raw_status.get("succeeded") or raw_status.get("failed"):
-            await self._delete_job(job)
-            return
-
-        if store_id in self._pending_probes:
-            return
-
-        pod_ip = await self._get_job_pod_ip(job)
-        if not pod_ip:
-            return
-
-        self._pending_probes[store_id] = target_node
-
-        store = SSHSubprocessStore(
-            host=pod_ip,
-            store_id=store_id,
-            port=22,
-            username="nix",
-            client_keys=["/etc/ssh-key/id_ed25519"],
-            nix_bin="/nix/var/result/bin/nix",
-            monitor=False,
-        )
-
-        try:
-            await self.server.add_store(store, dynamic=True)
-            log.info("probe_store_registered", store_id=store_id, node=target_node)
-            await store._probe_event.wait()
-            features = store.feature_matrix
-            if features:
-                for system in features:
-                    if system in set(self.systems):
-                        await self._label_node(target_node, system, features)
-                        break
-        except Exception:
-            log.exception("probe_failed", store_id=store_id, node=target_node)
-        finally:
-            self._pending_probes.pop(store_id, None)
-            try:
-                await self.server.remove_store(store_id)
-            except Exception:
-                pass
-            await self._delete_job(job)
-
-    async def _label_node(
-        self, node_name: str, system: str, features: dict[str, set[str]]
-    ) -> None:
-        """Store probe results on the node as labels and per-feature annotations."""
-
-        annotations: dict[str, str] = {
-            f"{FEATURE_ANNOTATION_PREFIX}{f}": "true"
-            for feats in features.values()
-            for f in feats
-        }
-        try:
-            api = await k8s.api()
-            async for node in api.get("nodes", node_name):
-                await node.patch(
-                    {
-                        "metadata": {
-                            "labels": {
-                                SYSTEM_LABEL: system,
-                                PROBED_LABEL: "true",
-                            },
-                            "annotations": annotations,
-                        },
-                    },
-                    type="merge",
-                )
-                break
-            log.info(
-                "node_labeled_with_probe",
-                node=node_name,
-                system=system,
-                features=sorted(annotations.keys()),
-            )
-        except Exception:
-            log.exception("node_labeling_failed", node=node_name)
-
-    async def _probe_loop(self) -> None:
+    async def _reconcile_loop(self) -> None:
         while True:
             try:
-                await self._ensure_probe_jobs()
-                await self._manage_probes()
                 await self._reconcile_systems()
             except Exception:
-                log.exception("probe_loop_error")
-            await asyncio.sleep(30)
+                log.exception("reconcile_loop_error")
+            await asyncio.sleep(60)
 
     # ---- Job watching and reconciliation ----
 
     async def _watch_jobs(self) -> None:
-
         while True:
             try:
                 api = await k8s.api()
@@ -570,7 +439,6 @@ class BuilderManager:
         return set()
 
     async def _get_job_pod_ip(self, job: object) -> str | None:
-
         try:
             api = await k8s.api()
             async for pod in api.get(
@@ -588,7 +456,6 @@ class BuilderManager:
     # ---- Builder min/max lifecycle ----
 
     async def _ensure_min_builders(self) -> None:
-
         try:
             api = await k8s.api()
             active_by_system: dict[str, int] = {}
@@ -718,7 +585,6 @@ class BuilderManager:
             log.exception("builder_job_delete_idle_failed", job=job_name)
 
     async def _reap_orphaned_builder_pods(self) -> None:
-
         try:
             api = await k8s.api()
             async for pod in api.get(
@@ -780,14 +646,16 @@ class BuilderManager:
 
     # ---- Job creation ----
 
-    async def _create_builder_job(self, system: str) -> None:
+    async def _create_builder_job(
+        self, system: str, node_name: str | None = None
+    ) -> str | None:
         try:
             template = await PodTemplate.get(
                 BUILDER_PODTEMPLATE_NAME, namespace=self.namespace
             )
         except Exception:
             log.error("builder_podtemplate_not_found", name=BUILDER_PODTEMPLATE_NAME)
-            return
+            return None
 
         pod_spec = template.raw.get("template", {})
 
@@ -796,6 +664,8 @@ class BuilderManager:
             spec = pod_spec.setdefault("spec", {})
             node_selector = spec.setdefault("nodeSelector", {})
             node_selector["kubernetes.io/arch"] = kube_arch
+        if node_name:
+            pod_spec.setdefault("spec", {})["nodeName"] = node_name
 
         job_id = str(uuid.uuid4())[:8]
         job_name = f"nixkube-builder-{job_id}"
@@ -821,11 +691,17 @@ class BuilderManager:
         try:
             job = await Job(job_resource)
             await job.create()
-            log.info("builder_job_created", job=job_name, system=system)
-        except Exception as e:
+            log.info(
+                "builder_job_created",
+                job=job_name,
+                system=system,
+                node_name=node_name,
+            )
+            return job_name
+        except Exception:
             log.exception(
                 "builder_job_create_failed",
                 job=job_name,
                 system=system,
-                error=str(e),
             )
+            return None
