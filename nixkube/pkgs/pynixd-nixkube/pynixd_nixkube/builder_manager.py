@@ -150,7 +150,7 @@ class BuilderManager:
         store = SSHSubprocessStore(
             host=pod_ip,
             store_id=store_id,
-            port=2222,
+            port=22,
             username="nix",
             client_keys=["/etc/ssh-key/id_ed25519"],
             nix_bin="/nix/var/result/bin/nix",

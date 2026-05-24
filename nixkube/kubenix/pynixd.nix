@@ -277,14 +277,16 @@ in
                 inherit image;
                 env = lib.mkNamedList {
                   PYNIXD_SSH_HOST.value = "";
-                  PYNIXD_SSH_PORT.value = "2222";
+                  PYNIXD_SSH_PORT.value = "22";
                   PYNIXD_HTTP_PORT.value = "8080";
                   PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
                   HOME.value = "/nix/var/nix-csi/root";
                 };
                 ports = lib.mkNamedList {
-                  ssh.containerPort = 2222;
+                  ssh.containerPort = 22;
                 };
+                readinessProbe.tcpSocket.port = "ssh";
+                livenessProbe.tcpSocket.port = "ssh";
                 volumeMounts = lib.mkNamedList {
                   nix-config.mountPath = "/etc/nix";
                   nix-store = {
