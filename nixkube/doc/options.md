@@ -30,103 +30,7 @@ true
 
 
 
-## nixkube\.builder\.enable
-
-Whether to enable ephemeral builder Job infrastructure (PodTemplate, ConfigMap)\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-true
-```
-
-
-
-*Example:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builder\.nixConfig
-
-
-
-nix\.conf for builder pods
-
-
-
-*Type:*
-submodule
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builder\.nixConfig\.extraOptions
-
-
-
-Extra lines to add to nix\.conf
-
-
-
-*Type:*
-strings concatenated with “\\n”
-
-
-
-*Default:*
-
-```nix
-""
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
-## nixkube\.builder\.nixConfig\.settings
-
-
-
-Settings rendered to nix\.conf
-
-
-
-*Type:*
-open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
-
-
-
-*Default:*
-
-```nix
-{ }
-```
-
-*Declared by:*
- - [/kubenix/builder\.nix](file:///kubenix/builder.nix)
-
-
-
 ## nixkube\.deploySecrets
-
-
 
 Deploy SSH keypair Secrets to Kubernetes\. Disable if managing secrets externally (e\.g\., with Vault or Sealed Secrets)\.
 
@@ -687,6 +591,70 @@ list of (string or absolute path)
   ./keys/deploy.pub
 ]
 
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builder\.nixConfig
+
+
+
+nix\.conf for builder pods
+
+
+
+*Type:*
+submodule
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builder\.nixConfig\.extraOptions
+
+
+
+Extra lines to add to nix\.conf
+
+
+
+*Type:*
+strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+""
+```
+
+*Declared by:*
+ - [/kubenix/pynixd\.nix](file:///kubenix/pynixd.nix)
+
+
+
+## nixkube\.pynixd\.builder\.nixConfig\.settings
+
+
+
+Settings rendered to nix\.conf
+
+
+
+*Type:*
+open submodule of attribute set of (Nix config atom (null, bool, int, float, str, path or package) or list of (Nix config atom (null, bool, int, float, str, path or package)))
+
+
+
+*Default:*
+
+```nix
+{ }
 ```
 
 *Declared by:*
