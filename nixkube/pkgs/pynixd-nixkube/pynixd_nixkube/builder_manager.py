@@ -20,7 +20,7 @@ BUILDER_LABEL_VALUE = "builder"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
 
 _COOLDOWN_SECONDS = 60.0
-_POLL_SECONDS = 10.0
+_RECONNECT_DELAY = 10.0
 
 
 class BuilderManager:
@@ -51,6 +51,7 @@ class BuilderManager:
             "builder_manager_started",
             namespace=self.namespace,
             max_builders=self.max_builders,
+            min_builders=self.min_builders,
         )
 
     async def stop(self) -> None:
@@ -63,17 +64,18 @@ class BuilderManager:
 
     async def _run(self) -> None:
         await asyncio.gather(
-            self._poll_pods(),
+            self._watch_pods(),
             self._watch_queue(),
             self._reap_idle(),
         )
 
-    async def _poll_pods(self) -> None:
+    async def _watch_pods(self) -> None:
         import kr8s.asyncio as kr8s_asyncio
 
         while True:
             try:
                 api = await kr8s_asyncio.api()
+
                 seen: set[str] = set()
                 async for pod in api.get(
                     "pods",
@@ -83,16 +85,40 @@ class BuilderManager:
                     pod_name = pod.metadata.name
                     seen.add(pod_name)
                     await self._reconcile_pod(pod)
+
                 for store_id in list(self._registered):
                     store_id_prefix = "builder-"
                     if store_id.startswith(store_id_prefix):
                         pod_name = store_id[len(store_id_prefix):]
                         if pod_name not in seen:
                             await self._unregister_builder(store_id)
-            except Exception as e:
-                log.warning("builder_pod_poll_error", error=f"{type(e).__name__}: {e}")
 
-            await asyncio.sleep(_POLL_SECONDS)
+                await self._ensure_min_builders()
+
+                async for event in api.watch(
+                    "pods",
+                    namespace=self.namespace,
+                    label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
+                ):
+                    event_type = event.get("type")
+                    pod = event.get("object")
+                    if pod is None:
+                        continue
+
+                    if event_type == "DELETED":
+                        store_id = f"builder-{pod.metadata.name}"
+                        if store_id in self._registered:
+                            await self._unregister_builder(store_id)
+                        await self._ensure_min_builders()
+                    elif event_type in ("ADDED", "MODIFIED"):
+                        await self._reconcile_pod(pod)
+                        await self._ensure_min_builders()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                log.warning("builder_watch_error", error=f"{type(e).__name__}: {e}")
+
+            await asyncio.sleep(_RECONNECT_DELAY)
 
     async def _reconcile_pod(self, pod: object) -> None:
         raw = getattr(pod, "raw", {})
@@ -149,6 +175,26 @@ class BuilderManager:
             log.info("builder_unregistered", store_id=store_id)
         except Exception:
             log.exception("builder_unregister_failed", store_id=store_id)
+
+    async def _ensure_min_builders(self) -> None:
+        active = await self._count_active_jobs()
+        if active >= self.min_builders:
+            return
+
+        needed = min(self.min_builders - active, self.max_builders - active)
+        if needed <= 0:
+            return
+
+        log.info(
+            "ensuring_min_builders",
+            active=active,
+            min_builders=self.min_builders,
+            max_builders=self.max_builders,
+            creating=needed,
+        )
+        for _ in range(needed):
+            await self._create_builder_job()
+            await asyncio.sleep(0.5)
 
     async def _reap_idle(self) -> None:
         import kr8s.asyncio as kr8s_asyncio
