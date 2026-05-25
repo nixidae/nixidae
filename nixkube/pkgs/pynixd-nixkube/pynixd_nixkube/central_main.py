@@ -33,6 +33,10 @@ async def _main() -> None:
 
     server = Server(local_store=local_store, settings=pynixd_settings)
 
+    if pynixd_settings.stores:
+        _, remote_stores = pynixd_settings.to_stores()
+        server.ctx._stores.update(remote_stores)
+
     builder_manager: BuilderManager | None = None
 
     async with server:

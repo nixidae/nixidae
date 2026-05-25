@@ -27,6 +27,8 @@ let
 
   # Only enabled systems
   enabledSystems = lib.filterAttrs (_: v: v) cfg.systems;
+
+  jsonFormat = curPkgs.formats.json { };
 in
 {
   options.nixkube.pynixd = {
@@ -92,6 +94,60 @@ in
         };
       };
     };
+    settings = lib.mkOption {
+      description = ''
+        Pynixd configuration as a JSON object. Merged into the PYNIXD_CONFIG
+        config file mounted in the pynixd pod. Corresponds to the PynixdSettings
+        pydantic model (see pynixd.config).
+
+        Common keys include stores (list of StoreSpec), ranking weights,
+        GC intervals, etc. When stores include SSH stores, their client
+        keys are auto-discovered from HOME/.ssh/ if client_keys is omitted.
+      '';
+      type = jsonFormat.type;
+      default = { };
+      example = lib.literalExpression ''
+        {
+          stores = [
+            {
+              type = "ssh-subprocess";
+              host = "builder.example.com";
+              port = 22;
+              username = "nix";
+              systems = [ "x86_64-linux" ];
+            }
+          ];
+        }
+      '';
+    };
+    extraVolumes = lib.mkOption {
+      description = ''
+        Extra Kubernetes volumes keyed by name. Merged into the
+        StatefulSet pod spec volumes. Useful for mounting Secrets
+        containing SSH client keys for external stores.
+      '';
+      type = lib.types.attrsOf jsonFormat.type;
+      default = { };
+      example = lib.literalExpression ''
+        {
+          my-builder-key.secret.secretName = "my-builder-key";
+        }
+      '';
+    };
+    extraVolumeMounts = lib.mkOption {
+      description = ''
+        Extra volume mounts keyed by name. Merged into the pynixd
+        container volumeMounts. Mount external SSH client keys into
+        HOME/.ssh/ for asyncssh auto-discovery.
+      '';
+      type = lib.types.attrsOf jsonFormat.type;
+      default = { };
+      example = lib.literalExpression ''
+        {
+          my-builder-key.mountPath = "/nix/var/nix-csi/root/.ssh/id_ed25519";
+        }
+      '';
+    };
   };
   config = lib.mkIf (cfg.enable && cfg.pynixd.enable) {
     nixkube.pynixd.builder.nixConfig.settings = {
@@ -112,7 +168,10 @@ in
             metadata.annotations = {
               "kubectl.kubernetes.io/default-container" = "pynixd";
               configHash = lib.hashAttrs (
-                { } // nsRes.ConfigMap.pynixd or { } // nsRes.ConfigMap.ssh-config or { }
+                { }
+                // nsRes.ConfigMap.pynixd or { }
+                // nsRes.ConfigMap.ssh-config or { }
+                // nsRes.ConfigMap.pynixd-config or { }
               );
             };
             spec = {
@@ -167,24 +226,29 @@ in
                     PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
                     PYNIXD_SCHEDULE_MODE.value = "scheduler";
                     PYNIXD_SYSTEMS.value = lib.concatStringsSep "," (builtins.attrNames enabledSystems);
+                    PYNIXD_CONFIG.value = "/nix/etc/pynixd-config/config.json";
                   };
                   ports = lib.mkNamedList {
                     ssh.containerPort = 22;
                   };
                   readinessProbe.tcpSocket.port = "ssh";
                   livenessProbe.tcpSocket.port = "ssh";
-                  volumeMounts = lib.mkNamedList {
-                    nix-config.mountPath = "/etc/nix";
-                    nix-key.mountPath = "/etc/nix-key";
-                    nix-store = {
-                      mountPath = "/nix";
-                      subPath = "nix";
-                    };
+                  volumeMounts = lib.mkNamedList (
+                    {
+                      nix-config.mountPath = "/etc/nix";
+                      nix-key.mountPath = "/etc/nix-key";
+                      nix-store = {
+                        mountPath = "/nix";
+                        subPath = "nix";
+                      };
 
-                    ssh-config.mountPath = "/etc/ssh";
-                    ssh-dynauth.mountPath = "/etc/ssh-dynauth";
-                    ssh-key.mountPath = "/etc/ssh-key";
-                  };
+                      ssh-config.mountPath = "/etc/ssh";
+                      ssh-dynauth.mountPath = "/etc/ssh-dynauth";
+                      ssh-key.mountPath = "/etc/ssh-key";
+                      pynixd-config.mountPath = "/nix/etc/pynixd-config";
+                    }
+                    // cfg.pynixd.extraVolumeMounts
+                  );
                   resources = {
                     requests = {
                       memory = "64Mi";
@@ -193,28 +257,35 @@ in
                   };
                 };
               };
-              volumes = lib.mkNamedList {
-                nix-config.configMap.name = "pynixd";
-                nix-key.secret.secretName = "nix-key";
-                init-store.csi = {
-                  driver = "nixkube";
-                  readOnly = true;
-                  volumeAttributes = storeVolumeAttributes;
-                };
+              volumes = lib.mkNamedList (
+                {
+                  nix-config.configMap.name = "pynixd";
+                  nix-key.secret.secretName = "nix-key";
+                  init-store.csi = {
+                    driver = "nixkube";
+                    readOnly = true;
+                    volumeAttributes = storeVolumeAttributes;
+                  };
 
-                ssh-config.configMap = {
-                  name = "ssh-config";
-                  defaultMode = 292; # 444
-                };
-                ssh-dynauth.configMap = {
-                  name = "ssh-dynauth";
-                  defaultMode = 292; # 444
-                };
-                ssh-key.secret = {
-                  secretName = "ssh-key";
-                  defaultMode = 256; # 400
-                };
-              };
+                  ssh-config.configMap = {
+                    name = "ssh-config";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-dynauth.configMap = {
+                    name = "ssh-dynauth";
+                    defaultMode = 292; # 444
+                  };
+                  ssh-key.secret = {
+                    secretName = "ssh-key";
+                    defaultMode = 256; # 400
+                  };
+                  pynixd-config = {
+                    configMap.name = "pynixd-config";
+                    defaultMode = 292; # 444
+                  };
+                }
+                // cfg.pynixd.extraVolumes
+              );
             };
           };
           volumeClaimTemplates = lib.mkNumberedList {
@@ -261,6 +332,12 @@ in
         metadata.labels = builderLabels;
         data = {
           "nix.conf" = builtins.readFile cfg.pynixd.builder.nixConfig.nixConf;
+        };
+      };
+      ConfigMap.pynixd-config = {
+        metadata.labels = pynixdLabels;
+        data = {
+          "config.json" = builtins.toJSON cfg.pynixd.settings;
         };
       };
 
