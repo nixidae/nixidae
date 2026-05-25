@@ -24,7 +24,7 @@ buildPythonPackage {
   inherit version;
   pname = "cri-proto-python";
 
-  src = ./.;
+  src = lib.cleanSource ./.;
 
   build-system = [ hatchling ];
   nativeBuildInputs = [

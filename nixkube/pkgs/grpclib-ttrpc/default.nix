@@ -21,7 +21,7 @@ let
   testServer = buildGo125Module {
     pname = "ttrpc-test-server";
     version = "0.1.0";
-    src = ./go;
+    src = lib.cleanSource ./go;
     proxyVendor = true;
     vendorHash = "sha256-voE9iZ0rUp/iCNROLiKjuQdQS9rLVqPK0SlSGp0kPuU=";
     doCheck = false;
@@ -38,7 +38,7 @@ buildPythonPackage {
   pname = pyproject.project.name;
   version = pyproject.project.version;
 
-  src = ./.;
+  src = lib.cleanSource ./.;
   pyproject = true;
   build-system = [ hatchling ];
 

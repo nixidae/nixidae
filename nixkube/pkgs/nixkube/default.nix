@@ -17,6 +17,7 @@
   lruLix, # We need a Nix implementation.... :)
   nix_init_db, # Import from one nix DB to another
   openssh, # Copying to cache
+  lib,
   util-linuxMinimal, # mount, umount
   pyzmq, # Talking to OCI hooks
   nri-wait, # OCI hook for waiting on NRI builds
@@ -32,7 +33,7 @@ in
 buildPythonApplication {
   pname = pyproject.project.name;
   version = pyproject.project.version;
-  src = ./.;
+  src = lib.cleanSource ./.;
   pyproject = true;
   build-system = [ hatchling ];
   dependencies = [

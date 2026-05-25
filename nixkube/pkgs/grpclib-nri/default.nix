@@ -19,7 +19,7 @@ let
     pname = "nri-test-server";
     version = "0.1.0";
 
-    src = ./go;
+    src = lib.cleanSource ./go;
     proxyVendor = true;
     vendorHash = "sha256-bpKT8mHSlA5eP67C3B2ws+BF2S/B+dMH5GYqV2edcXg=";
     doCheck = false;
@@ -36,7 +36,7 @@ buildPythonPackage {
   pname = pyproject.project.name;
   version = pyproject.project.version;
 
-  src = ./.;
+  src = lib.cleanSource ./.;
   pyproject = true;
   build-system = [ hatchling ];
 

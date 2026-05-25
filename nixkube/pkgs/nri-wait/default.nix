@@ -11,7 +11,7 @@ buildPythonApplication {
   pname = "nri-wait";
   version = "0.1.0";
 
-  src = ./.;
+  src = lib.cleanSource ./.;
 
   pyproject = true;
 

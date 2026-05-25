@@ -36,7 +36,7 @@ in
 buildPythonApplication {
   pname = pyproject.project.name;
   version = pyproject.project.version;
-  src = ./.;
+  src = lib.cleanSource ./.;
   pyproject = true;
   build-system = [ hatchling ];
   dependencies = [
