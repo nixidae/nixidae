@@ -37,11 +37,13 @@ in
       // {
         default = true;
       };
-    nixConfig = lib.mkOption {
-      description = "nix.conf for pynixd pod";
-      type = (import ./nixOptions.nix) {
-        pkgs = curPkgs;
-        nix = config.nixkube.nix.package;
+    controller = {
+      nixConfig = lib.mkOption {
+        description = "nix.conf for pynixd pod";
+        type = (import ./nixOptions.nix) {
+          pkgs = curPkgs;
+          nix = config.nixkube.nix.package;
+        };
       };
     };
     authorizedKeys = lib.mkOption {

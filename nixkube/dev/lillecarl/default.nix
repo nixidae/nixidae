@@ -50,7 +50,7 @@ rec {
                 "aarch64-linux" = false;
               };
               cache.storageClassName = "hcloud-volumes";
-              pynixd.nixConfig.settings.max-jobs = lib.mkForce 0;
+              pynixd.controller.nixConfig.settings.max-jobs = lib.mkForce 0;
               pynixd.authorizedKeys = [
                 (builtins.readFile /home/lillecarl/.ssh/id_ed25519.pub)
               ];

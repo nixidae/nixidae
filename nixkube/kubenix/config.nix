@@ -36,7 +36,7 @@ in
       in
       {
         node.nixConfig.settings = sharedSettings;
-        pynixd.nixConfig.settings = sharedSettings;
+        pynixd.controller.nixConfig.settings = sharedSettings;
         pynixd.builder.nixConfig.settings = sharedSettings;
       };
     kubernetes.resources.${cfg.namespace} = {
@@ -50,7 +50,7 @@ in
       ConfigMap.pynixd = {
         metadata.labels = cfg.labels;
         data = {
-          "nix.conf" = builtins.readFile (cfg.pynixd.nixConfig.nixConf);
+          "nix.conf" = builtins.readFile (cfg.pynixd.controller.nixConfig.nixConf);
           "logging.json" = builtins.toJSON cfg.loggingConfig;
         };
       };
