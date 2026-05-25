@@ -87,6 +87,13 @@ in
         default = curPkgs.nix;
       };
     };
+    nixConfig = lib.mkOption {
+      description = "Shared nix.conf defaults inherited by node, pynixd controller, and builder.";
+      type = (import ./nixOptions.nix) {
+        pkgs = curPkgs;
+        nix = config.nixkube.nix.package;
+      };
+    };
     hostMountPath = lib.mkOption {
       description = "Where on the host to put nixkube store, / is untested and not recommended";
       type = lib.types.path;

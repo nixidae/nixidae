@@ -11,34 +11,33 @@ let
 in
 {
   config = lib.mkIf cfg.enable {
-    nixkube =
-      let
-        sharedSettings = {
-          allowed-users = [ "*" ];
-          trusted-users = [
-            "root"
-            "nix"
-          ];
-          experimental-features = [
-            "nix-command"
-            "flakes"
-            "read-only-local-store"
-            "ca-derivations"
-            "dynamic-derivations"
-            "recursive-nix"
-          ];
-          builders-use-substitutes = true;
-          narinfo-cache-negative-ttl = 0;
-          narinfo-cache-positive-ttl = 0;
-          warn-dirty = false;
-          store = "daemon";
-        };
-      in
-      {
-        node.nixConfig.settings = sharedSettings;
-        pynixd.controller.nixConfig.settings = sharedSettings;
-        pynixd.builder.nixConfig.settings = sharedSettings;
+    nixkube = {
+      nixConfig.settings = lib.mkDefault {
+        allowed-users = [ "*" ];
+        trusted-public-keys = [
+          "nix-csi.cachix.org-1:i4w33gR4efO67jpz8U7g/MdvRQ6mQ3LEF9fB8tES60g="
+        ];
+        substituters = [
+          "https://nix-csi.cachix.org"
+        ];
+        experimental-features = [
+          "nix-command"
+          "flakes"
+          "read-only-local-store"
+          "ca-derivations"
+          "dynamic-derivations"
+          "recursive-nix"
+        ];
+        builders-use-substitutes = true;
+        narinfo-cache-negative-ttl = 0;
+        narinfo-cache-positive-ttl = 0;
+        warn-dirty = false;
+        store = "daemon";
       };
+      node.nixConfig.settings = lib.mapAttrsRecursive (name: value: lib.mkDefault value) cfg.nixConfig.settings;
+      pynixd.controller.nixConfig.settings = lib.mapAttrsRecursive (name: value: lib.mkDefault value) cfg.nixConfig.settings;
+      pynixd.builder.nixConfig.settings = lib.mapAttrsRecursive (name: value: lib.mkDefault value) cfg.nixConfig.settings;
+    };
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.nix-node = {
         metadata.labels = cfg.labels;

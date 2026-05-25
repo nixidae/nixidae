@@ -72,11 +72,9 @@ types.submodule (
       settings = {
         trusted-public-keys = [
           "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-          "nix-csi.cachix.org-1:i4w33gR4efO67jpz8U7g/MdvRQ6mQ3LEF9fB8tES60g="
         ];
         substituters = [
           "https://cache.nixos.org"
-          "https://nix-csi.cachix.org"
         ];
         trusted-users = [ "root" ];
         system-features = defaultSystemFeatures;
