@@ -4,9 +4,10 @@ import asyncio
 from pathlib import Path
 
 import structlog
-from pynixd.config import PynixdSettings
+from pynixd.config import LocalSocketStoreSpec, PynixdSettings
 from pynixd.instance import Server
-from pynixd.store import LocalSocketStore
+from pynixd.store import LocalSocketStore, Store
+from pynixd.types.ids import StoreId
 
 from .builder_manager import BuilderManager
 from .config import NixkubeCentralSettings
@@ -22,29 +23,31 @@ async def _main() -> None:
     install_nss()
 
     local_store = LocalSocketStore(
-        store_id="local",
-        store_path=Path("/"),
-        use_db=False,
-        monitor=False,
+        LocalSocketStoreSpec(
+            store_id=StoreId("local"),
+            store_path=Path("/data"),
+            use_db=False,
+            monitor=False,
+        )
     )
 
     pynixd_settings = PynixdSettings()
     settings = NixkubeCentralSettings()
 
-    server = Server(local_store=local_store, settings=pynixd_settings)
-
+    stores: dict[StoreId, Store] = {StoreId("local"): local_store}
     if pynixd_settings.stores:
-        _, remote_stores = pynixd_settings.to_stores()
-        server.ctx._stores.update(remote_stores)
+        config_stores = pynixd_settings.to_stores()
+        for store_id, store in config_stores.items():
+            if store_id != StoreId("local"):
+                stores[store_id] = store
+
+    server = Server(stores=stores, settings=pynixd_settings)
 
     builder_manager: BuilderManager | None = None
 
     async with server:
         keys_watch = asyncio.create_task(watch_authorized_keys(server))
         server.background_tasks.append(keys_watch)
-
-        if pynixd_settings.schedule_mode != "scheduler":
-            await server.add_store(local_store)
 
         if settings.kube_namespace:
             builder_manager = BuilderManager(

@@ -34,23 +34,24 @@ let
       config file mounted in the pynixd pod. Corresponds to the PynixdSettings
       pydantic model (see pynixd.config).
 
-      Common keys include stores (list of StoreSpec), ranking weights,
-      GC intervals, etc. When stores include SSH stores, their client
-      keys are auto-discovered from HOME/.ssh/ if client_keys is omitted.
+      Common keys include stores (dict of StoreSpec keyed by store ID),
+      ranking weights, GC intervals, etc. When stores include SSH stores,
+      their client keys are auto-discovered from HOME/.ssh/ if client_keys
+      is omitted.
     '';
     type = jsonFormat.type;
     default = { };
     example = lib.literalExpression ''
       {
-        stores = [
-          {
+        stores = {
+          builder1 = {
             type = "ssh-subprocess";
             host = "builder.example.com";
             port = 22;
             username = "nix";
             systems = [ "x86_64-linux" ];
-          }
-        ];
+          };
+        };
       }
     '';
   };

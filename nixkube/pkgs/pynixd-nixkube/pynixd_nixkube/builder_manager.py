@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any, cast
 import kr8s.asyncio as k8s
 import structlog
 from kr8s.asyncio.objects import Job, PodTemplate
+from pynixd.config import SSHSubprocessStoreSpec
 from pynixd.store import SSHSubprocessStore
+from pynixd.types.ids import StoreId
 
 if TYPE_CHECKING:
     from pynixd.instance import Server
@@ -371,14 +373,16 @@ class BuilderManager:
         self, store_id: str, pod_ip: str, job_name: str = "", probe: bool = False
     ) -> None:
         store = SSHSubprocessStore(
-            host=pod_ip,
-            store_id=store_id,
-            port=22,
-            username="nix",
-            client_keys=["/etc/ssh-key/id_ed25519"],
-            nix_bin="/nix/var/result/bin/nix",
-            monitor=False,
-            no_schedule=probe,
+            SSHSubprocessStoreSpec(
+                store_id=StoreId(store_id),
+                host=pod_ip,
+                port=22,
+                username="nix",
+                client_keys=["/etc/ssh-key/id_ed25519"],
+                nix_bin="/nix/var/result/bin/nix",
+                monitor=False,
+                no_schedule=probe,
+            )
         )
         try:
             await self.server.add_store(store, dynamic=True)

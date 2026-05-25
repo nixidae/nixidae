@@ -4,9 +4,10 @@ import asyncio
 from pathlib import Path
 
 import structlog
-from pynixd.config import PynixdSettings
+from pynixd.config import LocalSocketStoreSpec, PynixdSettings
 from pynixd.instance import Server
 from pynixd.store import LocalSocketStore
+from pynixd.types.ids import StoreId
 
 from .setup import configure_logging, install_nss
 
@@ -19,15 +20,18 @@ async def _main() -> None:
     install_nss()
 
     local_store = LocalSocketStore(
-        store_id="local",
-        store_path=Path("/"),
-        use_db=False,
-        monitor=False,
+        LocalSocketStoreSpec(
+            store_id=StoreId("local"),
+            store_path=Path("/"),
+            use_db=False,
+            monitor=False,
+            extra_args=["--option", "build-dir", "/nix/var/nix/builds"],
+        )
     )
 
     settings = PynixdSettings()
 
-    server = Server(local_store=local_store, settings=settings)
+    server = Server(stores={StoreId("local"): local_store}, settings=settings)
 
     async with server:
         log.info("pynixd_nixkube_builder_running")
