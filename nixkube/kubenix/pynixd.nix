@@ -28,6 +28,33 @@ let
   # Only enabled systems
   enabledSystems = lib.filterAttrs (_: v: v) cfg.systems;
 
+  pynixdSettings = lib.mkOption {
+    description = ''
+      Pynixd configuration as a JSON object. Merged into the PYNIXD_CONFIG
+      config file mounted in the pynixd pod. Corresponds to the PynixdSettings
+      pydantic model (see pynixd.config).
+
+      Common keys include stores (list of StoreSpec), ranking weights,
+      GC intervals, etc. When stores include SSH stores, their client
+      keys are auto-discovered from HOME/.ssh/ if client_keys is omitted.
+    '';
+    type = jsonFormat.type;
+    default = { };
+    example = lib.literalExpression ''
+      {
+        stores = [
+          {
+            type = "ssh-subprocess";
+            host = "builder.example.com";
+            port = 22;
+            username = "nix";
+            systems = [ "x86_64-linux" ];
+          }
+        ];
+      }
+    '';
+  };
+
   jsonFormat = curPkgs.formats.json { };
 in
 {
@@ -37,7 +64,10 @@ in
       // {
         default = true;
       };
+    settings = pynixdSettings;
+
     controller = {
+      settings = pynixdSettings;
       nixConfig = lib.mkOption {
         description = "nix.conf for pynixd pod";
         type = (import ./nixOptions.nix) {
@@ -72,22 +102,8 @@ in
       type = lib.types.nullOr lib.types.int;
       default = 2222;
     };
-    builderMax = lib.mkOption {
-      description = "Maximum number of ephemeral builder Jobs that pynixd can create.";
-      type = lib.types.ints.positive;
-      default = 3;
-    };
-    builderMin = lib.mkOption {
-      description = "Minimum number of builder Jobs to keep alive even when idle.";
-      type = lib.types.ints.unsigned;
-      default = 1;
-    };
-    builderIdleTimeout = lib.mkOption {
-      description = "Seconds of inactivity before an ephemeral builder pod shuts down.";
-      type = lib.types.ints.positive;
-      default = 300;
-    };
     builder = {
+      settings = pynixdSettings;
       nixConfig = lib.mkOption {
         description = "nix.conf for builder pods";
         type = (import ./nixOptions.nix) {
@@ -95,32 +111,6 @@ in
           nix = config.nixkube.nix.package;
         };
       };
-    };
-    settings = lib.mkOption {
-      description = ''
-        Pynixd configuration as a JSON object. Merged into the PYNIXD_CONFIG
-        config file mounted in the pynixd pod. Corresponds to the PynixdSettings
-        pydantic model (see pynixd.config).
-
-        Common keys include stores (list of StoreSpec), ranking weights,
-        GC intervals, etc. When stores include SSH stores, their client
-        keys are auto-discovered from HOME/.ssh/ if client_keys is omitted.
-      '';
-      type = jsonFormat.type;
-      default = { };
-      example = lib.literalExpression ''
-        {
-          stores = [
-            {
-              type = "ssh-subprocess";
-              host = "builder.example.com";
-              port = 22;
-              username = "nix";
-              systems = [ "x86_64-linux" ];
-            }
-          ];
-        }
-      '';
     };
     extraVolumes = lib.mkOption {
       description = ''
@@ -152,9 +142,26 @@ in
     };
   };
   config = lib.mkIf (cfg.enable && cfg.pynixd.enable) {
+    # shared settings -> controller settings
+    nixkube.pynixd.controller.settings = lib.mkMerge [
+      (lib.mapAttrsRecursive (n: v: lib.mkDefault v) {
+        builder-max = 3;
+        builder-min = 1;
+        idle-timeout = 300;
+      })
+      (lib.mapAttrsRecursive (n: v: lib.mkDefault v) config.nixkube.pynixd.settings)
+    ];
+    # shared settings -> builder settings
+    nixkube.pynixd.builder.settings = lib.mkMerge [
+      (lib.mapAttrsRecursive (n: v: lib.mkDefault v) {
+        # builder-specific JSON defaults go here (e.g., schedule-mode)
+      })
+      (lib.mapAttrsRecursive (n: v: lib.mkDefault v) config.nixkube.pynixd.settings)
+    ];
+
     nixkube.pynixd.builder.nixConfig.settings = {
-      max-jobs = 5;
-      warn-dirty = false;
+      max-jobs = lib.mkDefault 5;
+      warn-dirty = lib.mkDefault false;
     };
 
     kubernetes.resources.${cfg.namespace} = {
@@ -223,9 +230,9 @@ in
                     PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
                     HOME.value = "/nix/var/nix-csi/root";
                     PYNIXD_KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
-                    PYNIXD_BUILDER_MAX.value = toString cfg.pynixd.builderMax;
-                    PYNIXD_BUILDER_MIN.value = toString cfg.pynixd.builderMin;
-                    PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
+                    PYNIXD_BUILDER_MAX.value = "3";
+                    PYNIXD_BUILDER_MIN.value = "1";
+                    PYNIXD_IDLE_TIMEOUT.value = "300";
                     PYNIXD_SCHEDULE_MODE.value = "scheduler";
                     PYNIXD_SYSTEMS.value = lib.concatStringsSep "," (builtins.attrNames enabledSystems);
                     PYNIXD_CONFIG.value = "/nix/etc/pynixd-config/config.json";
@@ -375,7 +382,7 @@ in
                   PYNIXD_SSH_HOST.value = "";
                   PYNIXD_SSH_PORT.value = "22";
                   PYNIXD_HTTP_PORT.value = "8080";
-                  PYNIXD_IDLE_TIMEOUT.value = toString cfg.pynixd.builderIdleTimeout;
+                  PYNIXD_IDLE_TIMEOUT.value = "300";
                   HOME.value = "/nix/var/nix-csi/root";
                 };
                 ports = lib.mkNamedList {
