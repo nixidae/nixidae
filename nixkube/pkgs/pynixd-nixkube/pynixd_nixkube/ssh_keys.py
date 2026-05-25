@@ -35,6 +35,8 @@ def apply_authorized_keys(server: Server) -> None:
     each time and applies changes to all future connections.
     """
     paths = _collect_key_paths()
+    if server.ssh_server is None:
+        return
     if paths:
         server.ssh_server.update(authorized_client_keys=paths)
     server.ssh_server.update(server_host_keys=[_HOST_KEY])

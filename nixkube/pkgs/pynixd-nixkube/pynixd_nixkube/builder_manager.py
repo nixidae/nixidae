@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import kr8s.asyncio as k8s
 import structlog
@@ -21,6 +21,7 @@ BUILDER_LABEL_VALUE = "builder"
 BUILDER_PODTEMPLATE_NAME = "nixkube-builder"
 SYSTEM_LABEL = "nixkube/system"
 PROBED_LABEL = "nixkube/probed"
+PROBE_LABEL = "nixkube/probe"
 FEATURES_ANNOTATION = "nixkube/features"
 
 KUBE_ARCH_TO_NIX_SYSTEM = {
@@ -33,6 +34,21 @@ _DEFAULT_FEATURES = {"nixos-test", "big-parallel", "benchmark"}
 
 _COOLDOWN_SECONDS = 60.0
 _RECONNECT_DELAY = 10.0
+
+
+def deep_merge(base: dict, overrides: dict) -> dict:
+    """Deep-merge overrides into base (Nix lib.recursiveUpdate style).
+
+    Non-dict values in overrides replace base values entirely.
+    Lists are replaced, not merged.
+    """
+    result = base.copy()
+    for key, value in overrides.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 class BuilderManager:
@@ -63,7 +79,8 @@ class BuilderManager:
 
     async def start(self) -> None:
         await self._reap_orphaned_builder_pods()
-        await self._reconcile_systems()
+        self._available_systems = set(self.systems)
+        await self._sync_dynamic_features()
         self._task = asyncio.create_task(self._run())
         log.info(
             "builder_manager_started",
@@ -100,18 +117,19 @@ class BuilderManager:
                     "nodes",
                     label_selector=f"!{PROBED_LABEL}",
                 ):
-                    event_type = event[0] if isinstance(event, tuple) else event.get("type", "")
+                    event_type, resource = cast(Any, event)
                     if event_type not in {"ADDED", "MODIFIED"}:
                         continue
-                    resource = event[1] if isinstance(event, tuple) else event.get("object", {})
-                    labels = resource.get("metadata", {}).get("labels", {}) or {}
-                    node_name = resource.get("metadata", {}).get("name")
+                    labels = getattr(resource.metadata, "labels", {}) or {}
+                    node_name = getattr(resource.metadata, "name", "")
                     if not node_name or node_name in self._pending_probes:
                         continue
                     kube_arch = labels.get("kubernetes.io/arch", "")
                     nix_system = KUBE_ARCH_TO_NIX_SYSTEM.get(kube_arch)
                     if not nix_system or nix_system not in set(self.systems):
-                        log.warning("probe_node_unsupported", node=node_name, arch=kube_arch)
+                        log.warning(
+                            "probe_node_unsupported", node=node_name, arch=kube_arch
+                        )
                         continue
                     self._pending_probes.add(node_name)
                     asyncio.create_task(self._probe_node(node_name, nix_system))
@@ -126,13 +144,29 @@ class BuilderManager:
         log.info("probe_node_started", node=node_name, system=system)
         job_name = None
         try:
-            job_name = await self._create_builder_job(system=system, node_name=node_name)
+            overrides = {
+                "metadata": {
+                    "labels": {
+                        PROBE_LABEL: "true",
+                    },
+                },
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "nodeName": node_name,
+                        },
+                    },
+                },
+            }
+            job_name = await self._create_builder_job(
+                system=system, overrides=overrides
+            )
             if not job_name:
                 return
 
             store_id = f"builder-{job_name}"
             for _ in range(30):
-                store = self.server.stores.get(store_id)
+                store = self.server.stores.get(store_id)  # type: ignore[arg-type]
                 if store is not None:
                     break
                 await asyncio.sleep(1)
@@ -163,6 +197,7 @@ class BuilderManager:
         try:
             api = await k8s.api()
             async for node in api.get("nodes", node_name):
+                node = cast(Any, node)
                 await node.patch(
                     {
                         "metadata": {
@@ -192,16 +227,9 @@ class BuilderManager:
         scheduler = self.server.scheduler
         if scheduler is None:
             return
-        current = set(scheduler.dynamic_feature_matrix)
-        added = self._available_systems - current
-        removed = current - self._available_systems
-        for system in removed:
-            scheduler._dynamic_feature_matrix.pop(system, None)
-            log.info("dynamic_feature_removed", system=system)
-        if added:
-            features = await self._read_node_features(added)
-            scheduler.add_dynamic_features(features)
-            log.info("dynamic_features_added", systems=sorted(added))
+        features = await self._read_node_features(self._available_systems)
+        scheduler.add_dynamic_features(features)
+        log.info("dynamic_features_synced", systems=sorted(features))
 
     async def _read_node_features(self, systems: set[str]) -> dict[str, set[str]]:
         """Read feature matrix from nixkube/features annotation."""
@@ -209,6 +237,7 @@ class BuilderManager:
         try:
             api = await k8s.api()
             async for node in api.get("nodes"):
+                node = cast(Any, node)
                 labels = getattr(node.metadata, "labels", {}) or {}
                 if labels.get(PROBED_LABEL) != "true":
                     continue
@@ -235,6 +264,7 @@ class BuilderManager:
         try:
             api = await k8s.api()
             async for node in api.get("nodes"):
+                node = cast(Any, node)
                 labels = getattr(node.metadata, "labels", {}) or {}
                 if labels.get(PROBED_LABEL) == "true":
                     any_probed = True
@@ -274,6 +304,7 @@ class BuilderManager:
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
+                    job = cast(Any, job)
                     seen.add(job.metadata.name)
                     await self._reconcile_job(job)
 
@@ -291,11 +322,7 @@ class BuilderManager:
                     namespace=self.namespace,
                     label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
                 ):
-                    if isinstance(event, tuple):
-                        event_type, job = event
-                    else:
-                        event_type = event.get("type")
-                        job = event.get("object")
+                    event_type, job = cast(Any, event)
                     if job is None:
                         continue
 
@@ -314,8 +341,7 @@ class BuilderManager:
 
             await asyncio.sleep(_RECONNECT_DELAY)
 
-    async def _reconcile_job(self, job: object) -> None:
-        raw = getattr(job, "raw", {})
+    async def _reconcile_job(self, job: Any) -> None:
         job_name = job.metadata.name
         store_id = f"builder-{job_name}"
 
@@ -325,21 +351,24 @@ class BuilderManager:
             await self._delete_job(job)
             return
 
-        status = raw.get("status", {})
+        status = job.raw.get("status", {})
         if status.get("succeeded") or status.get("failed"):
             if store_id in self._registered:
                 await self._unregister_builder(store_id)
             return
 
+        labels = getattr(job.metadata, "labels", {}) or {}
+        is_probe = labels.get(PROBE_LABEL) == "true"
+
         if store_id not in self._registered:
             pod_ip = await self._get_job_pod_ip(job)
             if pod_ip:
-                await self._register_builder(store_id, pod_ip, job_name)
+                await self._register_builder(store_id, pod_ip, job_name, probe=is_probe)
         else:
             self._job_names[store_id] = job_name
 
     async def _register_builder(
-        self, store_id: str, pod_ip: str, job_name: str = ""
+        self, store_id: str, pod_ip: str, job_name: str = "", probe: bool = False
     ) -> None:
         store = SSHSubprocessStore(
             host=pod_ip,
@@ -349,6 +378,7 @@ class BuilderManager:
             client_keys=["/etc/ssh-key/id_ed25519"],
             nix_bin="/nix/var/result/bin/nix",
             monitor=False,
+            no_schedule=probe,
         )
         try:
             await self.server.add_store(store, dynamic=True)
@@ -362,7 +392,7 @@ class BuilderManager:
 
     async def _unregister_builder(self, store_id: str) -> None:
         try:
-            await self.server.remove_store(store_id)
+            await self.server.remove_store(store_id)  # type: ignore[arg-type]
             self._registered.pop(store_id, None)
             self._idle_since.pop(store_id, None)
             self._job_names.pop(store_id, None)
@@ -370,7 +400,7 @@ class BuilderManager:
         except Exception:
             log.exception("builder_unregister_failed", store_id=store_id)
 
-    async def _is_stale_builder(self, job: object) -> bool:
+    async def _is_stale_builder(self, job: Any) -> bool:
         expected = await self._get_expected_store_versions()
         if not expected:
             return False
@@ -378,7 +408,7 @@ class BuilderManager:
         return not job_versions <= expected
 
     @staticmethod
-    def _get_job_store_versions(job: object) -> set[str]:
+    def _get_job_store_versions(job: Any) -> set[str]:
         for vol in (
             getattr(job, "raw", {})
             .get("spec", {})
@@ -414,7 +444,7 @@ class BuilderManager:
                 return found
         return set()
 
-    async def _get_job_pod_ip(self, job: object) -> str | None:
+    async def _get_job_pod_ip(self, job: Any) -> str | None:
         try:
             api = await k8s.api()
             async for pod in api.get(
@@ -422,6 +452,7 @@ class BuilderManager:
                 namespace=self.namespace,
                 label_selector={"job-name": job.metadata.name},
             ):
+                pod = cast(Any, pod)
                 pod_ip = pod.raw.get("status", {}).get("podIP")
                 if pod_ip:
                     return pod_ip
@@ -440,9 +471,12 @@ class BuilderManager:
                 namespace=self.namespace,
                 label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
             ):
-                status = getattr(job, "raw", {}).get("status", {})
+                job = cast(Any, job)
+                status = job.raw.get("status", {})
                 if not status.get("succeeded") and not status.get("failed"):
                     labels = getattr(job.metadata, "labels", {}) or {}
+                    if labels.get(PROBE_LABEL) == "true":
+                        continue
                     sys_label = labels.get(SYSTEM_LABEL, "unknown")
                     active_by_system[sys_label] = active_by_system.get(sys_label, 0) + 1
         except Exception:
@@ -485,6 +519,9 @@ class BuilderManager:
             ):
                 status = getattr(job, "raw", {}).get("status", {})
                 if not status.get("succeeded") and not status.get("failed"):
+                    labels = getattr(job, "metadata", {}).get("labels", {}) or {}
+                    if labels.get(PROBE_LABEL) == "true":
+                        continue
                     active += 1
         except Exception:
             log.exception("builder_job_count_error")
@@ -515,7 +552,7 @@ class BuilderManager:
 
                 now = time.monotonic()
                 for store_id, pod_ip in list(self._registered.items()):
-                    store = self.server.stores.get(store_id)
+                    store = self.server.stores.get(store_id)  # type: ignore[arg-type]
                     if store is None:
                         continue
 
@@ -542,7 +579,7 @@ class BuilderManager:
 
             await asyncio.sleep(60)
 
-    async def _delete_job(self, job: object) -> None:
+    async def _delete_job(self, job: Any) -> None:
         try:
             await job.delete(propagation_policy="Background")
             log.info("builder_job_deleted", job=job.metadata.name)
@@ -568,6 +605,7 @@ class BuilderManager:
                 namespace=self.namespace,
                 label_selector={BUILDER_LABEL: BUILDER_LABEL_VALUE},
             ):
+                pod = cast(Any, pod)
                 refs = getattr(pod.metadata, "ownerReferences", None)
                 if not refs:
                     log.info("orphaned_builder_pod_found", pod=pod.metadata.name)
@@ -599,6 +637,7 @@ class BuilderManager:
                         s.store_id.startswith("builder-")
                         and s.is_healthy
                         and not s.draining
+                        and not s.no_schedule
                     ):
                         fm = s.feature_matrix
                         if fm:
@@ -623,7 +662,7 @@ class BuilderManager:
     # ---- Job creation ----
 
     async def _create_builder_job(
-        self, system: str, node_name: str | None = None
+        self, system: str, overrides: dict | None = None
     ) -> str | None:
         try:
             template = await PodTemplate.get(
@@ -633,24 +672,21 @@ class BuilderManager:
             log.error("builder_podtemplate_not_found", name=BUILDER_PODTEMPLATE_NAME)
             return None
 
-        pod_spec = template.raw.get("template", {})
+        pod_spec = dict(template.raw.get("template", {}))
 
         kube_arch = NIX_SYSTEM_TO_KUBE_ARCH.get(system)
         if kube_arch:
             spec = pod_spec.setdefault("spec", {})
             node_selector = spec.setdefault("nodeSelector", {})
             node_selector["kubernetes.io/arch"] = kube_arch
-        if node_name:
-            pod_spec.setdefault("spec", {})["nodeName"] = node_name
 
         job_id = str(uuid.uuid4())[:8]
-        job_name = f"nixkube-builder-{job_id}"
 
         job_resource = {
             "apiVersion": "batch/v1",
             "kind": "Job",
             "metadata": {
-                "name": job_name,
+                "name": f"nixkube-builder-{job_id}",
                 "namespace": self.namespace,
                 "labels": {
                     BUILDER_LABEL: BUILDER_LABEL_VALUE,
@@ -664,6 +700,11 @@ class BuilderManager:
             },
         }
 
+        if overrides:
+            job_resource = deep_merge(job_resource, overrides)
+
+        job_name = job_resource["metadata"]["name"]
+
         try:
             job = await Job(job_resource)
             await job.create()
@@ -671,7 +712,9 @@ class BuilderManager:
                 "builder_job_created",
                 job=job_name,
                 system=system,
-                node_name=node_name,
+                node_name=job_resource["spec"]["template"]
+                .get("spec", {})
+                .get("nodeName"),
             )
             return job_name
         except Exception:
