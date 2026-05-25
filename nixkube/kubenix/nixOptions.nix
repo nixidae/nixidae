@@ -69,7 +69,7 @@ types.submodule (
       };
     };
     config = {
-      settings = {
+      settings = lib.mapAttrsRecursive (n: v: lib.mkDefault v) {
         trusted-public-keys = [
           "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
         ];

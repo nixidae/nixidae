@@ -187,34 +187,7 @@ in
             spec = {
               serviceAccountName = "nixkube";
               priorityClassName = "system-cluster-critical";
-              initContainers = lib.mkNumberedList {
-                "1" = {
-                  name = "initcopy";
-                  inherit image;
-                  command = [ "initCopy" ];
-                  imagePullPolicy = "Always";
-                  securityContext.capabilities.add = [ "SYS_CHROOT" ]; # chroot store
-                  volumeMounts = lib.mkNamedList {
-                    init-store = {
-                      mountPath = "/nix";
-                      subPath = "nix";
-                      readOnly = true;
-                    };
-                    nix-store.mountPath = "/nix-volume";
-                    nix-config.mountPath = "/etc/nix";
 
-                    ssh-config.mountPath = "/etc/ssh";
-                    ssh-dynauth.mountPath = "/etc/ssh-dynauth";
-                    ssh-key.mountPath = "/etc/ssh-key";
-                  };
-                  resources = {
-                    requests = {
-                      memory = "64Mi";
-                      cpu = "100m";
-                    };
-                  };
-                };
-              };
               containers = lib.mkNamedList {
                 pynixd = {
                   command = [
@@ -228,15 +201,15 @@ in
                     PYNIXD_SSH_HOST.value = "";
                     PYNIXD_SSH_PORT.value = "22";
                     PYNIXD_HTTP_PORT.value = "8080";
-                    PYNIXD_SSH_HOST_KEY.value = "/nix/var/pynixd/host_key";
-                    HOME.value = "/nix/var/nix-csi/root";
+                    PYNIXD_SSH_HOST_KEY.value = "/data/var/pynixd/host_key";
+                    HOME.value = "/data/var/nix-csi/root";
                     PYNIXD_KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                     PYNIXD_BUILDER_MAX.value = "3";
                     PYNIXD_BUILDER_MIN.value = "1";
                     PYNIXD_IDLE_TIMEOUT.value = "300";
                     PYNIXD_SCHEDULE_MODE.value = "scheduler";
                     PYNIXD_SYSTEMS.value = lib.concatStringsSep "," (builtins.attrNames enabledSystems);
-                    PYNIXD_CONFIG.value = "/nix/etc/pynixd-config/config.json";
+                    PYNIXD_CONFIG.value = "/etc/pynixd-config/config.json";
                   };
                   ports = lib.mkNamedList {
                     ssh.containerPort = 22;
@@ -247,15 +220,17 @@ in
                     {
                       nix-config.mountPath = "/etc/nix";
                       nix-key.mountPath = "/etc/nix-key";
-                      nix-store = {
+                      nix-store.mountPath = "/data";
+                      init-store = {
                         mountPath = "/nix";
                         subPath = "nix";
+                        readOnly = true;
                       };
 
                       ssh-config.mountPath = "/etc/ssh";
                       ssh-dynauth.mountPath = "/etc/ssh-dynauth";
                       ssh-key.mountPath = "/etc/ssh-key";
-                      pynixd-config.mountPath = "/nix/etc/pynixd-config";
+                      pynixd-config.mountPath = "/etc/pynixd-config";
                     }
                     // cfg.pynixd.extraVolumeMounts
                   );

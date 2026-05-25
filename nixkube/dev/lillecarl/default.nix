@@ -3,6 +3,8 @@ rec {
   inherit (default) pkgs;
   inherit (pkgs) lib;
 
+  hostname = "pynixd.lillecarl.com";
+
   easykube = default.easykubenix {
     inherit (default) pkgs;
     modules = [
@@ -12,7 +14,7 @@ rec {
         {
           config = {
             kubernetes.objects.nixkube.Service.pynixd-lb.metadata.annotations = {
-              "external-dns.alpha.kubernetes.io/hostname" = "pynixd.lillecarl.com";
+              "external-dns.alpha.kubernetes.io/hostname" = hostname;
               "external-dns.alpha.kubernetes.io/ttl" = "60";
             };
             kubernetes.objects.nixkube.StatefulSet.pynixd.spec.template.metadata.labels."cilium.io/ingress" =
@@ -36,7 +38,7 @@ rec {
                   nix copy \
                     --substitute-on-destination \
                     --no-check-sigs \
-                    --to ssh-ng://nix@pynixd.lillecarl.com:2222 \
+                    --to ssh-ng://nix@${hostname}:2222 \
                     ${config.kluctl.projectDir} || true
                 '';
             };
@@ -50,6 +52,11 @@ rec {
                 "aarch64-linux" = false;
               };
               cache.storageClassName = "hcloud-volumes";
+              pynixd = {
+                settings = {
+                  admin_users = [ "nix" ];
+                };
+              };
               pynixd.controller.nixConfig.settings.max-jobs = lib.mkForce 0;
               pynixd.authorizedKeys = [
                 (builtins.readFile /home/lillecarl/.ssh/id_ed25519.pub)
@@ -153,7 +160,7 @@ rec {
         ns = config.nixkube.namespace;
         file = (builtins.unsafeGetAttrPos "x" { x = "y"; }).file;
         common = "--file ${file} --no-link --print-out-paths --max-jobs 0 --print-build-logs";
-        storeUri = "ssh-ng://nix@pynixd.lillecarl.com:2222";
+        storeUri = "ssh-ng://nix@${hostname}:2222";
         builderUri = ''"${storeUri} x86_64-linux - 10 1 ca-derivations,dynamic-derivations,recursive-nix - -"'';
         targets = [
           "normalDerivation"
@@ -165,15 +172,15 @@ rec {
           "dynamicFromFixed"
         ];
         testBuild = target: ''
-          nix build ${common} --builders ${builderUri} ${target}
-          nix build ${common} --store ${storeUri} --eval-store auto ${target}
+          timeout 60 nix build ${common} --builders ${builderUri} ${target}
+          timeout 60 nix build ${common} --store ${storeUri} --eval-store auto ${target}
         '';
         allTests = lib.concatStringsSep "\n" (map testBuild targets);
       in
       ''
         set -x
         ${lib.getExe easykube.deploymentScript} --yes
-        kubectl --namespace ${ns} rollout status --watch --timeout=180s statefulset/pynixd daemonset/nix-node
+        kubectl --namespace ${ns} rollout status --watch --timeout=60s statefulset/pynixd daemonset/nix-node
 
         ${allTests}
       '';

@@ -43,6 +43,23 @@ def install_nss() -> None:
         sh_dst.symlink_to("/nix/var/result/bin/bash")
         log.info("installed_bin_sh", target="/nix/var/result/bin/bash")
 
-    host_key_dir = Path("/nix/var/pynixd")
+    env_dst = Path("/usr/bin/env")
+    if not env_dst.exists():
+        env_dst.parent.mkdir(parents=True, exist_ok=True)
+        env_dst.symlink_to("/nix/var/result/bin/env")
+        log.info("installed_usr_bin_env", target="/nix/var/result/bin/env")
+
+    for path, mode in (
+        ("/tmp", 0o1777),
+        ("/var/tmp", 0o1777),
+        ("/var/log", 0o755),
+        ("/data/var/nix-csi", 0o755),
+    ):
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        p.chmod(mode)
+        log.info("ensured_directory", path=path, mode=oct(mode))
+
+    host_key_dir = Path("/data/var/pynixd")
     host_key_dir.mkdir(parents=True, exist_ok=True)
     log.info("ensured_host_key_dir", path=str(host_key_dir))
