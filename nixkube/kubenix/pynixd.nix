@@ -288,8 +288,8 @@ in
                     secretName = "ssh-key";
                     defaultMode = 256; # 400
                   };
-                  pynixd-config = {
-                    configMap.name = "pynixd-config";
+                  pynixd-config.configMap = {
+                    name = "pynixd-config";
                     defaultMode = 292; # 444
                   };
                 }
@@ -346,7 +346,13 @@ in
       ConfigMap.pynixd-config = {
         metadata.labels = pynixdLabels;
         data = {
-          "config.json" = builtins.toJSON cfg.pynixd.settings;
+          "config.json" = builtins.toJSON cfg.pynixd.controller.settings;
+        };
+      };
+      ConfigMap.builder-config = {
+        metadata.labels = builderLabels;
+        data = {
+          "config.json" = builtins.toJSON cfg.pynixd.builder.settings;
         };
       };
 
@@ -384,6 +390,7 @@ in
                   PYNIXD_HTTP_PORT.value = "8080";
                   PYNIXD_IDLE_TIMEOUT.value = "300";
                   HOME.value = "/nix/var/nix-csi/root";
+                  PYNIXD_CONFIG.value = "/nix/etc/builder-config/config.json";
                 };
                 ports = lib.mkNamedList {
                   ssh.containerPort = 22;
@@ -396,6 +403,7 @@ in
                     mountPath = "/nix";
                     subPath = "nix";
                   };
+                  builder-config.mountPath = "/nix/etc/builder-config";
                 };
                 resources = {
                   requests = {
@@ -412,6 +420,7 @@ in
                 readOnly = false;
                 volumeAttributes = storeVolumeAttributes;
               };
+              builder-config.configMap.name = "builder-config";
             };
           };
         };

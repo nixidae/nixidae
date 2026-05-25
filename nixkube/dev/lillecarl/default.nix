@@ -1,12 +1,12 @@
 rec {
-  default = import ../. { };
+  default = import ../../. { };
   inherit (default) pkgs;
   inherit (pkgs) lib;
 
   easykube = default.easykubenix {
     inherit (default) pkgs;
     modules = [
-      ../kubenix
+      ../../kubenix
       (
         { config, lib, ... }:
         {
