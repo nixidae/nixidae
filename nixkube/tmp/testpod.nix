@@ -4,7 +4,12 @@ let
   system = builtins.currentSystem;
   inputs = (import ../. { }).inputs;
 
-  pkgs = import inputs.nixpkgs { inherit system; };
+  pkgs = import inputs.nixpkgs {
+    inherit system;
+    config = {
+      allowUnfree = true;
+    };
+  };
 
   # You can use flakes, npins, niv, fetchTree, fetchFromGitHub or whatever.
   ekn = import inputs.easykubenix {

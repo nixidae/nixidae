@@ -116,7 +116,7 @@ The integration test (runs in CI via `.github/workflows/integration-test.yaml`):
 - Confirms cache and node pods are operational
 
 **Build job** (runs once, pushes to cachix and container registry):
-1. Builds and pushes Lix image
+1. Builds and pushes Nix image
 2. Builds and pushes cache/node environments
 3. Builds and pushes scratch image
 
@@ -202,7 +202,7 @@ The `config-reconciler` service runs continuously to sync SSH keys and Nix confi
 - `kubenix/builder.nix`: Optional builder pods for distributed builds
 - `pkgs/nixkube/src/csi/server.py`: CSI driver gRPC server
 - `pkgs/nixkube/src/nri/server.py`: NRI plugin ttrpc handler
-- `liximage.nix`: Builds the Lix container used by initContainers
+- `niximage.nix`: Builds the Nix container used by initContainers
 
 ## Code Review Standards
 

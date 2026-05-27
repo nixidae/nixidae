@@ -26,7 +26,7 @@
 - Remove ConfigMap.push — transformer preserves context when push=true @claude
 - Limit kubenixPush to currentSystem to avoid cross-compilation @claude
 - Single DaemonSet with JSON NODE_ENV, split CI per-arch builds @claude
-- Per-system DaemonSets with direct store paths and versioned lix image tag
+- Per-system DaemonSets with direct store paths and versioned nix image tag
 
 ## Outstanding Ideas (Deferred)
 - **GitHub Actions Generation with Nix** (user wants to revisit when not tired)
@@ -45,3 +45,4 @@
 - `jj log -r "v0.4.3..@"` — commits since specific tag
 - `jj log -r "main::@"` — all commits in ancestry path
 - `jj diff --git --from main --to @` — full diff comparison
+

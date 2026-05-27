@@ -37,6 +37,14 @@ in
       };
       root.level = "INFO";
     };
+    # Shared substituters for all CI variants (Kind and NixOS test VM).
+    # NixOS test VM has nix-serve at 10.113.37.1:5000 (PTP CNI gateway).
+    # Nix handles dead/unreachable substituters gracefully so this is safe on Kind.
+    nixkube.node.nixConfig.settings.substituters = [
+      "https://nix-csi.cachix.org"
+      "https://cache.nixos.org"
+      "http://10.113.37.1:5000?trusted=1"
+    ];
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.inputs = {
         metadata.labels = cfg.labels;
@@ -94,7 +102,7 @@ in
                           repo = "nixpkgs";
                           ref = "nixos-unstable";
                         };
-                        pkgs = import nixpkgs { };
+                        pkgs = import nixpkgs { config = { allowUnfree = true; }; };
                       in
                       pkgs.hello-unfree # test that building works
                     '';

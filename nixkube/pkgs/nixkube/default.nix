@@ -11,10 +11,10 @@
   nri-proto-python, # NRI ttRPC bindings
   grpclib-nri, # NRI protocol utilities
   googleapis-common-protos, # Google Errors
-  gitMinimal, # Lix requires Git since it doesn't use libgit2
+  gitMinimal,
   kr8s, # Kubernetes API
   shellous, # subprocessing
-  lruLix, # We need a Nix implementation.... :)
+  nix,
   nix_init_db, # Import from one nix DB to another
   openssh, # Copying to cache
   lib,
@@ -47,7 +47,7 @@ buildPythonApplication {
     gitMinimal
     kr8s
     shellous
-    lruLix
+    nix
     nix_init_db
     openssh
     util-linuxMinimal

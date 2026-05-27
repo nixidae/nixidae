@@ -8,8 +8,18 @@ let
     "x86_64-linux" = "aarch64-linux";
     "aarch64-linux" = "x86_64-linux";
   };
-  pkgs = import inputs.nixpkgs { inherit system; };
-  pkgsCross = import pkgs.path { system = sysMap.${system}; };
+  pkgs = import inputs.nixpkgs {
+    inherit system;
+    config = {
+      allowUnfree = true;
+    };
+  };
+  pkgsCross = import pkgs.path {
+    system = sysMap.${system};
+    config = {
+      allowUnfree = true;
+    };
+  };
 
   package =
     pkgs:
@@ -20,7 +30,7 @@ let
         pkgs.fishMinimal
         pkgs.coreutils
         pkgs.moreutils
-        pkgs.lix
+        pkgs.nix
       ];
     };
 

@@ -6,7 +6,12 @@
   outputs = inputs: {
     packages.x86_64-linux.manifest =
       (inputs.easykubenix.lib.easykubenix {
-        pkgs = import inputs.nixpkgs { system = "x86_64-linux"; };
+        pkgs = import inputs.nixpkgs {
+          system = "x86_64-linux";
+          config = {
+            allowUnfree = true;
+          };
+        };
         modules = [
           (
             { pkgs, lib, ... }:

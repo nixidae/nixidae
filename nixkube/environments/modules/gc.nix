@@ -23,7 +23,7 @@
       command = pkgs.writeShellApplication {
         name = "gc";
         runtimeInputs = [
-          pkgs.lruLix
+          pkgs.nix
           pkgs.jq
         ];
         text =

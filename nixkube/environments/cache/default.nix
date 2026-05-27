@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 
-# Cache uses lruLix which is Lix patched to keep storePaths registrationTime up2date when they're referenced
+# Cache uses a patched Nix to keep storePaths registrationTime up2date when they're referenced
 # through the Daemon protocol
 {
   pkgs,

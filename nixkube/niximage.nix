@@ -29,7 +29,7 @@ rec {
       runtimeInputs = [
         sysPkgs.coreutils
         sysPkgs.gitMinimal
-        sysPkgs.lruLix
+        sysPkgs.nix
         sysPkgs.rsync
         sysPkgs.openssh
         sysPkgs.kubectl
@@ -85,8 +85,8 @@ rec {
 
     in
     pkgs.dockerTools.streamLayeredImage {
-      name = "${repo}/lix";
-      tag = "${sysPkgs.lruLix.version}-${nixkubeVersion}-${sysPkgs.stdenv.hostPlatform.system}";
+      name = "${repo}/nix";
+      tag = "${sysPkgs.nix.version}-${nixkubeVersion}-${sysPkgs.stdenv.hostPlatform.system}";
       architecture = sysPkgs.go.GOARCH;
 
       maxLayers = 125;
@@ -116,7 +116,7 @@ rec {
   pushArch = lib.mapAttrs (
     system: image:
     pkgs.writeShellApplication {
-      name = "push-lix-${system}";
+      name = "push-nix-${system}";
       runtimeInputs = [
         pkgs.skopeo
         pkgs.gzip
@@ -133,15 +133,15 @@ rec {
 
   # Manifest creation (used by dependent CI job after both arches are pushed)
   pushManifest = pkgs.writeShellApplication {
-    name = "push-lix-manifest";
+    name = "push-nix-manifest";
     runtimeInputs = [ pkgs.regctl ];
     text = # bash
       ''
         regctl registry login -u="$REPO_USERNAME" -p="$REPO_TOKEN" ${server}
-        regctl index create ${repo}/lix:${pkgs.lruLix.version}-${nixkubeVersion} \
+        regctl index create ${repo}/nix:${pkgs.nix.version}-${nixkubeVersion} \
           --ref ${imageRef "aarch64-linux"} \
           --ref ${imageRef "x86_64-linux"}
-        regctl index create ${repo}/lix:latest \
+        regctl index create ${repo}/nix:latest \
           --ref ${imageRef "aarch64-linux"} \
           --ref ${imageRef "x86_64-linux"}
       '';

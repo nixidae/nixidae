@@ -19,7 +19,7 @@
         runtimeInputs = [
           pkgs.rsync
           pkgs.coreutils
-          pkgs.lruLix
+          pkgs.nix
         ];
         text = # bash
           ''

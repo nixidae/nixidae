@@ -31,18 +31,8 @@ self: pkgs: {
   #   python310 = pkgs.python3;
   # };
 
-  stdLix = pkgs.lixPackageSets.lix_2_94.lix;
-  lruLix = pkgs.lixPackageSets.lix_2_94.lix.overrideAttrs (oldAttrs: {
-    src = builtins.fetchTree {
-      type = "github";
-      owner = "lillecarl";
-      repo = "lix";
-      ref = "regtimeabuse2.94";
-    };
-    # src = pkgs.lib.fileset.toSource {
-    #   root = /home/lillecarl/Code/lix;
-    #   fileset = pkgs.lib.fileset.gitTracked /home/lillecarl/Code/lix;
-    # };
+  stdNix = pkgs.nix;
+  nix = pkgs.nix.overrideAttrs (oldAttrs: {
     doCheck = false;
     doInstallCheck = false;
   });
@@ -65,8 +55,22 @@ self: pkgs: {
   # Runs inside chroot(/var/lib/nix-csi), uses pyzmq for communication
   nri-wait = pkgs.python3Packages.callPackage ./nri-wait { };
 
+  ci-debug = pkgs.callPackage ./ci-debug { inherit pkgs; };
+
   pynixd =
-    (import ../../pynixd {
+    let
+      path =
+        if builtins.pathExists ../../pynixd then
+          ../../pynixd
+        else
+          fetchTree {
+            type = "github";
+            owner = "lillecarl";
+            repo = "pynixd";
+            ref = "develop";
+          }; # this must be updated to a "flake" locked input
+    in
+    (import path {
       inherit pkgs;
     }).library;
   pynixd-nixkube = pkgs.python3Packages.callPackage ./pynixd-nixkube {

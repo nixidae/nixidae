@@ -22,9 +22,9 @@ jobs:
           nix_conf: |
             experimental-features = nix-command flakes
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o= nixbuild.net/CHEAKK-1:IvfuR1Ldmkef8pMcSuCl9N2jppEb8KpBzdoB8uKQdxE= nix-csi.cachix.org-1:i4w33gR4efO67jpz8U7g/MdvRQ6mQ3LEF9fB8tES60g=
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixbuild.net/CHEAKK-1:IvfuR1Ldmkef8pMcSuCl9N2jppEb8KpBzdoB8uKQdxE= nix-csi.cachix.org-1:i4w33gR4efO67jpz8U7g/MdvRQ6mQ3LEF9fB8tES60g=
             # builders = ssh-ng://eu.nixbuild.net aarch64-linux ; ssh-ng://eu.nixbuild.net x86_64-linux
-            substituters = https://cache.nixos.org?priority=1 https://nix-csi.cachix.org?priority=2 https://cache.lix.systems?priority=3 ssh-ng://eu.nixbuild.net?priority=4
+            substituters = https://cache.nixos.org?priority=1 https://nix-csi.cachix.org?priority=2 ssh-ng://eu.nixbuild.net?priority=4
             sandbox = relaxed
       - name: Configure SSH Keys
         shell: bash
@@ -44,8 +44,10 @@ jobs:
           echo $! > /tmp/test.pid
           echo "Test running in background (PID: $(cat /tmp/test.pid))"
           sleep 5
-      - name: Setup upterm session (test runs in parallel)
-        uses: owenthereal/action-upterm@v1
-        with:
-          wait-timeout-minutes: 5
-          limit-access-to-actor: true
+      - name: Print test logs
+        run: |
+          cat /tmp/test.log || true
+      - name: Print test results
+        run: |
+          echo "=== Test log output ==="
+          cat /tmp/test.log 2>/dev/null || echo "(no test log)"

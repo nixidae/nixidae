@@ -201,7 +201,7 @@ in
                     PYNIXD_SSH_HOST.value = "";
                     PYNIXD_SSH_PORT.value = "22";
                     PYNIXD_HTTP_PORT.value = "8080";
-                    PYNIXD_SSH_HOST_KEY.value = "/data/var/pynixd/host_key";
+                    PYNIXD_SSH_HOST_KEY.value = "/etc/ssh-key/id_ed25519";
                     HOME.value = "/data/var/nix-csi/root";
                     PYNIXD_KUBE_NAMESPACE.valueFrom.fieldRef.fieldPath = "metadata.namespace";
                     PYNIXD_BUILDER_MAX.value = "3";

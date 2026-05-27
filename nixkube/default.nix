@@ -21,6 +21,9 @@ in
 rec {
   pkgs = import inputs.nixpkgs {
     inherit system;
+    config = {
+      allowUnfree = true;
+    };
     overlays = [ (import ./pkgs) ];
   };
   inherit inputs;
@@ -32,6 +35,12 @@ rec {
   kubenixCI1 = kubenixInstance {
     module.imports = [
       ./kubenix/ci
+      {
+        nixkube.systems = {
+          x86_64-linux = true;
+          aarch64-linux = false;
+        };
+      }
     ];
   };
   # kubenixCI2 is used by tests/nixos/integration.nix for the containerd nixos test.
@@ -39,23 +48,28 @@ rec {
   kubenixCI2 = kubenixInstance {
     module.imports = [
       ./kubenix/ci
-      {
-        nixkube.pynixd.enable = false;
-        # push = true retains Nix string context on DaemonSet store paths so
-        # they become part of the manifest's closure.  The NixOS test VM then
-        # has every path in /nix/store, where nix-serve makes them available
-        # as a substituter for nixkube's separate /var/lib/nix-csi store.
-        nixkube.push = true;
-        nixkube.systems = {
-          x86_64-linux = true;
-          aarch64-linux = false;
-        };
-        # 10.113.37.1 is the PTP CNI gateway — the host-side veth IP reachable
-        # from all pods.  nix-serve runs there during the NixOS test.
-        nixkube.node.nixConfig.settings.substituters = [
-          "http://10.113.37.1:5000?trusted=1"
-        ];
-      }
+      (
+        { config, pkgs, ... }:
+        {
+          kluctl.preDeployScript = # bash
+            ''
+              export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
+              cachix push nix-csi ${config.internal.manifestJSONFile}
+            '';
+          nixkube.pynixd.enable = false;
+          # push = true retains Nix string context on DaemonSet store paths so
+          # they become part of the manifest's closure.  The NixOS test VM then
+          # has every path in /nix/store, where nix-serve makes them available
+          # as a substituter for nixkube's separate /var/lib/nix-csi store.
+          nixkube.push = true;
+          nixkube.systems = {
+            x86_64-linux = true;
+            aarch64-linux = false;
+          };
+          # 10.113.37.1 is the PTP CNI gateway — the host-side veth IP reachable
+          # from all pods.  nix-serve runs there during the NixOS test.
+        }
+      )
     ];
   };
   kubenixLocal = kubenixInstance {
@@ -225,6 +239,7 @@ rec {
     programs.yamlfmt.enable = true;
   };
 
-  lixImage = pkgs.callPackage ./liximage.nix { };
+  nixImage = pkgs.callPackage ./niximage.nix { };
   scratchImage = pkgs.callPackage ./scratchimage.nix { };
+  ci-debug = pkgs.callPackage ./pkgs/ci-debug { };
 }
