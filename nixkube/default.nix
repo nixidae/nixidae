@@ -78,7 +78,7 @@ rec {
     inherit pkgs;
     modules = [
       ./kubenix
-      ./kubenix/ci/test-workloads
+      ./kubenix/ci/test-workloads.nix
       {
         _module.args.inputs = inputs;
       }
