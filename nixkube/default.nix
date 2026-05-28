@@ -152,6 +152,19 @@ rec {
         nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.deploymentScript}) | grep -v '\.drv$' | cachix push nix-csi
       '';
 
+  # Push kubenixCI2 (nocache variant) store paths to cachix.
+  # Run separately since CI2 is x86_64-only (cannot be in the main push script
+  # which also runs on ARM runners).
+  push-ci2 =
+    pkgs.writeScriptBin "push-ci2" # bash
+      ''
+        #! ${pkgs.runtimeShell}
+        export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
+        set -euo pipefail
+        DRV=$(nix-store -qd $(nix build --no-link --print-out-paths --file ${builtins.toString ./.} kubenixCI2.deploymentScript 2>/dev/null))
+        nix-store -qR --include-outputs "$DRV" 2>/dev/null | grep -v '\.drv$' | cachix push nix-csi
+      '';
+
   # Push environments for both x86_64-linux and aarch64-linux to cachix.
   # Requires builders that support both architectures (e.g. nixbuild.net or ssh builders).
   push-env =
