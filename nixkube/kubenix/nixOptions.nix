@@ -13,12 +13,14 @@ let
     # "kvm"
   ];
 
-  deduplicatedListOf = type:
+  deduplicatedListOf =
+    type:
     let
       listType = lib.types.listOf type;
       baseMerge = listType.merge;
     in
-    listType // {
+    listType
+    // {
       merge = loc: defs: lib.unique (baseMerge loc defs);
     };
 
