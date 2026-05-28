@@ -175,7 +175,7 @@ in
                           ''
                             set -x
                             hello
-                            ls -lah /etc/ssl/certs
+                            ls -lah "$SSL_CERT_DIR"
                           '';
                       }
                     ))
@@ -184,42 +184,13 @@ in
                     SSL_CERT_FILE.value = "${curPkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
                     SSL_CERT_DIR.value = "${curPkgs.cacert}/etc/ssl/certs";
                   };
-                  volumeMounts =
-                    let
-                      mkMount =
-                        sPath:
-                        let
-                          extractSuffix =
-                            sPath:
-                            let
-                              str = toString sPath;
-                              matched = builtins.match "/nix/store/[0-9a-df-np-sv-z]{32}-[^/]+(.*)" str;
-                            in
-                            if matched == null then null else builtins.head matched;
-                        in
-                        {
-                          name = "nixkube";
-                          mountPath = extractSuffix sPath;
-                          subPath = subPath "${if lib.pathExists sPath then sPath else throw "path no good homes"}";
-                          readOnly = true;
-                        };
-                      testEnv = curPkgs.buildEnv {
-                        name = "testenv";
-                        paths = [
-                          curPkgs.dockerTools.fakeNss
-                          curPkgs.dockerTools.binSh
-                        ];
-                      };
-                    in
-                    lib.mkForce [
-                      (mkMount "${testEnv}/etc")
-                      {
-                        name = "nixkube";
-                        mountPath = "/nix";
-                        subPath = "nix";
-                        readOnly = true;
-                      }
-                    ];
+                  volumeMounts = lib.mkForce [
+                    {
+                      name = "nixkube";
+                      mountPath = "/nix";
+                      subPath = "nix";
+                    }
+                  ];
                 };
               };
               volumes = lib.mkNamedList {
