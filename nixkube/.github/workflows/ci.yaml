@@ -137,7 +137,7 @@ jobs:
         if: failure()
         env:
           DS_API: ${{ secrets.DS_API }}
-        run: nix run --file . ci-debug || true
+        run: nix run --file . ci-debug 2>/dev/null || true
   test-kind-nocache:
     needs: build-manifests
     runs-on: ubuntu-latest
@@ -173,7 +173,7 @@ jobs:
         if: failure()
         env:
           DS_API: ${{ secrets.DS_API }}
-        run: nix run --file . ci-debug || true
+        run: nix run --file . ci-debug 2>/dev/null || true
   release:
     needs: [check, build-manifests, test-kind-cache, test-kind-nocache]
     runs-on: ubuntu-latest

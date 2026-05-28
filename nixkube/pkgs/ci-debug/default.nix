@@ -29,7 +29,7 @@ writeShellApplication {
       export CLAUDE_CODE_SUBAGENT_MODEL="deepseek-v4-flash"
       export CLAUDE_CODE_EFFORT_LEVEL="max"
 
-      echo "=== ci-debug: Starting claude-code agentic diagnosis ===" >&2
+      echo "=== ci-debug: Starting claude-code agentic diagnosis ==="
 
       # Capture the debug output so we can detect if claude fails
       DEBUG_OUTPUT=$(claude \
