@@ -98,6 +98,10 @@ jobs:
           unlink nix-scratches || true
           nix build --show-trace --file . scratchImage.push --out-link nix-scratches
           ./nix-scratches/bin/push
+      - name: Push nocache variant store paths
+        run: |
+          DRV=$(nix-store -qd $(nix build --no-link --print-out-paths --file . kubenixCI2.deploymentScript 2>/dev/null))
+          nix-store -qR --include-outputs "$DRV" | grep -v '\.drv$' | cachix push nix-csi
   test-kind-cache:
     needs: build-manifests
     runs-on: ubuntu-latest
