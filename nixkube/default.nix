@@ -77,12 +77,14 @@ rec {
   kubenixCITest = easykubenix {
     inherit pkgs;
     modules = [
+      ./kubenix
       ./kubenix/ci/test-workloads
       {
         _module.args.inputs = inputs;
       }
       {
         kluctl.discriminator = "nixkube-test";
+        nixkube.enable = false;
       }
     ];
   };
