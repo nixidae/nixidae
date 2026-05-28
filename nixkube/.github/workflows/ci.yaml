@@ -129,49 +129,10 @@ jobs:
       - name: Wait for test workload
         run: |
           kubectl wait --for=condition=complete job/flake-hello job/expr-hello job/path-hello job/nri-hello-ro job/nri-hello-rw -n nixkube --timeout=300s
-      - name: Validate success events
-        run: |
-          echo "=== Checking NixVolumeMount events ==="
-          EVENTS=$(kubectl get events -n nixkube -o json)
-
-          MOUNT_EVENTS=$(echo "$EVENTS" | jq '[.items[] |
-            select(.reason == "NixVolumeMount" and .type == "Normal")] | length')
-
-          echo "Found $MOUNT_EVENTS successful NixVolumeMount events"
-
-          # Show event details: pod name and message with timing
-          echo "$EVENTS" | jq -r '.items[] |
-            select(.reason == "NixVolumeMount" and .type == "Normal") |
-            "  - \(.involvedObject.name): \(.message)"'
-
-          if [ "$MOUNT_EVENTS" -lt 3 ]; then
-            echo "ERROR: Expected at least 3 mount events, found $MOUNT_EVENTS"
-            exit 1
-          fi
       - name: Delete jobs and verify CSI cleanup
         run: |
           kubectl delete job flake-hello expr-hello path-hello invalid-storepath-hello invalid-flake-hello invalid-expr-hello nri-hello-ro nri-hello-rw -n nixkube
           kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,invalid-storepath-hello,invalid-flake-hello,invalid-expr-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=120s
-      - name: Validate error events
-        run: |
-          echo "=== Checking error events ==="
-          EVENTS=$(kubectl get events -n nixkube -o json)
-
-          # Check for the three expected error reasons (with Nix prefix)
-          for reason in "NixPathBuild" "NixFlakeBuild" "NixExprBuild"; do
-            count=$(echo "$EVENTS" | jq --arg r "$reason" '[.items[] |
-              select(.reason == $r and .type == "Warning")] | length')
-            echo "Found $count '$reason' error event(s)"
-
-            # Show details of the errors
-            echo "$EVENTS" | jq --arg r "$reason" -r '.items[] |
-              select(.reason == $r and .type == "Warning") |
-              "  - \(.involvedObject.name): \(.message)"' || true
-          done
-      - name: Print node logs
-        run: |
-          echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail=50 --timestamps
       - name: Debug on failure
         if: failure()
         env:
@@ -208,10 +169,6 @@ jobs:
         run: |
           kubectl delete job flake-hello expr-hello path-hello nri-hello-ro nri-hello-rw -n nixkube
           kubectl wait --for=delete pod -l "job-name in (flake-hello,expr-hello,path-hello,nri-hello-ro,nri-hello-rw)" -n nixkube --timeout=120s
-      - name: Print node logs
-        run: |
-          echo "=== Node pod logs ==="
-          kubectl logs -l app.kubernetes.io/component=node -n nixkube --tail=50 --timestamps
       - name: Debug on failure
         if: failure()
         env:

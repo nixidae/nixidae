@@ -30,7 +30,9 @@ writeShellApplication {
       export CLAUDE_CODE_EFFORT_LEVEL="max"
 
       echo "=== ci-debug: Starting claude-code agentic diagnosis ===" >&2
-      claude \
+
+      # Capture the debug output so we can detect if claude fails
+      DEBUG_OUTPUT=$(claude \
         --print \
         --dangerously-skip-permissions \
         "You are a Kubernetes SRE diagnosing a CI failure on a GitHub Actions runner.
@@ -43,15 +45,45 @@ writeShellApplication {
       with \`kubectl get\`. Do not assume past events reflect current state.
 
       Investigation methodology:
-      1. \`kubectl get pods -A -o wide\` — current pod states
-      2. \`kubectl describe pod -n nixkube -l app.kubernetes.io/component=node\` — node pod, especially Init Containers section (exit codes, reasons)
-      3. \`kubectl logs -n nixkube -l app.kubernetes.io/component=node -c initcopy --tail=100 --timestamps --previous\` — init container crash logs
-      4. \`kubectl logs -n nixkube -l app.kubernetes.io/component=node --tail=50 --timestamps\` — node main container logs
-      5. \`kubectl get events -n nixkube --sort-by='.lastTimestamp'\` — all events
-      6. Verify each resource referenced in error events: \`kubectl get configmap -n nixkube\`, \`kubectl get secret -n nixkube\`, \`kubectl get serviceaccount -n nixkube\`
-      7. \`kubectl logs -n nixkube -l job-name=init --tail=100\` — init job logs
-      8. \`kubectl get csinode -o wide\` — CSI registration
-      9. \`kubectl get volumeattachment -o wide\` — volume attachments
+
+      == Phase 1: Pod & Controller Health ==
+      1. \`kubectl get pods -A -o wide\` — all pods, their nodes and IPs
+      2. \`kubectl describe pod -n nixkube -l app.kubernetes.io/component=node\` — node pod Init Containers (exit codes, restart reasons, crash loop)
+      3. \`kubectl logs -n nixkube -l app.kubernetes.io/component=node -c initcopy --tail=200 --timestamps --previous\` — init container crash logs
+      4. \`kubectl logs -n nixkube -l app.kubernetes.io/component=node --tail=100 --timestamps\` — node main container (nixkube) logs
+      5. \`kubectl get daemonset,statefulset,job -n nixkube\` — controller state
+
+      == Phase 2: CSI Driver Registration ==
+      6. \`kubectl get csidriver -o wide\` — registered CSI drivers (should include nixkube)
+      7. \`kubectl get csinode -o wide\` — per-node CSI driver registration
+      8. \`kubectl describe csidriver nixkube\` — CSI driver annotations (podInfoOnMount, attachRequired, modes)
+
+      == Phase 3: Volume & Mount Issues ==
+      9. For any pod stuck in ContainerCreating/Pending: \`kubectl describe pod -n nixkube <pod>\` and look for FailedMount events
+      10. \`kubectl get events -n nixkube --sort-by='.lastTimestamp' | tail -50\` — recent events, focusing on FailedMount, FailedAttachVolume, and Nix* events
+      11. \`kubectl logs -n nixkube -l app.kubernetes.io/component=node -c csi-node-driver-registrar-nixkube --tail=50\` — CSI registrar logs
+
+      == Phase 4: Configuration & Secrets ==
+      12. \`kubectl get configmap -n nixkube -o yaml\` — verify nix.conf content (substituters, trusted-public-keys, trusted-users)
+      13. \`kubectl get secret,serviceaccount -n nixkube\` — verify expected secrets exist
+      14. \`kubectl describe pod -n nixkube -l app.kubernetes.io/component=pynixd\` — cache pod state if the cache variant
+
+      == Phase 5: NRI Plugin (if NRI jobs exist) ==
+      15. \`kubectl get nodes -o json | jq '.items[0].status.nodeInfo.containerRuntimeVersion'\` — container runtime
+      16. \`ls -la /var/run/nri/\` — NRI socket existence (run inside Kind node with \`docker exec kind-control-plane ls -la /var/run/nri/\`)
+
+      == Phase 6: Nix Store & Build ==
+      17. For Any Nix store path errors: check if the store path exists on the host with \`docker exec kind-control-plane ls -la /var/lib/nix-csi/nix/store/\`
+      18. \`kubectl get events -n nixkube | grep -E 'Nix|Build|Mount' | tail -30\` — nixkube-specific error events
+
+      Key diagnostic patterns to look for:
+      - Init container CrashLoopBackOff with exit code 1 in initcopy → nix build failure (check initcopy logs for the exact error)
+      - Init container CrashLoopBackOff with exit code 143 in main container → SIGTERM from resource limits or liveness probe
+      - \"driver name nixkube not found\" in FailedMount events → CSI driver not registered, check csinode
+      - \"no substituter that can build it\" in initcopy logs → store path not in any configured cache, check nix.conf
+      - Test jobs in Pending state → CSI volume can't be published, check node events
+      - pynixd pod not ready → check init-store CSI volume mount, PVC status
+      - \"Operation not permitted\" on SSH → network policy or Cilium blocking, check CiliumNetworkPolicy
 
       Output your diagnosis in this exact format at the end. Every claim in
       Evidence must cite a specific command output that proves it:
@@ -65,16 +97,18 @@ writeShellApplication {
       ## Fix
       <what to change to fix it>
 
-      Do NOT modify cluster resources — this is read-only." || true
+      Do NOT modify cluster resources — this is read-only." 2>&1) || true
 
-      echo "=== Fallback: static debug dump ==="
-      kubectl get pods -A -o wide || true
-      kubectl get pods -o wide -n nixkube || true
-      echo "--- node pod describe ---"
-      kubectl describe pod -l app.kubernetes.io/component=node -n nixkube || true
-      echo "--- resources ---"
-      kubectl get configmap,secret,serviceaccount -n nixkube 2>/dev/null || true
-      echo "--- events ---"
-      kubectl get events -n nixkube --sort-by='.lastTimestamp' || true
+      echo "=== ci-debug: claude-code output ==="
+      echo "$DEBUG_OUTPUT"
+
+      # Only dump raw state if claude clearly failed (empty or very short output)
+      LINE_COUNT=$(echo "$DEBUG_OUTPUT" | wc -l)
+      if [ "$LINE_COUNT" -lt 5 ]; then
+        echo "=== ci-debug: claude output insufficient, dumping raw state ==="
+        kubectl get pods -A -o wide 2>/dev/null || true
+        kubectl describe pod -l app.kubernetes.io/component=node -n nixkube 2>/dev/null || true
+        kubectl get events -n nixkube --sort-by='.lastTimestamp' 2>/dev/null || true
+      fi
     '';
 }
