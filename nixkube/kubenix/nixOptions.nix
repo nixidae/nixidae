@@ -13,6 +13,15 @@ let
     # "kvm"
   ];
 
+  deduplicatedListOf = type:
+    let
+      listType = lib.types.listOf type;
+      baseMerge = listType.merge;
+    in
+    listType // {
+      merge = loc: defs: lib.unique (baseMerge loc defs);
+    };
+
   semanticConfType =
     with lib.types;
     let
@@ -29,7 +38,7 @@ let
           description = "Nix config atom (null, bool, int, float, str, path or package)";
         };
     in
-    attrsOf (either confAtom (listOf confAtom));
+    attrsOf (either confAtom (deduplicatedListOf confAtom));
 in
 with lib;
 types.submodule (
