@@ -72,6 +72,21 @@ rec {
       )
     ];
   };
+  # Separate instance for test workload Jobs, deployed after infrastructure
+  # is fully rolled out so CSI and NRI are ready before pods start.
+  kubenixCITest = easykubenix {
+    inherit pkgs;
+    modules = [
+      ./kubenix/ci/test-workloads
+      {
+        _module.args.inputs = inputs;
+      }
+      {
+        kluctl.discriminator = "nixkube-test";
+      }
+    ];
+  };
+
   kubenixLocal = kubenixInstance {
     module.imports = [
       ./kubenix/ci
