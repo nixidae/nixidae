@@ -33,22 +33,15 @@ in
         narinfo-cache-positive-ttl = 0;
         warn-dirty = false;
         store = "daemon";
-        trusted-users = [ "root" ];
         system-features = [
           "nixos-test"
           "benchmark"
           "big-parallel"
         ];
       };
-      node.nixConfig.settings = lib.mapAttrsRecursive (
-        name: value: lib.mkDefault value
-      ) cfg.nixConfig.settings;
-      pynixd.controller.nixConfig.settings = lib.mapAttrsRecursive (
-        name: value: lib.mkDefault value
-      ) cfg.nixConfig.settings;
-      pynixd.builder.nixConfig.settings = lib.mapAttrsRecursive (
-        name: value: lib.mkDefault value
-      ) cfg.nixConfig.settings;
+      node.nixConfig.settings = cfg.nixConfig.settings;
+      pynixd.builder.nixConfig.settings = cfg.nixConfig.settings;
+      pynixd.controller.nixConfig.settings = cfg.nixConfig.settings;
     };
     kubernetes.resources.${cfg.namespace} = {
       ConfigMap.nix-node = {
