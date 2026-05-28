@@ -149,7 +149,9 @@ rec {
         #! ${pkgs.runtimeShell}
         export PATH=${lib.makeBinPath [ pkgs.cachix ]}:$PATH
         # ${lib.concatStrings (lib.attrValues inputs)}
-        nix-store -qR --include-outputs $(nix-store -qd ${kubenixPush.deploymentScript}) | grep -v '\.drv$' | cachix push nix-csi
+        for drv in ${kubenixPush.deploymentScript} ${kubenixCI2.deploymentScript}; do
+          nix-store -qR --include-outputs $(nix-store -qd "$drv") | grep -v '\.drv$' | cachix push nix-csi
+        done
       '';
 
   # Push environments for both x86_64-linux and aarch64-linux to cachix.
