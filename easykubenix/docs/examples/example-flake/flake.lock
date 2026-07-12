@@ -1,0 +1,97 @@
+{
+  "nodes": {
+    "easykubenix": {
+      "inputs": {
+        "flake-compatish": "flake-compatish",
+        "nanopynix": "nanopynix",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "path": "../../../.",
+        "type": "path"
+      },
+      "original": {
+        "path": "../../../.",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "flake-compatish": {
+      "locked": {
+        "lastModified": 1771176559,
+        "narHash": "sha256-V07a8KsYGj8nvMuBfF7PO88Tzqg3LJjxuIasgR5Mx3o=",
+        "owner": "lillecarl",
+        "repo": "flake-compatish",
+        "rev": "d8c944d4df613d47a3dc7b800c7531c33323c845",
+        "type": "github"
+      },
+      "original": {
+        "owner": "lillecarl",
+        "repo": "flake-compatish",
+        "type": "github"
+      }
+    },
+    "nanopynix": {
+      "inputs": {
+        "nixpkgs": [
+          "easykubenix",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783872059,
+        "narHash": "sha256-zDUwFEjnD+WazSnPt6J5MA3NKs6XfoHLTjygvP2KGvQ=",
+        "owner": "lillecarl",
+        "repo": "nanopynix",
+        "rev": "2fb0ef8a2e4a8f4adf0054d5a1f1f510e0b56675",
+        "type": "github"
+      },
+      "original": {
+        "owner": "lillecarl",
+        "ref": "develop",
+        "repo": "nanopynix",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1783279667,
+        "narHash": "sha256-/NAkDSsve+GNM0Bt6tleJdCGfsTlK89nPjkVOzZMo0s=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "f205b5574fd0cb7da5b702a2da51507b7f4fdd1b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1783816212,
+        "narHash": "sha256-2aZisVTVGSFEk3MYcOiWQp3zvwyzbqpktB69Rcfp150=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "3b32825de172d0bc85664f495edb096b10862524",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "easykubenix": "easykubenix",
+        "nixpkgs": "nixpkgs_2"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

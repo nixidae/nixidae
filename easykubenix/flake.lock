@@ -22,11 +22,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1783597225,
-        "narHash": "sha256-HmdmCV3zayX3Z+yAMmu1fuRZJ5zWqzA7UgXFS2E42oc=",
+        "lastModified": 1783872059,
+        "narHash": "sha256-zDUwFEjnD+WazSnPt6J5MA3NKs6XfoHLTjygvP2KGvQ=",
         "owner": "lillecarl",
         "repo": "nanopynix",
-        "rev": "36c79f8ef39dbd267a0cf5f6231d4bb280944c21",
+        "rev": "2fb0ef8a2e4a8f4adf0054d5a1f1f510e0b56675",
         "type": "github"
       },
       "original": {
