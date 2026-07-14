@@ -7,10 +7,9 @@ in
   pkgs ? inputs.nixpkgs.legacyPackages.${system},
 }:
 let
-  inherit (pkgs) python3Packages;
+  inherit (pkgs) lib python3Packages;
 
-  grpclab-all = pkgs.callPackage inputs.grpclib-transports { };
-  inherit (grpclab-all)
+  inherit (pkgs.callPackage inputs.grpclib-transports { })
     grpclib-transports
     betterproto2
     betterproto2-compiler
@@ -19,81 +18,74 @@ let
   nanopynix-proto = python3Packages.callPackage ./proto/package.nix {
     inherit betterproto2 betterproto2-compiler;
   };
-  mkNanopynixBindings = nix: python3Packages.callPackage ./bindings/package.nix { inherit nix; };
-  mkNanopynix =
-    nix:
-    python3Packages.callPackage ./python/package.nix {
-      nanopynix-bindings = mkNanopynixBindings nix;
-      inherit
-        nanopynix-proto
-        grpclib-transports
-        ;
-    };
-  mkPynix = nanopynix: python3Packages.callPackage ./pynix/package.nix { inherit nanopynix clypi; };
-  mkNanopynixTests =
-    {
-      nix,
-      nanopynix,
-    }:
-    python3Packages.callPackage ./nix/tests.nix {
-      inherit clypi nix nanopynix;
-      flakeCompatishSrc = inputs.flake-compatish;
-      grpclibTransportsSrc = inputs.grpclib-transports;
-      pynix = mkPynix nanopynix;
-    };
-  withTests =
-    {
-      nix,
-      nanopynix,
-    }:
-    nanopynix.overrideAttrs (old: {
-      passthru = old.passthru or { } // {
-        tests = mkNanopynixTests { inherit nix nanopynix; };
-      };
-    });
-  nanopynix = withTests {
-    nix = pkgs.nix;
-    nanopynix = mkNanopynix pkgs.nix;
-  };
-  nanopynix-bindings = mkNanopynixBindings pkgs.nix;
+
+  clypi = python3Packages.callPackage ./nix/clypi.nix { };
+
   nanopynixForNix =
     nix:
-    withTests {
-      nanopynix = mkNanopynix nix;
-      inherit nix;
-    };
-  nixVersions = pkgs.lib.filterAttrs (
-    _: nix:
-    let
-      hasLibs = builtins.tryEval (nix ? libs);
-    in
-    hasLibs.success && hasLibs.value
-  ) pkgs.nixVersions;
-  nanopynix-nixVersions = pkgs.lib.mapAttrs (_: nix: nanopynixForNix nix) nixVersions;
-  nanopynix-nixVersions-tests = pkgs.callPackage ./nix/nix-version-tests.nix {
-    inherit nanopynix-nixVersions;
+    lib.makeScope
+      (
+        extra:
+        lib.callPackageWith (
+          pkgs
+          // python3Packages
+          // {
+            inherit
+              nanopynix-proto
+              grpclib-transports
+              clypi
+              ;
+          }
+          // extra
+        )
+      )
+      (self: {
+        inherit nix;
+        nanopynix-bindings = self.callPackage ./bindings/package.nix { };
+        nanopynix = self.callPackage ./python/package.nix { };
+        pynix = self.callPackage ./pynix/package.nix { };
+        tests = self.callPackage ./nix/tests.nix {
+          inherit (inputs) nixpkgs;
+        };
+      });
+
+  nanopynixVersions = lib.pipe pkgs.nixVersions [
+    (lib.filterAttrs (
+      _: nix:
+      let
+        canEval = builtins.tryEval nix;
+      in
+      canEval.success && lib.isDerivation canEval.value
+    ))
+    (lib.mapAttrs (_: nix: nanopynixForNix nix))
+  ];
+
+  nanopynix-all-tests = pkgs.callPackage ./nix/nix-version-tests.nix {
+    nanopynixVersions = nanopynixVersions;
     inherit (inputs) nixpkgs;
   };
-  clypi = python3Packages.callPackage ./nix/clypi.nix { };
-  pynix = mkPynix nanopynix;
 
   shell = python3Packages.callPackage ./nix/shell.nix {
-    inherit nanopynix pynix;
+    inherit (nanopynixVersions.stable) nanopynix pynix;
   };
 in
 {
-  inherit flake;
+  inherit (pkgs) lib;
+
+  inherit (nanopynixVersions.stable)
+    nanopynix
+    nanopynix-bindings
+    pynix
+    ;
+
   inherit
+    flake
     pkgs
     shell
-    nanopynix
-    nanopynix-nixVersions
-    nanopynix-nixVersions-tests
-    nanopynix-bindings
+    nanopynixVersions
+    nanopynix-all-tests
     nanopynix-proto
-    pynix
-    grpclib-transports
     clypi
+    grpclib-transports
     ;
-  inherit (pkgs) lib;
 }
