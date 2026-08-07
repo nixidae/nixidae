@@ -9,7 +9,9 @@ no on-call rota, but questions are welcome and get answered.
 
 - [nanopynix](https://lillecarl.github.io/nanopynix/)
 - [pynixd](https://lillecarl.github.io/pynixd/)
-- [easykubenix](https://lillecarl.github.io/easykubenix/)
+
+The other repositories document themselves in their `README.md` and under
+`docs/` in the repository itself.
 
 **Then open an issue** on the repository the question is about. Use the
 *Question* template if the repository has one, or the blank issue form

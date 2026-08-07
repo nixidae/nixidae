@@ -21,7 +21,7 @@ that Python is a good one for the job.
 | Project | What it is |
 | --- | --- |
 | [**nanopynix**](https://github.com/Lillecarl/nanopynix) | nanobind-based Python bindings for Nix. Nix runs in an isolated worker subprocess and is driven over gRPC, so several differently configured Nix instances can run in parallel from one process. Async API for stores, evaluation and builds. |
-| [**pynix**](https://github.com/Lillecarl/nanopynix/tree/main/pynix) | A Nix CLI built on nanopynix — `build`, `eval`, `develop`, `repl`, `store`, `path-info`, `flake`, option search — plus a Nix language server that understands the NixOS module system. |
+| [**pynix**](https://github.com/Lillecarl/nanopynix/tree/develop/pynix) | A Nix CLI built on nanopynix — `build`, `eval`, `develop`, `repl`, `store`, `path-info`, `flake`, option search — plus a Nix language server that understands the NixOS module system. |
 | [**pynixd**](https://github.com/Lillecarl/pynixd) | The Nix daemon protocol, in Python. Sits between Nix clients and remote builders over SSH: deduplicates concurrent builds, caches path queries locally, and schedules work across multiple backends. |
 | [**nixkube**](https://github.com/Lillecarl/nixkube) | Mounts `/nix` into Kubernetes pods through a CSI driver and an NRI plugin. Store paths, flake refs and Nix expressions become pod volumes with pod lifetime. |
 | [**easykubenix**](https://github.com/Lillecarl/easykubenix) | Kubernetes manifests from the NixOS module system, without generating Nix types for the whole Kubernetes API. Validation runs against an ephemeral `etcd` and `kube-apiserver`. |
