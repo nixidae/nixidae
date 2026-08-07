@@ -1,0 +1,10 @@
+# Blank issues stay enabled: the three templates below do not cover everything,
+# and a well-written free-form issue beats a badly-fitted form.
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/nixidae/.github/blob/main/SECURITY.md
+    about: Do not open a public issue — report it privately instead.
+  - name: Nixidae projects
+    url: https://github.com/nixidae
+    about: Not sure which repository your issue belongs to? Start here.
