@@ -86,3 +86,17 @@ Everything here is pre-1.0 and moving. Issues and pull requests are welcome on
 the individual repositories — see [CONTRIBUTING.md](https://github.com/nixidae/.github/blob/main/CONTRIBUTING.md)
 for how that works, and [SECURITY.md](https://github.com/nixidae/.github/blob/main/SECURITY.md)
 if you have found something that should not be reported in public.
+
+---
+
+<sub>
+
+"Python" and the Python logos are trademarks of the Python Software Foundation,
+used with permission. Nixidae is not affiliated with the Python Software
+Foundation.
+
+The Nixidae mark also incorporates the NixOS logo, © NixOS contributors,
+licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+Nixidae is not affiliated with the NixOS Foundation.
+
+</sub>

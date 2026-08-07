@@ -93,5 +93,22 @@ After transferring a repository:
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). The logo has its own attribution notes in
-[`assets/README.md`](assets/README.md).
+MIT — see [LICENSE](LICENSE).
+
+The logo is **not** covered by that licence, and carries disclaimer obligations
+that travel with it wherever it is used. Read
+[`assets/README.md`](assets/README.md) before putting the mark anywhere new.
+
+---
+
+<sub>
+
+"Python" and the Python logos are trademarks of the Python Software Foundation,
+used with permission. Nixidae is not affiliated with the Python Software
+Foundation.
+
+The Nixidae mark also incorporates the NixOS logo, © NixOS contributors,
+licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+Nixidae is not affiliated with the NixOS Foundation.
+
+</sub>
