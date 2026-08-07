@@ -16,6 +16,15 @@ They are separate repositories with separate release cycles, but they share a
 premise — that Nix is worth talking to from a real programming language, and
 that Python is a good one for the job.
 
+## The name
+
+*Pythonidae* is the taxonomic family containing every python. *Nixidae* is the
+sister family: same constrictor grip, same refusal to let go of anything it has
+got hold of, but it reproduces by pure function of its inputs and will not enter
+a habitat unless the entire habitat is in its closure.
+
+Non-venomous. Bites anyway if you pass `--impure`.
+
 ## Projects
 
 | Project | What it is |
