@@ -69,6 +69,28 @@ When a new repository joins the organisation, add it to the project table in
 Keep the description to what the thing actually does — the table is the first
 and often only thing a visitor reads.
 
+## Migrating a repository in
+
+Projects are moving from [@Lillecarl](https://github.com/Lillecarl) to the
+organisation progressively rather than all at once, so the project table
+currently points at whichever home each repository has today. Mixed
+`Lillecarl/…` and `nixidae/…` links in that table are expected, not an
+oversight.
+
+After transferring a repository:
+
+1. Update its row in the `profile/README.md` table to the `nixidae/…` URL.
+   GitHub redirects the old URL indefinitely, so this is tidiness rather than
+   urgency — but redirects are invisible to anyone reading the raw Markdown.
+2. Check whether its own `README.md` still links to `Lillecarl/…` for badges,
+   CI status or sibling projects. Badge image URLs in particular are usually
+   hardcoded and will keep pointing at the old path.
+3. Decide whether it still needs its own `CONTRIBUTING.md`, `SECURITY.md` or
+   issue templates, or whether the org-wide ones here now cover it. Deleting a
+   redundant per-repo copy is how a repository opts back in to these.
+4. If it published docs from GitHub Pages, the `lillecarl.github.io/<repo>/`
+   URL changes — update the links in `profile/README.md` and `SUPPORT.md`.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE). The logo has its own attribution notes in
