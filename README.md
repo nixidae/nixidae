@@ -99,6 +99,41 @@ the branch holds today. That trade is deliberate: best-effort, not
 reproducible. Write a revision into the string when one starts moving under
 us.
 
+`flake-compatish` is the exception and carries a revision. Every evaluation
+goes through it before it can read anything else, so an unpinned one drifts
+under all four projects at once.
+
+### A pure evaluation cannot use the umbrella
+
+An unpinned reference is impure, and so is the `NIX_PATH` lookup that gives
+`nixpkgs`. So `nix eval` with no `--impure`, and a flake evaluation, both
+fail the moment they reach `nix/wire.nix`:
+
+    error: in pure evaluation mode, 'fetchTree' doesn't fetch unlocked
+           input 'github:...'
+
+A consumer that needs a pure evaluation has to set
+`FLAKE_COMPATISH_DISABLE_OVERRIDES=1`, and that reads each project's own
+`flake.lock` instead. It is safe, and it gives up what the umbrella is for:
+inside such an evaluation easykubenix reads its own lock, so it builds a
+published nanopynix rather than the one sitting next to it.
+
+There are three modes, and only two of them exist:
+
+| mode | what it is | state |
+| --- | --- | --- |
+| dev | local working copies, siblings from the umbrella | the default here |
+| pinned-consistent | umbrella at a revision, siblings from that umbrella | **missing** |
+| lock-faithful | every project reads its own lock | the env var |
+
+The middle one is what a downstream consumer wants, and it collapses into
+the third today, because that env var is one switch over two unrelated
+things: the local working copy, and the sibling substitution.
+
+Closing it means pinning every reference here and taking `nixpkgs` from the
+caller, which is the opposite of the trade above. That is a decision, not an
+oversight.
+
 An override that does not apply is silent, so the wiring is checked:
 
     nix build --file . checks.wired && cat result

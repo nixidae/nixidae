@@ -35,7 +35,24 @@
   # `nix-shell` and `nix build --file .` reach for everywhere else here.
   nixpkgs = <nixpkgs>;
 
-  flake-compatish = "github:lillecarl/flake-compatish";
+  # Pinned, and the only one here that is.
+  #
+  # Every evaluation goes through this one, always: nix/wire.nix fetches it
+  # before it can read anything else. An unpinned reference is impure, so a
+  # pure evaluation that reaches wire.nix fails on this line and on nothing
+  # else -- measured:
+  #
+  #   error: in pure evaluation mode, 'fetchTree' doesn't fetch unlocked
+  #          input 'github:lillecarl/flake-compatish'
+  #
+  # A revision costs one edit when the tool changes, and the tool is the
+  # part of this that changes least. It also stops the bootstrap drifting
+  # under every project at once, which is worth more here than currency.
+  #
+  # This does not make a pure evaluation work on its own. `nixpkgs` below is
+  # a NIX_PATH lookup, which is impure as well, and the five references
+  # under it are unpinned. See the README.
+  flake-compatish = "github:lillecarl/flake-compatish/ceadbe462830c595f3b0c0ef212d039cba5a48ae";
   pyproject-nix = "github:pyproject-nix/pyproject.nix";
   tree-sitter-nix-numtide = "github:numtide/tree-sitter-nix";
   adios = "github:adisbladis/adios";
