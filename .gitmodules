@@ -1,0 +1,20 @@
+[submodule "nanopynix"]
+	path = nanopynix
+	url = git@github.com:Lillecarl/nanopynix.git
+	branch = develop
+[submodule "pynixd"]
+	path = pynixd
+	url = git@github.com:Lillecarl/pynixd.git
+	branch = develop
+[submodule "easykubenix"]
+	path = easykubenix
+	url = git@github.com:Lillecarl/easykubenix.git
+	branch = develop
+[submodule "nixkube"]
+	path = nixkube
+	url = git@github.com:Lillecarl/nixkube.git
+	branch = develop
+[submodule "umbrella"]
+	path = umbrella
+	url = git@github.com:Lillecarl/umbrella.git
+	branch = main
