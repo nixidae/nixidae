@@ -164,8 +164,12 @@ easykubenix reads nanopynix from it. Lazy, so the cycle costs nothing. Same
 measurement now gives the working copy.
 
 `nix/sources.nix` carries the `reroot` flag, so the set is the four projects
-and nothing else. A third-party flake still reads its own lock below the
-first level. Flag one to change that.
+and nothing else. A third-party flake still reads its own lock. Flag one to
+evaluate it here instead, with this set as its inputs.
+
+An input declared `flake = false` is left alone, because it is a source and
+the expression that reads it wants a directory. nixkube declares easykubenix
+that way and gets `/home/lillecarl/Code/nixidae/easykubenix`, not a flake.
 
 ### What is still open
 
