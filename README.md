@@ -98,6 +98,12 @@ of sources this repository already pins.
 Each project keeps a `flake.nix` even so, and it is a second door rather
 than the way in. See below.
 
+`user-mode-nixos` is the exception, and it is here as a checkout rather than
+as a wired-in dependency. It needs nixpkgs and nothing else in this
+collection, so its `default.nix` takes a package set and its `flake.nix` has
+one input. The umbrella hands it the same nixpkgs the rest get, but it never
+asks for one.
+
 Two files say where every source comes from, and each has one writer.
 
 | file | holds | written by |
