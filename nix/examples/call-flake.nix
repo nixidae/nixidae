@@ -34,7 +34,7 @@ let
   # This is what the caller is replacing, so it is what the check compares
   # against. A `follows` entry is a list rather than a node name; none of the
   # three below has one, and this says so rather than guessing.
-  ownLock =
+  ownLockNode =
     name: inputName:
     let
       lock = builtins.fromJSON (builtins.readFile (sources.${name} + "/flake.lock"));
@@ -43,7 +43,19 @@ let
     if builtins.isList spec then
       throw "${name} declares ${inputName} as a follows, which this example does not read"
     else
-      (builtins.fetchTree lock.nodes.${spec}.locked).outPath;
+      lock.nodes.${spec}.locked;
+
+  ownLock = name: inputName: (builtins.fetchTree (ownLockNode name inputName)).outPath;
+
+  # The revision, without fetching anything.
+  #
+  # Proving that the override replaced something needs only the two
+  # revisions. Fetching the one it replaced would pull a second nixpkgs --
+  # some forty megabytes that nothing here builds against -- so a check that
+  # runs often reads the number instead.
+  ownLockRev = name: inputName: (ownLockNode name inputName).rev;
+
+  umbrellaLock = builtins.fromJSON (builtins.readFile ../sources.lock);
 
   # -- the three cases -----------------------------------------------------
 
@@ -73,10 +85,13 @@ let
       want = toString sources.nixpkgs;
     }
     {
-      name = "treefmt-nix would have used";
-      have = ownLock "treefmt-nix" "nixpkgs";
-      want = "anything but ${toString sources.nixpkgs}";
-      ok = ownLock "treefmt-nix" "nixpkgs" != toString sources.nixpkgs;
+      name = "treefmt-nix would have used another nixpkgs revision";
+      have = ownLockRev "treefmt-nix" "nixpkgs";
+      want = umbrellaLock.sources.nixpkgs.rev;
+      # The one row that wants the two to differ. Without it the row above
+      # passes when nothing was overridden at all, because the flake happens
+      # to name the revision we do.
+      differs = true;
     }
     {
       name = "pyproject-nix declares nixpkgs";
@@ -95,17 +110,32 @@ let
     }
   ];
 
-  judged = map (row: row // { ok = row.ok or (row.have == row.want); }) rows;
+  judged = map (
+    row:
+    row
+    // {
+      ok = if row.differs or false then row.have != row.want else row.have == row.want;
+    }
+  ) rows;
   wrong = builtins.filter (row: !row.ok) judged;
 
-  line = row: "${if row.ok then "ok " else "BAD"}  ${row.name}\n       ${row.have}";
+  line =
+    row:
+    "${if row.ok then "ok " else "BAD"}  ${row.name}\n       ${
+      if row.differs or false then "!= " else ""
+    }${row.have}";
   report = lib.concatMapStringsSep "\n" line judged;
 in
 if wrong != [ ] then
   throw ''
     calling a flake does not use the umbrella's inputs:
 
-    ${lib.concatMapStringsSep "\n    " (row: "${row.name}: wanted ${row.want}, got ${row.have}") wrong}
+    ${lib.concatMapStringsSep "\n    " (
+      row:
+      "${row.name}: wanted ${
+        if row.differs or false then "anything but " else ""
+      }${row.want}, got ${row.have}"
+    ) wrong}
   ''
 else
   # An output of a called flake, actually built. `mkWrapper` takes a package
