@@ -57,9 +57,7 @@ let
     let
       workingCopy = entrySpec.path or null;
       hasWorkingCopy =
-        workingCopy != null
-        && builtins.pathExists workingCopy
-        && builtins.readDir workingCopy != { };
+        workingCopy != null && builtins.pathExists workingCopy && builtins.readDir workingCopy != { };
       locked = lock.sources.${name} or null;
     in
     if hasWorkingCopy then

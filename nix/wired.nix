@@ -23,9 +23,7 @@ let
     let
       workingCopy = spec.${name}.path or null;
       present =
-        workingCopy != null
-        && builtins.pathExists workingCopy
-        && builtins.readDir workingCopy != { };
+        workingCopy != null && builtins.pathExists workingCopy && builtins.readDir workingCopy != { };
     in
     if present then "working copy" else "lock";
 
@@ -46,7 +44,9 @@ if wrong != [ ] then
   throw ''
     the umbrella does not resolve every source the way it says:
 
-    ${lib.concatMapStringsSep "\n    " (row: "${row.name} should come from the ${row.want} and is ${row.have}") wrong}
+    ${lib.concatMapStringsSep "\n    " (
+      row: "${row.name} should come from the ${row.want} and is ${row.have}"
+    ) wrong}
   ''
 else
   runCommand "nixidae-wired"
