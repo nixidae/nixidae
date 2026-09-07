@@ -48,6 +48,10 @@ the guarantee: **the umbrella never records a commit that no remote has.**
 The git hooks `initjj` installs enforce the same rule, so a commit or a push
 made by hand cannot break it either.
 
+`land` moves a pointer and leaves `nix/sources.lock` where it was, so it ends
+by naming the sources that fell behind and the `umbrella update` that catches
+them up. It is a note, not a refusal. The push already happened.
+
 ## One more working copy
 
     umbrella wts add <name>     # the whole collection, again
