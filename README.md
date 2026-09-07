@@ -40,6 +40,7 @@ pointer, so a jj umbrella could never do the one job an umbrella has.
     umbrella status -f      # the same, after a fetch
     umbrella sync           # move the submodules onto the recorded pointers
     umbrella land -m "..."  # push the submodules, then record where they are
+    umbrella update         # write nix/sources.lock from what is recorded
 
 `land` is the one that publishes. It pushes each submodule that moved, then
 stages the new pointer, and only then commits the umbrella. That order is
@@ -136,14 +137,19 @@ report it. The tool can:
 It needs no checkout, so it answers in a pinned checkout too, where the lock
 is the only thing that decides anything.
 
-`nix/seed-lock.sh` is what answers that row. It writes the lock again, taking
-the recorded pointer for each submodule and the head of the declared branch
-for everything else, and it prints rather than writes:
+`umbrella update` is what answers that row:
 
-    nix/seed-lock.sh > nix/sources.lock.new && mv nix/sources.lock{.new,}
+    umbrella update             # every source
+    umbrella update nixpkgs     # one, and nothing else is touched
+    umbrella update -n          # say what would move, write nothing
 
-So a run is a re-sync for our own six and an update for the third parties.
-That includes nixpkgs, and moving nixpkgs rebuilds the world. Read the diff.
+It takes the recorded pointer for each submodule and the head of the declared
+branch for everything else. So a full run is a re-sync for our own six and an
+update for the third parties. That includes nixpkgs, and moving nixpkgs
+rebuilds the world, so read the diff.
+
+A submodule is locked at the pointer and never at its working copy. The
+pointer is the commit a push already made public; a working copy is not.
 
 ### Calling a flake, without being one
 
