@@ -79,64 +79,78 @@ it goes through the umbrella too. See below.
 
 ## The umbrella owns the inputs
 
-`nix/inputs.nix` names every input once. `default.nix` gives that set to
-each project as overrides, so a project's own `flake.nix` still says what it
-needs and the umbrella says where it comes from.
+Two files say where every source comes from, and each has one writer.
 
-Two things follow.
+| file | holds | written by |
+| --- | --- | --- |
+| `nix/sources.nix` | the url, the branch, the optional working copy | a human |
+| `nix/sources.lock` | the revision and the narHash | a tool |
+
+`nix/resolve.nix` joins them and gives each name one value. `default.nix`
+hands that set to each project as overrides, so a project's own `flake.nix`
+still says what it needs and the umbrella says where it comes from.
+
+The rule has two arms:
+
+**A working copy wins.** When the spec names a directory and that directory
+holds a `flake.nix`, the answer is the directory. Nix reads it where it lies,
+nothing is copied to the store, and a change in one project is built by the
+next with no commit, no push and no revision to bump. That is what the
+collection is for.
+
+**Otherwise the lock answers.** The revision becomes a pinned flake
+reference. It is pure, so an evaluation that reaches no working copy needs no
+`--impure` and no `NIX_PATH`.
+
+The test is the `flake.nix` and not the directory. A clone made without
+`--recurse-submodules` leaves every submodule directory present and empty,
+and so does a tarball of this repository. A directory test would pick the
+empty one.
 
 **One nixpkgs.** Built alone, the four resolve four different ones from four
-lock files. Here they share the one on `NIX_PATH`.
+lock files. Here they share the revision in the lock, which is the revision
+this machine's channel was on when the lock was written. Same content, same
+derivations: `hello.drvPath` is `gx2drhxsvkh7xr490rg7dpqyn53iw3z0` either
+way, so the pin costs no rebuild.
 
-**A sibling is a directory.** easykubenix asks for nanopynix and gets
-`./nanopynix`, read where it lies. So a change in one is built by the other
-with no commit, no push and no pin to bump. That is what the collection is
-for.
-
-Third-party inputs are unpinned flake references, fetched impurely. Nothing
-here goes stale and nothing needs maintaining, and a build takes whatever
-the branch holds today. That trade is deliberate: best-effort, not
-reproducible. Write a revision into the string when one starts moving under
-us.
-
-`flake-compatish` is the exception and carries a revision. Every evaluation
-goes through it before it can read anything else, so an unpinned one drifts
-under all four projects at once.
-
-### A pure evaluation cannot use the umbrella
-
-An unpinned reference is impure, and so is the `NIX_PATH` lookup that gives
-`nixpkgs`. So `nix eval` with no `--impure`, and a flake evaluation, both
-fail the moment they reach `nix/wire.nix`:
-
-    error: in pure evaluation mode, 'fetchTree' doesn't fetch unlocked
-           input 'github:...'
-
-A consumer that needs a pure evaluation has to set
-`FLAKE_COMPATISH_DISABLE_OVERRIDES=1`, and that reads each project's own
-`flake.lock` instead. It is safe, and it gives up what the umbrella is for:
-inside such an evaluation easykubenix reads its own lock, so it builds a
-published nanopynix rather than the one sitting next to it.
-
-There are three modes, and only two of them exist:
-
-| mode | what it is | state |
-| --- | --- | --- |
-| dev | local working copies, siblings from the umbrella | the default here |
-| pinned-consistent | umbrella at a revision, siblings from that umbrella | **missing** |
-| lock-faithful | every project reads its own lock | the env var |
-
-The middle one is what a downstream consumer wants, and it collapses into
-the third today, because that env var is one switch over two unrelated
-things: the local working copy, and the sibling substitution.
-
-Closing it means pinning every reference here and taking `nixpkgs` from the
-caller, which is the opposite of the trade above. That is a decision, not an
-oversight.
-
-An override that does not apply is silent, so the wiring is checked:
+An override that does not apply is silent, so the wiring is checked. Every
+name is judged, because a pinned reference lands on one store path and the
+check can say which:
 
     nix build --file . checks.wired && cat result
+
+### The three modes
+
+| mode | what it is | how |
+| --- | --- | --- |
+| dev | local working copies, siblings from the umbrella | the default here |
+| pinned-consistent | this repository at a revision, siblings from its lock | a checkout with no submodule contents |
+| lock-faithful | every project reads its own `flake.lock` | `FLAKE_COMPATISH_DISABLE_OVERRIDES=1` |
+
+The middle one is what a downstream consumer wants and it did not exist
+before the lock. It does now, and it needs nothing: take this repository at a
+revision, do not check the submodules out, and every sibling resolves to the
+revision that revision recorded. Measured from an archive of a commit,
+`nanopynix.nanopynix` is `kd9qc1536lii7l8lk724hd0d32l4aylx`, the same
+derivation the working copies give.
+
+The third mode stays what it was. It reads each project's own lock, so
+easykubenix builds a published nanopynix rather than the one next to it.
+That is what a project's own CI sets, to make a `--file .` build agree with a
+flake evaluation.
+
+### What the lock does not do yet
+
+The lock is a flat set of names, not a graph. A project's `flake.lock` can
+hold a second node for the same dependency -- easykubenix has `adios_2` and
+`flake-compatish_2`, both reached through nanopynix -- and an override is
+matched by node name, so those two are not reached. Nothing here declares
+them, so nothing here decides them. They come from the project's own lock.
+
+A sibling read as a store path rather than a working copy asks the umbrella
+again, and it asks the published one rather than the one that called it. So
+the pinned-consistent mode is consistent through the lock, not through the
+caller.
 
 ## The umbrella is the way in
 
@@ -151,6 +165,10 @@ it, nixidae is fetched with its submodules and the project puts its own
 working copy in place of the submodule that came down. So a project cloned
 on its own still builds through the umbrella, and still builds the source
 the user is sitting in.
+
+A project read as a store path is outside. `..` from a store path leaves the
+store root and Nix refuses it, so the question is asked only of a working
+copy.
 
 `nix/wire.nix` is the one implementation, and both directions call it.
 
