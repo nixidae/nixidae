@@ -125,6 +125,17 @@ A source that comes from the wrong place is quiet, so it is checked:
 
     nix build --file . checks.wired && cat result
 
+That check cannot see everything. The umbrella records a submodule pointer in
+its tree, and `nix/sources.lock` records a revision for the same project.
+`land` moves the pointer and leaves the lock alone, so the two drift apart
+with nothing to say so. Nix cannot read a gitlink, so no check here can
+report it. The tool can:
+
+    umbrella status    # a row reads lock-names-<rev> when the two disagree
+
+It needs no checkout, so it answers in a pinned checkout too, where the lock
+is the only thing that decides anything.
+
 ### Calling a flake, without being one
 
 A repository we do not own is often a flake, and sometimes its outputs are
@@ -215,7 +226,8 @@ revisions the siblings were on before they stopped being flakes, and those
 copies call `nix/wire.nix` with arguments it no longer takes. The lock has
 to be written again from the pushed revisions, and only a push can do that:
 the submodules are ahead of both the pointer and the lock. `umbrella status`
-shows the first half of that and not yet the second.
+says they are ahead. It says nothing about the lock here, because the lock
+and the pointer still agree with each other. They are both behind.
 
 ## The umbrella is the way in
 
