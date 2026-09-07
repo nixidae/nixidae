@@ -10,9 +10,10 @@
 # So every edge gets named and checked. An input the umbrella gives as a
 # directory has to arrive as that directory, in the project that declares it.
 #
-# Only the directories are judged. A flake reference is fetched, and the
-# store path it lands on is not something this can predict, so those are
-# reported and left alone.
+# Every name is judged, not only the directories. A flake reference from
+# nix/sources.lock carries a revision, so it lands on one store path and this
+# can say which. Before the lock the references were unpinned and their store
+# paths moved, and only paths could be checked.
 {
   lib,
   runCommand,
@@ -28,7 +29,9 @@ let
     "nixkube"
   ];
 
-  wanted = lib.filterAttrs (_: value: builtins.isPath value) inputs;
+  # A path stays a path. A flake reference is fetched here, once, so the
+  # comparison below is store path against store path.
+  wanted = builtins.mapAttrs (_: import ./fetch.nix) inputs;
 
   # Only what the project declares. A name it does not ask for is not a
   # missing edge, so `nixidae` itself and the three siblings a project never

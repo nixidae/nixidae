@@ -1,7 +1,7 @@
 {
   inputs ? import ./nix/inputs.nix,
   system ? builtins.currentSystem,
-  pkgs ? import inputs.nixpkgs {
+  pkgs ? import (import ./nix/fetch.nix inputs.nixpkgs) {
     inherit system;
     # nixkube asks for this, and nanopynix asks for it through the
     # `nixpkgsArgs` of its own nix/compat.nix. One package set for everybody
@@ -63,14 +63,9 @@ rec {
 
   # -- what the above is built out of --------------------------------------
 
-  umbrellaSource =
-    if builtins.pathExists ./umbrella/default.nix then
-      ./umbrella
-    else
-      pkgs.fetchFromGitHub {
-        owner = "Lillecarl";
-        repo = "umbrella";
-        rev = "2302d8d376a8ce415fe544416958ba24f05922f6";
-        hash = "sha256-y/Yownj5+DRPWKo3fATxPxpacNsP0SvKwU0DH483OYE=";
-      };
+  # umbrella is a source like any other now, so nix/sources.nix says where it
+  # comes from and nix/sources.lock says which revision. The fall-back for a
+  # clone made without the submodules is the same rule every other name gets,
+  # rather than a revision written down here.
+  umbrellaSource = import ./nix/fetch.nix inputs.umbrella;
 }
