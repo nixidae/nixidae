@@ -128,11 +128,15 @@ check can say which:
 | lock-faithful | every project reads its own `flake.lock` | `FLAKE_COMPATISH_DISABLE_OVERRIDES=1` |
 
 The middle one is what a downstream consumer wants and it did not exist
-before the lock. It does now, and it needs nothing: take this repository at a
-revision, do not check the submodules out, and every sibling resolves to the
-revision that revision recorded. Measured from an archive of a commit,
+before the lock. It does now: take this repository at a revision, do not
+check the submodules out, and every sibling resolves to the revision that
+revision recorded. Measured from an archive of a commit,
 `nanopynix.nanopynix` is `kd9qc1536lii7l8lk724hd0d32l4aylx`, the same
 derivation the working copies give.
+
+The chain through easykubenix is not measured that way yet. It reads
+nanopynix as a store path, and that path needs the fix in nanopynix that
+this lock does not point at yet.
 
 The third mode stays what it was. It reads each project's own lock, so
 easykubenix builds a published nanopynix rather than the one next to it.
