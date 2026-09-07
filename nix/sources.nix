@@ -25,27 +25,42 @@
 #
 #           The test is the file, not the directory. A clone without
 #           --recurse-submodules leaves the directory there and empty.
+#
+#   reroot  Optional. This is one of ours, so evaluate it as its own flake
+#           with this whole set behind it, rather than through whatever
+#           lock file happened to name it.
+#
+#           Without this a lock file decides a source's own inputs, and a
+#           lock file can hold a second node for the same dependency:
+#           easykubenix's lock reaches nanopynix, and that nanopynix takes
+#           `flake-compatish_2`, which no override by name can reach. With
+#           it, every edge between the names here points at the copy here,
+#           at any depth.
 {
   # The six repositories this checkout holds.
   nanopynix = {
     url = "https://github.com/Lillecarl/nanopynix.git";
     branch = "develop";
     path = ../nanopynix;
+    reroot = true;
   };
   pynixd = {
     url = "https://github.com/Lillecarl/pynixd.git";
     branch = "develop";
     path = ../pynixd;
+    reroot = true;
   };
   easykubenix = {
     url = "https://github.com/Lillecarl/easykubenix.git";
     branch = "develop";
     path = ../easykubenix;
+    reroot = true;
   };
   nixkube = {
     url = "https://github.com/Lillecarl/nixkube.git";
     branch = "develop";
     path = ../nixkube;
+    reroot = true;
   };
   umbrella = {
     url = "https://github.com/Lillecarl/umbrella.git";
@@ -53,7 +68,7 @@
     path = ../umbrella;
   };
 
-  # Everything the five ask for.
+  # Everything the six ask for.
   #
   # nixpkgs was `<nixpkgs>` here until the lock existed. The lock holds the
   # revision this machine's channel was on, and a locked fetch of that

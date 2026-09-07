@@ -25,6 +25,15 @@
 
   inputs ? import ./inputs.nix,
 
+  # Which names to evaluate as their own flake rather than through whatever
+  # lock file names them. nix/sources.nix carries the flag; see the comment
+  # on it there.
+  reroot ?
+    let
+      spec = import ./sources.nix;
+    in
+    builtins.filter (name: spec.${name}.reroot or false) (builtins.attrNames spec),
+
   # One package set for each system, built from the nixpkgs above and handed
   # to every project as `self.legacyPackages`.
   #
@@ -47,19 +56,41 @@ let
   flake-compatish = import (import ./fetch.nix wired.flake-compatish);
 
   src = wired.${project};
+
+  # Evaluate one name as its own flake, with the whole set behind it.
+  #
+  # The overrides are that whole set. flake-compatish reads the flake.nix for
+  # the names it declares and ignores the rest, so nothing here has to know
+  # which project wants what.
+  #
+  # `self` has to be the working copy too, or flake-compatish copies the
+  # source to the store before reading it, which is the round trip this
+  # arrangement exists to avoid.
+  evaluate =
+    source:
+    (flake-compatish {
+      inherit source;
+      overrides = wired // {
+        self = source;
+      };
+      reroot = roots;
+      inherit nixpkgsArgs;
+      warnOverrides = false;
+    });
+
+  # Each of ours, evaluated once, with each other in place of whatever their
+  # lock files name.
+  #
+  # The set refers to itself, which is what closes the chain: nanopynix reads
+  # easykubenix from here, and that easykubenix reads nanopynix from here. It
+  # is lazy, so the cycle between those two costs nothing as long as neither
+  # forces the other all the way round -- the same shape flake-compatish
+  # already uses for the nodes of one lock file.
+  roots = builtins.listToAttrs (
+    map (name: {
+      inherit name;
+      value = (evaluate wired.${name}).outputs;
+    }) reroot
+  );
 in
-# The overrides are the whole set. flake-compatish reads the project's own
-# flake.nix for the names it declares and ignores the rest, so nothing here
-# has to know which project wants what.
-#
-# `self` has to be the working copy too, or flake-compatish copies the
-# project to the store before reading it, which is the round trip this
-# arrangement exists to avoid.
-(flake-compatish {
-  source = src;
-  overrides = wired // {
-    self = src;
-  };
-  inherit nixpkgsArgs;
-  warnOverrides = false;
-}).inputs
+(evaluate src).inputs
