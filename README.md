@@ -144,18 +144,35 @@ easykubenix builds a published nanopynix rather than the one next to it.
 That is what a project's own CI sets, to make a `--file .` build agree with a
 flake evaluation.
 
-### What the lock does not do yet
+### The flat set beats the graph
 
-The lock is a flat set of names, not a graph. A project's `flake.lock` can
-hold a second node for the same dependency -- easykubenix has `adios_2` and
-`flake-compatish_2`, both reached through nanopynix -- and an override is
-matched by node name, so those two are not reached. Nothing here declares
-them, so nothing here decides them. They come from the project's own lock.
+The lock is a flat set of names and not a graph, and it does not need to be
+one. Each of ours is evaluated as its own flake with the whole set behind
+it, so every edge between them points at the copy here, at whatever depth.
 
-A sibling read as a store path rather than a working copy asks the umbrella
-again, and it asks the published one rather than the one that called it. So
-the pinned-consistent mode is consistent through the lock, not through the
-caller.
+That took a change to flake-compatish. An override replaces a node's source
+and keeps the lock file's idea of that node's own inputs, and a lock file
+can hold a second node for the same dependency: easykubenix's lock reaches
+nanopynix, and that nanopynix took `flake-compatish_2`. An override is
+matched by node name, so a name with a suffix was out of reach. Measured, it
+was `/nix/store/91ak9bdm0a7b0kq6b40dhrvnmizgb8ky-source`.
+
+`reroot` replaces the whole flake instead, keyed by the input name rather
+than the node name, and the input has no suffix. `nix/wire.nix` builds that
+set, and it refers to itself: nanopynix reads easykubenix from it and that
+easykubenix reads nanopynix from it. Lazy, so the cycle costs nothing. Same
+measurement now gives the working copy.
+
+`nix/sources.nix` carries the `reroot` flag, so the set is the four projects
+and nothing else. A third-party flake still reads its own lock below the
+first level. Flag one to change that.
+
+### What is still open
+
+nixkube declares easykubenix `flake = false`, so it gets a directory rather
+than a flake and calls it with no inputs. That copy asks for an umbrella of
+its own. Inside this checkout it finds the right one; from a store path it
+finds none and fetches the published one.
 
 ## The umbrella is the way in
 
