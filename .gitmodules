@@ -22,3 +22,7 @@
 	path = flake-compatish
 	url = https://github.com/lillecarl/flake-compatish.git
 	branch = main
+[submodule "user-mode-nixos"]
+	path = user-mode-nixos
+	url = https://github.com/lillecarl/user-mode-nixos.git
+	branch = develop

@@ -27,7 +27,7 @@
 #           --recurse-submodules leaves the directory there and empty, and
 #           so does a tarball of this repository.
 {
-  # The six repositories this checkout holds.
+  # The seven repositories this checkout holds.
   nanopynix = {
     url = "https://github.com/Lillecarl/nanopynix.git";
     branch = "develop";
@@ -52,6 +52,11 @@
     url = "https://github.com/Lillecarl/umbrella.git";
     branch = "main";
     path = ../umbrella;
+  };
+  user-mode-nixos = {
+    url = "https://github.com/lillecarl/user-mode-nixos.git";
+    branch = "develop";
+    path = ../user-mode-nixos;
   };
 
   # Everything the six ask for.
