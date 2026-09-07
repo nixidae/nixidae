@@ -136,6 +136,15 @@ report it. The tool can:
 It needs no checkout, so it answers in a pinned checkout too, where the lock
 is the only thing that decides anything.
 
+`nix/seed-lock.sh` is what answers that row. It writes the lock again, taking
+the recorded pointer for each submodule and the head of the declared branch
+for everything else, and it prints rather than writes:
+
+    nix/seed-lock.sh > nix/sources.lock.new && mv nix/sources.lock{.new,}
+
+So a run is a re-sync for our own six and an update for the third parties.
+That includes nixpkgs, and moving nixpkgs rebuilds the world. Read the diff.
+
 ### Calling a flake, without being one
 
 A repository we do not own is often a flake, and sometimes its outputs are
