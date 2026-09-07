@@ -75,6 +75,12 @@ rec {
     inherit system;
   };
 
+  checks = {
+    # That the wiring above is real. nix/wired.nix says why an override that
+    # quietly does not apply is worse than one that breaks.
+    wired = pkgs.callPackage ./nix/wired.nix { inherit projectInputs inputs; };
+  };
+
   # -- what the above is built out of --------------------------------------
 
   # Fetched unpinned, like every other third-party input here. It is the one
