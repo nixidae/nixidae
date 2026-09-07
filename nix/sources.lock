@@ -95,6 +95,14 @@
       "repo": "umbrella",
       "rev": "2302d8d376a8ce415fe544416958ba24f05922f6",
       "type": "github"
+    },
+    "user-mode-nixos": {
+      "lastModified": 1785848592,
+      "narHash": "sha256-evzLeMGR20x5iPzEeE1XwZKsr2bX3rGr5S+f4Rvz8Kg=",
+      "owner": "lillecarl",
+      "repo": "user-mode-nixos",
+      "rev": "02e62d8e6f8f9b5d1b662f71969ad4924a7c6e18",
+      "type": "github"
     }
   },
   "version": 1
