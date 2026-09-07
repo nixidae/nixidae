@@ -102,7 +102,25 @@ An override that does not apply is silent, so the wiring is checked:
 
     nix build --file . checks.wired && cat result
 
-One seam is still open. easykubenix imports nanopynix itself, and passes it
-only the package set, so that nested copy takes its own other inputs from
-its own lock. Closing it means easykubenix taking nanopynix as an argument,
-which is the per-project restructuring that comes next.
+### What this does not reach yet
+
+A project that imports another one passes it the package set and not the
+inputs, so the umbrella owns the first hop and not the second.
+
+**easykubenix to nanopynix.** The source is right: easykubenix reads
+`./nanopynix`, the working copy. What that copy then resolves for itself --
+pyproject-nix, tree-sitter-nix-numtide -- comes from nanopynix's own lock.
+
+**nixkube to easykubenix to nanopynix.** The first hop is right for the same
+reason. The second is not: nixkube calls easykubenix without an `inputs`
+argument, so that copy falls back to its own lock and builds a published
+nanopynix tarball, not `./nanopynix`. An edit in nanopynix does not reach a
+nixkube build.
+
+`checks.wired` judges the first hop only, and cannot see either of these. It
+compares the inputs a project declares against what the umbrella gives it,
+and a project that imports another does not declare that copy's inputs at
+all.
+
+Closing this means a project taking its sibling as an argument rather than
+importing it, which is the per-project restructuring that comes next.
