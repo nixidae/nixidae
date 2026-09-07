@@ -73,8 +73,9 @@ checkout it came from.
     nix-shell                       # umbrella, jj and git
 
 Each project still has its own `default.nix`, its own `.envrc` and its own
-dev shell, and builds on its own exactly as before. Entering a project
-directory gets that project's environment.
+dev shell. Entering a project directory gets that project's environment, and
+a build started there gives the same answer as a build started here, because
+it goes through the umbrella too. See below.
 
 ## The umbrella owns the inputs
 
@@ -102,25 +103,35 @@ An override that does not apply is silent, so the wiring is checked:
 
     nix build --file . checks.wired && cat result
 
-### What this does not reach yet
+## The umbrella is the way in
 
-A project that imports another one passes it the package set and not the
-inputs, so the umbrella owns the first hop and not the second.
+A project does not wait to be called from here. Each `default.nix` asks the
+umbrella for its inputs itself:
 
-**easykubenix to nanopynix.** The source is right: easykubenix reads
-`./nanopynix`, the working copy. What that copy then resolves for itself --
-pyproject-nix, tree-sitter-nix-numtide -- comes from nanopynix's own lock.
+    nix build --file . nanopynix        # from here
+    cd nanopynix && nix build --file .  # the same inputs
 
-**nixkube to easykubenix to nanopynix.** The first hop is right for the same
-reason. The second is not: nixkube calls easykubenix without an `inputs`
-argument, so that copy falls back to its own lock and builds a published
-nanopynix tarball, not `./nanopynix`. An edit in nanopynix does not reach a
-nixkube build.
+Inside this checkout a project finds `../nix/wire.nix` and uses it. Outside
+it, nixidae is fetched with its submodules and the project puts its own
+working copy in place of the submodule that came down. So a project cloned
+on its own still builds through the umbrella, and still builds the source
+the user is sitting in.
 
-`checks.wired` judges the first hop only, and cannot see either of these. It
-compares the inputs a project declares against what the umbrella gives it,
-and a project that imports another does not declare that copy's inputs at
-all.
+`nix/wire.nix` is the one implementation, and both directions call it.
 
-Closing this means a project taking its sibling as an argument rather than
-importing it, which is the per-project restructuring that comes next.
+Two things follow.
+
+**Nesting closes by itself.** easykubenix imports nanopynix, and that copy
+asks the umbrella the same question, so it is the working copy in the next
+directory. The nixkube to easykubenix to nanopynix chain is the same
+derivation as `nanopynix.nanopynix` here. Both hops were published tarballs
+before.
+
+**A clone from outside needs SSH to GitHub.** `.gitmodules` names the
+submodules by `git@github.com:`, so the fetch of the umbrella pulls them
+that way.
+
+`FLAKE_COMPATISH_DISABLE_OVERRIDES=1` turns all of this off and reads the
+project's own lock, which is what its CI sets to make a `--file .` build
+agree with a flake evaluation. A flake evaluation passes `inputs` itself and
+never reaches the default at all.
