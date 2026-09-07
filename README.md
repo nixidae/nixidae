@@ -86,6 +86,9 @@ re-exposed what its `default.nix` already returns, and the umbrella supplied
 those inputs anyway, so the declaration decided nothing and the `flake.lock`
 beside it was a second pin of sources this repository already pins.
 
+One `flake.nix` is left, under `easykubenix/docs/examples/example-flake`. It
+is documentation of how a consumer writes one, not a way in.
+
 Two files say where every source comes from, and each has one writer.
 
 | file | holds | written by |
@@ -146,9 +149,16 @@ read.
 
 The second one is what a downstream consumer wants: take this repository at
 a revision, do not check the submodules out, and every name resolves to the
-revision that revision recorded. Measured from an archive of a commit,
-`nanopynix.nanopynix` is `kd9qc1536lii7l8lk724hd0d32l4aylx`, the same
-derivation the working copies give.
+revision that revision recorded. Measured from an archive of an earlier
+commit, `nanopynix.nanopynix` is `kd9qc1536lii7l8lk724hd0d32l4aylx`, the
+same derivation the working copies give.
+
+**It does not work at this commit.** `nix/sources.lock` still names the
+revisions the siblings were on before they stopped being flakes, and those
+copies call `nix/wire.nix` with arguments it no longer takes. The lock has
+to be written again from the pushed revisions, and only a push can do that:
+the submodules are ahead of both the pointer and the lock. `umbrella status`
+shows the first half of that and not yet the second.
 
 ## The umbrella is the way in
 
