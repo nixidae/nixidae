@@ -128,12 +128,38 @@ A source that comes from the wrong place is quiet, so it is checked:
 ### Calling a flake, without being one
 
 A repository we do not own is often a flake, and sometimes its outputs are
-the only way in. `nix/call-flake.nix` reads one, with these sources in place
-of whatever its own lock names. It is the only place a flake is read.
+the only way in. `nix/call-flake.nix` reads one by name, with these sources
+in place of whatever its own lock names. It is the only place a flake is
+read.
 
-Nothing uses it today. Every third party here has a plain entry point, and
-the last one to need a flake was treefmt-nix: `inputs.treefmt-nix.lib.mkWrapper`
-became `(import sources.treefmt-nix).mkWrapper`, which takes the same two
+That is a real thing to want in an impure evaluation. `nix flake` would make
+the caller write the override as a `follows` in a lock file of their own;
+this takes an attribute set, so the caller decides at the call site and
+needs no lock.
+
+    nix build --file . checks.callFlake && cat result
+
+`nix/examples/call-flake.nix` is the worked example and the gate over it.
+Three flakes, and each shows something the next does not:
+
+| flake | what it shows |
+| --- | --- |
+| `treefmt-nix` | the override applies, and `lib.mkWrapper` is built and run |
+| `pyproject-nix` | the same on a second flake — nothing is specific to the first |
+| `tree-sitter-nix` | `nixpkgs` from here, `flake-utils` from its own lock |
+
+The third one is the rule worth stating: **an override set does not have to
+be complete.** A name the umbrella carries is replaced; a name it does not
+is not an error and is not left unresolved, because the flake's own lock
+answers for it.
+
+The gate goes red. `FLAKE_COMPATISH_DISABLE_OVERRIDES=1` turns the overrides
+off, all three fall back to their own locks, and the failure names which.
+
+Nothing else uses it. Every third party here has a plain entry point, and
+the last one to need a flake was treefmt-nix itself:
+`inputs.treefmt-nix.lib.mkWrapper` became
+`(import sources.treefmt-nix).mkWrapper`, which takes the same two
 arguments.
 
 ### A door for a flake consumer
