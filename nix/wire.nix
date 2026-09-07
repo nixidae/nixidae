@@ -24,6 +24,20 @@
   source ? null,
 
   inputs ? import ./inputs.nix,
+
+  # One package set for each system, built from the nixpkgs above and handed
+  # to every project as `self.legacyPackages`.
+  #
+  # The default is what nanopynix's own nix/compat.nix passed, and nixkube
+  # asks for the same thing. Dropping it here would give a project that
+  # reaches `inputs.nixpkgs.legacyPackages` a set with no allowUnfree, which
+  # is not what it gets when it builds on its own.
+  nixpkgsArgs ? (
+    system: {
+      inherit system;
+      config.allowUnfree = true;
+    }
+  ),
 }:
 let
   wired = inputs // (if source == null then { } else { ${project} = source; });
@@ -44,5 +58,6 @@ in
   overrides = wired // {
     self = src;
   };
+  inherit nixpkgsArgs;
   warnOverrides = false;
 }).inputs
