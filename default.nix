@@ -34,23 +34,31 @@ rec {
   # itself is what makes an argument to this file reach the projects.
   projectInputs = project: import ./nix/wire.nix { inherit project inputs; };
 
-  nanopynix = import ./nanopynix {
+  # Where a project is read from. `./nanopynix` would work in this checkout
+  # and nowhere else: a tarball of this repository, and a clone made without
+  # --recurse-submodules, both leave that directory present and empty. Asking
+  # nix/inputs.nix gives the working copy when there is one and the revision
+  # in nix/sources.lock when there is not, so the same expression builds in
+  # both places.
+  projectSource = project: import ./nix/fetch.nix inputs.${project};
+
+  nanopynix = import (projectSource "nanopynix") {
     inputs = projectInputs "nanopynix";
     inherit system pkgs;
   };
 
-  easykubenix = import ./easykubenix {
+  easykubenix = import (projectSource "easykubenix") {
     inputs = projectInputs "easykubenix";
     inherit system pkgs;
   };
 
   # No `inputs` argument, and it needs none. nixpkgs is the only input it has
   # that reaches a build, and `pkgs` is that already resolved.
-  pynixd = import ./pynixd { inherit pkgs; };
+  pynixd = import (projectSource "pynixd") { inherit pkgs; };
 
   # It builds its own package set, because it applies an overlay of its own,
   # so it takes the sources rather than the set.
-  nixkube = import ./nixkube {
+  nixkube = import (projectSource "nixkube") {
     inputs = projectInputs "nixkube";
     inherit system;
   };
@@ -67,5 +75,5 @@ rec {
   # comes from and nix/sources.lock says which revision. The fall-back for a
   # clone made without the submodules is the same rule every other name gets,
   # rather than a revision written down here.
-  umbrellaSource = import ./nix/fetch.nix inputs.umbrella;
+  umbrellaSource = projectSource "umbrella";
 }
