@@ -55,5 +55,12 @@ rec {
     # one. nix/wired.nix says why a source that quietly comes from the wrong
     # place is worse than one that breaks.
     wired = pkgs.callPackage ./nix/wired.nix { inherit sources; };
+
+    # That calling a flake we do not own uses our inputs and not its lock.
+    # nix/examples/call-flake.nix is the worked example as well as the gate.
+    callFlake = pkgs.callPackage ./nix/examples/call-flake.nix {
+      inherit sources inputs pkgs;
+      callFlake = callFlake;
+    };
   };
 }
