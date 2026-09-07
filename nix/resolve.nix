@@ -11,10 +11,13 @@
 #   pinned flake reference. It is pure, so an evaluation that never touches a
 #   working copy needs no --impure.
 #
-# The test for a working copy is the flake.nix, not the directory. `git clone`
-# without --recurse-submodules leaves every submodule directory present and
-# empty, and so does a tarball of this repository. A directory test would pick
-# the empty one and fail later with a confusing error.
+# The test for a working copy is that the directory has something in it, not
+# that it is there. `git clone` without --recurse-submodules leaves every
+# submodule directory present and empty, and so does a tarball of this
+# repository. Picking one of those gives a confusing error later.
+#
+# Emptiness and not a marker file, because our repositories are not flakes
+# and have no one file they all carry.
 #
 # The value is a path or a flake reference string, because that is what
 # flake-compatish takes as an override. Nothing here fetches, so a name a
@@ -51,7 +54,10 @@ let
     name: entrySpec:
     let
       workingCopy = entrySpec.path or null;
-      hasWorkingCopy = workingCopy != null && builtins.pathExists (workingCopy + "/flake.nix");
+      hasWorkingCopy =
+        workingCopy != null
+        && builtins.pathExists workingCopy
+        && builtins.readDir workingCopy != { };
       locked = lock.sources.${name} or null;
     in
     if hasWorkingCopy then

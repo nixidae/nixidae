@@ -1,79 +1,59 @@
 {
   inputs ? import ./nix/inputs.nix,
   system ? builtins.currentSystem,
+  # nix/fetch.nix and not `sources` below, because an argument cannot see the
+  # body it belongs to.
   pkgs ? import (import ./nix/fetch.nix inputs.nixpkgs) {
     inherit system;
-    # nixkube asks for this, and nanopynix asks for it through the
-    # `nixpkgsArgs` of its own nix/compat.nix. One package set for everybody
-    # means the umbrella has to ask for it too, or those two would each need
-    # a set of their own and the sharing would be gone.
+    # nixkube asks for this, and so does nanopynix. One package set for
+    # everybody means the umbrella has to ask for it too, or those two would
+    # each need a set of their own and the sharing would be gone.
     config.allowUnfree = true;
   },
 }:
 rec {
+  # Every source, as a directory. Each project takes this and imports what it
+  # wants; none of them is a flake, so there is nothing else to resolve.
+  #
+  # nix/wire.nix is the one implementation, and a project's own default.nix
+  # calls it too. Passing `inputs` here rather than letting it read
+  # nix/inputs.nix itself is what makes an argument to this file reach the
+  # projects.
+  sources = import ./nix/wire.nix { inherit inputs; };
+
+  # Read a flake we do not own, with these sources in place of its own lock.
+  callFlake = import ./nix/call-flake.nix { inherit inputs; };
+
   # umbrella drives this collection. It keeps a submodule commit that no
   # remote has out of the pointers recorded here, and it makes worktreespaces
   # that share storage instead of cloning every repository again.
   #
   # It is a submodule too, so it can be edited in place like the rest. It is
   # also the tool that checks the submodules out, so a clone made without them
-  # has to be able to build it anyway: when the directory is not there, fall
-  # back to the commit this repository pins.
-  umbrella = (import umbrellaSource { inherit pkgs; }).umbrella;
+  # has to be able to build it anyway: `sources` gives the revision in
+  # nix/sources.lock when the directory is not there.
+  umbrella = (import sources.umbrella { inherit pkgs; }).umbrella;
 
   shell = pkgs.callPackage ./pkgs/shell { inherit umbrella; };
 
   # -- the four projects ---------------------------------------------------
   #
-  # Each one keeps its own flake.nix and its own flake.lock, because each one
-  # is still a repository somebody can build on its own. What changes here is
-  # only which sources those declarations resolve to.
-  #
-  # nix/wire.nix does the work, and each project's own default.nix calls it
-  # too. Passing `inputs` here rather than letting it read nix/inputs.nix
-  # itself is what makes an argument to this file reach the projects.
-  projectInputs = project: import ./nix/wire.nix { inherit project inputs; };
+  # Each one is a repository somebody can build on its own, and each one asks
+  # the umbrella for the same set this file hands it here.
+  pynixd = import sources.pynixd { inherit pkgs sources; };
 
-  # Where a project is read from. `./nanopynix` would work in this checkout
-  # and nowhere else: a tarball of this repository, and a clone made without
-  # --recurse-submodules, both leave that directory present and empty. Asking
-  # nix/inputs.nix gives the working copy when there is one and the revision
-  # in nix/sources.lock when there is not, so the same expression builds in
-  # both places.
-  projectSource = project: import ./nix/fetch.nix inputs.${project};
+  nanopynix = import sources.nanopynix { inherit pkgs sources system; };
 
-  nanopynix = import (projectSource "nanopynix") {
-    inputs = projectInputs "nanopynix";
-    inherit system pkgs;
-  };
-
-  easykubenix = import (projectSource "easykubenix") {
-    inputs = projectInputs "easykubenix";
-    inherit system pkgs;
-  };
-
-  # No `inputs` argument, and it needs none. nixpkgs is the only input it has
-  # that reaches a build, and `pkgs` is that already resolved.
-  pynixd = import (projectSource "pynixd") { inherit pkgs; };
+  easykubenix = import sources.easykubenix { inherit pkgs sources system; };
 
   # It builds its own package set, because it applies an overlay of its own,
   # so it takes the sources rather than the set.
-  nixkube = import (projectSource "nixkube") {
-    inputs = projectInputs "nixkube";
-    inherit system;
-  };
+  nixkube = import sources.nixkube { inherit sources system; };
 
   checks = {
-    # That the wiring above is real. nix/wired.nix says why an override that
-    # quietly does not apply is worse than one that breaks.
-    wired = pkgs.callPackage ./nix/wired.nix { inherit projectInputs inputs; };
+    # That every name resolves, and that a working copy wins where there is
+    # one. nix/wired.nix says why a source that quietly comes from the wrong
+    # place is worse than one that breaks.
+    wired = pkgs.callPackage ./nix/wired.nix { inherit sources; };
   };
-
-  # -- what the above is built out of --------------------------------------
-
-  # umbrella is a source like any other now, so nix/sources.nix says where it
-  # comes from and nix/sources.lock says which revision. The fall-back for a
-  # clone made without the submodules is the same rule every other name gets,
-  # rather than a revision written down here.
-  umbrellaSource = projectSource "umbrella";
 }
