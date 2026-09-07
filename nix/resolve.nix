@@ -19,9 +19,11 @@
 # Emptiness and not a marker file, because our repositories are not flakes
 # and have no one file they all carry.
 #
-# The value is a path or a flake reference string, because that is what
-# flake-compatish takes as an override. Nothing here fetches, so a name a
-# project never asks for costs nothing.
+# The value is a path or a flake reference string, and not a directory,
+# because a flake reference is what flake-compatish takes as an override and
+# nix/call-flake.nix needs one. nix/fetch.nix turns either into a directory,
+# and nix/wire.nix is the set of those. Nothing here fetches, so a name
+# nobody asks for costs nothing.
 {
   spec,
   lock,
