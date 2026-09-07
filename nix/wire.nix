@@ -42,7 +42,9 @@
 let
   wired = inputs // (if source == null then { } else { ${project} = source; });
 
-  flake-compatish = import (builtins.fetchTree (builtins.parseFlakeRef wired.flake-compatish));
+  # nix/fetch.nix and not parseFlakeRef, because flake-compatish is a working
+  # copy in this checkout now and parseFlakeRef takes a string.
+  flake-compatish = import (import ./fetch.nix wired.flake-compatish);
 
   src = wired.${project};
 in

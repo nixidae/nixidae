@@ -26,7 +26,7 @@
 #           The test is the file, not the directory. A clone without
 #           --recurse-submodules leaves the directory there and empty.
 {
-  # The five repositories this checkout holds.
+  # The six repositories this checkout holds.
   nanopynix = {
     url = "https://github.com/Lillecarl/nanopynix.git";
     branch = "develop";
@@ -64,9 +64,14 @@
     url = "https://github.com/NixOS/nixpkgs.git";
     branch = "nixpkgs-unstable";
   };
+  # A working copy like the four projects, because the umbrella workflow is
+  # what it has to serve. Every evaluation here goes through it, so a change
+  # to it is a change to how all of this resolves, and that is easier to make
+  # with the source in the next directory than with a revision to bump.
   flake-compatish = {
     url = "https://github.com/lillecarl/flake-compatish.git";
     branch = "main";
+    path = ../flake-compatish;
   };
   pyproject-nix = {
     url = "https://github.com/pyproject-nix/pyproject.nix.git";

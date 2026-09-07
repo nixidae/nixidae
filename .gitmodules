@@ -18,3 +18,7 @@
 	path = umbrella
 	url = https://github.com/Lillecarl/umbrella.git
 	branch = main
+[submodule "flake-compatish"]
+	path = flake-compatish
+	url = https://github.com/lillecarl/flake-compatish.git
+	branch = main

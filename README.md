@@ -1,7 +1,7 @@
 # nixidae
 
-One checkout that holds five repositories: four projects and the tool that
-drives them.
+One checkout that holds six repositories: four projects, the tool that
+drives them, and the library they all evaluate through.
 
 | directory | what it is |
 | --- | --- |
@@ -10,6 +10,7 @@ drives them.
 | `easykubenix` | Like kubenix, but easier |
 | `nixkube` | A CSI driver for Nixxing Kubernetes |
 | `umbrella` | The tool that drives this collection |
+| `flake-compatish` | Evaluate a flake without the flake evaluator |
 
 Each project keeps its own repository, its own history and its own remote.
 The umbrella adds one thing: a known-good set of them, recorded as submodule
