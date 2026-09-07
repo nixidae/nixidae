@@ -41,7 +41,7 @@ pointer, so a jj umbrella could never do the one job an umbrella has.
     umbrella sync           # move the submodules onto the recorded pointers
     umbrella land -m "..."  # push the submodules, then record where they are
     umbrella update         # write nix/sources.lock from what is recorded
-    umbrella skip <name>    # leave one out, and take it from the lock instead
+    umbrella skip --drop <name>  # leave one out, and take it from the lock
 
 `land` is the one that publishes. It pushes each submodule that moved, then
 stages the new pointer, and only then commits the umbrella. That order is
@@ -126,17 +126,24 @@ submodule with no working copy comes from the store while its neighbours come
 from disk. Nobody works on all six at once, and `umbrella skip` says which
 ones this checkout leaves out:
 
-    umbrella skip nixkube        # leave it out, take it from the lock
-    umbrella skip                # show what is left out
-    umbrella skip --rm nixkube   # take it back
+    umbrella skip --drop nixkube   # remove the working copy, take the lock
+    umbrella skip                  # show what is left out
+    umbrella skip --rm nixkube     # take it back
 
 `initgit` then does not clone it, `sync` and `land` step over it, and
 `status` calls it `from the lock`. The choice lives in `.git`, so it is never
 committed and never shared, and a worktreespace inherits it.
 
 It changes nothing about how a source resolves. Nix reads a working copy
-before the lock whatever the marker says, which is why skipping one that is
-already checked out is refused rather than recorded.
+before the lock whatever the marker says, which is why plain `skip` on one
+that is already checked out is refused rather than recorded.
+
+`--drop` removes it, and refuses over anything a re-checkout could not bring
+back: an unresolved conflict, uncommitted work, a commit on no remote branch,
+or another working copy sharing this one. It collects every reason before the
+first removal, so a run that refuses one has not already dropped another. git
+keeps the repository under `.git/modules`, so taking it back downloads
+nothing.
 
 Landing a new commit for a skipped submodule means checking it out again
 first. The pre-push hook verifies a pointer by looking in the checkout, and a
