@@ -66,13 +66,43 @@ checkout it came from.
 ## Building
 
     nix build --file . umbrella
-    nix-shell               # umbrella, jj and git
+    nix build --file . nanopynix.nanopynix
+    nix build --file . easykubenix.manifestJSONFile
+    nix build --file . pynixd.package
+    nix build --file . nixkube.nixkube-docs
+    nix-shell                       # umbrella, jj and git
 
-The four projects are not composed into one package set yet. Each carries
-its own `default.nix`, its own flake inputs and its own dev shell, and the
-signatures do not agree. Build each from its own directory, the way you did
-before it moved in here. Every project has an `.envrc`, so direnv gets you
-the right environment when you enter one.
+Each project still has its own `default.nix`, its own `.envrc` and its own
+dev shell, and builds on its own exactly as before. Entering a project
+directory gets that project's environment.
 
-Agreeing on that signature, and splitting the projects further, is the next
-phase. Getting the collection into one checkout came first.
+## The umbrella owns the inputs
+
+`nix/inputs.nix` names every input once. `default.nix` gives that set to
+each project as overrides, so a project's own `flake.nix` still says what it
+needs and the umbrella says where it comes from.
+
+Two things follow.
+
+**One nixpkgs.** Built alone, the four resolve four different ones from four
+lock files. Here they share the one on `NIX_PATH`.
+
+**A sibling is a directory.** easykubenix asks for nanopynix and gets
+`./nanopynix`, read where it lies. So a change in one is built by the other
+with no commit, no push and no pin to bump. That is what the collection is
+for.
+
+Third-party inputs are unpinned flake references, fetched impurely. Nothing
+here goes stale and nothing needs maintaining, and a build takes whatever
+the branch holds today. That trade is deliberate: best-effort, not
+reproducible. Write a revision into the string when one starts moving under
+us.
+
+An override that does not apply is silent, so the wiring is checked:
+
+    nix build --file . checks.wired && cat result
+
+One seam is still open. easykubenix imports nanopynix itself, and passes it
+only the package set, so that nested copy takes its own other inputs from
+its own lock. Closing it means easykubenix taking nanopynix as an argument,
+which is the per-project restructuring that comes next.
