@@ -127,9 +127,10 @@ directory. The nixkube to easykubenix to nanopynix chain is the same
 derivation as `nanopynix.nanopynix` here. Both hops were published tarballs
 before.
 
-**A clone from outside needs SSH to GitHub.** `.gitmodules` names the
-submodules by `git@github.com:`, so the fetch of the umbrella pulls them
-that way.
+**A fetch from outside needs no key.** `.gitmodules` names the submodules by
+`https://`, so a CI runner reaches them. This checkout still pushes over
+SSH: `.gitmodules` says what a clone starts with, and `.git/config` holds
+what this checkout uses.
 
 `FLAKE_COMPATISH_DISABLE_OVERRIDES=1` turns all of this off and reads the
 project's own lock, which is what its CI sets to make a `--file .` build
