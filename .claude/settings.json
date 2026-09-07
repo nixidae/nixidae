@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "umbrella hook worktree-create"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "umbrella hook worktree-remove"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "jj-worktrees@skills-dir": false,
+    "wrapty@skills-dir": true
+  }
+}
