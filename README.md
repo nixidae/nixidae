@@ -1,7 +1,8 @@
 # nixidae
 
-One checkout that holds six repositories: four projects, the tool that
-drives them, and the library that reads other people's flakes.
+One checkout that holds seven repositories: four projects, the tool that
+drives them, the library that reads other people's flakes, and the one that
+boots a NixOS guest without KVM so a test can be a derivation.
 
 | directory | what it is |
 | --- | --- |
@@ -11,6 +12,7 @@ drives them, and the library that reads other people's flakes.
 | `nixkube` | A CSI driver for Nixxing Kubernetes |
 | `umbrella` | The tool that drives this collection |
 | `flake-compatish` | Read a flake we do not own |
+| `user-mode-nixos` | NixOS integration tests on User-Mode Linux |
 
 Each project keeps its own repository, its own history and its own remote.
 The umbrella adds one thing: a known-good set of them, recorded as submodule
@@ -77,6 +79,7 @@ checkout it came from.
     nix build --file . easykubenix.manifestJSONFile
     nix build --file . pynixd.package
     nix build --file . nixkube.nixkube-docs
+    nix build --file . user-mode-nixos.lan
     nix-shell                       # umbrella, jj and git
 
 Each project still has its own `default.nix`, its own `.envrc` and its own
@@ -123,7 +126,7 @@ present and empty, and so does a tarball of this repository.
 
 **One source at a time.** The two arms are per name, not per checkout, so a
 submodule with no working copy comes from the store while its neighbours come
-from disk. Nobody works on all six at once, and `umbrella skip` says which
+from disk. Nobody works on all seven at once, and `umbrella skip` says which
 ones this checkout leaves out:
 
     umbrella skip --drop nixkube   # remove the working copy, take the lock

@@ -50,6 +50,11 @@ rec {
   # so it takes the sources rather than the set.
   nixkube = import sources.nixkube { inherit sources system; };
 
+  # NixOS integration tests on User-Mode Linux, so a guest is a process and a
+  # test is a derivation that passes or fails. easykubenix drives
+  # `ekn kubeapply` against a cluster it builds.
+  user-mode-nixos = import sources.user-mode-nixos { inherit pkgs sources system; };
+
   checks = {
     # That every name resolves, and that a working copy wins where there is
     # one. nix/wired.nix says why a source that quietly comes from the wrong

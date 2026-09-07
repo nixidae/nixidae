@@ -59,7 +59,7 @@
     path = ../user-mode-nixos;
   };
 
-  # Everything the six ask for.
+  # Everything the seven ask for.
   #
   # nixpkgs was `<nixpkgs>` here until the lock existed. The lock holds the
   # revision this machine's channel was on, and a locked fetch of that
