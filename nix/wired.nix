@@ -36,7 +36,7 @@ let
   check =
     project:
     let
-      got = projectInputs inputs.${project};
+      got = projectInputs project;
       names = builtins.filter (name: got ? ${name}) (builtins.attrNames wanted);
     in
     map (name: rec {

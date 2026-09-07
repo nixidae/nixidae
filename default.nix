@@ -29,38 +29,18 @@ rec {
   # is still a repository somebody can build on its own. What changes here is
   # only which sources those declarations resolve to.
   #
-  # `wire` reads a project's flake.nix for the list of inputs it declares,
-  # then answers each of them from nix/inputs.nix instead of from its lock.
-  # The important substitution is a sibling: easykubenix declares nanopynix
-  # and gets ./nanopynix, so a change made in one is built by the other with
-  # nothing published in between.
-  #
-  # `overrides` is the whole of nix/inputs.nix every time. flake-compatish
-  # ignores a name the project does not declare, so no list of which project
-  # wants what has to be written down here, or kept in step when one changes.
-  #
-  # `self` has to be the working copy too. Without it flake-compatish copies
-  # the project to the store before reading it, which is the store round trip
-  # this whole arrangement exists to avoid.
-  projectInputs =
-    source:
-    (flake-compatish {
-      inherit source;
-      overrides = inputs // {
-        self = source;
-      };
-      # Ten deliberate overrides in four projects is forty lines of warning
-      # about the thing we asked for.
-      warnOverrides = false;
-    }).inputs;
+  # nix/wire.nix does the work, and each project's own default.nix calls it
+  # too. Passing `inputs` here rather than letting it read nix/inputs.nix
+  # itself is what makes an argument to this file reach the projects.
+  projectInputs = project: import ./nix/wire.nix { inherit project inputs; };
 
   nanopynix = import ./nanopynix {
-    inputs = projectInputs ./nanopynix;
+    inputs = projectInputs "nanopynix";
     inherit system pkgs;
   };
 
   easykubenix = import ./easykubenix {
-    inputs = projectInputs ./easykubenix;
+    inputs = projectInputs "easykubenix";
     inherit system pkgs;
   };
 
@@ -71,7 +51,7 @@ rec {
   # It builds its own package set, because it applies an overlay of its own,
   # so it takes the sources rather than the set.
   nixkube = import ./nixkube {
-    inputs = projectInputs ./nixkube;
+    inputs = projectInputs "nixkube";
     inherit system;
   };
 
@@ -82,11 +62,6 @@ rec {
   };
 
   # -- what the above is built out of --------------------------------------
-
-  # Fetched unpinned, like every other third-party input here. It is the one
-  # that has to arrive before anything can be read, so it cannot come through
-  # the same mechanism as the rest.
-  flake-compatish = import (builtins.fetchTree (builtins.parseFlakeRef inputs.flake-compatish));
 
   umbrellaSource =
     if builtins.pathExists ./umbrella/default.nix then
