@@ -80,14 +80,14 @@ it goes through the umbrella too. See below.
 
 ## The umbrella owns the sources
 
-**Nothing here is a flake.** Not the umbrella, and not one of the four
-projects. Each `flake.nix` was 40 to 118 lines that declared its inputs and
-re-exposed what its `default.nix` already returns, and the umbrella supplied
-those inputs anyway, so the declaration decided nothing and the `flake.lock`
-beside it was a second pin of sources this repository already pins.
+**Nothing here builds through a flake.** Each `flake.nix` used to be 40 to
+118 lines that declared its inputs and re-exposed what its `default.nix`
+already returns, and the umbrella supplied those inputs anyway, so the
+declaration decided nothing and the `flake.lock` beside it was a second pin
+of sources this repository already pins.
 
-One `flake.nix` is left, under `easykubenix/docs/examples/example-flake`. It
-is documentation of how a consumer writes one, not a way in.
+Each project keeps a `flake.nix` even so, and it is a second door rather
+than the way in. See below.
 
 Two files say where every source comes from, and each has one writer.
 
@@ -136,6 +136,36 @@ the last one to need a flake was treefmt-nix: `inputs.treefmt-nix.lib.mkWrapper`
 became `(import sources.treefmt-nix).mkWrapper`, which takes the same two
 arguments.
 
+### A door for a flake consumer
+
+Each project keeps a `flake.nix`, and it is not how the project builds. It
+names a curated set of outputs and calls `default.nix`. Flakes have the
+market share, so a consumer who writes `inputs.nanopynix.url` should get
+something rather than nothing.
+
+Two inputs, and neither duplicates a pin the umbrella keeps.
+
+| input | what it decides |
+| --- | --- |
+| `nixpkgs` | the consumer's, handed to the umbrella in place of the lock's |
+| `nixidae` | which umbrella, and nothing else. `flake = false` |
+
+So the nixpkgs a consumer follows reaches every source, and every other
+source comes from the umbrella revision that lock names. Two nodes in the
+lock file.
+
+Measured on pynixd. With its own nixpkgs the flake gives
+`v55z1vv1dwv86naakwvhb9gr33svyzrp`; with the revision `nix/sources.lock`
+names it gives `d3w8gnxlihcrdvz56fwqlwm4k4r3p6ba`, which is what `--file .`
+gives. So the override reaches through, and the two doors agree when they
+are given the same nixpkgs.
+
+`nix/sources.nix` cannot be used from a flake: it finds the umbrella by an
+impure fetch, and a pure evaluation refuses one. That is why `nixidae` is an
+input rather than a lookup.
+
+The lock files are not committed yet. Each has to name a pushed nixidae.
+
 ### The two modes
 
 | mode | what it is | how |
@@ -144,8 +174,9 @@ arguments.
 | pinned-consistent | this repository at a revision, everything from its lock | a checkout with no submodule contents |
 
 There used to be a third, `FLAKE_COMPATISH_DISABLE_OVERRIDES=1`, which made
-each project read its own `flake.lock`. There are no lock files left to
-read.
+each project read its own `flake.lock` for everything. No lock file decides
+anything now: a project's own one names an umbrella and a nixpkgs, and that
+umbrella decides the rest.
 
 The second one is what a downstream consumer wants: take this repository at
 a revision, do not check the submodules out, and every name resolves to the
