@@ -3,3 +3,19 @@ result-*
 __pycache__/
 .direnv/
 /.claude/settings.local.json
+
+# umbrella: working copies of locked sources. Fetched, never committed.
+/adios/
+/dinix/
+/easykubenix/
+/flake-compatish/
+/nanopynix/
+/nixkube/
+/nixpkgs/
+/pynixd/
+/pyproject-nix/
+/tree-sitter-nix-numtide/
+/treefmt-nix/
+/umbrella/
+/user-mode-nixos/
+# umbrella: end

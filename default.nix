@@ -24,14 +24,14 @@ rec {
   # Read a flake we do not own, with these sources in place of its own lock.
   callFlake = import ./nix/call-flake.nix { inherit inputs; };
 
-  # umbrella drives this collection. It keeps a submodule commit that no
-  # remote has out of the pointers recorded here, and it makes worktreespaces
-  # that share storage instead of cloning every repository again.
+  # umbrella drives this collection. It keeps a commit that no remote has out
+  # of nix/sources.lock, and it makes worktreespaces that share storage
+  # instead of cloning every repository again.
   #
-  # It is a submodule too, so it can be edited in place like the rest. It is
-  # also the tool that checks the submodules out, so a clone made without them
-  # has to be able to build it anyway: `sources` gives the revision in
-  # nix/sources.lock when the directory is not there.
+  # It is one of the locked sources too, so it can be edited in place like the
+  # rest. It is also the tool that fetches the others, so a clone that has
+  # none of them has to be able to build it anyway: `sources` gives the
+  # revision in nix/sources.lock when the directory is not there.
   umbrella = (import sources.umbrella { inherit pkgs; }).umbrella;
 
   shell = pkgs.callPackage ./pkgs/shell { inherit umbrella; };

@@ -1,20 +1,24 @@
 # Join the specification to the lock, and give each name one value.
 #
-# The rule has two arms, and the first one is the reason this checkout exists:
+# The rule has three arms, and only one of them diverges:
 #
-#   A working copy wins. When the spec gives a path and that directory holds
-#   a flake.nix, the answer is the path. Nix reads it where it lies, nothing
-#   is copied to the store, and an edit in one project reaches the next build
-#   of another with no commit, no push and no revision to bump.
+#   A working copy, at the revision the lock names. When the spec gives a path
+#   and that directory holds anything, the answer is a `git+file://` reference
+#   to that checkout. Nothing reaches the network -- the revision is already
+#   on disk -- and the store path is the one CI's cache holds.
+#
+#   The same working copy, read as a directory, when UMBRELLA_DEV names it.
+#   That is what makes an edit reach the next build of another project with
+#   no commit and no push, and it is the arm that cannot match a forge.
 #
 #   Otherwise the lock answers. The revision in nix/sources.lock becomes a
 #   pinned flake reference. It is pure, so an evaluation that never touches a
 #   working copy needs no --impure.
 #
 # The test for a working copy is that the directory has something in it, not
-# that it is there. `git clone` without --recurse-submodules leaves every
-# submodule directory present and empty, and so does a tarball of this
-# repository. Picking one of those gives a confusing error later.
+# that it is there. A tarball of this repository holds none of them, and an
+# `umbrella fetch` that was interrupted can leave one empty. Picking one of
+# those gives a confusing error later.
 #
 # Emptiness and not a marker file, because our repositories are not flakes
 # and have no one file they all carry.
@@ -87,9 +91,7 @@ let
     "all"
   ];
   # `builtins.split` puts the separator matches in the list too, as lists.
-  devNames = builtins.filter (s: builtins.isString s && s != "") (
-    builtins.split "[, ]+" devRequest
-  );
+  devNames = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" devRequest);
   inDev = name: devRequest != "" && (devAll || builtins.elem name devNames);
 
   resolve =

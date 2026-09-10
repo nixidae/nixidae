@@ -13,21 +13,28 @@
 #             git config --global url."git@github.com:".insteadOf \
 #               "https://github.com/"
 #
-#           git rewrites every https URL here, and `git submodule sync` keeps
-#           the rewrite. So the transport is the user's choice, not ours.
+#           git rewrites every https URL here when it clones, so the
+#           transport is the user's choice and not ours.
 #
 #   branch  What `umbrella update` follows when it writes a new revision.
 #
-#   path    Optional. A working copy in this checkout. When the directory
-#           holds anything, `nix/resolve.nix` reads it where it lies and
-#           ignores the lock. That is what makes a change in one project
-#           reach the next build of another with no commit and no push.
+#   path    Optional. Where a working copy of this source goes. It has to be
+#           the directory beside this repository named after the source:
+#           `umbrella fetch` clones there, and `umbrella update` refuses when
+#           the two disagree.
 #
-#           The test is the contents, not the directory. A clone without
-#           --recurse-submodules leaves the directory there and empty, and
-#           so does a tarball of this repository.
+#           When the directory holds anything, `nix/resolve.nix` reads that
+#           checkout at the revision the lock names, so a build here and a
+#           build in CI agree. UMBRELLA_DEV names the sources to read as
+#           directories instead, which is what makes an uncommitted change in
+#           one project reach the next build of another.
+#
+#           The test is the contents, not the directory. A tarball of this
+#           repository has none of them, and neither does a fresh clone: the
+#           working copies are ignored, so nothing is committed here about
+#           them.
 {
-  # The seven repositories this checkout holds.
+  # The seven repositories worked on together here.
   nanopynix = {
     url = "https://github.com/Lillecarl/nanopynix.git";
     branch = "develop";
