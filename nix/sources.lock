@@ -41,11 +41,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789042520,
-      "narHash": "sha256-z7ihyGnAc7STc4Uy0XqfjNBB86XbCEaFXGuCgeDedco=",
+      "lastModified": 1789043980,
+      "narHash": "sha256-LaKO6gFNWKAIXrnAYDM9WNkbsszqFz7MGsTWuS1GdFs=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "60abbcec0075bda30a9a87844fee93e3d13c82d6",
+      "rev": "5603baa6be0450be20dfacbf421052e3a32e62f6",
       "type": "github"
     },
     "nixpkgs": {
