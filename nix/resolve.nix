@@ -52,6 +52,46 @@ let
     in
     "${base}${separator}narHash=${narHash}";
 
+  # A working copy, named by revision instead of read as a directory.
+  #
+  # This is what makes a build here and a build from CI agree. Measured: a
+  # `git+file://` fetch of a revision and a `github:` fetch of the same
+  # revision give the identical store path, on every repository tried. Reading
+  # the directory does not: it is a different input, so every derivation below
+  # it differs, and CI's cache holds nothing a local render asks for.
+  #
+  # The fetch reads the committed tree, so an untracked file in the checkout
+  # changes nothing. Measured with a stray `result` symlink in place.
+  #
+  # Nothing here reaches the network. The revision is already on disk.
+  localRef =
+    workingCopy: entry:
+    let
+      narHash = builtins.replaceStrings [ "=" ] [ "%3D" ] entry.narHash;
+    in
+    "git+file://${toString workingCopy}?rev=${entry.rev}&narHash=${narHash}";
+
+  # UMBRELLA_DEV names the sources to read as directories instead.
+  #
+  # `1`, `true` or `all` means every one. Anything else is a list of names,
+  # separated by commas or spaces.
+  #
+  # Off by default, and `builtins.getEnv` answers "" in a pure evaluation, so
+  # the reproducible arm is what an evaluation gets unless someone asks for
+  # the other one. That is the point: the divergence is worth having while you
+  # edit, and it has to be something you chose.
+  devRequest = builtins.getEnv "UMBRELLA_DEV";
+  devAll = builtins.elem devRequest [
+    "1"
+    "true"
+    "all"
+  ];
+  # `builtins.split` puts the separator matches in the list too, as lists.
+  devNames = builtins.filter (s: builtins.isString s && s != "") (
+    builtins.split "[, ]+" devRequest
+  );
+  inDev = name: devRequest != "" && (devAll || builtins.elem name devNames);
+
   resolve =
     name: entrySpec:
     let
@@ -60,10 +100,18 @@ let
         workingCopy != null && builtins.pathExists workingCopy && builtins.readDir workingCopy != { };
       locked = lock.sources.${name} or null;
     in
-    if hasWorkingCopy then
+    # Uncommitted work cannot match anything a forge holds, so this arm has to
+    # diverge. It is the only one that does.
+    if hasWorkingCopy && inDev name then
       workingCopy
+    else if hasWorkingCopy && locked != null then
+      localRef workingCopy locked
     else if locked != null then
       ref name locked
+    else if hasWorkingCopy then
+      # No revision to name it by. A source being added, before the first
+      # `umbrella update` writes it down.
+      workingCopy
     else
       throw "nix/sources.lock has no entry for ${name}. Run `umbrella update`.";
 in
