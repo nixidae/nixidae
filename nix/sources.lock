@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789382596,
-      "narHash": "sha256-6XvFTtX9VXyEk7NyYTXsZmJ0UgZii24C01NhV4huM90=",
+      "lastModified": 1789384015,
+      "narHash": "sha256-B8djzFZGNWjjTAYTjvWGTxf1iJ8mvx2Bd79F4nhF93E=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "b75cef2a38d8f7667003f12ac0cdc2dd25015af3",
+      "rev": "f1335eb721dacfadd7c648034810d92db7dc0c81",
       "type": "github"
     },
     "flake-compatish": {
@@ -41,11 +41,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789382567,
-      "narHash": "sha256-slqdfvEMrVVPo+t5TokO7lAQuCHt4ob85lUZiKtkj1U=",
+      "lastModified": 1789385251,
+      "narHash": "sha256-dR/SAV8G+L++quVqT0XfRpjkFKLdvHG+uz3rnfemMVE=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "5704d7f51eb7191a7d377ab2560c39d80c2561bf",
+      "rev": "7cfd16f1e8c51011bddbf00cbc840211a4fd281f",
       "type": "github"
     },
     "nixpkgs": {
