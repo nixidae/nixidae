@@ -106,4 +106,19 @@
     url = "https://github.com/lillecarl/dinix.git";
     branch = "main";
   };
+  # The OpenTofu registry's own index, which is what lets easykubenix pin a
+  # provider nixpkgs does not package, or a version it does not carry.
+  #
+  # Every provider, every version, every platform: 4242 `providers/<shard>/
+  # <owner>/<repo>.json` files, each naming a prebuilt download URL and its
+  # shasum. nixpkgs' `terraform-providers` has 169 providers at one version
+  # each, which is a curated subset rather than a registry.
+  #
+  # Fetched only when something reads it. A configuration with no `tf` unit,
+  # or one whose providers all come from nixpkgs, never forces this and never
+  # downloads the ~424M tree.
+  opentofu-registry = {
+    url = "https://github.com/opentofu/registry.git";
+    branch = "main";
+  };
 }

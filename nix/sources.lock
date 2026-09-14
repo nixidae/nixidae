@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789375524,
-      "narHash": "sha256-6v0rbMACnUk1z141TOiXAARltzbmX7iQN0Ci3g+uU7Y=",
+      "lastModified": 1789375845,
+      "narHash": "sha256-B5GLmXisLlPmUM6xgaAnBx6Y7GuY/4sI3kJ00s+oDW4=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "1f6a0bb37e445013498378f68fbf202e5181bd6c",
+      "rev": "9c6d1dacd79dc45c232669a9185a133ab8507887",
       "type": "github"
     },
     "flake-compatish": {
@@ -54,6 +54,14 @@
       "owner": "NixOS",
       "repo": "nixpkgs",
       "rev": "07e1d92cdc0ed416cfa11ff3ca40d17e61cfba7a",
+      "type": "github"
+    },
+    "opentofu-registry": {
+      "lastModified": 1789374984,
+      "narHash": "sha256-GXTJt9TwcRtA6Xk5YdXOvHI8cjcCY/Sb44R0/z+JgWI=",
+      "owner": "opentofu",
+      "repo": "registry",
+      "rev": "0540b36d5f570b97f96d7a9c03b4b8e6f2fc6aa6",
       "type": "github"
     },
     "pynixd": {
