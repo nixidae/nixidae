@@ -177,8 +177,16 @@ let
   workflowModule = {
     options = {
       name = mkOption {
-        type = types.str;
-        description = "Workflow display name, shown in the Actions UI.";
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Workflow display name, shown in the Actions UI.
+
+          Optional, because GitHub's is: a workflow with no `name` is shown
+          by its path instead. Adding one to a workflow that had none is not
+          a cosmetic change -- `''${{ github.workflow }}` is that name, and a
+          `concurrency` group built from it becomes a different group.
+        '';
       };
       on = mkOption {
         type = types.attrsOf types.anything;
@@ -297,8 +305,9 @@ let
           message =
             let
               empty = lib.attrNames (lib.filterAttrs (_: job: job.steps == [ ]) config.jobs);
+              who = if config.name == null then "unnamed workflow" else "workflow '${config.name}'";
             in
-            "workflow '${config.name}': job(s) with no steps: ${lib.concatStringsSep ", " empty}";
+            "${who}: job(s) with no steps: ${lib.concatStringsSep ", " empty}";
         }
       ];
     };
@@ -306,9 +315,9 @@ in
 {
   evalWorkflow =
     {
-      name,
       on,
       jobs,
+      name ? null,
       env ? null,
       permissions ? null,
       concurrency ? null,
@@ -335,8 +344,9 @@ in
     in
     lib.asserts.checkAssertWarn cfg.assertions cfg.warnings (
       {
-        inherit (cfg) name on;
+        inherit (cfg) on;
       }
+      // lib.optionalAttrs (cfg.name != null) { inherit (cfg) name; }
       // lib.optionalAttrs (cfg.env != null) { inherit (cfg) env; }
       // lib.optionalAttrs (cfg.permissions != null) { inherit (cfg) permissions; }
       // lib.optionalAttrs (cfg.concurrency != null) { inherit (cfg) concurrency; }
