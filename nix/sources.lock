@@ -33,11 +33,11 @@
       "type": "github"
     },
     "ghanix": {
-      "lastModified": 1789385906,
-      "narHash": "sha256-oJS6pePQvgFnVLaBeRXjqAZPCypeoj/GJ66TxYloup0=",
+      "lastModified": 1789386579,
+      "narHash": "sha256-2cd1Iy5IMCdzfJw68M4Zju5rK2pWsq/ClsYgMFf52Ec=",
       "owner": "Lillecarl",
       "repo": "ghanix",
-      "rev": "58807d4988c6fdef48e71294fc9c7dfb67968a18",
+      "rev": "d9325c427df95e452893eabf80431a96ed7726d5",
       "type": "github"
     },
     "nanopynix": {
