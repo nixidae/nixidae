@@ -33,11 +33,11 @@
       "type": "github"
     },
     "ghanix": {
-      "lastModified": 1789386579,
-      "narHash": "sha256-2cd1Iy5IMCdzfJw68M4Zju5rK2pWsq/ClsYgMFf52Ec=",
+      "lastModified": 1789386870,
+      "narHash": "sha256-tADxJG4cLmnuLk0wT3BULCZFYRmhz0zuyFHu9mgP0og=",
       "owner": "Lillecarl",
       "repo": "ghanix",
-      "rev": "d9325c427df95e452893eabf80431a96ed7726d5",
+      "rev": "891e7491a472cb931a1f7046ad626036297c1da8",
       "type": "github"
     },
     "nanopynix": {
@@ -49,11 +49,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789385251,
-      "narHash": "sha256-dR/SAV8G+L++quVqT0XfRpjkFKLdvHG+uz3rnfemMVE=",
+      "lastModified": 1789386954,
+      "narHash": "sha256-ZtVb/UX91Co/4s457ZfNLhlGBrzsJC1lTcSGn75+2Ds=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "7cfd16f1e8c51011bddbf00cbc840211a4fd281f",
+      "rev": "5b0576a21662bca67fe9c86a5f96421c7f41d4da",
       "type": "github"
     },
     "nixpkgs": {
