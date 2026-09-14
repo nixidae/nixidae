@@ -34,7 +34,17 @@
 #           working copies are ignored, so nothing is committed here about
 #           them.
 {
-  # The seven repositories worked on together here.
+  # The repositories worked on together here.
+  #
+  # ghanix takes `lib` and nothing else, so it depends on nothing in this
+  # list and nothing here has to be built to use it. It was a directory
+  # inside nanopynix until nixkube wanted it too, and nixkube has no
+  # nanopynix dependency at all.
+  ghanix = {
+    url = "https://github.com/Lillecarl/ghanix.git";
+    branch = "develop";
+    path = ../ghanix;
+  };
   nanopynix = {
     url = "https://github.com/Lillecarl/nanopynix.git";
     branch = "develop";
