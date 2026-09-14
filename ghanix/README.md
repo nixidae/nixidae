@@ -55,7 +55,10 @@ library:
 - **nanopynix** renders through its own `to_yaml`, for key ordering it
   controls, and a pytest gate compares the result against the checked-in
   YAML and rewrites it when they differ.
-- **nixkube** writes it with `pkgs.formats.yaml`.
+- **nixkube** writes it with `pkgs.formats.yaml`, then runs the result
+  through yamlfmt, because treefmt formats the committed file and its CI
+  ends in `git diff --exit-code`. A gate derivation parses the committed
+  YAML and compares it against the value, so style never fails it.
 
 YAML is a superset of JSON, so `builtins.toJSON` written to a `.yml` file is
 also a valid workflow and needs no builder at all. It is unreadable in a
