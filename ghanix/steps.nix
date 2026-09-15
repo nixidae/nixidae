@@ -253,6 +253,59 @@ rec {
         }
       );
 
+    /*
+      Publish a built documentation tree to GitHub Pages.
+
+      Three steps, because the middle one is an action that reads a
+      directory and a store path is not one it can read: everything under
+      /nix/store is read-only, and `actions/upload-pages-artifact` needs to
+      walk and tar a tree it can open. `--no-preserve=mode,ownership` is
+      what makes the copy writable.
+
+      Both repositories that publish docs had these three written out, with
+      the actions pinned at different versions -- `@v3` and `@v4` in one,
+      `@main` in the other. `@main` here, which is what every other action
+      this file names uses.
+    */
+    preparePages =
+      {
+        path ? "result",
+        timeoutMinutes ? 5,
+      }:
+      {
+        name = "Prepare the Pages artifact";
+        timeout-minutes = timeoutMinutes;
+        run = ''
+          mkdir -p public
+          cp -r --no-preserve=mode,ownership ${path}/. public/
+        '';
+      };
+
+    uploadPages =
+      {
+        timeoutMinutes ? 10,
+      }:
+      {
+        uses = "actions/upload-pages-artifact@main";
+        timeout-minutes = timeoutMinutes;
+        "with".path = "public";
+      };
+
+    # Needs `permissions.pages = "write"` and `id-token = "write"` on the
+    # job, and an `environment` naming github-pages. Those are job-level and
+    # stay with the caller.
+    deployPages =
+      {
+        id ? "deployment",
+        timeoutMinutes ? 10,
+      }:
+      {
+        inherit id;
+        name = "Deploy to GitHub Pages";
+        uses = "actions/deploy-pages@main";
+        timeout-minutes = timeoutMinutes;
+      };
+
     downloadArtifact =
       {
         artifactName,
