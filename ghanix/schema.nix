@@ -18,6 +18,225 @@
 let
   inherit (lib) mkOption types;
 
+  inherit (import ./steps.nix { inherit lib; }) steps;
+
+  /*
+    Where each generated step lands in a job's `steps`.
+
+    `types.listOf` concatenates its definitions in order of priority, so a
+    step contributed at a number below 1000 comes before every step the
+    caller wrote -- 1000 is what a plain list definition gets. The numbers
+    are spaced so that a step added later can go between two of these
+    without renumbering the rest.
+
+    The order itself is not arbitrary. A checkout has to come first because
+    everything after it reads the tree. Room is made before Nix installs,
+    because the installer writes to the disk being cleared. The runner's
+    own permissions come last of the generated steps, so that a job which
+    cannot install Nix fails saying so rather than saying `sysctl`.
+  */
+  orders = {
+    checkout = 100;
+    freeDiskSpace = 200;
+    installNix = 300;
+    cachix = 400;
+    userNamespaces = 500;
+    openKvm = 600;
+  };
+
+  /*
+    The steps a job asks for by name rather than by writing them out.
+
+    Everything here was copied between repositories before it was an
+    option, and the copies drifted: the user-namespace step existed in
+    three places with three bodies, and the job that needed it most did not
+    have it at all.
+
+    This whole set lives under one attribute on purpose. `evalWorkflow`
+    strips exactly `ghanix` from each job before rendering, because a job
+    is freeform -- every other key it carries goes to GitHub verbatim, and
+    a key GitHub does not know makes it reject the workflow at load, long
+    after any check here has passed.
+  */
+  runnerModule = {
+    options = {
+      checkout = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = "Check the repository out before anything else runs.";
+        };
+        ref = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "Ref to check out. GitHub's default is the ref that triggered the run.";
+        };
+        fetchDepth = mkOption {
+          type = types.nullOr types.int;
+          default = null;
+          description = ''
+            Commits to fetch. The default checkout is a single commit, so a
+            job that reads a range of them needs `0`, meaning all of them.
+          '';
+        };
+        timeoutMinutes = mkOption {
+          type = types.int;
+          default = 10;
+          description = "Cap on the checkout step.";
+        };
+      };
+
+      freeDiskSpace = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Delete the toolchains the runner image ships that no job here
+            uses. For a closure that does not fit in the 25 GiB a runner
+            starts with.
+          '';
+        };
+        timeoutMinutes = mkOption {
+          type = types.int;
+          default = 10;
+          description = "Cap on the step.";
+        };
+      };
+
+      nix = {
+        install = {
+          enable = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Install Nix with `cachix/install-nix-action`.";
+          };
+          experimentalFeatures = mkOption {
+            type = types.listOf types.str;
+            default = [
+              "nix-command"
+              "flakes"
+            ];
+            description = "What the installed Nix has to allow.";
+          };
+          settings = mkOption {
+            type = types.attrsOf (
+              types.oneOf [
+                types.bool
+                types.int
+                types.str
+                (types.listOf types.str)
+              ]
+            );
+            default = { };
+            example = {
+              trusted-users = [
+                "root"
+                "runner"
+              ];
+              max-jobs = 1;
+            };
+            description = ''
+              Everything else the installed Nix should hold, as nix.conf
+              keys. A list joins on spaces.
+
+              `substituters` and `trusted-public-keys` belong here, and so
+              does `trusted-users`: a daemon ignores a substituter that a
+              user it does not trust asks for, so a project with a cache of
+              its own needs all three or it gets none of them.
+            '';
+          };
+          timeoutMinutes = mkOption {
+            type = types.int;
+            default = 15;
+            description = "Cap on the install step.";
+          };
+        };
+
+        cachix = {
+          enable = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              Read from, and on a push write to, a cachix cache.
+
+              Reading is unauthenticated, so a fork's pull request still
+              gets the cache; only a run holding the secret writes.
+            '';
+          };
+          name = mkOption {
+            type = types.str;
+            default = "lillecarl";
+            description = "The cache.";
+          };
+          useDaemon = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Push through cachix's daemon rather than at the end of the job.";
+          };
+          pushFilter = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            example = "(-uml-test-)";
+            description = ''
+              A regular expression naming store paths *not* to push.
+
+              For an output whose existence is the result of a test rather
+              than a thing to reuse: push it, and the next run with the
+              same inputs substitutes the answer instead of running the
+              test.
+            '';
+          };
+          skipPush = mkOption {
+            type = types.nullOr types.bool;
+            default = null;
+            description = "Read only, never write.";
+          };
+          timeoutMinutes = mkOption {
+            type = types.int;
+            default = 15;
+            description = "Cap on the cachix step.";
+          };
+        };
+      };
+
+      userNamespaces = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Let the runner open an unprivileged user namespace, which
+            Ubuntu denies by default.
+
+            Needed by the Nix sandbox, and by passt -- which unshares one
+            before it serves a guest's uplink and exits if it cannot. So
+            any job that boots a guest needs this, sandboxed or not.
+          '';
+        };
+        timeoutMinutes = mkOption {
+          type = types.int;
+          default = 5;
+          description = "Cap on the step.";
+        };
+      };
+
+      openKvm = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Let the runner user open /dev/kvm. x64 runners only; GitHub's
+            ARM runners have no such device.
+          '';
+        };
+        timeoutMinutes = mkOption {
+          type = types.int;
+          default = 5;
+          description = "Cap on the step.";
+        };
+      };
+    };
+  };
+
   stepModule = { ... }: {
     # Action `with:` shapes vary per-action and aren't worth modeling
     # exhaustively; freeform passthrough covers anything not listed below
@@ -84,9 +303,23 @@ let
     };
   };
 
-  jobModule = { ... }: {
+  jobModule =
+    { config, ... }:
+    {
     freeformType = types.attrsOf types.anything;
     options = {
+      ghanix = mkOption {
+        type = types.submodule runnerModule;
+        default = { };
+        description = ''
+          Steps this job asks for by name. Each one it enables is put at
+          the front of `steps`, in the order `orders` above gives, before
+          every step the job wrote for itself.
+
+          Stripped before rendering: nothing under here reaches GitHub.
+        '';
+      };
+
       runs-on = mkOption {
         type = types.either types.str (types.listOf types.str);
         default = "ubuntu-24.04";
@@ -172,6 +405,40 @@ let
         description = "Ordered steps this job runs.";
       };
     };
+
+    # `lib.mkOrder` with an empty list rather than `lib.mkIf`: a definition
+    # that contributes nothing is simpler than one that is not there, and
+    # it keeps the order visible beside the condition.
+    config.steps =
+      let
+        cfg = config.ghanix;
+      in
+      lib.mkMerge [
+        (lib.mkOrder orders.checkout (
+          lib.optional cfg.checkout.enable (steps.checkout { inherit (cfg.checkout) ref fetchDepth timeoutMinutes; })
+        ))
+        (lib.mkOrder orders.freeDiskSpace (
+          lib.optional cfg.freeDiskSpace.enable (
+            steps.freeDiskSpace { inherit (cfg.freeDiskSpace) timeoutMinutes; }
+          )
+        ))
+        (lib.mkOrder orders.installNix (
+          lib.optional cfg.nix.install.enable (
+            steps.installNix { inherit (cfg.nix.install) experimentalFeatures settings timeoutMinutes; }
+          )
+        ))
+        (lib.mkOrder orders.cachix (
+          lib.optional cfg.nix.cachix.enable (
+            steps.cachix { inherit (cfg.nix.cachix) name useDaemon pushFilter skipPush timeoutMinutes; }
+          )
+        ))
+        (lib.mkOrder orders.userNamespaces (
+          lib.optional cfg.userNamespaces.enable (steps.userNamespaces { inherit (cfg.userNamespaces) timeoutMinutes; })
+        ))
+        (lib.mkOrder orders.openKvm (
+          lib.optional cfg.openKvm.enable (steps.openKvm { inherit (cfg.openKvm) timeoutMinutes; })
+        ))
+      ];
   };
 
   workflowModule = {
@@ -351,7 +618,21 @@ in
       // lib.optionalAttrs (cfg.permissions != null) { inherit (cfg) permissions; }
       // lib.optionalAttrs (cfg.concurrency != null) { inherit (cfg) concurrency; }
       // {
-        jobs = stripNulls cfg.jobs;
+        /*
+          `ghanix` is this schema's own, and GitHub has never heard of it.
+
+          A job is freeform, so every other key it carries is rendered
+          verbatim -- which is the point, and which is also why this line
+          matters. A key GitHub does not know makes it refuse to load the
+          whole workflow, and no check here would catch that: a render gate
+          compares the file against this evaluation, so both sides would
+          agree on a file that no runner will read. The failure arrives as
+          every job of the repository disappearing.
+
+          One key, and one line. That is why everything a job asks for by
+          name lives under it.
+        */
+        jobs = stripNulls (lib.mapAttrs (_: job: removeAttrs job [ "ghanix" ]) cfg.jobs);
       }
     );
 }
