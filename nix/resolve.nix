@@ -72,11 +72,17 @@ let
   # below still carries one.
   #
   # The revision is the integrity check in its place. A git revision is a
-  # hash over the commit, so it pins the tree as the narHash does. What the
-  # missing narHash costs is the store path in advance, so a substituter
-  # cannot serve this source and the fetch goes to the forge. That is the
-  # trade this variable makes: the git protocol instead of the API, and one
-  # fetch instead of a possible substitution.
+  # hash over the commit, so it pins the tree as the narHash does.
+  #
+  # **The narHash buys no substitution, so losing it costs nothing.**
+  # Measured with a deliberately wrong access token, which answers 401 if a
+  # request carried it. On a cold runner -- an empty store and an empty
+  # ~/.cache/nix -- `github:NixOS/nixpkgs/<rev>?narHash=<hash>` answers 401.
+  # It asks api.github.com first, and it does that even when the store path
+  # the narHash names is already valid. The same revision as
+  # `git+https://...?shallow=1` answers with the path and never touches the
+  # API. What saves the call is the fetcher cache in ~/.cache/nix, and not
+  # the store and not the narHash.
   ref =
     name: entry:
     let

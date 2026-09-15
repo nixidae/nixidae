@@ -178,12 +178,21 @@ The result is the same store path. Measured on this machine: `nixpkgs`,
 `treefmt-nix` and `adios` each resolve to one path with the variable and
 without it, and a shallow git fetch of nixpkgs took 8.8 s and 66 MB.
 
-It costs two things. The git reference carries no `narHash`, because Nix puts
-an unknown query key back into the repository address and the fetch then asks
-for a repository that does not exist. The revision still pins the content, but
-without a narHash there is no store path in advance, so a substituter cannot
-serve the source and the fetch goes to GitHub. And `revCount` is gone, because
-the reference is shallow; nothing here reads it.
+The git reference carries no `narHash`, because Nix puts an unknown query key
+back into the repository address and the fetch then asks for a repository that
+does not exist. The revision still pins the content, and the narHash was not
+buying a substitution anyway.
+
+**Measured, with a deliberately wrong access token:** on a cold runner -- an
+empty store and an empty `~/.cache/nix` -- `github:NixOS/nixpkgs/<rev>?narHash=
+<hash>` answers `401 Bad credentials`. It asks `api.github.com` first, and it
+does so even when the store path the narHash names is already valid. The same
+revision over `git+https://` answers with the path and never touches the API.
+So what saves the call is the fetcher cache in `~/.cache/nix`, and neither the
+store nor the narHash.
+
+The one real cost is `revCount`, which a shallow reference does not have.
+Nothing here reads it.
 
 **One source at a time.** The arms are per name, not per checkout, so a source
 with no working copy comes from the store while its neighbours come from disk.
