@@ -113,11 +113,11 @@
       "type": "github"
     },
     "user-mode-nixos": {
-      "lastModified": 1789426013,
-      "narHash": "sha256-BaLWpWhV2Np/CvZct2pNxxJVAfc0loSqsXON/IGabQU=",
+      "lastModified": 1789453889,
+      "narHash": "sha256-HhcP+Bj1Uwp8LhL+8FbvUYLt49SsqpRVwe/7wRpR+6g=",
       "owner": "lillecarl",
       "repo": "user-mode-nixos",
-      "rev": "08b6bbf3cb1a047409caf8b8cba383c15b611a1b",
+      "rev": "33f85ddd58f7ba5d822d3e6decd6eaab51219283",
       "type": "github"
     }
   },
