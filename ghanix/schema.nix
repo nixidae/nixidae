@@ -234,6 +234,43 @@ let
           description = "Cap on the step.";
         };
       };
+
+      deriveTimeout = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Set the job's `timeout-minutes` from the caps of its steps.
+
+            GitHub applies both caps and the smaller wins, so a job cap is
+            not a second opinion about how long the work takes: it is a
+            backstop for the time that belongs to no step. Derive it, and a
+            raised step cap cannot leave a job cap behind that silently
+            overrides it.
+
+            The sum is a sum of worst cases, so the result is much larger
+            than any run. That is correct for a backstop.
+
+            An explicit `timeout-minutes` on the job still wins.
+
+            This has to live here rather than in a caller, because a caller
+            cannot see the steps these options contribute -- it holds only
+            the ones it wrote. A sum taken before evaluation comes out
+            short by exactly the steps it could not see.
+          '';
+        };
+        slack = mkOption {
+          type = types.int;
+          default = 15;
+          description = ''
+            Minutes to add for the time no step covers.
+
+            The post phase of an action is the real case:
+            `cachix/cachix-action` pushes what the job built after the last
+            step ends, and no step cap reaches it.
+          '';
+        };
+      };
     };
   };
 
@@ -405,6 +442,32 @@ let
         description = "Ordered steps this job runs.";
       };
     };
+
+    # The job's own cap, summed from the steps it ends up with -- the ones
+    # `config.steps` below contributes included, which is the whole reason
+    # this is here and not in a caller.
+    #
+    # `mkDefault`, so a job that states its own cap keeps it.
+    config.timeout-minutes = lib.mkIf config.ghanix.deriveTimeout.enable (
+      lib.mkDefault (
+        lib.foldl' (
+          total: step:
+          total
+          + (
+            if step.timeout-minutes != null then
+              step.timeout-minutes
+            else
+              throw ''
+                ghanix: a step of this job declares no timeout-minutes, so
+                `ghanix.deriveTimeout` cannot sum the job's cap. Give the
+                step one, or set the job's timeout-minutes itself. The step
+                was:
+                ${builtins.toJSON step}
+              ''
+          )
+        ) config.ghanix.deriveTimeout.slack config.steps
+      )
+    );
 
     # `lib.mkOrder` with an empty list rather than `lib.mkIf`: a definition
     # that contributes nothing is simpler than one that is not there, and
