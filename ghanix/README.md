@@ -39,12 +39,51 @@ schema is there to give the common keys a type and a sane default, not to
 police the rest.
 
 `steps` holds constructors for the actions that appear in every repository:
-checkout, install Nix, upload and download one artifact. Each carries a
-default `timeout-minutes`, generous against the measured time, because the
-cap is there to catch a step that stopped rather than a step that is slow.
+checkout, install Nix, cachix, upload and download one artifact, the three
+that publish a docs tree to Pages, and the two that change what a runner
+will let a job do. Each carries a default `timeout-minutes`, generous
+against the measured time, because the cap is there to catch a step that
+stopped rather than a step that is slow.
 
 `withCond` and `withTimeout` wrap a step or a job, because `if` is a Nix
 keyword and cannot be a formal argument name.
+
+## Steps a job asks for by name
+
+The steps at the front of a job are the same in every repository, and
+writing them out is how they drift. A job can enable them instead:
+
+```nix
+jobs.test = {
+  ghanix = {
+    checkout.enable = true;
+    nix.install = {
+      enable = true;
+      settings.trusted-users = [ "root" "runner" ];
+    };
+    nix.cachix.enable = true;
+    userNamespaces.enable = true;   # the Nix sandbox, and passt
+    openKvm.enable = true;          # x64 runners only
+    freeDiskSpace.enable = true;
+  };
+  steps = [ { run = "nix build --file . thing"; } ];
+};
+```
+
+Each one contributes to `steps` through `lib.mkOrder`, below the 1000 a
+plain list definition gets, so they come first and in a fixed order:
+checkout, room on the disk, Nix, cachix, then the runner's own permissions.
+Everything the job wrote for itself follows.
+
+`nix.install.settings` is an attrset of nix.conf keys, where a list joins on
+spaces. That is what lets a project with a cache of its own drop the
+composite action it would otherwise need to carry substituters -- and a
+composite action cannot hold `timeout-minutes` at all.
+
+`ghanix` is stripped from each job before rendering. It is one attribute
+for that reason: a job is freeform, so any other key it carries goes to
+GitHub verbatim, and a key GitHub does not know makes it refuse to load the
+whole workflow -- which no render gate here would catch.
 
 ## What it does not give you
 
