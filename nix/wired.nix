@@ -33,6 +33,22 @@ let
   devNames = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" devRequest);
   inDev = name: devRequest != "" && (devAll || builtins.elem name devNames);
 
+  gitRequest = builtins.getEnv "UMBRELLA_GIT";
+  gitAll = builtins.elem gitRequest [
+    "1"
+    "true"
+    "all"
+  ];
+  gitNames = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" gitRequest);
+  inGit = name: gitRequest != "" && (gitAll || builtins.elem name gitNames);
+
+  # A locked github source that UMBRELLA_GIT names has to be fetched over the
+  # git protocol, and not through api.github.com. This is the whole visible
+  # effect of that variable, so a check that does not read the reference does
+  # not check it at all.
+  lock = builtins.fromJSON (builtins.readFile ./sources.lock);
+  fromGithub = name: (lock.sources.${name}.type or null) == "github";
+
   hasWorkingCopy =
     name:
     let
@@ -46,6 +62,8 @@ let
       "the directory"
     else if hasWorkingCopy name then
       "this checkout, by revision"
+    else if inGit name && fromGithub name then
+      "the lock, over git"
     else
       "the lock";
 
@@ -61,6 +79,8 @@ let
       "the directory" = builtins.isPath value;
       "this checkout, by revision" =
         builtins.isString value && lib.hasPrefix "git+file://${declared}?" value;
+      "the lock, over git" =
+        builtins.isString value && lib.hasPrefix "git+https://github.com/" value;
       "the lock" = builtins.isString value && !(lib.hasPrefix "git+file://" value);
     }
     .${want name};

@@ -15,6 +15,9 @@
 #   pinned flake reference. It is pure, so an evaluation that never touches a
 #   working copy needs no --impure.
 #
+# UMBRELLA_GIT changes how that last arm writes a github entry, and nothing
+# else. It is the only arm that reaches api.github.com. See `ref` below.
+#
 # The test for a working copy is that the directory has something in it, not
 # that it is there. A tarball of this repository holds none of them, and an
 # `umbrella fetch` that was interrupted can leave one empty. Picking one of
@@ -41,20 +44,52 @@ let
   # the integrity check and lets a substituter serve the source instead of
   # the forge. Only "=" needs escaping in the query; "+" and "/" pass
   # through.
+  #
+  # **A github entry can go over git instead, and UMBRELLA_GIT asks for
+  # that.** A `github:` reference costs one api.github.com call, which allows
+  # 60 an hour per IP without a token. GitHub's runners share a NAT pool, so
+  # strangers spend that budget too, and a wide matrix reaches 60 on its own.
+  # A `git+https://` reference of the same repository uses the git protocol,
+  # which that limit does not count. See nanopynix issue #301.
+  #
+  # The lock does not change. The same node writes either reference, because
+  # the two fetchers agree on the tree. Measured on this machine: nixpkgs at
+  # c7def046 gives sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4= both
+  # ways, which is what nix/sources.lock already holds.
+  #
+  # **`shallow=1` is not optional.** Nix defaults it to false, so a git fetch
+  # of nixpkgs would clone the whole history. Shallow costs one field:
+  # `revCount` throws on a shallow repository. Nothing here reads it.
+  # Measured: nixpkgs shallow took 8.8 s and 66 MB of ~/.cache/nix/gitv3.
+  #
+  # **The git arm carries no narHash, and it cannot.** The git scheme lifts
+  # `rev`, `ref` and a few flags out of the query and puts every other key
+  # back into the repository url (`src/libfetchers/git.cc`, `inputFromURL`).
+  # A narHash there becomes part of the address, and the fetch then asks
+  # github for a repository named `...?narHash=sha256-...`. Measured: "Failed
+  # to fetch git repository". A `git+file://` reference survives the same
+  # mistake, because opening a path ignores the query, which is why localRef
+  # below still carries one.
+  #
+  # The revision is the integrity check in its place. A git revision is a
+  # hash over the commit, so it pins the tree as the narHash does. What the
+  # missing narHash costs is the store path in advance, so a substituter
+  # cannot serve this source and the fetch goes to the forge. That is the
+  # trade this variable makes: the git protocol instead of the API, and one
+  # fetch instead of a possible substitution.
   ref =
     name: entry:
     let
       narHash = builtins.replaceStrings [ "=" ] [ "%3D" ] entry.narHash;
-      base =
-        if entry.type == "github" then
-          "github:${entry.owner}/${entry.repo}/${entry.rev}"
-        else if entry.type == "git" then
-          "git+${entry.url}?rev=${entry.rev}"
-        else
-          throw "nix/sources.lock: ${name}: unknown source type ${entry.type}";
-      separator = if entry.type == "git" then "&" else "?";
     in
-    "${base}${separator}narHash=${narHash}";
+    if entry.type == "github" && inGit name then
+      "git+https://github.com/${entry.owner}/${entry.repo}?rev=${entry.rev}&shallow=1"
+    else if entry.type == "github" then
+      "github:${entry.owner}/${entry.repo}/${entry.rev}?narHash=${narHash}"
+    else if entry.type == "git" then
+      "git+${entry.url}?rev=${entry.rev}&narHash=${narHash}"
+    else
+      throw "nix/sources.lock: ${name}: unknown source type ${entry.type}";
 
   # A working copy, named by revision instead of read as a directory.
   #
@@ -75,24 +110,39 @@ let
     in
     "git+file://${toString workingCopy}?rev=${entry.rev}&narHash=${narHash}";
 
-  # UMBRELLA_DEV names the sources to read as directories instead.
+  # The sources that one environment variable names.
   #
   # `1`, `true` or `all` means every one. Anything else is a list of names,
   # separated by commas or spaces.
   #
   # Off by default, and `builtins.getEnv` answers "" in a pure evaluation, so
-  # the reproducible arm is what an evaluation gets unless someone asks for
-  # the other one. That is the point: the divergence is worth having while you
-  # edit, and it has to be something you chose.
-  devRequest = builtins.getEnv "UMBRELLA_DEV";
-  devAll = builtins.elem devRequest [
-    "1"
-    "true"
-    "all"
-  ];
-  # `builtins.split` puts the separator matches in the list too, as lists.
-  devNames = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" devRequest);
-  inDev = name: devRequest != "" && (devAll || builtins.elem name devNames);
+  # an evaluation gets the plain arm unless someone asks for the other one.
+  # `nix build --file .` honours the variable and a flake consumer never sees
+  # it, which is true of both variables below.
+  selectedBy =
+    var:
+    let
+      request = builtins.getEnv var;
+      all = builtins.elem request [
+        "1"
+        "true"
+        "all"
+      ];
+      # `builtins.split` puts the separator matches in the list too, as lists.
+      names = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" request);
+    in
+    name: request != "" && (all || builtins.elem name names);
+
+  # UMBRELLA_DEV names the sources to read as directories instead.
+  #
+  # That is what makes an edit reach the next build of another project with no
+  # commit and no push. The divergence is worth having while you edit, and it
+  # has to be something you chose.
+  inDev = selectedBy "UMBRELLA_DEV";
+
+  # UMBRELLA_GIT names the sources to fetch over git instead of over the
+  # GitHub API. It changes the reference and never the result: see `ref`.
+  inGit = selectedBy "UMBRELLA_GIT";
 
   resolve =
     name: entrySpec:

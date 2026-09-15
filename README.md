@@ -163,6 +163,28 @@ next build of another with no commit and no push. `builtins.getEnv` answers
 `""` in a pure evaluation, so the reproducible arm is what an evaluation gets
 unless somebody asked for the other one.
 
+**`UMBRELLA_GIT` fetches over git instead of over the GitHub API,** and it
+takes the same two forms:
+
+    UMBRELLA_GIT=1 nix build --file . nixkube.nixkube        # every source
+    UMBRELLA_GIT=nixpkgs,adios nix build --file . ...        # these two
+
+A `github:` reference costs one `api.github.com` call. That allows 60 an hour
+per IP with no token, and GitHub's runners share a NAT pool, so strangers
+spend the same budget. A `git+https://` reference of the same repository uses
+the git protocol, which the limit does not count.
+
+The result is the same store path. Measured on this machine: `nixpkgs`,
+`treefmt-nix` and `adios` each resolve to one path with the variable and
+without it, and a shallow git fetch of nixpkgs took 8.8 s and 66 MB.
+
+It costs two things. The git reference carries no `narHash`, because Nix puts
+an unknown query key back into the repository address and the fetch then asks
+for a repository that does not exist. The revision still pins the content, but
+without a narHash there is no store path in advance, so a substituter cannot
+serve the source and the fetch goes to GitHub. And `revCount` is gone, because
+the reference is shallow; nothing here reads it.
+
 **One source at a time.** The arms are per name, not per checkout, so a source
 with no working copy comes from the store while its neighbours come from disk.
 Nobody works on all seven at once, so fetch the ones you want and leave the
