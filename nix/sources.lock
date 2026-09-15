@@ -57,19 +57,19 @@
       "type": "github"
     },
     "nixpkgs": {
-      "lastModified": 1787172299,
-      "narHash": "sha256-PShzS87awOlE5XWkxUGBd/58/F+AtE2ZMgFffKj4r8s=",
+      "lastModified": 1789370336,
+      "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
       "owner": "NixOS",
       "repo": "nixpkgs",
-      "rev": "07e1d92cdc0ed416cfa11ff3ca40d17e61cfba7a",
+      "rev": "c7def046b9a883d46974757852106483d741586f",
       "type": "github"
     },
     "opentofu-registry": {
-      "lastModified": 1789374984,
-      "narHash": "sha256-GXTJt9TwcRtA6Xk5YdXOvHI8cjcCY/Sb44R0/z+JgWI=",
+      "lastModified": 1789473897,
+      "narHash": "sha256-lIrL27YI4Vi5B4vtx4rUAHeUXS8EV41aodAKeh+nX8o=",
       "owner": "opentofu",
       "repo": "registry",
-      "rev": "0540b36d5f570b97f96d7a9c03b4b8e6f2fc6aa6",
+      "rev": "fd385fec39f3763c9fdf4b9a693fdbdfb2dde58c",
       "type": "github"
     },
     "pynixd": {
@@ -105,11 +105,11 @@
       "type": "github"
     },
     "umbrella": {
-      "lastModified": 1789048351,
-      "narHash": "sha256-t3+DOqDKQfXTt+UXwyh9L9Z2OhYDVrodwXVCtsi43d0=",
+      "lastModified": 1789396873,
+      "narHash": "sha256-R/DbB4Rgi1yx6WHKHN7EYw+x4PbS4EDExhtYWg1CVxQ=",
       "owner": "Lillecarl",
       "repo": "umbrella",
-      "rev": "8512b6eda19ce7f7af20f82f37e28913302a841f",
+      "rev": "ab9e4b9294f76d37888b7e13bb27f65279e756f6",
       "type": "github"
     },
     "user-mode-nixos": {
