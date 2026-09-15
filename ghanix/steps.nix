@@ -93,7 +93,20 @@ rec {
     # `settings` is everything else the installed Nix should hold, as
     # nix.conf keys. Substituters, public keys and `trusted-users` belong
     # there: a daemon ignores a substituter that a non-trusted user asks
-    # for, so a project with a cache of its own needs both.
+    # for, so a project with a cache of its own needs both. A key named
+    # there replaces the default for that key.
+    #
+    # `access-tokens` is a default because the limit it lifts is shared.
+    # Anonymous api.github.com allows 60 calls an hour per IP, and GitHub's
+    # runners share one NAT pool, so strangers spend that budget too. The
+    # token makes it 1000 an hour per repository. Every `github:` input a
+    # job resolves costs a call, and a fresh runner starts with an empty
+    # tarball cache, so a wide matrix reaches 60 on its own. See nanopynix
+    # issue #301.
+    #
+    # `github.token` is minted per job by GitHub and expires with the job.
+    # It is not `secrets.GITHUB_TOKEN` wiring anyone configures, and a
+    # fork's pull request gets one too.
     installNix =
       {
         timeoutMinutes ? 15,
@@ -108,7 +121,11 @@ rec {
         timeout-minutes = timeoutMinutes;
         "with" = {
           extra_nix_config = nixConf (
-            { experimental-features = experimentalFeatures; } // settings
+            {
+              experimental-features = experimentalFeatures;
+              access-tokens = "github.com=\${{ github.token }}";
+            }
+            // settings
           );
         };
       };

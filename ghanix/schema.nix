@@ -143,6 +143,9 @@ let
               does `trusted-users`: a daemon ignores a substituter that a
               user it does not trust asks for, so a project with a cache of
               its own needs all three or it gets none of them.
+
+              `access-tokens` already holds `github.com=''${{ github.token }}`.
+              A key named here replaces the default for that key.
             '';
           };
           timeoutMinutes = mkOption {
