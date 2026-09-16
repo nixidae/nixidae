@@ -105,11 +105,11 @@
       "type": "github"
     },
     "umbrella": {
-      "lastModified": 1789552785,
-      "narHash": "sha256-aALBIuibtjeWFHowtsFNrZ/AfnLRFa0FhegR6GpXPCQ=",
+      "lastModified": 1789553394,
+      "narHash": "sha256-PH7SrD36ZJs/wP87FXvzHPW96xb6Vn0uScZMHu+9c6g=",
       "owner": "Lillecarl",
       "repo": "umbrella",
-      "rev": "4f49f07d2c5c79585d3169e21577ce7826a50ac3",
+      "rev": "d86e1d99c694d2bdbeb489585d68d621b6bdc519",
       "type": "github"
     },
     "user-mode-nixos": {
