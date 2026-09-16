@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789558820,
-      "narHash": "sha256-o/sy/HWjdYkld1M86xWXFXfQJc1+f7NVVWdHD2KaSsM=",
+      "lastModified": 1789561424,
+      "narHash": "sha256-cIo29UgwvbBN3mJmWcXkTVx7eU6vN5irLjPcLp2LYcI=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "eac3af83302b57b670007db1b76647edcc303b85",
+      "rev": "fab1027cd1b9a0d6f651741009fa8c7d22d8ce36",
       "type": "github"
     },
     "flake-compatish": {
@@ -41,19 +41,19 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1789558819,
-      "narHash": "sha256-wc7uX5YXZD5RvR1UfbiDyaUF/ueP/a2imDul6BF48yk=",
+      "lastModified": 1789561423,
+      "narHash": "sha256-RqEdQqgzMTHreYGDveQDszuw/q5Z/5M/oTPMkz2Ypfw=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "d99650802d82933284bdfb1c4c15a399c7eab6de",
+      "rev": "6c96fe35b7c91b389081fc700863879c202ad5c5",
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789558821,
-      "narHash": "sha256-LLILXFSvXUttQT7VAaDJKYQoZymiQ6+MaKnW4+Soemk=",
+      "lastModified": 1789561425,
+      "narHash": "sha256-qGfRUluE1c+Y3bcgDYTuweM1WOBX+vIW/MuC8JcXnaw=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "5786894be21ac4d7bd5eb2405a743c88c68fce5a",
+      "rev": "cc2d150d26c2580d42531b0673dcc65f5c7681f1",
       "type": "github"
     },
     "nixpkgs": {
@@ -73,11 +73,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1789558820,
-      "narHash": "sha256-bb0VQjzytzTNEBsTwpmF7xKssmArB8HNDyH73s6dHO8=",
+      "lastModified": 1789561424,
+      "narHash": "sha256-ylhKbVnfVPik9FTfS1V4eKD6TGGKjnv61eqLn13Miqg=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "913d2f05534e2ca0359703de227816b11b005566",
+      "rev": "c3464f792013cf2eb21bf9dd832679fb1e46d699",
       "type": "github"
     },
     "pyproject-nix": {
@@ -113,11 +113,11 @@
       "type": "github"
     },
     "user-mode-nixos": {
-      "lastModified": 1789558822,
-      "narHash": "sha256-hCI5+3KVhXsbjpfKYNR0f7sEoLVbLOyIBryXv3CVVkc=",
+      "lastModified": 1789561426,
+      "narHash": "sha256-pbI1NiZowVSE0tuHdnyoAUnLFRWQ0IT8g39AXVcZqUI=",
       "owner": "lillecarl",
       "repo": "user-mode-nixos",
-      "rev": "a414b926504f6b1582c0351fed032c3d106f24f4",
+      "rev": "1c335258509ed10bc7782860f9371d705004d096",
       "type": "github"
     }
   },
