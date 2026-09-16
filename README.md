@@ -299,6 +299,45 @@ input rather than a lookup.
 
 The lock files are not committed yet. Each has to name a pushed nixidae.
 
+### Which umbrella a project was written against
+
+A project can carry `nix/umbrella.rev`, holding one revision of this
+repository. nanopynix, nixkube, pynixd, easykubenix and user-mode-nixos do. A
+checkout of one of them alone reads it and fetches that umbrella, so every
+other source resolves to the revision that umbrella locked.
+
+Without it the reference was `github:nixidae/nixidae` with no revision at
+all: the head of the default branch, whatever that is today. Three things
+read the pin instead, in this order:
+
+| what | when |
+| --- | --- |
+| `UMBRELLA_REV` | CI sets it, so every job of one run reads one umbrella |
+| `nix/umbrella.rev` | a clone, a tarball, a fork's pull request |
+| the branch head | a project that carries no pin |
+
+**A file, and not a git ref.** A tree that Nix fetched carries no `.git`, so
+an expression inside it cannot learn its own revision or its own url.
+Measured: `builtins.readDir` of a fetched tree lists the source files and
+nothing else. A pin held in a ref is therefore unreadable from a store path,
+from a release tarball and from a pull request on a fork, because GitHub
+copies `refs/heads` and tags to a fork and not a custom namespace. A file is
+in the tree, so every one of those reads it. It is also the only shape that
+survives `--pure-eval`, where `builtins.getEnv` answers `""`.
+
+**It names the umbrella the work was written against, not the one that locks
+it.** Those cannot be the same. The lock holds the project's commit hash, so
+a commit holding the lock's hash would need a hash that contains itself. The
+earlier revision is the useful one anyway: a build of the checkout overrides
+the project with the checkout, so the umbrella supplies every *other* source.
+
+`umbrella land` writes it, into the commit it is about to publish, and only
+for a project that already has work to publish. A project nobody changed
+gains no commit, and a project that did gains no second one. Two cases are
+left alone: a commit that is already on a remote, because amending it would
+rewrite history somebody can fetch, and an umbrella HEAD that is on no
+remote, because a pin nobody can fetch makes the project unbuildable.
+
 ### The two modes
 
 | mode | what it is | how |
