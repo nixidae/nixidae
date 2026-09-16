@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789518579,
-      "narHash": "sha256-/Jm8Ru3eTRV14On2/BlxUxfwGEtff9jroZrDXQcHssM=",
+      "lastModified": 1789558317,
+      "narHash": "sha256-uSSClGQOiJNLBdksGHY0MxF34U7I+eT/QfLGg5t7Jvc=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "857c2c5c9132dc42642282f38c7003b8c1591e97",
+      "rev": "1de682d564e8f2eff7b48088e627adba0abbc78e",
       "type": "github"
     },
     "flake-compatish": {
@@ -41,19 +41,19 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1789515642,
-      "narHash": "sha256-TqieSJsvGy+XuupkU0q/6uNBLn/e3+1p4Dw2PZamYqk=",
+      "lastModified": 1789558316,
+      "narHash": "sha256-hBSPZnnTSf8cIcGJmet0IH+KEwxw0PdpzZ4duwDbiSA=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "a68d176a597cd5705399523e72ce159f5ea7f90f",
+      "rev": "a7e968ae2f1f10538a39a337f26d56928093e8f6",
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789550394,
-      "narHash": "sha256-O49lU0mz412urJaQT8xEWYH2KfG/SG/GgUfMDLW3MeU=",
+      "lastModified": 1789558318,
+      "narHash": "sha256-y8a48S8gsTKxrcGtpjS+GVq5S1ShTH63UFsor0jKxJY=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "82a025114099ff9f76cdb2403657d4c3b596ceaf",
+      "rev": "12582c8dd9dea7bd7c608fe22fe8ce7d58341f47",
       "type": "github"
     },
     "nixpkgs": {
@@ -73,11 +73,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1789548620,
-      "narHash": "sha256-TLpsxSteh2jPtbx8xbFiO795jkjVTTp5oV1OQZqbV6M=",
+      "lastModified": 1789558317,
+      "narHash": "sha256-knvc7RCd9KneKKlHdsqaXeh1TNRSz2TNnT42U7ZEzWY=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "54016ca2329d898d878b689a2ac8393a63ddf6ac",
+      "rev": "68eaf7833e02a5e623b680af71d8bdca0a190e71",
       "type": "github"
     },
     "pyproject-nix": {
@@ -105,19 +105,19 @@
       "type": "github"
     },
     "umbrella": {
-      "lastModified": 1789556743,
-      "narHash": "sha256-ogLQ7a4MHecMXWcc61deGLBrLe6O5RIYkxtjUWY5SPE=",
+      "lastModified": 1789558365,
+      "narHash": "sha256-5X3wnMRbpUpLEVM6ieEx4Xml/dY1RE9aRwI5WdYsbUs=",
       "owner": "Lillecarl",
       "repo": "umbrella",
-      "rev": "a8ea85b50bcda972d908b7ce4cc1b197a738a88a",
+      "rev": "a56e46c67ca82eb81affc251ccba6f2572a5cdc0",
       "type": "github"
     },
     "user-mode-nixos": {
-      "lastModified": 1789517361,
-      "narHash": "sha256-P6Rnq+TbX4HE9JYCVLFppRGRfK4e4ZTh3Dml3urPlYw=",
+      "lastModified": 1789558318,
+      "narHash": "sha256-tVk6iHmSWf+mQFD4ONqIc6R3kuRcGqjkN/hs8Df+Eh4=",
       "owner": "lillecarl",
       "repo": "user-mode-nixos",
-      "rev": "49c90199023937eb9a72f26fc799edb19ff02201",
+      "rev": "9b72c413893c0e6316b389c7dfd73031c4e5cfad",
       "type": "github"
     }
   },
