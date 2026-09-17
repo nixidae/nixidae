@@ -73,11 +73,11 @@
       "type": "github"
     },
     "opentofu-registry": {
-      "lastModified": 1789473897,
-      "narHash": "sha256-lIrL27YI4Vi5B4vtx4rUAHeUXS8EV41aodAKeh+nX8o=",
+      "lastModified": 1789682530,
+      "narHash": "sha256-//beSMTCJr+Fo5AoAJlx14c+HBLBhVQCNlP4kxJqrkM=",
       "owner": "opentofu",
       "repo": "registry",
-      "rev": "fd385fec39f3763c9fdf4b9a693fdbdfb2dde58c",
+      "rev": "fbd9459525b1bad81acee508d1bf52ad00bf4ec7",
       "type": "github"
     },
     "pynixd": {
