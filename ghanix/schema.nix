@@ -148,6 +148,34 @@ let
               A key named here replaces the default for that key.
             '';
           };
+          version = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            example = "2.34.8";
+            description = ''
+              Which Nix to install. `null` takes whatever the action
+              installs today, which is the newest release.
+
+              Name one where a project's tests assume a single version of
+              Nix on the machine. pynixd is the case: its client, the
+              daemons its tests spawn and the `nix-daemon --stdio` that an
+              `ssh-ng://` peer starts are all "the Nix on this machine",
+              and they agree on a developer machine by construction. A
+              runner that installs a newer one than the project pins puts
+              two versions in one test, and the failure reads as a defect
+              of the project. Sixteen tests answered
+
+                  error: the daemon is missing the
+                  'realisation-with-path-not-hash' protocol feature
+
+              where the client was 2.34.8 and the ambient Nix was 2.35.2.
+              `RemoteStore::queryRealisation` raises that, and only 2.35
+              has it.
+
+              The value is a release, and the step turns it into the
+              installer URL that `releases.nixos.org` serves.
+            '';
+          };
           timeoutMinutes = mkOption {
             type = types.int;
             default = 15;
@@ -490,7 +518,7 @@ let
         ))
         (lib.mkOrder orders.installNix (
           lib.optional cfg.nix.install.enable (
-            steps.installNix { inherit (cfg.nix.install) experimentalFeatures settings timeoutMinutes; }
+            steps.installNix { inherit (cfg.nix.install) experimentalFeatures settings timeoutMinutes version; }
           )
         ))
         (lib.mkOrder orders.cachix (

@@ -115,6 +115,7 @@ rec {
           "flakes"
         ],
         settings ? { },
+        version ? null,
       }:
       {
         uses = "cachix/install-nix-action@master";
@@ -127,6 +128,13 @@ rec {
             }
             // settings
           );
+        }
+        // lib.optionalAttrs (version != null) {
+          # The action takes an installer URL and not a version, and this is
+          # the URL it fetches for its own default. A project names a version
+          # when its tests assume one Nix on the machine -- the schema's
+          # `nix.install.version` says what that cost when it was not named.
+          install_url = "https://releases.nixos.org/nix/nix-${version}/install";
         };
       };
 
