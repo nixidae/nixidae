@@ -96,6 +96,22 @@
     branch = "main";
     path = ../flake-compatish;
   };
+  # A fork, with a working copy, because we carry patches to it.
+  #
+  # `ekn` talks to Kubernetes through kr8s and should talk through nothing
+  # else. Upstream has no server-side apply, so the one operation every
+  # apply goes through had to be built by hand out of `call_api`. See
+  # easykubenix issue #29 for that and four more gaps.
+  #
+  # **Only changes meant for upstreaming.** No codestyle, no local
+  # convenience. Every patch has to stand as a PR to kr8s-org/kr8s, or the
+  # fork becomes maintenance nobody can hand back. `develop` carries them;
+  # `main` stays upstream's.
+  kr8s = {
+    url = "https://github.com/Lillecarl/kr8s.git";
+    branch = "develop";
+    path = ../kr8s;
+  };
   pyproject-nix = {
     url = "https://github.com/pyproject-nix/pyproject.nix.git";
     branch = "master";
