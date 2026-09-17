@@ -87,17 +87,37 @@ whole workflow -- which no render gate here would catch.
 
 ## What it does not give you
 
-Text. `evalWorkflow` returns an attrset and the caller writes the file,
-because the two consumers disagree about how and neither way belongs in a
-library:
+A file. `evalWorkflow` returns an attrset, and the caller decides where it
+lands, what gates it and what formats it:
 
-- **nanopynix** renders through its own `to_yaml`, for key ordering it
-  controls, and a pytest gate compares the result against the checked-in
-  YAML and rewrites it when they differ.
-- **nixkube** writes it with `pkgs.formats.yaml`, then runs the result
-  through yamlfmt, because treefmt formats the committed file and its CI
-  ends in `git diff --exit-code`. A gate derivation parses the committed
-  YAML and compares it against the value, so style never fails it.
+- **nanopynix** renders every workflow in one call with `ci/render.py`,
+  which separates rendering from writing so its pytest gate can compare
+  without touching disk — the packaged CI runner runs from a read-only
+  store copy. It compares against the checked-in YAML and rewrites it when
+  the two differ.
+- **nixkube** runs the render through yamlfmt, because treefmt formats the
+  committed file and its CI ends in `git diff --exit-code`. A gate
+  derivation parses the committed YAML and compares it against the value,
+  so style never fails it.
+- **pynixd** does neither: it has no YAML formatter, so the render is the
+  only thing that writes the file.
+
+The writer itself **is** here, because that part they agreed about.
+`toYamlScript` is the path of a script that takes a JSON file and prints
+YAML: a literal block for every multi-line string, `'on'` quoted because
+YAML 1.1 reads a bare `on` as the boolean `true`, and no line wrapping.
+
+```nix
+pkgs.runCommand "ci.yml" {
+  nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyyaml ])) ];
+  value = builtins.toJSON workflow;
+  passAsFile = [ "value" ];
+} ''python3 ${ghalib.toYamlScript} "$valuePath" > $out''
+```
+
+It is a path and not a store path, so ghanix still needs `lib` and nothing
+else. nixkube and pynixd held identical copies of it and nothing made them
+agree; issue #1 has the detail.
 
 YAML is a superset of JSON, so `builtins.toJSON` written to a `.yml` file is
 also a valid workflow and needs no builder at all. It is unreadable in a

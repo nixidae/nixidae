@@ -19,15 +19,25 @@
 #     jobs.build.steps = [ (ghalib.steps.checkout { }) ];
 #   }
 #
-# `evalWorkflow` returns an attrset, not text. Turning that into a file is
-# the caller's job, because the two consumers do it differently and neither
-# way belongs here: nanopynix renders through its own `to_yaml` for key
-# order it controls, and nixkube writes it with `pkgs.formats.yaml`. YAML is
-# a superset of JSON, so `builtins.toJSON` into a `.yml` file also works and
-# needs no builder at all.
+# `evalWorkflow` returns an attrset, not text. Writing the file is still the
+# caller's job, because the callers disagree about the gate and about the
+# formatter: nanopynix compares in pytest and rewrites, nixkube runs yamlfmt
+# because treefmt owns the committed file. They do not disagree about the
+# writer, so `toYamlScript` is here and the two halves around it are not.
+#
+# YAML is a superset of JSON, so `builtins.toJSON` into a `.yml` file also
+# works and needs no builder at all. It is unreadable in a diff.
 { lib }:
 let
   schema = import ./schema.nix { inherit lib; };
   steps = import ./steps.nix { inherit lib; };
 in
-schema // steps
+schema
+// steps
+// {
+  # A path, and not a store path: ghanix takes `lib` and nothing else, and
+  # keeping that true is what lets a repository use it while pinning its own
+  # nixpkgs. A caller interpolates it into a builder, which is where it
+  # becomes a store path.
+  toYamlScript = ./to_yaml.py;
+}
