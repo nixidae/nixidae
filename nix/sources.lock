@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789628232,
-      "narHash": "sha256-2yBkNFL2zr9eT7aTW8ZA4Fvf9pjrOXjKGrBF/iVhYMs=",
+      "lastModified": 1789654717,
+      "narHash": "sha256-tiIY+uE/xuwkzwgAKdHsgIlMniqinTBIXYsise5J2Fs=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "a1222f11eb58689be1b9bfcfd7610fbec37642a8",
+      "rev": "9d5129a9f409f025257703e399e8331b97052d95",
       "type": "github"
     },
     "flake-compatish": {
@@ -41,19 +41,19 @@
       "type": "github"
     },
     "kr8s": {
-      "lastModified": 1789654579,
-      "narHash": "sha256-oscccHn+91q9u1QVBaGYtu6fx7E8I1zVCVFfjgCMVDI=",
+      "lastModified": 1789654778,
+      "narHash": "sha256-jv/1kwcmWKsL/u8NK/m68Ik9WlbZf1cbTIZrt4v+Eyo=",
       "owner": "Lillecarl",
       "repo": "kr8s",
-      "rev": "fc0c8b68cfbe0e14935142d5caf70023b41c2b6d",
+      "rev": "657f34542df278f8b12d957cb7b40d1b468cf2b7",
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1789561423,
-      "narHash": "sha256-RqEdQqgzMTHreYGDveQDszuw/q5Z/5M/oTPMkz2Ypfw=",
+      "lastModified": 1789654717,
+      "narHash": "sha256-jfSWVoQMov4Uigam8Z/XvQThCN49GT0+KOM5jXBThCM=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "6c96fe35b7c91b389081fc700863879c202ad5c5",
+      "rev": "4480d64925b055c21fa477b3a7e99a2d2c4c85e1",
       "type": "github"
     },
     "nixkube": {
