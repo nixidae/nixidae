@@ -41,11 +41,11 @@
       "type": "github"
     },
     "kr8s": {
-      "lastModified": 1789683980,
+      "lastModified": 1789684188,
       "narHash": "sha256-z/XujGHt0OIIEBg9faGmoIubeu2J1NOl3e+enayMIME=",
       "owner": "Lillecarl",
       "repo": "kr8s",
-      "rev": "3707ea5b0ec82677a043d7be2553d4451e285304",
+      "rev": "60fb312b133e599e37962d89224e66a65e8f210a",
       "type": "github"
     },
     "nanopynix": {
