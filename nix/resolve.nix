@@ -139,12 +139,24 @@ let
     in
     name: request != "" && (all || builtins.elem name names);
 
+  # The sources one environment variable names *by name*, never the `all`
+  # forms. Asking for everything is a blanket request, so a name it cannot
+  # serve is not a mistake. Writing one name down is a specific request.
+  namedBy =
+    var:
+    let
+      request = builtins.getEnv var;
+      names = builtins.filter (s: builtins.isString s && s != "") (builtins.split "[, ]+" request);
+    in
+    name: builtins.elem name names;
+
   # UMBRELLA_DEV names the sources to read as directories instead.
   #
   # That is what makes an edit reach the next build of another project with no
   # commit and no push. The divergence is worth having while you edit, and it
   # has to be something you chose.
   inDev = selectedBy "UMBRELLA_DEV";
+  namedDev = namedBy "UMBRELLA_DEV";
 
   # UMBRELLA_GIT names the sources to fetch over git instead of over the
   # GitHub API. It changes the reference and never the result: see `ref`.
@@ -162,6 +174,28 @@ let
     # diverge. It is the only one that does.
     if hasWorkingCopy && inDev name then
       workingCopy
+    else if namedDev name then
+      # Named in UMBRELLA_DEV, and there is no working copy to read. Falling
+      # through to the lock would answer with the pinned source, which is the
+      # opposite of what was asked for and says nothing about it.
+      #
+      # This is how a before/after measurement reports a null: both arms run
+      # the locked revision, the output is byte-identical, and the difference
+      # is zero. Measured 2026-09-17, on an umbrella that was itself a store
+      # path and therefore had no sibling directories at all.
+      throw ''
+        UMBRELLA_DEV names ${name}, and there is no working copy to read.
+
+        Looked for: ${
+          if workingCopy == null then "nothing -- the spec gives no path" else toString workingCopy
+        }
+
+        The directory is missing or empty. An umbrella that is itself a
+        store path has no working copies beside it, so UMBRELLA_DEV can
+        do nothing there.
+
+        Run `umbrella fetch`, or drop ${name} from UMBRELLA_DEV.
+      ''
     else if hasWorkingCopy && locked != null then
       localRef workingCopy locked
     else if locked != null then
