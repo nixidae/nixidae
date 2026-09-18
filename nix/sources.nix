@@ -132,6 +132,15 @@
     url = "https://github.com/lillecarl/dinix.git";
     branch = "main";
   };
+  # `buildLayer` takes the store paths of a layer by name, which
+  # `dockerTools.streamLayeredImage` cannot: it has `maxLayers` and a
+  # popularity heuristic. nixkube's image is 118 paths, and 81 of them are
+  # under a megabyte, so the heuristic spends 81 of 125 layers on 5% of the
+  # bytes. nixkube builds its node image with this.
+  nix2container = {
+    url = "https://github.com/nlewo/nix2container.git";
+    branch = "master";
+  };
   # The OpenTofu registry's own index, which is what lets easykubenix pin a
   # provider nixpkgs does not package, or a version it does not carry.
   #

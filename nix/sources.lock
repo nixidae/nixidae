@@ -56,12 +56,20 @@
       "rev": "0cdf07417339e28d85d1ec395472e685dd5611d8",
       "type": "github"
     },
+    "nix2container": {
+      "lastModified": 1788758950,
+      "narHash": "sha256-b3zONUcYXZHeoeYwDZdSDCzMj0s6ubmD6NT3D7sS+jU=",
+      "owner": "nlewo",
+      "repo": "nix2container",
+      "rev": "b6ac40ef110c12ab1651fce5ea563f7837236439",
+      "type": "github"
+    },
     "nixkube": {
-      "lastModified": 1789723200,
-      "narHash": "sha256-QU+jgyuW+H90gY9/sPv+SbfS403igvQzRph8qCihLAc=",
+      "lastModified": 1789742007,
+      "narHash": "sha256-PUgLB7gGz2/gs28mGPAPepp75aPe4vcYxTYbgpM4PvQ=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "2fa4e7236d055149d5c912052b0ec6ff76b5d999",
+      "rev": "1733b33c4d402d52c2912c898550436a3a988789",
       "type": "github"
     },
     "nixpkgs": {
