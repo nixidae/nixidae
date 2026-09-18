@@ -57,11 +57,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1789681302,
-      "narHash": "sha256-hchPMQfemTo13eYpyvawmhWVRUmK7IqIToznPrEAFaQ=",
+      "lastModified": 1789723200,
+      "narHash": "sha256-QU+jgyuW+H90gY9/sPv+SbfS403igvQzRph8qCihLAc=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "bbf82f3ae69c59bb25ffd01df1cb59726a606b3d",
+      "rev": "2fa4e7236d055149d5c912052b0ec6ff76b5d999",
       "type": "github"
     },
     "nixpkgs": {
@@ -81,11 +81,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1789636410,
-      "narHash": "sha256-REE/6zBKjpbb9QHQpnYdSDBjU4J7xxBVyfxlFvMh5Qw=",
+      "lastModified": 1789723203,
+      "narHash": "sha256-B+pNBOI67Bk2mkNtIwH+s+PSXexI5U/E2uoUbxCkw1c=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "5b1b401201c391df4154979a5412b2e81b500590",
+      "rev": "4bcbadb43e4fad7b8637b318e97bf4cf7929a384",
       "type": "github"
     },
     "pyproject-nix": {
