@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789692622,
-      "narHash": "sha256-Eo0FnxDlvd8b+I0YfGwZmzg/yIo+knQuThjCpZsDre8=",
+      "lastModified": 1789693423,
+      "narHash": "sha256-hB+etbyanQHpcs6ddU0AcB3KKkNuad3K7zuXv7ii1iw=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "4a3faec4e51a694985dab2d0b54168e66021b6cc",
+      "rev": "7454de79ea8146428ee1c0975c5d04a847f2d0f3",
       "type": "github"
     },
     "flake-compatish": {
