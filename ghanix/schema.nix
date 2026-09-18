@@ -89,11 +89,18 @@ let
       freeDiskSpace = {
         enable = mkOption {
           type = types.bool;
-          default = false;
+          default = true;
           description = ''
-            Delete the toolchains the runner image ships that no job here
-            uses. For a closure that does not fit in the 25 GiB a runner
-            starts with.
+            Delete the toolchains and browsers the runner image ships.
+
+            On by default. A job here builds Nix derivations: it does not run
+            dotnet, Android, Julia, PowerShell or a browser, so none of what
+            `steps.removable` lists is ever the right thing to keep. Leaving
+            it in place only makes a job's free space depend on what GitHub
+            decided to bundle that month.
+
+            Turn it off for a job whose closure is small enough that the step
+            costs more than it returns.
           '';
         };
         timeoutMinutes = mkOption {
