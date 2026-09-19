@@ -245,6 +245,12 @@ rec {
       {
         name = "Make room on the runner";
         timeout-minutes = timeoutMinutes;
+        # **Linux only.** Every path below is a Linux path and `docker` is on
+        # no macOS runner, so on one of those the step can only fail -- and it
+        # does, at `docker: command not found`, because the shell runs with
+        # `-e`. An expression belongs in `if:`; the rule about a `run:` body
+        # does not reach here.
+        "if" = "runner.os == 'Linux'";
         run = lib.concatStringsSep "; " [
           "df -h /"
           "sudo rm -rf ${lib.concatStringsSep " " removable}"
