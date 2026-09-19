@@ -49,11 +49,11 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1789785927,
-      "narHash": "sha256-Zi3zRRMMFMHmr8o3zj0A+QMew3kKwnLUHMT/dL9lAKE=",
+      "lastModified": 1789787433,
+      "narHash": "sha256-+Qskgck9+PEgQ73VeGoVnvkCpplFrNUj5F2MSCcI2QQ=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "1e3653aacfd7c52d3227e663fae239adc55cf874",
+      "rev": "492282ee8d6625ffea71810a86a77ef72f9736a5",
       "type": "github"
     },
     "nix2container": {
@@ -89,11 +89,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1789785933,
-      "narHash": "sha256-Dg1VzRKN+sEGF9csyb1LXPma8D4udyZcFWY3tPLW8J4=",
+      "lastModified": 1789787436,
+      "narHash": "sha256-4TsLiyeHEZZk8cTl6gNPi05spooSmj8ycN0tQn+WqYQ=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "31956673809d5dd84b2f29f39b241d17e6e8018a",
+      "rev": "832e444c7279c44d2a5f99d18291c1194f35a9c0",
       "type": "github"
     },
     "pyproject-nix": {
@@ -129,11 +129,11 @@
       "type": "github"
     },
     "user-mode-nixos": {
-      "lastModified": 1789785937,
-      "narHash": "sha256-ghsj9tg9cM6TImLfN92esZWF6JfiyxYosXQyW/tSx4Y=",
+      "lastModified": 1789787439,
+      "narHash": "sha256-xq50poREfrJ7tsZYt7nt2rVhJHiQBN4kPVvUgFW79vg=",
       "owner": "lillecarl",
       "repo": "user-mode-nixos",
-      "rev": "c529601e90f8f2d261b487d68194db49b6335b0f",
+      "rev": "546baa00c24330bca5ade4f0e8bb5fef6a8b4e7d",
       "type": "github"
     }
   },
