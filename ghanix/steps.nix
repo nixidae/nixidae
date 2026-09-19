@@ -20,6 +20,11 @@ rec {
   # No option to keep any of it. A job here builds Nix derivations; it does
   # not drive a browser or run dotnet, and a knob nobody would turn is a
   # knob that only makes this harder to read.
+  #
+  # **Every entry is something the image ships and nothing writes again.**
+  # That is the test for adding one. A directory an action writes to at run
+  # time belongs to the job, not to the image, and deleting it breaks the
+  # action rather than freeing anything.
   removable = [
     "/usr/lib/jvm"
     "/usr/share/dotnet"
@@ -29,7 +34,12 @@ rec {
     "/usr/local/lib/android"
     "/opt/az"
     "/usr/local/share/powershell"
-    "/opt/hostedtoolcache"
+    # `/opt/hostedtoolcache` is **not** on this list, and must not go on it.
+    # It is not a preinstalled toolchain: it is where a `setup-*` action puts
+    # what it installs, at run time, and an action that finds it missing
+    # fails. Measured in nixkube run 35438755142 -- `Cache directory
+    # '/opt/hostedtoolcache' does not exist`, and both kind jobs died at
+    # "Create Kind cluster".
     "/usr/local/share/chromium"
     "/opt/microsoft"
     "/opt/google"
