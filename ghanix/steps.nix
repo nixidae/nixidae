@@ -183,11 +183,11 @@ rec {
       {
         name = "Allow the unprivileged user namespaces Nix and passt need";
         timeout-minutes = timeoutMinutes;
-        run = ''
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          sudo sysctl -w kernel.unprivileged_userns_clone=1
-          unshare --user --map-root-user --mount --pid --fork --mount-proc true
-        '';
+        run = lib.concatStringsSep "; " [
+          "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
+          "sudo sysctl -w kernel.unprivileged_userns_clone=1"
+          "unshare --user --map-root-user --mount --pid --fork --mount-proc true"
+        ];
       };
 
     /*
@@ -209,13 +209,12 @@ rec {
       {
         name = "Let the runner user open /dev/kvm";
         timeout-minutes = timeoutMinutes;
-        run = ''
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-        '';
+        run = lib.concatStringsSep "; " [
+          "echo 'KERNEL==\"kvm\", GROUP=\"kvm\", MODE=\"0666\", OPTIONS+=\"static_node=kvm\"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules"
+          "sudo udevadm control --reload-rules"
+          "sudo udevadm trigger --name-match=kvm"
+          "ls -l /dev/kvm"
+        ];
       };
 
     /*
@@ -230,6 +229,14 @@ rec {
 
       A glob that matches nothing is passed to `rm` literally, and `-f`
       makes that silent -- which is what `julia*` relies on.
+
+      **One line, and `;` between the commands.** A consumer may hold a
+      generated workflow to the rule that a `run:` body is one line, because
+      nothing shellchecks a body that lives in a Nix string -- nanopynix
+      states it in `tests/meta/test_ci_step_policy.py`. The step that puts a
+      body in a package cannot serve here: this one makes room *for* Nix, so
+      it runs before Nix is installed. `;` and not `&&`, so a prune that
+      fails still leaves the second `df` to report the number.
     */
     freeDiskSpace =
       {
@@ -238,13 +245,13 @@ rec {
       {
         name = "Make room on the runner";
         timeout-minutes = timeoutMinutes;
-        run = ''
-          df -h /
-          sudo rm -rf ${lib.concatStringsSep " " removable}
-          docker system prune --all --force
-          docker builder prune --all --force
-          df -h /
-        '';
+        run = lib.concatStringsSep "; " [
+          "df -h /"
+          "sudo rm -rf ${lib.concatStringsSep " " removable}"
+          "docker system prune --all --force"
+          "docker builder prune --all --force"
+          "df -h /"
+        ];
       };
 
     verifyClosure =
@@ -300,10 +307,10 @@ rec {
       {
         name = "Prepare the Pages artifact";
         timeout-minutes = timeoutMinutes;
-        run = ''
-          mkdir -p public
-          cp -r --no-preserve=mode,ownership ${path}/. public/
-        '';
+        run = lib.concatStringsSep "; " [
+          "mkdir -p public"
+          "cp -r --no-preserve=mode,ownership ${path}/. public/"
+        ];
       };
 
     uploadPages =
