@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1789936750,
-      "narHash": "sha256-dvj064Mqk45pW4s9uLzUtEXnVf+dNGYh1RDJHzRTvKk=",
+      "lastModified": 1789936843,
+      "narHash": "sha256-Z1B913k2G0ZuhGI7Yiw4C2q8WFfMjyWiJVx9g9PXzSo=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "463d901fceef0aa568f12ec75df545a037c37b46",
+      "rev": "399a782b5c8142dd04bbfc4d01f57c3f840d5046",
       "type": "github"
     },
     "flake-compatish": {
@@ -89,11 +89,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1789933107,
-      "narHash": "sha256-myaKbfGycIim9sgvg69n3jBXcRfcr81NPw4gh0iMfh4=",
+      "lastModified": 1789936847,
+      "narHash": "sha256-z4yi1EWtu1Q0fqXAtRg3lRZwWtCT8S21NwA+ZsBsRdM=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "25e69adf937e96f24407be6714a022908e2dbe26",
+      "rev": "ac685618dac59c8b6cf3260efe94e1ff959898f2",
       "type": "github"
     },
     "pyproject-nix": {
