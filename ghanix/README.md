@@ -80,6 +80,12 @@ spaces. That is what lets a project with a cache of its own drop the
 composite action it would otherwise need to carry substituters -- and a
 composite action cannot hold `timeout-minutes` at all.
 
+`nix.install.uidRange = true` (or `steps.installNix { uidRange = true; }`)
+offers the `uid-range` system feature: `auto-allocate-uids`, `use-cgroups`,
+and the feature added through `extra-system-features`, so the runner keeps
+the ones Nix detects. A build that asks for it runs as root with 65536 ids
+and a cgroup of its own, which systemd in a container needs.
+
 `ghanix` is stripped from each job before rendering. It is one attribute
 for that reason: a job is freeform, so any other key it carries goes to
 GitHub verbatim, and a key GitHub does not know makes it refuse to load the

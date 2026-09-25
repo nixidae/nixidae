@@ -117,6 +117,13 @@ rec {
     # `github.token` is minted per job by GitHub and expires with the job.
     # It is not `secrets.GITHUB_TOKEN` wiring anyone configures, and a
     # fork's pull request gets one too.
+    #
+    # `uidRange` lets a derivation ask for the `uid-range` system feature:
+    # the build runs as root with 65536 ids and a cgroup of its own, which
+    # systemd as PID 1 in a container needs (nixpkgs' nspawn tests,
+    # user-mode-nixos' container guests). The feature goes in
+    # `extra-system-features`, so the runner keeps the defaults Nix
+    # detects -- `kvm` among them, which an ARM runner must not claim.
     installNix =
       {
         timeoutMinutes ? 15,
@@ -126,6 +133,7 @@ rec {
         ],
         settings ? { },
         version ? null,
+        uidRange ? false,
       }:
       {
         uses = "cachix/install-nix-action@master";
@@ -133,8 +141,18 @@ rec {
         "with" = {
           extra_nix_config = nixConf (
             {
-              experimental-features = experimentalFeatures;
+              experimental-features =
+                experimentalFeatures
+                ++ lib.optionals uidRange [
+                  "auto-allocate-uids"
+                  "cgroups"
+                ];
               access-tokens = "github.com=\${{ github.token }}";
+            }
+            // lib.optionalAttrs uidRange {
+              auto-allocate-uids = true;
+              use-cgroups = true;
+              extra-system-features = [ "uid-range" ];
             }
             // settings
           );

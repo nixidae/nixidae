@@ -155,6 +155,18 @@ let
               A key named here replaces the default for that key.
             '';
           };
+          uidRange = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              Offer the `uid-range` system feature: a build that asks for
+              it runs as root with 65536 ids and a cgroup of its own, which
+              systemd as PID 1 in a container needs. Turns on
+              `auto-allocate-uids` and `use-cgroups`, and adds the feature
+              through `extra-system-features`, so the runner keeps the
+              features Nix detects for itself.
+            '';
+          };
           version = mkOption {
             type = types.nullOr types.str;
             default = null;
@@ -525,7 +537,15 @@ let
         ))
         (lib.mkOrder orders.installNix (
           lib.optional cfg.nix.install.enable (
-            steps.installNix { inherit (cfg.nix.install) experimentalFeatures settings timeoutMinutes version; }
+            steps.installNix {
+              inherit (cfg.nix.install)
+                experimentalFeatures
+                settings
+                timeoutMinutes
+                uidRange
+                version
+                ;
+            }
           )
         ))
         (lib.mkOrder orders.cachix (
