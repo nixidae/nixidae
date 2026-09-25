@@ -49,11 +49,11 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1790345786,
-      "narHash": "sha256-fB3OXtR57fLNcz1efYps8+ma/C2rDHjAqfqAcNxA6D4=",
+      "lastModified": 1790346511,
+      "narHash": "sha256-5p1taCp61ADbm9Azmy60qYAE8xuKNDKzItc/3WXVtZ4=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "ce21238834b8e8af7f8113c2129c680eeee1e33b",
+      "rev": "ce5ff758bfd39450967cf485a8e171cf2498774d",
       "type": "github"
     },
     "nix2container": {
