@@ -124,6 +124,10 @@ rec {
     # user-mode-nixos' container guests). The feature goes in
     # `extra-system-features`, so the runner keeps the defaults Nix
     # detects -- `kvm` among them, which an ARM runner must not claim.
+    #
+    # `devNet` puts /dev/net in every build's sandbox, as nixpkgs' `devnet`
+    # feature asks: a build can then make tap devices, which a container
+    # guest's uplink and LAN are.
     installNix =
       {
         timeoutMinutes ? 15,
@@ -134,6 +138,7 @@ rec {
         settings ? { },
         version ? null,
         uidRange ? false,
+        devNet ? false,
       }:
       {
         uses = "cachix/install-nix-action@master";
@@ -153,6 +158,9 @@ rec {
               auto-allocate-uids = true;
               use-cgroups = true;
               extra-system-features = [ "uid-range" ];
+            }
+            // lib.optionalAttrs devNet {
+              extra-sandbox-paths = [ "/dev/net" ];
             }
             // settings
           );

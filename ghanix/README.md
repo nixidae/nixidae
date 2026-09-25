@@ -85,6 +85,8 @@ offers the `uid-range` system feature: `auto-allocate-uids`, `use-cgroups`,
 and the feature added through `extra-system-features`, so the runner keeps
 the ones Nix detects. A build that asks for it runs as root with 65536 ids
 and a cgroup of its own, which systemd in a container needs.
+`nix.install.devNet = true` puts /dev/net in the sandbox, so such a build
+can also make tap devices.
 
 `ghanix` is stripped from each job before rendering. It is one attribute
 for that reason: a job is freeform, so any other key it carries goes to

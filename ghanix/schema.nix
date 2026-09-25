@@ -167,6 +167,15 @@ let
               features Nix detects for itself.
             '';
           };
+          devNet = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              Put /dev/net in every build's sandbox, as nixpkgs' `devnet`
+              feature asks, so a build can make tap devices: a container
+              guest's uplink and LAN.
+            '';
+          };
           version = mkOption {
             type = types.nullOr types.str;
             default = null;
@@ -539,6 +548,7 @@ let
           lib.optional cfg.nix.install.enable (
             steps.installNix {
               inherit (cfg.nix.install)
+                devNet
                 experimentalFeatures
                 settings
                 timeoutMinutes
