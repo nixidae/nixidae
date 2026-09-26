@@ -41,11 +41,11 @@
       "type": "github"
     },
     "huggorm": {
-      "lastModified": 1790409521,
-      "narHash": "sha256-uovM1BVT1PXUNSGvEDNUuvDfvpkqkRLBO/dm1LfOCN8=",
+      "lastModified": 1790416425,
+      "narHash": "sha256-tGBloTV8aCyeH7DkJazsNt9c3QWviGmUqsShsomt7VA=",
       "owner": "Lillecarl",
       "repo": "huggorm",
-      "rev": "d826039ec7154e7d14f45054393ccda3facf2b65",
+      "rev": "06c9c529623d4d14fe67042859a716925c267951",
       "type": "github"
     },
     "kr8s": {
@@ -57,11 +57,11 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1790414195,
-      "narHash": "sha256-f2CNEYQ8jgi1Q3iPAQ9XY0zmtTRbKpFgptdzbzRDess=",
+      "lastModified": 1790417426,
+      "narHash": "sha256-UqHFRB54r1KkBjf0JEB/oULUoDjYLoWMFWxhrfXVtHI=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "5d57048cb9508e890ec3b60500cb7e7f58dd9175",
+      "rev": "5fbf38b85a4d7308fe00a5cd1c3f6381bcd23dc0",
       "type": "github"
     },
     "nix2container": {
