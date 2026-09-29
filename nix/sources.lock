@@ -73,11 +73,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1790329841,
-      "narHash": "sha256-e9RNYB5hohrnhXv5TU2eCqlrahHI39UWLfoXEfGDLtE=",
+      "lastModified": 1790705315,
+      "narHash": "sha256-gDFCXCBz3BR3K7eEDdqwBn+d84bvMHPB0XyGAgGl/Y4=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "b0e6c41be2102f347402795db2bdc4f0241248c5",
+      "rev": "7fb73862506b2c3369a5b9a8553981a434118b5a",
       "type": "github"
     },
     "nixpkgs": {
@@ -137,11 +137,11 @@
       "type": "github"
     },
     "user-mode-nixos": {
-      "lastModified": 1790339780,
-      "narHash": "sha256-x3sKH+yGz2IZrjQN0f6GTICuNoitdHZfuc+ctxJvD9c=",
+      "lastModified": 1790705318,
+      "narHash": "sha256-F/8y8rPMpuZNMnB0iuxW4WTXT4LHZxsMk1Jexl+RkWw=",
       "owner": "lillecarl",
       "repo": "user-mode-nixos",
-      "rev": "a85855e88ee3c070e97767dfe639656942be9249",
+      "rev": "1cb54576c5aa4796decc3bd532f3b60b63b76e43",
       "type": "github"
     }
   },
