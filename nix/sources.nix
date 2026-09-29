@@ -75,8 +75,7 @@
     branch = "develop";
     path = ../user-mode-nixos;
   };
-  # Nix C++ bindings generated from a Python DSL. Work in progress, meant to
-  # replace nanopynix-bindings.
+  # Nix C++ bindings generated from a Python DSL; nanopynix's engine.
   huggorm = {
     url = "https://github.com/Lillecarl/huggorm.git";
     branch = "main";

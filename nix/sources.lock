@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1790087609,
-      "narHash": "sha256-C4Yvz9SvLY9XNPlPZRvKfqoGHF2hoPVm78fMj491q1g=",
+      "lastModified": 1790688740,
+      "narHash": "sha256-gGn3c4lDNSyxQQWx5BUHP4zcUyuwoSM6jbHPmvXQmUc=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "30079b9d09d0e84747daf65dd5c92b798ff7b3a8",
+      "rev": "e2c59979a32c3e79e07f8c88ef02792cf1dbd164",
       "type": "github"
     },
     "flake-compatish": {
@@ -41,11 +41,11 @@
       "type": "github"
     },
     "huggorm": {
-      "lastModified": 1790670803,
-      "narHash": "sha256-FlfI5JLMvzPXWdf5HQhLMg8ziiBt7M7M55DpFTo180g=",
+      "lastModified": 1790684508,
+      "narHash": "sha256-Ne0fL58+UvZe5pOxON9022AO7Jve+5Do9PpbhCC1LmY=",
       "owner": "Lillecarl",
       "repo": "huggorm",
-      "rev": "a18fe1de82779dd0522cc8a58ca2e8f211a7fd29",
+      "rev": "ed8c1f0d6cfddc8c17c6a2e4d0bd5c3960a6da25",
       "type": "github"
     },
     "kr8s": {
@@ -57,11 +57,11 @@
       "type": "github"
     },
     "nanopynix": {
-      "lastModified": 1790651988,
-      "narHash": "sha256-r3un+7WmhJjg5hBlMAh3p73WGm9WTl/t1rFrCGs0aCk=",
+      "lastModified": 1790688746,
+      "narHash": "sha256-1KSpQl64Xe+ePIZr6S77DRz9qhG2Uxk3HQNB9+hAoV8=",
       "owner": "Lillecarl",
       "repo": "nanopynix",
-      "rev": "538823388fff0fdce9c94057863a31c0c1ca533b",
+      "rev": "168570083b5393ee84d9927992737ae368ea5945",
       "type": "github"
     },
     "nix2container": {
@@ -97,11 +97,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1790257628,
-      "narHash": "sha256-omBSQMLJAvovk0vcm9MSID+vR6uBZ1CdOkNqWcpqtcQ=",
+      "lastModified": 1790688750,
+      "narHash": "sha256-3tgd1AlpftVyUbGmLszSKq31raUNHzs1o2A1RbxQMFU=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "5b166c4fe66f482b59c9e5a2c5aec86c098f845e",
+      "rev": "5f8b61f7aa8cb900c959a4e50c61c9f556fd31ad",
       "type": "github"
     },
     "pyproject-nix": {
