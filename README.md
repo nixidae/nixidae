@@ -12,7 +12,7 @@ boots a NixOS guest without KVM so a test can be a derivation.
 | `nixkube` | A CSI driver for Nixxing Kubernetes |
 | `umbrella` | The tool that drives this collection |
 | `flake-compatish` | Read a flake we do not own |
-| `user-mode-nixos` | NixOS integration tests on User-Mode Linux |
+| `vivarium` | NixOS integration tests without KVM: UML, QEMU and container guests |
 
 Each project keeps its own repository, its own history and its own remote.
 The umbrella adds one thing: a known-good set of them, written down in
@@ -94,7 +94,7 @@ checkout it came from.
     nix build --file . easykubenix.manifestJSONFile
     nix build --file . pynixd.package
     nix build --file . nixkube.nixkube-docs
-    nix build --file . user-mode-nixos.lan
+    nix build --file . vivarium.lan
     nix-shell                       # umbrella, jj and git
 
 Each project still has its own `default.nix`, its own `.envrc` and its own
@@ -113,7 +113,7 @@ of sources this repository already pins.
 Each project keeps a `flake.nix` even so, and it is a second door rather
 than the way in. See below.
 
-`user-mode-nixos` is the exception, and it is here as a checkout rather than
+`vivarium` is the exception, and it is here as a checkout rather than
 as a wired-in dependency. It needs nixpkgs and nothing else in this
 collection, so its `default.nix` takes a package set and its `flake.nix` has
 one input. The umbrella hands it the same nixpkgs the rest get, but it never
@@ -302,7 +302,7 @@ The lock files are not committed yet. Each has to name a pushed nixidae.
 ### Which umbrella a project was written against
 
 A project can carry `nix/umbrella.rev`, holding one revision of this
-repository. nanopynix, nixkube, pynixd, easykubenix and user-mode-nixos do. A
+repository. nanopynix, nixkube, pynixd, easykubenix and vivarium do. A
 checkout of one of them alone reads it and fetches that umbrella, so every
 other source resolves to the revision that umbrella locked.
 

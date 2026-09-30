@@ -143,6 +143,14 @@
       "repo": "user-mode-nixos",
       "rev": "3b8090757ce18a19228c68b771a745b3cca031d2",
       "type": "github"
+    },
+    "vivarium": {
+      "lastModified": 1790757287,
+      "narHash": "sha256-/7duZZ70rzX6W+yFV7GkKf2L6apekRe4N+D4PbTqidE=",
+      "owner": "Lillecarl",
+      "repo": "vivarium",
+      "rev": "3b8090757ce18a19228c68b771a745b3cca031d2",
+      "type": "github"
     }
   },
   "version": 1

@@ -57,9 +57,9 @@ rec {
   # The one here that does not ask the umbrella for anything. It depends on
   # nixpkgs and on nothing else in this collection, so it takes a package set
   # rather than the source set -- it is a checkout somebody can hack on here,
-  # not a repository wired into the rest. `sources.user-mode-nixos` is still
+  # not a repository wired into the rest. `sources.vivarium` is still
   # how this file and easykubenix find the directory.
-  user-mode-nixos = import sources.user-mode-nixos { inherit pkgs; };
+  vivarium = import sources.vivarium { inherit pkgs; };
 
   checks = {
     # That every name resolves, and that a working copy wins where there is

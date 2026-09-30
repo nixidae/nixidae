@@ -70,10 +70,16 @@
     branch = "main";
     path = ../umbrella;
   };
-  user-mode-nixos = {
-    url = "https://github.com/lillecarl/user-mode-nixos.git";
+  vivarium = {
+    url = "https://github.com/Lillecarl/vivarium.git";
     branch = "develop";
-    path = ../user-mode-nixos;
+    path = ../vivarium;
+  };
+  # vivarium's old name, locked where it was, for the consumers locked
+  # beside it until they move to `vivarium`.
+  user-mode-nixos = {
+    url = "https://github.com/Lillecarl/vivarium.git";
+    branch = "develop";
   };
   # Nix C++ bindings generated from a Python DSL; nanopynix's engine.
   huggorm = {
