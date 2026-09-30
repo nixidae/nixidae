@@ -17,11 +17,11 @@
       "type": "github"
     },
     "easykubenix": {
-      "lastModified": 1790688740,
-      "narHash": "sha256-gGn3c4lDNSyxQQWx5BUHP4zcUyuwoSM6jbHPmvXQmUc=",
+      "lastModified": 1790777345,
+      "narHash": "sha256-R152paI13of+Y4J0P1Hp9L9jrg2C9D1cxCi89UERGE4=",
       "owner": "Lillecarl",
       "repo": "easykubenix",
-      "rev": "e2c59979a32c3e79e07f8c88ef02792cf1dbd164",
+      "rev": "6040c74d33377abbc527a1a5d0c00699639b4494",
       "type": "github"
     },
     "flake-compatish": {
@@ -73,11 +73,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1790756036,
-      "narHash": "sha256-GP0FFm54szkwieHmajDpf7oCu3eKOpwmZqhfXvLnlY4=",
+      "lastModified": 1790777348,
+      "narHash": "sha256-VNB73W8x+9erHvWvKpIYBD7jn9rhIv/ifr1a2ZaQrJo=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "05c239ed14f838d1ce79d693351e25c78898428a",
+      "rev": "72d37d2b3e19a7277819f7c76ecef0ceb1d5001b",
       "type": "github"
     },
     "nixpkgs": {
@@ -97,11 +97,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1790688750,
-      "narHash": "sha256-3tgd1AlpftVyUbGmLszSKq31raUNHzs1o2A1RbxQMFU=",
+      "lastModified": 1790777352,
+      "narHash": "sha256-ybz4EYrEb0Wn8N3C3Bt6ngwTx0bQFfSfylmyd8cGnAs=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "5f8b61f7aa8cb900c959a4e50c61c9f556fd31ad",
+      "rev": "c6b4717d67fcaa9a3050d861252d21ec8599d7c8",
       "type": "github"
     },
     "pyproject-nix": {
@@ -129,27 +129,19 @@
       "type": "github"
     },
     "umbrella": {
-      "lastModified": 1789561486,
-      "narHash": "sha256-7DHG/Dq4WK7I2IUyFnTeD17waR9u5ObD3xnT4ozbuVg=",
+      "lastModified": 1790777354,
+      "narHash": "sha256-+fVy5LLygJQXPmhONBX4KKyG0EFmZdbNO7FAHLcUwd8=",
       "owner": "Lillecarl",
       "repo": "umbrella",
-      "rev": "7d666abba9148ee8c1afcc102141142fdefb280c",
-      "type": "github"
-    },
-    "user-mode-nixos": {
-      "lastModified": 1790757287,
-      "narHash": "sha256-/7duZZ70rzX6W+yFV7GkKf2L6apekRe4N+D4PbTqidE=",
-      "owner": "lillecarl",
-      "repo": "user-mode-nixos",
-      "rev": "3b8090757ce18a19228c68b771a745b3cca031d2",
+      "rev": "7046a514042c91d0b3d653d3e05afc95270c9df6",
       "type": "github"
     },
     "vivarium": {
-      "lastModified": 1790775820,
-      "narHash": "sha256-6Hy1oZ2Ph14TX3KAeBKrgfJBlGtdVwYp612VeaTM+pw=",
+      "lastModified": 1790777358,
+      "narHash": "sha256-XOZbVrvd9YlzQepP4F1q3jOSq2yyX+miQAX1fPJ95aM=",
       "owner": "Lillecarl",
       "repo": "vivarium",
-      "rev": "3f8ae5dd84546d9b6fe41eca980aad6506b10e98",
+      "rev": "56001632a8330c10404841b61027c71c359a6e8c",
       "type": "github"
     }
   },

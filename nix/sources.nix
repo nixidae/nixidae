@@ -75,12 +75,6 @@
     branch = "develop";
     path = ../vivarium;
   };
-  # vivarium's old name, locked where it was, for the consumers locked
-  # beside it until they move to `vivarium`.
-  user-mode-nixos = {
-    url = "https://github.com/Lillecarl/vivarium.git";
-    branch = "develop";
-  };
   # Nix C++ bindings generated from a Python DSL; nanopynix's engine.
   huggorm = {
     url = "https://github.com/Lillecarl/huggorm.git";
