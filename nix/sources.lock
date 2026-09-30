@@ -97,11 +97,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1790777352,
-      "narHash": "sha256-ybz4EYrEb0Wn8N3C3Bt6ngwTx0bQFfSfylmyd8cGnAs=",
+      "lastModified": 1790791507,
+      "narHash": "sha256-f4y35wD+lNA5e8en162CVdCv4WVF2OSwxPFYyxQj3S4=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "c6b4717d67fcaa9a3050d861252d21ec8599d7c8",
+      "rev": "36384601457435ebdd3a3c257ea15295426e6f7f",
       "type": "github"
     },
     "pyproject-nix": {
@@ -137,11 +137,11 @@
       "type": "github"
     },
     "vivarium": {
-      "lastModified": 1790783563,
-      "narHash": "sha256-A1AqacVSMZDvsLral0/nbQbbxSyGBjCjMvdqolQbaTY=",
+      "lastModified": 1790791510,
+      "narHash": "sha256-TUomYfj/JMRPPk/iFbVSNSgmjd7e9R+R3vdsCt+y2kE=",
       "owner": "Lillecarl",
       "repo": "vivarium",
-      "rev": "2c9f4dcfe83d8a6a79d4678b23e22699dca991ea",
+      "rev": "f2b0ceb468d60be300ad3bdea700215068b4b7cd",
       "type": "github"
     }
   },
