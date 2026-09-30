@@ -118,6 +118,14 @@
     branch = "develop";
     path = ../kr8s;
   };
+  # A fork, with a working copy, for fixes meant for containerd/containerd.
+  # Found through nixkube's runtime matrix (umlMatrix). Nothing builds from
+  # it yet; `main` stays upstream's and each fix is a branch of its own.
+  containerd = {
+    url = "https://github.com/Lillecarl/containerd.git";
+    branch = "main";
+    path = ../containerd;
+  };
   pyproject-nix = {
     url = "https://github.com/pyproject-nix/pyproject.nix.git";
     branch = "master";

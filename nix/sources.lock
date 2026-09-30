@@ -8,6 +8,14 @@
       "rev": "6a54071689ec9ec784a16e4eec8ddb864eca2982",
       "type": "github"
     },
+    "containerd": {
+      "lastModified": 1790791714,
+      "narHash": "sha256-ezqs8NmEEle/I7zMEESZctk0Ay87jIOdYh7YuEr6sWE=",
+      "owner": "Lillecarl",
+      "repo": "containerd",
+      "rev": "df742f8d7ee7f57ddba3c475497c032fe9486391",
+      "type": "github"
+    },
     "dinix": {
       "lastModified": 1769166639,
       "narHash": "sha256-Xpqn3FuNYMKvCyJwOmdIY4WjFZd9TVGrjPtHsEZXkxU=",
@@ -73,11 +81,11 @@
       "type": "github"
     },
     "nixkube": {
-      "lastModified": 1790783560,
-      "narHash": "sha256-vqx7CVOxDpfR/kxXefTNfE+3rBQ3F47Gk2UcTiwdJss=",
+      "lastModified": 1790804859,
+      "narHash": "sha256-84Cg+Sed2WdD3ul5U9aErVYWLmo7TrqLBm0+QPkakw4=",
       "owner": "Lillecarl",
       "repo": "nixkube",
-      "rev": "2d1eede8f61e502dcd710dda9faf141678488d59",
+      "rev": "6d5901e3d540d255d42fc1d093dd1d44c60583e9",
       "type": "github"
     },
     "nixpkgs": {
@@ -137,11 +145,11 @@
       "type": "github"
     },
     "vivarium": {
-      "lastModified": 1790792962,
-      "narHash": "sha256-fUGDqejH2fiag539tIGMpvSIHBx9agWn2vVJhaQRUgM=",
+      "lastModified": 1790804862,
+      "narHash": "sha256-LfCxs6KvyKzE3Y7S5CMrKZj40NTWkanb8xSKMsUIaYs=",
       "owner": "Lillecarl",
       "repo": "vivarium",
-      "rev": "a12a8fb5f72031605357528d888d2a9dfe3f102a",
+      "rev": "23ba554f20311996bd526f4574024e45fbc989d9",
       "type": "github"
     }
   },
