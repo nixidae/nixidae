@@ -1,5 +1,22 @@
-result
-result-*
+# Default-deny. Nothing is tracked unless it is whitelisted below, so a draft,
+# a scratch file or a sibling checkout can never reach the index by accident.
+# Keep this list in step with the umbrella's own committed files.
+/*
+!/.gitignore
+!/.envrc
+!/LICENSE
+!/README.md
+!/default.nix
+!/shell.nix
+!/nix/
+!/pkgs/
+
+# Only the committed settings live under .claude; everything else there is
+# agent state.
+!/.claude/
+/.claude/*
+!/.claude/settings.json
+
+# Local state, wherever it appears inside a whitelisted directory.
 __pycache__/
 .direnv/
-/.claude/settings.local.json
