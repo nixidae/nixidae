@@ -105,11 +105,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1790981738,
-      "narHash": "sha256-JEX7WDdzqjmEm4pJQIugOXGV7b6jpGjfzwvObbBidF8=",
+      "lastModified": 1790984981,
+      "narHash": "sha256-/pvFx5TiFUacOiN3OiSG/vz8uzWPK9lsy1KYrnktzKk=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "d08431bf08f208f293b88480f0741253cf15f2ea",
+      "rev": "7a4b8622f40f15a2ebfc823cede50d83c09d6064",
       "type": "github"
     },
     "pyproject-nix": {
