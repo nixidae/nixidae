@@ -49,11 +49,11 @@
       "type": "github"
     },
     "huggorm": {
-      "lastModified": 1791185436,
-      "narHash": "sha256-gdqGCMabgpgzb8LCnsOY3Bo3An0hZC/hVPLeJ3Ne8gc=",
+      "lastModified": 1791188632,
+      "narHash": "sha256-vrBzDqNqCL8tV7pE4BvH8pf0L8PPJR8N8PCMIRW5zwg=",
       "owner": "Lillecarl",
       "repo": "huggorm",
-      "rev": "40e5e8d28bf19a2950b22403e06da02069f974b5",
+      "rev": "a88a29052825759b4837ae5ae593f5b735b9cba3",
       "type": "github"
     },
     "kr8s": {
@@ -105,11 +105,11 @@
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1791180662,
-      "narHash": "sha256-vpikZ2GDn7teMYvcb2C4YIuN7hbyI9RJINLi2d+bhTM=",
+      "lastModified": 1791186844,
+      "narHash": "sha256-WE7e5OsMyLBu6oQv51V5hrS+9BciK7BvU4T4/JHEz7Y=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "00cf19863f1e1b6d849091b0b49635aec1a3c102",
+      "rev": "f8c76f62f74e54307ec215863ec0f78f42198eb7",
       "type": "github"
     },
     "pyproject-nix": {
