@@ -49,11 +49,11 @@
       "type": "github"
     },
     "huggorm": {
-      "lastModified": 1791163961,
-      "narHash": "sha256-ic1DYGgwdxxVAjrnUi1v/fu7v6eVIwdynZUVMMv4TwM=",
+      "lastModified": 1791179651,
+      "narHash": "sha256-RR1L4dA42WwtdClgyb9VsVEeaHOqMpJ9rogSFqF/Le4=",
       "owner": "Lillecarl",
       "repo": "huggorm",
-      "rev": "a011d8903fa3c76bf74243d51bda4c9e4ffa3c80",
+      "rev": "ddfde304b36dbe7463177f4f8b77cb7efd8d78e3",
       "type": "github"
     },
     "kr8s": {
