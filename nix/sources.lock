@@ -89,27 +89,27 @@
       "type": "github"
     },
     "nixpkgs": {
-      "lastModified": 1791191277,
-      "narHash": "sha256-i8KuaINOYLvB2oQikGvtRmdZRxATRxsI9Yad2pp7dEA=",
+      "lastModified": 1791336361,
+      "narHash": "sha256-o9ZUW4SlEAvFPIyJWnqChhOT/VHpHg8TAvEgmqK1fSI=",
       "owner": "NixOS",
       "repo": "nixpkgs",
-      "rev": "aa48d347080940b8a2b8d2f48228674e280a3514",
+      "rev": "7dd199b0e2993e37b4775ed66b1c291699608c9f",
       "type": "github"
     },
     "opentofu-registry": {
-      "lastModified": 1791320097,
-      "narHash": "sha256-t9OO3VqlF+cCzQJCe+iGVDZEP39+Pez8cx8vPbjSpus=",
+      "lastModified": 1791363972,
+      "narHash": "sha256-b0sRxBLDuD0t4xxoRTSJkrJhsa1qmpO8Xxc4HBBXyR8=",
       "owner": "opentofu",
       "repo": "registry",
-      "rev": "8290f4c2edc9c5032554d93244b954fc7e69063c",
+      "rev": "28b41821a2bbe758ad3c9fdd462ea68481101599",
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1791334321,
-      "narHash": "sha256-vZIOrNjntZHhGK7FczDDKoTid2YkO8dNis+OB6fP9xc=",
+      "lastModified": 1791364314,
+      "narHash": "sha256-7BlOh/fSLyDaOUW4vnUKmN/q9J7w+uMsJLElVXt6ptU=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "b7500c61902ceb2c94ba28699d4f97ad7217b2b0",
+      "rev": "acf6c2da6b1ec8d4f8bd48cf06271d7bddb6cdd7",
       "type": "github"
     },
     "pyproject-nix": {
