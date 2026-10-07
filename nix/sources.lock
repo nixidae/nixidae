@@ -137,11 +137,11 @@
       "type": "github"
     },
     "umbrella": {
-      "lastModified": 1790777354,
-      "narHash": "sha256-+fVy5LLygJQXPmhONBX4KKyG0EFmZdbNO7FAHLcUwd8=",
+      "lastModified": 1791369701,
+      "narHash": "sha256-i+ebtzNrBf0lCgPvSlcWrqiQ87HW6hC+YdtzqnWiEgo=",
       "owner": "Lillecarl",
       "repo": "umbrella",
-      "rev": "7046a514042c91d0b3d653d3e05afc95270c9df6",
+      "rev": "72619b4d9afb81a587fae39fe5070ee730f80f32",
       "type": "github"
     },
     "vivarium": {
