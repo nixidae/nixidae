@@ -97,19 +97,19 @@
       "type": "github"
     },
     "opentofu-registry": {
-      "lastModified": 1791367369,
-      "narHash": "sha256-ikL6cwAqz/xnyRIqT2ucqFuYLX75CWHv9yzr+j7UAwY=",
+      "lastModified": 1791369593,
+      "narHash": "sha256-fMp69fPvw3u+ct1gBVm5d0Zf5eL32BxdGYePZTVB6ro=",
       "owner": "opentofu",
       "repo": "registry",
-      "rev": "9823fc1c62744f5281148583c68e8c53aba0f97c",
+      "rev": "b7d1f8be77a9f0d04ef1b31721f4b6d15a8f5992",
       "type": "github"
     },
     "pynixd": {
-      "lastModified": 1791367850,
-      "narHash": "sha256-DS2ZD7Qe0w6RI4dRrg5ZwekfpX9P+FMOkoRSs/LEsDw=",
+      "lastModified": 1791370378,
+      "narHash": "sha256-V3RdJKe0OYG2d2BNPRuabezivL6YPSzgvP0CRu6I7R4=",
       "owner": "Lillecarl",
       "repo": "pynixd",
-      "rev": "67eebd2168d7054d9ab746abdc66e2c5c998e769",
+      "rev": "dfea60ff78edd1e80a7c7f39ca504cd3c165438c",
       "type": "github"
     },
     "pyproject-nix": {
