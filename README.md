@@ -51,13 +51,20 @@ umbrella's `.git`, where one `rm -rf` takes every one of them.
     umbrella status -f      # the same, after a fetch
     umbrella fetch <name>   # clone one source, at the locked revision
     umbrella sync           # move the working copies onto the locked revisions
-    umbrella land           # push the working copies, then lock what was pushed
+    umbrella land <name>... # push those working copies, then lock what was pushed
     umbrella update         # follow the branch each source declares
 
-`land` is the one that publishes. It pushes each working copy that moved and
-only then writes the revision into the lock. That order is the guarantee:
+`land` is the one that publishes. It pushes each named working copy that moved
+and only then writes the revision into the lock. That order is the guarantee:
 **the lock never names a commit that no remote has.** The git hooks `init`
 installs enforce the same rule for a commit or a push made by hand.
+
+`land` takes only the sources you name. `--all` takes every working copy here.
+With no names it refuses and lists the sources that are ahead of the lock.
+Several sessions can work in one checkout, and a default of all would push one
+session's work, or refuse over its uncommitted edits, for another. Every check
+passes for every named source before the first push, so a refusal pushes
+nothing.
 
 `land` writes the lock and stops. Committing the umbrella is yours to do,
 because `git commit` and `jj commit` are different commands and picking one
@@ -225,7 +232,7 @@ questions:
     umbrella update             # every source follows its declared branch
     umbrella update nixpkgs     # one, and nothing else is touched
     umbrella update -n          # say what would move, write nothing
-    umbrella land               # push what is on this disk, then lock that
+    umbrella land pynixd        # push what is on this disk, then lock that
 
 `update` follows the forge. That includes nixpkgs, and moving nixpkgs rebuilds
 the world, so read the diff. `land` publishes what is here. Use `land` for a
