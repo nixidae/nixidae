@@ -93,6 +93,12 @@
     url = "https://github.com/NixOS/nixpkgs.git";
     branch = "nixpkgs-unstable";
   };
+  # The latest NixOS release. huggorm builds against it too, so a Nix
+  # user on a release gets lanes that were tested there (huggorm#108).
+  nixpkgs-release = {
+    url = "https://github.com/NixOS/nixpkgs.git";
+    branch = "nixos-26.05";
+  };
   # A working copy like the four projects, because the umbrella workflow is
   # what it has to serve. Every evaluation here goes through it, so a change
   # to it is a change to how all of this resolves, and that is easier to make

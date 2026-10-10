@@ -96,6 +96,14 @@
       "rev": "7dd199b0e2993e37b4775ed66b1c291699608c9f",
       "type": "github"
     },
+    "nixpkgs-release": {
+      "lastModified": 1791426274,
+      "narHash": "sha256-MWhktfFtFE8Jl7bf9Pkp7TR5MSdYCjCswSo0Gkb4ywc=",
+      "owner": "NixOS",
+      "repo": "nixpkgs",
+      "rev": "7c8764b7c7b09b34f632464276218ef9090eaa11",
+      "type": "github"
+    },
     "opentofu-registry": {
       "lastModified": 1791389155,
       "narHash": "sha256-08jZA+ycsTinjnyIoN5AcMeGdVEXtEpRXqjq9RPdXCU=",
