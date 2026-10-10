@@ -153,11 +153,11 @@
       "type": "github"
     },
     "vivarium": {
-      "lastModified": 1790882405,
-      "narHash": "sha256-lgdbiKkyGhmiqHcBXvyzd5HKn2LQ8pMDdW6RU1uxYB0=",
+      "lastModified": 1791672064,
+      "narHash": "sha256-ZdQAhXHzfw6G3ltePwYt9uHSWJDfhwI+7yaT/U0TAPU=",
       "owner": "Lillecarl",
       "repo": "vivarium",
-      "rev": "15c8a29ff3bead627b4c9c4719246722474a2507",
+      "rev": "6b7da95f7bebf0a789f73108e6477e8da0b6646b",
       "type": "github"
     }
   },
