@@ -49,11 +49,11 @@
       "type": "github"
     },
     "havsorm": {
-      "lastModified": 1791691989,
-      "narHash": "sha256-lfm04SkBtyj1u1MFdaj1QCQKdWHu3jFbxkHrawPInRQ=",
+      "lastModified": 1791694601,
+      "narHash": "sha256-lOKYVZMlRK4EuKkbI1PzOEOXydeNOV8Actb4I2WRKfQ=",
       "owner": "nixidae",
       "repo": "havsorm",
-      "rev": "927ff92ad806b0ae38b9b4e730bba4892e18bdf5",
+      "rev": "4c17ca625eaa06b4a3805338cc0c5a771d21c39a",
       "type": "github"
     },
     "huggorm": {
@@ -161,11 +161,11 @@
       "type": "github"
     },
     "vivarium": {
-      "lastModified": 1791693765,
-      "narHash": "sha256-CmLniXKWOMOqYLFv5PrR+W2lUkeThYImHz7D2DKUeTM=",
+      "lastModified": 1791694604,
+      "narHash": "sha256-lpZeVoaeJqXOdbzSsMlgzqT5RxIpmtSMP348iWY2B+A=",
       "owner": "Lillecarl",
       "repo": "vivarium",
-      "rev": "6af9562496124c58ca449d1fd978cf7011ca9ef2",
+      "rev": "8937c371771ddd295ad88017ac3f41c9672ad935",
       "type": "github"
     }
   },
