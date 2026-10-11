@@ -166,6 +166,89 @@ def unit(name: str, path: str, root: str | None = None,
     return {**ret, "changes": change, "comment": comment}
 
 
+def system(name: str, action: str = "switch", profile: str = "/nix/var/nix/profiles/system",
+           install_bootloader: bool = False, store: str | None = None) -> dict[str, Any]:
+    """A NixOS host runs the system `name`, a store path a builder made
+    (`config.system.build.toplevel`), as `nixos-rebuild switch` makes it.
+
+    The minion substitutes the system's closure, makes a new generation
+    of the system profile, and runs `switch-to-configuration`. With
+    `action: boot` the profile changes and the running system does not;
+    with `action: test` the running system changes and the profile does
+    not. `test=True` runs `dry-activate` when the store holds the system,
+    and says which units the switch would restart.
+
+        web:
+          havsorm.system:
+            - name: /nix/store/...-nixos-system-web1-26.05
+    """
+    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    if action not in ("switch", "boot", "test"):
+        return {**ret, "result": False, "comment": f"havsorm.system has no action {action!r}"}
+    running = os.path.realpath("/run/current-system") \
+        if os.path.lexists("/run/current-system") else None
+    booted = __salt__["havsorm.profile_target"](profile)
+    change: dict[str, Any] = {}
+    if action in ("switch", "test") and running != name:
+        change["running"] = {"old": running, "new": name}
+    if action in ("switch", "boot") and booted != name:
+        change["profile"] = {"old": booted, "new": name}
+    if not change:
+        return {**ret, "comment": f"{name} is the system"}
+    try:
+        valid = __salt__["havsorm.is_realised"](name, store=store)
+        if __opts__["test"]:
+            comment = f"{name} would be activated by {action}"
+            if valid:
+                comment += ":\n" + __salt__["havsorm.switch_to_configuration"](
+                    name, "dry-activate")
+            return {**ret, "result": None, "changes": change, "comment": comment}
+        if not valid:
+            __salt__["havsorm.realise"](name, store=store)
+        if not os.path.isfile(os.path.join(name, "nixos-version")):
+            return {**ret, "result": False,
+                    "comment": f"{name} has no nixos-version, so it is not a NixOS system"}
+        if "profile" in change:
+            change["generation"] = __salt__["havsorm.profile_set"](profile, name, store=store)
+        output = __salt__["havsorm.switch_to_configuration"](
+            name, action, install_bootloader=install_bootloader)
+    except CommandExecutionError as e:
+        return {**ret, "result": False, "changes": change, "comment": str(e)}
+    return {**ret, "changes": change, "comment": f"{name} activated by {action}\n{output}"}
+
+
+def rolled_back(name: str, generation: int | None = None, action: str = "switch",
+                profile: str = "/nix/var/nix/profiles/system") -> dict[str, Any]:
+    """The system profile points at the generation before the current
+    one, or at `generation`, and the host runs it. For an orchestration's
+    `onfail`, after a `havsorm.system` that broke the host:
+
+        web-rollback:
+          salt.function:
+            - name: state.single
+            - tgt: web*
+            - arg: [havsorm.rolled_back, rollback]
+            - onfail:
+              - salt: web-deploy
+
+    Every run of it steps back one generation, so it is not idempotent
+    without `generation`.
+    """
+    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    try:
+        change = __salt__["havsorm.profile_rollback"](profile, generation, test=True)
+        if __opts__["test"]:
+            return {**ret, "result": None, "changes": change,
+                    "comment": f"{profile} would go back to generation {change['generation']}"}
+        if change["old"] != change["new"]:
+            __salt__["havsorm.profile_rollback"](profile, change["generation"])
+        __salt__["havsorm.switch_to_configuration"](change["new"], action)
+    except CommandExecutionError as e:
+        return {**ret, "result": False, "comment": str(e)}
+    return {**ret, "changes": change,
+            "comment": f"{profile} is back at generation {change['generation']}"}
+
+
 _UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
 
 

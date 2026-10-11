@@ -128,6 +128,83 @@ def profile_set(profile: str, path: str, store: str | None = None) -> str:
     return str(link)
 
 
+def profile_rollback(profile: str, generation: int | None = None,
+                     test: bool = False) -> dict[str, Any]:
+    """Point `profile` at generation `generation`, or at the newest one
+    older than the current, as `nix-env --rollback` does. Return the
+    store paths before and after, or what they would be with `test=True`.
+
+    CLI Example:
+
+        salt '*' havsorm.profile_rollback /nix/var/nix/profiles/system
+    """
+    from huggorm_bindings.profiles import switch_generation
+
+    generations = profile_generations(profile)
+    current = next((g["number"] for g in generations if g["current"]), None)
+    older = [g for g in generations
+             if (g["number"] == generation if generation is not None
+                 else current is not None and g["number"] < current)]
+    if not older:
+        what = f"generation {generation}" if generation is not None else \
+            f"a generation older than {current}"
+        raise CommandExecutionError(f"{profile} has no {what}")
+    dst = older[-1]
+    change = {"old": profile_target(profile), "new": os.readlink(dst["link"]),
+              "generation": dst["number"]}
+    if not test:
+        _call(profile, lambda: switch_generation(pathlib.Path(profile), dst["number"]))
+    return change
+
+
+#: What nixos-rebuild runs switch-to-configuration under, so a restart of
+#: the unit that started it does not kill the switch halfway.
+SWITCH_PREFIX = [
+    "systemd-run", "-E", "LOCALE_ARCHIVE", "-E", "NIXOS_INSTALL_BOOTLOADER",
+    "-E", "NIXOS_NO_CHECK", "--collect", "--no-ask-password", "--pipe", "--quiet",
+    "--service-type=exec", "--unit=havsorm-switch-to-configuration",
+]
+
+
+def switch_to_configuration(path: str, action: str = "switch",
+                            install_bootloader: bool = False) -> str:
+    """Run `<path>/bin/switch-to-configuration <action>` on a NixOS
+    system, as `nixos-rebuild` does: under `systemd-run` when systemd
+    runs. `action` is switch, boot, test or dry-activate. Return its
+    output.
+
+    CLI Example:
+
+        salt '*' havsorm.switch_to_configuration /nix/store/...-nixos-system-web1 test
+    """
+    if action not in ("switch", "boot", "test", "dry-activate"):
+        raise CommandExecutionError(f"switch-to-configuration has no action {action!r}")
+    prefix = SWITCH_PREFIX if os.path.isdir("/run/systemd/system") else []
+    done = __salt__["cmd.run_all"](
+        [*prefix, os.path.join(path, "bin/switch-to-configuration"), action],
+        env={"NIXOS_INSTALL_BOOTLOADER": "1" if install_bootloader else "0"},
+        python_shell=False, redirect_stderr=True)
+    if done["retcode"]:
+        raise CommandExecutionError(
+            f"switch-to-configuration {action} exited {done['retcode']}: {done['stdout']}")
+    output: str = done["stdout"]
+    return output
+
+
+def system_rollback(generation: int | None = None, action: str = "switch",
+                    profile: str = "/nix/var/nix/profiles/system") -> dict[str, Any]:
+    """Point the system profile at the previous generation, or at
+    `generation`, and activate it. `nixos-rebuild switch --rollback`.
+
+    CLI Example:
+
+        salt '*' havsorm.system_rollback
+    """
+    change = profile_rollback(profile, generation)
+    switch_to_configuration(change["new"], action)
+    return change
+
+
 def profile_generations(profile: str) -> list[dict[str, Any]]:
     """Every generation of `profile`, oldest first.
 
