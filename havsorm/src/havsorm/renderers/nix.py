@@ -24,6 +24,26 @@ def _ordered(data: Any) -> Any:
     return ordered
 
 
+def _pillar_client(saltenv: str, tmplpath: str | None) -> Any:
+    """A pillar file client, when `tmplpath` is in pillar_roots.
+
+    Salt 3008 gives a pillar render its pillar client, and 3006 gives a
+    renderer no client at all. Its cp functions there serve file_roots.
+    A pillar SLS renders where pillar_roots is on disk, so the path says
+    which tree the render belongs to.
+    """
+    if not tmplpath:
+        return None
+    path = os.path.realpath(tmplpath)
+    for root in (__opts__.get("pillar_roots") or {}).get(saltenv, []):
+        root = os.path.realpath(root)
+        if os.path.commonpath([path, root]) == root:
+            import salt.fileclient
+
+            return salt.fileclient.get_file_client(__opts__, pillar=True)
+    return None
+
+
 def render(template: Any, saltenv: str = "base", sls: str = "",
            tmplpath: str | None = None, **kws: Any) -> Any:
     text = template if isinstance(template, str) else template.read()
@@ -35,7 +55,7 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
         if hasattr(client, "value"):
             client = client.value()
         if not hasattr(client, "file_list"):
-            client = None
+            client = _pillar_client(saltenv, tmplpath)
         if client is None and "cp.list_master" in __salt__:
             from havsorm.tree import CpClient
 

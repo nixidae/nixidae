@@ -191,3 +191,21 @@ def test_the_execution_module_reports_a_nix_error(tmp_path: pathlib.Path) -> Non
         capture_output=True, text=True, timeout=300)
     assert done.returncode != 0
     assert "nope" in done.stdout + done.stderr
+
+
+def test_a_pillar_sls_without_a_render_client_reads_pillar_roots(
+        opts: dict[str, Any], tmp_path: pathlib.Path) -> None:
+    """Salt 3006 gives a renderer no file client, and its cp functions
+    serve file_roots. The pillar SLS's own path names its tree."""
+    import io
+
+    pillar = tmp_path / "pillar"
+    pillar.mkdir()
+    (pillar / "port.nix").write_text("5432\n")
+    sls = pillar / "db.sls"
+    sls.write_text("#!nix\n{ dbPort = import ./port.nix; }\n")
+    opts["pillar_roots"] = {"base": [str(pillar)]}
+    renderers = salt.loader.render(opts, salt.loader.minion_mods(opts), pillar={})
+    got = renderers["nix"](io.StringIO(sls.read_text()), saltenv="base", sls="db",
+                           tmplpath=str(sls))
+    assert got == {"dbPort": 5432}
