@@ -49,11 +49,11 @@
       "type": "github"
     },
     "havsorm": {
-      "lastModified": 1791688288,
-      "narHash": "sha256-fjMr4dFQO/cxxB188pVRu9lU4AJwOVyX2UclBvTuGBs=",
+      "lastModified": 1791688452,
+      "narHash": "sha256-JlgZ8VS43YQTv+Be7UVc2OJTck3x/mOzjrR12wP8KQY=",
       "owner": "nixidae",
       "repo": "havsorm",
-      "rev": "c2b3fa57a202fa38f00a19cc93bd3906c01e1052",
+      "rev": "4bfc9b1070a6732200880e9b8f93ab50b03b9b36",
       "type": "github"
     },
     "huggorm": {
