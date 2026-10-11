@@ -267,14 +267,26 @@ havsorm:
 A switch does not restart the minion, because `havsorm.system` runs
 inside one of the minion's jobs, and a restart would lose its return.
 
-`nix build --file . fleet` boots a master and a NixOS minion on QEMU and
-an openSUSE minion on UML, with vivarium. The master bootstraps the
-openSUSE minion with salt-ssh and a `#!nix` state, as Uyuni bootstraps a
-client. It installs Nix on the openSUSE minion with
-`havsorm.store_present`, from a binary cache the master serves, and
-starts Nix's daemon there. Then it applies a `#!nix` state to every
-minion, switches the NixOS minion to another system and back, and
-deploys it again from an event through a `#!nix` reactor.
+`nix build --file . fleet` runs a fleet on vivarium: a master and two
+NixOS web minions on QEMU, an openSUSE web minion and a NixOS load
+balancer on UML. The master serves a signed binary cache, and every
+deploy substitutes from it. Each phase is one scenario:
+
+- `bootstrap`: salt-ssh installs the openSUSE minion with a `#!nix`
+  state, as Uyuni bootstraps a client.
+- `nix-on-suse`: `havsorm.store_present` installs Nix on openSUSE and
+  starts its daemon.
+- `nixos`: a switch, a grain target, a rollback, and a deploy from an
+  event through a `#!nix` reactor.
+- `rolling`: the orchestration below.
+- `service`: `havsorm.unit` runs one Nix-built web server on NixOS and
+  openSUSE. A load balancer builds its haproxy config in Nix from the
+  mine, with `salt "mine.get"`, and stops sending to a minion that leaves
+  the mine.
+- `heal`: a service beacon sees the web server stop on openSUSE, and a
+  `#!nix` reaction starts it again.
+
+`tests/fleet/cache-key` is a test key: its secret is in the repository.
 
 ### A rolling deploy
 

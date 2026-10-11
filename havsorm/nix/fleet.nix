@@ -1,18 +1,18 @@
 /**
-  A Salt master drives a fleet with havsorm: a NixOS minion and an
-  openSUSE Leap minion, on vivarium.
+  A Salt master drives a fleet with havsorm, on vivarium: two NixOS
+  minions, an openSUSE Leap minion and a NixOS load balancer.
 
-  The master and the NixOS minion need compute, so they run on QEMU. SUSE
-  boots its own cloud image, which runs on UML only.
+  The master and the NixOS web minions need compute, so they run on
+  QEMU. SUSE boots its own cloud image, which runs on UML only, and the
+  load balancer is UML too: it needs isolation, not compute.
 
-  The master bootstraps SUSE with salt-ssh, as Uyuni bootstraps a
-  client: SSH as a sudo user, then a state that installs and starts the
-  minion. SUSE has no Salt package here, so the state points the unit at
-  havsorm's Salt in the host's store, which `settings` puts in SUSE's
-  store: that stands in for a package repository.
+  The master serves a signed binary cache. Every minion substitutes what
+  havsorm deploys from it: Nix on SUSE, and the web and load balancer
+  units everywhere. Those paths are in the master's store and in no
+  minion's, so each deploy really substitutes.
 
-  Then havsorm installs Nix on SUSE, substituted from a binary cache the
-  master serves.
+  Each phase is one scenario, in order: bootstrap, nix-on-suse, nixos,
+  rolling, service, heal. One script serves them all, by `vms.phase`.
 */
 {
   pkgs,
@@ -20,15 +20,53 @@
   saltEnv,
 }:
 let
+  inherit (pkgs) lib;
   lab = n: {
     segment = "lab";
     addresses = [ "10.9.0.${toString n}/24" ];
   };
-  minionConfig = id: {
-    master = "10.9.0.1";
-    inherit id;
+  cache = "http://10.9.0.1:5000";
+  # A test key, in the repository: each minion's config names the public
+  # half, and reading a generated one would be import from derivation.
+  publicKey = lib.removeSuffix "\n" (builtins.readFile ../tests/fleet/cache-key/public);
+  havsormConfig = {
+    nix_settings = {
+      substituters = cache;
+      trusted-public-keys = publicKey;
+    };
   };
+  # Every minion publishes its lab address to the mine, and a web
+  # minion says so in a grain: the load balancer reads both.
+  minionConfig =
+    id: roles:
+    {
+      master = "10.9.0.1";
+      inherit id;
+      havsorm = havsormConfig;
+      mine_functions.lab_ip = [
+        { mine_function = "network.ip_addrs"; }
+        { interface = "lab"; }
+      ];
+    }
+    // lib.optionalAttrs (roles != [ ]) { grains.roles = roles; };
   srv = ../tests/fleet/srv;
+  # Not in any minion's store: `settings` carries them without string
+  # context, and the master's cache serves them.
+  unit =
+    name: text:
+    "${pkgs.writeTextDir name text}/${name}";
+  webUnit = unit "havsorm-web.service" ''
+    [Unit]
+    Description=havsorm test web server
+    [Service]
+    ExecStart=${pkgs.darkhttpd}/bin/darkhttpd /var/lib/havsorm-web --port 8080
+  '';
+  lbUnit = unit "havsorm-lb.service" ''
+    [Unit]
+    Description=havsorm test load balancer
+    [Service]
+    ExecStart=${pkgs.haproxy}/bin/haproxy -Ws -f /etc/havsorm-lb.cfg
+  '';
   # A NixOS minion, with two more systems to deploy: `next`, and `broken`,
   # whose activation fails because a unit fails to start.
   web =
@@ -40,14 +78,14 @@ let
       vivarium.interfaces.lab = lab n;
       services.salt.minion = {
         enable = true;
-        configuration = minionConfig config.networking.hostName;
+        configuration = minionConfig config.networking.hostName [ "web" ];
       };
       environment.etc."havsorm-generation".text = "base\n";
       vivarium.configurations.next = {
-        environment.etc."havsorm-generation".text = pkgs.lib.mkForce "next\n";
+        environment.etc."havsorm-generation".text = lib.mkForce "next\n";
       };
       vivarium.configurations.broken = {
-        environment.etc."havsorm-generation".text = pkgs.lib.mkForce "broken\n";
+        environment.etc."havsorm-generation".text = lib.mkForce "broken\n";
         systemd.services.havsorm-broken = {
           wantedBy = [ "multi-user.target" ];
           serviceConfig = {
@@ -57,14 +95,6 @@ let
         };
       };
     };
-  # The master's binary cache signs with this, and SUSE trusts its
-  # public half. A test key: the secret is in the store.
-  cacheKey = pkgs.runCommand "fleet-cache-key" { nativeBuildInputs = [ pkgs.nix ]; } ''
-    export NIX_STATE_DIR=$TMPDIR/state NIX_CONFIG="experimental-features = nix-command"
-    mkdir $out
-    nix key generate-secret --key-name fleet-cache > $out/secret
-    nix key convert-secret-to-public < $out/secret > $out/public
-  '';
   # The Nix SUSE installs: in the master's cache and nowhere SUSE can
   # see, so the install substitutes it.
   nixToInstall = pkgs.nix;
@@ -72,19 +102,28 @@ let
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
   '';
+  discard = builtins.unsafeDiscardStringContext;
+  phase = after: nodes: {
+    script = ../tests/fleet/fleet.py;
+    inherit after nodes;
+  };
 in
 vivarium.mkTest {
   name = "havsorm-fleet";
   settings.salt = {
-    closure = "${pkgs.closureInfo { rootPaths = [ saltEnv ]; }}";
     env = "${saltEnv}";
     key = "${key}/id_ed25519";
+    # The bootstrap writes this into SUSE's minion config.
+    config = minionConfig "suse1" [ "web" ] // {
+      havsorm.nix_settings = havsormConfig.nix_settings // {
+        build-users-group = "";
+      };
+    };
   };
-  settings.install = {
-    # No string context: a path in `settings` would be in SUSE's store.
-    nix = builtins.unsafeDiscardStringContext "${nixToInstall}";
-    cache = "http://10.9.0.1:5000";
-    publicKey = "${cacheKey}/public";
+  settings.install.nix = discard "${nixToInstall}";
+  settings.service = {
+    web = discard webUnit;
+    lb = discard lbUnit;
   };
   defaults = {
     imports = [ ./nixos.nix ];
@@ -99,12 +138,19 @@ vivarium.mkTest {
       4506
       5000
     ];
-    environment.systemPackages = [ pkgs.openssh ];
+    environment.systemPackages = [
+      pkgs.openssh
+      pkgs.curl
+    ];
     services.harmonia.cache = {
       enable = true;
-      signKeyPaths = [ "${cacheKey}/secret" ];
+      signKeyPaths = [ ../tests/fleet/cache-key/secret ];
     };
-    system.extraDependencies = [ nixToInstall ];
+    system.extraDependencies = [
+      nixToInstall
+      webUnit
+      lbUnit
+    ];
     # The script installs the key here with mode 0600: ssh refuses the
     # store's 0444 copy.
     environment.etc."salt/roster".text = builtins.toJSON {
@@ -120,7 +166,10 @@ vivarium.mkTest {
       configuration = {
         auto_accept = true;
         file_roots.base = [ "${srv}" ];
-        reactor = [ { "havsorm/release/*" = [ "${srv}/reactor/release.sls" ]; } ];
+        reactor = [
+          { "havsorm/release/*" = [ "${srv}/reactor/release.sls" ]; }
+          { "salt/beacon/*/service/*" = [ "${srv}/reactor/heal.sls" ]; }
+        ];
       };
     };
   };
@@ -142,8 +191,35 @@ vivarium.mkTest {
     vivarium.memory = "1024M";
     vivarium.interfaces.lab = lab 3;
   };
-  phases.fleet = {
-    script = ../tests/fleet/fleet.py;
-    after = [ "boot" ];
+  nodes.lb =
+    { config, ... }:
+    {
+      vivarium.memory = "768M";
+      vivarium.interfaces.lab = lab 5;
+      services.salt.minion = {
+        enable = true;
+        configuration = minionConfig config.networking.hostName [ ];
+      };
+    };
+  phases = {
+    bootstrap = phase [ "boot" ] [ ];
+    nix-on-suse = phase [ "bootstrap" ] [
+      "master"
+      "suse1"
+    ];
+    nixos = phase [ "bootstrap" ] [
+      "master"
+      "web1"
+    ];
+    rolling = phase [ "nixos" ] [
+      "master"
+      "web1"
+      "web2"
+    ];
+    service = phase [ "nix-on-suse" "rolling" ] [ ];
+    heal = phase [ "service" ] [
+      "master"
+      "suse1"
+    ];
   };
 }
