@@ -135,6 +135,17 @@ service's closure, links the unit into `/etc/systemd/system`, and
 reloads systemd when the link changed. It never replaces a unit file
 that is not its own link.
 
+Garbage collection, as a condition:
+
+    nix-store:
+      havsorm.garbage_collected:
+        - keep_free: 10G
+
+With `keep_free`, it collects only when the store's file system has
+less free than that. It deletes only what no root reaches, so
+profiles, units and realised paths survive. `test=True` lists the dead
+paths through Nix's own `--print-dead` answer.
+
 ## Configuration
 
     havsorm:

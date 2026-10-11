@@ -224,3 +224,38 @@ def store_path_of(path: str, store: str | None = None) -> str:
     holder: str = _call(path, lambda: nix_store.print_store_path(
         nix_store.to_store_path(path).path()))
     return holder
+
+
+def free_bytes(store: str | None = None) -> int:
+    """Free space on the file system that holds the store's paths.
+
+    CLI Example:
+
+        salt '*' havsorm.free_bytes
+    """
+    nix_store = _store(store)
+    root = nix_store.root_dir()
+    where = os.path.join(str(root), nix_store.store_dir().lstrip("/")) if root else \
+        nix_store.store_dir()
+    stat = os.statvfs(where)
+    return stat.f_bavail * stat.f_frsize
+
+
+def collect_garbage(max_freed: int | None = None, test: bool = False,
+                    store: str | None = None) -> dict[str, Any]:
+    """Delete the store paths no root reaches, as `nix-store --gc` does,
+    up to `max_freed` bytes. With `test=True`, list them and delete
+    nothing, as `nix-store --gc --print-dead` does.
+
+    CLI Example:
+
+        salt '*' havsorm.collect_garbage
+        salt '*' havsorm.collect_garbage test=True
+    """
+    from huggorm_bindings import GCAction, GCOptions
+
+    nix_store = _store(store)
+    action = GCAction.RETURN_DEAD if test else GCAction.DELETE_DEAD
+    options = GCOptions(action=action, max_freed=max_freed)
+    results = _call("garbage collection", lambda: nix_store.collect_garbage(options))
+    return {"paths": sorted(results.paths()), "bytes_freed": results.bytes_freed()}

@@ -163,3 +163,48 @@ def unit(name: str, path: str, root: str | None = None,
         else:
             comment += "; systemd is not running here, so nothing was reloaded"
     return {**ret, "changes": change, "comment": comment}
+
+
+_UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
+
+
+def _bytes(size: int | str) -> int:
+    """`10G` and friends, binary multiples, as Nix's min-free reads them."""
+    if isinstance(size, int):
+        return size
+    text = str(size).strip().upper()
+    unit = text[-1] if text and text[-1] in _UNITS else ""
+    return int(text[: len(text) - len(unit)]) * _UNITS[unit]
+
+
+def garbage_collected(name: str, keep_free: int | str | None = None,
+                      max_freed: int | str | None = None,
+                      store: str | None = None) -> dict[str, Any]:
+    """The store holds no path that no root reaches, or, with
+    `keep_free`, its file system has at least that much free.
+
+    A collection deletes only what no root reaches, so profiles, units
+    and realised paths survive it.
+
+        nix-store:
+          havsorm.garbage_collected:
+            - keep_free: 10G
+    """
+    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    try:
+        if keep_free is not None:
+            free = __salt__["havsorm.free_bytes"](store=store)
+            if free >= _bytes(keep_free):
+                return {**ret, "comment": f"{free} bytes free, {keep_free} wanted"}
+        dead = __salt__["havsorm.collect_garbage"](test=True, store=store)["paths"]
+        if not dead:
+            return {**ret, "comment": "no path is dead"}
+        if __opts__["test"]:
+            return {**ret, "result": None, "changes": {"deleted": dead},
+                    "comment": f"{len(dead)} dead paths would be deleted"}
+        done = __salt__["havsorm.collect_garbage"](
+            max_freed=None if max_freed is None else _bytes(max_freed), store=store)
+    except CommandExecutionError as e:
+        return {**ret, "result": False, "comment": str(e)}
+    return {**ret, "changes": {"deleted": done["paths"], "bytes_freed": done["bytes_freed"]},
+            "comment": f"{len(done['paths'])} paths deleted, {done['bytes_freed']} bytes freed"}

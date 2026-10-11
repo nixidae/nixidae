@@ -156,3 +156,30 @@ def test_a_unit_never_replaces_a_file_it_did_not_make(tmp_path: pathlib.Path) ->
     assert ret["result"] is False, ret
     assert (units / "demo.service").read_text() == "hand-written\n"
     assert not os.path.lexists(tmp_path / "r" / "demo"), "a refused state changes nothing"
+
+
+def test_garbage_collection_keeps_what_a_root_reaches(tmp_path: pathlib.Path) -> None:
+    cache, (kept, dead) = _cache(tmp_path, b"kept", b"dead")
+    root = str(tmp_path / "roots" / "kept")
+    os.makedirs(os.path.dirname(root))
+    assert _state(tmp_path, cache, "havsorm.realised", kept, f"root={root}")["result"]
+    assert _state(tmp_path, cache, "havsorm.realised", dead)["result"]
+    store = tmp_path / "minion"
+
+    dry = _state(tmp_path, cache, "havsorm.garbage_collected", "gc", "test=True")
+    assert dry["result"] is None, dry
+    assert dry["changes"] == {"deleted": [dead]}, dry
+    assert (store / dead.lstrip("/")).exists()
+
+    roomy = _state(tmp_path, cache, "havsorm.garbage_collected", "gc", "keep_free=1")
+    assert roomy["changes"] == {}, roomy
+
+    done = _state(tmp_path, cache, "havsorm.garbage_collected", "gc")
+    assert done["result"] is True, done
+    assert done["changes"]["deleted"] == [dead]
+    assert done["changes"]["bytes_freed"] > 0
+    assert not (store / dead.lstrip("/")).exists()
+    assert (store / kept.lstrip("/")).exists()
+
+    again = _state(tmp_path, cache, "havsorm.garbage_collected", "gc")
+    assert again["changes"] == {}, again
