@@ -197,6 +197,13 @@ A formula or a state channel can then hold `#!nix` SLS files and the
 `.nix` files they import. `nix build --file . bundle` runs the bundle's
 own `salt-call` on such files.
 
+`formulas/` holds `nix-host`, a formula in Uyuni's layout: copy
+`formulas/metadata/nix-host` to `/srv/formula_metadata/nix-host` and
+`formulas/states/nix-host` to `/srv/salt/nix-host`. Its form asks for
+a Nix version, the experimental features, an optional profile and a
+free space floor, and its `#!nix` state installs Nix, sets the profile
+and collects garbage from that pillar.
+
 ## Limits
 
 - Each render makes a new evaluator, and collects after it.

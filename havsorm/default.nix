@@ -87,7 +87,13 @@ rec {
     manylinux.build {
       pname = "havsorm-bundle";
       version = "3006.0";
-      src = ./tests/bundle;
+      src = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./tests/bundle
+          ./formulas
+        ];
+      };
       script = ''
         # What the bundle's bin/python wrapper exports, with its paths in
         # the store and the pip target in /tmp.
@@ -98,8 +104,8 @@ rec {
         root=$PWD/root
         mkdir -p conf "$root"
         printf '%s' '{"file_client": "local", "id": "bundle", "root_dir": "'"$root"'",
-          "file_roots": {"base": ["'"$PWD"'/srv"]},
-          "pillar_roots": {"base": ["'"$PWD"'/pillar"]},
+          "file_roots": {"base": ["'"$PWD"'/tests/bundle/srv", "'"$PWD"'/formulas/states"]},
+          "pillar_roots": {"base": ["'"$PWD"'/tests/bundle/pillar"]},
           "grains": {"os": "Leap"}}' > conf/minion
         # Salt reads its user's passwd entry when it imports its config,
         # and the image has none for the sandbox's uid.
@@ -113,6 +119,7 @@ rec {
         call --versions-report | tee "$out/versions.txt"
         call state.show_sls demo | tee "$out/state.json"
         call pillar.items | tee "$out/pillar.json"
+        call state.show_sls nix-host | tee "$out/formula.json"
         $py - "$out" <<'EOF'
         import json, sys
         out = sys.argv[1]
@@ -121,7 +128,11 @@ rec {
         assert {"port": 8080, "os": "Leap"} in state["web"]["test"], state
         pillar = json.load(open(f"{out}/pillar.json"))["local"]
         assert pillar.get("dbPort") == 5432, pillar
-        print("bundle: #!nix state and pillar render on Salt 3006.0, Python 3.11")
+        formula = json.load(open(f"{out}/formula.json"))["local"]
+        assert list(formula) == ["nix", "nix-profile", "nix-store-gc"], formula
+        assert {"version": "2.34.6"} in formula["nix"]["havsorm"], formula
+        assert {"require": [{"havsorm": "nix"}]} in formula["nix-store-gc"]["havsorm"], formula
+        print("bundle: #!nix state, pillar and the nix-host formula render on Salt 3006.0, Python 3.11")
         EOF
       '';
     };

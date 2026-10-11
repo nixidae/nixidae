@@ -1,0 +1,3 @@
+description:
+  Nix on this system, managed by Salt through havsorm. The states are written in Nix.
+group: nix
