@@ -38,6 +38,20 @@ A function must name its arguments. `x: ...` is refused.
 A Nix error is a Salt render error. Its position reads `«string»:line:column`,
 and the line is the line in the SLS file.
 
+## Files beside the SLS
+
+A relative path names a file on Salt's fileserver, in the SLS's
+saltenv:
+
+    #!nix
+    let ports = import ./ports.nix; in
+    { web."test.nop" = [ { port = ports.http; } ]; }
+
+The evaluator reads the saltenv through the minion's file client. It
+lists the files once per render, and fetches a file the first time Nix
+reads it. The tree appears in Nix at a store path named
+`salt-<saltenv>`, which no store holds.
+
 ## Configuration
 
     havsorm:
@@ -59,7 +73,6 @@ with Nix:
 
 ## Limits
 
-- A relative `import ./lib.nix` names a file beside the SLS in the
-  minion's cache. Salt caches only the SLS it renders, so the import
-  fails.
+- A pillar SLS reads its relative paths from the file_roots tree, not
+  from pillar_roots.
 - Each render makes a new evaluator.

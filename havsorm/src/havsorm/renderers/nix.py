@@ -32,7 +32,6 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
     from huggorm_bindings.errors import NixError
 
     text = template if isinstance(template, str) else template.read()
-    base = os.path.dirname(tmplpath) if tmplpath else os.getcwd()
     store = (__opts__.get("havsorm") or {}).get("store", "dummy://")
     # The loader injects mappings that JSON cannot read, and it injects
     # `__pillar__` only when it was given one.
@@ -43,8 +42,18 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
         "sls": sls,
     })
     try:
-        state = EvalState(Store(store))
-        value = state.eval_expr(text, base)
+        nix_store = Store(store)
+        state = EvalState(nix_store)
+        if "cp.list_master" in __salt__:
+            # Relative paths name files on the fileserver, not in the
+            # minion's cache, which holds only this SLS.
+            from havsorm.tree import SaltTree, mount_point, sls_dir
+
+            root = state.mount(SaltTree(__salt__, saltenv), path=mount_point(saltenv))
+            base = os.path.join(nix_store.print_store_path(root), sls_dir(sls, tmplpath))
+        else:
+            base = os.path.dirname(tmplpath) if tmplpath else os.getcwd()
+        value = state.eval_expr(text, base.rstrip("/"))
         state.force(value)
         if value.type_name() == "function":
             from_json = state.eval_expr("builtins.fromJSON")

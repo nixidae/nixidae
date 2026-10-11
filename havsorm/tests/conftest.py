@@ -21,6 +21,33 @@ def opts(tmp_path: pathlib.Path) -> dict[str, Any]:
 
 
 @pytest.fixture
+def srv(tmp_path: pathlib.Path) -> pathlib.Path:
+    """The file_roots of `base`."""
+    root = tmp_path / "srv"
+    root.mkdir(exist_ok=True)
+    return root
+
+
+@pytest.fixture
+def render_served(opts: dict[str, Any], tmp_path: pathlib.Path, srv: pathlib.Path) -> Any:
+    """Render an SLS as a minion does: with the execution modules, from a
+    copy in the cache. A file beside the SLS is on the fileserver only."""
+    import io
+
+    functions = salt.loader.minion_mods(opts)
+    renderers = salt.loader.render(opts, functions, pillar={})
+
+    def run(sls: str, rel: str) -> Any:
+        text = (srv / rel).read_text()
+        cached = tmp_path / "cache" / "files" / "base" / rel
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_text(text)
+        return renderers["nix"](io.StringIO(text), saltenv="base", sls=sls, tmplpath=str(cached))
+
+    return run
+
+
+@pytest.fixture
 def render(opts: dict[str, Any], tmp_path: pathlib.Path) -> Any:
     """Render Nix source as an SLS file through Salt's loader."""
     import io

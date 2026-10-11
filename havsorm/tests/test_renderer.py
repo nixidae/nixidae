@@ -72,3 +72,38 @@ def test_salt_call_renders_a_nix_sls(tmp_path: pathlib.Path) -> None:
     assert "nop" in got["hi"]["test"]
     assert {"os": "Leap"} in got["hi"]["test"]
     assert got["hi"]["__sls__"] == "demo"
+
+
+def test_an_import_beside_the_sls_comes_from_the_fileserver(
+        render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "app").mkdir()
+    (srv / "app" / "lib.nix").write_text('{ pkg = "nginx"; }\n')
+    (srv / "app" / "web.sls").write_text(
+        '#!nix\nlet lib = import ./lib.nix; in\n'
+        '{ web."pkg.installed" = [ { name = lib.pkg; } ]; }\n')
+    got = render_served("app.web", "app/web.sls")
+    assert got == {"web": {"pkg.installed": [{"name": "nginx"}]}}
+
+
+def test_an_init_sls_imports_from_its_own_directory(
+        render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "svc").mkdir()
+    (srv / "svc" / "port.nix").write_text("8080\n")
+    (srv / "svc" / "init.sls").write_text(
+        '#!nix\n{ svc."test.nop" = [ { port = import ./port.nix; } ]; }\n')
+    assert render_served("svc", "svc/init.sls") == {"svc": {"test.nop": [{"port": 8080}]}}
+
+
+def test_a_file_reads_as_its_bytes(render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "motd").write_bytes(b"caf\xc3\xa9\n")
+    (srv / "top.sls").write_text(
+        '#!nix\n{ m."test.nop" = [ { text = builtins.readFile ./motd; '
+        'names = builtins.attrNames (builtins.readDir ./.); } ]; }\n')
+    got = render_served("top", "top.sls")["m"]["test.nop"][0]
+    assert got == {"text": "café\n", "names": ["motd", "top.sls"]}
+
+
+def test_a_missing_import_is_a_render_error(render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "bad.sls").write_text('#!nix\nimport ./nothing.nix\n')
+    with pytest.raises(SaltRenderError, match=r"nothing\.nix"):
+        render_served("bad", "bad.sls")
