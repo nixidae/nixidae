@@ -49,19 +49,19 @@
       "type": "github"
     },
     "havsorm": {
-      "lastModified": 1791689612,
-      "narHash": "sha256-Xxgw4onaI50qWdYdGf5RNCw1NbEwnDXd4D8bS+RN8GY=",
+      "lastModified": 1791690887,
+      "narHash": "sha256-07bRKFmpfip8QUkHtJoTrsg50Zl6xp3g5fMhwyV/UoQ=",
       "owner": "nixidae",
       "repo": "havsorm",
-      "rev": "8397daf2e7a8dbe2b63f327e8479415648b4b950",
+      "rev": "b55b22192e7d697d9fafe0119a1f8fa97a5e07d2",
       "type": "github"
     },
     "huggorm": {
-      "lastModified": 1791687116,
-      "narHash": "sha256-Q04XLV/CnUjn6KTL7mtE9tQeSZOhY8XyFKUGP7Bl91c=",
+      "lastModified": 1791690890,
+      "narHash": "sha256-8Pw9qvmf+xxQVE2VkETGLqUChW7EwiIOHE3f++EYR0c=",
       "owner": "Lillecarl",
       "repo": "huggorm",
-      "rev": "3d6d3430f1b14e26eb090a684209ee9bb20ad6ae",
+      "rev": "91c5b4341fca66c4c06be45d273727724d4f433c",
       "type": "github"
     },
     "kr8s": {
