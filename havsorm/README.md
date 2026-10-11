@@ -117,6 +117,24 @@ generation only on a change, so the old one stays for a rollback.
 `havsorm.generations_deleted` deletes the generations but the current
 one, or those older than `older_than`, by Nix's own rules.
 
+A systemd unit from the store, restarted the way Salt restarts any
+service whose unit file changed:
+
+    nginx-unit:
+      havsorm.unit:
+        - name: nginx.service
+        - path: /nix/store/...-unit-nginx.service/nginx.service
+    nginx:
+      service.running:
+        - watch:
+          - havsorm: nginx-unit
+
+`havsorm.unit` substitutes the store path that holds the unit, roots it
+at `/nix/var/nix/gcroots/salt/<name>` so the collector keeps the
+service's closure, links the unit into `/etc/systemd/system`, and
+reloads systemd when the link changed. It never replaces a unit file
+that is not its own link.
+
 ## Configuration
 
     havsorm:

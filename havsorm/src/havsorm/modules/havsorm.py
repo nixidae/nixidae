@@ -210,3 +210,17 @@ def add_root(path: str, root: str, store: str | None = None) -> str:
     link: str = _call(path, lambda: str(nix_store.add_perm_root(
         nix_store.parse_store_path(path), os.path.abspath(root))))
     return link
+
+
+def store_path_of(path: str, store: str | None = None) -> str:
+    """The store path that holds `path`, a file in a store object or the
+    object itself.
+
+    CLI Example:
+
+        salt '*' havsorm.store_path_of /nix/store/...-nginx/bin/nginx
+    """
+    nix_store = _store(store)
+    holder: str = _call(path, lambda: nix_store.print_store_path(
+        nix_store.to_store_path(path).path()))
+    return holder

@@ -116,3 +116,43 @@ def test_a_profile_switches_and_keeps_the_old_generation(tmp_path: pathlib.Path)
 
     none = _state(tmp_path, cache, "havsorm.generations_deleted", profile)
     assert none["changes"] == {}, none
+
+
+def test_a_unit_links_its_store_file_and_roots_it(tmp_path: pathlib.Path) -> None:
+    from huggorm_bindings import ContentAddressMethod, HashAlgorithm, Store
+
+    source = Store(str(tmp_path / "source"))
+    holder = source.add_to_store("unit-demo.service", b"[Unit]\nDescription=demo\n",
+                                 ContentAddressMethod.FLAT, HashAlgorithm.SHA256)
+    cache = f"file://{tmp_path / 'cache'}?compression=none"
+    source.copy_closure(Store(cache), [holder], check_sigs=False)
+    unit_file = source.print_store_path(holder)
+    units = str(tmp_path / "units")
+    root = str(tmp_path / "roots" / "demo.service")
+    args = ["demo.service", f"path={unit_file}", f"unit_dir={units}", f"root={root}"]
+
+    dry = _state(tmp_path, cache, "havsorm.unit", *args, "test=True")
+    assert dry["result"] is None, dry
+    assert not os.path.lexists(os.path.join(units, "demo.service"))
+
+    done = _state(tmp_path, cache, "havsorm.unit", *args)
+    assert done["result"] is True, done
+    assert done["changes"] == {"unit": {"old": None, "new": unit_file}, "root": root}
+    assert os.readlink(os.path.join(units, "demo.service")) == unit_file
+    assert os.readlink(root) == unit_file
+    assert "nothing was reloaded" in done["comment"]
+
+    again = _state(tmp_path, cache, "havsorm.unit", *args)
+    assert again["changes"] == {}, again
+
+
+def test_a_unit_never_replaces_a_file_it_did_not_make(tmp_path: pathlib.Path) -> None:
+    cache, (unit_file,) = _cache(tmp_path, b"[Unit]\n")
+    units = tmp_path / "units"
+    units.mkdir()
+    (units / "demo.service").write_text("hand-written\n")
+    ret = _state(tmp_path, cache, "havsorm.unit", "demo.service", f"path={unit_file}",
+                 f"unit_dir={units}", f"root={tmp_path / 'r' / 'demo'}")
+    assert ret["result"] is False, ret
+    assert (units / "demo.service").read_text() == "hand-written\n"
+    assert not os.path.lexists(tmp_path / "r" / "demo"), "a refused state changes nothing"
