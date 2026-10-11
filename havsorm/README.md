@@ -146,6 +146,22 @@ less free than that. It deletes only what no root reaches, so
 profiles, units and realised paths survive. `test=True` lists the dead
 paths through Nix's own `--print-dead` answer.
 
+Nix itself, with no installer script and no distribution package:
+
+    nix:
+      havsorm.store_present:
+        - version: 2.34.6
+        - settings:
+            experimental-features: nix-command flakes
+            build-users-group: nixbld
+
+The minion reads Nix's release `fallback-paths.nix` for its system,
+opens the store (which creates `/nix`), substitutes Nix's closure,
+points `/nix/var/nix/profiles/default` at it, writes `nix.conf`, and
+links `nix-daemon.socket` and `nix-daemon.service` from Nix's own
+units. Without `version` it installs the Nix that havsorm links. Build
+users are Salt's `group.present` and `user.present`.
+
 ## Configuration
 
     havsorm:

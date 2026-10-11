@@ -259,3 +259,51 @@ def collect_garbage(max_freed: int | None = None, test: bool = False,
     options = GCOptions(action=action, max_freed=max_freed)
     results = _call("garbage collection", lambda: nix_store.collect_garbage(options))
     return {"paths": sorted(results.paths()), "bytes_freed": results.bytes_freed()}
+
+
+#: Where Nix's release names the store path of each system's Nix.
+RELEASE_PATHS = "https://releases.nixos.org/nix/nix-{version}/fallback-paths.nix"
+
+
+def release_path(version: str | None = None, system: str | None = None,
+                 url: str | None = None) -> str:
+    """The store path of Nix `version` for `system`, as Nix's release
+    lists it in `fallback-paths.nix`. The defaults are the Nix these
+    bindings link, and this machine's system.
+
+    CLI Example:
+
+        salt '*' havsorm.release_path 2.34.6
+    """
+    import re
+    import urllib.request
+
+    import huggorm_bindings
+
+    if version is None:
+        found = re.match(r"\d+\.\d+\.\d+", huggorm_bindings.nix_version())
+        if found is None:
+            raise CommandExecutionError(f"no release for Nix {huggorm_bindings.nix_version()}")
+        version = found[0]
+    system = system or huggorm_bindings.current_system()
+    source = (url or RELEASE_PATHS).format(version=version)
+    with urllib.request.urlopen(source, timeout=60) as response:
+        text = response.read().decode()
+    paths = evaluate(lambda state, nix_store: state.eval_expr(text, "/"), {},
+                     "dummy://", source, CommandExecutionError)
+    if system not in paths:
+        raise CommandExecutionError(f"{source} lists no Nix for {system}")
+    path: str = paths[system]
+    return path
+
+
+def store_root(store: str | None = None) -> str:
+    """The directory the store's `/nix` lives under: `/` for the system's
+    store, or a chroot store's root.
+
+    CLI Example:
+
+        salt '*' havsorm.store_root
+    """
+    root = _store(store).root_dir()
+    return str(root) if root else "/"

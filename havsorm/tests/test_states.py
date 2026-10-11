@@ -183,3 +183,47 @@ def test_garbage_collection_keeps_what_a_root_reaches(tmp_path: pathlib.Path) ->
 
     again = _state(tmp_path, cache, "havsorm.garbage_collected", "gc")
     assert again["changes"] == {}, again
+
+
+def test_store_present_installs_nix_from_its_release(tmp_path: pathlib.Path) -> None:
+    """A fake Nix closure in a cache, and a release file that names it:
+    the state reads the release, substitutes Nix, points the default
+    profile at it, writes nix.conf and links the daemon's units."""
+    from huggorm_bindings import Store, current_system, filesystem_accessor
+
+    fake = tmp_path / "fake-nix"
+    (fake / "bin").mkdir(parents=True)
+    (fake / "bin" / "nix").write_text("#!/bin/sh\n")
+    units = fake / "lib" / "systemd" / "system"
+    units.mkdir(parents=True)
+    for unit_name in ("nix-daemon.socket", "nix-daemon.service"):
+        (units / unit_name).write_text("[Unit]\n")
+    source = Store(str(tmp_path / "source"))
+    nix = source.add_accessor_to_store("nix-2.99.0", filesystem_accessor(fake))
+    cache = f"file://{tmp_path / 'cache'}?compression=none"
+    source.copy_closure(Store(cache), [nix], check_sigs=False)
+    nix_path = source.print_store_path(nix)
+    release = tmp_path / "fallback-paths.nix"
+    release.write_text(f'{{ {current_system()} = "{nix_path}"; }}\n')
+
+    conf_dir = tmp_path / "etc-nix"
+    unit_dir = tmp_path / "units"
+    args = ["nix", f"release_url=file://{release}", f"conf_dir={conf_dir}",
+            f"unit_dir={unit_dir}", 'settings={"build-users-group": "nixbld"}']
+
+    dry = _state(tmp_path, cache, "havsorm.store_present", *args, "test=True")
+    assert dry["result"] is None, dry
+    assert not conf_dir.exists()
+
+    done = _state(tmp_path, cache, "havsorm.store_present", *args)
+    assert done["result"] is True, done
+    profile = tmp_path / "minion" / "nix/var/nix/profiles/default"
+    assert os.readlink(os.path.join(profile.parent, os.readlink(profile))) == nix_path
+    assert (conf_dir / "nix.conf").read_text() == "build-users-group = nixbld\n"
+    assert os.readlink(unit_dir / "nix-daemon.service") == \
+        f"{nix_path}/lib/systemd/system/nix-daemon.service"
+    store = tmp_path / "minion" / nix_path.lstrip("/")
+    assert (store / "bin" / "nix").read_text() == "#!/bin/sh\n"
+
+    again = _state(tmp_path, cache, "havsorm.store_present", *args)
+    assert again["result"] is True and again["changes"] == {}, again

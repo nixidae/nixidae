@@ -8,6 +8,7 @@
 """
 
 import os
+import pathlib
 from typing import Any
 
 from salt.exceptions import CommandExecutionError
@@ -208,3 +209,65 @@ def garbage_collected(name: str, keep_free: int | str | None = None,
         return {**ret, "result": False, "comment": str(e)}
     return {**ret, "changes": {"deleted": done["paths"], "bytes_freed": done["bytes_freed"]},
             "comment": f"{len(done['paths'])} paths deleted, {done['bytes_freed']} bytes freed"}
+
+
+def store_present(name: str, path: str | None = None, version: str | None = None,
+                  settings: dict[str, Any] | None = None, daemon: bool = True,
+                  conf_dir: str = "/etc/nix", unit_dir: str = "/etc/systemd/system",
+                  release_url: str | None = None, store: str | None = None) -> dict[str, Any]:
+    """Nix is installed: the store exists, the default profile points at
+    Nix, `nix.conf` holds `settings`, and nix-daemon runs from Nix's own
+    units. No installer script and no distribution package: the minion
+    opens the store and substitutes Nix's closure itself.
+
+    `path` is Nix's store path. Without it, Nix's release names one for
+    `version` (default: the Nix havsorm links) and this system.
+
+        nix:
+          havsorm.store_present:
+            - version: 2.34.6
+            - settings:
+                experimental-features: nix-command flakes
+                build-users-group: nixbld
+
+    Build users are Salt's `group.present` and `user.present`, as for
+    any service account.
+    """
+    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    try:
+        path = path or __salt__["havsorm.release_path"](version=version, url=release_url)
+        root = __salt__["havsorm.store_root"](store=store)
+    except CommandExecutionError as e:
+        return {**ret, "result": False, "comment": str(e)}
+    profile_link = os.path.join(root, "nix/var/nix/profiles/default")
+    os.makedirs(os.path.dirname(profile_link), exist_ok=True)
+    parts = [profile(profile_link, path, store=store)]
+
+    if settings is not None:
+        conf = os.path.join(conf_dir, "nix.conf")
+        text = "".join(f"{key} = {value}\n" for key, value in sorted(settings.items()))
+        current = pathlib.Path(conf).read_text() if os.path.exists(conf) else None
+        part: dict[str, Any] = {"name": conf, "result": True, "changes": {}, "comment": ""}
+        if current != text:
+            part["changes"] = {"nix.conf": {"old": current, "new": text}}
+            if __opts__["test"]:
+                part["result"] = None
+            else:
+                os.makedirs(conf_dir, exist_ok=True)
+                with open(conf, "w") as f:
+                    f.write(text)
+        parts.append(part)
+
+    if daemon:
+        for unit_name in ("nix-daemon.socket", "nix-daemon.service"):
+            parts.append(unit(unit_name, os.path.join(path, "lib/systemd/system", unit_name),
+                              root=os.path.join(root, "nix/var/nix/gcroots/salt", unit_name),
+                              unit_dir=unit_dir, store=store))
+
+    failed = [p["comment"] for p in parts if p["result"] is False]
+    changes = {p["name"]: p["changes"] for p in parts if p["changes"]}
+    if failed:
+        return {**ret, "result": False, "changes": changes, "comment": "; ".join(failed)}
+    pending = any(p["result"] is None for p in parts)
+    return {**ret, "result": None if pending else True, "changes": changes,
+            "comment": "; ".join(p["comment"] for p in parts)}
