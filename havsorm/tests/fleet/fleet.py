@@ -39,12 +39,19 @@ async def generation(web1: Machine) -> str:
     return (await web1.succeed("cat /etc/havsorm-generation")).strip()
 
 
-async def start_suse_minion(suse1: Machine, settings: dict[str, Any]) -> None:
+async def bootstrap_suse(master: Machine, suse1: Machine, settings: dict[str, Any]) -> None:
+    """salt-ssh installs the minion on SUSE, as Uyuni bootstraps a client."""
     await suse1.add_closure(settings["closure"])
-    await suse1.succeed(
-        f"mkdir -p /etc/salt && printf '%s' {shlex.quote(settings['config'])} > /etc/salt/minion")
-    await suse1.succeed(
-        f"systemd-run --unit=salt-minion {shlex.quote(settings['bin'])}/salt-minion")
+    await master.succeed(
+        f"install -D -m 0600 {shlex.quote(settings['key'])} /etc/salt/ssh/id_ed25519")
+    pillar = json.dumps({"bootstrap": {"salt": settings["env"], "master": "10.9.0.1"}})
+    out = await master.succeed(shlex.join(
+        ["salt-ssh", "--ignore-host-keys", "--out", "json", "--static", "suse1",
+         "state.apply", "bootstrap", f"pillar={pillar}"]), timeout=600)
+    ret: dict[str, Any] = json.loads(out)["suse1"]
+    failed = {name: r for name, r in ret.items() if r["result"] is not True}
+    assert not failed, failed
+    assert len(ret) == 3, ret
 
 
 async def wait_for_minions(master: Machine) -> None:
@@ -58,8 +65,11 @@ async def wait_for_minions(master: Machine) -> None:
 
 async def test(vms: Machines) -> None:
     master, web1, suse1 = vms.master, vms.web1, vms.suse1
-    await start_suse_minion(suse1, vms.settings["salt"])
     await master.wait_for_unit("salt-master.service")
+    await suse1.fail("test -e /etc/salt/minion")
+    await bootstrap_suse(master, suse1, vms.settings["salt"])
+    assert await suse1.unit_state("salt-minion.service") == "active"
+    print("[test] salt-ssh bootstrapped a minion on suse1 with a #!nix state")
     await wait_for_minions(master)
     print("[test] web1 (NixOS) and suse1 (openSUSE) answer the master")
 
@@ -124,3 +134,7 @@ async def test(vms: Machines) -> None:
             await anyio.sleep(2)
     assert await generation(web1) == "next"
     print("[test] an event on the bus deployed the next system through a #!nix reaction")
+
+    journal = await master.journal("salt-master.service", lines=100000)
+    assert "Traceback" not in journal, journal[-3000:]
+    print("[test] salt-master logged no traceback")

@@ -3,8 +3,13 @@
   openSUSE Leap minion, on vivarium.
 
   The master and the NixOS minion need compute, so they run on QEMU. SUSE
-  boots its own cloud image, which runs on UML only. SUSE has no Salt
-  package here, so it runs havsorm's Salt from the host's store.
+  boots its own cloud image, which runs on UML only.
+
+  The master bootstraps SUSE with salt-ssh, as Uyuni bootstraps a
+  client: SSH as a sudo user, then a state that installs and starts the
+  minion. SUSE has no Salt package here, so the state points the unit at
+  havsorm's Salt in the host's store, which the script puts in SUSE's
+  store view first: that stands in for a package repository.
 */
 {
   pkgs,
@@ -21,13 +26,17 @@ let
     inherit id;
   };
   srv = ../tests/fleet/srv;
+  key = pkgs.runCommand "salt-ssh-key" { nativeBuildInputs = [ pkgs.openssh ]; } ''
+    mkdir $out
+    ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
+  '';
 in
 vivarium.mkTest {
   name = "havsorm-fleet";
   settings.salt = {
     closure = "${pkgs.closureInfo { rootPaths = [ saltEnv ]; }}";
-    bin = "${saltEnv}/bin";
-    config = builtins.toJSON (minionConfig "suse1");
+    env = "${saltEnv}";
+    key = "${key}/id_ed25519";
   };
   defaults = {
     imports = [ ./nixos.nix ];
@@ -41,6 +50,17 @@ vivarium.mkTest {
       4505
       4506
     ];
+    environment.systemPackages = [ pkgs.openssh ];
+    # The script installs the key here with mode 0600: ssh refuses the
+    # store's 0444 copy.
+    environment.etc."salt/roster".text = builtins.toJSON {
+      suse1 = {
+        host = "10.9.0.3";
+        user = "salt";
+        sudo = true;
+        priv = "/etc/salt/ssh/id_ed25519";
+      };
+    };
     services.salt.master = {
       enable = true;
       configuration = {
@@ -64,7 +84,16 @@ vivarium.mkTest {
     };
   };
   nodes.suse1 = {
-    vivarium.image = vivarium.images.opensuse-leap-16_0;
+    vivarium.image = vivarium.images.opensuse-leap-16_0 // {
+      userData.users = [
+        "default"
+        {
+          name = "salt";
+          sudo = "ALL=(ALL) NOPASSWD:ALL";
+          ssh_authorized_keys = [ (builtins.readFile "${key}/id_ed25519.pub") ];
+        }
+      ];
+    };
     vivarium.memory = "1024M";
     vivarium.interfaces.lab = lab 3;
   };

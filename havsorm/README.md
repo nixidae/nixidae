@@ -231,8 +231,9 @@ A switch does not restart the minion, because `havsorm.system` runs
 inside one of the minion's jobs, and a restart would lose its return.
 
 `nix build --file . fleet` boots a master and a NixOS minion on QEMU and
-an openSUSE minion on UML, with vivarium. The master applies a `#!nix`
-state to both, switches the NixOS minion to another system and back, and
+an openSUSE minion on UML, with vivarium. The master bootstraps the
+openSUSE minion with salt-ssh and a `#!nix` state, as Uyuni bootstraps a
+client. Then it applies a `#!nix` state to both minions, switches the NixOS minion to another system and back, and
 deploys it again from an event through a `#!nix` reactor.
 
 ## Uyuni and SUSE Multi-Linux Manager
