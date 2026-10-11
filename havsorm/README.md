@@ -79,6 +79,14 @@ also takes `store`:
           file: /srv/nix-pillar/default.nix
           store: dummy://
 
+## Evaluating on a minion
+
+    salt '*' havsorm.eval 'builtins.currentSystem'
+    salt '*' havsorm.eval '{ grains, ... }: grains.os'
+
+The module is `havsorm`, because Salt's own `nix` module drives the
+`nix-env` command.
+
 ## Configuration
 
     havsorm:

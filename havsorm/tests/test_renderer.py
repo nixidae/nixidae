@@ -171,3 +171,23 @@ def test_a_nix_pillar_sls_imports_from_pillar_roots(tmp_path: pathlib.Path) -> N
     got = _salt_call({"pillar_roots": {"base": [str(srv)]}}, tmp_path,
                      "pillar.items", "unmask=True")
     assert got.get("dbPort") == 5432, got.get("_errors")
+
+
+def test_the_execution_module_evaluates_on_the_minion(tmp_path: pathlib.Path) -> None:
+    got = _salt_call({"grains": {"os": "Leap"}}, tmp_path,
+                     "havsorm.eval", "{ grains, ... }: [ grains.os (1 + 1) ]")
+    assert got == ["Leap", 2]
+
+
+def test_the_execution_module_reports_a_nix_error(tmp_path: pathlib.Path) -> None:
+    cfg = tmp_path / "conf"
+    cfg.mkdir()
+    (cfg / "minion").write_text(json.dumps(
+        {"file_client": "local", "root_dir": str(tmp_path), "id": "minion1"}))
+    done = subprocess.run(
+        [sys.executable, "-c", "import salt.scripts; salt.scripts.salt_call()",
+         "--local", "--config-dir", str(cfg), "--out", "json", "--log-level", "quiet",
+         "havsorm.eval", 'throw "nope"'],
+        capture_output=True, text=True, timeout=300)
+    assert done.returncode != 0
+    assert "nope" in done.stdout + done.stderr
