@@ -214,6 +214,7 @@ def test_store_present_installs_nix_from_its_release(tmp_path: pathlib.Path) -> 
     dry = _state(tmp_path, cache, "havsorm.store_present", *args, "test=True")
     assert dry["result"] is None, dry
     assert not conf_dir.exists()
+    assert not (tmp_path / "minion" / "nix/var/nix/daemon-socket").exists()
 
     done = _state(tmp_path, cache, "havsorm.store_present", *args)
     assert done["result"] is True, done
@@ -224,6 +225,7 @@ def test_store_present_installs_nix_from_its_release(tmp_path: pathlib.Path) -> 
         f"{nix_path}/lib/systemd/system/nix-daemon.service"
     store = tmp_path / "minion" / nix_path.lstrip("/")
     assert (store / "bin" / "nix").read_text() == "#!/bin/sh\n"
+    assert (tmp_path / "minion" / "nix/var/nix/daemon-socket").is_dir()
 
     again = _state(tmp_path, cache, "havsorm.store_present", *args)
     assert again["result"] is True and again["changes"] == {}, again

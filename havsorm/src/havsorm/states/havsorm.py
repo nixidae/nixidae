@@ -342,6 +342,17 @@ def store_present(name: str, path: str | None = None, version: str | None = None
         parts.append(part)
 
     if daemon:
+        # nix-daemon.socket has ConditionPathIsReadWrite on this, and an
+        # unmet condition skips the unit: "failed to start" with no error.
+        sockets = os.path.join(root, "nix/var/nix/daemon-socket")
+        if not os.path.isdir(sockets):
+            part = {"name": sockets, "result": True, "comment": f"{sockets} exists",
+                    "changes": {"daemon-socket": sockets}}
+            if __opts__["test"]:
+                part["result"] = None
+            else:
+                os.makedirs(sockets, mode=0o755)
+            parts.append(part)
         for unit_name in ("nix-daemon.socket", "nix-daemon.service"):
             parts.append(unit(unit_name, os.path.join(path, "lib/systemd/system", unit_name),
                               root=os.path.join(root, "nix/var/nix/gcroots/salt", unit_name),
