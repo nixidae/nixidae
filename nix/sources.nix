@@ -81,6 +81,12 @@
     branch = "main";
     path = ../huggorm;
   };
+  # Salt states written in Nix, evaluated by huggorm.
+  havsorm = {
+    url = "https://github.com/nixidae/havsorm.git";
+    branch = "main";
+    path = ../havsorm;
+  };
 
   # Everything the seven ask for.
   #
