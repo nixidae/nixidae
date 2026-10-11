@@ -43,8 +43,9 @@ def test_the_reactor_evaluator_stays_warm_and_sees_an_edit(
     reaction = srv / "deploy.sls"
     reaction.write_text(
         "#!nix\n"
-        "{ data, ... }:\n"
-        "{ deploy.\"local.test.ping\" = [ { tgt = (import ./lib.nix).target; } ]; }\n")
+        "{ data, salt, ... }:\n"
+        "{ deploy.\"local.test.ping\" = [\n"
+        "    { tgt = salt \"test.echo\" [ (import ./lib.nix).target ]; } ]; }\n")
 
     def target() -> str:
         (chunk,) = reactor.reactions("havsorm/deploy", {"id": "m"}, [str(reaction)])

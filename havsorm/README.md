@@ -38,6 +38,23 @@ A function must name its arguments. `x: ...` is refused.
 A Nix error is a Salt render error. Its position reads `«string»:line:column`,
 and the line is the line in the SLS file.
 
+## Calling Salt from Nix
+
+A function that takes `salt` can call any execution function, as
+Jinja's `salt['...']` does. A list is positional arguments, a set is
+keyword arguments:
+
+    #!nix
+    { salt, ... }:
+    let
+      webs = salt "mine.get" { tgt = "roles:web"; tgt_type = "grain"; fun = "lab_ip"; };
+    in
+    { lb."file.managed" = [ { name = "/etc/backends"; }
+                           { contents = builtins.toJSON webs; } ]; }
+
+The call runs when the evaluation reaches it, and its answer crosses as
+JSON. The ext_pillar gets `salt` too, with the master's functions.
+
 ## Files beside the SLS
 
 A relative path names a file on Salt's fileserver, in the SLS's

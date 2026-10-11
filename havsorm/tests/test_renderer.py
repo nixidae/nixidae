@@ -85,6 +85,21 @@ def test_an_import_beside_the_sls_comes_from_the_fileserver(
     assert got == {"web": {"pkg.installed": [{"name": "nginx"}]}}
 
 
+def test_salt_calls_an_execution_function(render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "calls.sls").write_text(
+        '#!nix\n{ salt, ... }:\n'
+        '{ c."test.nop" = [ { echo = salt "test.echo" [ "hi" ]; }\n'
+        '                   { kw = (salt "test.arg" { a = 1; }).kwargs.a; } ]; }\n')
+    got = render_served("calls", "calls.sls")
+    assert got == {"c": {"test.nop": [{"echo": "hi"}, {"kw": 1}]}}
+
+
+def test_salt_names_a_missing_function(render_served: Any, srv: pathlib.Path) -> None:
+    (srv / "missing.sls").write_text('#!nix\n{ salt, ... }: salt "no.such" [ ]\n')
+    with pytest.raises(SaltRenderError, match=r"no execution function 'no\.such'"):
+        render_served("missing", "missing.sls")
+
+
 def test_an_init_sls_imports_from_its_own_directory(
         render_served: Any, srv: pathlib.Path) -> None:
     (srv / "svc").mkdir()

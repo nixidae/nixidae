@@ -42,6 +42,10 @@ class Evaluator:
         path: str = self.store.print_store_path(root)
         return path
 
+    def salt(self, functions: Any) -> Any:
+        """Salt's execution functions as the Nix function `salt`."""
+        return _salt_primop(self.state, lambda: functions)
+
     def before(self) -> None:
         pass
 
@@ -67,6 +71,17 @@ class Warm(Evaluator):
         self.pid = os.getpid()
         self._trees: dict[str, Any] = {}
         self._stamps: dict[str, Any] = {}
+        self._functions: Any = {}
+        self._salt: Any = None
+
+    def salt(self, functions: Any) -> Any:
+        # One primop for the state's life, reading this render's
+        # functions: a primop lives as long as its state, so one per
+        # render would grow a warm state without end.
+        self._functions = functions
+        if self._salt is None:
+            self._salt = _salt_primop(self.state, lambda: self._functions)
+        return self._salt
 
     def mount(self, client: Any, saltenv: str) -> str:
         from havsorm.tree import SaltTree, mount_point
@@ -135,17 +150,38 @@ def warm(store: str) -> Warm:
     return found
 
 
+def _salt_primop(state: Any, functions: Callable[[], Any]) -> Any:
+    """`salt "mine.get" { tgt = "web*"; fun = "lab_ip"; }`: a Salt
+    execution function, called during evaluation, as Jinja's
+    `salt['mine.get'](...)` is. A list is positional arguments, a set is
+    keyword arguments. The answer crosses as JSON."""
+    from_json = state.eval_expr("builtins.fromJSON")
+
+    def call(fun: Any, given: Any) -> Any:
+        name = json.loads(fun.to_json())
+        args = json.loads(given.to_json())
+        found = functions()
+        if name not in found:
+            raise KeyError(f"salt: no execution function {name!r}")
+        ret = found[name](*args) if isinstance(args, list) else found[name](**args)
+        return from_json(state.make_string(salt.utils.json.dumps(ret)))
+
+    return state.make_primop("salt", 2, call)
+
+
 #: `load(evaluator)` returns the value to evaluate.
 Load = Callable[[Evaluator], Any]
 
 
 def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
-             error: type[Exception], keep: bool = False) -> Any:
+             error: type[Exception], keep: bool = False, functions: Any = None) -> Any:
     """The value `load` gives, applied to `args` when it is a function.
 
     A function must name its arguments, as `{ grains, ... }:` does. A Nix
     error, and a function that names none, raise `error` with `what` in
-    the message. With `keep`, this thread's warm evaluator does it.
+    the message. With `keep`, this thread's warm evaluator does it. With
+    `functions`, Salt's execution functions, the function may also take
+    `salt`.
     """
     import huggorm_bindings
     from huggorm_bindings.errors import NixError
@@ -153,7 +189,7 @@ def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
     evaluator = warm(store) if keep else Evaluator(store)
     try:
         evaluator.before()
-        out = _to_json(load, salt.utils.json.dumps(args), evaluator, what, error)
+        out = _to_json(load, salt.utils.json.dumps(args), evaluator, what, error, functions)
         evaluator.after()
         return json.loads(out)
     except NixError as e:
@@ -169,15 +205,17 @@ def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
 
 
 def _to_json(load: Load, args: str, evaluator: Evaluator, what: str,
-             error: type[Exception]) -> str:
+             error: type[Exception], functions: Any) -> str:
     """Every Nix value made here is dead when this returns."""
     state = evaluator.state
     value = load(evaluator)
     state.force(value)
     if value.type_name() == "function":
-        from_json = state.eval_expr("builtins.fromJSON")
+        given = state.eval_expr("builtins.fromJSON")(state.make_string(args))
+        if functions is not None:
+            given = state.eval_expr("a: s: a // { salt = s; }")(given)(evaluator.salt(functions))
         try:
-            value = value.apply_auto(from_json(state.make_string(args)))
+            value = value.apply_auto(given)
         except ValueError as e:
             raise error(f"{what}: a Nix function names its arguments, as in "
                         "`{ grains, pillar, ... }:`") from e

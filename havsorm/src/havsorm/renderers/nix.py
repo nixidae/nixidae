@@ -1,7 +1,8 @@
 """The `#!nix` renderer: an SLS file written in Nix.
 
 The file evaluates to the highstate data, or to a function that takes
-`{ grains, pillar, saltenv, sls, ... }` and returns it. A reactor SLS
+`{ grains, pillar, saltenv, sls, salt, ... }` and returns it. `salt`
+calls an execution function: `salt "mine.get" { tgt = "web*"; ... }`. A reactor SLS
 also gets the event's `tag` and `data`. A list of
 single-key sets keeps its order, because a Nix attribute set has none.
 """
@@ -86,4 +87,5 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
     # The reactor renders every event in one long-lived process, one at
     # a time, so its evaluator stays warm by default.
     keep = bool(config.get("warm", "tag" in kws))
-    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep))
+    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep,
+                             functions=__salt__))
