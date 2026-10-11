@@ -5,7 +5,14 @@
   huggorm ? import sources.huggorm { inherit sources; },
 }:
 let
-  inherit (huggorm) pkgs;
+  pkgs = huggorm.pkgs.extend (
+    final: prev: {
+      # Salt 3008 requires xxhash (requirements/base.txt), and nixpkgs'
+      # salt does not propagate it: salt-master fails to build its
+      # resource index without it.
+      salt = prev.salt.override { extraInputs = [ final.python3.pkgs.xxhash ]; };
+    }
+  );
   inherit (pkgs) lib;
   python3 = huggorm.python;
   # nixpkgs builds Salt as an application. The tests import it.
