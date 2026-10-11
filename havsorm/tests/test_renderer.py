@@ -107,3 +107,13 @@ def test_a_missing_import_is_a_render_error(render_served: Any, srv: pathlib.Pat
     (srv / "bad.sls").write_text('#!nix\nimport ./nothing.nix\n')
     with pytest.raises(SaltRenderError, match=r"nothing\.nix"):
         render_served("bad", "bad.sls")
+
+
+def test_each_render_collects(render: Any) -> None:
+    """The collector runs after a render, so a minion does not grow to
+    Nix's initial heap before its first collection (havsorm#2)."""
+    import huggorm_bindings
+
+    before = huggorm_bindings.gc_stats()["collections"]
+    render('#!nix\n{ a."test.nop" = [ ]; }')
+    assert huggorm_bindings.gc_stats()["collections"] > before
