@@ -20,23 +20,51 @@ from huggorm_bindings import FileType, SourceAccessor, Stat, StorePath
 _BASE32 = "0123456789abcdfghijklmnpqrsvwxyz"
 
 
-class SaltTree(SourceAccessor):
-    """The files of one saltenv. `/` is the root of the saltenv."""
+class CpClient:
+    """The `cp` execution functions, as the file client methods SaltTree
+    calls. For a render the loader gave no file client."""
 
-    def __init__(self, salt: dict[str, Callable[..., Any]], saltenv: str) -> None:
-        super().__init__()
+    def __init__(self, salt: dict[str, Callable[..., Any]]) -> None:
         self._salt = salt
+
+    def file_list(self, saltenv: str) -> list[str]:
+        files: list[str] = self._salt["cp.list_master"](saltenv=saltenv)
+        return files
+
+    def dir_list(self, saltenv: str) -> list[str]:
+        dirs: list[str] = self._salt["cp.list_master_dirs"](saltenv=saltenv)
+        return dirs
+
+    def symlink_list(self, saltenv: str) -> dict[str, str]:
+        links: dict[str, str] = self._salt["cp.list_master_symlinks"](saltenv=saltenv)
+        return links
+
+    def cache_file(self, path: str, saltenv: str) -> str:
+        cached: str = self._salt["cp.cache_file"](path, saltenv=saltenv)
+        return cached
+
+
+class SaltTree(SourceAccessor):
+    """The files of one saltenv, as a Salt file client serves them. `/` is
+    the root of the saltenv.
+
+    The client is the render's own: in a state render it serves
+    file_roots, and in a pillar render pillar_roots.
+    """
+
+    def __init__(self, client: Any, saltenv: str) -> None:
+        super().__init__()
+        self._client = client
         self._saltenv = saltenv
-        self._files = {"/" + p for p in salt["cp.list_master"](saltenv=saltenv)}
-        self._links = {"/" + p: t for p, t in
-                       salt["cp.list_master_symlinks"](saltenv=saltenv).items()}
-        self._dirs = {"/"} | {"/" + p.strip("/") for p in
-                              salt["cp.list_master_dirs"](saltenv=saltenv) if p.strip("/")}
+        self._files = {"/" + p for p in client.file_list(saltenv)}
+        self._links = {"/" + p: t for p, t in client.symlink_list(saltenv).items()}
+        self._dirs = {"/"} | {"/" + p.strip("/") for p in client.dir_list(saltenv)
+                              if p.strip("/")}
         self._data: dict[str, bytes] = {}
 
     def _read(self, path: str) -> bytes:
         if path not in self._data:
-            cached = self._salt["cp.cache_file"](f"salt:/{path}", saltenv=self._saltenv)
+            cached = self._client.cache_file(f"salt:/{path}", self._saltenv)
             if not cached:
                 raise FileNotFoundError(path)
             with open(cached, "rb") as f:

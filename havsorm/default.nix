@@ -48,8 +48,11 @@ rec {
   };
 
   # nix run --file . python -- -m pytest
+  #
+  # Without the suite, so a red suite does not block the loop that
+  # debugs it.
   python = python3.withPackages (_: [
-    havsorm
+    (havsorm.overridePythonAttrs { doCheck = false; })
     salt
     python3.pkgs.pytest
   ]);

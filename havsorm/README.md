@@ -47,10 +47,37 @@ saltenv:
     let ports = import ./ports.nix; in
     { web."test.nop" = [ { port = ports.http; } ]; }
 
-The evaluator reads the saltenv through the minion's file client. It
-lists the files once per render, and fetches a file the first time Nix
-reads it. The tree appears in Nix at a store path named
+The evaluator reads the saltenv through the render's file client: in a
+state render that serves file_roots, and in a pillar SLS pillar_roots.
+It lists the files once per render, and fetches a file the first time
+Nix reads it. The tree appears in Nix at a store path named
 `salt-<saltenv>`, which no store holds.
+
+## Pillar from a Nix file
+
+On the master:
+
+    ext_pillar:
+      - nix: /srv/nix-pillar/default.nix
+
+The file is an attribute set, or a function that takes
+`{ id, grains, pillar, ... }`:
+
+    { id, grains, pillar, ... }:
+    let roles = import ./roles.nix; in
+    {
+      role = roles.${id} or "default";
+      ntp.servers = if grains.os == "Leap" then [ "0.opensuse.pool.ntp.org" ] else [ ];
+    }
+
+`pillar` holds what the earlier pillar sources gave. A relative path
+names a file beside this one, on the master's disk. The dictionary form
+also takes `store`:
+
+    ext_pillar:
+      - nix:
+          file: /srv/nix-pillar/default.nix
+          store: dummy://
 
 ## Configuration
 
@@ -73,6 +100,4 @@ with Nix:
 
 ## Limits
 
-- A pillar SLS reads its relative paths from the file_roots tree, not
-  from pillar_roots.
-- Each render makes a new evaluator.
+- Each render makes a new evaluator, and collects after it.

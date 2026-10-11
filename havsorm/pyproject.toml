@@ -35,3 +35,4 @@ select = ["E", "F", "I", "UP", "B", "SIM", "PIE", "RUF"]
 # module it loads, after the import.
 [tool.ruff.lint.per-file-ignores]
 "src/havsorm/renderers/*.py" = ["F821"]
+"src/havsorm/pillar/*.py" = ["F821"]

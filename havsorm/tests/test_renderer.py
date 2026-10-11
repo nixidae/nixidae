@@ -117,3 +117,57 @@ def test_each_render_collects(render: Any) -> None:
     before = huggorm_bindings.gc_stats()["collections"]
     render('#!nix\n{ a."test.nop" = [ ]; }')
     assert huggorm_bindings.gc_stats()["collections"] > before
+
+
+def _salt_call(conf: dict[str, Any], tmp_path: pathlib.Path, *args: str) -> Any:
+    """`salt-call --local`, as a masterless minion runs it."""
+    cfg = tmp_path / "conf"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "minion").write_text(json.dumps({
+        "file_client": "local", "root_dir": str(tmp_path), "id": "minion1", **conf}))
+    done = subprocess.run(
+        [sys.executable, "-c", "import salt.scripts; salt.scripts.salt_call()",
+         "--local", "--config-dir", str(cfg), "--out", "json", "--log-level", "quiet", *args],
+        capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-3000:]
+    return json.loads(done.stdout)["local"]
+
+
+def test_ext_pillar_gives_a_minion_its_pillar(tmp_path: pathlib.Path) -> None:
+    nixdir = tmp_path / "nixpillar"
+    nixdir.mkdir()
+    (nixdir / "roles.nix").write_text('{ minion1 = "web"; }\n')
+    (nixdir / "default.nix").write_text(
+        "{ id, grains, pillar, ... }:\n"
+        "{ role = (import ./roles.nix).${id}; os = grains.os; before = pillar.base or null; }\n")
+    srv = tmp_path / "pillar"
+    srv.mkdir()
+    (srv / "top.sls").write_text("base:\n  '*':\n    - common\n")
+    (srv / "common.sls").write_text("base: yaml\n")
+    got = _salt_call({
+        "pillar_roots": {"base": [str(srv)]},
+        "grains": {"os": "Leap"},
+        "ext_pillar": [{"nix": str(nixdir / "default.nix")}],
+    }, tmp_path, "pillar.items", "unmask=True")
+    assert got["role"] == "web"
+    assert got["os"] == "Leap"
+    assert got["before"] == "yaml"
+
+
+def test_ext_pillar_takes_options(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "p.nix").write_text("{ fromOptions = true; }\n")
+    got = _salt_call({"ext_pillar": [{"nix": {"file": str(tmp_path / "p.nix")}}]},
+                     tmp_path, "pillar.items", "unmask=True")
+    assert got["fromOptions"] is True
+
+
+def test_a_nix_pillar_sls_imports_from_pillar_roots(tmp_path: pathlib.Path) -> None:
+    """havsorm#4: in a pillar render the file client serves pillar_roots."""
+    srv = tmp_path / "pillar"
+    srv.mkdir()
+    (srv / "top.sls").write_text("base:\n  '*':\n    - db\n")
+    (srv / "port.nix").write_text("5432\n")
+    (srv / "db.sls").write_text("#!nix\n{ dbPort = import ./port.nix; }\n")
+    got = _salt_call({"pillar_roots": {"base": [str(srv)]}}, tmp_path,
+                     "pillar.items", "unmask=True")
+    assert got.get("dbPort") == 5432, got.get("_errors")
