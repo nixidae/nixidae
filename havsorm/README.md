@@ -194,6 +194,16 @@ links `nix-daemon.socket` and `nix-daemon.service` from Nix's own
 units. Without `version` it installs the Nix that havsorm links. Build
 users are Salt's `group.present` and `user.present`.
 
+## Grains
+
+    salt -G 'nixos:system:/nix/store/...-nixos-system-web1-26.05' test.ping
+    salt -G 'nix:daemon:True' havsorm.collect_garbage
+
+`nix` holds the Nix havsorm links (`version`, `system`), whether the host
+has a store and a daemon, and the default profile's target. `nixos`
+holds a NixOS host's running, booted and next-boot systems and its
+version. `havsorm.system` refreshes the grains after a switch.
+
 ## Configuration
 
     havsorm:

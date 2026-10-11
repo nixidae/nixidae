@@ -187,6 +187,10 @@ def switch_to_configuration(path: str, action: str = "switch",
     if done["retcode"]:
         raise CommandExecutionError(
             f"switch-to-configuration {action} exited {done['retcode']}: {done['stdout']}")
+    if action != "dry-activate" and "saltutil.refresh_grains" in __salt__:
+        # The `nixos` grains name the running system, and a target on
+        # them reads the minion's grains as they were at the last refresh.
+        __salt__["saltutil.refresh_grains"]()
     output: str = done["stdout"]
     return output
 

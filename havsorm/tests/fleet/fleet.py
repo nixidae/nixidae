@@ -113,6 +113,14 @@ async def test(vms: Machines) -> None:
     assert again["result"] is True and again["changes"] == {}, again
     print("[test] havsorm.system switched web1 to the next system, and then changed nothing")
 
+    on_next = await salt(master, "-G", f"nixos:system:{nxt}", "test.ping", timeout=20)
+    assert on_next == {"web1": True}, on_next
+    code, said = await master.execute(shlex.join(
+        ["salt", "--out", "json", "--static", "-t", "20", "-G", f"nixos:system:{booted}",
+         "test.ping"]))
+    assert "web1" not in said, (code, said)
+    print("[test] a grain target finds the minions on the next system, and only them")
+
     back = state(await salt(master, "web1", "state.single", "havsorm.system", booted), "web1")
     assert back["result"] is True, back
     assert await generation(web1) == "base"
