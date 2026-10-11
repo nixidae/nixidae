@@ -99,6 +99,24 @@ hold, and roots it so the collector keeps it. It never builds: a
 minion takes what a builder made. It reports what it changed, and
 `test=True` changes nothing.
 
+A profile points at a store path through numbered generations, as Nix
+keeps them:
+
+    salt-env:
+      havsorm.profile:
+        - name: /nix/var/nix/profiles/salt
+        - path: /nix/store/...-salt-env
+
+    salt-env-history:
+      havsorm.generations_deleted:
+        - name: /nix/var/nix/profiles/salt
+        - older_than: 30d
+
+`havsorm.profile` substitutes the path if needed and makes a new
+generation only on a change, so the old one stays for a rollback.
+`havsorm.generations_deleted` deletes the generations but the current
+one, or those older than `older_than`, by Nix's own rules.
+
 ## Configuration
 
     havsorm:
