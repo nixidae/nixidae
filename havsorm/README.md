@@ -243,8 +243,25 @@ inside one of the minion's jobs, and a restart would lose its return.
 `nix build --file . fleet` boots a master and a NixOS minion on QEMU and
 an openSUSE minion on UML, with vivarium. The master bootstraps the
 openSUSE minion with salt-ssh and a `#!nix` state, as Uyuni bootstraps a
-client. Then it applies a `#!nix` state to both minions, switches the NixOS minion to another system and back, and
+client. Then it applies a `#!nix` state to every minion, switches the NixOS minion to another system and back, and
 deploys it again from an event through a `#!nix` reactor.
+
+### A rolling deploy
+
+`tests/fleet/srv/orch/deploy.sls` is an orchestration in Nix:
+
+    salt-run state.orchestrate orch.deploy \
+      pillar='{systems: {web1: /nix/store/...}, good: {web1: /nix/store/...}}'
+
+It deploys one minion at a time, and each step requires the one before,
+so a failure stops the rest. On a failure, every minion goes back to its
+system in `good`. The fleet test deploys a system whose activation
+fails: web1 gets it, web2 never does, and both run the good system
+after.
+
+Salt's `batch` with `failhard` does not do this. Salt also reads that
+`failhard` as the orchestration's own, so the run ends before the
+restore.
 
 ## Uyuni and SUSE Multi-Linux Manager
 

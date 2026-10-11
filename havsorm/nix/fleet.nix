@@ -26,6 +26,34 @@ let
     inherit id;
   };
   srv = ../tests/fleet/srv;
+  # A NixOS minion, with two more systems to deploy: `next`, and `broken`,
+  # whose activation fails because a unit fails to start.
+  web =
+    n:
+    { config, ... }:
+    {
+      vivarium.backend = "qemu";
+      vivarium.memory = "1536M";
+      vivarium.interfaces.lab = lab n;
+      services.salt.minion = {
+        enable = true;
+        configuration = minionConfig config.networking.hostName;
+      };
+      environment.etc."havsorm-generation".text = "base\n";
+      vivarium.configurations.next = {
+        environment.etc."havsorm-generation".text = pkgs.lib.mkForce "next\n";
+      };
+      vivarium.configurations.broken = {
+        environment.etc."havsorm-generation".text = pkgs.lib.mkForce "broken\n";
+        systemd.services.havsorm-broken = {
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = "${pkgs.coreutils}/bin/false";
+          };
+        };
+      };
+    };
   key = pkgs.runCommand "salt-ssh-key" { nativeBuildInputs = [ pkgs.openssh ]; } ''
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
@@ -70,19 +98,8 @@ vivarium.mkTest {
       };
     };
   };
-  nodes.web1 = {
-    vivarium.backend = "qemu";
-    vivarium.memory = "1536M";
-    vivarium.interfaces.lab = lab 2;
-    services.salt.minion = {
-      enable = true;
-      configuration = minionConfig "web1";
-    };
-    environment.etc."havsorm-generation".text = "base\n";
-    vivarium.configurations.next = {
-      environment.etc."havsorm-generation".text = pkgs.lib.mkForce "next\n";
-    };
-  };
+  nodes.web1 = web 2;
+  nodes.web2 = web 4;
   nodes.suse1 = {
     vivarium.image = vivarium.images.opensuse-leap-16_0 // {
       userData.users = [

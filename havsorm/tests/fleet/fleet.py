@@ -12,7 +12,7 @@ from typing import Any
 import anyio
 from vivarium_runner import Machine, Machines
 
-MINIONS = ("web1", "suse1")
+MINIONS = ("web1", "web2", "suse1")
 
 
 async def salt(master: Machine, *argv: str, timeout: int = 300) -> dict[str, Any]:
@@ -37,6 +37,21 @@ async def current(web1: Machine) -> str:
 
 async def generation(web1: Machine) -> str:
     return (await web1.succeed("cat /etc/havsorm-generation")).strip()
+
+
+async def orchestrate(master: Machine, pillar: dict[str, Any]) -> tuple[int, str]:
+    """`salt-run state.orchestrate orch.deploy` with `pillar`: (exit, output)."""
+    return await master.execute(shlex.join(
+        ["salt-run", "--out", "json", "state.orchestrate", "orch.deploy",
+         f"pillar={json.dumps(pillar)}"]), timeout=900)
+
+
+async def history(web: Machine) -> list[str]:
+    """The systems the system profile's generations point at, oldest first."""
+    out = await web.succeed(
+        "find /nix/var/nix/profiles -maxdepth 1 -name 'system-*-link' -printf '%f %l\\n'")
+    links = [line.split() for line in out.splitlines() if line.strip()]
+    return [target for _, target in sorted(links, key=lambda link: int(link[0].split("-")[1]))]
 
 
 async def bootstrap_suse(master: Machine, suse1: Machine, settings: dict[str, Any]) -> None:
@@ -71,14 +86,15 @@ async def test(vms: Machines) -> None:
     assert await suse1.unit_state("salt-minion.service") == "active"
     print("[test] salt-ssh bootstrapped a minion on suse1 with a #!nix state")
     await wait_for_minions(master)
-    print("[test] web1 (NixOS) and suse1 (openSUSE) answer the master")
+    print("[test] web1 and web2 (NixOS) and suse1 (openSUSE) answer the master")
 
     # A #!nix state from the master's file_roots, rendered on each minion.
     applied = await salt(master, "-L", ",".join(MINIONS), "state.apply", "fleet")
     for minion in MINIONS:
         ret = state(applied, minion)
         assert ret["result"] is True, ret
-    for minion, machine in (("web1", web1), ("suse1", suse1)):
+    for minion in MINIONS:
+        machine = getattr(vms, minion)
         os_grain = (await salt(master, minion, "grains.get", "os"))[minion]
         said = (await machine.succeed("cat /etc/havsorm-fleet")).strip()
         assert said == f"{os_grain} {minion}", said
@@ -142,6 +158,29 @@ async def test(vms: Machines) -> None:
             await anyio.sleep(2)
     assert await generation(web1) == "next"
     print("[test] an event on the bus deployed the next system through a #!nix reaction")
+
+    # A rolling deploy, through a #!nix orchestration.
+    webs = {"web1": web1, "web2": vms.web2}
+    good = {name: web.spec.configurations["next"] for name, web in webs.items()}
+    broken = {name: web.spec.configurations["broken"] for name, web in webs.items()}
+    code, out = await orchestrate(master, {"systems": good})
+    assert code == 0, out
+    for name, web in webs.items():
+        assert await current(web) == good[name], name
+        assert await generation(web) == "next", name
+    print("[test] an orchestration deployed the next system to web1 and web2")
+
+    before = {name: await history(web) for name, web in webs.items()}
+    code, out = await orchestrate(master, {"systems": broken, "good": good})
+    assert code != 0, out
+    for name, web in webs.items():
+        assert await current(web) == good[name], (name, out)
+        assert await generation(web) == "next", name
+    tried = [name for name, web in webs.items()
+             if broken[name] in (await history(web))[len(before[name]):]]
+    assert len(tried) == 1, (tried, out)
+    print(f"[test] a broken system stopped the deploy at {tried[0]}, "
+          "the other minion never got it, and both run the good system again")
 
     journal = await master.journal("salt-master.service", lines=100000)
     assert "Traceback" not in journal, journal[-3000:]
