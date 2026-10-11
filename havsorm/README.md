@@ -150,6 +150,23 @@ service's closure, links the unit into `/etc/systemd/system`, and
 reloads systemd when the link changed. It never replaces a unit file
 that is not its own link.
 
+A NixOS host, switched to a system a builder made, as `nixos-rebuild
+switch` switches it:
+
+    web:
+      havsorm.system:
+        - name: /nix/store/...-nixos-system-web1-26.05
+
+The minion substitutes the system's closure, makes a new generation of
+`/nix/var/nix/profiles/system`, and runs `switch-to-configuration` under
+`systemd-run`. `action: boot` and `action: test` work as in
+`nixos-rebuild`. `test=True` runs `dry-activate`, which lists the units
+the switch would restart.
+
+`havsorm.rolled_back` goes back one generation and activates it, for an
+orchestration's `onfail`. `salt web1 havsorm.system_rollback` does the
+same from the command line.
+
 Garbage collection, as a condition:
 
     nix-store:
@@ -199,6 +216,24 @@ needs huggorm on PyPI, which is not published yet. Until then, build
 with Nix:
 
     nix build --file . havsorm
+
+## NixOS
+
+`nix/nixos.nix` runs nixpkgs' `services.salt.master` and
+`services.salt.minion` from havsorm's `saltEnv`, a Python with Salt and
+havsorm:
+
+    imports = [ havsorm.nixosModule ];
+    services.havsorm.package = havsorm.saltEnv;
+    services.salt.minion.enable = true;
+
+A switch does not restart the minion, because `havsorm.system` runs
+inside one of the minion's jobs, and a restart would lose its return.
+
+`nix build --file . fleet` boots a master and a NixOS minion on QEMU and
+an openSUSE minion on UML, with vivarium. The master applies a `#!nix`
+state to both, switches the NixOS minion to another system and back, and
+deploys it again from an event through a `#!nix` reactor.
 
 ## Uyuni and SUSE Multi-Linux Manager
 

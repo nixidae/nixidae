@@ -137,6 +137,24 @@ rec {
       '';
     };
 
+  # Salt with havsorm, for a minion or a master: bin/salt-minion and the
+  # rest run on this Python.
+  saltEnv = python3.withPackages (_: [
+    (havsorm.overridePythonAttrs { doCheck = false; })
+    salt
+  ]);
+
+  # The NixOS module that runs nixpkgs' Salt services from `saltEnv`.
+  nixosModule = ./nix/nixos.nix;
+
+  # nix build --file . fleet
+  #
+  # A master, a NixOS minion and an openSUSE minion on vivarium.
+  fleet = import ./nix/fleet.nix {
+    inherit pkgs saltEnv;
+    vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+  };
+
   # nix run --file . python -- -m pytest
   #
   # Without the suite, so a red suite does not block the loop that
