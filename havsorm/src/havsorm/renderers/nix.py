@@ -49,7 +49,7 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
            tmplpath: str | None = None, **kws: Any) -> Any:
     text = template if isinstance(template, str) else template.read()
 
-    def load(state: Any, store: Any) -> Any:
+    def load(evaluator: Any) -> Any:
         # A loader proxy, which reads as an empty mapping when the loader
         # was given no client.
         client = globals().get("__file_client__")
@@ -64,13 +64,12 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
         if client is not None:
             # Relative paths name files on the fileserver, not in the
             # minion's cache, which holds only this SLS.
-            from havsorm.tree import SaltTree, mount_point, sls_dir
+            from havsorm.tree import sls_dir
 
-            root = state.mount(SaltTree(client, saltenv), path=mount_point(saltenv))
-            base = os.path.join(store.print_store_path(root), sls_dir(sls, tmplpath))
+            base = os.path.join(evaluator.mount(client, saltenv), sls_dir(sls, tmplpath))
         else:
             base = os.path.dirname(tmplpath) if tmplpath else os.getcwd()
-        return state.eval_expr(text, base.rstrip("/"))
+        return evaluator.state.eval_expr(text, base.rstrip("/"))
 
     # The loader injects mappings that JSON cannot read, and it injects
     # `__pillar__` only when it was given one.
@@ -82,5 +81,9 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
     }
     # The reactor renders with the event that matched.
     args.update((name, kws[name]) for name in ("tag", "data") if name in kws)
-    store = (__opts__.get("havsorm") or {}).get("eval_store", "dummy://")
-    return _ordered(evaluate(load, args, store, sls, SaltRenderError))
+    config = __opts__.get("havsorm") or {}
+    store = config.get("eval_store", "dummy://")
+    # The reactor renders every event in one long-lived process, one at
+    # a time, so its evaluator stays warm by default.
+    keep = bool(config.get("warm", "tag" in kws))
+    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep))

@@ -43,8 +43,8 @@ def eval_(expr: str, store: str | None = None) -> Any:
     """
     store = store or _config().get("eval_store", "dummy://")
 
-    def load(state: Any, nix_store: Any) -> Any:
-        return state.eval_expr(expr, os.getcwd())
+    def load(evaluator: Any) -> Any:
+        return evaluator.state.eval_expr(expr, os.getcwd())
 
     args = {"grains": dict(__grains__), "pillar": dict(globals().get("__pillar__") or {})}
     return evaluate(load, args, store, "havsorm.eval", CommandExecutionError)
@@ -370,7 +370,7 @@ def release_path(version: str | None = None, system: str | None = None,
     source = (url or RELEASE_PATHS).format(version=version)
     with urllib.request.urlopen(source, timeout=60) as response:
         text = response.read().decode()
-    paths = evaluate(lambda state, nix_store: state.eval_expr(text, "/"), {},
+    paths = evaluate(lambda evaluator: evaluator.state.eval_expr(text, "/"), {},
                      "dummy://", source, CommandExecutionError)
     if system not in paths:
         raise CommandExecutionError(f"{source} lists no Nix for {system}")

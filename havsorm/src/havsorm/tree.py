@@ -54,13 +54,27 @@ class SaltTree(SourceAccessor):
 
     def __init__(self, client: Any, saltenv: str) -> None:
         super().__init__()
-        self._client = client
         self._saltenv = saltenv
+        self.refresh(client)
+
+    def refresh(self, client: Any) -> None:
+        """List the saltenv again, through `client`, and drop every file
+        read so far. A warm evaluator keeps one tree mounted for its
+        life, because Nix ignores a second mount at the same path."""
+        self._client = client
+        saltenv = self._saltenv
         self._files = {"/" + p for p in client.file_list(saltenv)}
         self._links = {"/" + p: t for p, t in client.symlink_list(saltenv).items()}
         self._dirs = {"/"} | {"/" + p.strip("/") for p in client.dir_list(saltenv)
                               if p.strip("/")}
         self._data: dict[str, bytes] = {}
+
+    def digest(self, path: str) -> str | None:
+        """The sha256 of the file at `path` as the fileserver serves it
+        now, or None for a path it does not serve."""
+        if path not in self._files:
+            return None
+        return hashlib.sha256(self._read(path)).hexdigest()
 
     def _read(self, path: str) -> bytes:
         if path not in self._data:

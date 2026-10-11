@@ -90,9 +90,14 @@ A reactor SLS can be `#!nix` too. The function also gets the event's
       "sync-${data.id}"."local.saltutil.sync_grains" = [ { tgt = data.id; } ];
     }
 
-The reactor renders one event at a time, and each render makes a new
-evaluator. Keep a reaction small, and start an orchestration for
-anything more.
+The reactor renders one event at a time, in one process, so its
+evaluator stays warm: the files it evaluated stay evaluated from one
+event to the next. A file that holds `import <nixpkgs> { }` gave
+`hello.drvPath` in 205 ms fresh and 9 ms warm. Before each render, the
+evaluator checks every file it holds: a fileserver file by the content
+the fileserver serves now, a file on disk by its mtime and size. On any
+change it evaluates everything again. A reaction still blocks the next
+event, so start an orchestration for anything long.
 
 ## Evaluating on a minion
 
@@ -208,13 +213,18 @@ version. `havsorm.system` refreshes the grains after a switch.
 
     havsorm:
       eval_store: dummy://
+      warm: false
       store: auto
       nix_settings:
         substituters: https://cache.nixos.org
 
 `eval_store` is the store an evaluation uses. The default, `dummy://`,
 holds nothing, so a file that reads a derivation or copies a path
-fails. `store` is the store the states change. `nix_settings` are
+fails. `warm: true` keeps a warm evaluator, as the reactor does, in
+every process that renders `#!nix` or reads the Nix ext_pillar: on a
+master, the workers that compile pillar. A minion job runs in a process
+of its own, so it gains nothing there. `store` is the store the states
+change. `nix_settings` are
 nix.conf settings for the job's process.
 
 ## Installing
@@ -287,4 +297,5 @@ and collects garbage from that pillar.
 
 ## Limits
 
-- Each render makes a new evaluator, and collects after it.
+- Outside the reactor and `warm: true`, each render makes a new
+  evaluator. Either way it collects after each render.

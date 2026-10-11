@@ -31,11 +31,12 @@ def ext_pillar(minion_id: str, pillar: dict[str, Any], *args: Any,
         raise SaltException("ext_pillar nix: name a file, as in `- nix: /srv/pillar.nix`")
     path = os.path.abspath(path)
 
-    def load(state: Any, nix_store: Any) -> Any:
-        return state.eval_file(path)
+    def load(evaluator: Any) -> Any:
+        return evaluator.state.eval_file(path)
 
+    keep = bool((__opts__.get("havsorm") or {}).get("warm", False))
     data = evaluate(load, {"id": minion_id, "grains": dict(__grains__), "pillar": pillar},
-                    store, path, SaltException)
+                    store, path, SaltException, keep=keep)
     if not isinstance(data, dict):
         raise SaltException(f"ext_pillar nix: {path} gave {type(data).__name__}, not a set")
     return data
