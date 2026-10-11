@@ -8,8 +8,11 @@
   The master bootstraps SUSE with salt-ssh, as Uyuni bootstraps a
   client: SSH as a sudo user, then a state that installs and starts the
   minion. SUSE has no Salt package here, so the state points the unit at
-  havsorm's Salt in the host's store, which the script puts in SUSE's
-  store view first: that stands in for a package repository.
+  havsorm's Salt in the host's store, which `settings` puts in SUSE's
+  store: that stands in for a package repository.
+
+  Then havsorm installs Nix on SUSE, substituted from a binary cache the
+  master serves.
 */
 {
   pkgs,
@@ -54,6 +57,17 @@ let
         };
       };
     };
+  # The master's binary cache signs with this, and SUSE trusts its
+  # public half. A test key: the secret is in the store.
+  cacheKey = pkgs.runCommand "fleet-cache-key" { nativeBuildInputs = [ pkgs.nix ]; } ''
+    export NIX_STATE_DIR=$TMPDIR/state NIX_CONFIG="experimental-features = nix-command"
+    mkdir $out
+    nix key generate-secret --key-name fleet-cache > $out/secret
+    nix key convert-secret-to-public < $out/secret > $out/public
+  '';
+  # The Nix SUSE installs: in the master's cache and nowhere SUSE can
+  # see, so the install substitutes it.
+  nixToInstall = pkgs.nix;
   key = pkgs.runCommand "salt-ssh-key" { nativeBuildInputs = [ pkgs.openssh ]; } ''
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
@@ -66,6 +80,12 @@ vivarium.mkTest {
     env = "${saltEnv}";
     key = "${key}/id_ed25519";
   };
+  settings.install = {
+    # No string context: a path in `settings` would be in SUSE's store.
+    nix = builtins.unsafeDiscardStringContext "${nixToInstall}";
+    cache = "http://10.9.0.1:5000";
+    publicKey = "${cacheKey}/public";
+  };
   defaults = {
     imports = [ ./nixos.nix ];
     services.havsorm.package = saltEnv;
@@ -77,8 +97,14 @@ vivarium.mkTest {
     networking.firewall.allowedTCPPorts = [
       4505
       4506
+      5000
     ];
     environment.systemPackages = [ pkgs.openssh ];
+    services.harmonia.cache = {
+      enable = true;
+      signKeyPaths = [ "${cacheKey}/secret" ];
+    };
+    system.extraDependencies = [ nixToInstall ];
     # The script installs the key here with mode 0600: ssh refuses the
     # store's 0444 copy.
     environment.etc."salt/roster".text = builtins.toJSON {
@@ -102,6 +128,8 @@ vivarium.mkTest {
   nodes.web2 = web 4;
   nodes.suse1 = {
     vivarium.image = vivarium.images.opensuse-leap-16_0 // {
+      # Nix gets installed here, so /nix must be writable.
+      writableStore = true;
       userData.users = [
         "default"
         {

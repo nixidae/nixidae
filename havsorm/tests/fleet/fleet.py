@@ -54,12 +54,18 @@ async def history(web: Machine) -> list[str]:
     return [target for _, target in sorted(links, key=lambda link: int(link[0].split("-")[1]))]
 
 
-async def bootstrap_suse(master: Machine, suse1: Machine, settings: dict[str, Any]) -> None:
-    """salt-ssh installs the minion on SUSE, as Uyuni bootstraps a client."""
-    await suse1.add_closure(settings["closure"])
+async def bootstrap_suse(master: Machine, suse1: Machine, settings: dict[str, Any],
+                         install: dict[str, Any]) -> None:
+    """salt-ssh installs the minion on SUSE, as Uyuni bootstraps a client,
+    and points havsorm at the master's binary cache."""
     await master.succeed(
         f"install -D -m 0600 {shlex.quote(settings['key'])} /etc/salt/ssh/id_ed25519")
-    pillar = json.dumps({"bootstrap": {"salt": settings["env"], "master": "10.9.0.1"}})
+    public_key = (await suse1.succeed(f"cat {shlex.quote(install['publicKey'])}")).strip()
+    config = {"havsorm": {"nix_settings": {
+        "substituters": install["cache"], "trusted-public-keys": public_key,
+        "build-users-group": ""}}}
+    pillar = json.dumps({"bootstrap": {"salt": settings["env"], "master": "10.9.0.1",
+                                       "config": config}})
     out = await master.succeed(shlex.join(
         ["salt-ssh", "--ignore-host-keys", "--out", "json", "--static", "suse1",
          "state.apply", "bootstrap", f"pillar={pillar}"]), timeout=600)
@@ -82,7 +88,7 @@ async def test(vms: Machines) -> None:
     master, web1, suse1 = vms.master, vms.web1, vms.suse1
     await master.wait_for_unit("salt-master.service")
     await suse1.fail("test -e /etc/salt/minion")
-    await bootstrap_suse(master, suse1, vms.settings["salt"])
+    await bootstrap_suse(master, suse1, vms.settings["salt"], vms.settings["install"])
     assert await suse1.unit_state("salt-minion.service") == "active"
     print("[test] salt-ssh bootstrapped a minion on suse1 with a #!nix state")
     await wait_for_minions(master)
@@ -106,6 +112,30 @@ async def test(vms: Machines) -> None:
     evaluated = await salt(master, "suse1", "havsorm.eval", "builtins.currentSystem")
     assert evaluated["suse1"] == "x86_64-linux", evaluated
     print("[test] huggorm evaluates on openSUSE, from the host's store")
+
+    # Nix on openSUSE, from the master's binary cache.
+    nix = vms.settings["install"]["nix"]
+    await suse1.fail(f"test -e {nix}")
+    installed = state(await salt(
+        master, "suse1", "state.single", "havsorm.store_present", "nix", f"path={nix}",
+        'settings={"build-users-group": "", "experimental-features": "nix-command"}'), "suse1")
+    assert installed["result"] is True, installed
+    profile = "/nix/var/nix/profiles/default"
+    assert (await suse1.succeed(f"readlink -f {profile}")).strip() == nix
+    said = await suse1.succeed(f"{profile}/bin/nix --version")
+    assert said.startswith("nix (Nix)"), said
+    again = state(await salt(
+        master, "suse1", "state.single", "havsorm.store_present", "nix", f"path={nix}",
+        'settings={"build-users-group": "", "experimental-features": "nix-command"}'), "suse1")
+    assert again["result"] is True and again["changes"] == {}, again
+    print(f"[test] havsorm.store_present installed {said.strip()} on openSUSE "
+          "from the master's cache, and then changed nothing")
+
+    daemon = state(await salt(master, "suse1", "state.single", "service.running",
+                              "nix-daemon.socket"), "suse1")
+    assert daemon["result"] is True, daemon
+    await suse1.succeed(f"{profile}/bin/nix store info --store daemon")
+    print("[test] Nix's own daemon answers on openSUSE, through Nix's own units")
 
     booted = web1.spec.toplevel
     nxt = web1.spec.configurations["next"]

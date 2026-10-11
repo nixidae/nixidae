@@ -243,7 +243,10 @@ inside one of the minion's jobs, and a restart would lose its return.
 `nix build --file . fleet` boots a master and a NixOS minion on QEMU and
 an openSUSE minion on UML, with vivarium. The master bootstraps the
 openSUSE minion with salt-ssh and a `#!nix` state, as Uyuni bootstraps a
-client. Then it applies a `#!nix` state to every minion, switches the NixOS minion to another system and back, and
+client. It installs Nix on the openSUSE minion with
+`havsorm.store_present`, from a binary cache the master serves, and
+starts Nix's daemon there. Then it applies a `#!nix` state to every
+minion, switches the NixOS minion to another system and back, and
 deploys it again from an event through a `#!nix` reactor.
 
 ### A rolling deploy
