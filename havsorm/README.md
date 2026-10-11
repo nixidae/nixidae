@@ -79,6 +79,21 @@ also takes `store`:
           file: /srv/nix-pillar/default.nix
           store: dummy://
 
+## Reactor SLS files
+
+A reactor SLS can be `#!nix` too. The function also gets the event's
+`tag` and `data`:
+
+    #!nix
+    { tag, data, ... }:
+    {
+      "sync-${data.id}"."local.saltutil.sync_grains" = [ { tgt = data.id; } ];
+    }
+
+The reactor renders one event at a time, and each render makes a new
+evaluator. Keep a reaction small, and start an orchestration for
+anything more.
+
 ## Evaluating on a minion
 
     salt '*' havsorm.eval 'builtins.currentSystem'
