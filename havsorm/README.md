@@ -106,6 +106,18 @@ with Nix:
 
     nix build --file . havsorm
 
+## Uyuni and SUSE Multi-Linux Manager
+
+A client renders its states in the Salt bundle, `venv-salt-minion`:
+Salt 3006.0 on Python 3.11. Install havsorm into it the way the bundle
+documents for any package:
+
+    salt <minion> pip.install havsorm
+
+A formula or a state channel can then hold `#!nix` SLS files and the
+`.nix` files they import. `nix build --file . bundle` runs the bundle's
+own `salt-call` on such files.
+
 ## Limits
 
 - Each render makes a new evaluator, and collects after it.

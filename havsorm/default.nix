@@ -47,6 +47,85 @@ rec {
     pythonImportsCheck = [ "havsorm" ];
   };
 
+  # The Salt bundle Uyuni and SUSE Multi-Linux Manager put on a client:
+  # Salt 3006.0 on its own Python 3.11. The EL8 build, for PyPA's
+  # manylinux_2_28 image. The repository holds one build at a time, so
+  # this pin breaks when it moves.
+  venvSaltMinion =
+    let
+      rpm = pkgs.fetchurl {
+        url = "https://download.opensuse.org/repositories/systemsmanagement:/Uyuni:/Stable:/EL8-Uyuni-Client-Tools/EL_8/x86_64/venv-salt-minion-3006.0-80003.75.2.uyuni.x86_64.rpm";
+        hash = "sha256-TNM+jG1eeFM7l4BD0KwUYP8ZOZyiQotrM5Yns+d0vKg=";
+      };
+    in
+    pkgs.runCommand "venv-salt-minion-3006.0"
+      {
+        nativeBuildInputs = [
+          pkgs.rpm
+          pkgs.cpio
+        ];
+      }
+      ''
+        mkdir -p $out && cd $out
+        rpm2cpio ${rpm} | cpio -idm --quiet
+      '';
+
+  # nix build --file . bundle
+  #
+  # havsorm in the Salt bundle, as `salt <minion> pip.install` puts it
+  # there: pip into the directory the bundle's wrapper puts on
+  # PYTHONPATH, from huggorm's cp311 wheels. Then the bundle's own
+  # salt-call renders a #!nix state and a #!nix pillar SLS, each with a
+  # relative import.
+  bundle =
+    let
+      manylinux = huggorm.lanes.nix_2_34.manylinux;
+      # The wheel without the suite: this gate and the suite each judge.
+      wheel = (havsorm.overridePythonAttrs { doCheck = false; }).dist;
+      venv = "${venvSaltMinion}/usr/lib/venv-salt-minion";
+    in
+    manylinux.build {
+      pname = "havsorm-bundle";
+      version = "3006.0";
+      src = ./tests/bundle;
+      script = ''
+        # What the bundle's bin/python wrapper exports, with its paths in
+        # the store and the pip target in /tmp.
+        export PYTHONHOME=${venv} LD_LIBRARY_PATH=${venv}/lib PYTHONPATH=/tmp/local
+        py=${venv}/bin/python.original
+        $py -m pip install --quiet --no-index --target /tmp/local \
+          --find-links ${manylinux.wheelhouse} --find-links ${wheel} havsorm
+        root=$PWD/root
+        mkdir -p conf "$root"
+        printf '%s' '{"file_client": "local", "id": "bundle", "root_dir": "'"$root"'",
+          "file_roots": {"base": ["'"$PWD"'/srv"]},
+          "pillar_roots": {"base": ["'"$PWD"'/pillar"]},
+          "grains": {"os": "Leap"}}' > conf/minion
+        # Salt reads its user's passwd entry when it imports its config,
+        # and the image has none for the sandbox's uid.
+        call() {
+          $py -c 'import os, pwd
+        pwd.getpwuid = lambda uid: pwd.struct_passwd(("build", "x", uid, os.getgid(), "", "/tmp", "/bin/sh"))
+        pwd.getpwnam = lambda name: pwd.getpwuid(os.getuid())
+        import salt.scripts; salt.scripts.salt_call()' --local \
+            --config-dir conf --out json --log-level warning "$@"
+        }
+        call --versions-report | tee "$out/versions.txt"
+        call state.show_sls demo | tee "$out/state.json"
+        call pillar.items | tee "$out/pillar.json"
+        $py - "$out" <<'EOF'
+        import json, sys
+        out = sys.argv[1]
+        state = json.load(open(f"{out}/state.json"))["local"]
+        assert list(state) == ["web", "db"], state
+        assert {"port": 8080, "os": "Leap"} in state["web"]["test"], state
+        pillar = json.load(open(f"{out}/pillar.json"))["local"]
+        assert pillar.get("dbPort") == 5432, pillar
+        print("bundle: #!nix state and pillar render on Salt 3006.0, Python 3.11")
+        EOF
+      '';
+    };
+
   # nix run --file . python -- -m pytest
   #
   # Without the suite, so a red suite does not block the loop that
