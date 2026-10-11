@@ -79,5 +79,5 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
         "saltenv": saltenv,
         "sls": sls,
     }
-    store = (__opts__.get("havsorm") or {}).get("store", "dummy://")
+    store = (__opts__.get("havsorm") or {}).get("eval_store", "dummy://")
     return _ordered(evaluate(load, args, store, sls, SaltRenderError))

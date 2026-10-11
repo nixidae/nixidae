@@ -87,14 +87,30 @@ also takes `store`:
 The module is `havsorm`, because Salt's own `nix` module drives the
 `nix-env` command.
 
+## Nix store states
+
+    hello:
+      havsorm.realised:
+        - name: /nix/store/...-hello-2.12.1
+        - root: /nix/var/nix/gcroots/salt/hello
+
+`havsorm.realised` substitutes a store path that the store does not
+hold, and roots it so the collector keeps it. It never builds: a
+minion takes what a builder made. It reports what it changed, and
+`test=True` changes nothing.
+
 ## Configuration
 
     havsorm:
-      store: dummy://
+      eval_store: dummy://
+      store: auto
+      nix_settings:
+        substituters: https://cache.nixos.org
 
-`store` is the Nix store the evaluator uses. The default, `dummy://`,
+`eval_store` is the store an evaluation uses. The default, `dummy://`,
 holds nothing, so a file that reads a derivation or copies a path
-fails. Set `auto` on a minion that has Nix.
+fails. `store` is the store the states change. `nix_settings` are
+nix.conf settings for the job's process.
 
 ## Installing
 
