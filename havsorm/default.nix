@@ -1,7 +1,8 @@
 {
+  sources ? import ./nix/sources.nix,
   # huggorm brings the nixpkgs and the Python every package here builds
   # on, so the bindings and havsorm share one interpreter.
-  huggorm ? import ../huggorm { },
+  huggorm ? import sources.huggorm { inherit sources; },
 }:
 let
   inherit (huggorm) pkgs;
