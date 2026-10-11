@@ -12,10 +12,6 @@ from typing import Any
 import salt.utils.json
 from salt.exceptions import SaltRenderError
 
-__opts__: dict[str, Any]
-__grains__: dict[str, Any]
-__pillar__: dict[str, Any]
-
 
 def _ordered(data: Any) -> Any:
     if not isinstance(data, list):
@@ -38,8 +34,13 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
     text = template if isinstance(template, str) else template.read()
     base = os.path.dirname(tmplpath) if tmplpath else os.getcwd()
     store = (__opts__.get("havsorm") or {}).get("store", "dummy://")
+    # The loader injects mappings that JSON cannot read, and it injects
+    # `__pillar__` only when it was given one.
     args = salt.utils.json.dumps({
-        "grains": __grains__, "pillar": __pillar__, "saltenv": saltenv, "sls": sls,
+        "grains": dict(__grains__),
+        "pillar": dict(globals().get("__pillar__") or {}),
+        "saltenv": saltenv,
+        "sls": sls,
     })
     try:
         state = EvalState(Store(store))
@@ -47,7 +48,12 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
         state.force(value)
         if value.type_name() == "function":
             from_json = state.eval_expr("builtins.fromJSON")
-            value = value.apply_auto(from_json(state.make_string(args)))
+            try:
+                value = value.apply_auto(from_json(state.make_string(args)))
+            except ValueError as e:
+                raise SaltRenderError(
+                    f"{sls}: a #!nix function names its arguments, as in "
+                    "`{ grains, pillar, ... }:`") from e
         return _ordered(json.loads(value.to_json()))
     except NixError as e:
         raise SaltRenderError(str(e)) from e
