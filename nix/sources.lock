@@ -121,11 +121,11 @@
       "type": "github"
     },
     "pydd": {
-      "lastModified": 1791833944,
-      "narHash": "sha256-H6opC9ybHc/K5j/lI7I/sGtVtDrEdWfxV/RZv2qSlck=",
+      "lastModified": 1791835110,
+      "narHash": "sha256-s7PtQDJa4NZlG0N/ts7rV0fdcK41WqpHQWVlPKmC82I=",
       "owner": "Lillecarl",
       "repo": "pydd",
-      "rev": "30e3aa9fc90385c5ad3c6456fce62a9e3b0796e7",
+      "rev": "804213b1afee0652cadd1cda9b7f8128996e6bad",
       "type": "github"
     },
     "pynixd": {
