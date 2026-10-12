@@ -70,6 +70,9 @@
           inherit name platform sysPlatform;
           inherit (lock) roots installer;
           pythonVersion = lib.versions.majorMinor python.version;
+          # Its own store path: a node that reads the whole of pydd would
+          # rebuild on every edit to it.
+          scripts = "${../src/pydd/python/scripts}";
           artifacts = map (
             entry:
             let

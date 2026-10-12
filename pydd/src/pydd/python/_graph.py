@@ -11,8 +11,6 @@ from .._planner import Node as Written
 from .._planner import Planner
 from ._resolve import Artifact, Node, Plan
 
-SCRIPTS = Path(__file__).resolve().parent / "scripts"
-
 #: The tools every node runs with.
 BASE_TOOLS = ("bash", "coreutils", "unzip", "gnutar", "gzip", "python")
 
@@ -46,9 +44,12 @@ class Inputs:
 class GraphWriter:
     """Writes each node of a plan through a planner, dependencies first."""
 
-    def __init__(self, planner: Planner, tools: Mapping[str, str], python_version: str) -> None:
+    def __init__(
+        self, planner: Planner, tools: Mapping[str, str], scripts: str, python_version: str
+    ) -> None:
         self.planner = planner
         self.tools = tools
+        self.scripts = Path(scripts)
         self.site = f"lib/python{python_version}/site-packages"
         self.written: dict[str, Written] = {}
 
@@ -147,4 +148,4 @@ class GraphWriter:
         return inputs.src(self.tools[name])
 
     def _script(self, inputs: Inputs, name: str) -> str:
-        return inputs.src(str(SCRIPTS / name))
+        return inputs.src(str(self.scripts / name))
