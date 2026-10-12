@@ -3,9 +3,9 @@
 {
   lib,
   runCommand,
-  python3,
   nixVersions,
   ruff,
+  huggorm,
 }:
 let
   system = "x86_64-linux";
@@ -68,9 +68,10 @@ in
 runCommand "pydd-tests"
   {
     nativeBuildInputs = [
-      (python3.withPackages (ps: [
+      (huggorm.pythonModule.withPackages (ps: [
         ps.pytest
         ps.packaging
+        huggorm
       ]))
       nixVersions.git
       ruff

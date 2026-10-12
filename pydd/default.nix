@@ -22,6 +22,7 @@ let
       self = pydd // {
         mkPlanner = args: pydd.mkPlanner ({ inherit writer huggorm nix; } // args);
         python = pkgs.callPackage ./nix/python.nix { pydd = self; };
+        evaluate = pkgs.callPackage ./nix/evaluate.nix { pydd = self; };
       };
     in
     self;
@@ -69,6 +70,6 @@ rec {
   };
 
   checks = {
-    tests = pkgs.callPackage ./nix/tests.nix { };
+    tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm; };
   };
 }
