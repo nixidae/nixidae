@@ -18,7 +18,7 @@ let
   # The evaluator in the planner is huggorm's.
   writersOf =
     name:
-    if name == "evaluated" then
+    if name == "evaluated" || name == "nested" then
       [ "huggorm" ]
     else
       [
