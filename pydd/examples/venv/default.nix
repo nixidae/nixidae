@@ -1,6 +1,6 @@
-# An environment from a lock file in which `idna` is an sdist only: its
-# backend, `flit_core`, and the installer are nodes of the same graph.
-# `myapp` is a local project, installed as a PEP 660 editable.
+# An environment from the uv.lock of `myapp`, a local project installed as a
+# PEP 660 editable. `idna` is built from its sdist: its backend, `flit_core`,
+# and the installer come from the same lock, and are nodes of the same graph.
 {
   pydd,
   runCommand,
@@ -8,10 +8,12 @@
 let
   env = pydd.python.mkEnvironment {
     name = "demo-venv";
-    lock = builtins.fromJSON (builtins.readFile ./lock.json);
-    editables.myapp = {
-      src = ./fixtures/myapp;
-      root = "$PYDD_EDITABLE_ROOT";
+    src = ./fixtures/myapp;
+    editableRoots.myapp = "$PYDD_EDITABLE_ROOT";
+    noBinary = [ "idna" ];
+    buildSystems.idna = {
+      backend = "flit_core.buildapi";
+      requires = [ "flit_core >=3.11,<5" ];
     };
   };
 in

@@ -6,12 +6,17 @@
 }:
 {
   /**
-    A Python environment from a lock file, resolved at build time.
+    A Python environment from a `uv.lock`, resolved at build time.
 
-    The Nix side reads the lock and makes one fetch per artefact. It knows
-    nothing about wheels. The planner chooses the artefacts this target
-    needs, with `packaging`, and writes a node for each. An artefact it does
+    The Nix side reads the lock and makes one fetch per wheel and sdist. It
+    knows nothing about wheels or markers. The planner walks the edges of
+    the lock from the workspace members, chooses the artefacts this target
+    needs with `packaging`, and writes a node for each. An artefact it does
     not choose is never downloaded.
+
+    uv locks neither a PEP 517 backend nor the installer. Put both in a
+    dependency group, such as `build = [ "installer", "flit_core" ]`, so
+    they are in the lock. The planner never installs that group.
 
     Returns what `mkPlanner` returns.
 
@@ -20,15 +25,26 @@
     `name`
     : The name of the environment.
 
-    `lock`
-    : `{ roots, installer, artifacts }`. Each artefact is
-      `{ package, version, filename, url, sha256, kind, marker?, backend?, backend-requires? }`,
-      where `kind` is `"wheel"` or `"sdist"`.
+    `src`
+    : The directory that holds `uv.lock` and the workspace members.
 
-    `editables`
-    : `{ <name> = { src, root }; }`: local projects, built from `src` and
-      read from `root` at run time. `root` may name a variable, as in
-      `"$MYAPP_ROOT"`.
+    `groups`, `extras`
+    : The dependency groups and extras of the members to install.
+
+    `editableRoots`
+    : `{ <member> = root; }`: where a member is read from at run time.
+      `root` may name a variable, as in `"$MYAPP_ROOT"`. The default is the
+      store copy of `src`.
+
+    `buildSystems`
+    : `{ <package> = { backend, requires }; }`, for each sdist the planner
+      builds. uv does not lock what an sdist builds with.
+
+    `noBinary`
+    : Packages to build from their sdist, as uv's `no-binary-package`.
+
+    `installer`
+    : The requirement of the installer, chosen from the lock.
 
     `python`
     : The interpreter the environment is for.
@@ -39,26 +55,50 @@
   mkEnvironment =
     {
       name,
-      lock,
-      editables ? { },
+      src,
+      groups ? [ ],
+      extras ? [ ],
+      editableRoots ? { },
+      buildSystems ? { },
+      noBinary ? [ ],
+      installer ? "installer",
       python ? pkgs.python3,
       platform ? "linux_${pkgs.stdenv.hostPlatform.uname.processor}",
       sysPlatform ? "linux",
       ...
     }@args:
     let
-      fetch =
-        entry:
-        pkgs.fetchurl {
-          inherit (entry) url;
-          hash = "sha256:${entry.sha256}";
-          name = entry.filename;
-        };
+      lock = builtins.fromTOML (builtins.readFile (src + "/uv.lock"));
+      # A local sdist has a `path` and no `url`.
+      files = lib.concatMap (
+        package: lib.optional (package.sdist.url or null != null) package.sdist ++ package.wheels or [ ]
+      ) lock.package;
+      fetched = lib.listToAttrs (
+        map (
+          file:
+          let
+            candidate = pydd.candidate (pkgs.fetchurl {
+              inherit (file) url hash;
+              # A store path name refuses `%`, and PyPI quotes `+` in a local version.
+              name = lib.replaceStrings [ "%2B" ] [ "+" ] (baseNameOf file.url);
+            }) { };
+          in
+          lib.nameValuePair file.url {
+            inherit (candidate) drv;
+            out = candidate.outputs.out;
+          }
+        ) files
+      );
     in
     pydd.mkPlanner (
       removeAttrs args [
-        "lock"
-        "editables"
+        "src"
+        "groups"
+        "extras"
+        "editableRoots"
+        "buildSystems"
+        "noBinary"
+        "installer"
         "platform"
         "sysPlatform"
       ]
@@ -73,27 +113,24 @@
         ]
         ++ args.modules or [ ];
         menu = {
-          inherit name platform sysPlatform;
-          inherit (lock) roots installer;
+          inherit
+            name
+            platform
+            sysPlatform
+            groups
+            extras
+            editableRoots
+            buildSystems
+            noBinary
+            installer
+            fetched
+            ;
+          packages = lock.package;
+          source = "${src}";
           pythonVersion = python.version;
           # Its own store path: a node that reads the whole of pydd would
           # rebuild on every edit to it.
           scripts = "${../src/pydd/python/scripts}";
-          artifacts = map (
-            entry:
-            let
-              fetched = pydd.candidate (fetch entry) { };
-            in
-            removeAttrs entry [ "url" ]
-            // {
-              inherit (fetched) drv;
-              out = fetched.outputs.out;
-            }
-          ) lock.artifacts;
-          editables = lib.mapAttrs (_: spec: {
-            source = "${spec.src}";
-            inherit (spec) root;
-          }) editables;
           tools = {
             inherit python;
             inherit (pkgs)

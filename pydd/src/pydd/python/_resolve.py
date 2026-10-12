@@ -17,7 +17,7 @@ import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from packaging.markers import Marker
 from packaging.requirements import Requirement
@@ -34,7 +34,7 @@ type NodeKind = Literal["unpack", "wheel", "sdist", "editable"]
 
 @dataclass(frozen=True, slots=True)
 class Artifact:
-    """One row of the lock file, with the fetch Nix instantiated for it.
+    """One wheel or sdist of the lock file, with the fetch Nix instantiated for it.
 
     ``drv`` is the fetch derivation and ``out`` its output path. The menu
     carries neither as a dependency, so a row the plan does not pick is
@@ -47,23 +47,8 @@ class Artifact:
     kind: Literal["wheel", "sdist"]
     drv: str
     out: str
-    marker: str | None = None
     backend: str | None = None
     backend_requires: tuple[str, ...] = ()
-
-    @classmethod
-    def from_json(cls, row: dict[str, Any]) -> Artifact:
-        return cls(
-            package=row["package"],
-            version=row["version"],
-            filename=row["filename"],
-            kind=row["kind"],
-            drv=row["drv"],
-            out=row["out"],
-            marker=row.get("marker"),
-            backend=row.get("backend"),
-            backend_requires=tuple(row.get("backend-requires") or ()),
-        )
 
     @property
     def node_name(self) -> str:
@@ -220,9 +205,6 @@ def choose(
         if artifact.version not in requirement.specifier:
             log(f"{artifact.filename}: {artifact.version} is outside {requirement}")
             continue
-        if not target.accepts(artifact.marker):
-            log(f"{artifact.filename}: marker excludes this target")
-            continue
         if artifact.kind == "sdist":
             sdist = artifact
             continue
@@ -271,7 +253,7 @@ def resolve(
         if chosen.kind == "sdist":
             if chosen.backend is None:
                 raise RuntimeError(
-                    f"{chosen.filename}: an sdist needs a 'backend' in the lock file"
+                    f"{chosen.filename}: an sdist needs buildSystems.{chosen.package}"
                 )
             requires = [Requirement(text) for text in chosen.backend_requires]
             node = Node(

@@ -6,6 +6,20 @@ build-backend = "flit_core.buildapi"
 name = "myapp"
 version = "0.1.0"
 description = "A local package that the graph installs as an editable."
+requires-python = ">=3.14"
+dependencies = [
+    "certifi",
+    "charset-normalizer",
+    "colorama; sys_platform == 'win32'",
+    "idna",
+    "ninja",
+    "requests[socks]",
+]
 
 [project.scripts]
 myapp = "myapp:main"
+
+# uv locks neither a build backend nor the installer. This group puts both
+# in uv.lock, and pydd never installs it.
+[dependency-groups]
+build = ["flit_core >=3.11,<5", "installer"]
