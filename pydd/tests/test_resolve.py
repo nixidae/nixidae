@@ -12,7 +12,7 @@ from pydd.python import Artifact, Target, resolve
 from pydd.python._resolve import choose
 
 LOCK = json.loads((Path(__file__).parent.parent / "examples/venv/lock.json").read_text())
-TARGET = Target.cpython("3.14", "linux_x86_64", "linux")
+TARGET = Target.cpython("3.14.7", "linux_x86_64", "linux")
 
 
 @pytest.fixture
@@ -31,6 +31,13 @@ def test_a_binary_wheel_for_the_target_beats_the_pure_one(artifacts: list[Artifa
 
 def test_a_marker_excludes_a_package(artifacts: list[Artifact]) -> None:
     assert choose(artifacts, Requirement("colorama"), TARGET) is None
+
+
+def test_a_marker_reads_the_target_not_the_planner() -> None:
+    older = Target.cpython("3.11.2", "linux_x86_64", "linux")
+    assert older.accepts("python_full_version < '3.12'")
+    assert not TARGET.accepts("python_full_version < '3.12'")
+    assert older.accepts("platform_python_implementation == 'CPython'")
 
 
 def test_a_name_is_normalised_before_it_is_compared(artifacts: list[Artifact]) -> None:

@@ -87,21 +87,35 @@ class Target:
     markers: dict[str, str]
 
     @classmethod
-    def cpython(cls, python_version: str, platform: str, sys_platform: str) -> Target:
+    def cpython(cls, full_version: str, platform: str, sys_platform: str) -> Target:
+        """``full_version`` is the whole version, such as ``3.14.7``: uv writes
+        markers on ``python_full_version``."""
+        python_version = ".".join(full_version.split(".")[:2])
         return cls(
             tags=frozenset(target_tags(python_version, platform)),
+            # Every key PEP 508 defines. `Marker.evaluate` fills a missing key
+            # from the interpreter that runs the planner, not the target.
             markers={
                 "sys_platform": sys_platform,
                 "platform_system": sys_platform.title(),
                 "os_name": "posix",
                 "python_version": python_version,
+                "python_full_version": full_version,
                 "platform_machine": platform.rsplit("_", 1)[-1],
+                "platform_python_implementation": "CPython",
+                "platform_release": "",
+                "platform_version": "",
                 "implementation_name": "cpython",
+                "implementation_version": full_version,
             },
         )
 
+    @property
+    def python_version(self) -> str:
+        return self.markers["python_version"]
+
     def accepts(self, marker: str | None) -> bool:
-        return marker is None or Marker(marker).evaluate(self.markers)
+        return marker is None or Marker(marker).evaluate({**self.markers, "extra": ""})
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,5 +30,5 @@ def main() -> None:
         ],
         target,
     )
-    writer = GraphWriter(planner, menu["tools"], menu["scripts"], menu["pythonVersion"])
+    writer = GraphWriter(planner, menu["tools"], menu["scripts"], target.python_version)
     planner.submit(writer.write(plan, menu["name"]))
