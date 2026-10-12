@@ -46,7 +46,10 @@ rec {
   # its store directory, so the cache substitutes into it.
   run = pkgs.writeShellApplication {
     name = "pydd-run";
-    runtimeInputs = [ nix ];
+    runtimeInputs = [
+      nix
+      pkgs.jq
+    ];
     text = ''
       attr=''${1:?usage: pydd-run <example attribute> [out|check] [nix build flags]}
       target=''${2:-out}
@@ -63,7 +66,11 @@ rec {
       out=$(nix build --store "$store" --file . "$attr.$target" \
         --system-features builder-rpc-v0 --no-link --print-out-paths -L "$@")
       echo "$out" >&2
-      nix store cat --store "$store" "$out"
+      if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
+        nix store cat --store "$store" "$out"
+      else
+        nix store ls --store "$store" "$out"
+      fi
     '';
   };
 
