@@ -15,6 +15,8 @@ it unchanged.
 ## Requirements
 
 - Nix master, for `builder-rpc-v0` (NixOS/nix#15793). It is in no release.
+  On a release, a planner can write only one derivation, to `$out`, as
+  ATerm. pydd has no mode for that yet: it waits for huggorm#163.
 - `experimental-features = nix-command ca-derivations dynamic-derivations`.
 
 ## Three ways to write a graph
