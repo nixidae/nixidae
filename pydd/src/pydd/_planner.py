@@ -32,7 +32,7 @@ class Node:
 
 
 class Planner:
-    """The planner side of ``nix/planner.nix``.
+    """The planner side of ``lib/planner.nix``.
 
     A planner registers a graph and cannot build it. It adds each derivation
     leaves first, so every input exists when Nix checks a node, and then

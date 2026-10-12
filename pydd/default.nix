@@ -13,40 +13,33 @@ let
   # The huggorm lane whose Nix has builder-rpc-v0.
   huggorm = huggormSet.lanes.git.huggorm;
 
-  pydd = pkgs.callPackage ./nix/planner.nix { };
-
-  # `pydd` with `writer` as the default, so each example is written once.
-  withWriter =
-    writer:
-    let
-      self = pydd // {
-        mkPlanner = args: pydd.mkPlanner ({ inherit writer huggorm nix; } // args);
-        python = pkgs.callPackage ./nix/python.nix { pydd = self; };
-        evaluate = pkgs.callPackage ./nix/evaluate.nix { pydd = self; };
-      };
-    in
-    self;
+  pydd = pkgs.callPackage ./lib { inherit huggorm nix; };
 
   # The evaluator in the planner is huggorm's.
-  huggormOnly = [ "evaluated" ];
-
-  examplesFor =
-    writer:
-    lib.mapAttrs (name: _: pkgs.callPackage ./examples/${name} { pydd = withWriter writer; }) (
-      lib.filterAttrs (
-        name: type: type == "directory" && (writer == "huggorm" || !lib.elem name huggormOnly)
-      ) (builtins.readDir ./examples)
-    );
+  writersOf =
+    name:
+    if name == "evaluated" then
+      [ "huggorm" ]
+    else
+      [
+        "cli"
+        "huggorm"
+      ];
 in
 rec {
   inherit pkgs pydd huggorm;
 
-  # nix run --file . run -- examples.cli.hello
-  # nix run --file . run -- examples.huggorm.venv check
-  examples = {
-    cli = examplesFor "cli";
-    huggorm = examplesFor "huggorm";
-  };
+  # nix run --file . run -- examples.hello.cli
+  # nix run --file . run -- examples.venv.huggorm check
+  examples = lib.mapAttrs (
+    name: _:
+    lib.genAttrs (writersOf name) (
+      writer:
+      pkgs.callPackage ./examples/${name} {
+        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+      }
+    )
+  ) (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./examples));
 
   # Build an example's output in a private store, because a daemon older
   # than Nix master refuses `builder-rpc-v0`. The store keeps /nix/store as

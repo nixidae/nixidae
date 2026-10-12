@@ -1,6 +1,6 @@
 """Python environments, resolved by ``packaging`` and built as a graph.
 
-``nix/python.nix`` makes the planner. It hands over a lock file with one
+``lib/python.nix`` makes the planner. It hands over a lock file with one
 fetch per artefact, and this package decides which of them the target needs
 and what the graph over them is: one node per wheel, sdist and editable
 project, and one for the environment.
