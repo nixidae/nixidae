@@ -35,7 +35,7 @@ the same root `.drv`.
 (`examples/venv`). Each wheel, sdist and editable project is a node. The PEP
 517 backend of an sdist comes from the same lock and is a node too, so the
 graph cannot exist before the plan runs. Only the artefacts the target
-needs are downloaded: 6 of 21 in the example.
+needs are downloaded: 6 of the 24 in the example.
 
 ## Constraints
 
@@ -49,16 +49,33 @@ needs are downloaded: 6 of 21 in the example.
   call `EnsurePath`, which `builder-rpc-v0` refuses. `mkEvaluated` attaches
   context from Python instead, so the expression needs neither.
 
-## Running the examples
+## A tour
 
-This machine's daemon may be older than Nix master. `run` builds in a
-private store with a Nix from master, and copies the planner's closure in:
+Read the examples in this order. Each folder has a README with the
+command to run and what it prints.
 
-    nix run --file . run -- examples.cli.hello
-    nix run --file . run -- examples.huggorm.venv check
-    nix run --file . run -- examples.huggorm.evaluated
+1. `examples/hello`: the smallest planner, two nodes in Python.
+2. `examples/evaluated`: the same idea, with the graph as a Nix file.
+3. `examples/venv`: a Python environment from a lock file.
 
-`PYDD_STORE` names the store; the default is `~/.cache/pydd/store`.
+An example is `examples.<name>.<writer>`:
+
+    nix run --file . run -- examples.hello.cli
+    nix run --file . run -- examples.venv.huggorm check
+
+Your daemon may be older than Nix master. `run` builds in a private store
+with a Nix from master, and copies the planner's closure in. `PYDD_STORE`
+names the store; the default is `~/.cache/pydd/store`.
+
+## Layout
+
+| path | holds |
+| --- | --- |
+| `lib/` | the Nix side: `mkPlanner`, `mkEnvironment`, `mkEvaluated` |
+| `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
+| `src/pydd/python/` | the resolver and the builders of a Python environment |
+| `examples/` | the tour |
+| `tests/`, `nix/` | the test suite, and the umbrella pins |
 
 ## Tests
 
