@@ -25,6 +25,7 @@
       // {
         writer = "huggorm";
         plan = writeText "plan.py" "from pydd.evaluate import main\nmain()\n";
+        modules = [ ../src/pydd/evaluate.py ] ++ attrs.modules or [ ];
         menu = {
           expression = "${expression}";
           inherit args;

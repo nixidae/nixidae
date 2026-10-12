@@ -7,7 +7,23 @@
 }:
 
 let
-  pyddSrc = ../src;
+  inherit (lib) fileset;
+
+  # Only `.py` files, so a stray `__pycache__` cannot change a planner.
+  # A mode adds its own subpackage through `modules`, so an edit to one mode
+  # does not rebuild the planners of the others.
+  core = fileset.difference (fileset.fileFilter (file: file.hasExt "py") ../src/pydd) (
+    fileset.unions [
+      ../src/pydd/python
+      ../src/pydd/evaluate.py
+    ]
+  );
+  pyddSrc =
+    modules:
+    fileset.toSource {
+      root = ../src;
+      fileset = fileset.unions ([ core ] ++ modules);
+    };
 in
 {
   /**
@@ -67,6 +83,10 @@ in
 
     `pythonPath`
     : Packages the plan imports, such as `packaging`.
+
+    `modules`
+    : Filesets under `src/` that the plan imports beside the core of
+      `pydd`, such as `src/pydd/python`.
   */
   mkPlanner =
     {
@@ -78,13 +98,16 @@ in
       nix ? nixVersions.git,
       python ? if writer == "huggorm" then huggorm.pythonModule else python3,
       pythonPath ? [ ],
+      modules ? [ ],
       system ? python.stdenv.hostPlatform.system,
     }:
     assert lib.assertOneOf "writer" writer [
       "cli"
       "huggorm"
     ];
-    assert lib.assertMsg (writer == "huggorm" -> huggorm != null) "mkPlanner: writer = \"huggorm\" needs huggorm";
+    assert lib.assertMsg (
+      writer == "huggorm" -> huggorm != null
+    ) "mkPlanner: writer = \"huggorm\" needs huggorm";
     let
       planner = derivation {
         name = "${name}.drv";
@@ -107,7 +130,7 @@ in
         NIX_CONFIG = "extra-experimental-features = nix-command ca-derivations dynamic-derivations";
         PATH = lib.makeBinPath [ nix ];
         PYTHONPATH = lib.concatStringsSep ":" (
-          [ "${pyddSrc}" ]
+          [ "${pyddSrc modules}" ]
           ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
           ++ map (package: python.pkgs.makePythonPath [ package ]) pythonPath
         );

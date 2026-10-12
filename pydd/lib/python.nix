@@ -66,6 +66,12 @@
         inherit python;
         plan = writeText "plan.py" "from pydd.python import main\nmain()\n";
         pythonPath = [ python.pkgs.packaging ] ++ args.pythonPath or [ ];
+        modules = [
+          (lib.fileset.difference (lib.fileset.fileFilter (
+            file: file.hasExt "py"
+          ) ../src/pydd/python) ../src/pydd/python/scripts)
+        ]
+        ++ args.modules or [ ];
         menu = {
           inherit name platform sysPlatform;
           inherit (lock) roots installer;
