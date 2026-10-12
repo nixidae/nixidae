@@ -27,10 +27,15 @@ let
     in
     self;
 
+  # The evaluator in the planner is huggorm's.
+  huggormOnly = [ "evaluated" ];
+
   examplesFor =
     writer:
     lib.mapAttrs (name: _: pkgs.callPackage ./examples/${name} { pydd = withWriter writer; }) (
-      lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./examples)
+      lib.filterAttrs (
+        name: type: type == "directory" && (writer == "huggorm" || !lib.elem name huggormOnly)
+      ) (builtins.readDir ./examples)
     );
 in
 rec {
