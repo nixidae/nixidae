@@ -68,7 +68,10 @@ in
 runCommand "pydd-tests"
   {
     nativeBuildInputs = [
-      (python3.withPackages (ps: [ ps.pytest ]))
+      (python3.withPackages (ps: [
+        ps.pytest
+        ps.packaging
+      ]))
       nixVersions.git
       ruff
     ];
