@@ -52,6 +52,8 @@ class HuggormWriter:
         # Here, so the CLI writer runs where the bindings are absent.
         import huggorm
 
+        # NIX_CONFIG enables ca-derivations; huggorm reads it only when asked.
+        huggorm.load_config()
         self.store: Any = huggorm.Store(uri or os.environ["NIX_REMOTE"])
 
     def add(self, drv: Derivation) -> str:
