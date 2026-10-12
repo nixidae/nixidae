@@ -31,11 +31,18 @@ No mode renders ATerm. A node is derivation JSON, and Nix computes every
 output path it can. For the same plan, the CLI and huggorm writers submit
 the same root `.drv`.
 
-`pydd.python.mkEnvironment` builds a Python environment from a lock file
-(`examples/venv`). Each wheel, sdist and editable project is a node. The PEP
-517 backend of an sdist comes from the same lock and is a node too, so the
-graph cannot exist before the plan runs. Only the artefacts the target
-needs are downloaded: 6 of the 24 in the example.
+`pydd.python.mkEnvironment` builds a Python environment from a `uv.lock`
+(`examples/venv`). Nix only parses the lock and makes one fetch per file.
+The planner walks its dependency edges, with markers and extras. Each
+wheel, sdist and editable project is a node. The PEP 517 backend of an
+sdist comes from the same lock and is a node too, so the graph cannot exist
+before the plan runs. Only the artefacts the target needs are downloaded:
+9 of the 122 in the example.
+
+uv locks neither build backends nor the installer. A dependency group puts
+them in the lock, and an sdist names its backend through `buildSystems`.
+Registry packages and workspace members work. Git, URL and path sources do
+not yet.
 
 ## Constraints
 
@@ -56,7 +63,7 @@ command to run and what it prints.
 
 1. `examples/hello`: the smallest planner, two nodes in Python.
 2. `examples/evaluated`: the same idea, with the graph as a Nix file.
-3. `examples/venv`: a Python environment from a lock file.
+3. `examples/venv`: a Python environment from a `uv.lock`.
 
 An example is `examples.<name>.<writer>`:
 
@@ -73,7 +80,7 @@ names the store; the default is `~/.cache/pydd/store`.
 | --- | --- |
 | `lib/` | the Nix side: `mkPlanner`, `mkEnvironment`, `mkEvaluated` |
 | `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
-| `src/pydd/python/` | the resolver and the builders of a Python environment |
+| `src/pydd/python/` | the `uv.lock` reader, the resolver and the builders of a Python environment |
 | `examples/` | the tour |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |
 
@@ -82,4 +89,4 @@ names the store; the default is `~/.cache/pydd/store`.
     nix build --file . checks.tests
 
 The suite holds pydd's JSON and placeholders to what Nix's own
-`derivation` makes, and the resolver to the example lock file.
+`derivation` makes, and the resolver to the `uv.lock` of the example.
