@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Unpack one wheel into the site-packages layout of the environment.
 #
-# The bootstrap node: nothing can install the installer, so its wheel is
-# unzipped onto a path.
+# `graph.nix` runs this as the builder of one node of the graph. It is a file,
+# and not a string inside `graph.nix`, so that no `$` and no `${` needs an
+# escape, and so that `shellcheck` reads it.
 #
 # The environment gives:
-#   wheel  the `.whl` file
+#   wheel  the `.whl` file, which the fetch of the graph produced
 #   site   the site-packages directory, relative to the output
 #   out    the output path
-# SC2154: the node passes each variable as an attribute of the derivation.
+# SC2154: graph.nix passes each variable below as an attribute of the
+# derivation, so the build environment holds it.
 # shellcheck disable=SC2154
 set -eu
 

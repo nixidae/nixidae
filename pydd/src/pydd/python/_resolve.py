@@ -1,289 +1,352 @@
-"""Choose the artefacts of a lock file for one target, with ``packaging``.
+"""Packaging decisions, made by `packaging` and against one menu of artefacts.
 
-Every decision here is made by the reference implementation of the
-packaging PEPs, and none is written again in Nix:
+Every planner of this example shares this module. The outer planner resolves
+the roots of the environment, and the planner of a source distribution
+resolves the backend that the archive asks for. Both ask the same two
+questions: which artefact satisfies this requirement, and does this target
+accept it.
 
-- PEP 508 markers and requirements: ``packaging.markers``, ``packaging.requirements``
-- PEP 440 version specifiers: ``packaging.specifiers``
-- PEP 503 name normalisation: ``packaging.utils.canonicalize_name``
-- PEP 425 and PEP 600 tags: ``packaging.tags``, ``packaging.utils.parse_wheel_filename``
-- PEP 517 and PEP 518 build systems, read from ``pyproject.toml``
+None of this is expressed in the Nix language. `packaging` is the reference
+implementation of the packaging PEPs, and it answers:
+
+- PEP 508 environment markers and requirements;
+- PEP 440 version specifiers;
+- PEP 503 name normalisation;
+- PEP 425 and PEP 600 compatibility tags.
 """
 
 from __future__ import annotations
 
+import json
 import sys
-import tomllib
-from collections.abc import Iterable
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from packaging.markers import Marker
 from packaging.requirements import Requirement
-from packaging.tags import Tag
+from packaging.tags import Tag, compatible_tags, cpython_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
-#: The backend PEP 517 names for a project that declares none.
+from ._env import env
+
+if TYPE_CHECKING:
+    from collections.abc import Container, Iterable, Sequence
+
+    from packaging.utils import BuildTag
+
+#: The backend that PEP 517 names when a project declares no `build-backend`.
 FALLBACK_BACKEND = "setuptools.build_meta:__legacy__"
 
-#: What a node does. The installer is a wheel, and its node unpacks it,
-#: because nothing can install a wheel before that node exists.
-type NodeKind = Literal["unpack", "wheel", "sdist", "editable"]
+#: The oldest and the newest glibc minor version that a `manylinux_2_Y` tag
+#: may name. PEP 600 defines the scheme, and 2.17 is the floor that
+#: `manylinux2014` corresponds to.
+GLIBC_MINORS = range(17, 40)
+
+#: Every key that PEP 508 defines for a marker environment.
+#:
+#: **A key that a planner does not pass describes the machine that plans.**
+#: `Marker.evaluate` of `packaging` merges what a caller gives over
+#: `default_environment()`, and `default_environment()` reads the running
+#: interpreter. A planner plans for another machine, so it passes all of them
+#: and `target_from_environ` refuses a set that is short.
+#: `ddrn/PACKAGING-FACTS.md` holds the measurement.
+PEP508_KEYS = frozenset(
+    {
+        "implementation_name",
+        "implementation_version",
+        "os_name",
+        "platform_machine",
+        "platform_python_implementation",
+        "platform_release",
+        "platform_system",
+        "platform_version",
+        "python_full_version",
+        "python_version",
+        "sys_platform",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class Artifact:
-    """One wheel or sdist of the lock file, with the fetch Nix instantiated for it.
+    """One row of the lock file, with the two store paths that Nix gave it.
 
-    ``drv`` is the fetch derivation and ``out`` its output path. The menu
-    carries neither as a dependency, so a row the plan does not pick is
-    never downloaded.
+    `drv` is the store path of the `fetchurl` derivation, and `out` is the
+    store path of its output. The Nix half discards the dependency between the
+    two, so Nix instantiates every artefact and downloads none of them.
+    `graph.nix` puts the dependency back for the ones a planner chooses.
+
+    `path` is the alternative: an artefact that is already present, because
+    some derivation named it as an input. The planner of a source distribution
+    receives its own archive that way.
     """
 
     package: str
     version: str
     filename: str
-    kind: Literal["wheel", "sdist"]
-    drv: str
-    out: str
-    backend: str | None = None
-    backend_requires: tuple[str, ...] = ()
+    kind: str
+    drv: str = ""
+    out: str = ""
+    path: str = ""
+    marker: str | None = None
+    #: Where the project lives inside this archive, when it is not at the top
+    #: of it. `uv.lock` writes this for a URL source, and one archive of the
+    #: index may then hold more than one project.
+    subdirectory: str = ""
+    #: The planner of this source distribution, which `default.nix`
+    #: instantiated. Only a row of kind `sdist` carries one.
+    planner_drv: str = ""
+    planner_out: str = ""
+
+    @classmethod
+    def from_json(cls, row: dict[str, Any]) -> Artifact:
+        return cls(
+            package=row["package"],
+            version=row["version"],
+            filename=row["filename"],
+            kind=row["kind"],
+            drv=row.get("drv", ""),
+            out=row.get("out", ""),
+            path=row.get("path", ""),
+            marker=row.get("marker"),
+            subdirectory=row.get("subdirectory", ""),
+            planner_drv=row.get("plannerDrv", ""),
+            planner_out=row.get("plannerOut", ""),
+        )
 
     @property
     def node_name(self) -> str:
+        """The name of the node that builds this artefact."""
         return f"{self.package}-{self.version}"
 
     @property
     def is_platform_wheel(self) -> bool:
-        """Whether the wheel carries a binary: its tag names a platform."""
+        """Whether this wheel carries a binary, which its tag already says.
+
+        A wheel tagged `any` runs on every platform, so it holds no compiled
+        code. Any other tag names one platform, and the node that installs it
+        needs the loader and the libraries of this system.
+        """
         if self.kind != "wheel":
             return False
-        _, _, _, tags = parse_wheel_filename(self.filename)
-        return not any(tag.platform == "any" for tag in tags)
+        _, _, _, wheel_tags = parse_wheel_filename(self.filename)
+        return not any(tag.platform == "any" for tag in wheel_tags)
+
+    def as_plan(self) -> dict[str, str]:
+        """The artefact, in the shape that `graph.nix` reads.
+
+        `filename` is the name that the index gave this artefact.
+        `install-wheel.sh` needs it, because the store path of the fetch has a
+        hash in front of that name and `installer` reads the name.
+        """
+        # `package` and `version` travel too, because a node of kind `sdist`
+        # is a planner and has to name the distribution that it plans.
+        common = {"filename": self.filename, "package": self.package, "version": self.version}
+        if self.subdirectory:
+            common |= {"subdirectory": self.subdirectory}
+        if self.planner_drv:
+            common |= {"plannerDrv": self.planner_drv, "plannerOut": self.planner_out}
+        if self.path:
+            return {**common, "path": self.path}
+        return {**common, "drv": self.drv, "out": self.out}
 
 
 @dataclass(frozen=True, slots=True)
 class Target:
-    """What the environment runs on. A value, because the planner plans for
-    a machine that need not be its own."""
+    """What this environment runs on, in the terms that `packaging` uses.
 
-    tags: frozenset[Tag]
+    A planner runs on one machine and plans for another, so the target is a
+    value and not a property of the interpreter that reads this file.
+    """
+
+    #: The PEP 425 tags this environment accepts, best fit first. The order is
+    #: what ranks a wheel, so this is a sequence and not a set.
+    tags: tuple[Tag, ...]
+    #: The PEP 508 marker environment. It holds every key of `PEP508_KEYS`.
     markers: dict[str, str]
-
-    @classmethod
-    def cpython(cls, full_version: str, platform: str, sys_platform: str) -> Target:
-        """``full_version`` is the whole version, such as ``3.14.7``: uv writes
-        markers on ``python_full_version``."""
-        python_version = ".".join(full_version.split(".")[:2])
-        return cls(
-            tags=frozenset(target_tags(python_version, platform)),
-            # Every key PEP 508 defines. `Marker.evaluate` fills a missing key
-            # from the interpreter that runs the planner, not the target.
-            markers={
-                "sys_platform": sys_platform,
-                "platform_system": sys_platform.title(),
-                "os_name": "posix",
-                "python_version": python_version,
-                "python_full_version": full_version,
-                "platform_machine": platform.rsplit("_", 1)[-1],
-                "platform_python_implementation": "CPython",
-                "platform_release": "",
-                "platform_version": "",
-                "implementation_name": "cpython",
-                "implementation_version": full_version,
-            },
-        )
-
-    @property
-    def python_version(self) -> str:
-        return self.markers["python_version"]
+    #: The major and the minor version, as `3.13`.
+    python_version: str
+    #: The platform tag of a wheel, as `linux_x86_64`.
+    platform: str
 
     def accepts(self, marker: str | None) -> bool:
-        return marker is None or Marker(marker).evaluate({**self.markers, "extra": ""})
+        """Whether a PEP 508 marker holds for this target."""
+        if marker is None:
+            return True
+        return Marker(marker).evaluate(self.markers)
 
 
-@dataclass(frozen=True, slots=True)
-class Editable:
-    """A local project, built from a store copy and read from ``root``.
+def target_platforms(platform: str) -> list[str]:
+    """Every platform tag that a wheel may carry for this target, best first.
 
-    ``root`` is a path, or a reference to a variable that the environment
-    expands when the interpreter starts. A variable keeps the environment the
-    same bytes for every tree.
+    **`packaging.tags.platform_tags` reads the glibc of the machine that calls
+    it**, so this list is the one part that a planner has to state itself. PEP
+    600 says a `manylinux_2_Y` wheel runs against every glibc at or above 2.Y,
+    so each version at or below the target fits and the newest one is the
+    closest fit.
     """
-
-    name: str
-    source: str
-    root: str
-
-    def build_system(self) -> tuple[str, list[Requirement]]:
-        """The PEP 517 backend of the project, and what it needs."""
-        with Path(self.source, "pyproject.toml").open("rb") as handle:
-            table = tomllib.load(handle).get("build-system", {})
-        backend = table.get("build-backend", FALLBACK_BACKEND)
-        return backend, [Requirement(text) for text in table.get("requires", [])]
+    if not platform.startswith("linux_"):
+        return [platform]
+    arch = platform.removeprefix("linux_")
+    return [
+        *[f"manylinux_2_{glibc}_{arch}" for glibc in reversed(GLIBC_MINORS)],
+        # The legacy alias of `manylinux_2_17`, which PEP 600 keeps valid.
+        f"manylinux2014_{arch}",
+        platform,
+    ]
 
 
-@dataclass(frozen=True, slots=True)
-class Node:
-    """One step of the graph: build or install one artefact or project."""
+def target_tags(python_version: str, platform: str) -> list[Tag]:
+    """The tags this environment accepts, in the order that pip prefers them.
 
-    name: str
-    kind: NodeKind
-    artifact: Artifact | None = None
-    editable: Editable | None = None
-    backend: str | None = None
-    backend_nodes: tuple[str, ...] = ()
+    **`packaging` computes this, and this function only states the target.**
+    `packaging.tags.sys_tags` describes the machine that calls it, and a
+    planner plans for a machine that it is not running on. `cpython_tags` and
+    `compatible_tags` take the version and the platforms as arguments, which is
+    the same computation against a stated target. That is the same trap, and
+    the same escape, as `Marker.evaluate` with an explicit environment.
 
-
-@dataclass
-class Plan:
-    """The graph the resolver decided, before any derivation exists."""
-
-    installer: str = ""
-    nodes: dict[str, Node] = field(default_factory=dict[str, Node])
-    members: list[str] = field(default_factory=list[str])
-    installed: list[str] = field(default_factory=list[str])
-
-    def add(self, node: Node) -> str:
-        """Add ``node`` once, and name it."""
-        self.nodes.setdefault(node.name, node)
-        return node.name
-
-    def member(self, name: str, label: str) -> None:
-        """Make a node part of the environment, not only a build input."""
-        self.members.append(name)
-        self.installed.append(label)
-
-
-def target_tags(python_version: str, platform: str) -> set[Tag]:
-    """The tags a CPython of ``python_version`` on ``platform`` accepts.
-
-    By hand, not ``packaging.tags.sys_tags``: the target is not the machine
-    that runs the planner.
+    PEP 384, PEP 425 and PEP 600 all live in there. A hand-written tag set
+    missed the stable ABI: `pyzmq` 27.1.0 ships one `cp312-abi3` wheel for
+    Linux and no `cp313` or `cp314` wheel, and a set that held `cp314-abi3`
+    alone found no wheel and built the source distribution instead.
     """
-    major, minor = python_version.split(".")
-    interpreter = f"cp{major}{minor}"
-
-    platforms = [platform]
-    if platform.startswith("linux_"):
-        arch = platform.removeprefix("linux_")
-        # PEP 600: a manylinux tag names the oldest glibc it runs on.
-        platforms += [f"manylinux_2_{glibc}_{arch}" for glibc in range(17, 40)]
-        platforms += [f"manylinux2014_{arch}"]
-
-    tags = {Tag(interpreter, interpreter, plat) for plat in platforms}
-    tags |= {Tag(interpreter, "abi3", plat) for plat in platforms}
-    tags |= {Tag(f"py{major}", "none", plat) for plat in [*platforms, "any"]}
-    tags |= {Tag(f"py{major}{minor}", "none", "any")}
-    return tags
+    major, minor = (int(part) for part in python_version.split("."))
+    platforms = target_platforms(platform)
+    return [
+        *cpython_tags(python_version=(major, minor), platforms=platforms),
+        *compatible_tags(python_version=(major, minor), interpreter=f"cp{major}{minor}", platforms=platforms),
+    ]
 
 
-def wheel_rank(artifact: Artifact, accepted: frozenset[Tag]) -> int | None:
-    """Lower fits better; ``None`` does not fit. A binary wheel beats a pure
-    one, as with pip."""
-    _, _, _, tags = parse_wheel_filename(artifact.filename)
-    if not any(tag in accepted for tag in tags):
-        return None
-    return 1 if any(tag.platform == "any" for tag in tags) else 0
+def build_tag(artifact: Artifact) -> BuildTag:
+    """The PEP 427 build tag of a wheel, which breaks a tie between two of them.
+
+    **Two wheels of one distribution may carry the same tags.** The build tag
+    is what separates them, and the binary distribution format says how to read
+    it: "Sort as an empty tuple if unspecified, else sort as a two-item tuple
+    with the first item being the initial digits as an int". `packaging` returns
+    exactly that, and a higher tuple wins. uv breaks the same tie with the same
+    value, in `Package::find_best_wheel`.
+    """
+    _, _, tag, _ = parse_wheel_filename(artifact.filename)
+    return tag
+
+
+def wheel_rank(artifact: Artifact, accepted: Sequence[Tag]) -> int | None:
+    """How well a wheel fits, lower being better, or ``None`` for no fit.
+
+    The rank is the position of the best tag in the list that `target_tags`
+    returns, so the preference is the one that `packaging` states and not one
+    that this file invents. A wheel built for exactly this interpreter
+    therefore beats a stable-ABI wheel, which beats a pure one.
+    `charset_normalizer` is the case that the last step answers: it ships a
+    compiled wheel and an `any` fallback, and the compiled one is the one to
+    install.
+    """
+    _, _, _, wheel_tags = parse_wheel_filename(artifact.filename)
+    ranks = [index for index, tag in enumerate(accepted) if tag in wheel_tags]
+    return min(ranks) if ranks else None
 
 
 def choose(
-    artifacts: Iterable[Artifact], requirement: Requirement, target: Target
+    artifacts: Iterable[Artifact],
+    requirement: Requirement,
+    target: Target,
+    no_binary: Container[str] = frozenset(),
 ) -> Artifact | None:
-    """The one artefact that satisfies ``requirement`` on ``target``.
+    """The one artefact that satisfies `requirement` on this target.
 
-    The best wheel wins. An sdist is the answer only when no wheel fits.
+    A wheel wins over a source distribution, and among wheels the best tag
+    wins. Two wheels of one tag are separated by the build tag, and the higher
+    one wins. `Package::to_dist` and `Package::find_best_wheel` of uv take the
+    same two steps in the same order. A source distribution is the answer only
+    when no wheel fits, which is what makes the build path of this example run.
+
+    `no_binary` reverses that for the packages it names, and it is the same
+    decision that `tool.uv.no-binary-package` makes. **uv keeps that setting in
+    `pyproject.toml` and writes it into no lock file**, so `uv.nix` reads it
+    where uv put it and passes it here.
+
+    **The name of a requirement is not the name of a package until PEP 503
+    normalises it.** A project asks for `flit_core`, and the index calls it
+    `flit-core`. The version range is PEP 440, and `packaging` answers both.
     """
     package = canonicalize_name(requirement.name)
-    best: tuple[int, Artifact] | None = None
+    best_wheel: tuple[int, BuildTag, Artifact] | None = None
     sdist: Artifact | None = None
+    binary = package not in no_binary
 
     for artifact in artifacts:
         if canonicalize_name(artifact.package) != package:
             continue
+        if artifact.kind == "wheel" and not binary:
+            print(f"plan: {artifact.filename}: no-binary-package names {package}", file=sys.stderr)
+            continue
         if artifact.version not in requirement.specifier:
-            log(f"{artifact.filename}: {artifact.version} is outside {requirement}")
+            print(
+                f"plan: {artifact.filename}: {artifact.version} is outside {requirement}",
+                file=sys.stderr,
+            )
+            continue
+        if not target.accepts(artifact.marker):
+            print(f"plan: {artifact.filename}: marker excludes this target", file=sys.stderr)
             continue
         if artifact.kind == "sdist":
             sdist = artifact
             continue
-        rank = wheel_rank(artifact, target.tags)
-        if rank is not None and (best is None or rank < best[0]):
-            best = (rank, artifact)
-
-    return best[1] if best is not None else sdist
-
-
-def resolve(
-    artifacts: list[Artifact],
-    roots: list[str],
-    installer: str,
-    editables: list[Editable],
-    target: Target,
-) -> Plan:
-    """Turn a lock file into the graph that builds the environment."""
-    plan = Plan()
-
-    bootstrap = choose(artifacts, Requirement(installer), target)
-    if bootstrap is None:
-        raise RuntimeError(f"the installer '{installer}' is not in the lock file")
-    plan.installer = plan.add(Node(bootstrap.node_name, "unpack", artifact=bootstrap))
-    log(f"installer {bootstrap.filename} (unpacked to bootstrap)")
-
-    def backend_nodes(requirements: Iterable[Requirement], subject: str) -> tuple[str, ...]:
-        """A node for each backend requirement. The backend comes from the
-        same lock file as what it builds, so neither node exists before the
-        plan runs: this is what one derivation cannot express."""
-        names: list[str] = []
-        for requirement in requirements:
-            dependency = choose(artifacts, requirement, target)
-            if dependency is None:
-                raise RuntimeError(f"{subject}: nothing in the lock file satisfies {requirement}")
-            names.append(plan.add(_artifact_node(dependency)))
-            log(f"  backend {dependency.filename} for {requirement}")
-        return tuple(names)
-
-    for package in roots:
-        chosen = choose(artifacts, Requirement(package), target)
-        if chosen is None:
-            log(f"{package}: no artefact fits this target")
+        score = wheel_rank(artifact, target.tags)
+        if score is None:
             continue
-        node = _artifact_node(chosen)
-        if chosen.kind == "sdist":
-            if chosen.backend is None:
-                raise RuntimeError(
-                    f"{chosen.filename}: an sdist needs buildSystems.{chosen.package}"
-                )
-            requires = [Requirement(text) for text in chosen.backend_requires]
-            node = Node(
-                node.name,
-                "sdist",
-                artifact=chosen,
-                backend=chosen.backend,
-                backend_nodes=backend_nodes(requires, chosen.filename),
-            )
-        plan.member(plan.add(node), f"{chosen.package}=={chosen.version}")
-        log(f"{package}: {chosen.filename}")
+        # A lower rank is a closer tag, and a higher build tag wins a tie.
+        tag = build_tag(artifact)
+        if best_wheel is None or score < best_wheel[0] or (score == best_wheel[0] and tag > best_wheel[1]):
+            best_wheel = (score, tag, artifact)
 
-    for editable in editables:
-        backend, requires = editable.build_system()
-        node = Node(
-            editable.name,
-            "editable",
-            editable=editable,
-            backend=backend,
-            backend_nodes=backend_nodes(requires, editable.name),
+    if best_wheel is not None:
+        return best_wheel[2]
+    return sdist
+
+
+def target_from_environ() -> Target:
+    """The target that the Nix half named, read from the environment.
+
+    Every planner of this example reads it the same way, because `default.nix`
+    gives every planner the same variable. That variable is one JSON document,
+    and not one variable for each field, because the marker environment is
+    eleven fields and a planner must pass all of them.
+    """
+    document = json.loads(env("DDRN_TARGET"))
+    markers: dict[str, str] = document["markers"]
+
+    missing = PEP508_KEYS - set(markers)
+    if missing:
+        raise RuntimeError(
+            f"DDRN_TARGET gives no value for {sorted(missing)}. `packaging` would then read "
+            "the interpreter that runs this planner, and a planner plans for another machine."
         )
-        plan.member(plan.add(node), f"{editable.name} (editable, from {editable.root})")
-        log(f"{editable.name}: editable through {backend}, reading {editable.root}")
 
-    return plan
+    python_version = document["pythonVersion"]
+    platform = document["platform"]
+    return Target(
+        tags=tuple(target_tags(python_version, platform)),
+        # `extra` is not a field of the environment. It is the name that a
+        # marker of an optional dependency compares against, and an empty
+        # value makes each such marker false, which is what an edge that the
+        # lock file already resolved needs.
+        markers={**markers, "extra": ""},
+        python_version=python_version,
+        platform=platform,
+    )
 
 
-def _artifact_node(artifact: Artifact) -> Node:
-    return Node(artifact.node_name, artifact.kind, artifact=artifact)
+def build_system(pyproject: dict[str, Any]) -> tuple[str, list[Requirement]]:
+    """The PEP 517 backend of a project, and what that backend needs.
 
-
-def log(message: str) -> None:
-    print(f"plan: {message}", file=sys.stderr)
+    A source distribution and a local project declare this the same way, so
+    both planners read it with this function. PEP 517 gives the fallback for a
+    project that declares no backend.
+    """
+    table = pyproject.get("build-system", {})
+    backend = table.get("build-backend", FALLBACK_BACKEND)
+    return backend, [Requirement(text) for text in table.get("requires", [])]

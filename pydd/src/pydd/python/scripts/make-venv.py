@@ -1,7 +1,7 @@
 """Compose one virtual environment from the nodes that the planner chose.
 
-The builder of the root node of the graph, run under the interpreter that the
-environment is for.
+`graph.nix` runs this as the builder of the root node of the graph, under the
+interpreter that the environment is for.
 
 **The approach comes from `pyproject.nix`.** Its `build/hooks/make-venv` merges
 the store path of each package of a set into one environment, and this is the
@@ -36,11 +36,7 @@ from venv import EnvBuilder
 def site_packages_of(root: Path) -> Path:
     """The `site-packages` directory under `root`, for this interpreter."""
     scheme = "venv" if "venv" in sysconfig.get_scheme_names() else "posix_prefix"
-    return Path(
-        sysconfig.get_path(
-            "purelib", scheme=scheme, vars={"base": str(root), "platbase": str(root)}
-        )
-    )
+    return Path(sysconfig.get_path("purelib", scheme=scheme, vars={"base": str(root), "platbase": str(root)}))
 
 
 def link_tree(source: Path, target: Path) -> None:
@@ -55,8 +51,7 @@ def link_tree(source: Path, target: Path) -> None:
         if target.is_file() and source.is_file() and filecmp.cmp(target, source, shallow=False):
             return
         raise RuntimeError(
-            f"two members provide '{target.name}' with different contents: "
-            f"{target.resolve()} and {source}"
+            f"two members provide '{target.name}' with different contents: {target.resolve()} and {source}"
         )
     target.symlink_to(source)
 
@@ -102,11 +97,11 @@ def link_script(source: Path, target: Path, venv_python: bytes) -> None:
 
 
 def main() -> int:
-    out = Path(os.environ["out"])
-    members = [Path(member) for member in os.environ["members"].split()]
+    out = Path(os.environ["out"])  # noqa: SIM112 -- Nix names a derivation attribute in lower case
+    members = [Path(member) for member in os.environ["members"].split()]  # noqa: SIM112 -- as above
 
     # `EnvBuilder` takes the interpreter that runs this script as the base of
-    # the environment.
+    # the environment, which is the interpreter that `graph.nix` names.
     EnvBuilder(symlinks=True, with_pip=False).create(out)
 
     site = site_packages_of(out)
@@ -130,12 +125,9 @@ def main() -> int:
                     raise RuntimeError(f"two members provide the script '{entry.name}'")
                 link_script(entry, target, venv_python)
 
-    (out / "manifest").write_text(os.environ["installed"] + "\n", encoding="utf-8")
+    (out / "manifest").write_text(os.environ["installed"] + "\n", encoding="utf-8")  # noqa: SIM112 -- as above
 
-    print(
-        f"{len(members)} members, {len(list(site.iterdir()))} entries in site-packages",
-        file=sys.stderr,
-    )
+    print(f"{len(members)} members, {len(list(site.iterdir()))} entries in site-packages", file=sys.stderr)
     return 0
 
 

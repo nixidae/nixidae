@@ -2,9 +2,13 @@
 # Install one wheel, the way PEP 376 says to.
 #
 # **`unzip` is not an install.** A wheel unpacked with `unzip` has no `RECORD`,
-# no console script, and no `.dist-info` that an installer wrote. `pypa/installer`
-# is the reference implementation, and `pyproject.nix` uses it for the same
-# reason (`build/hooks/pypa-install-hook`).
+# no console script, and no `.dist-info` that an installer wrote.
+# `pypa/installer` is the reference implementation of PEP 376.
+#
+# `pyproject.nix` reaches for it on the cross path only, and installs with
+# `uv pip install` otherwise. This node takes the cross path on purpose:
+# `installer` is pure Python and is one wheel of the same lock file, so it is a
+# node of this graph, and `uv` is a compiled program from outside the plan.
 #
 # `installer` is another node of this same graph. The planner resolved it from
 # the same lock file that gave it every other artefact, so nothing here comes
@@ -19,7 +23,8 @@
 # A wheel that carries a binary also gives:
 #   autoPatchelf   the `auto-patchelf` of nixpkgs
 #   patchelfLibs   the directories to search for a shared library
-# SC2154: the node passes each variable as an attribute of the derivation.
+# SC2154: graph.nix passes each variable below as an attribute of the
+# derivation, so the build environment holds it.
 # shellcheck disable=SC2154
 set -eu
 
@@ -50,7 +55,8 @@ PYTHONPATH="$installerPath" python3 -m installer --prefix "$out" "./$wheelName"
 # `any` carries no binary, so its node gets no `autoPatchelf` and takes no
 # dependency on a compiler library.
 if [ -n "${autoPatchelf-}" ]; then
-  # `--libs` takes one directory for each argument.
+  # `--libs` takes one directory for each argument, so the string that
+  # `graph.nix` gives has to become a list again.
   read -r -a libraryPath <<<"$patchelfLibs"
   "$autoPatchelf" --paths "$out" --libs "${libraryPath[@]}"
 fi
