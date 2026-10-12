@@ -31,18 +31,26 @@ No mode renders ATerm. A node is derivation JSON, and Nix computes every
 output path it can. For the same plan, the CLI and huggorm writers submit
 the same root `.drv`.
 
-`pydd.python.mkEnvironment` builds a Python environment from a `uv.lock`
-(`examples/venv`). Nix only parses the lock and makes one fetch per file.
-The planner walks its dependency edges, with markers and extras. Each
-wheel, sdist and editable project is a node. The PEP 517 backend of an
-sdist comes from the same lock and is a node too, so the graph cannot exist
-before the plan runs. Only the artefacts the target needs are downloaded:
-9 of the 122 in the example.
+## Python environments
 
-uv locks neither build backends nor the installer. A dependency group puts
-them in the lock, and an sdist names its backend through `buildSystems`.
-Registry packages and workspace members work. Git, URL and path sources do
-not yet.
+`pydd.python.uv { project = ./.; }` builds the environment of a uv project
+(`examples/venv`). Nix only parses `uv.lock` and makes one fetch per file.
+The planner reads the lock the way uv installs it, chooses an artefact for
+each package with `packaging`, and evaluates `lib/python/graph.nix` over
+its plan. Only the chosen artefacts are downloaded.
+
+**An sdist gets a planner of its own.** Its build backend is declared
+inside the archive, so no evaluation can know it. That planner reads the
+archive, chooses the backend from the same lock, and submits the build.
+
+The result also carries `env`, `app` and `shell`. The reader handles
+workspaces, git, URL and path sources, and local registries, as the lab
+tested them. pydd's own example covers registry packages and one project
+member. uv locks neither build backends nor the installer, so a dependency
+group puts them in the lock.
+
+This planner is a port of the ddrn lab of nanopynix. `docs/` holds its
+research notes.
 
 ## Constraints
 
@@ -63,7 +71,8 @@ command to run and what it prints.
 
 1. `examples/hello`: the smallest planner, two nodes in Python.
 2. `examples/evaluated`: the same idea, with the graph as a Nix file.
-3. `examples/venv`: a Python environment from a `uv.lock`.
+3. `examples/nested`: a planner whose graph reads another planner's graph.
+4. `examples/venv`: a Python environment from a `uv.lock`.
 
 An example is `examples.<name>.<writer>`:
 
@@ -78,10 +87,12 @@ names the store; the default is `~/.cache/pydd/store`.
 
 | path | holds |
 | --- | --- |
-| `lib/` | the Nix side: `mkPlanner`, `mkEnvironment`, `mkEvaluated` |
+| `lib/` | the Nix side: `mkPlanner`, `mkEvaluated` |
+| `lib/python/` | `pydd.python.uv`, and `graph.nix`, which turns a plan into derivations |
 | `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
-| `src/pydd/python/` | the `uv.lock` reader, the resolver and the builders of a Python environment |
+| `src/pydd/python/` | the planners of a Python environment: lock readers, resolver, plan |
 | `examples/` | the tour |
+| `docs/` | the research notes of the ddrn lab |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |
 
 ## Tests
@@ -89,4 +100,5 @@ names the store; the default is `~/.cache/pydd/store`.
     nix build --file . checks.tests
 
 The suite holds pydd's JSON and placeholders to what Nix's own
-`derivation` makes, and the resolver to the `uv.lock` of the example.
+`derivation` makes. `tests/python` holds the Python planner to the lock
+files that uv wrote.
