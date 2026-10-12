@@ -1,39 +1,22 @@
 # A Python environment, resolved by `packaging` and built as a graph.
 #
-# `ddrn/examples/venv` is the same environment under the released protocol. It
-# makes the same packaging decisions and then emits **one** derivation, because
-# a planner that writes to `$out` can emit exactly one. Two things follow, and
-# this example removes both:
-#
-#   1. Every wheel is installed in a single build step, so a change to one
-#      wheel rebuilds all of them.
-#   2. A source distribution cannot be built at all. The backend that builds it
-#      would have to exist before the plan runs, and the plan is what chooses
-#      the backend.
-#
 # **The Nix half here knows nothing about Python.** It reads the lock file,
 # makes a `fetchurl` for every artefact, and hands the planner that menu. The
 # planner decides which artefacts this target needs, and what the graph over
 # them is. `graph.nix` says how one node is built.
 #
-# This example does NOT run under the Nix of this repository's pin. It needs
-# the patched Nix that `nix/nix-master.nix` reads.
-# `ddrn/examples/venv-graph/run.sh` sets it up.
+# `./uv.nix` calls this for a uv project. Every planner here uses the huggorm
+# writer, because the planner evaluates `graph.nix` in its sandbox.
 {
-  pkgs ? import <nixpkgs> { },
-  # A Python environment that has nanopynix, built against the same Nix that
-  # builds this derivation.
-  #
-  # **A derivation here keeps the evaluation pure, and a string does not.**
-  # `builtins.storePath` is refused in pure evaluation mode. `run.sh` and
-  # `tests/test_sealed_graph.py` both take the environment from a separate
-  # build, so both pass a string and both pass `--impure`. A caller that builds
-  # the environment in this evaluation passes the derivation, and needs
-  # neither.
-  nanopynixEnv,
-  # The lock file to resolve. The default is the one beside this file, and
-  # every artefact of it comes from PyPI.
-  lock ? builtins.fromJSON (builtins.readFile ./lock.json),
+  pkgs,
+  # The pydd library, with the huggorm writer.
+  pydd,
+  # A lock file of the flat form: `{ roots, installer, artifacts }`.
+  lock ? {
+    roots = [ ];
+    installer = "installer";
+    artifacts = [ ];
+  },
   # **The seam between the reader and the graph.** One entry for each
   # artefact: the metadata a planner reads, and the derivation that produces
   # the file. `null` means "read the lock file above, and fetch each artefact".
@@ -48,7 +31,7 @@
   #
   # The Nix half does not read this file. It reads the artefacts of it, which
   # `./uv.nix` enumerates, and it hands the file itself to the planner.
-  # `ddrn_venv._uvlock` resolves it there, with `packaging`, and adds what it
+  # `pydd.python._uvlock` resolves it there, with `packaging`, and adds what it
   # resolves to `roots`.
   uvLock ? null,
   # Which packages of `uvLock` to install, and which extras and which
@@ -57,7 +40,7 @@
   uvSelect ? null,
   # Which extras of each member to enable, and which dependency groups, when
   # `uvSelect` is `null`. `./uv.nix` gives the whole rule at its `extras` and
-  # `groups` arguments, and `ddrn_venv._workspace` holds it. `null` on both is
+  # `groups` arguments, and `pydd.python._workspace` holds it. `null` on both is
   # `uv sync` with no flag.
   uvExtras ? null,
   uvGroups ? null,
@@ -78,7 +61,7 @@
   # records the declaration of each member in `[package.metadata]`. A project
   # whose `pyproject.toml` has grown a dependency since the last `uv lock`
   # would otherwise build the environment of the old declaration and say
-  # nothing. `ddrn_venv._freshness` makes the comparison, and it gives the
+  # nothing. `pydd.python._freshness` makes the comparison, and it gives the
   # rules that it takes from `Lock::satisfies` of uv.
   #
   # An empty set turns the check off, and that is the default. A caller that
@@ -93,7 +76,7 @@
   # because the lock file is the list of what it compares. A directory that a
   # `[tool.uv.workspace] members` glob names, and that `uv.lock` does not hold,
   # is the other half of a stale lock file. `./workspace.nix` walks the tree to
-  # list it, and `ddrn_venv._workspace` decides which directories are members.
+  # list it, and `pydd.python._workspace` decides which directories are members.
   #
   # An empty set turns that comparison off, and it is the default.
   uvWorkspace ? { },
@@ -136,7 +119,7 @@
   # a `.drv` and an output path with the dependency between them discarded, the
   # same way that every artefact of the menu travels. `graph.nix` puts the
   # dependency back for the ones the planner used, so the outer store
-  # substitutes the output from a cache. `ddrn/PACKAGING-FACTS.md` gives the
+  # substitutes the output from a cache. `docs/PACKAGING-FACTS.md` gives the
   # measurement, under "Tier 4, the pre-instantiated menu".
   #
   # **The version is the one that nixpkgs holds, and not the one that the lock
@@ -175,7 +158,7 @@
   buildTools ? { },
   # The interpreter that the environment runs, and that every install step
   # uses. **This is the whole runtime closure of an environment**, and
-  # `ddrn/PACKAGING-FACTS.md` measures it: 219 MB of the 238 MB that the
+  # `docs/PACKAGING-FACTS.md` measures it: 219 MB of the 238 MB that the
   # environment of `projects/pure-app` costs.
   #
   # **Keep the default unless the target is an empty store.** A store that
@@ -227,12 +210,7 @@
   #         where the project lives inside `src`, when it is not at the top of
   #         it. `uv.lock` writes this for a repository that holds the project
   #         below its root. The default is empty.
-  editables ? {
-    myapp = {
-      src = ./fixtures/myapp;
-      root = "$DDRN_EDITABLE_ROOT";
-    };
-  },
+  editables ? { },
 }:
 
 let
@@ -287,28 +265,29 @@ let
     _: drv: (row { inherit drv; }) // { inherit (drv) version; }
   ) fromNixpkgs;
 
-  # A string names a store path that this evaluation did not make, and only an
-  # impure evaluation may do that. A derivation needs no such primop.
-  plannerEnvPath =
-    if builtins.isString nanopynixEnv then builtins.storePath nanopynixEnv else nanopynixEnv;
+  scriptDir = ../../src/pydd/python/scripts;
 
-  # `packaging` is what the planner needs, and only the planner needs it. The
-  # environment that comes out carries no trace of it. It is pure Python, so it
-  # goes on `PYTHONPATH` beside the nanopynix environment.
-  #
-  # **This one stays on `pkgs.python3`, and it does not follow `python`.** The
-  # planner runs on `plannerEnv`, which is the interpreter that nanopynix was
-  # built against, so `packaging` has to match that one and not the interpreter
-  # of the environment. Neither reaches the runtime closure.
-  packagingPath = "${pkgs.python3Packages.packaging}/${pkgs.python3.sitePackages}";
-
-  # `ddrn_venv`, which every planner of this example imports. `fileset` takes
-  # the Python files and nothing else, so a `__pycache__` of the working tree
-  # does not reach the store and does not change this path.
-  plannerLib = pkgs.lib.fileset.toSource {
-    root = ./planner;
-    fileset = pkgs.lib.fileset.fileFilter (file: file.hasExt "py") ./planner;
-  };
+  # **Every planner of this graph, the outer one and one for each source
+  # distribution.** Each one evaluates `graph.nix` in its sandbox, so each
+  # takes the huggorm writer. `packaging` and `pydd.python` reach the planner
+  # and never the environment that comes out.
+  mkPythonPlanner =
+    {
+      name,
+      main,
+      env,
+    }:
+    pydd.mkPlanner {
+      inherit name env;
+      writer = "huggorm";
+      plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.python.${main} import main\nsys.exit(main())\n";
+      pythonPath = [ pkgs.python3Packages.packaging ];
+      modules = [
+        (pkgs.lib.fileset.difference (pkgs.lib.fileset.fileFilter (
+          file: file.hasExt "py"
+        ) ../../src/pydd/python) scriptDir)
+      ];
+    };
 
   #: How many levels of planner a chain of source distributions may use. A
   #: planner of a distribution resolves a backend, and that backend may be a
@@ -323,7 +302,7 @@ let
   #: a chain of four source distributions, and the two roots of
   #: `tests/sealed.nix` differ in nothing but the name: `link-a` uses three
   #: planners and builds, and `link-0` needs a fourth and makes `graph.nix`
-  #: throw. `ddrn/NIX-FACTS.md` records the message and the level that it
+  #: throw. `docs/NIX-FACTS.md` records the message and the level that it
   #: comes from.
   sdistPlannerDepth = 3;
 
@@ -364,24 +343,16 @@ let
         autoPatchelf = "${pkgs.auto-patchelf}";
         bintools = "${pkgs.stdenv.cc.bintools}";
         gccLib = "${pkgs.stdenv.cc.cc.lib}";
-        # The three below reach only a node of kind `sdist`, which is a planner
-        # and needs what this derivation needs: an interpreter that has
-        # nanopynix, `packaging`, and the shared planner code.
-        plannerEnv = "${plannerEnvPath}";
-        packaging = "${pkgs.python3Packages.packaging}";
-        plannerLib = "${plannerLib}";
       };
       scripts = {
-        unpackWheel = "${./scripts/unpack-wheel.sh}";
-        installWheel = "${./scripts/install-wheel.sh}";
-        buildSdist = "${./scripts/build-sdist.sh}";
-        buildLocal = "${./scripts/build-local.py}";
-        makeVenv = "${./scripts/make-venv.py}";
-        makeApplication = "${./scripts/make-application.py}";
-        planSdist = "${./scripts/plan-sdist.py}";
-        # `graph.nix` builds the planner of a source distribution, and that
-        # planner evaluates `graph.nix` again for the graph it submits.
-        graphNix = "${./graph.nix}";
+        # One store path for each script, so an edit to one rebuilds only the
+        # nodes that run it.
+        unpackWheel = "${scriptDir + "/unpack-wheel.sh"}";
+        installWheel = "${scriptDir + "/install-wheel.sh"}";
+        buildSdist = "${scriptDir + "/build-sdist.sh"}";
+        buildLocal = "${scriptDir + "/build-local.py"}";
+        makeVenv = "${scriptDir + "/make-venv.py"}";
+        makeApplication = "${scriptDir + "/make-application.py"}";
       };
       # The planner reads the `pyproject.toml` of each tree below, and resolves
       # the backend that the tree asks for against the same lock file.
@@ -415,8 +386,8 @@ let
   # **The marker environment carries every key of PEP 508, and it has to.**
   # `Marker.evaluate` of `packaging` fills a key that the caller leaves out
   # from the interpreter that is running, so a key that this attrset does not
-  # give would describe the machine that plans. `ddrn/PACKAGING-FACTS.md` holds
-  # the measurement, and `ddrn_venv.target_from_environ` refuses a short set.
+  # give would describe the machine that plans. `docs/PACKAGING-FACTS.md` holds
+  # the measurement, and `pydd.python.target_from_environ` refuses a short set.
   inherit (pkgs.stdenv) hostPlatform;
 
   #: The two keys that `platform.release()` and `platform.version()` answer,
@@ -439,7 +410,7 @@ let
   };
 
   targetEnv = {
-    DDRN_TARGET = builtins.toJSON {
+    PYDD_TARGET = builtins.toJSON {
       pythonVersion = pkgs.lib.versions.majorMinor python.version;
       # The platform of a wheel tag, which PEP 425 spells differently from
       # `platform_machine`.
@@ -448,49 +419,25 @@ let
     };
   };
 
-  plannerBase = {
-    system = pkgs.stdenv.hostPlatform.system;
-    builder = "${pkgs.bash}/bin/bash";
-
-    requiredSystemFeatures = [ "builder-rpc-v0" ];
-
-    # The submitted object is a derivation, and every derivation ingests as
-    # text.
-    __contentAddressed = true;
-    outputHashMode = "text";
-    outputHashAlgo = "sha256";
-
-    NIX_CONFIG = "experimental-features = nix-command ca-derivations dynamic-derivations";
-
-    DDRN_SYSTEM = pkgs.stdenv.hostPlatform.system;
-    DDRN_GRAPH_NIX = "${./graph.nix}";
+  plannerEnv = {
+    PYDD_GRAPH_NIX = "${./graph.nix}";
   }
   // targetEnv;
-
-  plannerScript = path: ''
-    set -eu
-    export PYTHONPATH=${packagingPath}:${plannerLib}
-    # Nix runs a builder with the *basename* of the builder as `argv[0]`, and
-    # CPython derives `sys.prefix` from `argv[0]`. A virtual environment
-    # therefore has to be entered through its full path.
-    exec ${plannerEnvPath}/bin/python ${path}
-  '';
 
   # **The planner of one source distribution, instantiated here and not
   # inside the sandbox.** A planner cannot read a store path that the planner
   # itself added, so `builtins.outputOf` on a derivation that a planner wrote
   # fails with "opening file ...: No such file or directory". Instantiating it
   # out here makes the `.drv` an input source of the outer planner, so the read
-  # succeeds. `ddrn/NIX-FACTS.md` holds the measurement.
+  # succeeds. `docs/NIX-FACTS.md` holds the measurement.
   sdistPlanner =
     depth: entry:
-    derivation (
-      plannerBase
-      // {
-        # A `.drv` name is accepted only for a text-ingested derivation with
-        # one output named `out` (`primops.cc:1815`), and the submitted object
-        # is a `.drv`.
-        name = "${entry.package}-${entry.version}.drv";
+    (mkPythonPlanner {
+      # The root that this planner submits is `<package>-<version>.drv`, and
+      # Nix requires the planner to carry the name of what it submits.
+      name = "${entry.package}-${entry.version}";
+      main = "_sdist_planner";
+      env = plannerEnv // {
 
         # **The archive is a real dependency of this derivation.** That is the
         # whole point: this planner reads a file that no evaluation can read,
@@ -499,7 +446,7 @@ let
         # An archive of a `path` source needs no download, and the string that
         # `uv.nix` wrote already carries the context of the file. Nix makes
         # that file an input source of this planner in the same way.
-        DDRN_SDIST = if entry ? path then entry.path else entry.drv;
+        PYDD_SDIST = if entry ? path then entry.path else entry.drv;
 
         # **The menu is the same for every planner of one level, so it is
         # serialised once for that level and not once for each planner.**
@@ -507,8 +454,8 @@ let
         # runs one time for each level. It ran one time for each planner while
         # the row below was part of this document, and the lock file of the
         # benchmark then paid 27.9 MB of JSON for each level.
-        # `ddrn/PACKAGING-FACTS.md` holds both measurements.
-        DDRN_INPUTS = builtins.elemAt levelJson (depth - 1);
+        # `docs/PACKAGING-FACTS.md` holds both measurements.
+        PYDD_INPUTS = builtins.elemAt levelJson (depth - 1);
 
         # **A URL source names where its project lives inside the archive.**
         # `uv.nix` puts `subdirectory` on the artefact, and the planner of this
@@ -517,19 +464,14 @@ let
         #
         # This is the one part that differs between two planners of one level,
         # and it is a few hundred bytes.
-        DDRN_SDIST_ROW = builtins.toJSON (
+        PYDD_SDIST_ROW = builtins.toJSON (
           {
             inherit (entry) package version filename;
           }
           // pkgs.lib.optionalAttrs (entry ? subdirectory) { inherit (entry) subdirectory; }
         );
-
-        args = [
-          "-c"
-          (plannerScript ./scripts/plan-sdist.py)
-        ];
-      }
-    );
+      };
+    }).planner;
 
   # **The levels are a list, and not a recursive function, because a list is a
   # memo.** Nix evaluates each element of a list at most once, and it
@@ -537,7 +479,7 @@ let
   # level below it, and there is one planner for each source distribution, so a
   # function costs O(n ^ depth) and this list costs O(n * depth).
   #
-  # `ddrn/NIX-FACTS.md` holds the measurement of both, and the lock files that
+  # `docs/NIX-FACTS.md` holds the measurement of both, and the lock files that
   # this lab measured hold up to 98 source distributions. The recursive form
   # did not reach such a lock file.
   levels = builtins.genList inputsAt (sdistPlannerDepth + 1);
@@ -578,33 +520,28 @@ let
 
   inputs = builtins.elemAt levels sdistPlannerDepth;
 in
-derivation (
-  plannerBase
-  // {
-    # The name says what this derivation is. The root that it submits is named
-    # `demo-venv`, and the two no longer have to agree.
-    name = "venv-planner";
+mkPythonPlanner {
+  # The root that this planner submits is `<venvName>.drv`, and Nix requires
+  # the planner to carry the name of what it submits.
+  name = venvName;
+  main = "_environment";
+  env =
+    plannerEnv
+    // {
+      # **Every store path that the planner names travels in this string.**
+      # `builtins.toJSON` keeps the string context of what it serialises, so
+      # each `.drv` of the menu, each tool and each script becomes an input
+      # source of this derivation. That is what makes them present in the
+      # sandbox.
+      PYDD_INPUTS = builtins.toJSON inputs;
 
-    # **Every store path that the planner names travels in this string.**
-    # `builtins.toJSON` keeps the string context of what it serialises, so each
-    # `.drv` of the menu, each tool and each script becomes an input source of
-    # this derivation. That is what makes them present in the sandbox, and it
-    # is what lets `builtins.storePath` and `builtins.appendContext` name them.
-    DDRN_INPUTS = builtins.toJSON inputs;
-
-    DDRN_VENV_NAME = venvName;
-  }
-  // pkgs.lib.optionalAttrs (uvCheck != null) {
-    # **Nothing reads this, and that is the whole design.** A store path in an
-    # environment variable of a derivation is an input of that derivation, so
-    # Nix builds `uvCheck` before it runs this planner, and a refusal of uv
-    # stops the build here.
-    DDRN_UV_CHECK = "${uvCheck}";
-  }
-  // {
-    args = [
-      "-c"
-      (plannerScript ./plan.py)
-    ];
-  }
-)
+      PYDD_VENV_NAME = venvName;
+    }
+    // pkgs.lib.optionalAttrs (uvCheck != null) {
+      # **Nothing reads this, and that is the whole design.** A store path in
+      # an environment variable of a derivation is an input of that
+      # derivation, so Nix builds `uvCheck` before it runs this planner, and a
+      # refusal of uv stops the build here.
+      PYDD_UV_CHECK = "${uvCheck}";
+    };
+}

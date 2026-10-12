@@ -18,7 +18,13 @@ let
   # The evaluator in the planner is huggorm's.
   writersOf =
     name:
-    if name == "evaluated" || name == "nested" then
+    if
+      lib.elem name [
+        "evaluated"
+        "nested"
+        "venv"
+      ]
+    then
       [ "huggorm" ]
     else
       [

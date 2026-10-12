@@ -49,7 +49,7 @@ GLIBC_MINORS = range(17, 40)
 #: `default_environment()`, and `default_environment()` reads the running
 #: interpreter. A planner plans for another machine, so it passes all of them
 #: and `target_from_environ` refuses a set that is short.
-#: `ddrn/PACKAGING-FACTS.md` holds the measurement.
+#: `docs/PACKAGING-FACTS.md` holds the measurement.
 PEP508_KEYS = frozenset(
     {
         "implementation_name",
@@ -316,13 +316,13 @@ def target_from_environ() -> Target:
     and not one variable for each field, because the marker environment is
     eleven fields and a planner must pass all of them.
     """
-    document = json.loads(env("DDRN_TARGET"))
+    document = json.loads(env("PYDD_TARGET"))
     markers: dict[str, str] = document["markers"]
 
     missing = PEP508_KEYS - set(markers)
     if missing:
         raise RuntimeError(
-            f"DDRN_TARGET gives no value for {sorted(missing)}. `packaging` would then read "
+            f"PYDD_TARGET gives no value for {sorted(missing)}. `packaging` would then read "
             "the interpreter that runs this planner, and a planner plans for another machine."
         )
 

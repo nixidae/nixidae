@@ -14,44 +14,94 @@ from __future__ import annotations
 from ._env import env as env
 from ._freshness import (
     Pin as Pin,
+)
+from ._freshness import (
     # `check` alone says nothing about what it checks, and this package holds
     # more than one check.
     check as check_freshness,
 )
 from ._plan import (
     LocalNode as LocalNode,
+)
+from ._plan import (
     Plan as Plan,
+)
+from ._plan import (
     build_tools_from as build_tools_from,
+)
+from ._plan import (
     nix_string as nix_string,
+)
+from ._plan import (
     open_restricted_store as open_restricted_store,
+)
+from ._plan import (
     submit as submit,
 )
 from ._resolve import (
     FALLBACK_BACKEND as FALLBACK_BACKEND,
+)
+from ._resolve import (
     Artifact as Artifact,
+)
+from ._resolve import (
     Target as Target,
+)
+from ._resolve import (
     build_system as build_system,
+)
+from ._resolve import (
     choose as choose,
+)
+from ._resolve import (
     target_from_environ as target_from_environ,
+)
+from ._resolve import (
     target_platforms as target_platforms,
+)
+from ._resolve import (
     target_tags as target_tags,
+)
+from ._resolve import (
     wheel_rank as wheel_rank,
 )
 from ._sdist import (
     PYPROJECT as PYPROJECT,
+)
+from ._sdist import (
     is_pyproject as is_pyproject,
+)
+from ._sdist import (
     read_pyproject as read_pyproject,
 )
 from ._uvlock import (
     Edge as Edge,
+)
+from ._uvlock import (
     File as File,
+)
+from ._uvlock import (
     Lock as Lock,
+)
+from ._uvlock import (
     LockError as LockError,
+)
+from ._uvlock import (
     Package as Package,
+)
+from ._uvlock import (
     PackageId as PackageId,
+)
+from ._uvlock import (
     Resolution as Resolution,
+)
+from ._uvlock import (
     build_requirements as build_requirements,
+)
+from ._uvlock import (
     filter_conflicts as filter_conflicts,
+)
+from ._uvlock import (
     # `plan.py` has a `resolve` of its own, which turns a resolution into a
     # graph. This one turns a lock file into a resolution.
     resolve as resolve_lock,

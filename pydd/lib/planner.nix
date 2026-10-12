@@ -87,6 +87,10 @@ in
     `modules`
     : Filesets under `src/` that the plan imports beside the core of
       `pydd`, such as `src/pydd/python`.
+
+    `env`
+    : More environment variables of the planner. A store path in a value
+      becomes an input of the planner.
   */
   mkPlanner =
     {
@@ -99,6 +103,7 @@ in
       python ? if writer == "huggorm" then huggorm.pythonModule else python3,
       pythonPath ? [ ],
       modules ? [ ],
+      env ? { },
       system ? python.stdenv.hostPlatform.system,
     }:
     assert lib.assertOneOf "writer" writer [
@@ -109,37 +114,40 @@ in
       writer == "huggorm" -> huggorm != null
     ) "mkPlanner: writer = \"huggorm\" needs huggorm";
     let
-      planner = derivation {
-        name = "${name}.drv";
-        inherit system;
-        builder = "${bash}/bin/bash";
-        # The full path: CPython finds its prefix from argv[0], and Nix runs a
-        # builder with only the basename there.
-        args = [
-          "-c"
-          "exec ${python}/bin/python3 ${plan}"
-        ];
+      planner = derivation (
+        env
+        // {
+          name = "${name}.drv";
+          inherit system;
+          builder = "${bash}/bin/bash";
+          # The full path: CPython finds its prefix from argv[0], and Nix runs a
+          # builder with only the basename there.
+          args = [
+            "-c"
+            "exec ${python}/bin/python3 ${plan}"
+          ];
 
-        requiredSystemFeatures = [ "builder-rpc-v0" ];
-        # The submitted object is a derivation, and a derivation is
-        # text-ingested.
-        __contentAddressed = true;
-        outputHashMode = "text";
-        outputHashAlgo = "sha256";
+          requiredSystemFeatures = [ "builder-rpc-v0" ];
+          # The submitted object is a derivation, and a derivation is
+          # text-ingested.
+          __contentAddressed = true;
+          outputHashMode = "text";
+          outputHashAlgo = "sha256";
 
-        NIX_CONFIG = "extra-experimental-features = nix-command ca-derivations dynamic-derivations";
-        PATH = lib.makeBinPath [ nix ];
-        PYTHONPATH = lib.concatStringsSep ":" (
-          [ "${pyddSrc modules}" ]
-          ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
-          ++ map (package: python.pkgs.makePythonPath [ package ]) pythonPath
-        );
-        PYTHONDONTWRITEBYTECODE = "1";
+          NIX_CONFIG = "extra-experimental-features = nix-command ca-derivations dynamic-derivations";
+          PATH = lib.makeBinPath [ nix ];
+          PYTHONPATH = lib.concatStringsSep ":" (
+            [ "${pyddSrc modules}" ]
+            ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
+            ++ map (package: python.pkgs.makePythonPath [ package ]) pythonPath
+          );
+          PYTHONDONTWRITEBYTECODE = "1";
 
-        PYDD_WRITER = writer;
-        PYDD_SYSTEM = system;
-        PYDD_MENU = builtins.toJSON menu;
-      };
+          PYDD_WRITER = writer;
+          PYDD_SYSTEM = system;
+          PYDD_MENU = builtins.toJSON menu;
+        }
+      );
     in
     {
       inherit planner;

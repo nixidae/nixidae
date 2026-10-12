@@ -11,8 +11,8 @@
 {
   system,
   pythonVersion,
-  # The store path of each tool. Each one is an input of the planner, so
-  # `builtins.storePath` may name it.
+  # The store path of each tool. Each one is an input of the planner, and the
+  # planner gives each string its context.
   tools,
   # The store path of each build script, on the same terms.
   scripts,
@@ -28,35 +28,23 @@
 }:
 
 let
-  # **`builtins.storePath` is the primop that the released allowlist refuses.**
-  # It reaches `EnsurePath`, and the restricted builder answers by asserting
-  # that the path is an input of this build. Without the change of this lab,
-  # evaluation stops here.
-  storePaths = builtins.mapAttrs (_: builtins.storePath);
-
-  tool = storePaths tools;
-  script = storePaths scripts;
+  # **No store path here needs `builtins.storePath` or `builtins.appendContext`.**
+  # Both call `EnsurePath`, which a `builder-rpc-v0` socket refuses, so the
+  # planner attaches the context before this file sees a value
+  # (`pydd.python._plan.document_value`).
+  tool = tools;
+  script = scripts;
 
   # **This is what makes a pre-instantiated fetch a real dependency.**
-  # `default.nix` hands the planner the store path of each `fetchurl`
+  # `planner.nix` hands the planner the store path of each `fetchurl`
   # derivation and the store path of its output, with the dependency between
   # them discarded, so that Nix instantiates every artefact of the lock file
-  # and downloads none of them. `builtins.appendContext` puts the dependency
-  # back for the artefacts that the planner chose, and it reaches `EnsurePath`
-  # too.
+  # and downloads none of them. The planner gives `out` the context of `drv`
+  # for the artefacts that it chose.
   # An artefact that carries a `path` is already present, because some
   # derivation named it as an input. A planner of one source distribution
   # receives its own archive that way, and needs no fetch for it.
-  fetched =
-    artifact:
-    if artifact ? path then
-      builtins.storePath artifact.path
-    else
-      builtins.appendContext artifact.out {
-        ${artifact.drv} = {
-          outputs = [ "out" ];
-        };
-      };
+  fetched = artifact: if artifact ? path then artifact.path else artifact.out;
 
   # Every node floats. A floating output has no path until the build gives it
   # one, so a node that reads another node interpolates a placeholder, and
@@ -112,7 +100,7 @@ let
   # none: a graph that gave every node a compiler would put one in the closure
   # of every pure Python wheel as well.
   #
-  # `default.nix` takes the list by package name, at its `buildTools` argument,
+  # `planner.nix` takes the list by package name, at its `buildTools` argument,
   # and the planner attaches it to the node that builds that package. So this
   # file looks nothing up, and it canonicalises no name: `packaging` does that,
   # in the half of this example that is Python.
@@ -123,7 +111,7 @@ let
   # into that one only when `accumulateRoles` finds
   # `NIX_CC_WRAPPER_TARGET_HOST_<salt>`. The setup hook of the wrapper exports
   # that variable, and a node of this graph runs no setup hook. So a plain
-  # `NIX_LDFLAGS` here reaches nothing, and `ddrn/PACKAGING-FACTS.md` records
+  # `NIX_LDFLAGS` here reaches nothing, and `docs/PACKAGING-FACTS.md` records
   # the measurement that found it.
   #
   # `customize_compiler` of `setuptools._distutils` reads the two below, and
@@ -136,7 +124,7 @@ let
   buildToolsOf =
     node:
     let
-      roots = map builtins.storePath (node.buildTools or [ ]);
+      roots = node.buildTools or [ ];
       join = separator: render: builtins.concatStringsSep separator (map render roots);
     in
     if roots == [ ] then
@@ -150,7 +138,7 @@ let
         # and the `dev` output of each library, and each one enters the closure
         # of the environment. `stdenv` of nixpkgs strips a binary for the same
         # reason, and a node of this graph runs no `stdenv`.
-        # `ddrn/PACKAGING-FACTS.md` gives the measurement.
+        # `docs/PACKAGING-FACTS.md` gives the measurement.
         CPPFLAGS = "-g0 ${join " " (root: "-isystem ${root}/include")}";
         LDFLAGS = join " " (root: "-L${root}/lib");
         PKG_CONFIG_PATH = join ":" (root: "${root}/lib/pkgconfig");
@@ -204,7 +192,7 @@ let
             ''exec "${tool.python}/bin/python3" "${script.buildLocal}"''
           ];
           mode = "editable";
-          source = builtins.storePath node.source;
+          source = node.source;
           subdirectory = node.subdirectory or "";
           # A literal path names one tree forever. A reference to a variable is
           # the same bytes for every tree, so one environment reads whichever
@@ -234,7 +222,7 @@ let
             ''exec "${tool.python}/bin/python3" "${script.buildLocal}"''
           ];
           mode = "wheel";
-          source = builtins.storePath node.source;
+          source = node.source;
           subdirectory = node.subdirectory or "";
           inherit installerPath;
           inherit (node) backend;
@@ -260,7 +248,7 @@ let
             ''exec "${tool.python}/bin/python3" "${script.buildLocal}"''
           ];
           mode = "sdist";
-          source = builtins.storePath node.source;
+          source = node.source;
           subdirectory = node.subdirectory or "";
           inherit (node) backend;
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
@@ -270,7 +258,7 @@ let
     else if node.kind == "sdist" then
       # **A node of this kind is a planner, and not a build.** The build system
       # of a source distribution is declared inside the archive, and no
-      # evaluation has downloaded the archive. `default.nix` instantiated a
+      # evaluation has downloaded the archive. `planner.nix` instantiated a
       # planner that does, and `builtins.outputOf` names what that plan builds.
       #
       # **The planner is instantiated outside, and it has to be.** A planner
@@ -282,14 +270,10 @@ let
       if !(node.artifact ? plannerDrv) then
         throw (
           "${node.artifact.filename} needs a planner, and the menu has none. "
-          + "A chain of source distributions ran past `sdistPlannerDepth` of default.nix."
+          + "A chain of source distributions ran past `sdistPlannerDepth` of planner.nix."
         )
       else
-        builtins.outputOf (builtins.appendContext node.artifact.plannerOut {
-          ${node.artifact.plannerDrv} = {
-            outputs = [ "out" ];
-          };
-        }) "out"
+        builtins.outputOf node.artifact.plannerOut "out"
     else if node.kind == "sdist-build" then
       # What the planner above decided: run one PEP 517 hook, with a backend
       # that is another node of the graph that the planner submitted.
@@ -304,7 +288,7 @@ let
           # `from` names the node of kind `local-sdist` that built it, and the
           # dependency is then an ordinary one of this evaluation. An artefact of
           # the menu needs `fetched` instead, which puts back the context that
-          # `default.nix` discarded.
+          # `planner.nix` discarded.
           sdist = if node ? from then "${built.${node.from}}" else fetched node.artifact;
           # **An archive of a URL source does not always hold one project.**
           # `uv.lock` writes `subdirectory` for such a source, and `pypa/hatch` is

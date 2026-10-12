@@ -1,6 +1,6 @@
 # Facts about Python packaging in Nix, and where each one comes from
 
-`ddrn/NIX-FACTS.md` records what this lab proved about Nix. This file records
+`docs/NIX-FACTS.md` records what this lab proved about Nix. This file records
 what it read in the two projects that already solve Python packaging in Nix,
 and it is the reference for the work that remains.
 
@@ -87,7 +87,7 @@ take it from outside the plan.
 
 **Both install from a `dist` directory.** `pushd dist` in each install hook.
 That is the same reason this lab copies a wheel under its own name first, which
-`ddrn/NIX-FACTS.md` records.
+`docs/NIX-FACTS.md` records.
 
 ## Composing a virtual environment
 
@@ -369,7 +369,7 @@ one, and absent in one. So a reader asserts `version == 1`, and it accepts any
 
 One `pkgs.fetchurl` for each of the 1838 artefacts of
 `anthropic-sdk-python/uv.lock`, carried in a `writeText` file the way
-`ddrn/NIX-FACTS.md` describes:
+`docs/NIX-FACTS.md` describes:
 
 | what | value |
 | --- | --- |
@@ -407,7 +407,7 @@ $ ddrn/examples/venv-graph/bench/measure.sh --cold
 | packages in `uv.lock` | 111 |
 | `uv.lock` | 244918 bytes |
 | artefact rows | 715 (605 wheel, 110 sdist) |
-| the menu, `DDRN_INPUTS` | 253860 bytes |
+| the menu, `PYDD_INPUTS` | 253860 bytes |
 | instantiation into an empty store | 8.97 s |
 | instantiation, warm | 1.74 s |
 | paths in the closure of the `.drv` | 2043 |
@@ -430,7 +430,7 @@ The measurement above found the menu serialised 331 times, and not 4 times. The
 document of each planner carried the row of its own archive, so no two
 documents were equal and `builtins.toJSON` ran again for each one.
 
-`DDRN_SDIST_ROW` now carries that row, and `levelJson` is a list of the text of
+`PYDD_SDIST_ROW` now carries that row, and `levelJson` is a list of the text of
 each level. A list is a memo, so the menu is serialised one time for each
 level. The row is a few hundred bytes.
 
@@ -482,7 +482,7 @@ breakdown of one planner node:
 | --- | --- |
 | the imports of the module | 0.877 |
 | open the restricted store | 0.003 |
-| parse `DDRN_INPUTS` | 0.000 |
+| parse `PYDD_INPUTS` | 0.000 |
 | resolve the lock file | 0.006 |
 | build the plan | 0.005 |
 | submit the graph | 0.011 |
@@ -497,7 +497,7 @@ $ env=/nix/store/...-ddrn-planner-env
 $ PYTHONPATH=$packaging:planner "$env/bin/python" -c pass                     # 17 ms
 $ PYTHONPATH=$packaging:planner "$env/bin/python" -c 'import packaging.tags'  # 65 ms
 $ PYTHONPATH=$packaging:planner "$env/bin/python" -c 'import nanopynix'       # 848 ms
-$ PYTHONPATH=$packaging:planner "$env/bin/python" -c 'import ddrn_venv'       # 880 ms
+$ PYTHONPATH=$packaging:planner "$env/bin/python" -c 'import pydd.python'       # 880 ms
 ```
 
 So the interpreter starts in 17 ms, and `import nanopynix` is 848 ms of the
@@ -562,9 +562,9 @@ as above and the best of five runs:
 | `import packaging.tags` | 65 ms | 64 ms |
 | `import nanopynix` | 848 ms | 23 ms |
 | `from nanopynix.libstore import init_libstore` | 848 ms | 49 ms |
-| **`import ddrn_venv`** | **880 ms** | **140 ms** |
+| **`import pydd.python`** | **880 ms** | **140 ms** |
 
-`import ddrn_venv` loads 176 modules, against 555 for `import nanopynix`
+`import pydd.python` loads 176 modules, against 555 for `import nanopynix`
 alone before. `nanopynix_proto`, `pydantic`, `grpclib`, `anyio` and
 `betterproto2` are absent from `sys.modules`, and the planner holds
 `nanopynix`, `nanopynix.libstore` and the compiled bindings.
@@ -657,7 +657,7 @@ because a step removed it. `resolution-markers` decides a root, and it sets the
 preferences of the next resolution. The field of `Package` says the second part
 itself.
 
-`ddrn_venv._uvlock` follows these three steps, and it therefore has no step 4.
+`pydd.python._uvlock` follows these three steps, and it therefore has no step 4.
 `uv2nix` needs one because its resolver reads the version of an edge and not the
 source (`lock1.nix:127`), so a name that two entries carry stays a choice for it.
 
@@ -749,7 +749,7 @@ that resolves the old declaration.** uv refuses such a file. `Lock::satisfies`
 this case. A reader that skipped the comparison would build the old
 environment and say nothing, which is the worst of the three answers.
 
-`ddrn_venv._freshness` makes the part of that comparison that is exact.
+`pydd.python._freshness` makes the part of that comparison that is exact.
 `uv.nix` puts the `pyproject.toml` of each member into the store,
 `default.nix` passes each path through as `uvDeclarations`, and
 `UvProject.selection` compares before it resolves.
@@ -794,7 +794,7 @@ was proved end to end by adding `typing-extensions` to
 `projects/pure-app/pyproject.toml` and building `uv.nix` for that project:
 
 ```
-ddrn_venv._uvlock.LockError: uv.lock is stale: 'pure-app' declares different
+pydd.python._uvlock.LockError: uv.lock is stale: 'pure-app' declares different
 dependencies than the lock file resolved. pyproject.toml adds
 ['typing-extensions']. Run `uv lock` and build again.
 ```
@@ -812,9 +812,9 @@ the lock file.
 in Nix and every rule is in Python.**
 `ddrn/examples/venv-graph/workspace.nix` lists the `pyproject.toml` of each
 directory under the workspace and decides nothing: it reads no glob, it opens
-no file, and it holds no rule of uv. `ddrn_venv._workspace` takes that listing
+no file, and it holds no rule of uv. `pydd.python._workspace` takes that listing
 and answers which directories are members, with `fnmatch` of the standard
-library for each glob component. `ddrn_venv._freshness.check_members` compares
+library for each glob component. `pydd.python._freshness.check_members` compares
 the answer with `[manifest] members`.
 
 That split is the argument of the lab applied once more, and it is the reason
@@ -904,7 +904,7 @@ The seam was proved end to end, and uv agreed on each tree. A copy of
 `[tool.uv.workspace] members`, with no `uv lock` after it:
 
 ```
-ddrn_venv._uvlock.LockError: uv.lock is stale: it resolved a different set of
+pydd.python._uvlock.LockError: uv.lock is stale: it resolved a different set of
 workspace members. the workspace adds ['ws-extra']. Run `uv lock` and build
 again.
 ```
@@ -1058,7 +1058,7 @@ An empty `extra` makes that edge false, and the package leaves the environment
 with no message. One `extra != '...'` fails the other way, and keeps a package
 that the selection did not ask for.
 
-`ddrn_venv._uvlock` therefore refuses an edge whose marker holds this encoding,
+`pydd.python._uvlock` therefore refuses an edge whose marker holds this encoding,
 and the message decodes each value. `TestAConflictMarkerIsNotPep508` covers the
 three shapes. The alternative is to implement `UniversalMarker::evaluate`, and
 that needs the activated extras, groups and projects of the whole walk. uv
@@ -1171,7 +1171,7 @@ editablePythonSet = pythonSet.overrideScope editableOverlay;
 ```
 
 with `export REPO_ROOT=$(git rev-parse --show-toplevel)` in the shell hook.
-**This lab arrived at the same interface**, `root = "$DDRN_EDITABLE_ROOT"`, and
+**This lab arrived at the same interface**, `root = "$PYDD_EDITABLE_ROOT"`, and
 for the same reason: a literal root would put the tree into what the
 environment builds.
 
@@ -1190,7 +1190,7 @@ assert assertMsg (!hasPrefix storeDir root) ''
 
 The same message names the trap that catches everyone: a flake copies its
 source into the store, so an inferred `projectRoot` **is** a store path, and
-`--impure` is the workaround it offers. This lab bakes `$DDRN_EDITABLE_ROOT`
+`--impure` is the workaround it offers. This lab bakes `$PYDD_EDITABLE_ROOT`
 and never a store path, so it obeys the same rule. `check.nix` then points that
 variable at a store path **at run time**, which is a different thing and is
 what makes the two check derivations read one environment.
@@ -1274,7 +1274,7 @@ does not change when a second one arrives.
 
 ## Can the builders of pyproject.nix be passed into the planner?
 
-Three tiers exist, and the probe of `ddrn/NIX-FACTS.md` measured the first two.
+Three tiers exist, and the probe of `docs/NIX-FACTS.md` measured the first two.
 
 **Tier 1, the `lib` of nixpkgs: yes, and it is free.** `import (nixpkgs +
 "/lib")` inside the sandbox costs 0.0 s and no store operation, because `lib`
@@ -1315,7 +1315,7 @@ store are available.
 
 **Tier 4 makes that choice outside and hands in the result.** Ordinary Nix
 evaluation instantiates the candidates, and the planner receives a menu of
-`{ name, version, drv, out }`. `ddrn/NIX-FACTS.md` measures the mechanism, and
+`{ name, version, drv, out }`. `docs/NIX-FACTS.md` measures the mechanism, and
 the two facts that make it work are:
 
 - `builtins.unsafeDiscardOutputDependency value.drvPath` puts the `.drv` file
@@ -1336,7 +1336,7 @@ in behind one input path.
 **The return path is proved.** A planner took `hello` as a menu entry, wrote a
 node whose `input_drvs` names that `.drv`, and submitted it. The outer store
 then **substituted `hello` from `cache.nixos.org`** and ran the node, which
-printed `Hello, world!`. `ddrn/NIX-FACTS.md` holds the log.
+printed `Hello, world!`. `docs/NIX-FACTS.md` holds the log.
 
 That substitution is the fact that decides the design. A menu entry keeps the
 identity that nixpkgs gave it, so an override costs a download rather than a
@@ -1622,7 +1622,7 @@ plan:   installer installer-1.0.1-py3-none-any.whl (unpacked to bootstrap)
 plan: demo-lib: demo_lib-2.1.0-py3-none-any.whl (wheel)
 plan: demo-tool: demo_tool-3.0.0.tar.gz (sdist)
 plan:   backend demo_backend-1.0.0-py3-none-any.whl for demo-backend>=1.0
-plan: demo-app: editable through demoback, reading $DDRN_EDITABLE_ROOT
+plan: demo-app: editable through demoback, reading $PYDD_EDITABLE_ROOT
 ==> 6 nodes, 3 of them in the environment, from 4 artefacts
 ```
 
@@ -1666,7 +1666,7 @@ derivation that writes one is not reproducible until all three are fixed, and
 | gzip | the `mtime` of the header | `0`, through `gzip.compress(..., mtime=0)` |
 
 A `.pyc` records a fourth one, and `SOURCE_DATE_EPOCH` is the fix for it.
-`ddrn/NIX-FACTS.md` gives that measurement.
+`docs/NIX-FACTS.md` gives that measurement.
 
 **nixpkgs ships the installed tree of `installer`, and not the wheel of it.**
 The graph bootstraps by unzipping a wheel, because nothing can install the
@@ -1676,7 +1676,7 @@ again.
 **A member name is not a path, and two archives spell the same member two
 ways.** `tar` accepts `./demo-1.0/pyproject.toml`, and `zip` writes
 `demo-1.0/pyproject.toml`. A count of the separators answers one and not the
-other, so `ddrn_venv.is_pyproject` drops the leading `.` and each empty part,
+other, so `pydd.python.is_pyproject` drops the leading `.` and each empty part,
 and then asks for exactly two parts.
 
 ## A real uv project, built end to end
@@ -1716,9 +1716,9 @@ environment that the project supports**, so three decisions remain:
 
 | decision | who answers it | why the lock cannot |
 | --- | --- | --- |
-| which packages apply | `ddrn_venv._uvlock` | an edge carries a PEP 508 marker, and a fork carries `resolution-markers` |
+| which packages apply | `pydd.python._uvlock` | an edge carries a PEP 508 marker, and a fork carries `resolution-markers` |
 | which extras and groups | the caller, through `uv.nix` | `uv sync` takes it on its command line |
-| which artefact of a package | `ddrn_venv.choose` | `multidict` ships 145 wheels for one version |
+| which artefact of a package | `pydd.python.choose` | `multidict` ships 145 wheels for one version |
 
 `uv export --format requirements.txt` moves the first decision into uv itself.
 It still writes markers, so PEP 508 evaluation stays, and it costs a second
@@ -1756,7 +1756,7 @@ distributions
   rich==15.0.0
 ```
 
-PEP 503 normalisation is what makes the two agree, and `ddrn_venv` applies it
+PEP 503 normalisation is what makes the two agree, and `pydd.python` applies it
 at every join. A check that compares the two spellings directly fails, and this
 one did until the run above.
 
@@ -1804,7 +1804,7 @@ nothing. `hatchling` depends on four packages, and a build that installs the
 declaration alone fails at import.
 
 `uv.lock` holds the edges of every package that it lists, so
-`ddrn_venv.build_requirements` walks them from each name of `requires`. For
+`pydd.python.build_requirements` walks them from each name of `requires`. For
 `packaged-app` that turns two declared names into six pinned ones:
 
 ```text
@@ -1890,7 +1890,7 @@ holds one `.pth` and no generated module:
 
 ```text
 _editable_impl_packaged_app.pth
-  import sys; import os.path; sys.path.append(os.path.expandvars('$DDRN_EDITABLE_ROOT/src'))
+  import sys; import os.path; sys.path.append(os.path.expandvars('$PYDD_EDITABLE_ROOT/src'))
 ```
 
 `scripts/build-local.py` rewrites that line, and it raises for the other
@@ -1926,7 +1926,7 @@ The paths are relative to the directory that holds `pyproject.toml`, and PEP
 uv writes this setting into no lock file, and the lock file still carries the
 wheel of the package that the setting names. It is a decision of the consumer,
 so `uv.nix` reads it from `pyproject.toml`, where uv keeps it, and passes it to
-`ddrn_venv.choose`. That planner then takes the source distribution although a
+`pydd.python.choose`. That planner then takes the source distribution although a
 wheel fits:
 
 ```text
@@ -1991,7 +1991,7 @@ it. So a project that wants an extra by default has no place to write that, and
 `default_dependency_groups` raises `MissingDefaultGroup` when
 `tool.uv.default-groups` names a group that `[dependency-groups]` does not
 declare. The `["dev"]` that it falls back to reaches no such check, so a project
-with no dependency group at all still locks. `ddrn_venv._workspace.groups_of`
+with no dependency group at all still locks. `pydd.python._workspace.groups_of`
 copies both halves of that behaviour.
 
 ### A workspace names its members twice, in two spellings
@@ -2016,7 +2016,7 @@ none of it, and `pure-app` and `packaged-app` have no such table. `uv.nix`
 falls back to the name of the project, which keeps the default of a single
 project the same.
 
-`ddrn_venv._uvlock.Lock.members` parsed that table from the start and nothing
+`pydd.python._uvlock.Lock.members` parsed that table from the start and nothing
 read it. `tests/test_workspace.py` reads it now.
 
 ### One lock file resolves to more than one environment
@@ -2047,7 +2047,7 @@ serves. For a member of a workspace it is a directory under the project, and
 the redirect has to carry that directory too.
 
 `uv.nix` gave every local package the same `editableRoot`, so the `.pth` of
-`ws-core` read `$DDRN_EDITABLE_ROOT/src` and the environment raised
+`ws-core` read `$PYDD_EDITABLE_ROOT/src` and the environment raised
 `ModuleNotFoundError: No module named 'ws_core'`. It now joins the relative
 directory of `source = { editable = "packages/ws-core" }` to the redirect.
 
@@ -2178,7 +2178,7 @@ reads it.
 The proof of the difference is the path that the module comes from:
 
 ```text
-editable   loaded from $DDRN_EDITABLE_ROOT/src/packaged_app/__init__.py
+editable   loaded from $PYDD_EDITABLE_ROOT/src/packaged_app/__init__.py
 sdist      loaded from <the environment>/lib/python3.14/site-packages/packaged_app/__init__.py
 ```
 
@@ -2667,7 +2667,7 @@ cffi = ["stdenv.cc", "pkg-config", "libffi.dev", "libffi"]
 **Each value names an attribute of nixpkgs, and a dot walks into it.** This is
 a lookup and not a rule: `libffi.dev` names the `dev` output of one package,
 and nothing globs, compares a version or evaluates a marker. So the boundary
-that `ddrn/NIX-FACTS.md` records holds. `lib.hasAttrByPath` refuses a name that
+that `docs/NIX-FACTS.md` records holds. `lib.hasAttrByPath` refuses a name that
 nixpkgs does not answer, and the message names the package that asked:
 
 ```
@@ -2827,7 +2827,7 @@ The format itself does not force this. `Pylock` holds `extras`,
 `dependency_groups` and `default_groups`, and `select` takes the first two. The
 exporter of uv is what flattens them.
 
-**The export also carries no `[package.metadata]`.** `ddrn_venv._freshness`
+**The export also carries no `[package.metadata]`.** `pydd.python._freshness`
 compares that table with the `pyproject.toml` of each member, and it is how
 this lab refuses a stale lock file. A `pylock.toml` records no declaration to
 compare against, so a checked-in export goes stale with no reader to notice.
@@ -2895,7 +2895,7 @@ above and not of the reader:
 
 - One `pylock.toml` is one selection, so `select`, `extras` and `groups` need
   an exported file of each.
-- The export carries no `[package.metadata]`, so `ddrn_venv._freshness` has
+- The export carries no `[package.metadata]`, so `pydd.python._freshness` has
   nothing to compare.
 - `packaging.pylock` reads the same file in the planner, and the spike calls
   it nowhere.
@@ -2936,7 +2936,7 @@ does not change when the second one arrives.
    **The planner is instantiated outside the sandbox, and it has to be.** A
    planner cannot read a store path that the planner itself added, so
    `builtins.outputOf` on a derivation written inside fails.
-   `ddrn/NIX-FACTS.md` gives the measurement. `default.nix` therefore
+   `docs/NIX-FACTS.md` gives the measurement. `default.nix` therefore
    instantiates one planner for each source distribution of the lock file, to
    a fixed depth, and hands each `.drv` in the way the menu hands in a fetch.
 

@@ -236,7 +236,7 @@ def install(wheel: Path, out: Path, installer_path: str) -> None:
     for a wheel of the index. An editable wheel is a wheel, and PEP 376 does
     not treat it apart.
     """
-    subprocess.run(  # noqa: S603 -- every argument comes from the plan, and the plan is this build
+    subprocess.run(
         [sys.executable, "-m", "installer", "--prefix", str(out), str(wheel)],
         check=True,
         env={**os.environ, "PYTHONPATH": installer_path},
@@ -319,8 +319,8 @@ def main() -> int:
 
     out = Path(env("out"))
     backend_name = env("backend")
-    backend_path = os.environ.get("backendPath", "")  # noqa: SIM112 -- Nix names a derivation attribute in lower case
-    subdirectory = os.environ.get("subdirectory", "")  # noqa: SIM112 -- same
+    backend_path = os.environ.get("backendPath", "")
+    subdirectory = os.environ.get("subdirectory", "")
 
     build_dir = writable_copy(Path(env("source")))
     # **The backend runs where `pyproject.toml` is, and that is not always the

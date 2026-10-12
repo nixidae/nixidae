@@ -2,7 +2,7 @@
 
 This script is the builder of `ddrn/examples/venv-graph/default.nix`. It runs
 inside the sandbox of a `builder-rpc-v0` build, and it needs the three changes
-to Nix that `ddrn/UPSTREAM.md` gives.
+to Nix that `docs/UPSTREAM.md` gives.
 
 **Compare it with `ddrn/examples/venv/plan.py`.** That planner makes the same
 packaging decisions and then emits **one** derivation, because a planner that
@@ -27,16 +27,16 @@ the wheel of `flit_core` becomes another node of the same graph. The build of
 `idna` then reads the output of that node. No node of that pair can exist
 without the other, and neither can exist before the plan runs.
 
-**The decisions live in `ddrn_venv`, and this file reads one document.**
-`ddrn_venv` holds what every planner of this example shares. What remains here
-is reading `DDRN_INPUTS`, which the Nix half builds from a lock file, and
+**The decisions live in `pydd.python`, and this file reads one document.**
+`pydd.python` holds what every planner of this example shares. What remains here
+is reading `PYDD_INPUTS`, which the Nix half builds from a lock file, and
 turning it into the plan document.
 
-**Two lock formats reach this planner, and `DDRN_INPUTS` is the same for
+**Two lock formats reach this planner, and `PYDD_INPUTS` is the same for
 both.**
 `lock.json` is the hand-written one of this example, and its `roots` name what
 to install. `uv.lock` is the one that `uv` writes, and it names no root: this
-planner resolves it here, with `ddrn_venv._uvlock`, and the members of that
+planner resolves it here, with `pydd.python._uvlock`, and the members of that
 resolution become roots. `./uv.nix` is the Nix half of the second one.
 """
 
@@ -49,7 +49,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ddrn_venv import (
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
+from pydd.python import (
     Artifact,
     LocalNode,
     Lock,
@@ -67,14 +70,13 @@ from ddrn_venv import (
     submit,
     target_from_environ,
 )
-from ddrn_venv._workspace import members as members_of, selection
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
+from pydd.python._workspace import members as members_of
+from pydd.python._workspace import selection
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ddrn_venv._workspace import Choice
+    from pydd.python._workspace import Choice
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +87,7 @@ class Request:
     different lock format has to produce.
 
     **It records no build system.** Neither `uv.lock` nor `poetry.lock` does,
-    and `ddrn/PACKAGING-FACTS.md` gives the measurement. A source distribution
+    and `docs/PACKAGING-FACTS.md` gives the measurement. A source distribution
     therefore becomes a node of kind `sdist`, which is a planner and not a
     build, and that planner reads the declaration out of the archive.
     """
@@ -165,12 +167,12 @@ class UvProject:
     #: The `pyproject.toml` of every directory under the workspace, keyed by
     #: the path of that directory. `uv.nix` walks the tree to build it, because
     #: a member that the lock file never saw reaches no comparison of
-    #: `declarations`. `ddrn_venv._workspace` reads the globs out of it. An
+    #: `declarations`. `pydd.python._workspace` reads the globs out of it. An
     #: empty mapping turns that comparison off.
     workspace: dict[str, str] = field(default_factory=dict[str, str])
     #: Which extras of each member to enable, when `select` says nothing.
     #: `None` is `uv sync` with no flag, `"all"` is `--all-extras`, and a list
-    #: names them. `ddrn_venv._workspace.extras_of` gives the rule of uv.
+    #: names them. `pydd.python._workspace.extras_of` gives the rule of uv.
     extras: Choice = None
     #: Which dependency groups, when `select` says nothing. `None` is
     #: `tool.uv.default-groups` of each member, which is `["dev"]` when that
@@ -268,7 +270,7 @@ class UvProject:
     def backend(self, requirements: Iterable[Requirement], target: Target, subject: str) -> list[Requirement]:
         """The closure of a `build-system.requires`, as one pin for each name.
 
-        `ddrn_venv.build_requirements` says why the closure and not the list,
+        `pydd.python.build_requirements` says why the closure and not the list,
         and what to do when the lock file does not hold the backend.
         """
         try:
@@ -371,7 +373,7 @@ def resolve(
         # **nixpkgs answers first, and the index is not consulted at all.** The
         # entry names a package that Nix already built for this system, so
         # no wheel is chosen, no artefact is fetched and `auto-patchelf` never
-        # runs. `ddrn/PACKAGING-FACTS.md` gives the reason to want this: a
+        # runs. `docs/PACKAGING-FACTS.md` gives the reason to want this: a
         # manylinux wheel carries its own copy of every library it links
         # against, and nixpkgs links against the store.
         supplied = request.from_nixpkgs.get(canonicalize_name(requirement.name))
@@ -472,7 +474,7 @@ def resolve(
 def main() -> int:
     store = open_restricted_store()
 
-    inputs = json.loads(env("DDRN_INPUTS"))
+    inputs = json.loads(env("PYDD_INPUTS"))
     target = target_from_environ()
 
     projects = [
@@ -501,7 +503,7 @@ def main() -> int:
 
     plan = resolve(request, projects, target, uv)
     application: str | None = inputs.get("application")
-    root = plan.root(env("DDRN_VENV_NAME"), application=application)
+    root = plan.root(env("PYDD_VENV_NAME"), application=application)
     if application is not None:
         print(f"plan: application {application}, over the environment of the same members", file=sys.stderr)
 
@@ -513,8 +515,8 @@ def main() -> int:
 
     submit(
         store,
-        plan.document(root=root, system=env("DDRN_SYSTEM"), python_version=target.python_version, inputs=inputs),
-        env("DDRN_GRAPH_NIX"),
+        plan.document(root=root, system=env("PYDD_SYSTEM"), python_version=target.python_version, inputs=inputs),
+        env("PYDD_GRAPH_NIX"),
     )
     return 0
 

@@ -1,20 +1,15 @@
 # An environment from the uv.lock of `myapp`, a local project installed as a
-# PEP 660 editable. `idna` is built from its sdist: its backend, `flit_core`,
-# and the installer come from the same lock, and are nodes of the same graph.
+# PEP 660 editable. `idna` is built from its sdist, and a planner of its own
+# reads the backend out of the archive. That backend, `flit_core`, and the
+# installer come from the same lock, and are nodes of the same graph.
 {
   pydd,
   runCommand,
 }:
 let
-  env = pydd.python.mkEnvironment {
-    name = "demo-venv";
-    src = ./fixtures/myapp;
-    editableRoots.myapp = "$PYDD_EDITABLE_ROOT";
-    noBinary = [ "idna" ];
-    buildSystems.idna = {
-      backend = "flit_core.buildapi";
-      requires = [ "flit_core >=3.11,<5" ];
-    };
+  env = pydd.python.uv {
+    project = ./fixtures/myapp;
+    venvName = "demo-venv";
   };
 in
 env

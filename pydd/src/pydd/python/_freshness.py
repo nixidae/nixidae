@@ -14,7 +14,7 @@ and say nothing, which is the worst answer of the three.
     ddrn = [{ name = "installer", specifier = ">=1.0.1" }]
 
 This module makes the part of that comparison that is exact, and it refuses to
-guess at the rest. `ddrn/PACKAGING-FACTS.md` records what each part costs.
+guess at the rest. `docs/PACKAGING-FACTS.md` records what each part costs.
 
 ## What this compares, and why only this
 
@@ -48,11 +48,11 @@ planner waits for, and it closes this gap and the eighteen others of
 makes it. `uv.nix` builds one declaration for each package that `uv.lock`
 holds, so a member that the lock file never saw reaches no comparison of
 `[package.metadata]`. `workspace.nix` walks the tree during the evaluation, and
-`ddrn_venv._workspace` turns that listing into the member set. uv compares the
+`pydd.python._workspace` turns that listing into the member set. uv compares the
 same two sets, and it calls the difference
 `SatisfiesResult::MismatchedMembers`.
 
-**`ddrn_venv._workspace` answers `None` for a rule that reaches further than
+**`pydd.python._workspace` answers `None` for a rule that reaches further than
 it does**, and the comparison is then off. That module names each such case. A
 false alarm would stop a build that is correct, which is worse than the gap.
 
@@ -72,15 +72,15 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 
-from ddrn_venv._uvlock import LockError
-from ddrn_venv._workspace import members as members_of
+from pydd.python._uvlock import LockError
+from pydd.python._workspace import members as members_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
     from packaging.utils import NormalizedName
 
-    from ddrn_venv._uvlock import Lock, Package
+    from pydd.python._uvlock import Lock, Package
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -281,7 +281,7 @@ def check_members(lock: Lock, listing: Mapping[str, str] | None) -> None:
 
     `listing` is what `workspace.nix` walked: the `pyproject.toml` of every
     directory under the workspace, keyed by the path of that directory.
-    `ddrn_venv._workspace` holds every rule that turns the listing into a
+    `pydd.python._workspace` holds every rule that turns the listing into a
     member set, and it answers `None` for a rule that reaches further than it
     does. `None` on either side turns the comparison off.
 

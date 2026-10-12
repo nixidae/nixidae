@@ -97,8 +97,8 @@ def link_script(source: Path, target: Path, venv_python: bytes) -> None:
 
 
 def main() -> int:
-    out = Path(os.environ["out"])  # noqa: SIM112 -- Nix names a derivation attribute in lower case
-    members = [Path(member) for member in os.environ["members"].split()]  # noqa: SIM112 -- as above
+    out = Path(os.environ["out"])
+    members = [Path(member) for member in os.environ["members"].split()]
 
     # `EnvBuilder` takes the interpreter that runs this script as the base of
     # the environment, which is the interpreter that `graph.nix` names.
@@ -125,7 +125,7 @@ def main() -> int:
                     raise RuntimeError(f"two members provide the script '{entry.name}'")
                 link_script(entry, target, venv_python)
 
-    (out / "manifest").write_text(os.environ["installed"] + "\n", encoding="utf-8")  # noqa: SIM112 -- as above
+    (out / "manifest").write_text(os.environ["installed"] + "\n", encoding="utf-8")
 
     print(f"{len(members)} members, {len(list(site.iterdir()))} entries in site-packages", file=sys.stderr)
     return 0

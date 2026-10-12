@@ -4,7 +4,7 @@
 declares its build system inside the archive, and the archive is a file that
 some derivation has to download first. So the backend is not known when the
 outer plan runs, and `uv.lock` and `poetry.lock` do not record it either.
-`ddrn/PACKAGING-FACTS.md` gives the measurement behind that statement.
+`docs/PACKAGING-FACTS.md` gives the measurement behind that statement.
 
 The outer planner therefore registers **this planner** as a node of its graph,
 rather than a build. The archive is an input of this derivation, so Nix
@@ -24,7 +24,9 @@ from __future__ import annotations
 import json
 import sys
 
-from ddrn_venv import (
+from packaging.requirements import Requirement
+
+from pydd.python import (
     Artifact,
     Lock,
     LockError,
@@ -39,25 +41,24 @@ from ddrn_venv import (
     submit,
     target_from_environ,
 )
-from packaging.requirements import Requirement
 
 
 def main() -> int:
     store = open_restricted_store()
 
-    inputs = json.loads(env("DDRN_INPUTS"))
+    inputs = json.loads(env("PYDD_INPUTS"))
     artifacts = [Artifact.from_json(row) for row in inputs["artifacts"]]
     target = target_from_environ()
 
     # The archive itself. It is an input of this derivation, so it is present,
     # and the node that builds it needs no fetch.
-    archive = env("DDRN_SDIST")
+    archive = env("PYDD_SDIST")
     # **The row of this archive travels apart from the menu, and that is a
     # measurement and not a taste.** Every planner of one level reads the same
     # menu, so `default.nix` serialises that menu one time for the level. A row
     # inside the menu made each document different, and Nix then wrote a
     # quarter of a megabyte of JSON for each of the planners.
-    subject: dict[str, str] = json.loads(env("DDRN_SDIST_ROW"))
+    subject: dict[str, str] = json.loads(env("PYDD_SDIST_ROW"))
     # **The project is not always at the top of the archive.** A URL source of
     # `uv.lock` names a subdirectory, and the archive of `pypa/hatch` holds more
     # than one project. The declaration to read, and the directory that the
@@ -118,11 +119,11 @@ def main() -> int:
         store,
         plan.document(
             root=root,
-            system=env("DDRN_SYSTEM"),
+            system=env("PYDD_SYSTEM"),
             python_version=target.python_version,
             inputs=inputs,
         ),
-        env("DDRN_GRAPH_NIX"),
+        env("PYDD_GRAPH_NIX"),
     )
     return 0
 

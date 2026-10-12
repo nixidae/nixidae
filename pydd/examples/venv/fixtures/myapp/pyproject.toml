@@ -23,3 +23,7 @@ myapp = "myapp:main"
 # in uv.lock, and pydd never installs it.
 [dependency-groups]
 build = ["flit_core >=3.11,<5", "installer"]
+
+[tool.uv]
+# Build idna from its sdist, so the example shows a planner per sdist.
+no-binary-package = ["idna"]

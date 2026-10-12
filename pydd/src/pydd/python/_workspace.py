@@ -33,7 +33,7 @@ member list, and these five rules come from it:
 `LockTarget::members` of `crates/uv/src/commands/project/lock_target.rs` gives
 the sixth rule, and it is not in that function: **uv writes an empty
 `[manifest] members` for a workspace of one member that is a project.** Every
-single project therefore has an empty list. `ddrn_venv._freshness` applies that
+single project therefore has an empty list. `pydd.python._freshness` applies that
 rule, because it belongs to the comparison and not to the walk.
 
 ## What the globs mean
@@ -83,7 +83,7 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from ddrn_venv._uvlock import LockError
+from pydd.python._uvlock import LockError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence

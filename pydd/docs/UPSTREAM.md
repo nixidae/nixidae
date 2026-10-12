@@ -79,7 +79,7 @@ object with `outputPathName(drv.name, "out")`. The submitted object is the root
 makes `graph` must itself be named `graph.drv`. It declares, in advance, the
 name of a result that its own builder computes.
 
-`ddrn/NIX-FACTS.md`, section "Why the `.drv` naming schema exists", gives the
+`docs/NIX-FACTS.md`, section "Why the `.drv` naming schema exists", gives the
 whole chain and the commit that added each link. The short form: the `.drv`
 suffix is a type tag that the store enforces, the name rule of an output is
 what keeps a fixed content-addressed output on the path its name gives, and

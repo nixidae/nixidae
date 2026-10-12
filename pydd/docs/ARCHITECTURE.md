@@ -107,22 +107,22 @@ and one new operation, `SubmitOutput`.
 
 `plan.py` runs there, and it takes five steps:
 
-0. **Refuse a stale lock file.** `ddrn_venv._freshness` compares the
+0. **Refuse a stale lock file.** `pydd.python._freshness` compares the
    `[package.metadata]` of each member with the `pyproject.toml` that the
-   workspace holds now, and `ddrn_venv._workspace` reads the member globs over
+   workspace holds now, and `pydd.python._workspace` reads the member globs over
    the directories that `workspace.nix` listed. A project that grew a
    dependency, or a workspace that grew a member, would otherwise get the old
    environment and no message. uv makes both comparisons, in
    `Lock::satisfies`.
-1. **Read the lock file.** `ddrn_venv._uvlock` resolves `uv.lock` for the
+1. **Read the lock file.** `pydd.python._uvlock` resolves `uv.lock` for the
    target: which fork, which extras, which groups. It follows the same three
    steps that `Installable::to_resolution` of uv takes, and
    `PACKAGING-FACTS.md` records each rule with the function of uv that holds
    it.
-2. **Choose an artefact for each package.** `ddrn_venv._resolve` asks
+2. **Choose an artefact for each package.** `pydd.python._resolve` asks
    `packaging` for the PEP 425 tags of the target and for the PEP 508 markers,
    and it takes the best wheel, or the source distribution when no wheel fits.
-3. **Write the plan document.** `ddrn_venv._plan` builds one node for each
+3. **Write the plan document.** `pydd.python._plan` builds one node for each
    install step. The document is the interface: a reader of a different lock
    format is a new producer of the same document, and `graph.nix` does not
    change when one arrives.
@@ -282,7 +282,7 @@ RuntimeError: Compression requires the (missing) zlib module
 ```
 
 `ssl` and `ctypes` are absent as well, so a project that speaks HTTPS or loads
-a shared library cannot run there either. `ddrn/PACKAGING-FACTS.md` holds the
+a shared library cannot run there either. `docs/PACKAGING-FACTS.md` holds the
 whole table of what each interpreter keeps, and the command that measured it.
 
 ## The tests

@@ -23,7 +23,7 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -32,3 +32,4 @@ select = ["E", "F", "I", "UP", "B", "SIM", "PIE", "RUF"]
 # A node reads its derivation's attributes, and Nix names them in lower case.
 [tool.ruff.lint.per-file-ignores]
 "src/pydd/python/scripts/*" = ["SIM112"]
+"src/pydd/python/_*.py" = ["SIM112"]

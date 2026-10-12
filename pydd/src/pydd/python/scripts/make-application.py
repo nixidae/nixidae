@@ -80,10 +80,10 @@ def offered(base: Path, venv: Path, site: Path) -> set[Path]:
 
 
 def main() -> int:
-    out = Path(os.environ["out"])  # noqa: SIM112 -- Nix names a derivation attribute in lower case
-    venv = Path(os.environ["venv"])  # noqa: SIM112 -- as above
-    bases = [Path(base) for base in os.environ["bases"].split()]  # noqa: SIM112 -- as above
-    site = Path(os.environ["site"])  # noqa: SIM112 -- as above
+    out = Path(os.environ["out"])
+    venv = Path(os.environ["venv"])
+    bases = [Path(base) for base in os.environ["bases"].split()]
+    site = Path(os.environ["site"])
 
     holds = {base: offered(base, venv, site) for base in bases}
 

@@ -13,21 +13,14 @@ roots its document at the build of that distribution.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from nanopynix_bindings import expr as nix_expr, store as nix_store
 from packaging.utils import canonicalize_name
 
-# **`nanopynix.libstore` and not `nanopynix`.** A planner opens a store,
-# initialises Nix and submits one output, and it needs no RPC engine. That
-# module imports `nanopynix_bindings` and nothing else of nanopynix, so it
-# costs 53 ms against 848 ms for the package. `ddrn/PACKAGING-FACTS.md`
-# measures what a planner spends its run on.
-from nanopynix.libstore import init_libstore
+from .._writer import HuggormWriter
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -256,7 +249,7 @@ class Plan:
         **This node builds nothing.** `default.nix` instantiated the package
         outside the sandbox and handed in the `.drv` and the output path with
         the dependency between them discarded, which is the tier 4 mechanism
-        that `ddrn/PACKAGING-FACTS.md` describes. `graph.nix` puts the
+        that `docs/PACKAGING-FACTS.md` describes. `graph.nix` puts the
         dependency back with `builtins.appendContext`, and the outer store then
         **substitutes** the output from a cache rather than building it.
 
@@ -371,7 +364,7 @@ class Plan:
         }
 
 
-def open_restricted_store() -> nix_store.Store:
+def open_restricted_store() -> HuggormWriter:
     """Open the restricted daemon socket that `builder-rpc-v0` gives a builder.
 
     A planner runs only inside such a build, so a different `NIX_REMOTE` is an
@@ -386,31 +379,75 @@ def open_restricted_store() -> nix_store.Store:
     # A `builder-rpc-v0` build gets no `$out`. The output arrives through
     # `submit_output` instead, so there is no path to write to.
     if "out" in os.environ:
-        raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")  # noqa: SIM112 -- Nix names this variable in lower case
+        raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")
 
-    init_libstore()
-    nix_expr.init_libexpr()
-    store = nix_store.open_store(remote)
-    print(f"==> restricted store: {store.get_uri()}", file=sys.stderr)
-    return store
+    return HuggormWriter(remote)
 
 
-def submit(store: nix_store.Store, document: dict[str, Any], graph_nix: str) -> None:
+#: A key whose value is the output path of the derivation that the paired key
+#: names, as the menu hands both over with their dependency discarded.
+BUILT_PAIRS = {"out": "drv", "plannerOut": "plannerDrv"}
+
+
+def document_value(state: Any, data: Any, store_dir: str) -> Any:
+    """`data` as a Nix value, with the string context that `graph.nix` needs.
+
+    **The context is attached here, because the Nix language cannot.**
+    `builtins.storePath` and `builtins.appendContext` call `EnsurePath`, and a
+    `builder-rpc-v0` socket refuses it. So a store path gets plain context, and
+    the output of a menu entry gets the context of its derivation: reading it
+    builds that derivation, and an entry that no node reads is never built.
+    """
+    match data:
+        case dict():
+            value = state.make_attrs()
+            for name, item in data.items():
+                drv = data.get(BUILT_PAIRS.get(name, ""))
+                if isinstance(drv, str) and isinstance(item, str):
+                    element = f"!out!{drv.split('/')[3]}"
+                    state.attrs_set(value, name, state.make_string(item, [element]))
+                elif name in BUILT_PAIRS.values():
+                    state.attrs_set(value, name, state.make_string(item))
+                else:
+                    state.attrs_set(value, name, document_value(state, item, store_dir))
+            return value
+        case list():
+            value = state.make_list()
+            for item in data:
+                state.list_append(value, document_value(state, item, store_dir))
+            return value
+        case str() if data.startswith(store_dir + "/"):
+            return state.make_string(data, [data.split("/")[3]])
+        case str():
+            return state.make_string(data)
+        case bool():
+            return state.make_bool(data)
+        case int():
+            return state.make_int(data)
+        case float():
+            return state.make_float(data)
+        case None:
+            return state.make_null()
+    raise TypeError(f"no Nix value for {type(data).__name__}")
+
+
+def submit(writer: HuggormWriter, document: dict[str, Any], graph_nix: str) -> None:
     """Evaluate `graph.nix` over `document`, and submit the root it wrote.
 
     **The evaluator reads a fixed file, and the plan is its argument.** The
     decisions of a planner are data, and `graph.nix` is the code that turns
     them into derivations. No planner writes a Nix expression by hand.
     """
-    expression = f"import {graph_nix} (builtins.fromJSON {nix_string(json.dumps(document))})"
+    import huggorm
 
-    state = nix_expr.EvalState(store)
-    root = state.eval_string(expression)
+    state = huggorm.EvalState(writer.store)
+    graph = state.eval_file(graph_nix)
+    root = graph(document_value(state, document, os.environ.get("NIX_STORE", "/nix/store")))
 
-    # `derived_path` gives the store path of the `.drv` that the evaluator
-    # wrote. It is not an output path: this build cannot realise anything.
-    root_drv = root.derived_path()
+    # The store path of the `.drv` that the evaluator wrote. It is not an
+    # output path: this build cannot realise anything.
+    root_drv = writer.store.print_store_path(root.drv_path())
     print(f"==> the evaluator wrote {root_drv}", file=sys.stderr)
 
-    store.submit_output(root_drv, "out")
+    writer.submit(root_drv, "out")
     print("==> submitted it as output 'out'", file=sys.stderr)

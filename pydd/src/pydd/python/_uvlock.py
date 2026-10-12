@@ -24,7 +24,7 @@ and it names the function beside each decision that it takes from them.
 
 **The lock file records no build system**, so a source distribution of the
 lock becomes a node of kind `sdist`, which is a planner that reads the archive.
-`ddrn/PACKAGING-FACTS.md` gives the measurement and the consequence.
+`docs/PACKAGING-FACTS.md` gives the measurement and the consequence.
 """
 
 from __future__ import annotations
@@ -201,7 +201,7 @@ class Package:
     #: The name as the lock file writes it, before PEP 503 normalisation.
     raw_name: str
     #: `None` for a project whose version is dynamic. Six packages of the 22
-    #: lock files that `ddrn/PACKAGING-FACTS.md` measures have no version, and
+    #: lock files that `docs/PACKAGING-FACTS.md` measures have no version, and
     #: each one is a local project, so the name alone identifies it.
     version: str | None
     source: Mapping[str, Any]
@@ -216,7 +216,7 @@ class Package:
     sdist: File | None = None
     #: The `[package.metadata]` table, which holds the declaration that this
     #: entry was resolved from. uv writes it so that `Lock::satisfies` can tell
-    #: a stale lock file from a current one, and `ddrn_venv._freshness` reads
+    #: a stale lock file from a current one, and `pydd.python._freshness` reads
     #: it for the same purpose. **No resolution reads it**: the edges above
     #: already hold what the resolution decided.
     metadata: Mapping[str, Any] = field(default_factory=dict[str, Any])
@@ -289,7 +289,7 @@ class Package:
 
         uv calls the source kind `Source::Path`. A registry that is a
         directory writes the same key on the row of the artefact, which uv
-        calls `WheelWireSource::Path`; `ddrn/PACKAGING-FACTS.md` gives the
+        calls `WheelWireSource::Path`; `docs/PACKAGING-FACTS.md` gives the
         three shapes.
         """
         return "path" in self.source

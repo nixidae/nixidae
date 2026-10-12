@@ -6,7 +6,7 @@
 # with `path "/0a988..." is not in the Nix store`. This derivation is the only
 # shape that works, and its whole content is one symbolic link to the
 # application. Measured: it adds 176 bytes and one path to a closure of
-# 238229120 bytes. `ddrn/NIX-FACTS.md` holds both measurements, under "A dynamic
+# 238229120 bytes. `docs/NIX-FACTS.md` holds both measurements, under "A dynamic
 # output carries no `meta`".
 #
 # **The output of this derivation is deferred, like every node of the graph.**

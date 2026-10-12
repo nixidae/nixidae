@@ -2,15 +2,15 @@
 #
 # **This file makes no packaging decision.** It reads `uv.lock` with
 # `builtins.fromTOML`, makes one `pkgs.fetchurl` for every artefact of every
-# package, and gives that list to `./default.nix` through the `artifacts` seam.
+# package, and gives that list to `./planner.nix` through the `artifacts` seam.
 # An artefact of a `path` source has no address, so `builtins.path` copies that
 # file into the store and the row names the copy.
 # It chooses no wheel, it evaluates no marker, and it walks no edge.
-# `ddrn_venv._uvlock` does all of that, inside the planner, with `packaging`.
+# `pydd.python._uvlock` does all of that, inside the planner, with `packaging`.
 #
 # `uv2nix` makes the opposite choice. It re-implements PEP 440 and PEP 508 in
 # the Nix language (`pyproject.nix/lib/pep440.nix`, `lib/pep508.nix`) and
-# resolves the lock file during evaluation. `ddrn/PACKAGING-FACTS.md` gives the
+# resolves the lock file during evaluation. `docs/PACKAGING-FACTS.md` gives the
 # measurement that decided this lab against that: a menu of every artefact of a
 # 1911-package lock file costs 632 KB and 1.2 s, so a filter buys nothing.
 #
@@ -19,33 +19,12 @@
 # derivation to instantiate and `builtins.fetchGit` runs during evaluation.
 # Every other input stays lazy. `gitTree` below gives the whole cost.
 #
-# The projects under `./projects` come from `uv` itself. `projects/README.md`
-# gives the command that wrote each one.
-#
-# Usage: `ddrn/examples/venv-graph/run-uv.sh`.
 {
-  pkgs ? import <nixpkgs> { },
-  # A Python environment that has nanopynix, built against the patched Nix.
-  # `./default.nix` says why a derivation here is pure and a string is not.
-  #
-  # **The default builds it out of this repository, so a caller passes no
-  # `--argstr nanopynixEnv`.** `run-uv.sh` and `tests/toolchain.py` still pass
-  # the value, because each of them builds the environment once and reuses it,
-  # and Nix never evaluates a default that a caller replaces.
-  #
-  # It costs 2.8 s of evaluation, measured on 2026-08-12 with `nix eval` over
-  # the `drvPath` of the same expression. That is the whole of this repository,
-  # so a copy of this file outside the checkout has to pass the argument.
-  #
-  # **An edit of this directory does not change the value.** The source filter
-  # of `nanopynixMaster` leaves `ddrn/` out, measured on 2026-08-12: an added
-  # line in `./README.md` gave the same `ddrn-planner-env.drv`. So an edit here
-  # rebuilds no planner environment.
-  nanopynixEnv ? (import ../../.. { }).nanopynixMaster.pythonSet.mkVirtualEnv "ddrn-planner-env" {
-    nanopynix = [ ];
-  },
+  pkgs,
+  # The pydd library, with the huggorm writer.
+  pydd,
   # The uv project to build. It holds `pyproject.toml` and `uv.lock`.
-  project ? ./projects/pure-app,
+  project,
   # Which packages of the lock file to install, and which extras and which
   # dependency groups of each one to enable.
   #
@@ -81,8 +60,8 @@
   # What a PEP 660 editable install of a local project redirects to. A literal
   # path names one tree forever. A reference to a variable, which is the
   # default, keeps the environment the same bytes for every tree.
-  # `./default.nix` gives the whole reason at its `editables` argument.
-  editableRoot ? "$DDRN_EDITABLE_ROOT",
+  # `./planner.nix` gives the whole reason at its `editables` argument.
+  editableRoot ? "$PYDD_EDITABLE_ROOT",
   # Each member to install from its own source distribution, by package name.
   # Every other `editable` source installs as a PEP 660 editable.
   #
@@ -100,14 +79,14 @@
   # replaces that table, and `[ ]` is therefore "no member ships an archive".
   fromSdist ? null,
   venvName ? null,
-  # The interpreter that the environment runs. `./default.nix` gives the whole
+  # The interpreter that the environment runs. `./planner.nix` gives the whole
   # reason at its `python` argument, and the short one is this: the interpreter
   # is the whole runtime closure, and a smaller one costs a build of CPython
   # and adds a second interpreter to every store that holds `pkgs.python3`.
   python ? pkgs.python3,
   markers ? { },
   # Each package that nixpkgs supplies instead of the index, as
-  # `{ pyzmq = pkgs.python3Packages.pyzmq; }`. `./default.nix` gives the whole
+  # `{ pyzmq = pkgs.python3Packages.pyzmq; }`. `./planner.nix` gives the whole
   # reason at its `fromNixpkgs` argument, and the short one is this: a manylinux
   # wheel carries a copy of every library that it links against, and a package
   # of nixpkgs links against the store.
@@ -121,7 +100,7 @@
   # of each package that it names.
   fromNixpkgs ? { },
   # What one package needs to build, by package name, as
-  # `{ psutil = [ pkgs.stdenv.cc ]; }`. `./default.nix` gives the whole reason
+  # `{ psutil = [ pkgs.stdenv.cc ]; }`. `./planner.nix` gives the whole reason
   # at its `buildTools` argument, and the short one is this: a source
   # distribution that holds C code needs a compiler, and no other node does.
   #
@@ -184,7 +163,7 @@
   # **`builtins.outputOf` gives a string, and a string carries no `meta`.** So
   # the `app` attribute of the result is a derivation whose whole content is one
   # symbolic link to the application, and `meta.mainProgram` of that derivation
-  # is what this argument names. `ddrn/NIX-FACTS.md` gives the measurement,
+  # is what this argument names. `docs/NIX-FACTS.md` gives the measurement,
   # under "A dynamic output carries no `meta`".
   #
   # `null` takes the sole name of `application`, which is right whenever the
@@ -245,7 +224,7 @@ let
   # **A member that the lock file never saw reaches no comparison of
   # `[package.metadata]`**, because `declarations` below is built from the lock
   # file. `./workspace.nix` walks the tree instead, and it gives the
-  # `pyproject.toml` of every directory that holds one. `ddrn_venv._workspace`
+  # `pyproject.toml` of every directory that holds one. `pydd.python._workspace`
   # reads `[tool.uv.workspace] members` out of that listing and answers which
   # directories are members. **The walk decides nothing**, so no glob and no
   # rule of uv is in the Nix language.
@@ -358,7 +337,7 @@ let
   # is necessary, and what the build of it verifies.
   applicationWrapper = import ./application.nix {
     inherit pkgs;
-    application = builtins.outputOf planner.outPath "out";
+    application = planned.out;
     program = chosenProgram;
     name = environmentName;
   };
@@ -391,12 +370,12 @@ let
   # build` takes a derivation.
   environmentWrapper =
     let
-      target = if environmentTarget == null then planner else environmentTarget;
+      target = if environmentTarget == null then planned else environmentTarget;
       name = if application == null then environmentName else "${environmentName}-env";
     in
     import ./application.nix {
       inherit pkgs name;
-      application = builtins.outputOf target.outPath "out";
+      application = target.out;
       program = null;
     };
 
@@ -406,7 +385,7 @@ let
   # PATH, so `python`, `pytest` and the console script of every member run from
   # the shell.
   #
-  # **The shell sets `DDRN_EDITABLE_ROOT`, and that is what it is for.** A PEP
+  # **The shell sets `PYDD_EDITABLE_ROOT`, and that is what it is for.** A PEP
   # 660 editable of this lab redirects to that variable rather than to a store
   # path, so one environment serves every tree. Every `check-*.nix` of this
   # directory sets the variable, because a derivation that reads an editable
@@ -423,7 +402,7 @@ let
   developmentShell = pkgs.mkShellNoCC {
     name = "${environmentName}-shell";
     packages = [ environmentWrapper ];
-    DDRN_EDITABLE_ROOT = toString project;
+    PYDD_EDITABLE_ROOT = toString project;
   };
 
   # **`tool.uv` is a setting of the project, and uv copies none of it into the
@@ -445,12 +424,12 @@ let
   #
   # and `nix build --file uv.nix env --arg project ./.` needs no second
   # argument. uv2nix asks for an overlay in the Nix language for the same
-  # decision, and `ddrn/PACKAGING-FACTS.md` records what that costs a user.
+  # decision, and `docs/PACKAGING-FACTS.md` records what that costs a user.
   #
   # **A value is a lookup, and it is not a rule.** The dots walk `pkgs`, so
   # `libffi.dev` names the `dev` output of one package. Nothing here globs,
   # compares a version or evaluates a marker: those belong to the planner, and
-  # `ddrn/PACKAGING-FACTS.md` gives the boundary.
+  # `docs/PACKAGING-FACTS.md` gives the boundary.
   #
   # **The key is a package name, and no check reads it here.** A name that this
   # target does not install is not a mistake: one lock file resolves to more
@@ -484,7 +463,7 @@ let
   chosenBuildTools = declaredBuildTools // buildTools;
 
   # **Which package comes from nixpkgs rather than the index, in that same
-  # table.** The reason is the one that `./default.nix` gives at its
+  # table.** The reason is the one that `./planner.nix` gives at its
   # `fromNixpkgs` argument: a manylinux wheel carries a copy of every library
   # that it links against, and a package of nixpkgs links against the store.
   #
@@ -503,7 +482,7 @@ let
   chosenFromSdist = if fromSdist != null then fromSdist else ddrn."from-sdist" or [ ];
 
   # The three source kinds that mean "a directory of this workspace, and not an
-  # artefact of an index". `ddrn_venv._uvlock.LOCAL_SOURCES` lists the same
+  # artefact of an index". `pydd.python._uvlock.LOCAL_SOURCES` lists the same
   # three, and the value of the key is the directory, relative to this project.
   # A git source is a directory too, and `isGit` below reads it, but uv gives
   # it a URL rather than a path.
@@ -568,7 +547,7 @@ let
   # nothing to defer. Every other input of this lab is lazy: `pkgs.fetchurl`
   # instantiates for nothing and downloads only what the planner chooses. A
   # lock file that holds a git source pays a fetch for it whether or not the
-  # resolution installs the package. `ddrn/PACKAGING-FACTS.md` records the
+  # resolution installs the package. `docs/PACKAGING-FACTS.md` records the
   # measurement, and it records what uv would have to write to remove the cost.
   gitTree =
     package:
@@ -629,7 +608,7 @@ let
   # records the declaration of each member in `[package.metadata]`, so a
   # reader can compare the two and refuse a lock file that the project has
   # grown past. uv does the same in `Lock::satisfies`, and
-  # `ddrn_venv._freshness` gives the rules that this reader takes from it.
+  # `pydd.python._freshness` gives the rules that this reader takes from it.
   #
   # **The file goes in whole, and this reader interprets none of it here.** A
   # comparison of two dependency lists needs a PEP 508 parser, and the whole
@@ -748,7 +727,7 @@ let
   # The file name that the index, or the project, gave an artefact. `installer`
   # reads the name of a wheel, and the store path carries a hash in front of
   # that name, so the name travels beside the path.
-  # `ddrn_venv._uvlock.File.name` reads the same keys.
+  # `pydd.python._uvlock.File.name` reads the same keys.
   fileName =
     package: file:
     if file ? filename then
@@ -771,7 +750,7 @@ let
     }
     // (
       if isLocal package file then
-        # A file that this machine holds. `default.nix` passes such an entry
+        # A file that this machine holds. `planner.nix` passes such an entry
         # through, because there is no fetch to keep lazy.
         { path = "${localArtifact package file}"; }
       else
@@ -803,15 +782,15 @@ let
     map (artifactOf package "wheel") (package.wheels or [ ])
     ++ map (artifactOf package "sdist") (lib.optional (package ? sdist) package.sdist);
 
-  # The one `version` that this reader accepts. `ddrn_venv._uvlock` asserts the
+  # The one `version` that this reader accepts. `pydd.python._uvlock` asserts the
   # same value inside the planner, and so does `uv2nix`. This assertion is the
   # earlier of the two, and it names the file.
   lockVersion = document.version or null;
 
-  planner = import ./. {
+  planned = import ./planner.nix {
     inherit
       pkgs
-      nanopynixEnv
+      pydd
       installer
       markers
       noBinary
@@ -833,7 +812,7 @@ let
     # workspace names that member alone.
     # **`null` travels, and the planner decides.** Which extras a member has is
     # in its `pyproject.toml`, and which groups uv takes by default is in
-    # `tool.uv.default-groups` of that same file. `ddrn_venv._workspace` reads
+    # `tool.uv.default-groups` of that same file. `pydd.python._workspace` reads
     # both out of the listing below, so no rule of uv is in this file.
     uvSelect = select;
     uvExtras = extras;
@@ -845,7 +824,7 @@ let
 
     # The `pyproject.toml` of every directory under the workspace, so that the
     # planner can refuse a lock file that the workspace has grown a member
-    # past. `./workspace.nix` walks, and `ddrn_venv._workspace` decides.
+    # past. `./workspace.nix` walks, and `pydd.python._workspace` decides.
     uvWorkspace = workspace;
 
     # The backstop, which is off by default. `null` puts no store path in the
@@ -897,7 +876,7 @@ checkProject (
           # says why a wrapper is necessary.
           #
           # `shell` is a development shell over the environment, and it sets
-          # `DDRN_EDITABLE_ROOT` to the project. `developmentShell` above says
+          # `PYDD_EDITABLE_ROOT` to the project. `developmentShell` above says
           # why that variable decides whether an editable member imports.
           #
           # `env` is the environment as a derivation, and it is what makes one
@@ -916,7 +895,7 @@ checkProject (
           # planners differ in one variable, so Nix builds both. Every node that
           # they submit is content-addressing and identical, so the environment
           # itself is one store path that both graphs reach.
-          planner
+          planned
           // {
             inherit lockCheck;
             app =
@@ -929,7 +908,7 @@ checkProject (
                 applicationWrapper;
             env = environmentWrapper;
             shell = developmentShell;
-            environment = if environmentTarget == null then planner else environmentTarget;
+            environment = if environmentTarget == null then planned else environmentTarget;
           }
         )
     )

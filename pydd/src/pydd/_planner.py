@@ -47,9 +47,7 @@ class Planner:
     @classmethod
     def from_environ(cls) -> Planner:
         writer = WRITERS[os.environ.get("PYDD_WRITER", "cli")]()
-        return cls(
-            writer, os.environ["PYDD_SYSTEM"], json.loads(os.environ.get("PYDD_MENU", "null"))
-        )
+        return cls(writer, os.environ["PYDD_SYSTEM"], json.loads(os.environ.get("PYDD_MENU", "null")))
 
     def add(self, drv: Derivation) -> Node:
         node = Node(self.writer.add(drv), drv)

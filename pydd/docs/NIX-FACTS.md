@@ -216,7 +216,7 @@ this work: `nix eval --raw ... app` prints the placeholder
 so nothing is built to name the application.
 
 **The planner runs a second evaluator, and the option of the first one does not
-reach it.** `ddrn_venv._plan.submit` builds `nix_expr.EvalState(store)` over
+reach it.** `pydd.python._plan.submit` builds `nix_expr.EvalState(store)` over
 `graph.nix` inside the sandbox. Two things keep the two evaluators apart:
 
 - `EvalState` holds `const EvalSettings & settings`
@@ -328,11 +328,11 @@ planner submits the root of a graph, and the root gives the file.
 ### How far the evaluator inside a build reaches into nixpkgs
 
 Measured with a probe that a planner runs, over nixpkgs
-`26.11pre1040357.e2587caef70c`. `ddrn/PACKAGING-FACTS.md` says why the question
+`26.11pre1040357.e2587caef70c`. `docs/PACKAGING-FACTS.md` says why the question
 matters.
 
 **The whole nixpkgs tree fits in the sandbox.** One attribute,
-`DDRN_NIXPKGS = "${pkgs.path}"`, makes 345 MiB and 53558 files an input source
+`PYDD_NIXPKGS = "${pkgs.path}"`, makes 345 MiB and 53558 files an input source
 of the planner, through the string context of that path. The probe finds the
 directory, and it finds `lib/` under it.
 
@@ -438,7 +438,7 @@ the inverse of the line above.** `unsafeDiscardOutputDependency` leaves the
 **`builtins.toJSON` keeps the string context of what it serialises.** So a
 menu of store paths in one environment variable makes every path in it an
 input source of the derivation. `ddrn/examples/venv-graph/default.nix` passes
-21 artefacts, 6 tools and 3 scripts that way, in `DDRN_INPUTS`.
+21 artefacts, 6 tools and 3 scripts that way, in `PYDD_INPUTS`.
 
 ### What a `.drv`-only menu costs, measured
 
@@ -643,7 +643,7 @@ exists only when an installer read `entry_points.txt` and wrote it.
 `pyproject.nix` and not its default path.** The default hook of
 `pyproject.nix` runs `uv pip install`
 (`build/hooks/pyproject-install-hook.sh`), and `pyprojectPypaInstallHook`
-replaces it only when the build is cross. `ddrn/PACKAGING-FACTS.md` gives the
+replaces it only when the build is cross. `docs/PACKAGING-FACTS.md` gives the
 two comments that say so. This lab takes the cross path on purpose:
 `installer` is pure Python and is one wheel of the same lock file, so it
 becomes a node of the graph, and `uv` is a compiled program that a node would
@@ -771,7 +771,7 @@ reference to a variable is the same bytes for every tree. Measured, from the
 node output:
 
 ```text
-import sys; import os.path; sys.path.append(os.path.expandvars('$DDRN_EDITABLE_ROOT/src'))
+import sys; import os.path; sys.path.append(os.path.expandvars('$PYDD_EDITABLE_ROOT/src'))
 ```
 
 `ddrn/examples/venv-graph/run.sh` builds two check derivations that name two
@@ -960,7 +960,7 @@ one costs nothing and downloads nothing.
 The difference is what the caller knows. `fetchurl` gets a hash of the output,
 so the evaluator writes a derivation and the build downloads it later.
 `fetchGit` gets a commit, which is not a hash of a NAR, so the evaluator
-cannot write that derivation and fetches instead. `ddrn/PACKAGING-FACTS.md`
+cannot write that derivation and fetches instead. `docs/PACKAGING-FACTS.md`
 records what that costs a lock file that holds a git source.
 
 ## A planner cannot read what a planner wrote
@@ -1025,7 +1025,7 @@ holds 5 source distributions, at each value of `sdistPlannerDepth`:
 **The change altered no derivation.** The planner is
 `0mhmq8vd54jvwvmxzszjjy29nrflmjzh-venv-planner.drv` before it and after it.
 
-The lock files that `ddrn/PACKAGING-FACTS.md` measured hold up to 98 source
+The lock files that `docs/PACKAGING-FACTS.md` measured hold up to 98 source
 distributions, and 98 ^ 3 is 941192. The recursive form did not reach such a
 lock file, and this is the change that lets a later project try.
 
@@ -1426,14 +1426,14 @@ without a terminal, and it also builds the graph. Measured on 2026-08-12, over
 ```console
 $ nix print-dev-env --store "$store" --file ./uv.nix shell \
     --arg project "$PWD/projects/packaged-app" --impure ...
-DDRN_EDITABLE_ROOT='/home/.../ddrn/examples/venv-graph/projects/packaged-app'
-export DDRN_EDITABLE_ROOT
+PYDD_EDITABLE_ROOT='/home/.../ddrn/examples/venv-graph/projects/packaged-app'
+export PYDD_EDITABLE_ROOT
 ... PATH=/nix/store/gyrrfcs...-packaged-app/bin:...
 $ nix --store "$store" store ls --long /nix/store/gyrrfcs...-packaged-app
 lrwxrwxrwx 0  -> /nix/store/a851fa0dqrjd1bshd2x6v02ck3mmr1n1-packaged-app
 ```
 
-`DDRN_EDITABLE_ROOT` names the tree of the machine, so an editable member of
+`PYDD_EDITABLE_ROOT` names the tree of the machine, so an editable member of
 the environment reads what the user edits.
 
 **Two planners reach one environment, and the second one costs a planner.**
@@ -1514,7 +1514,7 @@ $ nix develop --impure --file . nanopynixMaster.shell \
 Measured: the harness read `TMPDIR` to place its work directory, so every run
 under `nix develop` took an empty store, copied the environment again, and
 built every graph from nothing. It cost 1.6 GB of `/tmp` for each run, and the
-run took 221 s rather than 60 s. `work_directory` reads `DDRN_WORK` and a
+run took 221 s rather than 60 s. `work_directory` reads `PYDD_WORK` and a
 stable default now, and no `TMPDIR`.
 
 **One session is 2.4 times faster than the command line.** Measured over the

@@ -20,7 +20,5 @@ def node(name: str, script: str, drvs: dict[str, list[str]] | None = None) -> De
 
 
 leaf = planner.add(node("hello-leaf", 'echo "hello from a node the plan wrote" > $out'))
-root = planner.add(
-    node("hello", f'read -r line < {leaf.output()}; echo "root read: $line" > $out', leaf.needs())
-)
+root = planner.add(node("hello", f'read -r line < {leaf.output()}; echo "root read: $line" > $out', leaf.needs()))
 planner.submit(root)
