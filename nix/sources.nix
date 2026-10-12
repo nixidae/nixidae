@@ -87,6 +87,13 @@
     branch = "main";
     path = ../havsorm;
   };
+  # Dynamic derivations planned in Python, written through the nix CLI or
+  # huggorm. Needs huggorm's git lane, the one with builder-rpc-v0.
+  pydd = {
+    url = "https://github.com/Lillecarl/pydd.git";
+    branch = "main";
+    path = ../pydd;
+  };
 
   # Everything the seven ask for.
   #
