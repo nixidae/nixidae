@@ -3,7 +3,7 @@
 **Nothing here reaches the store.** The graph builds a PEP 660 wheel from a
 copy of this tree, and then rewrites the path that the wheel records, so the
 environment reads the tree that `PYDD_EDITABLE_ROOT` names at run time.
-`pydd/python/scripts/build-editable.py` does the rewrite.
+`src/pydd/python/scripts/build-local.py` does the rewrite.
 """
 
 from __future__ import annotations
