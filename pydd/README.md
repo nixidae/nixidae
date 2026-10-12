@@ -49,6 +49,11 @@ tested them. pydd's own example covers registry packages and one project
 member. uv locks neither build backends nor the installer, so a dependency
 group puts them in the lock.
 
+`pydd.python.poetry { project = ./.; }` does the same for a Poetry
+project, at lock version 2.1 or later (`examples/poetry`). Only the reader
+of the lock file differs. `poetry.lock` records no URL, so this reader
+takes PyPI packages only.
+
 This planner is a port of the ddrn lab of nanopynix. `docs/` holds its
 research notes.
 
@@ -73,6 +78,7 @@ command to run and what it prints.
 2. `examples/evaluated`: the same idea, with the graph as a Nix file.
 3. `examples/nested`: a planner whose graph reads another planner's graph.
 4. `examples/venv`: a Python environment from a `uv.lock`.
+5. `examples/poetry`: the same environment from a `poetry.lock`.
 
 An example is `examples.<name>.<writer>`:
 
@@ -88,7 +94,7 @@ names the store; the default is `~/.cache/pydd/store`.
 | path | holds |
 | --- | --- |
 | `lib/` | the Nix side: `mkPlanner`, `mkEvaluated` |
-| `lib/python/` | `pydd.python.uv`, and `graph.nix`, which turns a plan into derivations |
+| `lib/python/` | `pydd.python.uv`, `pydd.python.poetry`, and `graph.nix`, which turns a plan into derivations |
 | `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
 | `src/pydd/python/` | the planners of a Python environment: lock readers, resolver, plan |
 | `examples/` | the tour |

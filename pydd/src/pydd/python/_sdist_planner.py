@@ -41,6 +41,7 @@ from pydd.python import (
     submit,
     target_from_environ,
 )
+from pydd.python._poetrylock import PoetryProject
 
 
 def main() -> int:
@@ -85,6 +86,8 @@ def main() -> int:
             requirements = build_requirements(Lock.read(spec["lock"]), target.markers, requirements)
         except LockError as error:
             raise RuntimeError(f"{sdist.filename}: {error}") from error
+    elif (spec := inputs.get("poetry")) is not None:
+        requirements = PoetryProject.from_json(spec).backend(requirements, target, sdist.filename)
 
     # **The tools travel with the inputs, so a nested planner has them too.**
     # A source distribution that holds C code needs a compiler wherever its

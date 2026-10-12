@@ -22,6 +22,7 @@ let
       lib.elem name [
         "evaluated"
         "nested"
+        "poetry"
         "venv"
       ]
     then

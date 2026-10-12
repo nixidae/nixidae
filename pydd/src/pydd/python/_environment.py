@@ -70,6 +70,7 @@ from pydd.python import (
     submit,
     target_from_environ,
 )
+from pydd.python._poetrylock import PoetryProject
 from pydd.python._workspace import members as members_of
 from pydd.python._workspace import selection
 
@@ -350,7 +351,7 @@ def resolve(
     request: Request,
     projects: list[LocalProject],
     target: Target,
-    uv: UvProject | None = None,
+    reader: UvProject | PoetryProject | None = None,
 ) -> Plan:
     """Turn the lock file into the graph that builds the environment."""
     plan = Plan(build_tools=request.build_tools)
@@ -417,10 +418,11 @@ def resolve(
         subject = f"{project.name} ({project.mode})"
         backend, requirements = build_system(project.pyproject)
         # **A backend needs its own dependencies, and `requires` names only the
-        # top of that closure.** `uv.lock` holds the edges of every package it
-        # lists, so the lock file expands the list when there is one.
-        if uv is not None:
-            requirements = uv.backend(requirements, target, subject)
+        # top of that closure.** `uv.lock` and `poetry.lock` hold the edges of
+        # every package they list, so the lock file expands the list when there
+        # is one.
+        if reader is not None:
+            requirements = reader.backend(requirements, target, subject)
         # **One path serves both hooks, and PEP 517 says that it may.** The
         # `requires` of the project is the environment that a backend builds
         # in, whichever hook the frontend calls. What this lab does not do is
@@ -489,19 +491,23 @@ def main() -> int:
     ]
 
     # `roots` of the inputs is the whole selection for `lock.json`. A `uv.lock`
-    # names no root, so its resolution adds them here, and it also names the
-    # local projects that install from their own tree.
+    # and a `poetry.lock` name no root, so the reader of each adds them here,
+    # and a `uv.lock` also names the local projects that install from their
+    # own tree.
     roots: list[str] = list(inputs["roots"])
-    uv: UvProject | None = None
+    reader: UvProject | PoetryProject | None = None
     if (spec := inputs.get("uv")) is not None:
-        uv = UvProject.from_json(spec)
-        resolved, uv_projects = uv.selection(target)
+        reader = UvProject.from_json(spec)
+    elif (spec := inputs.get("poetry")) is not None:
+        reader = PoetryProject.from_json(spec)
+    if reader is not None:
+        resolved, local = reader.selection(target)
         roots += resolved
-        projects += uv_projects
+        projects += local
 
     request = Request.from_json(inputs, roots)
 
-    plan = resolve(request, projects, target, uv)
+    plan = resolve(request, projects, target, reader)
     application: str | None = inputs.get("application")
     root = plan.root(env("PYDD_VENV_NAME"), application=application)
     if application is not None:

@@ -92,6 +92,9 @@
   # before any node of the graph builds. `./uv.nix` builds the derivation, and
   # its `uvCheck` argument says what it costs.
   uvCheck ? null,
+  # A `poetry.lock` for the planner to read: `{ lock, groups, extras }`.
+  # `./poetry.nix` gives a value here.
+  poetry ? null,
   # The one member to render as an application, or `null` for the environment.
   #
   # **A virtual environment is not a program.** It carries `bin/python`,
@@ -378,6 +381,11 @@ let
         declarations = uvDeclarations;
         workspace = uvWorkspace;
       };
+    }
+    // pkgs.lib.optionalAttrs (poetry != null) {
+      # `{ lock, groups, extras }`, from `./poetry.nix`. The lock file travels
+      # as a store path, as `uvLock` does.
+      inherit poetry;
     };
 
   # What every planner reads about the target it plans for. The planner runs on
