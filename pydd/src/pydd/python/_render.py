@@ -97,7 +97,7 @@ class Graph:
         self._built: dict[str, Text] = {}
         self.site = f"lib/python{self.doc['pythonVersion'].text}/site-packages"
         self.base_path = join(
-            ":", (cat(self.tool[name], "/bin") for name in ["coreutils", "unzip", "gnutar", "gzip", "python"])
+            ":", (cat(self.tool[name], "/bin") for name in ["coreutils", "unzip", "gnutar", "gzip", "python", "bash"])
         )
 
     def root(self) -> str:

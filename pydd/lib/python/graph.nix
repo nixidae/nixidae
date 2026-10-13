@@ -57,7 +57,10 @@ let
 
   site = "lib/python${pythonVersion}/site-packages";
 
-  basePath = "${tool.coreutils}/bin:${tool.unzip}/bin:${tool.gnutar}/bin:${tool.gzip}/bin:${tool.python}/bin";
+  # **`bash` is on the path, and not only the builder.** A backend that runs
+  # Ninja or Make starts each command through `sh`, and the Ninja of nixpkgs
+  # finds `sh` on `PATH` and never at `/bin/sh`.
+  basePath = "${tool.coreutils}/bin:${tool.unzip}/bin:${tool.gnutar}/bin:${tool.gzip}/bin:${tool.python}/bin:${tool.bash}/bin";
 
   mk =
     args:
