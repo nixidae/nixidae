@@ -59,6 +59,18 @@ node before the planner runs. `out` runs this way, on Nix 2.35.
 
 ### How `out` builds a graph from one derivation
 
+**The host is the evaluation that the user starts**, such as
+`nix build --file . env`. It runs before any build, outside every
+builder, the way the evaluation of a nixpkgs package does. It
+*instantiates* derivations: it writes each `.drv` to the store, and
+builds nothing. A planner is a builder, which runs later, in a sandbox.
+
+`lib/modes/out.nix` makes the host's nodes. It evaluates `graph.nix` for
+each one, takes its `.drv` path with `unsafeDiscardOutputDependency`, and
+passes the list to every planner as `hostNodes`. Each `.drv` is then an
+input of the planner, present in its sandbox, while no output of it is
+built.
+
 **A planner on a release writes one derivation, and that derivation may
 name others that already exist.** A root names its inputs by `.drv`
 path. Nix accepts any input that is in the store, and the planner's
