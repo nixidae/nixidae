@@ -1,0 +1,372 @@
+{
+  "revision": "57514eff",
+  "date": "2026-10-13",
+  "machine": "x86_64, 16 cores",
+  "runs": 3,
+  "modes": {
+    "cli": {
+      "closureBytes": 338345728,
+      "lines": 328,
+      "floorSeconds": 1.25
+    },
+    "huggorm": {
+      "closureBytes": 534213928,
+      "lines": 195,
+      "floorSeconds": 1.41
+    },
+    "drv": {
+      "closureBytes": 319967168,
+      "lines": 601,
+      "floorSeconds": 1.4
+    },
+    "out": {
+      "closureBytes": 533250520,
+      "lines": 560,
+      "floorSeconds": 1.4
+    }
+  },
+  "planners": {
+    "application": {
+      "cli": {
+        "seconds": 3.27,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.51,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.8,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.4,
+        "packages": 4
+      }
+    },
+    "binary-app": {
+      "cli": {
+        "seconds": 2.53,
+        "packages": 1
+      },
+      "huggorm": {
+        "seconds": 2.61,
+        "packages": 1
+      },
+      "drv": {
+        "seconds": 2.48,
+        "packages": 1
+      },
+      "out": {
+        "seconds": 2.7,
+        "packages": 1
+      }
+    },
+    "binary-nixpkgs": {
+      "cli": {
+        "seconds": 2.56,
+        "packages": 1
+      },
+      "huggorm": {
+        "seconds": 2.46,
+        "packages": 1
+      },
+      "drv": {
+        "seconds": 2.32,
+        "packages": 1
+      },
+      "out": {
+        "seconds": 2.75,
+        "packages": 1
+      }
+    },
+    "git-app": {
+      "cli": {
+        "seconds": 2.53,
+        "packages": 0
+      },
+      "huggorm": {
+        "seconds": 2.66,
+        "packages": 0
+      },
+      "drv": {
+        "seconds": 2.59,
+        "packages": 0
+      },
+      "out": {
+        "seconds": 2.69,
+        "packages": 0
+      }
+    },
+    "local-index": {
+      "cli": {
+        "seconds": 2.5,
+        "packages": 2
+      },
+      "huggorm": {
+        "seconds": 3.01,
+        "packages": 2
+      },
+      "drv": {
+        "seconds": 2.52,
+        "packages": 2
+      },
+      "out": {
+        "seconds": 2.65,
+        "packages": 2
+      }
+    },
+    "native-app": {
+      "cli": {
+        "seconds": 2.86,
+        "packages": 3
+      },
+      "huggorm": {
+        "seconds": 2.75,
+        "packages": 3
+      },
+      "drv": {
+        "seconds": 2.43,
+        "packages": 3
+      },
+      "out": {
+        "seconds": 2.67,
+        "packages": 3
+      }
+    },
+    "native-host": {
+      "cli": {
+        "seconds": 2.78,
+        "packages": 3
+      },
+      "huggorm": {
+        "seconds": 2.67,
+        "packages": 3
+      },
+      "drv": {
+        "seconds": 2.32,
+        "packages": 3
+      },
+      "out": {
+        "seconds": 2.69,
+        "packages": 3
+      }
+    },
+    "numpy-sdist": {
+      "cli": {
+        "seconds": 2.38,
+        "packages": 1
+      },
+      "huggorm": {
+        "seconds": 2.72,
+        "packages": 1
+      },
+      "drv": {
+        "seconds": 2.56,
+        "packages": 1
+      },
+      "out": {
+        "seconds": 3.21,
+        "packages": 1
+      }
+    },
+    "packaged-app": {
+      "cli": {
+        "seconds": 3.3,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.53,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.81,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.52,
+        "packages": 4
+      }
+    },
+    "packaged-app-bin": {
+      "cli": {
+        "seconds": 3.01,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.44,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.67,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.56,
+        "packages": 4
+      }
+    },
+    "packaged-sdist": {
+      "cli": {
+        "seconds": 2.93,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 3.03,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 3.23,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.66,
+        "packages": 4
+      }
+    },
+    "pure-app": {
+      "cli": {
+        "seconds": 2.54,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.9,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.65,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.47,
+        "packages": 4
+      }
+    },
+    "root-derivation": {
+      "cli": {
+        "seconds": 2.79,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.86,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.42,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.71,
+        "packages": 4
+      }
+    },
+    "vendored-app": {
+      "cli": {
+        "seconds": 2.72,
+        "packages": 2
+      },
+      "huggorm": {
+        "seconds": 2.54,
+        "packages": 2
+      },
+      "drv": {
+        "seconds": 2.37,
+        "packages": 2
+      },
+      "out": {
+        "seconds": 2.47,
+        "packages": 2
+      }
+    },
+    "workspace-all": {
+      "cli": {
+        "seconds": 3.15,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 3.35,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 3.25,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.83,
+        "packages": 4
+      }
+    },
+    "workspace-core": {
+      "cli": {
+        "seconds": 2.99,
+        "packages": 0
+      },
+      "huggorm": {
+        "seconds": 3.09,
+        "packages": 0
+      },
+      "drv": {
+        "seconds": 3.04,
+        "packages": 0
+      },
+      "out": {
+        "seconds": 3.09,
+        "packages": 0
+      }
+    },
+    "workspace-core-sdist": {
+      "cli": {
+        "seconds": 3.15,
+        "packages": 4
+      },
+      "huggorm": {
+        "seconds": 2.73,
+        "packages": 4
+      },
+      "drv": {
+        "seconds": 2.76,
+        "packages": 4
+      },
+      "out": {
+        "seconds": 2.73,
+        "packages": 4
+      }
+    },
+    "zmq-sdist": {
+      "cli": {
+        "seconds": 2.6,
+        "packages": 1
+      },
+      "huggorm": {
+        "seconds": 2.88,
+        "packages": 1
+      },
+      "drv": {
+        "seconds": 2.46,
+        "packages": 1
+      },
+      "out": {
+        "seconds": 2.8,
+        "packages": 1
+      }
+    },
+    "zmq-sdist-transitive": {
+      "cli": {
+        "seconds": 2.46,
+        "packages": 1
+      },
+      "huggorm": {
+        "seconds": 2.67,
+        "packages": 1
+      },
+      "drv": {
+        "seconds": 2.6,
+        "packages": 1
+      },
+      "out": {
+        "seconds": 3.02,
+        "packages": 1
+      }
+    }
+  }
+}

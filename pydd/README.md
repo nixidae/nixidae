@@ -7,6 +7,9 @@ It writes a graph of derivations through the restricted store socket of a
 `builder-rpc-v0` build, and submits the root. `builtins.outputOf` on the
 planner builds the graph.
 
+[The site](https://lillecarl.github.io/pydd/) compares the modes with
+measurements, and holds the research notes.
+
 The motivating case is Python packaging. `uv2nix` and `pyproject.nix` carry a
 copy of PEP 508 markers, PEP 440 specifiers and PEP 425 tags written in Nix.
 `packaging` is the reference implementation of all three, and a planner runs

@@ -153,7 +153,99 @@ rec {
     features = "";
   };
 
+  # The planner of each project, with a nonce, so Nix runs it again and every
+  # node it names stays cached. `--rebuild` refuses a content-addressed
+  # planner. `tools/measure-modes.py` sets PYDD_MEASURE.
+  measure = lib.mapAttrs (
+    _:
+    lib.mapAttrs (
+      _: project:
+      derivation (
+        project.out.planner.planner.drvAttrs // { PYDD_MEASURE = builtins.getEnv "PYDD_MEASURE"; }
+      )
+    )
+  ) projects;
+
+  # The workflow as a value, from ci/workflows/ci.nix, and as the file GitHub
+  # reads. `ghalib.toYamlScript` writes a multi-line `run:` as a literal
+  # block and quotes `'on'`; pynixd's default.nix gives the reasons.
+  ghalib = import sources.ghanix { inherit lib; };
+  ciWorkflow = import ./ci/workflows/ci.nix {
+    inherit lib ghalib;
+    nixVersion = pkgs.nix.version;
+  };
+  ciWorkflowFile =
+    pkgs.runCommand "ci.yml"
+      {
+        nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyyaml ])) ];
+        value = builtins.toJSON ciWorkflow;
+        passAsFile = [ "value" ];
+      }
+      ''
+        {
+          echo "# GENERATED FILE -- do not edit by hand."
+          echo "# Edit ci/workflows/ci.nix, then run: nix run --file . ci-workflow-update"
+          python3 ${ghalib.toYamlScript} "$valuePath"
+        } > $out
+      '';
+  ci-workflow-update = pkgs.writeShellScriptBin "ci-workflow-update" ''
+    cp --no-preserve=mode ${ciWorkflowFile} .github/workflows/ci.yml
+  '';
+
+  # The site that GitHub Pages serves: docs/, with Sphinx.
+  pydd-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit (pkgs) graphviz; };
+
+  # A derivation that does nothing, with the same nonce: the time Nix needs to
+  # build anything at all, which every planner time holds.
+  measure-floor = derivation {
+    name = "floor";
+    inherit (pkgs.stdenv.hostPlatform) system;
+    builder = "${pkgs.bash}/bin/bash";
+    args = [
+      "-c"
+      "echo > $out"
+    ];
+    PYDD_MEASURE = builtins.getEnv "PYDD_MEASURE";
+  };
+
+  # Writes docs/_generated, which docs/modes.md reads. Run it after
+  # `test-projects`, so only the planners run.
+  measure-modes = pkgs.writeShellApplication {
+    name = "pydd-measure-modes";
+    runtimeInputs = [
+      nix
+      pkgs.python3
+      pkgs.jujutsu
+    ];
+    text = ''
+      export NIX_MASTER=${lib.getExe nix}
+      export NIX_RELEASED=${lib.getExe nixReleased}
+      export NIX_RELEASED_VERSION=${nixReleased.version}
+      exec python3 ${./tools/measure-modes.py} "$@"
+    '';
+  };
+
   checks = {
+    # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
+    # Parsed, so key order and quoting cannot fail it.
+    ciWorkflow =
+      pkgs.runCommand "ci-workflow-check"
+        {
+          nativeBuildInputs = [
+            pkgs.yq-go
+            pkgs.jq
+          ];
+        }
+        ''
+          yq --output-format=json '.' ${./.github/workflows/ci.yml} | jq --sort-keys . > committed.json
+          jq --sort-keys . < ${pkgs.writeText "ci-rendered.json" (builtins.toJSON ciWorkflow)} > rendered.json
+          if ! diff --unified committed.json rendered.json; then
+            echo ".github/workflows/ci.yml and ci/workflows/ci.nix disagree." >&2
+            echo "Run: nix run --file . ci-workflow-update" >&2
+            exit 1
+          fi
+          touch $out
+        '';
     tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm pydd-drv; };
   };
 
