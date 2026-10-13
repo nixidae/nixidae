@@ -5,11 +5,15 @@
 # planner decides which artefacts this target needs, and what the graph over
 # them is. `graph.nix` says how one node is built.
 #
-# `./uv.nix` calls this for a uv project. Every planner here uses the huggorm
-# writer, because the planner evaluates `graph.nix` in its sandbox.
+# `./uv.nix` calls this for a uv project. The writer of `pydd` chooses the
+# path from plan to derivations, and both paths give the same derivations:
+#
+#   huggorm  the planner evaluates `graph.nix` in its sandbox.
+#   cli      `pydd.python._render` writes them in Python, and `nix derivation
+#            add` adds them. No planner needs huggorm.
 {
   pkgs,
-  # The pydd library, with the huggorm writer.
+  # The pydd library. Its `writer` chooses the path.
   pydd,
   # A lock file of the flat form: `{ roots, installer, artifacts }`.
   lock ? {
@@ -270,10 +274,11 @@ let
 
   scriptDir = ../../src/pydd/python/scripts;
 
+  render = if pydd.writer == "huggorm" then "nix" else "python";
+
   # **Every planner of this graph, the outer one and one for each source
-  # distribution.** Each one evaluates `graph.nix` in its sandbox, so each
-  # takes the huggorm writer. `packaging` and `pydd.python` reach the planner
-  # and never the environment that comes out.
+  # distribution.** `packaging` and `pydd.python` reach the planner and never
+  # the environment that comes out.
   mkPythonPlanner =
     {
       name,
@@ -281,8 +286,10 @@ let
       env,
     }:
     pydd.mkPlanner {
-      inherit name env;
-      writer = "huggorm";
+      inherit name;
+      env = env // {
+        PYDD_RENDER = render;
+      };
       plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.python.${main} import main\nsys.exit(main())\n";
       pythonPath = [ pkgs.python3Packages.packaging ];
       modules = [
@@ -427,10 +434,11 @@ let
     };
   };
 
-  plannerEnv = {
-    PYDD_GRAPH_NIX = "${./graph.nix}";
-  }
-  // targetEnv;
+  plannerEnv =
+    pkgs.lib.optionalAttrs (render == "nix") {
+      PYDD_GRAPH_NIX = "${./graph.nix}";
+    }
+    // targetEnv;
 
   # **The planner of one source distribution, instantiated here and not
   # inside the sandbox.** A planner cannot read a store path that the planner

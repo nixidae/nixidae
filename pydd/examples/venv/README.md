@@ -24,6 +24,10 @@ From the top of the repository:
     nix run --file . run -- examples.venv.huggorm
     nix run --file . run -- examples.venv.huggorm check
 
+`examples.venv.cli` builds the same environment with no huggorm.
+`pydd.python._render` writes the derivations that `graph.nix` makes, so
+both attributes print the same store path.
+
 The first lists the environment. `check` runs `check.py` in it:
 
     idna         3.20 xn--eckwd4c7c.xn--zckzah

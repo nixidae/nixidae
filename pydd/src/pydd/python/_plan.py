@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from packaging.utils import canonicalize_name
 
-from .._writer import HuggormWriter
+from .._writer import CliWriter, HuggormWriter, Writer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -364,8 +364,9 @@ class Plan:
         }
 
 
-def open_restricted_store() -> HuggormWriter:
-    """Open the restricted daemon socket that `builder-rpc-v0` gives a builder.
+def open_restricted_store() -> Writer:
+    """Open the restricted daemon socket that `builder-rpc-v0` gives a builder,
+    with the writer that `PYDD_WRITER` names.
 
     A planner runs only inside such a build, so a different `NIX_REMOTE` is an
     error and not a fallback.
@@ -381,7 +382,9 @@ def open_restricted_store() -> HuggormWriter:
     if "out" in os.environ:
         raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")
 
-    return HuggormWriter(remote)
+    if os.environ.get("PYDD_WRITER", "huggorm") == "huggorm":
+        return HuggormWriter(remote)
+    return CliWriter()
 
 
 #: A key whose value is the output path of the derivation that the paired key
@@ -431,8 +434,33 @@ def document_value(state: Any, data: Any, store_dir: str) -> Any:
     raise TypeError(f"no Nix value for {type(data).__name__}")
 
 
-def submit(writer: HuggormWriter, document: dict[str, Any], graph_nix: str) -> None:
-    """Evaluate `graph.nix` over `document`, and submit the root it wrote.
+def submit(writer: Writer, document: dict[str, Any]) -> None:
+    """Turn `document` into derivations, and submit the root.
+
+    `PYDD_RENDER` names the path. `nix` evaluates `graph.nix`, and needs the
+    huggorm writer. `python` renders the same derivations with
+    `pydd.python._render`, through either writer.
+    """
+    store_dir = os.environ.get("NIX_STORE", "/nix/store")
+    match os.environ.get("PYDD_RENDER", "nix"):
+        case "nix":
+            if not isinstance(writer, HuggormWriter):
+                raise RuntimeError("PYDD_RENDER=nix evaluates graph.nix in huggorm, so it needs PYDD_WRITER=huggorm")
+            root_drv = submit_evaluated(writer, document, os.environ["PYDD_GRAPH_NIX"], store_dir)
+        case "python":
+            from ._render import render
+
+            root_drv = render(document, writer.add, store_dir)
+            print(f"==> the renderer wrote {root_drv}", file=sys.stderr)
+        case other:
+            raise RuntimeError(f"PYDD_RENDER is {other!r}, and it takes 'nix' or 'python'")
+
+    writer.submit(root_drv, "out")
+    print("==> submitted it as output 'out'", file=sys.stderr)
+
+
+def submit_evaluated(writer: HuggormWriter, document: dict[str, Any], graph_nix: str, store_dir: str) -> str:
+    """Evaluate `graph.nix` over `document`, and name the root `.drv` it wrote.
 
     **The evaluator reads a fixed file, and the plan is its argument.** The
     decisions of a planner are data, and `graph.nix` is the code that turns
@@ -442,12 +470,10 @@ def submit(writer: HuggormWriter, document: dict[str, Any], graph_nix: str) -> N
 
     state = huggorm.EvalState(writer.store)
     graph = state.eval_file(graph_nix)
-    root = graph(document_value(state, document, os.environ.get("NIX_STORE", "/nix/store")))
+    root = graph(document_value(state, document, store_dir))
 
     # The store path of the `.drv` that the evaluator wrote. It is not an
     # output path: this build cannot realise anything.
     root_drv = writer.store.print_store_path(root.drv_path())
     print(f"==> the evaluator wrote {root_drv}", file=sys.stderr)
-
-    writer.submit(root_drv, "out")
-    print("==> submitted it as output 'out'", file=sys.stderr)
+    return root_drv

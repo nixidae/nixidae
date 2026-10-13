@@ -517,7 +517,6 @@ def main() -> int:
     submit(
         store,
         plan.document(root=root, system=env("PYDD_SYSTEM"), python_version=target.python_version, inputs=inputs),
-        env("PYDD_GRAPH_NIX"),
     )
     return 0
 

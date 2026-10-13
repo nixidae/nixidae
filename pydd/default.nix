@@ -22,8 +22,6 @@ let
       lib.elem name [
         "evaluated"
         "nested"
-        "poetry"
-        "venv"
       ]
     then
       [ "huggorm" ]
@@ -85,13 +83,21 @@ rec {
     tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm; };
   };
 
-  # The uv projects of the ddrn lab, each with its check.
-  # nix run --file . run -- projects.pure-app
-  projects = import ./tests/projects { inherit pkgs pydd; };
+  # The uv projects of the ddrn lab, each with its check, once for each
+  # writer. The writer chooses the path from plan to derivations.
+  # nix run --file . run -- projects.cli.pure-app
+  projects = lib.genAttrs [ "cli" "huggorm" ] (
+    writer:
+    import ./tests/projects {
+      inherit pkgs;
+      pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+    }
+  );
 
-  # Run every check of `projects`, and report each one. A check needs
-  # `builder-rpc-v0`, so it builds in the private store of `run`, and no
-  # `checks` attribute can hold it.
+  # Run every check of `projects` with both writers, and compare the two
+  # environments. `graph.nix` and `pydd.python._render` must give the same
+  # content-addressed path. A check needs `builder-rpc-v0`, so it builds in
+  # the private store of `run`, and no `checks` attribute can hold it.
   test-projects = pkgs.writeShellApplication {
     name = "pydd-test-projects";
     runtimeInputs = [
@@ -100,19 +106,35 @@ rec {
     ];
     text = ''
       log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/projects}
+      store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/store}
+      export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations
+      use-cgroups = false"
       mkdir -p "$log"
       if (( $# > 0 )); then
         names=("$@")
       else
-        read -ra names <<< "$(nix eval --file . projects --apply builtins.attrNames --json | tr -d '[]"' | tr , ' ')"
+        read -ra names <<< "$(nix eval --raw --file . projects.cli --apply 'p: toString (builtins.attrNames p)')"
       fi
       failed=0
       for name in "''${names[@]}"; do
-        if pydd-run "projects.$name" > "$log/$name.log" 2>&1; then
-          echo "pass  $name"
-        else
-          echo "FAIL  $name  ($log/$name.log)"
-          failed=1
+        paths=()
+        for writer in cli huggorm; do
+          if pydd-run "projects.$writer.$name" > "$log/$name-$writer.log" 2>&1; then
+            echo "pass  $name ($writer)"
+            paths+=("$(nix build --store "$store" --file . "projects.$writer.$name.environment" \
+              --system-features builder-rpc-v0 --no-link --print-out-paths 2>> "$log/$name-$writer.log")")
+          else
+            echo "FAIL  $name ($writer)  ($log/$name-$writer.log)"
+            failed=1
+          fi
+        done
+        if (( ''${#paths[@]} == 2 )); then
+          if [[ ''${paths[0]} == "''${paths[1]}" ]]; then
+            echo "same  $name  ''${paths[0]}"
+          else
+            echo "DIFFER  $name  cli ''${paths[0]}  huggorm ''${paths[1]}"
+            failed=1
+          fi
         fi
       done
       exit "$failed"

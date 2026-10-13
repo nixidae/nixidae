@@ -35,9 +35,21 @@ the same root `.drv`.
 
 `pydd.python.uv { project = ./.; }` builds the environment of a uv project
 (`examples/venv`). Nix only parses `uv.lock` and makes one fetch per file.
-The planner reads the lock the way uv installs it, chooses an artefact for
-each package with `packaging`, and evaluates `lib/python/graph.nix` over
-its plan. Only the chosen artefacts are downloaded.
+The planner reads the lock the way uv installs it, and chooses an artefact
+for each package with `packaging`. Only the chosen artefacts are
+downloaded.
+
+**The writer chooses one of two paths from plan to derivations.** Both
+paths make the same derivations:
+
+| writer | the plan becomes derivations through | needs |
+| --- | --- | --- |
+| `huggorm` | `lib/python/graph.nix`, evaluated in the planner | huggorm |
+| `cli` | `pydd.python._render`, in Python | `packaging`, a `nix` |
+
+`graph.nix` is the reference. `checks.tests` holds the renderer to it for
+each node kind, and `test-projects` builds each project both ways and
+compares the two environments.
 
 **An sdist gets a planner of its own.** Its build backend is declared
 inside the archive, so no evaluation can know it. That planner reads the
@@ -84,6 +96,7 @@ An example is `examples.<name>.<writer>`:
 
     nix run --file . run -- examples.hello.cli
     nix run --file . run -- examples.venv.huggorm check
+    nix run --file . run -- examples.venv.cli check
 
 Your daemon may be older than Nix master. `run` builds in a private store
 with a Nix from master, and copies the planner's closure in. `PYDD_STORE`
@@ -96,7 +109,7 @@ names the store; the default is `~/.cache/pydd/store`.
 | `lib/` | the Nix side: `mkPlanner`, `mkEvaluated` |
 | `lib/python/` | `pydd.python.uv`, `pydd.python.poetry`, and `graph.nix`, which turns a plan into derivations |
 | `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
-| `src/pydd/python/` | the planners of a Python environment: lock readers, selection, plan |
+| `src/pydd/python/` | the planners of a Python environment: lock readers, selection, plan, renderer |
 | `examples/` | the tour |
 | `docs/` | the research notes of the ddrn lab |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |
@@ -109,7 +122,9 @@ names the store; the default is `~/.cache/pydd/store`.
 `test-projects` builds the uv projects of `tests/projects`, which cover
 workspaces, git, URL and path sources, a local registry, binary and native
 wheels, applications, and nixpkgs packages in place of PyPI ones. Each one
-needs `builder-rpc-v0`, so it builds in the private store of `run`.
+needs `builder-rpc-v0`, so it builds in the private store of `run`. It
+builds each project with both writers, and fails when the two environments
+have different store paths.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock

@@ -21,7 +21,7 @@
 #
 {
   pkgs,
-  # The pydd library, with the huggorm writer.
+  # The pydd library. Its `writer` chooses the path; `./planner.nix` names both.
   pydd,
   # The uv project to build. It holds `pyproject.toml` and `uv.lock`.
   project,

@@ -125,7 +125,6 @@ def main() -> int:
             python_version=target.python_version,
             inputs=inputs,
         ),
-        env("PYDD_GRAPH_NIX"),
     )
     return 0
 

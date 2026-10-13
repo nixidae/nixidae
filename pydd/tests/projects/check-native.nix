@@ -41,7 +41,7 @@ let
   };
   venv = planner.out;
 in
-derivation {
+(derivation {
   name = "${venvName}-check";
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
@@ -64,4 +64,8 @@ derivation {
       fi
     ''
   ];
+})
+// {
+  # The environment, for `test-projects` to compare across writers.
+  inherit planner;
 }

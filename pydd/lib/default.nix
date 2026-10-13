@@ -11,6 +11,7 @@
 let
   planner = callPackage ./planner.nix { };
   self = planner // {
+    inherit writer;
     mkPlanner = args: planner.mkPlanner ({ inherit writer huggorm nix; } // args);
     python = callPackage ./python { pydd = self; };
     evaluate = callPackage ./evaluate.nix { pydd = self; };

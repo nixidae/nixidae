@@ -1,7 +1,8 @@
 # Every check of the test projects, by name, in the shape that `run` builds:
-# `out` is the check, and `closure` is what the planners run on.
+# `out` is the check, `environment` is the environment it checks, and
+# `closure` is what the planners run on.
 #
-#     nix run --file . run -- projects.pure-app
+#     nix run --file . run -- projects.cli.pure-app
 #     nix run --file . test-projects
 #
 # The variants are the ones the ddrn lab's `test_projects.py` ran: one lock
@@ -57,4 +58,7 @@ let
   # Every planner here runs on the same interpreter and the same `nix`.
   inherit (pydd.python.uv { project = ./pure-app; }) closure;
 in
-builtins.mapAttrs (_: out: { inherit out closure; }) checks
+builtins.mapAttrs (_: out: {
+  inherit out closure;
+  environment = out.planner.out;
+}) checks

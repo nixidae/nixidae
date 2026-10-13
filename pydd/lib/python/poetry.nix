@@ -11,7 +11,7 @@
 # sdist under the tag `source`. So this reader takes packages of PyPI only.
 {
   pkgs,
-  # The pydd library, with the huggorm writer.
+  # The pydd library. Its `writer` chooses the path; `./planner.nix` names both.
   pydd,
   # The Poetry project to build. It holds `pyproject.toml` and `poetry.lock`.
   project,

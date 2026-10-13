@@ -21,11 +21,12 @@ Read `default.nix`, then `lib/python/poetry.nix` and
 `src/pydd/python/_poetrylock.py`. From the top of the repository:
 
     nix run --file . run -- examples.poetry.huggorm check
+    nix run --file . run -- examples.poetry.cli check
 
 The build log shows the same plan as `venv`:
 
     plan: colorama: markers exclude this target
-    plan: poetry.lock resolves 7 packages
+    plan: poetry.lock selects 7 packages
     plan-sdist: idna-3.20.tar.gz builds through flit_core.buildapi
 
 To change the dependencies, edit `fixtures/myapp/pyproject.toml` and run

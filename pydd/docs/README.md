@@ -19,7 +19,8 @@ stock Nix master:
 
 - **EnsurePath:** huggorm attaches the string context, in
   `pydd.python._plan.document_value`, so `graph.nix` calls neither
-  `builtins.storePath` nor `builtins.appendContext`.
+  `builtins.storePath` nor `builtins.appendContext`. The `cli` writer runs
+  no evaluator: `pydd.python._render` writes the same derivations.
 - **The name of a submitted derivation:** each planner is named after the
   root that it submits.
-- **`nix eval --submit`:** the huggorm writer submits the root.
+- **`nix eval --submit`:** the writer of the planner submits the root.
