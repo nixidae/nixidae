@@ -32,6 +32,14 @@ let
     in
     lib.optional (found != null && lib.isDerivation found && !(isPython found)) found;
 
+  # **A Python input of nixpkgs may carry the programs it runs.** meson-python
+  # propagates `ninja`, so a meson build needs no declaration of it.
+  carried =
+    drv:
+    builtins.filter (input: lib.isDerivation input && !(isHook input) && !(isPython input)) (
+      drv.propagatedBuildInputs or [ ]
+    );
+
   # Each output that a build reads: headers, libraries and programs.
   outputsOf =
     drv:
@@ -49,7 +57,7 @@ let
         ++ package.buildInputs or [ ]
         ++ package.propagatedBuildInputs or [ ];
       native = builtins.filter (drv: lib.isDerivation drv && !(isHook drv) && !(isPython drv)) inputs;
-      programs = lib.concatMap program (
+      programs = lib.concatMap (drv: program drv ++ carried drv) (
         builtins.filter (drv: lib.isDerivation drv && isPython drv) inputs
       );
     in
