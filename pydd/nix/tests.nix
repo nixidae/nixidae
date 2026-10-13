@@ -86,6 +86,7 @@ runCommand "pydd-tests"
         ../examples
         ../lib/python/graph.nix
         ../lib/modes/nix-eval.nix
+        ../lib/python/carry.nix
       ];
     };
     PYDD_FIXTURE = builtins.toJSON fixture;

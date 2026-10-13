@@ -32,6 +32,13 @@ def test_each_kind_renders_what_graph_nix_makes(name: str) -> None:
     assert rendered(name) == ORACLE["expected"][name]
 
 
+@pytest.mark.parametrize("name", sorted(ORACLE["expectedStdenv"]))
+def test_each_source_node_renders_stdenv_as_data_as_graph_nix(name: str) -> None:
+    graph = Graph(ORACLE["stdenvDocument"] | {"root": name}, drv_path, "/nix/store")
+    graph.built(name)
+    assert graph.paths[name] == ORACLE["expectedStdenv"][name]
+
+
 def test_the_oracle_covers_every_override_key() -> None:
     keys = {key for node in ORACLE["document"]["nodes"] for key in node.get("overrides", {})}
     assert keys == set(OVERRIDE_KEYS)

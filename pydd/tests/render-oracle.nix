@@ -292,11 +292,51 @@ let
     root = "app";
   };
 
+  # stdenv as data, with each kind of value that `derivation` coerces: a
+  # list, a boolean, a null that `__ignoreNulls` drops, and a string that
+  # carries an output's context.
+  stdenv = {
+    __ignoreNulls = true;
+    __structuredAttrs = false;
+    args = [
+      "-e"
+      (source "source-stdenv.sh")
+      (source "default-builder.sh")
+    ];
+    builder = "${package "stdenv-bash"}/bin/bash";
+    stdenv = "${package "stdenv"}";
+    cmakeFlags = [ ];
+    doCheck = false;
+    strictDeps = false;
+    userHook = null;
+    outputs = [ "out" ];
+    inherit system;
+    nativeBuildInputs = [ "${package "patchelf-hook"}" ];
+  };
+  sourceNodes = builtins.filter (
+    node:
+    builtins.elem node.kind [
+      "editable"
+      "local-wheel"
+      "local-sdist"
+      "sdist-build"
+    ]
+  ) nodes;
+
   graph = import ../lib/python/graph.nix;
   pathOf = value: if builtins.isAttrs value then value.drvPath else value;
 in
 {
   inherit document;
+  stdenvDocument = document // {
+    stdenv = import ../lib/python/carry.nix stdenv;
+  };
+  expectedStdenv = builtins.listToAttrs (
+    map (node: {
+      inherit (node) name;
+      value = (graph (document // { inherit stdenv; root = node.name; })).drvPath;
+    }) sourceNodes
+  );
   expected = builtins.listToAttrs (
     map (node: {
       inherit (node) name;

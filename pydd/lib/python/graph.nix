@@ -27,6 +27,9 @@
   root,
   # nixpkgs, imported by the planner, or `null`. `mkSource` gives the reason.
   pkgs ? null,
+  # stdenv as data, or `null`: what `stdenv.mkDerivation` passes to
+  # `derivation`, from `./stdenv-template.nix`. `mkSource` gives the reason.
+  stdenv ? null,
 }:
 
 let
@@ -202,32 +205,45 @@ let
   # RUNPATH. The command runs in a subshell, so the script's `set -eu` stays
   # out of stdenv's own shell. The output differs from a node of `mk`:
   # stdenv strips and patches what it built.
+  #
+  # **stdenv as data does the same with no nixpkgs in the planner.** The host
+  # evaluates `stdenv.mkDerivation` once, and passes what it hands to
+  # `derivation`. A node is that template with its own attributes on top: the
+  # derivation `mkDerivation` would write, in every mode, `builder-rpc-v0` and
+  # released Nix included. It keeps stdenv's phases and hooks, and loses
+  # `mkDerivation`'s logic at evaluation: `overrideAttrs`, `passthru`, and
+  # inputs that `mkDerivation` would derive from others.
   mkSource =
     node: args:
-    if pkgs == null then
-      mk (args // buildToolsOf node // overridesOf node)
-    else
-      let
-        roots = map (built: built.out) (node.buildTools or [ ]);
-      in
-      pkgs.stdenv.mkDerivation (
+    let
+      roots = map (built: built.out) (node.buildTools or [ ]);
+      attrs =
+        hooks:
         removeAttrs args [ "args" ]
         // overridesOf node
         // floating
         // {
           inherit site;
-          nativeBuildInputs = roots ++ [
-            pkgs.autoPatchelfHook
-            tool.python
-            tool.unzip
-          ];
+          nativeBuildInputs =
+            roots
+            ++ hooks
+            ++ [
+              tool.python
+              tool.unzip
+            ];
           buildInputs = roots;
           dontUnpack = true;
           dontConfigure = true;
           dontInstall = true;
           buildPhase = "(${builtins.elemAt args.args 1})";
-        }
-      );
+        };
+    in
+    if pkgs != null then
+      pkgs.stdenv.mkDerivation (attrs [ pkgs.autoPatchelfHook ])
+    else if stdenv != null then
+      derivation (stdenv // attrs stdenv.nativeBuildInputs)
+    else
+      mk (args // buildToolsOf node // overridesOf node);
 
   # The `site-packages` of a node that this graph builds. A node output floats,
   # so this is a downstream placeholder until the node is built.

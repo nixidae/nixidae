@@ -50,7 +50,10 @@ let
 
   value =
     data:
-    if builtins.isAttrs data then
+    # A string that carries its context, as `builtins.getContext` gives it.
+    if builtins.isAttrs data && data ? __context then
+      builtins.appendContext data.text data.__context
+    else if builtins.isAttrs data then
       builtins.mapAttrs (
         name: item:
         let

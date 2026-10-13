@@ -229,6 +229,16 @@ rec {
   };
 
   checks = {
+    # nixpkgs in the planner and stdenv as data give one `.drv` for every
+    # source node of the render oracle. The comparison runs at evaluation.
+    stdenvAsData =
+      let
+        compared = import ./tests/stdenv-oracle.nix { nixpkgs = pkgs.path; };
+        differ = lib.filterAttrs (_: node: !node.same) compared;
+      in
+      assert lib.assertMsg (differ == { }) "stdenv as data differs from mkDerivation: ${builtins.toJSON differ}";
+      pkgs.runCommand "stdenv-as-data" { } "echo ${toString (builtins.attrNames compared)} > $out";
+
     # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
     # Parsed, so key order and quoting cannot fail it.
     ciWorkflow =

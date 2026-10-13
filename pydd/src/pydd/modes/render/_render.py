@@ -52,9 +52,28 @@ def join(separator: str, items: Iterable[Text]) -> Text:
     return cat(*parts)
 
 
+def carried(data: dict[str, Any]) -> Text:
+    """A string that carries its context, as `{ text, __context }`.
+
+    `__context` is what `builtins.getContext` gives: an opaque path, or the
+    outputs of a `.drv`.
+    """
+    elements: set[Element] = set()
+    for path, kind in data["__context"].items():
+        if kind.get("path"):
+            elements.add(("src", path))
+        for output in kind.get("outputs", []):
+            elements.add(("out", path, output))
+        if kind.get("allOutputs"):
+            raise ValueError(f"{path}: a context of all outputs has no place in a node")
+    return Text(data["text"], frozenset(elements))
+
+
 def lift(data: Any, store_dir: str) -> Any:
     """`data` with the context that `pydd.modes.evaluate` gives the evaluator."""
     match data:
+        case dict() if "__context" in data:
+            return carried(data)
         case dict():
             lifted: dict[str, Any] = {}
             for name, item in data.items():
@@ -203,34 +222,30 @@ class Graph:
                     | (self.patchelf_inputs() if node["platform"] else {})
                 )
             case "editable":
-                return self.mk(
+                return self.source(
+                    node,
                     self.local(node, "editable")
                     | {
                         "editableRoot": node["root"],
                         "installerPath": self.installer_path(),
                         "backend": node["backend"],
                         "backendPath": self.backend_path(node),
-                    }
-                    | self.build_tools_of(node)
-                    | self.overrides_of(node)
+                    },
                 )
             case "local-wheel":
-                return self.mk(
+                return self.source(
+                    node,
                     self.local(node, "wheel")
                     | {
                         "installerPath": self.installer_path(),
                         "backend": node["backend"],
                         "backendPath": self.backend_path(node),
-                    }
-                    | self.build_tools_of(node)
-                    | self.overrides_of(node)
+                    },
                 )
             case "local-sdist":
-                return self.mk(
-                    self.local(node, "sdist")
-                    | {"backend": node["backend"], "backendPath": self.backend_path(node)}
-                    | self.build_tools_of(node)
-                    | self.overrides_of(node)
+                return self.source(
+                    node,
+                    self.local(node, "sdist") | {"backend": node["backend"], "backendPath": self.backend_path(node)},
                 )
             case "sdist":
                 artifact = node["artifact"]
@@ -244,7 +259,8 @@ class Graph:
                 return output_of(node["artifact"]["plannerOut"], "out")
             case "sdist-build":
                 built_from = "from" in node
-                return self.mk(
+                return self.source(
+                    node,
                     {
                         "name": node["name"],
                         "args": [Text("-c"), cat(". ", self.script["buildSdist"])],
@@ -253,9 +269,7 @@ class Graph:
                         "backend": node["backend"],
                         "installerPath": self.installer_path(),
                         "backendPath": self.backend_path(node),
-                    }
-                    | self.build_tools_of(node)
-                    | self.overrides_of(node)
+                    },
                 )
             case "nixpkgs" | "host":
                 return self.fetched(node["artifact"])
@@ -288,15 +302,72 @@ class Graph:
             "PATH": self.base_path,
             "SOURCE_DATE_EPOCH": Text("315532800"),
             **args,
-            # `derivation` keeps `__contentAddressed` out of the environment.
+            "__contentAddressed": True,
             "outputHashMode": Text("recursive"),
             "outputHashAlgo": Text("sha256"),
         }
-        argv: list[Text] = attrs.pop("args")
+        return self.derivation(attrs)
+
+    def source(self, node: dict[str, Any], args: dict[str, Any]) -> Derivation:
+        """`mkSource` of `graph.nix`: on stdenv as data, when the document carries it."""
+        stdenv: dict[str, Any] | None = self.doc.get("stdenv")
+        if stdenv is None:
+            return self.mk(args | self.build_tools_of(node) | self.overrides_of(node))
+        roots: list[Text] = [built["out"] for built in node.get("buildTools", [])]
+        attrs = (
+            {key: value for key, value in args.items() if key != "args"}
+            | self.overrides_of(node)
+            | {
+                "__contentAddressed": True,
+                "outputHashMode": Text("recursive"),
+                "outputHashAlgo": Text("sha256"),
+                "site": Text(self.site),
+                "nativeBuildInputs": [*roots, *stdenv["nativeBuildInputs"], self.tool["python"], self.tool["unzip"]],
+                "buildInputs": roots,
+                "dontUnpack": True,
+                "dontConfigure": True,
+                "dontInstall": True,
+                "buildPhase": cat("(", args["args"][1], ")"),
+            }
+        )
+        return self.derivation(stdenv | attrs)
+
+    @staticmethod
+    def coerce(value: Any) -> Text:
+        """A value as `derivation` puts it in the environment."""
+        match value:
+            case Text():
+                return value
+            case bool():
+                return Text("1" if value else "")
+            case None:
+                return Text("")
+            case int():
+                return Text(str(value))
+            case list():
+                return join(" ", (Graph.coerce(item) for item in value))
+        raise TypeError(f"no environment value for {type(value).__name__}")
+
+    def derivation(self, attrs: dict[str, Any]) -> Derivation:
+        """`builtins.derivation` over `attrs`, which carry their context."""
+        ignore_nulls = attrs.get("__ignoreNulls") is True
+        argv: list[Text] = attrs.get("args", [])
+        outputs = [output.text for output in attrs.get("outputs", [Text("out")])]
+        if attrs.get("__contentAddressed") is not True or outputs != ["out"]:
+            raise ValueError("a node of this graph has one floating output, 'out'")
+        if attrs.get("__structuredAttrs") is True:
+            raise ValueError("a node with structured attributes has no environment to render")
+        # `derivation` consumes these. It keeps `__structuredAttrs = false`, as "".
+        special = {"__ignoreNulls", "__contentAddressed", "args"}
+        env = {
+            key: self.coerce(value)
+            for key, value in attrs.items()
+            if key not in special and not (value is None and ignore_nulls)
+        }
         srcs: set[str] = set()
         drvs: dict[str, set[str]] = {}
         dynamic: dict[str, dict[str, set[str]]] = {}
-        for value in [*attrs.values(), *argv]:
+        for value in [*env.values(), *argv]:
             for element in value.context:
                 match element:
                     case ("src", path):
@@ -306,11 +377,11 @@ class Graph:
                     case ("dyn", drv, inner, output):
                         dynamic.setdefault(drv, {}).setdefault(inner, set()).add(output)
         return Derivation(
-            name=attrs["name"].text,
-            system=attrs["system"].text,
-            builder=attrs["builder"].text,
+            name=env["name"].text,
+            system=env["system"].text,
+            builder=env["builder"].text,
             args=[value.text for value in argv],
-            env={key: value.text for key, value in attrs.items()},
+            env={key: value.text for key, value in env.items()},
             srcs=srcs,
             drvs=drvs,
             dynamic=dynamic,

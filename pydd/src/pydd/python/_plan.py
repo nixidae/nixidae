@@ -441,7 +441,7 @@ class Plan:
             "nodes": self.nodes,
             "installer": self.installer,
             "root": root,
-        }
+        } | ({"stdenv": inputs["stdenvTemplate"]} if "stdenvTemplate" in inputs else {})
 
 
 #: A key whose value is the output path of the derivation that the paired key

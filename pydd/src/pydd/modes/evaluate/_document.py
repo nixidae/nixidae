@@ -19,6 +19,14 @@ def document_value(state: Any, data: Any, store_dir: str) -> Any:
     builds that derivation, and an entry that no node reads is never built.
     """
     match data:
+        case dict() if "__context" in data:
+            # A string that carries its context: `pydd.modes.render._render.carried`.
+            elements = []
+            for path, kind in data["__context"].items():
+                if kind.get("path"):
+                    elements.append(path.split("/")[3])
+                elements += [f"!{output}!{path.split('/')[3]}" for output in kind.get("outputs", [])]
+            return state.make_string(data["text"], elements)
         case dict():
             value = state.make_attrs()
             for name, item in data.items():
