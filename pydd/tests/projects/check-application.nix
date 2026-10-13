@@ -48,12 +48,12 @@ let
       venvName
       ;
   };
-  app = planner.out;
+  app = planner.dynamic;
 
   # The same project with no application, which is the shape that a development
   # shell takes. `uv.nix` gives it as an attribute, so these arguments are
   # written once.
-  venv = planner.environment.out;
+  venv = planner.environment.dynamic;
 
   programs = if builtins.isList application then application else [ application ];
 in

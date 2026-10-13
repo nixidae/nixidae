@@ -18,7 +18,7 @@
 
 let
   planner = pydd.python.uv { inherit project; };
-  venv = planner.out;
+  venv = planner.dynamic;
 in
 (derivation {
   name = "uv-check";

@@ -40,7 +40,7 @@ let
       fromSdist
       ;
   };
-  venv = planner.out;
+  venv = planner.dynamic;
 
   # One probe for each member that this selection installs. A member that the
   # selection leaves out is absent from the environment, so its probe must not

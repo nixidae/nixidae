@@ -344,15 +344,6 @@ let
     else
       null;
 
-  # The application as a derivation. `./application.nix` says why a derivation
-  # is necessary, and what the build of it verifies.
-  applicationWrapper = import ./application.nix {
-    inherit pkgs;
-    application = planned.out;
-    program = chosenProgram;
-    name = environmentName;
-  };
-
   # The same call with no application, which is the target of the environment.
   # `environment` of the result gives it, and `env` builds it.
   environmentTarget =
@@ -370,25 +361,46 @@ let
         }
       );
 
-  # **The environment as a derivation, so that one command builds it.**
-  # A planner writes a `.drv`, so a caller of the command line builds the
-  # planner and then builds `"$drv^out"`. This attribute holds the second step,
-  # so `nix build --file ./uv.nix env` is the whole build and `result/bin`
-  # holds the programs.
+  # **The result is an ordinary derivation** (Lillecarl/pydd#7), and
+  # `./application.nix` gives the shape. It takes `overrideAttrs` and every
+  # install hook, and `pydd.python.uv` gives it `override` over the arguments
+  # of this file. `passthru` holds the planner, and `dynamic` is the output
+  # that the planner submits.
   #
-  # It is the same shape as `app`, and `./application.nix` gives the reason
-  # that shape is necessary: `builtins.outputOf` gives a string, and `nix
-  # build` takes a derivation.
-  environmentWrapper =
-    let
-      target = if environmentTarget == null then planned else environmentTarget;
-      name = if application == null then environmentName else "${environmentName}-env";
-    in
-    import ./application.nix {
-      inherit pkgs name;
-      application = target.out;
-      program = null;
+  # `app` is this result when the call names an application. `env` and
+  # `environment` are the environment either way: this result, or the same
+  # call with no application. So `app` and `env` of one call are the two
+  # halves of one project:
+  #
+  #     target = pydd.python.uv { project = ./.; application = "ws-cli"; };
+  #     { packages.default = target; devShells.default = target.shell; }
+  #
+  # **An application costs a second planner, and no second environment.**
+  # The two planners differ in one variable, so Nix builds both. Every node
+  # that they submit is content-addressing and identical, so the environment
+  # itself is one store path that both graphs reach.
+  environment = if environmentTarget == null then root else environmentTarget;
+
+  root = import ./application.nix {
+    inherit pkgs;
+    application = planned.out;
+    program = if application == null then null else chosenProgram;
+    name = environmentName;
+    passthru = builtins.removeAttrs planned [ "out" ] // {
+      dynamic = planned.out;
+      inherit lockCheck environment;
+      app =
+        if application == null then
+          throw (
+            "uv.nix: `app` is the application, and this call names no application. "
+            + "Pass `application`, or use this result itself for the environment."
+          )
+        else
+          root;
+      env = environment;
+      shell = developmentShell;
     };
+  };
 
   # **A development shell over that same environment.**
   #
@@ -412,7 +424,7 @@ let
   # already, so a compiler in the shell adds a closure that nothing calls.
   developmentShell = pkgs.mkShellNoCC {
     name = "${environmentName}-shell";
-    packages = [ environmentWrapper ];
+    packages = [ environment ];
     PYDD_EDITABLE_ROOT = toString project;
   };
 
@@ -887,56 +899,8 @@ checkProject (
         (
           # **`lockCheck` is here whatever `uvCheck` says**, and Nix evaluates it
           # only when something asks for it. So `nix build --file ./uv.nix
-          # lockCheck` runs uv over the project and builds no graph, and the
-          # project tree still enters no store path of a build that never names
-          # this attribute.
-          #
-          # `environment` is this same project with no application, so a caller
-          # that ships one program and develops against the whole environment
-          # writes the arguments once:
-          #
-          #     target = import ./uv.nix { project = ./.; application = "ws-cli"; };
-          #     { packages.default = target.app; devShells.default = target.shell; }
-          #
-          # `app` is the same application as a derivation, for `nix run`, for
-          # `lib.getExe` and for `environment.systemPackages`. `./application.nix`
-          # says why a wrapper is necessary.
-          #
-          # `shell` is a development shell over the environment, and it sets
-          # `PYDD_EDITABLE_ROOT` to the project. `developmentShell` above says
-          # why that variable decides whether an editable member imports.
-          #
-          # `env` is the environment as a derivation, and it is what makes one
-          # command enough:
-          #
-          #     nix build --file ./uv.nix env --arg project /path/to/project
-          #     ./result/bin/python -c 'import rich'
-          #
-          # The result itself is the planner, so a build of it gives a `.drv`
-          # and a second command builds `"$drv^out"`. `env` holds that second
-          # step. It is the environment whether this call names an application
-          # or not, so `app` and `env` of one call are the two halves of one
-          # project.
-          #
-          # **It costs a second planner, and no second environment.** The two
-          # planners differ in one variable, so Nix builds both. Every node that
-          # they submit is content-addressing and identical, so the environment
-          # itself is one store path that both graphs reach.
-          planned
-          // {
-            inherit lockCheck;
-            app =
-              if application == null then
-                throw (
-                  "uv.nix: `app` is the application as a derivation, and this call names no application. "
-                  + "Pass `application`, or build this result itself for the environment."
-                )
-              else
-                applicationWrapper;
-            env = environmentWrapper;
-            shell = developmentShell;
-            environment = if environmentTarget == null then planned else environmentTarget;
-          }
+          # lockCheck` runs uv over the project and builds no graph.
+          root
         )
     )
 )

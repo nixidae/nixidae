@@ -133,13 +133,16 @@ let
     };
   };
 in
-planned
-// {
-  # The environment as a derivation, so that one command builds it.
-  env = import ./application.nix {
+# An ordinary derivation, as `./uv.nix` gives it (Lillecarl/pydd#7).
+let
+  root = import ./application.nix {
     inherit pkgs;
     name = environmentName;
     application = planned.out;
-    program = null;
+    passthru = builtins.removeAttrs planned [ "out" ] // {
+      dynamic = planned.out;
+      env = root;
+    };
   };
-}
+in
+root

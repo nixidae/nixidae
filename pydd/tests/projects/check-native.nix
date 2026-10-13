@@ -43,7 +43,7 @@ let
       builders
       ;
   };
-  venv = planner.out;
+  venv = planner.dynamic;
 in
 (derivation {
   name = "${venvName}-check";

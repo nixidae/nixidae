@@ -70,7 +70,12 @@ this way, with the same environment paths as on `builder-rpc-v0`.
 inside the archive, so no evaluation can know it. That planner reads the
 archive, chooses the backend from the same lock, and submits the build.
 
-The result also carries `env`, `app` and `shell`. The reader handles
+**The result is an ordinary derivation** (#7). Its output is a tree of
+links into the environment, or into the application when the call names
+one. It takes `override` over the arguments of `uv`, `overrideAttrs` and
+the install hooks, and it works in `environment.systemPackages` and
+`buildInputs`. Its `passthru` holds `planner`, `dynamic` (the output that
+the planner submits), `env`, `app` and `shell`. The reader handles
 workspaces, git, URL and path sources, and local registries.
 `tests/projects` builds one project for each (see Tests). uv locks neither
 build backends nor the installer, so a dependency group puts them in the
@@ -96,6 +101,7 @@ every mode, released Nix included.
 | a library linked through another one | none: the fixup step (`scripts/fixup-elf.py`) | done, #4 |
 | tools that nixpkgs does not imply | `[tool.pydd.build-tools]`, or `buildTools` | done |
 | a package from nixpkgs instead of PyPI | `[tool.pydd.from-nixpkgs]`, or `fromNixpkgs` | done |
+| the root itself | `override`, `overrideAttrs`, hooks | done, #7 |
 | env, `config_settings`, patches, hooks | `[tool.pydd.overrides.<package>]`, or `overrides` | done, #5 |
 | a build that nothing above covers | `builders.<package> = artifact: drv` | done, #6 |
 

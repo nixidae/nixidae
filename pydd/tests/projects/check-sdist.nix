@@ -24,7 +24,7 @@ let
       ;
     fromSdist = [ "packaged-app" ];
   };
-  venv = planner.out;
+  venv = planner.dynamic;
 in
 (derivation {
   name = "sdist-check";

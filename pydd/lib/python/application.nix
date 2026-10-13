@@ -1,44 +1,52 @@
-# A derivation of the application, so that `meta` has somewhere to live.
+# The root of a planned build, as an ordinary derivation (Lillecarl/pydd#7).
 #
-# **`builtins.outputOf` gives a bare string, and a string carries no `meta`.**
-# Measured: `nix run` over that string fails with `attribute 'type' does not
-# exist`, and an attribute set that names `outPath` and `drvPath` by hand fails
-# with `path "/0a988..." is not in the Nix store`. This derivation is the only
-# shape that works, and its whole content is one symbolic link to the
-# application. Measured: it adds 176 bytes and one path to a closure of
-# 238229120 bytes. `docs/NIX-FACTS.md` holds both measurements, under "A dynamic
-# output carries no `meta`".
+# **`builtins.outputOf` gives a bare string, and a string is not a package.**
+# It has no `meta`, no `override`, no `overrideAttrs` and no hook. Measured:
+# `nix run` over that string fails with `attribute 'type' does not exist`, and
+# an attribute set that names `outPath` and `drvPath` by hand fails with `path
+# "/0a988..." is not in the Nix store`. `docs/NIX-FACTS.md` holds both, under
+# "A dynamic output carries no `meta`".
+#
+# So the root is a `stdenvNoCC.mkDerivation` whose output is a tree of symbolic
+# links into the dynamic output. Its directories are its own, so `postInstall`
+# and `overrideAttrs` can add or remove files. A virtual environment works
+# through the links: Python finds `pyvenv.cfg` beside the `bin/python` that it
+# was started as, and not beside the target of that link.
 #
 # **The output of this derivation is deferred, like every node of the graph.**
-# Its input is the application, whose path no evaluation knows, so Nix cannot
-# compute this path either. `nix run` realises the installable and then reads
-# the result, so it works. `lib.getExe` interpolates `outPath` during
-# evaluation, so it gives a placeholder: that placeholder is correct inside
-# another derivation, and it is not a path that a shell can use.
+# Its input is the dynamic output, whose path no evaluation knows. `nix run`
+# realises the installable and then reads the result, so it works.
+# `lib.getExe` gives a placeholder, which is correct inside another derivation.
 #
 # **The build verifies the program rather than trust the name.** A member
 # usually installs a console script of its own name, and a member that does not
 # is why `program` is an argument at all.
 #
-# `uv.nix` calls this for its `app` attribute, and `tests/sealed.nix` calls it
-# over the fixtures. The second caller is what covers this file with no network.
+# `uv.nix` and `poetry.nix` call this for their result, and `tests/sealed.nix`
+# calls it over the fixtures.
 {
   pkgs,
-  # The application, as `builtins.outputOf <planner>.outPath "out"`.
+  # The dynamic output, as `builtins.outputOf <planner>.outPath "out"`.
   application,
   # The program that `meta.mainProgram` names, or `null` for no `meta`.
   program ? null,
   # The name of the derivation. `program` takes this place when it is not null,
   # because the name of a program is the better name for a result.
   name,
+  passthru ? { },
 }:
 
-pkgs.runCommand (if program != null then program else name)
-  {
-    inherit application;
-    meta = pkgs.lib.optionalAttrs (program != null) { mainProgram = program; };
-  }
-  ''
+pkgs.stdenvNoCC.mkDerivation {
+  name = if program != null then program else name;
+  inherit application passthru;
+  dontUnpack = true;
+  dontConfigure = true;
+  dontBuild = true;
+  # stdenv's fixup strips, patches and compresses files in place, and every
+  # file here is a link into another store path.
+  dontFixup = true;
+  installPhase = ''
+    runHook preInstall
     ${pkgs.lib.optionalString (program != null) ''
       if [ ! -x "$application/bin/${program}" ]; then
         echo "the application holds no program called '${program}'." >&2
@@ -48,5 +56,8 @@ pkgs.runCommand (if program != null then program else name)
         exit 1
       fi
     ''}
-    ln -s "$application" "$out"
-  ''
+    cp -rs --no-preserve=mode "$application" "$out"
+    runHook postInstall
+  '';
+  meta = pkgs.lib.optionalAttrs (program != null) { mainProgram = program; };
+}

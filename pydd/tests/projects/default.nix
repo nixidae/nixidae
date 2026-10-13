@@ -97,6 +97,7 @@ let
             postInstall = "touch $out/${pkgs.python3.sitePackages}/pydd_host_built";
           };
     };
+    root-derivation = check ./check-root.nix { };
     git-app = check ./check-git.nix { };
     vendored-app = check ./check-vendored.nix { };
     local-index = check ./check-index.nix { };
@@ -106,5 +107,5 @@ let
 in
 builtins.mapAttrs (_: out: {
   inherit out closure;
-  environment = out.planner.out;
+  environment = out.planner.dynamic;
 }) checks
