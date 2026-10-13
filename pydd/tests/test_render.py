@@ -48,6 +48,7 @@ def test_the_oracle_covers_every_kind() -> None:
         "sdist",
         "sdist-build",
         "nixpkgs",
+        "host",
         "venv",
         "application",
         "planned",

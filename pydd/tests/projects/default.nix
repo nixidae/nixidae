@@ -77,6 +77,26 @@ let
       venvName = "numpy-sdist";
       script = ./scripts/check-numpy.py;
     };
+    # psutil from a stdenv build that the host wrote, the escape hatch
+    # (Lillecarl/pydd#6). The planner still selects the sdist, and cffi is
+    # still a planned node.
+    native-host = check ./check-native.nix {
+      project = ./native-app;
+      venvName = "native-host";
+      script = ./scripts/check-host.py;
+      builders.psutil =
+        artifact:
+        if artifact.kind != "sdist" then
+          null
+        else
+          pkgs.python3.pkgs.buildPythonPackage {
+            pname = artifact.package;
+            inherit (artifact) version src;
+            pyproject = true;
+            build-system = [ pkgs.python3.pkgs.setuptools ];
+            postInstall = "touch $out/${pkgs.python3.sitePackages}/pydd_host_built";
+          };
+    };
     git-app = check ./check-git.nix { };
     vendored-app = check ./check-vendored.nix { };
     local-index = check ./check-index.nix { };

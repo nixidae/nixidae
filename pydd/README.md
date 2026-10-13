@@ -97,7 +97,7 @@ every mode, released Nix included.
 | tools that nixpkgs does not imply | `[tool.pydd.build-tools]`, or `buildTools` | done |
 | a package from nixpkgs instead of PyPI | `[tool.pydd.from-nixpkgs]`, or `fromNixpkgs` | done |
 | env, `config_settings`, patches, hooks | `[tool.pydd.overrides.<package>]`, or `overrides` | done, #5 |
-| a build that nothing above covers | a host function `artefact -> derivation` | #6 |
+| a build that nothing above covers | `builders.<package> = artifact: drv` | done, #6 |
 
 **The hints follow your nixpkgs.** They come from `python.pkgs`, so an
 overlay or `packageOverrides` that changes a nixpkgs Python package
@@ -122,6 +122,15 @@ The `overrides` argument of `uv` and `poetry` takes the same keys in
 camelCase, and wins per key. `lib/python/overrides.nix` and `graph.nix`
 (at `overridesOf`) give each key. `tests/projects/numpy-sdist` chooses
 BLAS this way.
+
+**The escape hatch is a host function.** `builders.<package>` of `uv`
+and `poetry` takes one artefact, `{ package, version, filename, kind, src }`,
+and returns a derivation that holds `lib/python<version>/site-packages`,
+such as `python.pkgs.buildPythonPackage` makes. So that build has stdenv,
+`overrideAttrs` and every setup hook. The planner still selects the
+artefact, and names the derivation made for it. `null` keeps the
+planner's own node. `tests/projects` builds psutil this way
+(`native-host`).
 
 **The fixup step needs no declaration.** A node that builds with tools
 adds to each ELF file's `RUNPATH` the directory of every `DT_NEEDED`

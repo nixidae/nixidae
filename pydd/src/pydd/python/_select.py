@@ -97,6 +97,9 @@ class Artifact:
     #: instantiated. Only a row of kind `sdist` carries one.
     planner_drv: str = ""
     planner_out: str = ""
+    #: The node that a host function made for this artefact (Lillecarl/pydd#6).
+    host_drv: str = ""
+    host_out: str = ""
 
     @classmethod
     def from_json(cls, row: dict[str, Any]) -> Artifact:
@@ -112,6 +115,8 @@ class Artifact:
             subdirectory=row.get("subdirectory", ""),
             planner_drv=row.get("plannerDrv", ""),
             planner_out=row.get("plannerOut", ""),
+            host_drv=row.get("hostDrv", ""),
+            host_out=row.get("hostOut", ""),
         )
 
     @property

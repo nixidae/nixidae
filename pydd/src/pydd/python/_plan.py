@@ -204,12 +204,30 @@ class Plan:
         output. One name for both makes `add` refuse the graph, so the
         bootstrap takes the `-bootstrap` suffix.
 
+        **A host function replaces the node** (`builders` of `planner.nix`).
+        The node of kind `host` names the derivation that it made, and builds
+        nothing here. The bootstrap installer keeps its own node.
+
         A node of kind `sdist-build` runs one PEP 517 hook, so it takes the
         backend and the path that the backend lives on. Both belong in this
         call, and not in an assignment to the node afterwards: `add` returns
         the existing name when a node repeats, and a later assignment would
         then reach the wrong node.
         """
+        if artifact.host_drv and kind != "unpack":
+            return self.add(
+                {
+                    "name": f"{artifact.node_name}-host",
+                    "kind": "host",
+                    "platform": False,
+                    "artifact": {
+                        "package": artifact.package,
+                        "version": artifact.version,
+                        "drv": artifact.host_drv,
+                        "out": artifact.host_out,
+                    },
+                }
+            )
         entry: dict[str, Any] = {
             "name": f"{artifact.node_name}-bootstrap" if kind == "unpack" else artifact.node_name,
             "kind": kind,

@@ -240,6 +240,17 @@ let
       };
     }
     {
+      name = "idna-3.10-host";
+      kind = "host";
+      platform = false;
+      artifact = {
+        package = "idna";
+        version = "3.10";
+        drv = builtins.unsafeDiscardStringContext nixpkgs.drvPath;
+        out = "${nixpkgs}";
+      };
+    }
+    {
       name = "app-env";
       kind = "venv";
       platform = false;
@@ -253,6 +264,7 @@ let
         "lib-from-sdist"
         "tool-editable"
         "pyzmq-26.0.0-nixpkgs"
+        "idna-3.10-host"
       ];
       installed = [
         "rich==14.0.0"

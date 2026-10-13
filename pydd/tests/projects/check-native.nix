@@ -31,6 +31,7 @@
   buildTools ? { },
   # What runs in the environment, and fails the check by exiting non-zero.
   script ? ./scripts/check-native.py,
+  builders ? { },
 }:
 
 let
@@ -39,6 +40,7 @@ let
       project
       venvName
       buildTools
+      builders
       ;
   };
   venv = planner.out;

@@ -257,7 +257,7 @@ class Graph:
                     | self.build_tools_of(node)
                     | self.overrides_of(node)
                 )
-            case "nixpkgs":
+            case "nixpkgs" | "host":
                 return self.fetched(node["artifact"])
             case "venv":
                 return self.mk(

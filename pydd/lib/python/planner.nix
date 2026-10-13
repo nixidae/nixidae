@@ -135,6 +135,20 @@
   # **The version is the one that nixpkgs holds, and not the one that the lock
   # file pins.** Nothing reconciles the two, and the planner prints both.
   fromNixpkgs ? { },
+  # **The escape hatch** (Lillecarl/pydd#6): a function per package name that
+  # makes the node of one artefact, as `{ numpy = artifact: drv; }`.
+  #
+  # `artifact` is `{ package, version, filename, kind, src }`, where `kind` is
+  # `wheel` or `sdist` and `src` is the file. The result is a derivation whose
+  # output holds `lib/python<version>/site-packages`, as
+  # `python.pkgs.buildPythonPackage` writes it, and so it has stdenv,
+  # `overrideAttrs` and every setup hook. `null` keeps the planner's own node
+  # for that artefact.
+  #
+  # **The planner still selects.** It chooses the artefact as it would, and
+  # names the node that this function made for it. So the version is the one
+  # that the lock pins, and every other package is still planned.
+  builders ? { },
   # What one package needs to build, by package name, as
   # `{ psutil = [ pkgs.stdenv.cc ]; }`.
   #
@@ -262,14 +276,48 @@ let
   # source of kind `path`, and `graph.nix` names it with `builtins.storePath`.
   row =
     entry:
-    if entry ? path then
-      entry
-    else
-      (builtins.removeAttrs entry [ "drv" ])
-      // {
-        drv = builtins.unsafeDiscardOutputDependency entry.drv.drvPath;
-        out = builtins.unsafeDiscardStringContext entry.drv.outPath;
-      };
+    (
+      if entry ? path then
+        entry
+      else
+        (builtins.removeAttrs entry [ "drv" ])
+        // {
+          drv = builtins.unsafeDiscardOutputDependency entry.drv.drvPath;
+          out = builtins.unsafeDiscardStringContext entry.drv.outPath;
+        }
+    )
+    // hostRow entry;
+
+  # PEP 503: the name that `packaging.utils.canonicalize_name` gives.
+  normalise =
+    name:
+    pkgs.lib.concatStringsSep "-" (
+      builtins.filter (part: builtins.isString part && part != "") (
+        builtins.split "[-_.]+" (pkgs.lib.toLower name)
+      )
+    );
+  normalisedBuilders = pkgs.lib.mapAttrs' (
+    name: builder: pkgs.lib.nameValuePair (normalise name) builder
+  ) builders;
+
+  # The node that `builders` makes for one artefact, as `row` gives a fetch.
+  hostRow =
+    entry:
+    let
+      builder = normalisedBuilders.${normalise entry.package} or null;
+      made =
+        if builder == null then
+          null
+        else
+          builder {
+            inherit (entry) package version filename kind;
+            src = entry.path or entry.drv;
+          };
+    in
+    pkgs.lib.optionalAttrs (entry ? package && made != null) {
+      hostDrv = builtins.unsafeDiscardOutputDependency made.drvPath;
+      hostOut = builtins.unsafeDiscardStringContext made.outPath;
+    };
 
   # One entry for each package that nixpkgs supplies. It is the same shape that
   # `row` gives an artefact, plus the version that nixpkgs holds, which the

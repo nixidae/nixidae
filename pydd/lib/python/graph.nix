@@ -377,6 +377,11 @@ let
       # the store already, and a second pass of `auto-patchelf` would have
       # nothing to correct.
       fetched node.artifact
+    else if node.kind == "host" then
+      # **The escape hatch** (Lillecarl/pydd#6). A function of the host made
+      # this derivation for the artefact that the planner chose, so it is a
+      # node of kind `nixpkgs` that a user wrote.
+      fetched node.artifact
     else if node.kind == "venv" then
       # A real virtual environment, with `venv.EnvBuilder`, and the members
       # merged into it. `make-venv.py` runs under the interpreter that the

@@ -40,6 +40,8 @@
   # Per-package node overrides. `./overrides.nix` gives the keys, and
   # `[tool.pydd.overrides.<package>]` declares the same; this argument wins.
   overrides ? { },
+  # The escape hatch; `./planner.nix` gives the contract at `builders`.
+  builders ? { },
 }:
 let
   inherit (pkgs) lib;
@@ -111,6 +113,7 @@ let
       noBinary
       python
       fromNixpkgs
+      builders
       ;
     buildTools = hintedBuildTools // overridden.buildTools // buildTools;
     overrides = overridden.nodes;
