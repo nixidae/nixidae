@@ -266,23 +266,28 @@ class Plan:
             }
         )
 
-    def planned_node(self, name: str, planner: dict[str, str]) -> str:
-        """Add a node that another planner writes, as the root of its graph.
+    @staticmethod
+    def planned_entry(name: str, planner: dict[str, str]) -> dict[str, Any]:
+        """A node that another planner writes, as the root of its graph.
 
-        **On released Nix a planner writes one derivation.** So a node whose
-        shape only a build can decide, such as a local project whose backend
-        its tree declares, is the root of a planner that the host made, and
-        `graph.nix` reads it through `builtins.outputOf`. The node keeps the
-        name that the node itself would have.
+        `graph.nix` reads a node of kind `planned` through
+        `builtins.outputOf`. The node keeps the name of the node it stands
+        for, so every node that names it still does.
         """
-        return self.add(
-            {
-                "name": name,
-                "kind": "planned",
-                "platform": False,
-                "artifact": {"plannerDrv": planner["plannerDrv"], "plannerOut": planner["plannerOut"]},
-            }
-        )
+        return {
+            "name": name,
+            "kind": "planned",
+            "platform": False,
+            "artifact": {"plannerDrv": planner["plannerDrv"], "plannerOut": planner["plannerOut"]},
+        }
+
+    def replace(self, name: str, entry: dict[str, Any]) -> None:
+        """Put `entry` in the place of the node called `name`."""
+        if entry["name"] != name:
+            raise ValueError(f"a node that replaces '{name}' has to carry that name, not '{entry['name']}'")
+        index = next(index for index, node in enumerate(self.nodes) if node["name"] == name)
+        self.nodes[index] = entry
+        self._seen[name] = entry
 
     def venv_node(self, name: str) -> str:
         """Add the node that composes the members into an environment."""
@@ -313,13 +318,7 @@ class Plan:
             }
         )
 
-    def root(
-        self,
-        name: str,
-        *,
-        application: str | Sequence[str] | None = None,
-        venv_planner: dict[str, str] | None = None,
-    ) -> str:
+    def root(self, name: str, *, application: str | Sequence[str] | None = None) -> str:
         """The node that the planner submits, which is one of two shapes.
 
         **An environment holds every program of every member, and an
@@ -328,9 +327,6 @@ class Plan:
         `scripts/make-application.py` gives the whole reason to want it: a
         virtual environment carries `bin/python`, so a NixOS configuration that
         installs one shadows the interpreter of the system.
-
-        `venv_planner` is the planner that writes the environment, on released
-        Nix, where the planner of an application writes only the application.
 
         `application` takes one name or a list of them. **A list is one output
         over one environment**, and not one output for each name: a project
@@ -364,12 +360,7 @@ class Plan:
         # `dict.fromkeys` keeps the order that the caller wrote and drops a
         # repeat. Two names of one member are one template.
         found = list(dict.fromkeys(base for base in bases if base is not None))
-        venv = (
-            self.planned_node(f"{name}-env", venv_planner)
-            if venv_planner is not None
-            else self.venv_node(f"{name}-env")
-        )
-        return self.application_node(name, venv=venv, bases=found)
+        return self.application_node(name, venv=self.venv_node(f"{name}-env"), bases=found)
 
     def member(self, name: str, label: str, *, package: str) -> None:
         """Mark a node as a member of the environment, and not only a build input.

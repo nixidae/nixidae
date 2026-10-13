@@ -303,7 +303,8 @@ let
         ) ../../src/pydd/python) scriptDir)
         ../../src/pydd/modes/__init__.py
         (if render == "nix" then ../../src/pydd/modes/evaluate else ../../src/pydd/modes/render)
-      ];
+      ]
+      ++ pkgs.lib.optional (protocol == "out") ../../src/pydd/modes/out;
     };
 
   #: How many levels of planner a chain of source distributions may use. A
