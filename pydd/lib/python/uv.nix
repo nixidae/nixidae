@@ -109,6 +109,10 @@
   # each package that it names. `declaredBuildTools` below gives the table and
   # the reason to prefer it.
   buildTools ? { },
+  # Whether a package built from source takes its native inputs from the
+  # matching package of `python.pkgs`, when neither `buildTools` nor
+  # `[tool.pydd.build-tools]` names it. `./hints.nix` gives the rule.
+  nixpkgsHints ? true,
   # Whether uv itself checks the lock file, in a derivation of its own, before
   # the planner runs.
   #
@@ -460,7 +464,15 @@ let
   # **The argument wins for the package that it names, and for no other one.**
   # A caller who overrides `cffi` on the command line keeps the declaration of
   # every other package, which is what a per-package override means.
-  chosenBuildTools = declaredBuildTools // buildTools;
+  # A package that the lock file can build from source: it has an sdist, or it
+  # is a tree. nixpkgs hints only these, and the declarations override them.
+  sourceBuilt = map (package: package.name) (
+    lib.filter (package: package ? sdist || localKind package != null) document.package
+  );
+  hintedBuildTools = lib.optionalAttrs nixpkgsHints (
+    import ./hints.nix { inherit lib pkgs python; } sourceBuilt
+  );
+  chosenBuildTools = hintedBuildTools // declaredBuildTools // buildTools;
 
   # **Which package comes from nixpkgs rather than the index, in that same
   # table.** The reason is the one that `./planner.nix` gives at its

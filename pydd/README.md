@@ -84,6 +84,33 @@ takes PyPI packages only.
 This planner is a port of the ddrn lab of nanopynix. `docs/` holds its
 research notes.
 
+## Extending a build
+
+pydd is a framework. A package that needs more than its lock file says
+gets it through one of these extension points, and each one works in
+every mode, released Nix included.
+
+| need | extension point | status |
+| --- | --- | --- |
+| native inputs of a source build | none: nixpkgs hints (`nixpkgsHints`, `lib/python/hints.nix`) | done, #3 |
+| a library linked through another one | none: the fixup step (`scripts/fixup-elf.py`) | done, #4 |
+| tools that nixpkgs does not imply | `[tool.pydd.build-tools]`, or `buildTools` | done |
+| a package from nixpkgs instead of PyPI | `[tool.pydd.from-nixpkgs]`, or `fromNixpkgs` | done |
+| env, `config_settings`, patches, hooks | node overrides | #5 |
+| a build that nothing above covers | a host function `artefact -> derivation` | #6 |
+
+**The hints follow your nixpkgs.** They come from `python.pkgs`, so an
+overlay or `packageOverrides` that changes a nixpkgs Python package
+changes what pydd builds that package with. A declaration in
+`[tool.pydd.build-tools]` or `buildTools` replaces the hints for that
+package.
+
+**The fixup step needs no declaration.** A node that builds with tools
+adds to each ELF file's `RUNPATH` the directory of every `DT_NEEDED`
+entry that it does not resolve. It searches the tools' `lib` directories,
+then the `RUNPATH` of each library it finds there. So pyzmq finds
+libsodium through libzmq. A file that already resolves keeps its bytes.
+
 ## Constraints
 
 - A node the planner writes has a floating output, or one Nix computes.

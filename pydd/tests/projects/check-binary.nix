@@ -15,6 +15,8 @@
   # this file twice, once with none and once with `pyzmq`, and the two reports
   # differ in what the extension links against.
   fromNixpkgs ? { },
+  buildTools ? { },
+  nixpkgsHints ? true,
   # A store path that the extension must link, or `null`. A build from the
   # sdist against a library of nixpkgs names that library here.
   linksTo ? null,
@@ -26,6 +28,8 @@ let
       project
       venvName
       fromNixpkgs
+      buildTools
+      nixpkgsHints
       ;
   };
   venv = planner.out;

@@ -56,6 +56,20 @@ let
       venvName = "zmq-sdist";
       linksTo = "${pkgs.zeromq}";
     };
+    # No hints, and no libsodium: the fixup finds it through the RUNPATH of
+    # libzmq (Lillecarl/pydd#4).
+    zmq-sdist-transitive = check ./check-binary.nix {
+      project = ./zmq-sdist;
+      venvName = "zmq-sdist-transitive";
+      linksTo = "${pkgs.zeromq}";
+      nixpkgsHints = false;
+      buildTools.pyzmq = [
+        pkgs.stdenv.cc
+        pkgs.cmake
+        pkgs.ninja
+        pkgs.zeromq
+      ];
+    };
     git-app = check ./check-git.nix { };
     vendored-app = check ./check-vendored.nix { };
     local-index = check ./check-index.nix { };

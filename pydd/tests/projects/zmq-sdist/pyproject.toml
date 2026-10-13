@@ -18,6 +18,3 @@ build = [
 
 [tool.uv]
 no-binary-package = ["pyzmq"]
-
-[tool.pydd.build-tools]
-pyzmq = ["stdenv.cc", "cmake", "ninja", "pkg-config", "zeromq", "libsodium"]
