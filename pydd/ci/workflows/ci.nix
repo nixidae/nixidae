@@ -12,7 +12,12 @@ let
     nix.install = {
       enable = true;
       version = nixVersion;
-      experimentalFeatures = [ "nix-command" ];
+      # `flakes` gives `builtins.fetchTree`, which nix/sources.nix fetches the
+      # umbrella with.
+      experimentalFeatures = [
+        "nix-command"
+        "flakes"
+      ];
       settings = {
         trusted-users = [
           "root"
