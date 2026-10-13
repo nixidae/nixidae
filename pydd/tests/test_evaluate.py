@@ -7,7 +7,7 @@ from typing import Any
 import huggorm
 import pytest
 
-from pydd.evaluate import to_value
+from pydd.modes.evaluate import to_value
 
 BASH = "0" * 32 + "-bash"
 DRV = "1" * 32 + "-fetch.drv"

@@ -10,7 +10,7 @@ from typing import Any
 
 from ._derivation import Derivation, Floating
 from ._hash import downstream_placeholder
-from ._writer import WRITERS, OutWriter, Writer
+from ._writer import Writer, writer_from_environ
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,11 +46,7 @@ class Planner:
 
     @classmethod
     def from_environ(cls) -> Planner:
-        if os.environ.get("PYDD_PROTOCOL") == "out":
-            writer: Writer = OutWriter()
-        else:
-            writer = WRITERS[os.environ.get("PYDD_WRITER", "cli")]()
-        return cls(writer, os.environ["PYDD_SYSTEM"], json.loads(os.environ.get("PYDD_MENU", "null")))
+        return cls(writer_from_environ(), os.environ["PYDD_SYSTEM"], json.loads(os.environ.get("PYDD_MENU", "null")))
 
     def add(self, drv: Derivation) -> Node:
         node = Node(self.writer.add(drv), drv)

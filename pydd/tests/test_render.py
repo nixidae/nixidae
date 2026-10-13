@@ -1,4 +1,4 @@
-"""`pydd.python._render`, held to what `graph.nix` makes of the same document.
+"""`pydd.modes.render`, held to what `graph.nix` makes of the same document.
 
 `render-oracle.nix` evaluates `graph.nix` over a document that holds every
 node kind, and records the `.drvPath` of each node. The renderer must write
@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from test_against_nix import drv_path
 
-from pydd.python._render import Graph
+from pydd.modes.render import Graph
 
 ORACLE: dict[str, Any] = json.loads(Path(os.environ["PYDD_RENDER_ORACLE"]).read_text())
 

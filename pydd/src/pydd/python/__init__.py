@@ -3,7 +3,7 @@
 An environment has more than one planner. The outer one selects the environment,
 and the planner of a source distribution selects the backend that the archive
 asks for. Both make packaging decisions with `packaging`, both write a plan
-document, and both submit the root that `graph.nix` wrote.
+document, and both submit its root through `pydd.modes`.
 
 This package is not installed. A planner reaches it through `PYTHONPATH`
 inside its build sandbox, which `default.nix` sets from a store path.
@@ -31,12 +31,6 @@ from ._plan import (
 )
 from ._plan import (
     nix_string as nix_string,
-)
-from ._plan import (
-    open_restricted_store as open_restricted_store,
-)
-from ._plan import (
-    submit as submit,
 )
 from ._sdist import (
     PYPROJECT as PYPROJECT,
@@ -129,10 +123,8 @@ __all__ = [
     "filter_conflicts",
     "is_pyproject",
     "nix_string",
-    "open_restricted_store",
     "read_pyproject",
     "select_lock",
-    "submit",
     "target_from_environ",
     "target_platforms",
     "target_tags",

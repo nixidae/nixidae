@@ -18,7 +18,8 @@ import re
 
 import pytest
 
-from pydd.python import Artifact, Plan, open_restricted_store
+from pydd.core import writer_from_environ
+from pydd.python import Artifact, Plan
 
 
 def wheel(package: str, version: str) -> Artifact:
@@ -56,7 +57,7 @@ class TestTheBootstrapNode:
 
 
 class TestAPlannerRunsInsideABuildOnly:
-    """The two guards that `open_restricted_store` puts before every Nix call.
+    """The two guards that `writer_from_environ` puts before every Nix call.
 
     **A planner reads a restricted daemon socket that only a `builder-rpc-v0`
     build has.** A reader who runs `plan.py` by hand meets one of these two
@@ -72,13 +73,13 @@ class TestAPlannerRunsInsideABuildOnly:
         monkeypatch.delenv("out", raising=False)
         monkeypatch.setenv("NIX_REMOTE", remote)
         with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 build"):
-            open_restricted_store()
+            writer_from_environ()
 
     def test_an_unset_socket_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("out", raising=False)
         monkeypatch.delenv("NIX_REMOTE", raising=False)
         with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 build"):
-            open_restricted_store()
+            writer_from_environ()
 
     def test_an_output_path_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # **A `builder-rpc-v0` build gets no `$out`.** The output arrives
@@ -87,4 +88,4 @@ class TestAPlannerRunsInsideABuildOnly:
         monkeypatch.setenv("NIX_REMOTE", "unix:///build/restricted-socket")
         monkeypatch.setenv("out", "/nix/store/aaa-demo")
         with pytest.raises(RuntimeError, match="out is set to"):
-            open_restricted_store()
+            writer_from_environ()

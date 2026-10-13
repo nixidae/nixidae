@@ -9,7 +9,7 @@
 # plan to derivations, and both paths give the same derivations:
 #
 #   nix     the planner evaluates `graph.nix` in its sandbox, in huggorm.
-#   python  `pydd.python._render` writes them in Python. With the `cli`
+#   python  `pydd.modes.render` writes them in Python. With the `cli`
 #           writer, no planner needs huggorm.
 #
 # `pydd.protocol` chooses the Nix: `rpc` is `builder-rpc-v0` on Nix master,
@@ -295,10 +295,14 @@ let
       };
       plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.python.${main} import main\nsys.exit(main())\n";
       pythonPath = [ pkgs.python3Packages.packaging ];
+      # The ecosystem, and the one mode that turns this planner's plan into
+      # derivations (`pydd.modes`).
       modules = [
         (pkgs.lib.fileset.difference (pkgs.lib.fileset.fileFilter (
           file: file.hasExt "py"
         ) ../../src/pydd/python) scriptDir)
+        ../../src/pydd/modes/__init__.py
+        (if render == "nix" then ../../src/pydd/modes/evaluate else ../../src/pydd/modes/render)
       ];
     };
 
@@ -333,7 +337,7 @@ let
   # output.** A node then names the tool's derivation as an input, as a node
   # that the host evaluates from `graph.nix` names it. With a plain store path
   # instead, the two would be different derivations. The planner puts the
-  # dependency back (`_plan.document_value`). A store path that no derivation
+  # dependency back (`pydd.modes.evaluate._document.document_value`). A store path that no derivation
   # makes, such as a source, travels as `{ out }`.
   built =
     value:

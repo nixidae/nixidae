@@ -15,8 +15,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .core._planner import Planner
-from .core._writer import HuggormWriter
+from ...core._planner import Planner
+from ...core._writer import HuggormWriter
 
 
 def to_value(state: Any, data: Any, store_dir: str = "/nix/store") -> Any:

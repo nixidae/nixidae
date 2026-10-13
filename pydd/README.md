@@ -47,7 +47,7 @@ paths make the same derivations:
 | writer | the plan becomes derivations through | needs |
 | --- | --- | --- |
 | `huggorm` | `lib/python/graph.nix`, evaluated in the planner | huggorm |
-| `cli` | `pydd.python._render`, in Python | `packaging`, a `nix` |
+| `cli` | `pydd.modes.render`, in Python | `packaging`, a `nix` |
 
 `graph.nix` is the reference. `checks.tests` holds the renderer to it for
 each node kind, and `test-projects` builds each project both ways and

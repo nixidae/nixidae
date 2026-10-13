@@ -29,6 +29,7 @@ from .core import (
     nix32,
     output_path_name,
     placeholder,
+    writer_from_environ,
 )
 
 __all__ = [
@@ -49,4 +50,5 @@ __all__ = [
     "nix32",
     "output_path_name",
     "placeholder",
+    "writer_from_environ",
 ]

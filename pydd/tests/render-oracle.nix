@@ -1,7 +1,7 @@
 # What `lib/python/graph.nix` makes of a plan document that holds every node
-# kind, for `test_render.py` to hold `pydd.python._render` to.
+# kind, for `test_render.py` to hold `pydd.modes.render` to.
 #
-# The document carries the context that `_plan.document_value` attaches in a
+# The document carries the context that `pydd.modes.evaluate._document.document_value` attaches in a
 # planner. `nix eval --read-only` computes each `.drvPath` and writes nothing.
 let
   system = "x86_64-linux";

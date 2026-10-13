@@ -25,6 +25,8 @@ import sys
 
 from packaging.requirements import Requirement
 
+from pydd.core import writer_from_environ
+from pydd.modes import submit
 from pydd.python import (
     Artifact,
     Lock,
@@ -35,16 +37,14 @@ from pydd.python import (
     build_tools_from,
     choose,
     env,
-    open_restricted_store,
     read_pyproject,
-    submit,
     target_from_environ,
 )
 from pydd.python._poetrylock import PoetryProject
 
 
 def main() -> int:
-    store = open_restricted_store()
+    store = writer_from_environ()
 
     inputs = json.loads(env("PYDD_INPUTS"))
     artifacts = [Artifact.from_json(row) for row in inputs["artifacts"]]

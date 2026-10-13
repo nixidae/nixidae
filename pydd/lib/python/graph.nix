@@ -31,7 +31,7 @@ let
   # **No store path here needs `builtins.storePath` or `builtins.appendContext`.**
   # Both call `EnsurePath`, which a `builder-rpc-v0` socket refuses, so the
   # planner attaches the context before this file sees a value
-  # (`pydd.python._plan.document_value`).
+  # (`pydd.modes.evaluate._document.document_value`).
   tool = builtins.mapAttrs (_: built: built.out) tools;
   script = scripts;
 

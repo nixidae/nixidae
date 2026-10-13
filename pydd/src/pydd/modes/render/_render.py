@@ -3,8 +3,8 @@
 **This is the second path, and `graph.nix` is the reference.** Each kind below
 makes the derivation that the same kind of `graph.nix` makes, byte for byte, so
 the planner submits the same root `.drv` either way. `tests/test_render.py`
-holds every kind to the evaluator, and `test-projects --compare` holds whole
-environments to it.
+holds every kind to `graph.nix`, and `test-projects` holds whole environments
+to it.
 
 A value carries its string context, as a Nix string does: the inputs of a node
 are the context of its attributes, and nothing else.
@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..core._derivation import Derivation, Floating
-from ..core._hash import downstream_placeholder, dynamic_placeholder
-from ._plan import BUILT_PAIRS, output_name
+from ...core._derivation import Derivation, Floating
+from ...core._hash import downstream_placeholder, dynamic_placeholder
+from ...python._plan import BUILT_PAIRS, output_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -53,7 +53,7 @@ def join(separator: str, items: Iterable[Text]) -> Text:
 
 
 def lift(data: Any, store_dir: str) -> Any:
-    """`data` with the context that `_plan.document_value` gives the evaluator."""
+    """`data` with the context that `pydd.modes.evaluate` gives the evaluator."""
     match data:
         case dict():
             lifted: dict[str, Any] = {}

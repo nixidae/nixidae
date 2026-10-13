@@ -102,4 +102,32 @@ class OutWriter(HuggormWriter):
             sink.write(aterm)
 
 
+def writer_from_environ() -> Writer:
+    """Open the restricted daemon socket that `builder-rpc-v0` gives a builder,
+    with the writer that `PYDD_WRITER` names.
+
+    A planner runs only inside such a build, so a different `NIX_REMOTE` is an
+    error and not a fallback. With `PYDD_PROTOCOL=out` the build is one of
+    released Nix instead, which has no socket and gives the planner `$out`.
+    """
+    if os.environ.get("PYDD_PROTOCOL") == "out":
+        if "out" not in os.environ:
+            raise RuntimeError("PYDD_PROTOCOL is 'out', and this build has no $out to write the root to.")
+        return OutWriter()
+    remote = os.environ.get("NIX_REMOTE", "")
+    if not remote.startswith("unix://"):
+        raise RuntimeError(
+            f"NIX_REMOTE is {remote!r}. A planner runs only inside a "
+            "builder-rpc-v0 build, which sets it to the restricted socket."
+        )
+    # A `builder-rpc-v0` build gets no `$out`. The output arrives through
+    # `submit_output` instead, so there is no path to write to.
+    if "out" in os.environ:
+        raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")  # noqa: SIM112 - Nix names it `out`
+
+    if os.environ.get("PYDD_WRITER", "cli") == "huggorm":
+        return HuggormWriter(remote)
+    return CliWriter()
+
+
 WRITERS = {"cli": CliWriter, "huggorm": HuggormWriter}

@@ -48,6 +48,8 @@ from typing import TYPE_CHECKING, Any
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from pydd.core import writer_from_environ
+from pydd.modes import submit
 from pydd.python import (
     Artifact,
     LocalNode,
@@ -61,9 +63,7 @@ from pydd.python import (
     check_freshness,
     choose,
     env,
-    open_restricted_store,
     select_lock,
-    submit,
     target_from_environ,
 )
 from pydd.python._poetrylock import PoetryProject
@@ -494,7 +494,7 @@ def make_plan(
 
 
 def main() -> int:
-    store = open_restricted_store()
+    store = writer_from_environ()
 
     inputs = json.loads(env("PYDD_INPUTS"))
     target = target_from_environ()
