@@ -57,6 +57,40 @@ node before the planner runs. `out` runs this way, on Nix 2.35.
 | `drv` | master, `builder-rpc-v0` | `pydd-drv` | `pydd.modes.render`, in Python | the same |
 | `out` | 2.35, `$out` | huggorm | `pydd.modes.render`, in Python | also a node per wheel, a planner per local project, and the environment's planner under an application |
 
+### How `out` builds a graph from one derivation
+
+**A planner on a release writes one derivation, and that derivation may
+name others that already exist.** A root names its inputs by `.drv`
+path. Nix accepts any input that is in the store, and the planner's
+sandbox holds every input of the planner. So the host makes each `.drv`
+that a root could need before the planner runs, and the planner decides
+which of them the root names. Three things make that work:
+
+1. **The host makes a node for every wheel of the lock**, for every
+   platform, with the same `graph.nix` and the same document that the
+   planner would write. So the host's `.drv` and the planner's are one
+   path. The host only instantiates them: Nix builds the ones that the
+   root names, and no other one.
+2. **A node that only a build can shape gets a planner of its own.** The
+   backend of an sdist is declared inside the archive, and no evaluation
+   has read the archive. The host makes one planner per sdist, one per
+   local project, and one for the environment under an application. Each
+   writes one derivation, its node, as its own `$out`. The root names
+   that node as a dynamic output (`builtins.outputOf`), a node of kind
+   `planned`. So one node per package holds: each package's derivation
+   is either one the host made, or the one derivation of its own
+   planner.
+3. **The planner computes every path exactly, and writes only the
+   root.** huggorm stages each derivation in an in-memory store, so the
+   paths match the other modes byte for byte. The planner then copies the
+   root's ATerm to `$out`. Nix registers no reference to a path that the
+   sandbox lacks, and the root then silently becomes another derivation.
+   So the writer refuses a root that names such a path.
+
+**The cost is on the host.** It instantiates a node for every wheel it
+might need, and a planner wherever only a build can decide. With
+`builder-rpc-v0` a planner writes what it chose, and nothing more.
+
 **"Plan to derivations" is a third, smaller choice.** `graph.nix` says how
 a node is built. `pydd.modes.render` makes the same derivations in Python,
 for a planner with no evaluator. `tests/test_render.py` holds the two to
