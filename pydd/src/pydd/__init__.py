@@ -14,6 +14,7 @@ from __future__ import annotations
 from .core import (
     CliWriter,
     Derivation,
+    DrvWriter,
     Fixed,
     Floating,
     HuggormWriter,
@@ -35,6 +36,7 @@ from .core import (
 __all__ = [
     "CliWriter",
     "Derivation",
+    "DrvWriter",
     "Fixed",
     "Floating",
     "HuggormWriter",

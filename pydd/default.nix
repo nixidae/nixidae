@@ -20,6 +20,11 @@ let
   nixReleased = pkgs.nixVersions.nix_2_35;
   huggormReleased = huggormSet.lanes.nix_2_35.huggorm;
 
+  # Writes derivations from a build, as JSON, for a planner in any language
+  # (Lillecarl/pydd#1). One per Nix: only master has `builder-rpc-v0`.
+  pydd-drv = pkgs.callPackage ./tools/pydd-drv { inherit (nix.libs) nix-store; };
+  pydd-drv-released = pkgs.callPackage ./tools/pydd-drv { inherit (nixReleased.libs) nix-store; };
+
   # The evaluator in the planner is huggorm's, and so is the staging store of
   # a planner that writes `$out`.
   writersOf =
@@ -36,15 +41,17 @@ let
       [
         "cli"
         "huggorm"
+        "drv"
       ];
 in
 rec {
-  inherit pkgs pydd huggorm;
-
-  # Writes derivations from a build, as JSON, for a planner in any language
-  # (Lillecarl/pydd#1). One per Nix: only master has `builder-rpc-v0`.
-  pydd-drv = pkgs.callPackage ./tools/pydd-drv { inherit (nix.libs) nix-store; };
-  pydd-drv-released = pkgs.callPackage ./tools/pydd-drv { inherit (nixReleased.libs) nix-store; };
+  inherit
+    pkgs
+    pydd
+    huggorm
+    pydd-drv
+    pydd-drv-released
+    ;
 
   # nix run --file . run -- examples.hello.cli
   # nix run --file . run -- examples.venv.huggorm check
@@ -61,7 +68,10 @@ rec {
               nix = nixReleased;
             }
           else
-            { inherit huggorm nix writer; }
+            {
+              inherit huggorm nix writer;
+              pyddDrv = pydd-drv;
+            }
         );
       }
     )
@@ -141,11 +151,14 @@ rec {
   # nix run --file . run -- projects.cli.pure-app
   # nix run --file . run-released -- projects.out.pure-app
   projects =
-    lib.genAttrs [ "cli" "huggorm" ] (
+    lib.genAttrs [ "cli" "huggorm" "drv" ] (
       writer:
       import ./tests/projects {
         inherit pkgs;
-        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+        pydd = pkgs.callPackage ./lib {
+          inherit huggorm nix writer;
+          pyddDrv = pydd-drv;
+        };
       }
     )
     // {
@@ -185,7 +198,7 @@ rec {
       failed=0
       for name in "''${names[@]}"; do
         paths=()
-        modes=(cli huggorm)
+        modes=(cli huggorm drv)
         if [[ " ''${released[*]} " == *" $name "* ]]; then
           modes+=(out)
         fi

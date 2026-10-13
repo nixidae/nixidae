@@ -14,6 +14,7 @@
   callPackage,
   huggorm,
   nix,
+  pyddDrv ? null,
   writer ? "cli",
   plannerProtocol ? "rpc",
   plannerRender ? null,
@@ -34,7 +35,12 @@ let
       args:
       planner.mkPlanner (
         {
-          inherit writer huggorm nix;
+          inherit
+            writer
+            huggorm
+            nix
+            pyddDrv
+            ;
           protocol = plannerProtocol;
         }
         // args

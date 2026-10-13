@@ -32,11 +32,12 @@ class CliWriter:
     """``nix derivation add`` and ``nix store submit-output``."""
 
     def __init__(self, nix: str = "nix") -> None:
-        self.nix = nix
+        self.add_command = [nix, "derivation", "add"]
+        self.submit_command = [nix, "store", "submit-output"]
 
     def add(self, drv: Derivation) -> str:
         result = subprocess.run(
-            [self.nix, "derivation", "add"],
+            self.add_command,
             input=json.dumps(drv.to_json()),
             stdout=subprocess.PIPE,
             text=True,
@@ -45,7 +46,19 @@ class CliWriter:
         return result.stdout.strip()
 
     def submit(self, path: str, output: str) -> None:
-        subprocess.run([self.nix, "store", "submit-output", path, output], check=True)
+        subprocess.run([*self.submit_command, path, output], check=True)
+
+
+class DrvWriter(CliWriter):
+    """``pydd-drv add`` and ``pydd-drv submit``: the same calls, with no ``nix``.
+
+    A planner then carries a binary over libstore instead of the closure of
+    the Nix CLI (Lillecarl/pydd#1).
+    """
+
+    def __init__(self, tool: str = "pydd-drv") -> None:
+        self.add_command = [tool, "add"]
+        self.submit_command = [tool, "submit"]
 
 
 class HuggormWriter:
@@ -125,9 +138,12 @@ def writer_from_environ() -> Writer:
     if "out" in os.environ:
         raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")  # noqa: SIM112 - Nix names it `out`
 
-    if os.environ.get("PYDD_WRITER", "cli") == "huggorm":
-        return HuggormWriter(remote)
+    match os.environ.get("PYDD_WRITER", "cli"):
+        case "huggorm":
+            return HuggormWriter(remote)
+        case "drv":
+            return DrvWriter()
     return CliWriter()
 
 
-WRITERS = {"cli": CliWriter, "huggorm": HuggormWriter}
+WRITERS = {"cli": CliWriter, "huggorm": HuggormWriter, "drv": DrvWriter}

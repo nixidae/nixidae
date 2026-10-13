@@ -77,7 +77,11 @@ in
 
     `writer`
     : `"cli"` writes through `nix derivation add`. `"huggorm"` writes in
-      process, and needs `huggorm`.
+      process, and needs `huggorm`. `"drv"` writes through `pydd-drv`, and
+      the planner then carries no `nix`.
+
+    `pyddDrv`
+    : The `pydd-drv` package, for `writer = "drv"`.
 
     `huggorm`
     : A huggorm package built against a Nix with `builder-rpc-v0`.
@@ -108,6 +112,7 @@ in
       writer ? "cli",
       huggorm ? null,
       nix ? nixVersions.git,
+      pyddDrv ? null,
       python ? if writer == "huggorm" then huggorm.pythonModule else python3,
       pythonPath ? [ ],
       modules ? [ ],
@@ -118,7 +123,9 @@ in
     assert lib.assertOneOf "writer" writer [
       "cli"
       "huggorm"
+      "drv"
     ];
+    assert lib.assertMsg (writer == "drv" -> pyddDrv != null) "mkPlanner: writer = \"drv\" needs pyddDrv";
     assert lib.assertOneOf "protocol" protocol [
       "rpc"
       "out"
@@ -151,7 +158,7 @@ in
           outputHashAlgo = "sha256";
 
           NIX_CONFIG = "extra-experimental-features = nix-command ca-derivations dynamic-derivations";
-          PATH = lib.makeBinPath [ nix ];
+          PATH = lib.makeBinPath [ (if writer == "drv" then pyddDrv else nix) ];
           PYTHONPATH = lib.concatStringsSep ":" (
             [ "${pyddSrc modules}" ]
             ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
@@ -174,7 +181,7 @@ in
         [
           bash
           python
-          nix
+          (if writer == "drv" then pyddDrv else nix)
         ]
         ++ lib.optional (writer == "huggorm") huggorm
         ++ pythonPath
