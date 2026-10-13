@@ -1,0 +1,23 @@
+[project]
+name = "zmq-sdist"
+version = "0.1.0"
+description = "pyzmq built from its sdist, against the zeromq of nixpkgs"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pyzmq>=27.1.0",
+]
+
+[dependency-groups]
+build = [
+    "installer>=1.0.1",
+    "scikit-build-core>=0.10",
+    "cython>=3.0.0",
+    "packaging",
+]
+
+[tool.uv]
+no-binary-package = ["pyzmq"]
+
+[tool.pydd.build-tools]
+pyzmq = ["stdenv.cc", "cmake", "ninja", "pkg-config", "zeromq", "libsodium"]

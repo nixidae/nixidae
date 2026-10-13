@@ -51,6 +51,11 @@ let
       fromNixpkgs.pyzmq = pkgs.python3Packages.pyzmq;
     };
     native-app = check ./check-native.nix { };
+    zmq-sdist = check ./check-binary.nix {
+      project = ./zmq-sdist;
+      venvName = "zmq-sdist";
+      linksTo = "${pkgs.zeromq}";
+    };
     git-app = check ./check-git.nix { };
     vendored-app = check ./check-vendored.nix { };
     local-index = check ./check-index.nix { };

@@ -15,6 +15,9 @@
   # this file twice, once with none and once with `pyzmq`, and the two reports
   # differ in what the extension links against.
   fromNixpkgs ? { },
+  # A store path that the extension must link, or `null`. A build from the
+  # sdist against a library of nixpkgs names that library here.
+  linksTo ? null,
 }:
 
 let
@@ -99,6 +102,16 @@ in
                 ;;
               esac
               echo "every DT_NEEDED entry resolves"
+      ${pkgs.lib.optionalString (linksTo != null) ''
+        case "$linked" in
+        *"${linksTo}/"*) echo "the extension links ${linksTo}" ;;
+        *)
+          echo "the extension does not link ${linksTo}"
+          printf '%s\n' "$linked"
+          return 1
+          ;;
+        esac
+      ''}
             }
 
             if ! report > "$out" 2>&1; then
