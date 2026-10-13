@@ -85,6 +85,7 @@ runCommand "pydd-tests"
         ../tests
         ../examples
         ../lib/python/graph.nix
+        ../lib/modes/nix-eval.nix
       ];
     };
     PYDD_FIXTURE = builtins.toJSON fixture;
@@ -100,6 +101,15 @@ runCommand "pydd-tests"
     NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations" \
       nix eval --store "local?root=$TMPDIR/oracle" --json --file tests/render-oracle.nix > $TMPDIR/oracle.json
     export PYDD_RENDER_ORACLE=$TMPDIR/oracle.json
+    # `lib/modes/nix-eval.nix` gives the same `.drv` for every node kind, from
+    # plain JSON, with `builtins.storePath` and `builtins.appendContext`.
+    same=$(NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations" \
+      nix eval --store "local?root=$TMPDIR/oracle" --file tests/nix-eval-oracle.nix \
+      --apply 'r: builtins.all (v: v.same) (builtins.attrValues r)')
+    if [ "$same" != true ]; then
+      echo "lib/modes/nix-eval.nix and lib/python/graph.nix disagree on a node" >&2
+      exit 1
+    fi
     ruff check --no-cache .
     ruff format --no-cache --check .
     PYTHONPATH=src:tests pytest -p no:cacheprovider tests
