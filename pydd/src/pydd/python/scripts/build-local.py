@@ -341,6 +341,10 @@ def main() -> int:
         build_wheel(project, out, backend_name, env("installerPath"))
     else:
         build_sdist(project, out, backend_name)
+
+    # A node with build tools fixes the RUNPATH of what it built.
+    if fixup := os.environ.get("fixupElf"):
+        subprocess.run([sys.executable, fixup, str(out)], check=True)
     return 0
 
 

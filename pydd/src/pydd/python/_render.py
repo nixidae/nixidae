@@ -151,6 +151,9 @@ class Graph:
             "CPPFLAGS": cat("-g0 ", join(" ", (cat("-isystem ", root, "/include") for root in roots))),
             "LDFLAGS": join(" ", (cat("-L", root, "/lib") for root in roots)),
             "PKG_CONFIG_PATH": join(":", (cat(root, "/lib/pkgconfig") for root in roots)),
+            "fixupElf": self.script["fixupElf"],
+            "fixupPaths": join(":", (cat(root, "/lib") for root in roots)),
+            "patchelf": cat(self.tool["patchelf"], "/bin/patchelf"),
         }
 
     def local(self, node: dict[str, Any], mode: str) -> dict[str, Any]:

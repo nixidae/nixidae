@@ -83,6 +83,7 @@ let
     "buildLocal"
     "makeVenv"
     "makeApplication"
+    "fixupElf"
   ] (name: source "script-${name}");
 
   # A tool as `planner.nix` hands one over: an output of a derivation, or a

@@ -374,6 +374,7 @@ let
     buildLocal = "${scriptDir + "/build-local.py"}";
     makeVenv = "${scriptDir + "/make-venv.py"}";
     makeApplication = "${scriptDir + "/make-application.py"}";
+    fixupElf = "${scriptDir + "/fixup-elf.py"}";
   };
 
   # **On released Nix the host makes each node that a planner names, except

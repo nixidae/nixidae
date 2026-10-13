@@ -145,6 +145,11 @@ let
         CPPFLAGS = "-g0 ${join " " (root: "-isystem ${root}/include")}";
         LDFLAGS = join " " (root: "-L${root}/lib");
         PKG_CONFIG_PATH = join ":" (root: "${root}/lib/pkgconfig");
+        # **A node that builds with tools also fixes the RUNPATH of what it
+        # built.** `scripts/fixup-elf.py` gives the reason (Lillecarl/pydd#4).
+        fixupElf = script.fixupElf;
+        fixupPaths = join ":" (root: "${root}/lib");
+        patchelf = "${tool.patchelf}/bin/patchelf";
       };
 
   # The `site-packages` of a node that this graph builds. A node output floats,

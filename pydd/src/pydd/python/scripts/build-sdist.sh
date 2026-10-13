@@ -98,3 +98,8 @@ cd "$root"
 for built in "$root"/wheel/*.whl; do
   PYTHONPATH="$installerPath" python3 -m installer --prefix "$out" "$built"
 done
+
+# A node with build tools fixes the RUNPATH of what it built.
+if [ -n "${fixupElf:-}" ]; then
+  python3 "$fixupElf" "$out"
+fi
