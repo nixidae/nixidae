@@ -38,6 +38,8 @@ MODES = {
     "recursive-eval": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", "recursive-nix"),
     "recursive-nixpkgs": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", "recursive-nix"),
     "out": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", ""),
+    "stdenv": ("NIX_MASTER", "store", "builder-rpc-v0"),
+    "out-stdenv": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", ""),
 }
 #: The files that make each mode, beside the core and the ecosystem it shares.
 MODE_FILES = {
@@ -48,6 +50,14 @@ MODE_FILES = {
     "recursive-eval": ["src/pydd/modes/nix_cli", "lib/modes/nix-eval.nix"],
     "recursive-nixpkgs": ["src/pydd/modes/nix_cli", "lib/modes/nix-eval.nix"],
     "out": ["src/pydd/modes/out", "lib/modes/out.nix", "src/pydd/modes/render"],
+    "stdenv": ["src/pydd/modes/render", "lib/python/stdenv-template.nix", "lib/python/carry.nix"],
+    "out-stdenv": [
+        "src/pydd/modes/out",
+        "lib/modes/out.nix",
+        "src/pydd/modes/render",
+        "lib/python/stdenv-template.nix",
+        "lib/python/carry.nix",
+    ],
 }
 RUNS = 3
 #: What `run` sets: a private store cannot create a cgroup.
@@ -187,7 +197,7 @@ def main() -> int:
     for project in projects:
         planners[project] = {}
         for mode in MODES:
-            if mode == "out" and project not in released:
+            if mode.startswith("out") and project not in released:
                 continue
             seconds, packages = planner_seconds(mode, project)
             planners[project][mode] = {"seconds": round(seconds, 2), "packages": packages}

@@ -26,6 +26,9 @@
   plannerNixpkgs ? null,
   plannerNixpkgsOverlays ? [ ],
   plannerNixpkgsConfig ? { },
+  # A package set whose stdenv the planners get as data
+  # (`python/stdenv-template.nix`), or `null`. Works in every mode.
+  plannerStdenv ? null,
 }:
 let
   planner = callPackage ./core/planner.nix { };
@@ -34,6 +37,7 @@ let
     nixpkgs = plannerNixpkgs;
     nixpkgsOverlays = plannerNixpkgsOverlays;
     nixpkgsConfig = plannerNixpkgsConfig;
+    stdenv = plannerStdenv;
     protocol = plannerProtocol;
     render =
       if plannerRender != null then

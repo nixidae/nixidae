@@ -481,10 +481,36 @@ let
         inputs = { };
       };
 
+  # **stdenv as data.** The template travels as JSON, so its strings lose
+  # their context. Each path of that context is an input of every planner
+  # instead: a `.drv` with no dependency on its output, as a fetch of the
+  # menu, and a source as itself. So a planner can write a node that names
+  # stdenv, and stdenv is not built for the planner.
+  template = import ./stdenv-template.nix { pkgs = pydd.stdenv; };
+  stdenvTemplate = pkgs.lib.optionalAttrs (pydd.stdenv != null) {
+    stdenvTemplate = template.encoded;
+  };
+  stdenvInputs =
+    let
+      context = builtins.getContext (builtins.toJSON template.raw);
+    in
+    pkgs.lib.optionalAttrs (pydd.stdenv != null) {
+      PYDD_STDENV_INPUTS = toString (
+        pkgs.lib.mapAttrsToList (
+          path: kind:
+          if kind ? outputs then
+            builtins.unsafeDiscardOutputDependency (builtins.appendContext path { ${path}.allOutputs = true; })
+          else
+            builtins.appendContext path { ${path}.path = true; }
+        ) context
+      );
+    };
+
   baseInputs =
     mode.menu
     // buildToolPaths
     // overridePaths
+    // stdenvTemplate
     // {
       inherit
         roots
@@ -567,7 +593,8 @@ let
   };
 
   plannerEnv =
-    pkgs.lib.optionalAttrs (render == "nix" || render == "nix-cli") {
+    stdenvInputs
+    // pkgs.lib.optionalAttrs (render == "nix" || render == "nix-cli") {
       PYDD_GRAPH_NIX = "${./graph.nix}";
     }
     // pkgs.lib.optionalAttrs (pydd.nixpkgs != null) {

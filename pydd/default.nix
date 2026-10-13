@@ -321,6 +321,32 @@ rec {
           };
         }
       );
+      # stdenv as data on builder-rpc-v0: the host evaluates
+      # `stdenv.mkDerivation` once, and a planner with no nixpkgs writes the
+      # node it would write. Through the Python renderer, with `nix`.
+      stdenv = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            inherit huggorm nix;
+            writer = "cli";
+            plannerStdenv = pkgs;
+          };
+        }
+      );
+      # stdenv as data on released Nix, with no socket at all.
+      out-stdenv = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "huggorm";
+            plannerProtocol = "out";
+            plannerStdenv = pkgs;
+          };
+        }
+      );
       # Stock 2.35 with recursive-nix: the planner writes through the build's
       # daemon socket, with the release's own `nix`, and its root to `$out`.
       recursive = (
@@ -358,15 +384,16 @@ rec {
       fi
       read -ra released <<< "$(nix eval --raw --file . projects.out --apply 'p: toString (builtins.attrNames p)')"
       failed=0
-      for name in "''${names[@]}"; do
-        paths=()
-        modes=(cli huggorm drv recursive recursive-eval)
-        if [[ " ''${released[*]} " == *" $name "* ]]; then
-          modes+=(out)
-        fi
+      # One group of modes for each way to build a source node: every mode of
+      # a group must give one environment. stdenv strips and patches what it
+      # builds, so the stdenv modes are a group of their own.
+      compare() {
+        local name=$1 group=$2
+        shift 2
+        local modes=("$@") paths=() mode runner
         for mode in "''${modes[@]}"; do
           runner=pydd-run
-          [[ $mode == out ]] && runner=pydd-run-released
+          [[ $mode == out* ]] && runner=pydd-run-released
           [[ $mode == recursive* ]] && runner=pydd-run-recursive
           if "$runner" "projects.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
             echo "pass  $name ($mode)"
@@ -376,22 +403,24 @@ rec {
             failed=1
           fi
         done
-        # stdenv builds a source node of recursive-nixpkgs, so its environment
-        # differs by design. It must pass its check, and joins no comparison.
-        if "pydd-run-recursive" "projects.recursive-nixpkgs.$name" > "$log/$name-recursive-nixpkgs.log" 2>&1; then
-          echo "pass  $name (recursive-nixpkgs, not compared)"
-        else
-          echo "FAIL  $name (recursive-nixpkgs)  ($log/$name-recursive-nixpkgs.log)"
-          failed=1
-        fi
         if (( ''${#paths[@]} == ''${#modes[@]} )); then
           if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
-            echo "same  $name  ''${paths[0]#*=}  (''${modes[*]})"
+            echo "same  $name  ''${paths[0]#*=}  ($group: ''${modes[*]})"
           else
-            echo "DIFFER  $name  ''${paths[*]}"
+            echo "DIFFER  $name  ($group)  ''${paths[*]}"
             failed=1
           fi
         fi
+      }
+      for name in "''${names[@]}"; do
+        plain=(cli huggorm drv recursive recursive-eval)
+        stdenv=(recursive-nixpkgs stdenv)
+        if [[ " ''${released[*]} " == *" $name "* ]]; then
+          plain+=(out)
+          stdenv+=(out-stdenv)
+        fi
+        compare "$name" plain "''${plain[@]}"
+        compare "$name" stdenv "''${stdenv[@]}"
       done
       exit "$failed"
     '';
