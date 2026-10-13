@@ -154,18 +154,11 @@ rec {
     features = "";
   };
 
-  # The planner of each project, with a nonce, so Nix runs it again and every
-  # node it names stays cached. `--rebuild` refuses a content-addressed
-  # planner. `tools/measure-modes.py` sets PYDD_MEASURE.
-  measure = lib.mapAttrs (
-    _:
-    lib.mapAttrs (
-      _: project:
-      derivation (
-        project.out.planner.planner.drvAttrs // { PYDD_MEASURE = builtins.getEnv "PYDD_MEASURE"; }
-      )
-    )
-  ) projects;
+  # The planner of each project's environment. With PYDD_MEASURE set and
+  # `--impure`, every planner carries it (`mkPlanner`), so Nix runs each one
+  # again and every node stays cached. `--rebuild` refuses a
+  # content-addressed planner. `tools/measure-modes.py` sets it.
+  measure = lib.mapAttrs (_: lib.mapAttrs (_: project: project.out.planner.planner)) projects;
 
   # The workflow as a value, from ci/workflows/ci.nix, and as the file GitHub
   # reads. `ghalib.toYamlScript` writes a multi-line `run:` as a literal

@@ -182,6 +182,11 @@ in
         PYDD_PROTOCOL = protocol;
         PYDD_SYSTEM = system;
         PYDD_MENU = builtins.toJSON menu;
+      }
+      # `tools/measure-modes.py` sets this, with `--impure`, so every planner
+      # of a graph runs again and no node does. A pure evaluation reads "".
+      // lib.optionalAttrs (builtins.getEnv "PYDD_MEASURE" != "") {
+        PYDD_MEASURE = builtins.getEnv "PYDD_MEASURE";
       };
 
       # `allowImportFromDerivation` is an attribute of the planner, so

@@ -1,10 +1,11 @@
 """Measure each mode of pydd over the test projects, for docs/modes.md.
 
-For each mode and project this times the planner of the environment, in the
-private store of `run` or `run-released`. Every node the planner names is
-built already, by `test-projects`, so the time is the planner's alone. A
-nonce in the planner's attributes makes Nix run it again: `--rebuild` refuses
-a content-addressed planner.
+For each mode and project this times the planning of the environment: every
+planner it takes, nested ones included, in the private store of its mode.
+Every node is built already, by `test-projects`, so the time is the
+planners' alone. A nonce in every planner (`PYDD_MEASURE`, read by
+`mkPlanner`) makes Nix run each again: `--rebuild` refuses a
+content-addressed planner.
 
 It also times `measure-floor`, a derivation that does nothing: every planner
 time holds that much.
@@ -33,6 +34,9 @@ MODES = {
     "cli": ("NIX_MASTER", "store", "builder-rpc-v0"),
     "huggorm": ("NIX_MASTER", "store", "builder-rpc-v0"),
     "drv": ("NIX_MASTER", "store", "builder-rpc-v0"),
+    "recursive": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", "recursive-nix"),
+    "recursive-eval": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", "recursive-nix"),
+    "recursive-nixpkgs": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", "recursive-nix"),
     "out": ("NIX_RELEASED", f"store-{os.environ.get('NIX_RELEASED_VERSION', '')}", ""),
 }
 #: The files that make each mode, beside the core and the ecosystem it shares.
@@ -40,6 +44,9 @@ MODE_FILES = {
     "cli": ["src/pydd/modes/render"],
     "huggorm": ["src/pydd/modes/evaluate", "lib/modes/evaluate.nix"],
     "drv": ["src/pydd/modes/render", "tools/pydd-drv/main.cc"],
+    "recursive": ["src/pydd/modes/render"],
+    "recursive-eval": ["src/pydd/modes/nix_cli", "lib/modes/nix-eval.nix"],
+    "recursive-nixpkgs": ["src/pydd/modes/nix_cli", "lib/modes/nix-eval.nix"],
     "out": ["src/pydd/modes/out", "lib/modes/out.nix", "src/pydd/modes/render"],
 }
 RUNS = 3
@@ -126,7 +133,8 @@ def planner_seconds(mode: str, project: str) -> tuple[float, int | None]:
                 "build",
                 "--store",
                 store,
-                f"{drv}^out",
+                # The environment, so every planner of it runs, and no node.
+                f"{drv}^out^out",
                 "--system-features",
                 features,
                 "--no-link",
