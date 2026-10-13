@@ -37,6 +37,11 @@ let
       ]
     then
       [ "huggorm" ]
+    else if name == "graph" then
+      [
+        "drv"
+        "released"
+      ]
     else
       [
         "cli"
@@ -66,6 +71,14 @@ rec {
               inherit writer;
               huggorm = huggormReleased;
               nix = nixReleased;
+            }
+          else if writer == "released" then
+            {
+              writer = "drv";
+              huggorm = huggormReleased;
+              nix = nixReleased;
+              pyddDrv = pydd-drv-released;
+              plannerProtocol = "out";
             }
           else
             {

@@ -22,7 +22,7 @@
 let
   planner = callPackage ./core/planner.nix { };
   self = planner // {
-    inherit writer;
+    inherit writer pyddDrv;
     protocol = plannerProtocol;
     render =
       if plannerRender != null then

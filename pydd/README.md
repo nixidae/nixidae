@@ -28,6 +28,18 @@ it unchanged.
 | `pydd.mkPlanner`, `writer = "cli"` | `nix derivation add`, `nix store submit-output` | Python stdlib, a `nix` | `examples/hello` |
 | `pydd.mkPlanner`, `writer = "huggorm"` | `Store.add_derivation`, `Store.submit_output` | huggorm | `examples/hello` |
 | `pydd.evaluate.mkEvaluated` | the Nix evaluator, in the planner | huggorm | `examples/evaluated` |
+| `pydd.mkPlanner`, `writer = "drv"` | `pydd-drv add`, `pydd-drv submit` | Python stdlib, `pydd-drv` | `examples/hello` |
+| any program | `pydd-drv graph` | `pydd-drv` | `examples/graph` |
+
+**`pydd-drv` is for a planner in any language** (#1). It is a small C++
+tool over libstore, built for Nix master and for 2.35
+(`tools/pydd-drv`). `graph` reads a whole graph as JSON on stdin: Nix's
+derivation JSON per node, keyed by name. A node names another by key in
+`inputs.drvs`, and reads its output as `{{key^out}}` (`{{key^drv^out}}`
+for a dynamic one). The tool writes leaves first, computes each
+placeholder, and submits the root. With `--out` it writes the root as
+ATerm to `$out`, for released Nix. It measured 148.9 MiB of closure
+against 166.5 MiB for `nix`: libnixstore is most of both.
 
 No mode renders ATerm. A node is derivation JSON, and Nix computes every
 output path it can. For the same plan, the CLI and huggorm writers submit
@@ -167,6 +179,7 @@ command to run and what it prints.
 4. `examples/venv`: a Python environment from a `uv.lock`.
 5. `examples/poetry`: the same environment from a `poetry.lock`.
 6. `examples/released`: `hello` on a released Nix, with no `builder-rpc-v0`.
+7. `examples/graph`: a planner in shell, with no Python, through `pydd-drv graph`.
 
 An example is `examples.<name>.<writer>`:
 
@@ -194,6 +207,7 @@ A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
 
 | path | holds |
 | --- | --- |
+| `tools/pydd-drv` | the C++ writer for a planner in any language (#1) |
 | `examples/` | the tour |
 | `docs/` | the research notes of the ddrn lab |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |

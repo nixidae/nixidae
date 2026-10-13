@@ -100,9 +100,22 @@ struct Graph
         return result + text.substr(at);
     }
 
-    json resolve(const std::string & key) const
+    // A planner in any language gets three things for free: a path in
+    // `inputs` may be absolute, an input needs no empty `dynamicOutputs`, and
+    // a floating output needs no `$out` in `env`, as `builtins.derivation`
+    // fills it in.
+    json resolve(const std::string & key, const Store & store) const
     {
         json drv = derivations.at(key);
+        auto base = [&](const std::string & path) {
+            return hasPrefix(path, store.storeDir + "/") ? std::string(baseNameOf(path)) : path;
+        };
+        for (auto & [name, output] : drv.value("outputs", json::object()).items())
+            if (output.contains("hashAlgo") && !output.contains("hash") && !drv["env"].contains(name))
+                drv["env"][name] = hashPlaceholder(name);
+        if (drv.contains("inputs") && drv["inputs"].contains("srcs"))
+            for (auto & src : drv["inputs"]["srcs"])
+                src = base(src.get<std::string>());
         for (auto & arg : drv["args"])
             arg = substitute(arg.get<std::string>());
         for (auto & [name, value] : drv["env"].items())
@@ -111,7 +124,10 @@ struct Graph
             json drvs = json::object();
             for (auto & [name, value] : drv["inputs"]["drvs"].items()) {
                 auto node = written.find(name);
-                drvs[node == written.end() ? name : std::string(node->second.to_string())] = value;
+                auto & entry = drvs[node == written.end() ? base(name) : std::string(node->second.to_string())];
+                entry = value;
+                if (!entry.contains("dynamicOutputs"))
+                    entry["dynamicOutputs"] = json::object();
             }
             drv["inputs"]["drvs"] = drvs;
         }
@@ -178,7 +194,7 @@ int graph(const std::optional<std::string> & storeUri, bool toOut, bool dryRun)
 
     json root;
     for (auto & key : graph.order()) {
-        auto resolved = graph.resolve(key);
+        auto resolved = graph.resolve(key, *store);
         if (key == graph.root)
             root = resolved;
         graph.written.insert_or_assign(key, store->writeDerivation(parse(*store, resolved)));
