@@ -201,19 +201,33 @@ the same `.drv` for every node kind.
 ```
 
 `tools/measure-modes.py` measures this, after `test-projects` built every
-node. It adds a nonce to each planner of an environment, so Nix runs the
-planner again, and every node the planner names is already built. So a
-time is the planner's own. The planner of an sdist, and the host-made
-planners of `out`, do not run again.
+node. It gives every planner a nonce, so Nix runs each planner of an
+environment again, nested ones included, and builds no node. So a time is
+all the planning of one environment.
 
-**At this scale the mode does not decide the time.** A build that does
-nothing takes 1.3 to 1.4 s, so a planner's own work is 1 to 2 s, and
-the four modes are within a second of each other. The test projects lock
-at most a few packages. The ddrn lab measured lock files of up to 1911
-packages (`PACKAGING-FACTS.md`), and a large lock is where the modes can
-differ: one process per node in `cli` and `drv`, one evaluator in
-`huggorm`, and host evaluation of every wheel in `out`. That measurement
-is still to do.
+**At this scale the mode decides little, except on a release with no
+socket.** A build that does nothing takes 1.4 to 2.6 s. Each mode with a
+socket, `builder-rpc-v0` or recursive-nix, is within about a second of the
+others on every project. `out` and `out-stdenv` take 6 to 12 s where a
+project has a local project under an application or a workspace, against
+about 3 s elsewhere: the host-made planner of the local project runs
+before the planner of the environment.
+
+**nixpkgs in the planner costs little.** Measured alone, the sdist planner
+of psutil in `native-app` takes 3.19 s in `recursive-nixpkgs`, where it
+imports nixpkgs and writes a `stdenv.mkDerivation` node, against 2.87 s
+in `recursive-eval`. A planner that writes no source node never imports
+nixpkgs, so a wheel-only lock pays nothing.
+
+**The closure follows the writer.** A planner that writes through huggorm
+(`huggorm`, `out`, `out-stdenv`) carries about 509 MiB; one that writes
+through `nix` or `pydd-drv` carries 305 to 323 MiB.
+
+The test projects lock at most a few packages. The ddrn lab measured lock
+files of up to 1911 packages (`PACKAGING-FACTS.md`), and a large lock is
+where the modes can differ: one process per node in `cli` and `drv`, one
+evaluator in `huggorm`, and host evaluation of every wheel in `out`. That
+measurement is still to do.
 
 - **Planner closure** is what one planner needs in its sandbox: an
   interpreter, pydd, and the tool that writes.

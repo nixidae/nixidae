@@ -1,370 +1,775 @@
 {
-  "revision": "57514eff",
+  "revision": "a56e8569",
   "date": "2026-10-13",
   "machine": "x86_64, 16 cores",
   "runs": 3,
   "modes": {
     "cli": {
       "closureBytes": 338345728,
-      "lines": 328,
-      "floorSeconds": 1.25
+      "lines": 399,
+      "floorSeconds": 1.49
     },
     "huggorm": {
       "closureBytes": 534213928,
-      "lines": 195,
-      "floorSeconds": 1.41
+      "lines": 204,
+      "floorSeconds": 1.61
     },
     "drv": {
       "closureBytes": 319967168,
-      "lines": 601,
-      "floorSeconds": 1.4
+      "lines": 672,
+      "floorSeconds": 1.73
+    },
+    "recursive": {
+      "closureBytes": 337880984,
+      "lines": 399,
+      "floorSeconds": 1.39
+    },
+    "recursive-eval": {
+      "closureBytes": 337880984,
+      "lines": 148,
+      "floorSeconds": 1.53
+    },
+    "recursive-nixpkgs": {
+      "closureBytes": 337880984,
+      "lines": 148,
+      "floorSeconds": 1.42
     },
     "out": {
       "closureBytes": 533250520,
-      "lines": 560,
-      "floorSeconds": 1.4
+      "lines": 631,
+      "floorSeconds": 1.75
+    },
+    "stdenv": {
+      "closureBytes": 338345728,
+      "lines": 444,
+      "floorSeconds": 2.56
+    },
+    "out-stdenv": {
+      "closureBytes": 533250520,
+      "lines": 676,
+      "floorSeconds": 2.6
     }
   },
   "planners": {
     "application": {
       "cli": {
-        "seconds": 3.27,
+        "seconds": 3.88,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.51,
+        "seconds": 3.28,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.8,
+        "seconds": 2.79,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 2.98,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 2.88,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.33,
         "packages": 4
       },
       "out": {
-        "seconds": 2.4,
+        "seconds": 10.67,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 3.2,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 9.87,
         "packages": 4
       }
     },
     "binary-app": {
       "cli": {
-        "seconds": 2.53,
+        "seconds": 2.9,
         "packages": 1
       },
       "huggorm": {
-        "seconds": 2.61,
+        "seconds": 2.84,
         "packages": 1
       },
       "drv": {
-        "seconds": 2.48,
+        "seconds": 3.24,
+        "packages": 1
+      },
+      "recursive": {
+        "seconds": 2.84,
+        "packages": 1
+      },
+      "recursive-eval": {
+        "seconds": 2.83,
+        "packages": 1
+      },
+      "recursive-nixpkgs": {
+        "seconds": 2.88,
         "packages": 1
       },
       "out": {
-        "seconds": 2.7,
+        "seconds": 2.98,
+        "packages": 1
+      },
+      "stdenv": {
+        "seconds": 2.97,
+        "packages": 1
+      },
+      "out-stdenv": {
+        "seconds": 2.84,
         "packages": 1
       }
     },
     "binary-nixpkgs": {
       "cli": {
-        "seconds": 2.56,
+        "seconds": 3.17,
         "packages": 1
       },
       "huggorm": {
-        "seconds": 2.46,
+        "seconds": 2.71,
         "packages": 1
       },
       "drv": {
-        "seconds": 2.32,
+        "seconds": 2.88,
+        "packages": 1
+      },
+      "recursive": {
+        "seconds": 3.12,
+        "packages": 1
+      },
+      "recursive-eval": {
+        "seconds": 2.65,
+        "packages": 1
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.3,
         "packages": 1
       },
       "out": {
-        "seconds": 2.75,
+        "seconds": 3.12,
+        "packages": 1
+      },
+      "stdenv": {
+        "seconds": 2.85,
+        "packages": 1
+      },
+      "out-stdenv": {
+        "seconds": 3.1,
         "packages": 1
       }
     },
     "git-app": {
       "cli": {
-        "seconds": 2.53,
+        "seconds": 2.81,
         "packages": 0
       },
       "huggorm": {
-        "seconds": 2.66,
+        "seconds": 2.56,
         "packages": 0
       },
       "drv": {
-        "seconds": 2.59,
+        "seconds": 2.44,
+        "packages": 0
+      },
+      "recursive": {
+        "seconds": 2.95,
+        "packages": 0
+      },
+      "recursive-eval": {
+        "seconds": 2.69,
+        "packages": 0
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.26,
         "packages": 0
       },
       "out": {
-        "seconds": 2.69,
+        "seconds": 6.94,
+        "packages": 0
+      },
+      "stdenv": {
+        "seconds": 3.03,
+        "packages": 0
+      },
+      "out-stdenv": {
+        "seconds": 6.58,
         "packages": 0
       }
     },
     "local-index": {
       "cli": {
-        "seconds": 2.5,
+        "seconds": 6.71,
         "packages": 2
       },
       "huggorm": {
-        "seconds": 3.01,
+        "seconds": 7.2,
         "packages": 2
       },
       "drv": {
-        "seconds": 2.52,
+        "seconds": 6.44,
+        "packages": 2
+      },
+      "recursive": {
+        "seconds": 6.99,
+        "packages": 2
+      },
+      "recursive-eval": {
+        "seconds": 6.72,
+        "packages": 2
+      },
+      "recursive-nixpkgs": {
+        "seconds": 6.93,
         "packages": 2
       },
       "out": {
-        "seconds": 2.65,
+        "seconds": 6.69,
+        "packages": 2
+      },
+      "stdenv": {
+        "seconds": 6.62,
+        "packages": 2
+      },
+      "out-stdenv": {
+        "seconds": 6.87,
         "packages": 2
       }
     },
     "native-app": {
       "cli": {
-        "seconds": 2.86,
+        "seconds": 6.26,
         "packages": 3
       },
       "huggorm": {
-        "seconds": 2.75,
+        "seconds": 7.25,
         "packages": 3
       },
       "drv": {
-        "seconds": 2.43,
+        "seconds": 6.43,
+        "packages": 3
+      },
+      "recursive": {
+        "seconds": 6.33,
+        "packages": 3
+      },
+      "recursive-eval": {
+        "seconds": 6.61,
+        "packages": 3
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.1,
         "packages": 3
       },
       "out": {
-        "seconds": 2.67,
+        "seconds": 6.63,
+        "packages": 3
+      },
+      "stdenv": {
+        "seconds": 6.97,
+        "packages": 3
+      },
+      "out-stdenv": {
+        "seconds": 6.96,
         "packages": 3
       }
     },
     "native-host": {
       "cli": {
-        "seconds": 2.78,
+        "seconds": 6.29,
         "packages": 3
       },
       "huggorm": {
-        "seconds": 2.67,
+        "seconds": 6.2,
         "packages": 3
       },
       "drv": {
-        "seconds": 2.32,
+        "seconds": 6.06,
+        "packages": 3
+      },
+      "recursive": {
+        "seconds": 7.61,
+        "packages": 3
+      },
+      "recursive-eval": {
+        "seconds": 7.22,
+        "packages": 3
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.08,
         "packages": 3
       },
       "out": {
-        "seconds": 2.69,
+        "seconds": 6.61,
+        "packages": 3
+      },
+      "stdenv": {
+        "seconds": 6.62,
+        "packages": 3
+      },
+      "out-stdenv": {
+        "seconds": 6.92,
         "packages": 3
       }
     },
     "numpy-sdist": {
       "cli": {
-        "seconds": 2.38,
+        "seconds": 7.22,
         "packages": 1
       },
       "huggorm": {
-        "seconds": 2.72,
+        "seconds": 6.4,
         "packages": 1
       },
       "drv": {
-        "seconds": 2.56,
+        "seconds": 6.46,
+        "packages": 1
+      },
+      "recursive": {
+        "seconds": 7.19,
+        "packages": 1
+      },
+      "recursive-eval": {
+        "seconds": 6.44,
+        "packages": 1
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.11,
         "packages": 1
       },
       "out": {
-        "seconds": 3.21,
+        "seconds": 7.01,
+        "packages": 1
+      },
+      "stdenv": {
+        "seconds": 6.8,
+        "packages": 1
+      },
+      "out-stdenv": {
+        "seconds": 7.09,
         "packages": 1
       }
     },
     "packaged-app": {
       "cli": {
-        "seconds": 3.3,
+        "seconds": 6.45,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.53,
+        "seconds": 6.29,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.81,
+        "seconds": 5.86,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 6.96,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 6.13,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.37,
         "packages": 4
       },
       "out": {
-        "seconds": 2.52,
+        "seconds": 6.73,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 6.53,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 6.55,
         "packages": 4
       }
     },
     "packaged-app-bin": {
       "cli": {
-        "seconds": 3.01,
+        "seconds": 7.18,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.44,
+        "seconds": 8.15,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.67,
+        "seconds": 7.01,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 7.95,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 7.47,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.76,
         "packages": 4
       },
       "out": {
-        "seconds": 2.56,
+        "seconds": 9.95,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 7.89,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 10.6,
         "packages": 4
       }
     },
     "packaged-sdist": {
       "cli": {
-        "seconds": 2.93,
+        "seconds": 6.69,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 3.03,
+        "seconds": 6.39,
         "packages": 4
       },
       "drv": {
-        "seconds": 3.23,
+        "seconds": 6.38,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 7.57,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 6.18,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.46,
         "packages": 4
       },
       "out": {
-        "seconds": 2.66,
+        "seconds": 9.9,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 6.89,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 12.07,
         "packages": 4
       }
     },
     "pure-app": {
       "cli": {
-        "seconds": 2.54,
+        "seconds": 4.71,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.9,
+        "seconds": 5.41,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.65,
+        "seconds": 5.47,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 5.71,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 5.48,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 6.18,
         "packages": 4
       },
       "out": {
-        "seconds": 2.47,
+        "seconds": 4.79,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 4.39,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 4.0,
         "packages": 4
       }
     },
     "root-derivation": {
       "cli": {
-        "seconds": 2.79,
+        "seconds": 3.86,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.86,
+        "seconds": 3.57,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.42,
+        "seconds": 2.98,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 3.15,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 2.58,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 2.77,
         "packages": 4
       },
       "out": {
-        "seconds": 2.71,
+        "seconds": 2.93,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 2.75,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 2.94,
         "packages": 4
       }
     },
     "vendored-app": {
       "cli": {
-        "seconds": 2.72,
+        "seconds": 7.29,
         "packages": 2
       },
       "huggorm": {
-        "seconds": 2.54,
+        "seconds": 6.67,
         "packages": 2
       },
       "drv": {
-        "seconds": 2.37,
+        "seconds": 6.14,
+        "packages": 2
+      },
+      "recursive": {
+        "seconds": 6.81,
+        "packages": 2
+      },
+      "recursive-eval": {
+        "seconds": 6.45,
+        "packages": 2
+      },
+      "recursive-nixpkgs": {
+        "seconds": 6.91,
         "packages": 2
       },
       "out": {
-        "seconds": 2.47,
+        "seconds": 6.78,
+        "packages": 2
+      },
+      "stdenv": {
+        "seconds": 6.69,
+        "packages": 2
+      },
+      "out-stdenv": {
+        "seconds": 6.35,
         "packages": 2
       }
     },
     "workspace-all": {
       "cli": {
-        "seconds": 3.15,
+        "seconds": 3.44,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 3.35,
+        "seconds": 2.95,
         "packages": 4
       },
       "drv": {
-        "seconds": 3.25,
+        "seconds": 2.67,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 3.17,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 2.77,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.17,
         "packages": 4
       },
       "out": {
-        "seconds": 2.83,
+        "seconds": 8.03,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 3.12,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 7.85,
         "packages": 4
       }
     },
     "workspace-core": {
       "cli": {
-        "seconds": 2.99,
+        "seconds": 2.91,
         "packages": 0
       },
       "huggorm": {
-        "seconds": 3.09,
+        "seconds": 3.03,
         "packages": 0
       },
       "drv": {
-        "seconds": 3.04,
+        "seconds": 2.76,
+        "packages": 0
+      },
+      "recursive": {
+        "seconds": 3.06,
+        "packages": 0
+      },
+      "recursive-eval": {
+        "seconds": 2.75,
+        "packages": 0
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.23,
         "packages": 0
       },
       "out": {
-        "seconds": 3.09,
+        "seconds": 6.64,
+        "packages": 0
+      },
+      "stdenv": {
+        "seconds": 3.2,
+        "packages": 0
+      },
+      "out-stdenv": {
+        "seconds": 6.92,
         "packages": 0
       }
     },
     "workspace-core-sdist": {
       "cli": {
-        "seconds": 3.15,
+        "seconds": 4.66,
         "packages": 4
       },
       "huggorm": {
-        "seconds": 2.73,
+        "seconds": 3.15,
         "packages": 4
       },
       "drv": {
-        "seconds": 2.76,
+        "seconds": 2.69,
+        "packages": 4
+      },
+      "recursive": {
+        "seconds": 3.36,
+        "packages": 4
+      },
+      "recursive-eval": {
+        "seconds": 2.77,
+        "packages": 4
+      },
+      "recursive-nixpkgs": {
+        "seconds": 3.35,
         "packages": 4
       },
       "out": {
-        "seconds": 2.73,
+        "seconds": 10.32,
+        "packages": 4
+      },
+      "stdenv": {
+        "seconds": 3.02,
+        "packages": 4
+      },
+      "out-stdenv": {
+        "seconds": 9.8,
         "packages": 4
       }
     },
     "zmq-sdist": {
       "cli": {
-        "seconds": 2.6,
+        "seconds": 7.43,
         "packages": 1
       },
       "huggorm": {
-        "seconds": 2.88,
+        "seconds": 6.77,
         "packages": 1
       },
       "drv": {
-        "seconds": 2.46,
+        "seconds": 6.93,
+        "packages": 1
+      },
+      "recursive": {
+        "seconds": 6.81,
+        "packages": 1
+      },
+      "recursive-eval": {
+        "seconds": 6.57,
+        "packages": 1
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.17,
         "packages": 1
       },
       "out": {
-        "seconds": 2.8,
+        "seconds": 6.69,
+        "packages": 1
+      },
+      "stdenv": {
+        "seconds": 6.96,
+        "packages": 1
+      },
+      "out-stdenv": {
+        "seconds": 6.27,
         "packages": 1
       }
     },
     "zmq-sdist-transitive": {
       "cli": {
-        "seconds": 2.46,
+        "seconds": 7.1,
         "packages": 1
       },
       "huggorm": {
-        "seconds": 2.67,
+        "seconds": 6.43,
         "packages": 1
       },
       "drv": {
-        "seconds": 2.6,
+        "seconds": 6.1,
+        "packages": 1
+      },
+      "recursive": {
+        "seconds": 6.99,
+        "packages": 1
+      },
+      "recursive-eval": {
+        "seconds": 6.93,
+        "packages": 1
+      },
+      "recursive-nixpkgs": {
+        "seconds": 7.25,
         "packages": 1
       },
       "out": {
-        "seconds": 3.02,
+        "seconds": 6.85,
+        "packages": 1
+      },
+      "stdenv": {
+        "seconds": 7.3,
+        "packages": 1
+      },
+      "out-stdenv": {
+        "seconds": 7.32,
         "packages": 1
       }
     }
