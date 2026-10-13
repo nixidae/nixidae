@@ -15,8 +15,10 @@ it unchanged.
 ## Requirements
 
 - Nix master, for `builder-rpc-v0` (NixOS/nix#15793). It is in no release.
-  On a release, a planner can write only one derivation, to `$out`, as
-  ATerm. pydd has no mode for that yet: it waits for huggorm#163.
+  On a release, a planner writes only one derivation, as ATerm, to `$out`.
+  `mkPlanner { protocol = "out"; }` does that (`examples/released`), and
+  the host makes every other node. Python environments do not use it yet
+  (Lillecarl/pydd#2).
 - `experimental-features = nix-command ca-derivations dynamic-derivations`.
 
 ## Three ways to write a graph
@@ -91,6 +93,7 @@ command to run and what it prints.
 3. `examples/nested`: a planner whose graph reads another planner's graph.
 4. `examples/venv`: a Python environment from a `uv.lock`.
 5. `examples/poetry`: the same environment from a `poetry.lock`.
+6. `examples/released`: `hello` on a released Nix, with no `builder-rpc-v0`.
 
 An example is `examples.<name>.<writer>`:
 

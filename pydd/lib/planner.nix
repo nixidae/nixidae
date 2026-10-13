@@ -91,6 +91,13 @@ in
     `env`
     : More environment variables of the planner. A store path in a value
       becomes an input of the planner.
+
+    `protocol`
+    : `"rpc"` writes the graph through `builder-rpc-v0`, on Nix master.
+      `"out"` is for released Nix: the planner writes one derivation, as
+      ATerm, to `$out`, and every other derivation it names must be an
+      input of the planner. It needs the huggorm writer, which stages the
+      ATerm in memory.
   */
   mkPlanner =
     {
@@ -105,11 +112,19 @@ in
       modules ? [ ],
       env ? { },
       system ? python.stdenv.hostPlatform.system,
+      protocol ? "rpc",
     }:
     assert lib.assertOneOf "writer" writer [
       "cli"
       "huggorm"
     ];
+    assert lib.assertOneOf "protocol" protocol [
+      "rpc"
+      "out"
+    ];
+    assert lib.assertMsg (
+      protocol == "out" -> writer == "huggorm"
+    ) "mkPlanner: protocol = \"out\" stages the ATerm in huggorm, so it needs writer = \"huggorm\"";
     assert lib.assertMsg (
       writer == "huggorm" -> huggorm != null
     ) "mkPlanner: writer = \"huggorm\" needs huggorm";
@@ -127,7 +142,7 @@ in
             "exec ${python}/bin/python3 ${plan}"
           ];
 
-          requiredSystemFeatures = [ "builder-rpc-v0" ];
+          requiredSystemFeatures = lib.optional (protocol == "rpc") "builder-rpc-v0";
           # The submitted object is a derivation, and a derivation is
           # text-ingested.
           __contentAddressed = true;
@@ -144,6 +159,7 @@ in
           PYTHONDONTWRITEBYTECODE = "1";
 
           PYDD_WRITER = writer;
+          PYDD_PROTOCOL = protocol;
           PYDD_SYSTEM = system;
           PYDD_MENU = builtins.toJSON menu;
         }

@@ -15,13 +15,20 @@ let
 
   pydd = pkgs.callPackage ./lib { inherit huggorm nix; };
 
-  # The evaluator in the planner is huggorm's.
+  # The newest release, for planners that write `$out`. Its huggorm lane
+  # renders the ATerm that this Nix parses.
+  nixReleased = pkgs.nixVersions.nix_2_35;
+  huggormReleased = huggormSet.lanes.nix_2_35.huggorm;
+
+  # The evaluator in the planner is huggorm's, and so is the staging store of
+  # a planner that writes `$out`.
   writersOf =
     name:
     if
       lib.elem name [
         "evaluated"
         "nested"
+        "released"
       ]
     then
       [ "huggorm" ]
@@ -41,42 +48,76 @@ rec {
     lib.genAttrs (writersOf name) (
       writer:
       pkgs.callPackage ./examples/${name} {
-        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+        pydd = pkgs.callPackage ./lib (
+          if name == "released" then
+            {
+              inherit writer;
+              huggorm = huggormReleased;
+              nix = nixReleased;
+            }
+          else
+            { inherit huggorm nix writer; }
+        );
       }
     )
   ) (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./examples));
 
-  # Build an example's output in a private store, because a daemon older
-  # than Nix master refuses `builder-rpc-v0`. The store keeps /nix/store as
-  # its store directory, so the cache substitutes into it.
-  run = pkgs.writeShellApplication {
+  # Build an example's output in a private store with a given Nix, because
+  # the daemon of this machine may be neither Nix master nor a release. The
+  # store keeps /nix/store as its store directory, so the cache substitutes
+  # into it.
+  mkRun =
+    {
+      name,
+      nix,
+      store,
+      features,
+    }:
+    pkgs.writeShellApplication {
+      inherit name;
+      runtimeInputs = [
+        nix
+        pkgs.jq
+      ];
+      text = ''
+        attr=''${1:?usage: ${name} <example attribute> [out|check] [nix build flags]}
+        target=''${2:-out}
+        shift $(( $# < 2 ? $# : 2 ))
+        store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${store}}
+        export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations
+        use-cgroups = false"
+
+        # What the planner runs on may be built here and nowhere else, such
+        # as a huggorm lane, so copy it in rather than build it again.
+        closure=$(nix build --file . "$attr.closure" --no-link --print-out-paths)
+        nix copy --to "$store" --no-check-sigs "$closure"
+
+        out=$(nix build --store "$store" --file . "$attr.$target" \
+          --system-features "${features}" --no-link --print-out-paths -L "$@")
+        echo "$out" >&2
+        if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
+          nix store cat --store "$store" "$out"
+        else
+          nix store ls --store "$store" "$out"
+        fi
+      '';
+    };
+
+  # nix run --file . run -- examples.hello.cli
+  run = mkRun {
     name = "pydd-run";
-    runtimeInputs = [
-      nix
-      pkgs.jq
-    ];
-    text = ''
-      attr=''${1:?usage: pydd-run <example attribute> [out|check] [nix build flags]}
-      target=''${2:-out}
-      shift $(( $# < 2 ? $# : 2 ))
-      store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/store}
-      export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations
-      use-cgroups = false"
+    inherit nix;
+    store = "store";
+    features = "builder-rpc-v0";
+  };
 
-      # What the planner runs on may be built here and nowhere else, such
-      # as a huggorm lane, so copy it in rather than build it again.
-      closure=$(nix build --file . "$attr.closure" --no-link --print-out-paths)
-      nix copy --to "$store" --no-check-sigs "$closure"
-
-      out=$(nix build --store "$store" --file . "$attr.$target" \
-        --system-features builder-rpc-v0 --no-link --print-out-paths -L "$@")
-      echo "$out" >&2
-      if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
-        nix store cat --store "$store" "$out"
-      else
-        nix store ls --store "$store" "$out"
-      fi
-    '';
+  # A stock release, which has no `builder-rpc-v0`.
+  # nix run --file . run-released -- examples.released.huggorm
+  run-released = mkRun {
+    name = "pydd-run-released";
+    nix = nixReleased;
+    store = "store-${nixReleased.version}";
+    features = "";
   };
 
   checks = {

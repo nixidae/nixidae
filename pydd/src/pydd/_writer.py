@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import subprocess
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ._derivation import Derivation
 
 
@@ -62,6 +65,41 @@ class HuggormWriter:
 
     def submit(self, path: str, output: str) -> None:
         self.store.submit_output(self.store.parse_store_path(path), output)
+
+
+class OutWriter(HuggormWriter):
+    """A planner on released Nix, which has no ``builder-rpc-v0``.
+
+    Nix reads one derivation, as ATerm, from ``$out``. Each derivation the
+    planner adds goes to a writable ``dummy://`` in memory, which holds no
+    input and needs none, so a planner is the same code for both protocols.
+    Only the root leaves it, and only when every path the root names is
+    already in the sandbox: Nix registers no reference to anything else, and
+    the root then silently becomes another derivation.
+    """
+
+    def __init__(self, uri: str = "dummy://?read-only=false", present: Callable[[str], bool] = os.path.exists) -> None:
+        super().__init__(uri)
+        self.present = present
+
+    def submit(self, path: str, output: str) -> None:
+        if output != "out":
+            raise ValueError(f"a planner on released Nix writes only its output 'out', not {output!r}")
+        store_path = self.store.parse_store_path(path)
+        drv = self.store.read_derivation(store_path)
+        store_dir = posixpath.dirname(path)
+        named = [str(self.store.print_store_path(src)) for src in drv.input_srcs()]
+        named += [f"{store_dir}/{base}" for base in drv.input_drvs()]
+        missing = sorted(name for name in named if not self.present(name))
+        if missing:
+            raise RuntimeError(
+                f"{path} names {', '.join(missing)}, which this build does not have. "
+                "On released Nix a planner writes one derivation, so every other one "
+                "it names must be an input of the planner, made before the build."
+            )
+        aterm: bytes = self.store.get_fs_accessor(store_path, False).read_file("")
+        with open(os.environ["out"], "wb") as sink:  # noqa: SIM112 - Nix names it `out`
+            sink.write(aterm)
 
 
 WRITERS = {"cli": CliWriter, "huggorm": HuggormWriter}
