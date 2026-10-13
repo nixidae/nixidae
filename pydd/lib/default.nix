@@ -19,7 +19,7 @@
   plannerRender ? null,
 }:
 let
-  planner = callPackage ./planner.nix { };
+  planner = callPackage ./core/planner.nix { };
   self = planner // {
     inherit writer;
     protocol = plannerProtocol;
@@ -40,7 +40,7 @@ let
         // args
       );
     python = callPackage ./python { pydd = self; };
-    evaluate = callPackage ./evaluate.nix { pydd = self; };
+    evaluate = callPackage ./modes/evaluate.nix { pydd = self; };
   };
 in
 self

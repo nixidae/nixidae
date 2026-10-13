@@ -13,16 +13,16 @@ let
   # The core is `pydd` and `pydd.core`. An ecosystem and a mode add their own
   # subpackage through `modules`, so an edit to one does not rebuild the
   # planners of the others.
-  core = fileset.intersection (fileset.fileFilter (file: file.hasExt "py") ../src/pydd) (
+  core = fileset.intersection (fileset.fileFilter (file: file.hasExt "py") ../../src/pydd) (
     fileset.unions [
-      ../src/pydd/__init__.py
-      ../src/pydd/core
+      ../../src/pydd/__init__.py
+      ../../src/pydd/core
     ]
   );
   pyddSrc =
     modules:
     fileset.toSource {
-      root = ../src;
+      root = ../../src;
       fileset = fileset.unions ([ core ] ++ modules);
     };
 in

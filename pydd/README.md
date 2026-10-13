@@ -147,12 +147,20 @@ names the store; the default is `~/.cache/pydd/store`.
 
 ## Layout
 
+Three layers, kept apart (Lillecarl/pydd#10). The core knows no
+ecosystem. An ecosystem knows no mode. A mode is one way to turn a plan
+into a built root, and modes do not import each other.
+
+| layer | Nix | Python | holds |
+| --- | --- | --- | --- |
+| core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols |
+| ecosystem | `lib/python/` | `src/pydd/python/` | lock readers, selection, hints, the plan document, `graph.nix` (each node kind), build scripts |
+| modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `out` (released Nix: host-made nodes and planned nodes) |
+
+A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
+
 | path | holds |
 | --- | --- |
-| `lib/` | the Nix side: `mkPlanner`, `mkEvaluated` |
-| `lib/python/` | `pydd.python.uv`, `pydd.python.poetry`, and `graph.nix`, which turns a plan into derivations |
-| `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
-| `src/pydd/python/` | the planners of a Python environment: lock readers, selection, plan, renderer |
 | `examples/` | the tour |
 | `docs/` | the research notes of the ddrn lab |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |
