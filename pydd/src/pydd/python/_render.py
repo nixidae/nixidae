@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from .._derivation import Derivation, Floating
 from .._hash import downstream_placeholder, dynamic_placeholder
-from ._plan import BUILT_PAIRS
+from ._plan import BUILT_PAIRS, output_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -60,7 +60,7 @@ def lift(data: Any, store_dir: str) -> Any:
             for name, item in data.items():
                 drv = data.get(BUILT_PAIRS.get(name, ""))
                 if isinstance(drv, str) and isinstance(item, str):
-                    lifted[name] = Text(item, frozenset({("out", drv, "out")}))
+                    lifted[name] = Text(item, frozenset({("out", drv, output_name(data, name))}))
                 elif name in BUILT_PAIRS.values():
                     lifted[name] = Text(item)
                 else:
@@ -90,7 +90,7 @@ class Graph:
     def __init__(self, document: dict[str, Any], add: Callable[[Derivation], str], store_dir: str) -> None:
         self.doc: dict[str, Any] = lift(document, store_dir)
         self.add = add
-        self.tool: dict[str, Text] = self.doc["tools"]
+        self.tool: dict[str, Text] = {name: built["out"] for name, built in self.doc["tools"].items()}
         self.script: dict[str, Text] = self.doc["scripts"]
         self.nodes: dict[str, dict[str, Any]] = {node["name"].text: node for node in self.doc["nodes"]}
         self.paths: dict[str, str] = {}
@@ -143,7 +143,7 @@ class Graph:
         }
 
     def build_tools_of(self, node: dict[str, Any]) -> dict[str, Text]:
-        roots: list[Text] = node.get("buildTools", [])
+        roots: list[Text] = [built["out"] for built in node.get("buildTools", [])]
         if not roots:
             return {}
         return {

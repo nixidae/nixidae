@@ -321,12 +321,27 @@ let
   # input of a derivation, so an empty key is a byte that every planner of
   # every project carries for nothing.
   #
-  # Each entry becomes the store path of the package. The string carries its
-  # context, so the planner takes a dependency on every one of them, and
-  # `builtins.storePath` in `graph.nix` then finds each in the sandbox.
+  # Each entry travels as `built` gives it, the way a tool does.
   buildToolPaths = pkgs.lib.optionalAttrs (buildTools != { }) {
-    buildTools = pkgs.lib.mapAttrs (_: roots: map (root: "${root}") roots) buildTools;
+    buildTools = pkgs.lib.mapAttrs (_: map built) buildTools;
   };
+
+  # **A tool travels as an artefact does: the `.drv`, and the path of one
+  # output.** A node then names the tool's derivation as an input, as a node
+  # that the host evaluates from `graph.nix` names it. With a plain store path
+  # instead, the two would be different derivations. The planner puts the
+  # dependency back (`_plan.document_value`). A store path that no derivation
+  # makes, such as a source, travels as `{ out }`.
+  built =
+    value:
+    if pkgs.lib.isDerivation value then
+      {
+        drv = builtins.unsafeDiscardOutputDependency value.drvPath;
+        out = builtins.unsafeDiscardStringContext value.outPath;
+        output = value.outputName or "out";
+      }
+    else
+      { out = "${value}"; };
 
   baseInputs =
     buildToolPaths
@@ -339,20 +354,23 @@ let
         ;
       fromNixpkgs = nixpkgsRows;
       artifacts = map row entries;
-      tools = {
-        bash = "${pkgs.bash}";
-        coreutils = "${pkgs.coreutils}";
-        unzip = "${pkgs.unzip}";
-        gnutar = "${pkgs.gnutar}";
-        gzip = "${pkgs.gzip}";
-        python = "${python}";
-        # The three below reach only a node that installs a binary wheel.
-        patchelf = "${pkgs.patchelf}";
-        # `pkgs.autoPatchelfHook` is a setup hook, and a graph node runs no setup
-        # hook. `pkgs.auto-patchelf` is the program that the hook calls.
-        autoPatchelf = "${pkgs.auto-patchelf}";
-        bintools = "${pkgs.stdenv.cc.bintools}";
-        gccLib = "${pkgs.stdenv.cc.cc.lib}";
+      tools = builtins.mapAttrs (_: built) {
+        inherit (pkgs)
+          bash
+          coreutils
+          unzip
+          gnutar
+          gzip
+          patchelf
+          ;
+        inherit python;
+        # `patchelf` and the three below reach only a node that installs a
+        # binary wheel. `pkgs.autoPatchelfHook` is a setup hook, and a graph
+        # node runs no setup hook. `pkgs.auto-patchelf` is the program that the
+        # hook calls.
+        autoPatchelf = pkgs.auto-patchelf;
+        bintools = pkgs.stdenv.cc.bintools;
+        gccLib = pkgs.stdenv.cc.cc.lib;
       };
       scripts = {
         # One store path for each script, so an edit to one rebuilds only the

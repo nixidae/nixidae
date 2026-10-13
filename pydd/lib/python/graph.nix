@@ -11,8 +11,8 @@
 {
   system,
   pythonVersion,
-  # The store path of each tool. Each one is an input of the planner, and the
-  # planner gives each string its context.
+  # Each tool as `{ drv, out, output }`, the way an artefact travels, so a
+  # node reads the tool's output and names its derivation as an input.
   tools,
   # The store path of each build script, on the same terms.
   scripts,
@@ -32,7 +32,7 @@ let
   # Both call `EnsurePath`, which a `builder-rpc-v0` socket refuses, so the
   # planner attaches the context before this file sees a value
   # (`pydd.python._plan.document_value`).
-  tool = tools;
+  tool = builtins.mapAttrs (_: built: built.out) tools;
   script = scripts;
 
   # **This is what makes a pre-instantiated fetch a real dependency.**
@@ -124,7 +124,7 @@ let
   buildToolsOf =
     node:
     let
-      roots = node.buildTools or [ ];
+      roots = map (built: built.out) (node.buildTools or [ ]);
       join = separator: render: builtins.concatStringsSep separator (map render roots);
     in
     if roots == [ ] then

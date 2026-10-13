@@ -78,7 +78,7 @@ class LocalNode:
         }
 
 
-def build_tools_from(inputs: dict[str, Any]) -> dict[str, list[str]]:
+def build_tools_from(inputs: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     """The store paths that each package needs to build, by PEP 503 name.
 
     `default.nix` takes the list at its `buildTools` argument, and it writes
@@ -86,7 +86,7 @@ def build_tools_from(inputs: dict[str, Any]) -> dict[str, list[str]]:
     `graph.nix`.** A distribution name has more than one spelling, and
     `packaging` holds the rule that makes two spellings one name.
     """
-    given: dict[str, list[str]] = inputs.get("buildTools", {})
+    given: dict[str, list[dict[str, str]]] = inputs.get("buildTools", {})
     return {canonicalize_name(name): list(roots) for name, roots in given.items()}
 
 
@@ -107,7 +107,7 @@ class Plan:
     installer: str = ""
     #: The store paths that each package needs to build, by PEP 503 name.
     #: `build_tools_from` reads the value out of the inputs of the planner.
-    build_tools: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+    build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
     _seen: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
 
     def tools_for(self, package: str) -> dict[str, Any]:
@@ -392,6 +392,15 @@ def open_restricted_store() -> Writer:
 BUILT_PAIRS = {"out": "drv", "plannerOut": "plannerDrv"}
 
 
+def output_name(entry: dict[str, Any], key: str) -> str:
+    """Which output of its derivation the value at `key` is.
+
+    A tool may be an output other than `out`, such as the `lib` of a
+    compiler, so its entry names the output.
+    """
+    return entry.get("output", "out") if key == "out" else "out"
+
+
 def document_value(state: Any, data: Any, store_dir: str) -> Any:
     """`data` as a Nix value, with the string context that `graph.nix` needs.
 
@@ -407,7 +416,7 @@ def document_value(state: Any, data: Any, store_dir: str) -> Any:
             for name, item in data.items():
                 drv = data.get(BUILT_PAIRS.get(name, ""))
                 if isinstance(drv, str) and isinstance(item, str):
-                    element = f"!out!{drv.split('/')[3]}"
+                    element = f"!{output_name(data, name)}!{drv.split('/')[3]}"
                     state.attrs_set(value, name, state.make_string(item, [element]))
                 elif name in BUILT_PAIRS.values():
                     state.attrs_set(value, name, state.make_string(item))

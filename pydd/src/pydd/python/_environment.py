@@ -110,7 +110,7 @@ class Request:
     #: distribution that holds C code needs a compiler, and `graph.nix` gives a
     #: node the tools of its own package alone. `default.nix` gives the reason
     #: at its `buildTools` argument.
-    build_tools: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+    build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
 
     @classmethod
     def from_json(cls, inputs: dict[str, Any], roots: list[str]) -> Request:

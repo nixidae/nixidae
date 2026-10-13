@@ -64,7 +64,7 @@ let
     "autoPatchelf"
     "bintools"
     "gccLib"
-  ] (name: source "tool-${name}");
+  ] tool;
 
   scripts = names [
     "unpackWheel"
@@ -75,9 +75,35 @@ let
     "makeApplication"
   ] (name: source "script-${name}");
 
+  # A tool as `planner.nix` hands one over: an output of a derivation, or a
+  # source as `{ out }`.
+  built = value: {
+    drv = builtins.unsafeDiscardStringContext value.drvPath;
+    out = "${value}";
+    output = value.outputName;
+  };
+  package =
+    name:
+    derivation {
+      inherit name system;
+      builder = "/bin/sh";
+      outputs = [
+        "out"
+        "lib"
+      ];
+    };
+  tool =
+    name:
+    if name == "gccLib" then
+      built (package "gcc").lib
+    else if name == "patchelf" then
+      { out = source "tool-patchelf"; }
+    else
+      built (package "tool-${name}");
+
   compiler = [
-    (source "cc")
-    (source "zlib-dev")
+    (built (package "cc"))
+    { out = source "zlib-dev"; }
   ];
 
   nodes = [
