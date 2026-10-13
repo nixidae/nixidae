@@ -144,17 +144,27 @@ rec {
       }
     )
     // {
-      out = lib.getAttrs [ "pure-app" ] (
-        import ./tests/projects {
-          inherit pkgs;
-          pydd = pkgs.callPackage ./lib {
-            huggorm = huggormReleased;
-            nix = nixReleased;
-            writer = "huggorm";
-            plannerProtocol = "out";
-          };
-        }
-      );
+      out =
+        lib.getAttrs
+          [
+            "binary-app"
+            "binary-nixpkgs"
+            "local-index"
+            "native-app"
+            "pure-app"
+            "vendored-app"
+          ]
+          (
+            import ./tests/projects {
+              inherit pkgs;
+              pydd = pkgs.callPackage ./lib {
+                huggorm = huggormReleased;
+                nix = nixReleased;
+                writer = "huggorm";
+                plannerProtocol = "out";
+              };
+            }
+          );
     };
 
   # Run every check of `projects` in each mode, and compare the environments.
