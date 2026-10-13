@@ -4,26 +4,26 @@
 # `./check-uv.nix` does the same for `projects/pure-app`, and `./check.nix`
 # gives the reason that this runs as a derivation and not from a shell.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/packaged-app,
+  pkgs,
+  pydd,
+  project ? ./packaged-app,
   # The tree that the editable install reads. `uv.nix` redirects the install at
-  # `$DDRN_EDITABLE_ROOT`, which this derivation sets, so a different tree here
+  # `$PYDD_EDITABLE_ROOT`, which this derivation sets, so a different tree here
   # reads back differently **from the same environment**. `run-uv.sh` proves
   # that by building this twice.
-  editableTree ? ./projects/packaged-app,
+  editableTree ? ./packaged-app,
 }:
 
 let
-  planner = import ./uv.nix { inherit pkgs nanopynixEnv project; };
-  venv = builtins.outputOf planner.outPath "out";
+  planner = pydd.python.uv { inherit project; };
+  venv = planner.out;
 in
 derivation {
   name = "packaged-check";
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
 
-  DDRN_EDITABLE_ROOT = "${editableTree}";
+  PYDD_EDITABLE_ROOT = "${editableTree}";
 
   args = [
     "-c"

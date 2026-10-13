@@ -6,34 +6,32 @@
 # shell. One argument separates the two: `fromSdist` names the member to
 # install from the archive that `build_sdist` writes.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/packaged-app,
+  pkgs,
+  pydd,
+  project ? ./packaged-app,
   venvName ? "packaged-sdist",
   # **A tree that this environment must ignore.** An editable install of this
   # same project reads whatever this names. A release holds its own code, so
   # `scripts/check-sdist.py` refuses when the module comes from here.
-  editableTree ? ./projects/packaged-app,
+  editableTree ? ./packaged-app,
 }:
 
 let
-  planner = import ./uv.nix {
+  planner = pydd.python.uv {
     inherit
-      pkgs
-      nanopynixEnv
       project
       venvName
       ;
     fromSdist = [ "packaged-app" ];
   };
-  venv = builtins.outputOf planner.outPath "out";
+  venv = planner.out;
 in
 derivation {
   name = "sdist-check";
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
 
-  DDRN_EDITABLE_ROOT = "${editableTree}";
+  PYDD_EDITABLE_ROOT = "${editableTree}";
 
   args = [
     "-c"

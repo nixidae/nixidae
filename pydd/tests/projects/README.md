@@ -1,20 +1,24 @@
-# The uv projects that this example builds
+# The uv projects that pydd's tests build
 
 Each project here comes from `uv` itself, and not from a hand-written file.
-`ddrn/examples/venv-graph/uv.nix` reads the `uv.lock` of one project and builds
-the environment of it as a graph of derivations.
+`lib/python/uv.nix` reads the `uv.lock` of one project and builds the
+environment of it as a graph of derivations. They come from the ddrn lab of
+nanopynix, with the text that the lab wrote for them.
 
-**Use the `uv` of this repository.** `pkgs.uv` is pinned by the lock file of
-the repository, so every reader gets the same `uv` and the same output. The dev
-shell holds it, so `uv` on the path is already that one:
+**Run every check** from the top of the repository. Each one builds in the
+private store of `run`, because a check needs `builder-rpc-v0`:
 
 ```console
-$ direnv exec . uv --version
-uv 0.12.1 (x86_64-unknown-linux-gnu)
+$ nix run --file . test-projects
+$ nix run --file . test-projects -- pure-app git-app
+$ nix run --file . run -- projects.pure-app
 ```
 
-Each command below writes `nix run --file . pkgs.uv --`, which names the same
-program from outside the dev shell. Inside the shell, `uv` alone is enough.
+`default.nix` here names each check and its arguments.
+
+**Use the `uv` of the pinned nixpkgs**, so every reader gets the same `uv`.
+Each command below writes `nix run --file . pkgs.uv --` from the top of
+the repository.
 
 ## Edit a `pyproject.toml`, and run `uv lock` again
 
@@ -25,13 +29,13 @@ recorded. A dependency that one file states and the other does not stops the
 build:
 
 ```
-ddrn_venv._uvlock.LockError: uv.lock is stale: 'pure-app' declares different
+pydd.python._uvlock.LockError: uv.lock is stale: 'pure-app' declares different
 dependencies than the lock file resolved. pyproject.toml adds
 ['typing-extensions']. Run `uv lock` and build again.
 ```
 
 Run `uv lock` in the directory of the project, and build again.
-`ddrn/PACKAGING-FACTS.md` gives what the comparison covers, and the one edit
+`docs/PACKAGING-FACTS.md` gives what the comparison covers, and the one edit
 that it lets through.
 
 ## Two settings that this machine needs
@@ -47,20 +51,20 @@ $ export UV_PYTHON_DOWNLOADS=never UV_PYTHON="$py/bin/python3.13"
 
 ## What a project declares for `uv.nix`
 
-**`[tool.ddrn]` holds one key for each decision that `uv.lock` does not
+**`[tool.pydd]` holds one key for each decision that `uv.lock` does not
 record and that the project answers the same way every time.** `[tool.uv]
 no-binary-package` is the model: uv keeps a setting of the project in
 `pyproject.toml`, and `uv.nix` reads it there rather than take the same
 decision twice.
 
 ```toml
-[tool.ddrn]
+[tool.pydd]
 from-sdist = ["ws-core"]
 
-[tool.ddrn.build-tools]
+[tool.pydd.build-tools]
 psutil = ["stdenv.cc"]
 
-[tool.ddrn.from-nixpkgs]
+[tool.pydd.from-nixpkgs]
 pyzmq = "python3Packages.pyzmq"
 ```
 
@@ -110,7 +114,7 @@ Three parts of those commands matter:
 `requires-python = ">=3.13"`, the planner checks the target against that
 specifier, and 3.14 satisfies it. A lock file that pinned `==3.13.*` would make
 the planner refuse this target, with the message that
-`ddrn_venv._uvlock.Lock.check_environment` writes.
+`pydd.python._uvlock.Lock.check_environment` writes.
 
 ## `packaged-app`
 
@@ -151,7 +155,7 @@ One entry is needed for each backend that any build of this project reaches:
 | `flit-core` | the `[build-system]` inside the `mdurl` source distribution |
 | `installer` | every node of the graph, to install a wheel |
 
-`ddrn_venv.build_requirements` walks the edges of the lock file from each of
+`pydd.python.build_requirements` walks the edges of the lock file from each of
 those names, so the group pins the top of each closure and the lock file gives
 the rest. `hatchling` alone expands to six packages.
 
@@ -164,7 +168,7 @@ the metadata of hatchling 1.31.0 names `packaging`, `pathspec`, `pluggy` and
 hatchling states the same need in one more place, and it is a place that this
 lab does not read: `get_requires_for_build_editable` of `hatchling/build.py`
 returns `editables` beside every other dependency of the build.
-`ddrn/PACKAGING-FACTS.md` says why no hook of that family runs here, under
+`docs/PACKAGING-FACTS.md` says why no hook of that family runs here, under
 "`get_requires_for_build_*` is the hook that this lab does not call".
 
 ### The same project, shipped rather than linked
@@ -192,15 +196,15 @@ two nodes of one graph:
 node of this graph wrote and an archive that PyPI served are one thing to the
 build that reads it, so one script builds both.
 
-The two reports of `run-uv.sh` differ in one line, and that line is the whole
+The two reports of `test-projects` differ in one line, and that line is the whole
 difference between the two forms:
 
 ```text
-editable   loaded from $DDRN_EDITABLE_ROOT/src/packaged_app/__init__.py
+editable   loaded from $PYDD_EDITABLE_ROOT/src/packaged_app/__init__.py
 sdist      loaded from <the environment>/lib/python3.14/site-packages/packaged_app/...
 ```
 
-The editable follows an edit of the tree, and the release does not. `run-uv.sh`
+The editable follows an edit of the tree, and the release does not. `test-projects`
 builds the release check twice, with two trees, and both reports name the same
 environment and the same module.
 
@@ -264,7 +268,7 @@ name of the project.
 
 **`uv.lock` records no selection.** So `uv.nix` takes the `select` argument,
 and `null` means every member, which is what `uv sync --all-packages` takes.
-`run-uv.sh` builds two selections of this one lock file:
+`test-projects` builds two selections of this one lock file:
 
 | selection | what the environment holds |
 | --- | --- |
@@ -278,20 +282,20 @@ node is the same derivation in both graphs.
 ### A member redirects at its own directory
 
 **This is the defect that the workspace found.** A PEP 660 install redirects at
-`$DDRN_EDITABLE_ROOT`, and `uv.nix` gave every local package that same value.
+`$PYDD_EDITABLE_ROOT`, and `uv.nix` gave every local package that same value.
 That is correct for a project whose source is `.`, and wrong for a member: the
-`.pth` of `ws-core` then reads `$DDRN_EDITABLE_ROOT/src`, and the environment
+`.pth` of `ws-core` then reads `$PYDD_EDITABLE_ROOT/src`, and the environment
 raises `ModuleNotFoundError: No module named 'ws_core'`.
 
 `uv.nix` now joins the relative directory of the lock file to the redirect, so
-the `.pth` reads `$DDRN_EDITABLE_ROOT/packages/ws-core/src`. `packaged-app`
+the `.pth` reads `$PYDD_EDITABLE_ROOT/packages/ws-core/src`. `packaged-app`
 proves the `.` case, and its environment is the same store path as before the
 correction.
 
 ### One member ships, and the other one still links
 
 `fromSdist = [ "ws-core" ]` installs one member from its own archive and leaves
-the other one editable. `run-uv.sh` builds that against the **edited** copy of
+the other one editable. `test-projects` builds that against the **edited** copy of
 the workspace, and the two members then disagree about what they read:
 `ws-core` reports the tree of this repository, which reached the store through
 its archive, and `ws-cli` reads the edited copy and imports `ws_core` from the
@@ -351,11 +355,11 @@ interpreter. The wheel that fits is the first one, and PEP 384 is the reason: a
 The tag set of `_resolve.py` was written by hand and held `cp314-abi3` alone,
 so it matched nothing and the planner fell back to the source distribution.
 `target_tags` now calls `packaging.tags.cpython_tags`, which takes the target
-as an argument. `ddrn/PACKAGING-FACTS.md` gives the whole finding.
+as an argument. `docs/PACKAGING-FACTS.md` gives the whole finding.
 
 ### The same project, with `pyzmq` from nixpkgs
 
-`run-uv.sh` builds this project twice. The second build passes an override:
+`test-projects` builds this project twice. The second build passes an override:
 
 ```console
 $ nix build --file check-binary.nix \
@@ -422,12 +426,12 @@ one:
 1. **The fetch happens during the evaluation, and it is the one input of this
    lab that is not lazy.** A commit identifies a tree and is not a hash of one,
    so there is no fixed-output derivation to instantiate.
-   `ddrn/PACKAGING-FACTS.md` gives the cost, and the one line of `uv.lock` that
+   `docs/PACKAGING-FACTS.md` gives the cost, and the one line of `uv.lock` that
    would remove it.
 2. **The install holds the code.** A git checkout is not a tree that the user
    edits, so nothing redirects to it. The report names a module inside the
    environment, and the editable projects above name one under
-   `$DDRN_EDITABLE_ROOT`.
+   `$PYDD_EDITABLE_ROOT`.
 3. **`uv.nix` fetches the commit, and not the tag.** The query of the reference
    says `rev=3.12.0`, and the fragment says `1c814172…`. A tag moves and a
    commit does not, so `../uv-git.nix` drops the name that the user gave.
@@ -451,7 +455,7 @@ project uses `flit_core` instead. `pypa/hatch` holds `hatchling` in `backend`,
 and its `[build-system]` also says `requires = []` with an in-tree backend. But
 that backend is `hatchling.ouroboros`, which reads the real list out of its own
 `pyproject.toml` and returns it from `get_requires_for_build_wheel`. This lab
-calls no hook of that family, and `ddrn/PACKAGING-FACTS.md` says why, so those
+calls no hook of that family, and `docs/PACKAGING-FACTS.md` says why, so those
 four packages never reach the path and the import of the backend fails.
 
 `tests/fixtures/locks/git-subdirectory.lock` and `url-subdirectory.lock` still
@@ -578,7 +582,7 @@ wheels = [
 the root of the workspace, the path of the registry and the path of the row. A
 reader that joined the row to the project would look for
 `crated-1.0.0.tar.gz` at the top of this directory, where there is no such
-file. `ddrn/PACKAGING-FACTS.md` names the two lines of uv that join the three.
+file. `docs/PACKAGING-FACTS.md` names the two lines of uv that join the three.
 
 Neither row carries a hash, because a flat registry of a directory serves the
 file itself. That costs nothing: `uv.nix` copies the file with `builtins.path`.
@@ -618,7 +622,7 @@ menu, so `setuptools` has to be a package of this lock file.
 **The project declares its build tools, beside `[tool.uv]`:**
 
 ```toml
-[tool.ddrn.build-tools]
+[tool.pydd.build-tools]
 psutil = ["stdenv.cc"]
 cffi = ["stdenv.cc", "pkg-config", "libffi.dev", "libffi"]
 ```
@@ -642,7 +646,7 @@ The two entries differ:
 **`pkg-config` is not necessary here, and the entry is honest about that.**
 `cffi` asks `pkg-config` first and falls back to `CPPFLAGS` and `LDFLAGS`, so
 the build succeeds with no `pkg-config` at all.
-`ddrn/PACKAGING-FACTS.md` records that measurement.
+`docs/PACKAGING-FACTS.md` records that measurement.
 
 ## The two distributions that a project vendors
 

@@ -11,14 +11,14 @@
 # file, in the `ddrn` dependency group, and it must **not** be here: the
 # selection did not enable that group.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/pure-app,
+  pkgs,
+  pydd,
+  project ? ./pure-app,
 }:
 
 let
-  planner = import ./uv.nix { inherit pkgs nanopynixEnv project; };
-  venv = builtins.outputOf planner.outPath "out";
+  planner = pydd.python.uv { inherit project; };
+  venv = planner.out;
 in
 derivation {
   name = "uv-check";

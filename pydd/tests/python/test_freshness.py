@@ -26,7 +26,7 @@ LOCKS = Path(__file__).resolve().parent / "fixtures/locks"
 
 #: The workspace of two members, which `test_workspace.py` also reads. Its lock
 #: file is the one with a `[manifest] members` table.
-WORKSPACE = Path(__file__).resolve().parent / "fixtures/workspace"
+WORKSPACE = Path(__file__).resolve().parents[1] / "projects/workspace"
 
 
 #: What `trivial.lock` resolved from. Its one member declares one dependency.

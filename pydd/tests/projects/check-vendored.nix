@@ -13,14 +13,14 @@
 # keeps `flit_core` out of `scripts/check-git.py`: only the graph installs these
 # packages, so no type checker of the repository can resolve them.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/vendored-app,
+  pkgs,
+  pydd,
+  project ? ./vendored-app,
 }:
 
 let
-  planner = import ./uv.nix { inherit pkgs nanopynixEnv project; };
-  venv = builtins.outputOf planner.outPath "out";
+  planner = pydd.python.uv { inherit project; };
+  venv = planner.out;
 in
 derivation {
   name = "vendored-check";

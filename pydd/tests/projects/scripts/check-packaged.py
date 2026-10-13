@@ -10,7 +10,7 @@ exercises and `projects/pure-app` does not:
    directory outside the store.
 2. **A backend with a dependency closure.** `build-system.requires` names
    `hatchling` alone, and `hatchling` needs four more packages to import.
-   `uv.lock` holds those edges, and `ddrn_venv.build_requirements` walks them.
+   `uv.lock` holds those edges, and `pydd.python.build_requirements` walks them.
 3. **A source distribution that a wheel could have satisfied.**
    `tool.uv.no-binary-package = ["mdurl"]` names one, so the planner takes the
    sdist and a PEP 517 build runs for a package that ships a perfectly good
@@ -65,7 +65,7 @@ def main() -> int:
         return 1
 
     # **The editable reads a tree that is not in this environment.** The `.pth`
-    # that `hatchling` wrote expands `$DDRN_EDITABLE_ROOT` when the interpreter
+    # that `hatchling` wrote expands `$PYDD_EDITABLE_ROOT` when the interpreter
     # starts, so this line reports whichever tree the check derivation named.
     print("editable")
     greeting = cast("str", packaged_app.greet())  # pyright: ignore[reportUnknownMemberType] -- the import above is unresolved, so this call has no type

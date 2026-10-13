@@ -9,7 +9,7 @@ writes a source distribution, an index serves it, and the consumer runs the
 PEP 517 `build_wheel` hook over what the archive holds. So the environment
 reads the store, and no directory outside the store answers for the code:
 
-    editable   loaded from $DDRN_EDITABLE_ROOT/src/packaged_app/__init__.py
+    editable   loaded from $PYDD_EDITABLE_ROOT/src/packaged_app/__init__.py
     sdist      loaded from <the environment>/lib/python3.14/site-packages/...
 
 The second one cannot follow an edit, and that is the point of a release.
@@ -75,8 +75,8 @@ def main() -> int:
     # it.** The check derivation still sets this variable, and an editable
     # install of the same project would read the tree that it names. This one
     # must not, whatever the variable says.
-    root = os.environ.get("DDRN_EDITABLE_ROOT", "")
-    print(f"  DDRN_EDITABLE_ROOT names {root}")
+    root = os.environ.get("PYDD_EDITABLE_ROOT", "")
+    print(f"  PYDD_EDITABLE_ROOT names {root}")
     if root and module.is_relative_to(root):
         print(f"{module} is under {root}, so this install still reads a tree and is not a release")
         return 1

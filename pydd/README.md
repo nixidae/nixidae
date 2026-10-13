@@ -44,10 +44,10 @@ inside the archive, so no evaluation can know it. That planner reads the
 archive, chooses the backend from the same lock, and submits the build.
 
 The result also carries `env`, `app` and `shell`. The reader handles
-workspaces, git, URL and path sources, and local registries, as the lab
-tested them. pydd's own example covers registry packages and one project
-member. uv locks neither build backends nor the installer, so a dependency
-group puts them in the lock.
+workspaces, git, URL and path sources, and local registries.
+`tests/projects` builds one project for each (see Tests). uv locks neither
+build backends nor the installer, so a dependency group puts them in the
+lock.
 
 `pydd.python.poetry { project = ./.; }` does the same for a Poetry
 project, at lock version 2.1 or later (`examples/poetry`). Only the reader
@@ -104,6 +104,12 @@ names the store; the default is `~/.cache/pydd/store`.
 ## Tests
 
     nix build --file . checks.tests
+    nix run --file . test-projects
+
+`test-projects` builds the uv projects of `tests/projects`, which cover
+workspaces, git, URL and path sources, a local registry, binary and native
+wheels, applications, and nixpkgs packages in place of PyPI ones. Each one
+needs `builder-rpc-v0`, so it builds in the private store of `run`.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock

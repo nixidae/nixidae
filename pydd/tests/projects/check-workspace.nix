@@ -4,14 +4,14 @@
 # `./check-uv.nix` does the same for `projects/pure-app`, and `./check.nix`
 # gives the reason that this runs as a derivation and not from a shell.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/workspace,
+  pkgs,
+  pydd,
+  project ? ./workspace,
   # The tree that each editable install reads. `uv.nix` redirects the install
-  # at `$DDRN_EDITABLE_ROOT`, which this derivation sets, so a different tree
+  # at `$PYDD_EDITABLE_ROOT`, which this derivation sets, so a different tree
   # here reads back differently **from the same environment**. `run-uv.sh`
   # proves that by building this twice.
-  editableTree ? ./projects/workspace,
+  editableTree ? ./workspace,
   # Which members to install. `null` takes every member of the workspace, which
   # is what `uv sync --all-packages` takes.
   select ? null,
@@ -32,17 +32,15 @@
 }:
 
 let
-  planner = import ./uv.nix {
+  planner = pydd.python.uv {
     inherit
-      pkgs
-      nanopynixEnv
       project
       select
       venvName
       fromSdist
       ;
   };
-  venv = builtins.outputOf planner.outPath "out";
+  venv = planner.out;
 
   # One probe for each member that this selection installs. A member that the
   # selection leaves out is absent from the environment, so its probe must not
@@ -54,8 +52,8 @@ derivation {
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
 
-  DDRN_EDITABLE_ROOT = "${editableTree}";
-  DDRN_EXPECT = builtins.concatStringsSep " " expect;
+  PYDD_EDITABLE_ROOT = "${editableTree}";
+  PYDD_EXPECT = builtins.concatStringsSep " " expect;
 
   args = [
     "-c"
@@ -69,7 +67,7 @@ derivation {
         "${venv}/bin/python" ${./scripts/check-workspace.py} || return 1
 
         # **Every member reports the tree that it was read from.** The `.pth`
-        # that hatchling wrote expands `$DDRN_EDITABLE_ROOT` when the
+        # that hatchling wrote expands `$PYDD_EDITABLE_ROOT` when the
         # interpreter starts, so these lines report whichever tree this
         # derivation named.
         echo "members"

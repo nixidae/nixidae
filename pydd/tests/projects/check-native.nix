@@ -10,9 +10,9 @@
 # a shell: a store path is absolute, and a chroot store puts the store under a
 # prefix.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/native-app,
+  pkgs,
+  pydd,
+  project ? ./native-app,
   venvName ? "native-app",
   # **This file names no build tool, and the project names both.**
   # `projects/native-app/pyproject.toml` holds `[tool.ddrn.build-tools]`, and
@@ -26,22 +26,20 @@
   #
   # `pkg-config` is in that table because `cffi` asks it first. The build
   # succeeds with no `pkg-config` at all, because `cffi` falls back to
-  # `CPPFLAGS` and `LDFLAGS`, and `ddrn/PACKAGING-FACTS.md` records that
+  # `CPPFLAGS` and `LDFLAGS`, and `docs/PACKAGING-FACTS.md` records that
   # measurement.
   buildTools ? { },
 }:
 
 let
-  planner = import ./uv.nix {
+  planner = pydd.python.uv {
     inherit
-      pkgs
-      nanopynixEnv
       project
       venvName
       buildTools
       ;
   };
-  venv = builtins.outputOf planner.outPath "out";
+  venv = planner.out;
 in
 derivation {
   name = "${venvName}-check";

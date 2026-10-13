@@ -3,9 +3,9 @@
 # `./check-uv.nix` does the same for `projects/pure-app`, and `./check.nix`
 # gives the reason that this runs as a derivation and not from a shell.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/binary-app,
+  pkgs,
+  pydd,
+  project ? ./binary-app,
   # The distributions that this environment must hold, as PEP 503 names.
   expect ? [
     "pyzmq"
@@ -18,23 +18,21 @@
 }:
 
 let
-  planner = import ./uv.nix {
+  planner = pydd.python.uv {
     inherit
-      pkgs
-      nanopynixEnv
       project
       venvName
       fromNixpkgs
       ;
   };
-  venv = builtins.outputOf planner.outPath "out";
+  venv = planner.out;
 in
 derivation {
   name = "${venvName}-check";
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
 
-  DDRN_EXPECT = builtins.concatStringsSep " " expect;
+  PYDD_EXPECT = builtins.concatStringsSep " " expect;
 
   # `patchelf` reads back what `auto-patchelf` wrote, and `ldd` resolves each
   # entry against it. `ldd` lives in the `bin` output of glibc, and not in the

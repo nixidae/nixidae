@@ -16,7 +16,7 @@ script runs `auto-patchelf` over the output. An import of the extension is the
 proof, because an unpatched `.so` resolves no `libstdc++` and raises
 `ImportError` before any code of the package runs.
 
-`DDRN_EXPECT` names the distributions that this environment must hold, as PEP
+`PYDD_EXPECT` names the distributions that this environment must hold, as PEP
 503 names, separated by a space.
 """
 
@@ -34,7 +34,7 @@ def canonical(name: str) -> str:
 
 
 def main() -> int:
-    expected = {canonical(name) for name in os.environ["DDRN_EXPECT"].split()}
+    expected = {canonical(name) for name in os.environ["PYDD_EXPECT"].split()}
 
     print(f"prefix       {sys.prefix}")
     print(f"selection    {' '.join(sorted(expected))}")

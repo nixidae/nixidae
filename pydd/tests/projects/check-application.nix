@@ -17,10 +17,10 @@
 #   3. `environment` of the result is the environment of the same members, so
 #      one set of arguments gives both shapes.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/workspace,
-  editableTree ? ./projects/workspace,
+  pkgs,
+  pydd,
+  project ? ./workspace,
+  editableTree ? ./workspace,
   # The members to render. Each one installs a console script of the same name
   # here, so one list names both the members and the programs.
   application ? [ "ws-cli" ],
@@ -41,21 +41,19 @@
 }:
 
 let
-  planner = import ./uv.nix {
+  planner = pydd.python.uv {
     inherit
-      pkgs
-      nanopynixEnv
       project
       application
       venvName
       ;
   };
-  app = builtins.outputOf planner.outPath "out";
+  app = planner.out;
 
   # The same project with no application, which is the shape that a development
   # shell takes. `uv.nix` gives it as an attribute, so these arguments are
   # written once.
-  venv = builtins.outputOf planner.environment.outPath "out";
+  venv = planner.environment.out;
 
   programs = if builtins.isList application then application else [ application ];
 in
@@ -64,7 +62,7 @@ derivation {
   system = pkgs.stdenv.hostPlatform.system;
   builder = "${pkgs.bash}/bin/bash";
 
-  DDRN_EDITABLE_ROOT = "${editableTree}";
+  PYDD_EDITABLE_ROOT = "${editableTree}";
 
   args = [
     "-c"

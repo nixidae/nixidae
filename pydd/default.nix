@@ -84,4 +84,38 @@ rec {
   checks = {
     tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm; };
   };
+
+  # The uv projects of the ddrn lab, each with its check.
+  # nix run --file . run -- projects.pure-app
+  projects = import ./tests/projects { inherit pkgs pydd; };
+
+  # Run every check of `projects`, and report each one. A check needs
+  # `builder-rpc-v0`, so it builds in the private store of `run`, and no
+  # `checks` attribute can hold it.
+  test-projects = pkgs.writeShellApplication {
+    name = "pydd-test-projects";
+    runtimeInputs = [
+      run
+      nix
+    ];
+    text = ''
+      log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/projects}
+      mkdir -p "$log"
+      if (( $# > 0 )); then
+        names=("$@")
+      else
+        read -ra names <<< "$(nix eval --file . projects --apply builtins.attrNames --json | tr -d '[]"' | tr , ' ')"
+      fi
+      failed=0
+      for name in "''${names[@]}"; do
+        if pydd-run "projects.$name" > "$log/$name.log" 2>&1; then
+          echo "pass  $name"
+        else
+          echo "FAIL  $name  ($log/$name.log)"
+          failed=1
+        fi
+      done
+      exit "$failed"
+    '';
+  };
 }

@@ -32,4 +32,4 @@ the graph installs it into the build of `archived` only.
 
 The two files of `vendor/` are in this repository, because a lock file that
 names a path needs that path to exist. Both are small, and
-`ddrn/examples/venv-graph/scripts/check-vendored.py` reads what they hold.
+`../scripts/check-vendored.py` reads what they hold.

@@ -16,7 +16,7 @@ The two together prove what a workspace adds over a single project:
 3. **A member reads the other member.** `ws-cli` imports `ws_core`, and both
    redirect at a directory outside the store.
 
-`DDRN_EXPECT` names the distributions that this selection must hold, as PEP 503
+`PYDD_EXPECT` names the distributions that this selection must hold, as PEP 503
 names, separated by a space.
 """
 
@@ -43,7 +43,7 @@ def canonical(name: str) -> str:
 
 
 def main() -> int:
-    expected = {canonical(name) for name in os.environ["DDRN_EXPECT"].split()}
+    expected = {canonical(name) for name in os.environ["PYDD_EXPECT"].split()}
 
     print(f"prefix       {sys.prefix}")
     print(f"selection    {' '.join(sorted(expected))}")

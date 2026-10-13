@@ -14,14 +14,14 @@
 # keeps `zmq` out of `scripts/check-binary.py`: only the graph installs this
 # package, so no type checker of the repository can resolve it.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/git-app,
+  pkgs,
+  pydd,
+  project ? ./git-app,
 }:
 
 let
-  planner = import ./uv.nix { inherit pkgs nanopynixEnv project; };
-  venv = builtins.outputOf planner.outPath "out";
+  planner = pydd.python.uv { inherit project; };
+  venv = planner.out;
 in
 derivation {
   name = "git-check";
@@ -41,7 +41,7 @@ derivation {
 
         # **The install holds the code.** A git checkout is not a tree that the
         # user edits, so nothing redirects to it. An editable install of a
-        # local project reports a path under `$DDRN_EDITABLE_ROOT` here, and
+        # local project reports a path under `$PYDD_EDITABLE_ROOT` here, and
         # this one has to report a path inside the environment.
         module="$("${venv}/bin/python" -c 'import flit_core; print(flit_core.__file__)')" || return 1
         echo "loaded from"

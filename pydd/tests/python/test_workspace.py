@@ -26,7 +26,7 @@ import pytest
 
 from pydd.python import Lock, resolve_lock
 
-PROJECT = Path(__file__).resolve().parent / "fixtures/workspace"
+PROJECT = Path(__file__).resolve().parents[1] / "projects/workspace"
 
 #: The target of `uv.nix`, which is `pkgs.python3`.
 ENVIRONMENT = {

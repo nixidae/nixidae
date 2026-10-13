@@ -74,7 +74,7 @@
   # A `directory` source and a git source take neither form. uv installs both
   # of those as a wheel, so this reader does too.
   #
-  # **`null` reads `[tool.ddrn] from-sdist` of the project**, the way `select`,
+  # **`null` reads `[tool.pydd] from-sdist` of the project**, the way `select`,
   # `extras` and `groups` read the project for their own decision. A list
   # replaces that table, and `[ ]` is therefore "no member ships an archive".
   fromSdist ? null,
@@ -95,7 +95,7 @@
   # the code comes from, and not whether the package is in the environment, so
   # the edges of `uv.lock` still name it and its dependencies still resolve.
   #
-  # **The project declares the same thing in `[tool.ddrn.from-nixpkgs]`**, with
+  # **The project declares the same thing in `[tool.pydd.from-nixpkgs]`**, with
   # the attribute name as a string, and this argument replaces the declaration
   # of each package that it names.
   fromNixpkgs ? { },
@@ -105,7 +105,7 @@
   # distribution that holds C code needs a compiler, and no other node does.
   #
   # **The project declares the same thing in `pyproject.toml`**, under
-  # `[tool.ddrn.build-tools]`, and this argument replaces the declaration of
+  # `[tool.pydd.build-tools]`, and this argument replaces the declaration of
   # each package that it names. `declaredBuildTools` below gives the table and
   # the reason to prefer it.
   buildTools ? { },
@@ -419,7 +419,7 @@ let
   #     [tool.uv]
   #     no-binary-package = ["cffi"]
   #
-  #     [tool.ddrn.build-tools]
+  #     [tool.pydd.build-tools]
   #     cffi = ["stdenv.cc", "pkg-config", "libffi.dev", "libffi"]
   #
   # and `nix build --file uv.nix env --arg project ./.` needs no second
@@ -435,7 +435,7 @@ let
   # target does not install is not a mistake: one lock file resolves to more
   # than one environment, so a table that covers the workspace names packages
   # that a single member never builds.
-  ddrn = pyproject.tool.ddrn or { };
+  declared = pyproject.tool.pydd or { };
 
   # One attribute of `pkgs`, named by a dotted string, or a message that says
   # which table and which package asked for it.
@@ -448,13 +448,13 @@ let
       lib.getAttrFromPath parts pkgs
     else
       throw (
-        "uv.nix: [tool.ddrn.${table}] of ${projectName} gives '${package}' the name "
+        "uv.nix: [tool.pydd.${table}] of ${projectName} gives '${package}' the name "
         + "'${name}', and nixpkgs holds no attribute of that name. Each value names an "
         + "attribute of the nixpkgs that this call takes, and a dot walks into it."
       );
 
   declaredBuildTools = lib.mapAttrs (package: names: map (attributeOf "build-tools" package) names) (
-    ddrn."build-tools" or { }
+    declared."build-tools" or { }
   );
 
   # **The argument wins for the package that it names, and for no other one.**
@@ -467,10 +467,10 @@ let
   # `fromNixpkgs` argument: a manylinux wheel carries a copy of every library
   # that it links against, and a package of nixpkgs links against the store.
   #
-  #     [tool.ddrn.from-nixpkgs]
+  #     [tool.pydd.from-nixpkgs]
   #     pyzmq = "python3Packages.pyzmq"
   declaredFromNixpkgs = lib.mapAttrs (package: name: attributeOf "from-nixpkgs" package name) (
-    ddrn."from-nixpkgs" or { }
+    declared."from-nixpkgs" or { }
   );
 
   chosenFromNixpkgs = declaredFromNixpkgs // fromNixpkgs;
@@ -479,7 +479,7 @@ let
   # project, and a list replaces what the project says. This is the shape that
   # `select`, `extras` and `groups` already take, for the same reason: the
   # project holds a default, and the caller of one build overrides it.
-  chosenFromSdist = if fromSdist != null then fromSdist else ddrn."from-sdist" or [ ];
+  chosenFromSdist = if fromSdist != null then fromSdist else declared."from-sdist" or [ ];
 
   # The three source kinds that mean "a directory of this workspace, and not an
   # artefact of an index". `pydd.python._uvlock.LOCAL_SOURCES` lists the same

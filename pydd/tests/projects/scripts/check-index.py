@@ -15,7 +15,7 @@ registry on the source, and the name of the file on the row:
 So the file is `index/stocked-1.0.0-py3-none-any.whl`, and it is neither
 `stocked-1.0.0-py3-none-any.whl` of the project nor an address that a fetch
 could reach. uv joins the same three parts in `to_registry_wheel`, and
-`ddrn/PACKAGING-FACTS.md` names the line.
+`docs/PACKAGING-FACTS.md` names the line.
 
 Two facts show up here:
 

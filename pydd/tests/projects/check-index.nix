@@ -8,21 +8,21 @@
 # the directory of the registry on the source and the name of the file on the
 # row of the artefact, so a reader that joined the row to the project would
 # name a file that does not exist. `projects/local-index/README.md` gives the
-# whole shape, and `ddrn/PACKAGING-FACTS.md` names the line of uv that joins
+# whole shape, and `docs/PACKAGING-FACTS.md` names the line of uv that joins
 # the same three parts.
 #
 # **The imports live here, and not in the script**, the way `./check-git.nix`
 # keeps `flit_core` out of `scripts/check-git.py`: only the graph installs these
 # packages, so no type checker of the repository can resolve them.
 {
-  pkgs ? import <nixpkgs> { },
-  nanopynixEnv,
-  project ? ./projects/local-index,
+  pkgs,
+  pydd,
+  project ? ./local-index,
 }:
 
 let
-  planner = import ./uv.nix { inherit pkgs nanopynixEnv project; };
-  venv = builtins.outputOf planner.outPath "out";
+  planner = pydd.python.uv { inherit project; };
+  venv = planner.out;
 in
 derivation {
   name = "index-check";
