@@ -367,7 +367,13 @@ def main() -> int:
     # **The in-tree paths go first, and PEP 517 says so.** A project that
     # carries its own backend means that one, and not a package of the same
     # name that the plan happened to install.
-    sys.path[:0] = in_tree_path(project) + [entry for entry in backend_path.split(":") if entry]
+    backend_sites = [entry for entry in backend_path.split(":") if entry]
+    sys.path[:0] = in_tree_path(project) + backend_sites
+    # **A frontend gives the build environment to what the backend runs**, as
+    # pip and `build` do: meson runs `cython` as a program.
+    os.environ["PYTHONPATH"] = backend_path
+    scripts = [str(Path(site).parents[2] / "bin") for site in backend_sites]
+    os.environ["PATH"] = ":".join([*scripts, os.environ["PATH"]])
     prepare(project)
 
     if mode == "editable":

@@ -60,6 +60,13 @@ if [ ! -d "$project" ]; then
 fi
 
 cd "$project"
+# **A frontend puts the scripts of the build environment on PATH**, as pip and
+# `build` do. meson runs `cython` as a program, and not as a module.
+IFS=: read -ra backendSites <<<"$backendPath"
+for site in "${backendSites[@]}"; do
+  PATH="${site%/lib/python*/site-packages}/bin:$PATH"
+done
+export PATH
 read -ra patchFiles <<<"${patches:-}"
 for patchFile in "${patchFiles[@]}"; do
   "$patch" -p1 -i "$patchFile"
