@@ -42,6 +42,8 @@
   overrides ? { },
   # The escape hatch; `./planner.nix` gives the contract at `builders`.
   builders ? { },
+  # Whether an evaluator in a planner may build to import, as in `./uv.nix`.
+  allowImportFromDerivation ? false,
 }:
 let
   inherit (pkgs) lib;
@@ -114,6 +116,7 @@ let
       python
       fromNixpkgs
       builders
+      allowImportFromDerivation
       ;
     buildTools = hintedBuildTools // overridden.buildTools // buildTools;
     overrides = overridden.nodes;

@@ -120,6 +120,10 @@
   # A function per package that makes the node of one artefact: the escape
   # hatch. `./planner.nix` gives the whole contract at its `builders` argument.
   builders ? { },
+  # Whether an evaluator in a planner may build to import. `false` by
+  # default, and `.override { allowImportFromDerivation = true; }` on the
+  # result reaches every planner.
+  allowImportFromDerivation ? false,
   # Whether uv itself checks the lock file, in a derivation of its own, before
   # the planner runs.
   #
@@ -838,7 +842,7 @@ let
 
     buildTools = chosenBuildTools;
     overrides = overridden.nodes;
-    inherit builders;
+    inherit builders allowImportFromDerivation;
     fromNixpkgs = chosenFromNixpkgs;
 
     artifacts = lib.concatMap artifactsOf document.package;

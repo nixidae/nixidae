@@ -183,6 +183,9 @@
   # Per-package node overrides, by package name, from `./overrides.nix`.
   # `graph.nix` gives the meaning of each key, at `overridesOf`.
   overrides ? { },
+  # Whether an evaluator in a planner may build to import. `false`: a planner
+  # writes derivations and builds none (`mkPlanner` of `lib/core`).
+  allowImportFromDerivation ? false,
   # The interpreter that the environment runs, and that every install step
   # uses. **This is the whole runtime closure of an environment**, and
   # `docs/PACKAGING-FACTS.md` measures it: 219 MB of the 238 MB that the
@@ -340,7 +343,7 @@ let
       env,
     }:
     pydd.mkPlanner {
-      inherit name;
+      inherit name allowImportFromDerivation;
       env = env // {
         PYDD_RENDER = render;
       };

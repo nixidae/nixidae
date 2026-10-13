@@ -105,6 +105,12 @@ in
       ATerm, to `$out`, and every other derivation it names must be an
       input of the planner. It needs the huggorm writer, which stages the
       ATerm in memory.
+
+    `allowImportFromDerivation`
+    : Whether an evaluator in the planner may build to import, as Nix's
+      `allow-import-from-derivation`. `false` by default: a planner writes
+      derivations, and builds none. The result's `overrideAttrs` changes it
+      on one planner, as any attribute of the planner.
   */
   mkPlanner =
     {
@@ -121,13 +127,16 @@ in
       env ? { },
       system ? python.stdenv.hostPlatform.system,
       protocol ? "rpc",
+      allowImportFromDerivation ? false,
     }:
     assert lib.assertOneOf "writer" writer [
       "cli"
       "huggorm"
       "drv"
     ];
-    assert lib.assertMsg (writer == "drv" -> pyddDrv != null) "mkPlanner: writer = \"drv\" needs pyddDrv";
+    assert lib.assertMsg (
+      writer == "drv" -> pyddDrv != null
+    ) "mkPlanner: writer = \"drv\" needs pyddDrv";
     assert lib.assertOneOf "protocol" protocol [
       "rpc"
       "out"
@@ -140,56 +149,78 @@ in
       writer == "huggorm" -> huggorm != null
     ) "mkPlanner: writer = \"huggorm\" needs huggorm";
     let
-      planner = derivation (
-        env
-        // {
-          name = "${name}.drv";
-          inherit system;
-          builder = "${bash}/bin/bash";
-          # The full path: CPython finds its prefix from argv[0], and Nix runs a
-          # builder with only the basename there.
-          args = [
-            "-c"
-            "exec ${python}/bin/python3 ${plan}"
-          ];
+      attributes = env // {
+        inherit allowImportFromDerivation;
+        name = "${name}.drv";
+        inherit system;
+        builder = "${bash}/bin/bash";
+        # The full path: CPython finds its prefix from argv[0], and Nix runs a
+        # builder with only the basename there.
+        args = [
+          "-c"
+          "exec ${python}/bin/python3 ${plan}"
+        ];
 
-          requiredSystemFeatures =
-            lib.optional (protocol == "rpc") "builder-rpc-v0"
-            ++ lib.optional (protocol == "recursive") "recursive-nix";
-          # The submitted object is a derivation, and a derivation is
-          # text-ingested.
-          __contentAddressed = true;
-          outputHashMode = "text";
-          outputHashAlgo = "sha256";
+        requiredSystemFeatures =
+          lib.optional (protocol == "rpc") "builder-rpc-v0"
+          ++ lib.optional (protocol == "recursive") "recursive-nix";
+        # The submitted object is a derivation, and a derivation is
+        # text-ingested.
+        __contentAddressed = true;
+        outputHashMode = "text";
+        outputHashAlgo = "sha256";
 
-          NIX_CONFIG = "extra-experimental-features = nix-command ca-derivations dynamic-derivations";
-          PATH = lib.makeBinPath [ (if writer == "drv" then pyddDrv else nix) ];
-          PYTHONPATH = lib.concatStringsSep ":" (
-            [ "${pyddSrc modules}" ]
-            ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
-            ++ map (package: python.pkgs.makePythonPath [ package ]) pythonPath
+        PATH = lib.makeBinPath [ (if writer == "drv" then pyddDrv else nix) ];
+        PYTHONPATH = lib.concatStringsSep ":" (
+          [ "${pyddSrc modules}" ]
+          ++ lib.optional (writer == "huggorm") (python.pkgs.makePythonPath [ huggorm ])
+          ++ map (package: python.pkgs.makePythonPath [ package ]) pythonPath
+        );
+        PYTHONDONTWRITEBYTECODE = "1";
+
+        PYDD_WRITER = writer;
+        PYDD_PROTOCOL = protocol;
+        PYDD_SYSTEM = system;
+        PYDD_MENU = builtins.toJSON menu;
+      };
+
+      # `allowImportFromDerivation` is an attribute of the planner, so
+      # `overrideAttrs` reaches it, and `NIX_CONFIG` follows it here.
+      realise =
+        attrs:
+        derivation (
+          removeAttrs attrs [ "allowImportFromDerivation" ]
+          // {
+            NIX_CONFIG = ''
+              extra-experimental-features = nix-command ca-derivations dynamic-derivations
+              allow-import-from-derivation = ${lib.boolToString attrs.allowImportFromDerivation}
+            '';
+          }
+        );
+
+      result =
+        attrs:
+        let
+          planner = realise attrs;
+        in
+        {
+          inherit planner;
+          out = builtins.outputOf planner.outPath "out";
+          /**
+            Change the planner's attributes, and with them `out`.
+          */
+          overrideAttrs = f: result (attrs // f attrs);
+          # What the planner runs on, as one derivation, for copying to a store.
+          closure = linkFarmFromDrvs "${name}-planner-closure" (
+            [
+              bash
+              python
+              (if writer == "drv" then pyddDrv else nix)
+            ]
+            ++ lib.optional (writer == "huggorm") huggorm
+            ++ pythonPath
           );
-          PYTHONDONTWRITEBYTECODE = "1";
-
-          PYDD_WRITER = writer;
-          PYDD_PROTOCOL = protocol;
-          PYDD_SYSTEM = system;
-          PYDD_MENU = builtins.toJSON menu;
-        }
-      );
+        };
     in
-    {
-      inherit planner;
-      out = builtins.outputOf planner.outPath "out";
-      # What the planner runs on, as one derivation, for copying to a store.
-      closure = linkFarmFromDrvs "${name}-planner-closure" (
-        [
-          bash
-          python
-          (if writer == "drv" then pyddDrv else nix)
-        ]
-        ++ lib.optional (writer == "huggorm") huggorm
-        ++ pythonPath
-      );
-    };
+    result attributes;
 }
