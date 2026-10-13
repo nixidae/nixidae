@@ -10,19 +10,57 @@ every mode. It fails when two modes give different store paths for one
 environment. So a mode differs from another in cost and in what it needs,
 and never in what it builds.
 
-## The four modes
+## What the names mean
 
-| mode | Nix | plan to derivations | derivations to the store | the host evaluates |
+**A mode is two choices, and the four names mix them.** One choice is the
+Nix that the planner runs under. The other is the tool that writes the
+derivations.
+
+### The Nix: `builder-rpc-v0`, or `$out`
+
+**`builder-rpc-v0` is on Nix master, and in no release.** Nix gives the
+planner a restricted daemon socket. The planner writes each derivation of
+its graph through that socket, and then submits the root as its output.
+`cli`, `huggorm` and `drv` run this way.
+
+**On a release, a planner writes one derivation: its root.** It writes the
+root as ATerm text to `$out`, and Nix reads that text as a derivation. The
+planner cannot add any other derivation, so the host makes every other
+node before the planner runs. `out` runs this way, on Nix 2.35.
+
+### The writer: `nix`, huggorm, or `pydd-drv`
+
+- **`cli` is the stock `nix` binary.** The planner runs
+  `nix derivation add` once for each derivation, and
+  `nix store submit-output` for the root.
+- **`huggorm` is Python bindings to Nix's own C++ libraries**, libnixstore
+  and libnixexpr. It is not a second implementation of Nix: the code that
+  runs is Nix's. The planner writes in process, and it can evaluate Nix
+  code: this mode evaluates `lib/python/graph.nix`.
+- **`drv` is `pydd-drv`**, a small C++ tool over libnixstore
+  (`tools/pydd-drv`, Lillecarl/pydd#1). It is the specialised CLI.
+  `add` and `submit` do what the two `nix` commands do, and `graph`
+  writes a whole graph of JSON derivations in one process.
+- **`out` writes through huggorm** today. huggorm stages each derivation
+  in an in-memory store, and the planner copies the root's ATerm to
+  `$out`. `pydd-drv graph --out` does the same for a planner in any
+  language (`examples/graph`). pydd's own planners cannot use it yet,
+  because they add one derivation per call, and a new process does not
+  keep the in-memory store (Lillecarl/pydd#15).
+
+### The four modes
+
+| mode | Nix | writer | plan to derivations | the host evaluates |
 | --- | --- | --- | --- | --- |
-| `cli` | master | `pydd.modes.render`, in Python | `nix derivation add`, `nix store submit-output` | one fetch per artefact, and a planner per sdist |
-| `huggorm` | master | `lib/python/graph.nix`, in huggorm's evaluator | `Store.add_derivation`, `Store.submit_output` | the same |
-| `drv` | master | `pydd.modes.render`, in Python | `pydd-drv add`, `pydd-drv submit` | the same |
-| `out` | 2.35 | `pydd.modes.render`, in Python | the root as ATerm, in `$out` | also a node per wheel, a planner per local project, and the environment's planner under an application |
+| `cli` | master, `builder-rpc-v0` | `nix` | `pydd.modes.render`, in Python | one fetch per artefact, and a planner per sdist |
+| `huggorm` | master, `builder-rpc-v0` | huggorm | `lib/python/graph.nix`, in huggorm's evaluator | the same |
+| `drv` | master, `builder-rpc-v0` | `pydd-drv` | `pydd.modes.render`, in Python | the same |
+| `out` | 2.35, `$out` | huggorm | `pydd.modes.render`, in Python | also a node per wheel, a planner per local project, and the environment's planner under an application |
 
-The first three modes use `builder-rpc-v0`: a planner writes derivations
-through a restricted daemon socket, and submits the root. Nix master has
-it, and no release has it. On a release a planner writes one derivation,
-its root, so the host makes every other node before the planner runs.
+**"Plan to derivations" is a third, smaller choice.** `graph.nix` says how
+a node is built. `pydd.modes.render` makes the same derivations in Python,
+for a planner with no evaluator. `tests/test_render.py` holds the two to
+the same `.drv` for every node kind.
 
 ## Measured
 
