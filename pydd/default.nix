@@ -94,6 +94,11 @@ rec {
 
         out=$(nix build --store "$store" --file . "$attr.$target" \
           --system-features "${features}" --no-link --print-out-paths -L "$@")
+        # `PYDD_PRINT_PATH=1` prints the output path alone, for a caller to compare.
+        if [[ ''${PYDD_PRINT_PATH:-} == 1 ]]; then
+          echo "$out"
+          exit 0
+        fi
         echo "$out" >&2
         if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
           nix store cat --store "$store" "$out"
@@ -125,55 +130,76 @@ rec {
   };
 
   # The uv projects of the ddrn lab, each with its check, once for each
-  # writer. The writer chooses the path from plan to derivations.
+  # mode. `cli` and `huggorm` are `builder-rpc-v0` on Nix master, and the
+  # writer chooses the path from plan to derivations. `out` is released Nix,
+  # and holds the projects that it supports so far (Lillecarl/pydd#2).
   # nix run --file . run -- projects.cli.pure-app
-  projects = lib.genAttrs [ "cli" "huggorm" ] (
-    writer:
-    import ./tests/projects {
-      inherit pkgs;
-      pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
-    }
-  );
+  # nix run --file . run-released -- projects.out.pure-app
+  projects =
+    lib.genAttrs [ "cli" "huggorm" ] (
+      writer:
+      import ./tests/projects {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+      }
+    )
+    // {
+      out = lib.getAttrs [ "pure-app" ] (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "huggorm";
+            plannerProtocol = "out";
+          };
+        }
+      );
+    };
 
-  # Run every check of `projects` with both writers, and compare the two
-  # environments. `graph.nix` and `pydd.python._render` must give the same
-  # content-addressed path. A check needs `builder-rpc-v0`, so it builds in
-  # the private store of `run`, and no `checks` attribute can hold it.
+  # Run every check of `projects` in each mode, and compare the environments.
+  # Every mode must give the same content-addressed path. A check needs a
+  # Nix that this machine's daemon may not be, so it builds in the private
+  # store of `run` or `run-released`, and no `checks` attribute can hold it.
   test-projects = pkgs.writeShellApplication {
     name = "pydd-test-projects";
     runtimeInputs = [
       run
+      run-released
       nix
     ];
     text = ''
       log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/projects}
-      store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/store}
-      export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations
-      use-cgroups = false"
       mkdir -p "$log"
       if (( $# > 0 )); then
         names=("$@")
       else
         read -ra names <<< "$(nix eval --raw --file . projects.cli --apply 'p: toString (builtins.attrNames p)')"
       fi
+      read -ra released <<< "$(nix eval --raw --file . projects.out --apply 'p: toString (builtins.attrNames p)')"
       failed=0
       for name in "''${names[@]}"; do
         paths=()
-        for writer in cli huggorm; do
-          if pydd-run "projects.$writer.$name" > "$log/$name-$writer.log" 2>&1; then
-            echo "pass  $name ($writer)"
-            paths+=("$(nix build --store "$store" --file . "projects.$writer.$name.environment" \
-              --system-features builder-rpc-v0 --no-link --print-out-paths 2>> "$log/$name-$writer.log")")
+        modes=(cli huggorm)
+        if [[ " ''${released[*]} " == *" $name "* ]]; then
+          modes+=(out)
+        fi
+        for mode in "''${modes[@]}"; do
+          runner=pydd-run
+          [[ $mode == out ]] && runner=pydd-run-released
+          if "$runner" "projects.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
+            echo "pass  $name ($mode)"
+            paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "projects.$mode.$name" environment 2>> "$log/$name-$mode.log")")
           else
-            echo "FAIL  $name ($writer)  ($log/$name-$writer.log)"
+            echo "FAIL  $name ($mode)  ($log/$name-$mode.log)"
             failed=1
           fi
         done
-        if (( ''${#paths[@]} == 2 )); then
-          if [[ ''${paths[0]} == "''${paths[1]}" ]]; then
-            echo "same  $name  ''${paths[0]}"
+        if (( ''${#paths[@]} == ''${#modes[@]} )); then
+          if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
+            echo "same  $name  ''${paths[0]#*=}  (''${modes[*]})"
           else
-            echo "DIFFER  $name  cli ''${paths[0]}  huggorm ''${paths[1]}"
+            echo "DIFFER  $name  ''${paths[*]}"
             failed=1
           fi
         fi

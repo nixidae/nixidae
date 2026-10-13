@@ -1,18 +1,44 @@
 /**
-  The pydd library, with `writer` as the default for every planner, so an
-  example is written once for both writers.
+  The pydd library, with `writer` and `protocol` as the defaults for every
+  planner, so an example is written once for every mode.
+
+  The arguments are `plannerProtocol` and `plannerRender`, because
+  `callPackage` would fill `protocol` from nixpkgs.
+
+  `plannerRender` chooses how a Python environment turns its plan into
+  derivations: `"nix"` evaluates `python/graph.nix` in huggorm, and
+  `"python"` renders the same derivations in Python. `null` takes `"nix"`
+  with the huggorm writer on `builder-rpc-v0`, and `"python"` otherwise.
 */
 {
   callPackage,
   huggorm,
   nix,
   writer ? "cli",
+  plannerProtocol ? "rpc",
+  plannerRender ? null,
 }:
 let
   planner = callPackage ./planner.nix { };
   self = planner // {
     inherit writer;
-    mkPlanner = args: planner.mkPlanner ({ inherit writer huggorm nix; } // args);
+    protocol = plannerProtocol;
+    render =
+      if plannerRender != null then
+        plannerRender
+      else if writer == "huggorm" && plannerProtocol == "rpc" then
+        "nix"
+      else
+        "python";
+    mkPlanner =
+      args:
+      planner.mkPlanner (
+        {
+          inherit writer huggorm nix;
+          protocol = plannerProtocol;
+        }
+        // args
+      );
     python = callPackage ./python { pydd = self; };
     evaluate = callPackage ./evaluate.nix { pydd = self; };
   };

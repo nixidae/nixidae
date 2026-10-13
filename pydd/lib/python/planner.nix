@@ -5,12 +5,15 @@
 # planner decides which artefacts this target needs, and what the graph over
 # them is. `graph.nix` says how one node is built.
 #
-# `./uv.nix` calls this for a uv project. The writer of `pydd` chooses the
-# path from plan to derivations, and both paths give the same derivations:
+# `./uv.nix` calls this for a uv project. `pydd.render` chooses the path from
+# plan to derivations, and both paths give the same derivations:
 #
-#   huggorm  the planner evaluates `graph.nix` in its sandbox.
-#   cli      `pydd.python._render` writes them in Python, and `nix derivation
-#            add` adds them. No planner needs huggorm.
+#   nix     the planner evaluates `graph.nix` in its sandbox, in huggorm.
+#   python  `pydd.python._render` writes them in Python. With the `cli`
+#           writer, no planner needs huggorm.
+#
+# `pydd.protocol` chooses the Nix: `rpc` is `builder-rpc-v0` on Nix master,
+# and `out` is a release, where the host makes every node but the root.
 {
   pkgs,
   # The pydd library. Its `writer` chooses the path.
@@ -274,7 +277,7 @@ let
 
   scriptDir = ../../src/pydd/python/scripts;
 
-  render = if pydd.writer == "huggorm" then "nix" else "python";
+  inherit (pydd) render protocol;
 
   # **Every planner of this graph, the outer one and one for each source
   # distribution.** `packaging` and `pydd.python` reach the planner and never
@@ -343,8 +346,124 @@ let
     else
       { out = "${value}"; };
 
+  tools = {
+    inherit (pkgs)
+      bash
+      coreutils
+      unzip
+      gnutar
+      gzip
+      patchelf
+      ;
+    inherit python;
+    # `patchelf` and the three below reach only a node that installs a
+    # binary wheel. `pkgs.autoPatchelfHook` is a setup hook, and a graph
+    # node runs no setup hook. `pkgs.auto-patchelf` is the program that the
+    # hook calls.
+    autoPatchelf = pkgs.auto-patchelf;
+    bintools = pkgs.stdenv.cc.bintools;
+    gccLib = pkgs.stdenv.cc.cc.lib;
+  };
+
+  scripts = {
+    # One store path for each script, so an edit to one rebuilds only the
+    # nodes that run it.
+    unpackWheel = "${scriptDir + "/unpack-wheel.sh"}";
+    installWheel = "${scriptDir + "/install-wheel.sh"}";
+    buildSdist = "${scriptDir + "/build-sdist.sh"}";
+    buildLocal = "${scriptDir + "/build-local.py"}";
+    makeVenv = "${scriptDir + "/make-venv.py"}";
+    makeApplication = "${scriptDir + "/make-application.py"}";
+  };
+
+  # **On released Nix the host makes each node that a planner names, except
+  # the root.** A planner there writes one derivation, so every other one has
+  # to be an input of the planner. The host evaluates `graph.nix` over the same
+  # document that the planner would write for the node, with the context
+  # still attached, so the two are one `.drv`. `OutWriter` refuses a root that
+  # names a node the host did not make.
+  #
+  # Every wheel of the lock file gets a node, for every platform, because only
+  # the planner chooses. A node is a derivation, not a build: Nix builds the
+  # ones that the root names.
+  normalise =
+    name:
+    pkgs.lib.concatStringsSep "-" (
+      builtins.filter (part: builtins.isString part && part != "") (
+        builtins.split "[-_.]+" (pkgs.lib.toLower name)
+      )
+    );
+
+  # `Artifact.is_platform_wheel`: no tag of the wheel names the platform `any`.
+  isPlatformWheel =
+    filename:
+    let
+      tags = pkgs.lib.last (pkgs.lib.splitString "-" (pkgs.lib.removeSuffix ".whl" filename));
+    in
+    !(builtins.elem "any" (pkgs.lib.splitString "." tags));
+
+  # `Artifact.as_plan` of a wheel, with the context that the planner puts back.
+  hostArtifact =
+    entry:
+    {
+      inherit (entry) filename package version;
+    }
+    // (if entry ? path then { inherit (entry) path; } else { out = "${entry.drv}"; });
+
+  wheelNode = entry: {
+    name = "${entry.package}-${entry.version}";
+    kind = "wheel";
+    platform = isPlatformWheel entry.filename;
+    artifact = hostArtifact entry;
+  };
+
+  wheels = builtins.filter (entry: entry.kind == "wheel") entries;
+
+  # `choose` of the planner takes the best wheel of the installer. The host
+  # cannot rank wheels, so it takes the lock file's only one.
+  installerWheel =
+    let
+      found = builtins.filter (entry: normalise entry.package == normalise installer) wheels;
+    in
+    if builtins.length found == 1 then
+      builtins.head found
+    else
+      throw (
+        "planner.nix: on released Nix the host needs exactly one wheel of the installer "
+        + "'${installer}' in the lock file, and it holds ${toString (builtins.length found)}: "
+        + toString (map (entry: entry.filename) found)
+      );
+
+  bootstrapNode = wheelNode installerWheel // {
+    name = "${installerWheel.package}-${installerWheel.version}-bootstrap";
+    kind = "unpack";
+  };
+
+  hostNode =
+    node:
+    import ./graph.nix {
+      inherit (pkgs.stdenv.hostPlatform) system;
+      pythonVersion = pkgs.lib.versions.majorMinor python.version;
+      tools = builtins.mapAttrs (_: tool: { out = "${tool}"; }) tools;
+      inherit scripts;
+      nodes = [
+        bootstrapNode
+        node
+      ];
+      installer = bootstrapNode.name;
+      root = node.name;
+    };
+
+  # The `.drv` of each host node, as an input of the planner and not a build.
+  hostNodes = pkgs.lib.optionalAttrs (protocol == "out") {
+    hostNodes = map (node: builtins.unsafeDiscardOutputDependency (hostNode node).drvPath) (
+      [ bootstrapNode ] ++ map wheelNode wheels
+    );
+  };
+
   baseInputs =
-    buildToolPaths
+    hostNodes
+    // buildToolPaths
     // {
       inherit
         roots
@@ -354,34 +473,8 @@ let
         ;
       fromNixpkgs = nixpkgsRows;
       artifacts = map row entries;
-      tools = builtins.mapAttrs (_: built) {
-        inherit (pkgs)
-          bash
-          coreutils
-          unzip
-          gnutar
-          gzip
-          patchelf
-          ;
-        inherit python;
-        # `patchelf` and the three below reach only a node that installs a
-        # binary wheel. `pkgs.autoPatchelfHook` is a setup hook, and a graph
-        # node runs no setup hook. `pkgs.auto-patchelf` is the program that the
-        # hook calls.
-        autoPatchelf = pkgs.auto-patchelf;
-        bintools = pkgs.stdenv.cc.bintools;
-        gccLib = pkgs.stdenv.cc.cc.lib;
-      };
-      scripts = {
-        # One store path for each script, so an edit to one rebuilds only the
-        # nodes that run it.
-        unpackWheel = "${scriptDir + "/unpack-wheel.sh"}";
-        installWheel = "${scriptDir + "/install-wheel.sh"}";
-        buildSdist = "${scriptDir + "/build-sdist.sh"}";
-        buildLocal = "${scriptDir + "/build-local.py"}";
-        makeVenv = "${scriptDir + "/make-venv.py"}";
-        makeApplication = "${scriptDir + "/make-application.py"}";
-      };
+      tools = builtins.mapAttrs (_: built) tools;
+      inherit scripts;
       # The planner reads the `pyproject.toml` of each tree below, and resolves
       # the backend that the tree asks for against the same lock file.
       editables = pkgs.lib.mapAttrs (_: spec: {

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from packaging.utils import canonicalize_name
 
-from .._writer import CliWriter, HuggormWriter, Writer
+from .._writer import CliWriter, HuggormWriter, OutWriter, Writer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -369,8 +369,13 @@ def open_restricted_store() -> Writer:
     with the writer that `PYDD_WRITER` names.
 
     A planner runs only inside such a build, so a different `NIX_REMOTE` is an
-    error and not a fallback.
+    error and not a fallback. With `PYDD_PROTOCOL=out` the build is one of
+    released Nix instead, which has no socket and gives the planner `$out`.
     """
+    if os.environ.get("PYDD_PROTOCOL") == "out":
+        if "out" not in os.environ:
+            raise RuntimeError("PYDD_PROTOCOL is 'out', and this build has no $out to write the root to.")
+        return OutWriter()
     remote = os.environ.get("NIX_REMOTE", "")
     if not remote.startswith("unix://"):
         raise RuntimeError(
