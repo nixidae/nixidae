@@ -38,6 +38,7 @@ packages of that selection become roots. `lib/python/uv.nix` and
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -70,7 +71,7 @@ from pydd.python._workspace import members as members_of
 from pydd.python._workspace import selection
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from pydd.python._workspace import Choice
 
@@ -347,8 +348,15 @@ def make_plan(
     projects: list[LocalProject],
     target: Target,
     reader: UvProject | PoetryProject | None = None,
+    planned: dict[str, dict[str, str]] | None = None,
+    only: str | None = None,
 ) -> Plan:
-    """Turn the lock file into the graph that builds the environment."""
+    """Turn the lock file into the graph that builds the environment.
+
+    `planned` names the planner of each local project, by `<project>:<form>`,
+    on released Nix. `only` is the key of the one node that this planner
+    writes itself, when it is such a planner.
+    """
     plan = Plan(build_tools=request.build_tools)
     artifacts = request.artifacts
 
@@ -437,10 +445,19 @@ def make_plan(
         )
         where = f", under {project.subdirectory}" if project.subdirectory else ""
 
+        def local(form: str, suffix: str, make: Callable[[], str], project: LocalProject = project) -> str:
+            # **On released Nix another planner writes this node**, unless this
+            # planner is that one. `planned` names the planner of each form.
+            key = f"{project.name}:{form}"
+            given = (planned or {}).get(key)
+            name = plan.planned_node(f"{project.name}-{suffix}", given) if given and key != only else make()
+            plan.local_nodes[key] = name
+            return name
+
         if project.mode == "wheel":
             # **One hook, and no archive between the tree and the wheel.** A
             # git checkout is a directory, so this is the whole build.
-            name = plan.local_wheel_node(node)
+            name = local("wheel", "from-tree", lambda node=node: plan.local_wheel_node(node))
             plan.member(name, f"{project.name} (built from a tree)", package=project.name)
             print(f"plan: {project.name}: build_wheel through {backend}{where}", file=sys.stderr)
             continue
@@ -450,18 +467,26 @@ def make_plan(
             # the archive, an index serves it, and the consumer builds a wheel
             # out of it. The graph performs both, and the archive between them
             # is a store path that a reader can open.
-            archive = plan.local_sdist_node(node)
-            name = plan.local_build_node(
-                name=project.name,
-                archive=archive,
-                backend=backend,
-                backend_path=backend_path,
+            archive = local("sdist", "sdist", lambda node=node: plan.local_sdist_node(node))
+            name = local(
+                "from-sdist",
+                "from-sdist",
+                lambda project=project, archive=archive, backend=backend, backend_path=backend_path: (
+                    plan.local_build_node(
+                        name=project.name,
+                        archive=archive,
+                        backend=backend,
+                        backend_path=backend_path,
+                    )
+                ),
             )
             plan.member(name, f"{project.name} (from its own source distribution)", package=project.name)
             print(f"plan: {project.name}: build_sdist through {backend}{where}, then build_wheel", file=sys.stderr)
             continue
 
-        name = plan.editable_node(node, root=project.root)
+        name = local(
+            "editable", "editable", lambda node=node, project=project: plan.editable_node(node, root=project.root)
+        )
         plan.member(name, f"{project.name} (editable, from {project.root})", package=project.name)
         print(f"plan: {project.name}: editable through {backend}, reading {project.root}", file=sys.stderr)
 
@@ -502,9 +527,15 @@ def main() -> int:
 
     request = Request.from_json(inputs, roots)
 
-    plan = make_plan(request, projects, target, reader)
+    only = os.environ.get("PYDD_ONLY")
+    plan = make_plan(request, projects, target, reader, inputs.get("planned"), only)
     application: str | None = inputs.get("application")
-    root = plan.root(env("PYDD_VENV_NAME"), application=application)
+    if only is not None:
+        if only not in plan.local_nodes:
+            raise RuntimeError(f"PYDD_ONLY is {only!r}, and the plan has no local project of that key")
+        root = plan.local_nodes[only]
+    else:
+        root = plan.root(env("PYDD_VENV_NAME"), application=application, venv_planner=inputs.get("venvPlanner"))
     if application is not None:
         print(f"plan: application {application}, over the environment of the same members", file=sys.stderr)
 

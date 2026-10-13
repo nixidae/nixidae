@@ -47,6 +47,16 @@ let
     outputHashAlgo = "sha256";
   };
 
+  # The planner of a local project, which writes that project's node.
+  localPlanner = derivation {
+    name = "tool-editable.drv";
+    inherit system;
+    builder = "/bin/sh";
+    __contentAddressed = true;
+    outputHashMode = "text";
+    outputHashAlgo = "sha256";
+  };
+
   nixpkgs = derivation {
     name = "pyzmq-26.0.0";
     inherit system;
@@ -183,6 +193,15 @@ let
       backendPath = [ "flit-sdist" ];
     }
     {
+      name = "tool-editable";
+      kind = "planned";
+      platform = false;
+      artifact = {
+        plannerDrv = builtins.unsafeDiscardStringContext localPlanner.drvPath;
+        plannerOut = "${localPlanner}";
+      };
+    }
+    {
       name = "pyzmq-26.0.0-nixpkgs";
       kind = "nixpkgs";
       platform = false;
@@ -204,6 +223,7 @@ let
         "app-editable"
         "git-from-tree"
         "lib-from-sdist"
+        "tool-editable"
         "pyzmq-26.0.0-nixpkgs"
       ];
       installed = [

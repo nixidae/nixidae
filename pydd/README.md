@@ -17,8 +17,8 @@ it unchanged.
 - Nix master, for `builder-rpc-v0` (NixOS/nix#15793). It is in no release.
   On a release, a planner writes only one derivation, as ATerm, to `$out`.
   `mkPlanner { protocol = "out"; }` does that (`examples/released`), and
-  the host makes every other node. Python environments do not use it yet
-  (Lillecarl/pydd#2).
+  the host makes every other node. Python environments use it with
+  `plannerProtocol = "out"` (see Python environments).
 - `experimental-features = nix-command ca-derivations dynamic-derivations`.
 
 ## Three ways to write a graph
@@ -52,6 +52,19 @@ paths make the same derivations:
 `graph.nix` is the reference. `checks.tests` holds the renderer to it for
 each node kind, and `test-projects` builds each project both ways and
 compares the two environments.
+
+**On released Nix an environment keeps one node per package.** A planner
+there writes only its root, so the host makes the rest:
+
+- the install node of every wheel in the lock, from `graph.nix`;
+- a planner for each sdist, as on `builder-rpc-v0`;
+- a planner for each local project, which submits that project's node
+  (two for a project built from its own sdist);
+- a planner for the environment under an application.
+
+`graph.nix` reads a node that another planner writes, of kind `planned`,
+through `builtins.outputOf`. All 14 test projects build on stock Nix 2.35
+this way, with the same environment paths as on `builder-rpc-v0`.
 
 **An sdist gets a planner of its own.** Its build backend is declared
 inside the archive, so no evaluation can know it. That planner reads the
@@ -125,9 +138,10 @@ names the store; the default is `~/.cache/pydd/store`.
 `test-projects` builds the uv projects of `tests/projects`, which cover
 workspaces, git, URL and path sources, a local registry, binary and native
 wheels, applications, and nixpkgs packages in place of PyPI ones. Each one
-needs `builder-rpc-v0`, so it builds in the private store of `run`. It
-builds each project with both writers, and fails when the two environments
-have different store paths.
+needs `builder-rpc-v0` or a release, so it builds in the private store of
+`run` or `run-released`. It builds each project in three modes, the two
+writers on `builder-rpc-v0` and `out` on Nix 2.35, and fails when the
+environments have different store paths.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock

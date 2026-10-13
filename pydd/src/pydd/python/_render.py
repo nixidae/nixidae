@@ -219,6 +219,8 @@ class Graph:
                         "A chain of source distributions ran past `sdistPlannerDepth` of planner.nix."
                     )
                 return output_of(artifact["plannerOut"], "out")
+            case "planned":
+                return output_of(node["artifact"]["plannerOut"], "out")
             case "sdist-build":
                 built_from = "from" in node
                 return self.mk(

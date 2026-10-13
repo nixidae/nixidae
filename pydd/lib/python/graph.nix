@@ -274,6 +274,12 @@ let
         )
       else
         builtins.outputOf node.artifact.plannerOut "out"
+    else if node.kind == "planned" then
+      # **A node that another planner writes, as the root of its graph.** On
+      # released Nix a planner writes one derivation, so a node that only a
+      # build can shape, such as a local project, is the root of a planner
+      # that the host made. `_plan.Plan.planned_node` gives the reason.
+      builtins.outputOf node.artifact.plannerOut "out"
     else if node.kind == "sdist-build" then
       # What the planner above decided: run one PEP 517 hook, with a backend
       # that is another node of the graph that the planner submitted.

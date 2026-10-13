@@ -105,6 +105,9 @@ class Plan:
     by_package: dict[str, str] = field(default_factory=dict[str, str])
     #: The name of the node that every install step reads.
     installer: str = ""
+    #: The node of each local project, by `<project>:<form>`, where the form is
+    #: `editable`, `wheel`, `sdist` or `from-sdist`.
+    local_nodes: dict[str, str] = field(default_factory=dict[str, str])
     #: The store paths that each package needs to build, by PEP 503 name.
     #: `build_tools_from` reads the value out of the inputs of the planner.
     build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
@@ -267,6 +270,24 @@ class Plan:
             }
         )
 
+    def planned_node(self, name: str, planner: dict[str, str]) -> str:
+        """Add a node that another planner writes, as the root of its graph.
+
+        **On released Nix a planner writes one derivation.** So a node whose
+        shape only a build can decide, such as a local project whose backend
+        its tree declares, is the root of a planner that the host made, and
+        `graph.nix` reads it through `builtins.outputOf`. The node keeps the
+        name that the node itself would have.
+        """
+        return self.add(
+            {
+                "name": name,
+                "kind": "planned",
+                "platform": False,
+                "artifact": {"plannerDrv": planner["plannerDrv"], "plannerOut": planner["plannerOut"]},
+            }
+        )
+
     def venv_node(self, name: str) -> str:
         """Add the node that composes the members into an environment."""
         return self.add(
@@ -296,7 +317,13 @@ class Plan:
             }
         )
 
-    def root(self, name: str, *, application: str | Sequence[str] | None = None) -> str:
+    def root(
+        self,
+        name: str,
+        *,
+        application: str | Sequence[str] | None = None,
+        venv_planner: dict[str, str] | None = None,
+    ) -> str:
         """The node that the planner submits, which is one of two shapes.
 
         **An environment holds every program of every member, and an
@@ -305,6 +332,9 @@ class Plan:
         `scripts/make-application.py` gives the whole reason to want it: a
         virtual environment carries `bin/python`, so a NixOS configuration that
         installs one shadows the interpreter of the system.
+
+        `venv_planner` is the planner that writes the environment, on released
+        Nix, where the planner of an application writes only the application.
 
         `application` takes one name or a list of them. **A list is one output
         over one environment**, and not one output for each name: a project
@@ -338,7 +368,12 @@ class Plan:
         # `dict.fromkeys` keeps the order that the caller wrote and drops a
         # repeat. Two names of one member are one template.
         found = list(dict.fromkeys(base for base in bases if base is not None))
-        return self.application_node(name, venv=self.venv_node(f"{name}-env"), bases=found)
+        venv = (
+            self.planned_node(f"{name}-env", venv_planner)
+            if venv_planner is not None
+            else self.venv_node(f"{name}-env")
+        )
+        return self.application_node(name, venv=venv, bases=found)
 
     def member(self, name: str, label: str, *, package: str) -> None:
         """Mark a node as a member of the environment, and not only a build input.

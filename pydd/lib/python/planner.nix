@@ -645,7 +645,91 @@ let
       ) entries;
     };
 
-  inputs = builtins.elemAt levels sdistPlannerDepth;
+  menu = builtins.elemAt levels sdistPlannerDepth;
+
+  # A planner, as a node of another graph names it: the `.drv` as an input,
+  # and the output path with no dependency, as `row` gives a fetch.
+  plannerRow = planner: {
+    plannerDrv = builtins.unsafeDiscardOutputDependency planner.drvPath;
+    plannerOut = builtins.unsafeDiscardStringContext planner.outPath;
+  };
+
+  # **On released Nix a local project is the root of a planner of its own.**
+  # Its backend is declared in its tree, so no evaluation knows its node. Each
+  # such planner runs the same selection as the environment and submits only
+  # the node of one project, `PYDD_ONLY`. A project built from its own sdist
+  # takes two: the archive, and the wheel out of it, which names the first.
+  #
+  # A planner of a local project gets no planner of another local project: two
+  # members that need each other would make two planners that need each other.
+  localSpecs = editables // uvEditables;
+  suffixOf = {
+    editable = "editable";
+    wheel = "from-tree";
+    sdist = "sdist";
+    from-sdist = "from-sdist";
+  };
+  localPlanner =
+    project: form: planned:
+    (mkPythonPlanner {
+      # Nix requires a planner to carry the name of what it submits.
+      name = "${project}-${suffixOf.${form}}";
+      main = "_environment";
+      env = plannerEnv // {
+        PYDD_INPUTS = builtins.toJSON (menu // { inherit planned; });
+        PYDD_VENV_NAME = venvName;
+        PYDD_ONLY = "${project}:${form}";
+      };
+    }).planner;
+  localPlanned = pkgs.lib.concatMapAttrs (
+    project: spec:
+    let
+      mode = spec.mode or "editable";
+    in
+    if mode == "sdist" then
+      let
+        archive = {
+          "${project}:sdist" = plannerRow (localPlanner project "sdist" { });
+        };
+      in
+      archive
+      // {
+        "${project}:from-sdist" = plannerRow (localPlanner project "from-sdist" archive);
+      }
+    else
+      { "${project}:${mode}" = plannerRow (localPlanner project mode { }); }
+  ) localSpecs;
+
+  # **On released Nix the environment under an application is a planner of its
+  # own**, because the planner of the application writes only the application.
+  # It is the planner of the environment with no `application`, rooted at the
+  # name that `Plan.root` gives the environment.
+  venvPlanner =
+    (mkPythonPlanner {
+      name = "${venvName}-env";
+      main = "_environment";
+      env = plannerEnv // {
+        PYDD_INPUTS = builtins.toJSON (
+          menu
+          // {
+            planned = localPlanned;
+            application = null;
+          }
+        );
+        PYDD_VENV_NAME = "${venvName}-env";
+      };
+    }).planner;
+
+  inputs =
+    menu
+    // pkgs.lib.optionalAttrs (protocol == "out") (
+      {
+        planned = localPlanned;
+      }
+      // pkgs.lib.optionalAttrs (application != null) {
+        venvPlanner = plannerRow venvPlanner;
+      }
+    );
 in
 mkPythonPlanner {
   # The root that this planner submits is `<venvName>.drv`, and Nix requires

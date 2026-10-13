@@ -131,8 +131,8 @@ rec {
 
   # The uv projects of the ddrn lab, each with its check, once for each
   # mode. `cli` and `huggorm` are `builder-rpc-v0` on Nix master, and the
-  # writer chooses the path from plan to derivations. `out` is released Nix,
-  # and holds the projects that it supports so far (Lillecarl/pydd#2).
+  # writer chooses the path from plan to derivations. `out` is stock Nix
+  # 2.35, where the host makes every node that a planner names but its root.
   # nix run --file . run -- projects.cli.pure-app
   # nix run --file . run-released -- projects.out.pure-app
   projects =
@@ -144,27 +144,17 @@ rec {
       }
     )
     // {
-      out =
-        lib.getAttrs
-          [
-            "binary-app"
-            "binary-nixpkgs"
-            "local-index"
-            "native-app"
-            "pure-app"
-            "vendored-app"
-          ]
-          (
-            import ./tests/projects {
-              inherit pkgs;
-              pydd = pkgs.callPackage ./lib {
-                huggorm = huggormReleased;
-                nix = nixReleased;
-                writer = "huggorm";
-                plannerProtocol = "out";
-              };
-            }
-          );
+      out = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "huggorm";
+            plannerProtocol = "out";
+          };
+        }
+      );
     };
 
   # Run every check of `projects` in each mode, and compare the environments.
