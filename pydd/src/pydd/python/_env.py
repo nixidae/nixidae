@@ -1,6 +1,6 @@
 """Reading what the Nix half set.
 
-This module holds no import of nanopynix, so `_resolve` stays a module about
+This module holds no import of nanopynix, so `_select` stays a module about
 packaging and nothing else.
 """
 

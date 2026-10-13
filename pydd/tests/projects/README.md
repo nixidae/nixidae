@@ -352,7 +352,7 @@ pyzmq-27.1.0-cp314-cp314t-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
 interpreter. The wheel that fits is the first one, and PEP 384 is the reason: a
 `cp312-abi3` wheel runs on every CPython at or above 3.12.
 
-The tag set of `_resolve.py` was written by hand and held `cp314-abi3` alone,
+The tag set of `_select.py` was written by hand and held `cp314-abi3` alone,
 so it matched nothing and the planner fell back to the source distribution.
 `target_tags` now calls `packaging.tags.cpython_tags`, which takes the target
 as an argument. `docs/PACKAGING-FACTS.md` gives the whole finding.

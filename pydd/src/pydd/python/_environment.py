@@ -1,4 +1,4 @@
-"""Resolve a Python environment, and register it as a graph of derivations.
+"""Select a Python environment from a lock file, and register it as a graph of derivations.
 
 This script is the builder of `ddrn/examples/venv-graph/default.nix`. It runs
 inside the sandbox of a `builder-rpc-v0` build, and it needs the three changes
@@ -22,7 +22,7 @@ This planner emits a graph:
 
 **The source distribution is the case that motivates the whole lab.** `idna`
 is in the lock file as an sdist only. Its `pyproject.toml` asks for
-`flit_core`, the planner resolves that name against the same lock file, and
+`flit_core`, the planner selects that name from the same lock file, and
 the wheel of `flit_core` becomes another node of the same graph. The build of
 `idna` then reads the output of that node. No node of that pair can exist
 without the other, and neither can exist before the plan runs.
@@ -36,8 +36,8 @@ turning it into the plan document.
 both.**
 `lock.json` is the hand-written one of this example, and its `roots` name what
 to install. `uv.lock` is the one that `uv` writes, and it names no root: this
-planner resolves it here, with `pydd.python._uvlock`, and the members of that
-resolution become roots. `./uv.nix` is the Nix half of the second one.
+planner selects from it here, with `pydd.python._uvlock`, and the members of
+that selection become roots. `./uv.nix` is the Nix half of the second one.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ from pydd.python import (
     choose,
     env,
     open_restricted_store,
-    resolve_lock,
+    select_lock,
     submit,
     target_from_environ,
 )
@@ -84,7 +84,7 @@ if TYPE_CHECKING:
 class Request:
     """What to install, and the artefacts to install it from.
 
-    This is the whole input of `resolve`, and it is what a reader of a
+    This is the whole input of `make_plan`, and it is what a reader of a
     different lock format has to produce.
 
     **It records no build system.** Neither `uv.lock` nor `poetry.lock` does,
@@ -142,7 +142,7 @@ class UvProject:
 
     1. Which packages apply. An edge carries a PEP 508 marker, a package of a
        forked resolution carries `resolution-markers`, and `requires-python`
-       gates the whole file. `resolve_lock` answers this.
+       gates the whole file. `select_lock` answers this.
     2. Which extras and which dependency groups the caller wants. `uv sync`
        takes that decision on its command line, and `select` is that decision.
     3. Which artefact of a package to install. `choose` answers that, with the
@@ -216,7 +216,7 @@ class UvProject:
         says so.** `uv init --package` writes `source = { editable = "." }` for
         the project, and `uv init --no-package` writes
         `source = { virtual = "." }` for one that ships nothing.
-        `Resolution.members` drops the virtual kind, and every other local kind
+        `Selection.members` drops the virtual kind, and every other local kind
         installs from its own tree.
 
         **The lock file does not say which *form* to install.** `uv sync`
@@ -224,18 +224,18 @@ class UvProject:
         source distribution that an index serves. Both are the same project,
         and `mode` is that decision. `uv.nix` takes it as an argument.
 
-        **The freshness check runs first, and it runs before the resolution.**
+        **The freshness check runs first, and it runs before the selection.**
         A lock file that the project has grown past resolves the old
         declaration, and every answer after that point is an answer about the
         wrong project.
         """
         check_freshness(self.lock, self.declarations, self.workspace)
 
-        resolution = resolve_lock(self.lock, target.markers, self.roots())
+        selection = select_lock(self.lock, target.markers, self.roots())
 
         roots: list[str] = []
         projects: list[LocalProject] = []
-        for package in sorted(resolution.members, key=lambda member: member.name):
+        for package in sorted(selection.members, key=lambda member: member.name):
             # **A git checkout is a tree, and so it takes the tree route.** It
             # carries no `wheels` and no `sdist`, so a root of the form
             # `name==version` would find no artefact and this planner would
@@ -324,7 +324,7 @@ class LocalProject:
             return tomllib.load(handle)
 
 
-def resolve_backend(
+def select_backend(
     plan: Plan,
     request: Request,
     requirements: Iterable[Requirement],
@@ -347,7 +347,7 @@ def resolve_backend(
     return names
 
 
-def resolve(
+def make_plan(
     request: Request,
     projects: list[LocalProject],
     target: Target,
@@ -414,7 +414,7 @@ def resolve(
     for project in projects:
         # **A local project declares a build backend the same way an sdist
         # does.** The planner reads that declaration from the project itself,
-        # and resolves it against the same lock file.
+        # and selects it from the same lock file.
         subject = f"{project.name} ({project.mode})"
         backend, requirements = build_system(project.pyproject)
         # **A backend needs its own dependencies, and `requires` names only the
@@ -428,7 +428,7 @@ def resolve(
         # in, whichever hook the frontend calls. What this lab does not do is
         # call `get_requires_for_build_sdist` afterwards, and
         # `scripts/build-local.py` gives the reason.
-        backend_path = resolve_backend(plan, request, requirements, target, subject)
+        backend_path = select_backend(plan, request, requirements, target, subject)
 
         # **The three forms differ in one PEP 517 hook, and in nothing else.**
         # The same tree, the same backend and the same path serve all three, so
@@ -501,13 +501,13 @@ def main() -> int:
     elif (spec := inputs.get("poetry")) is not None:
         reader = PoetryProject.from_json(spec)
     if reader is not None:
-        resolved, local = reader.selection(target)
-        roots += resolved
+        selected, local = reader.selection(target)
+        roots += selected
         projects += local
 
     request = Request.from_json(inputs, roots)
 
-    plan = resolve(request, projects, target, reader)
+    plan = make_plan(request, projects, target, reader)
     application: str | None = inputs.get("application")
     root = plan.root(env("PYDD_VENV_NAME"), application=application)
     if application is not None:

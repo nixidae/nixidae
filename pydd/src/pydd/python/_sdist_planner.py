@@ -9,7 +9,7 @@ outer plan runs, and `uv.lock` and `poetry.lock` do not record it either.
 The outer planner therefore registers **this planner** as a node of its graph,
 rather than a build. The archive is an input of this derivation, so Nix
 downloads it before this script runs. This script reads `pyproject.toml` out of
-the archive, resolves the backend against the same menu of artefacts that the
+the archive, selects the backend from the same menu of artefacts that the
 outer planner used, and submits a graph that builds the distribution.
 
 `ddrn/examples/submitted-graph` submits a graph from a build.

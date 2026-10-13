@@ -38,33 +38,6 @@ from ._plan import (
 from ._plan import (
     submit as submit,
 )
-from ._resolve import (
-    FALLBACK_BACKEND as FALLBACK_BACKEND,
-)
-from ._resolve import (
-    Artifact as Artifact,
-)
-from ._resolve import (
-    Target as Target,
-)
-from ._resolve import (
-    build_system as build_system,
-)
-from ._resolve import (
-    choose as choose,
-)
-from ._resolve import (
-    target_from_environ as target_from_environ,
-)
-from ._resolve import (
-    target_platforms as target_platforms,
-)
-from ._resolve import (
-    target_tags as target_tags,
-)
-from ._resolve import (
-    wheel_rank as wheel_rank,
-)
 from ._sdist import (
     PYPROJECT as PYPROJECT,
 )
@@ -73,6 +46,33 @@ from ._sdist import (
 )
 from ._sdist import (
     read_pyproject as read_pyproject,
+)
+from ._select import (
+    FALLBACK_BACKEND as FALLBACK_BACKEND,
+)
+from ._select import (
+    Artifact as Artifact,
+)
+from ._select import (
+    Target as Target,
+)
+from ._select import (
+    build_system as build_system,
+)
+from ._select import (
+    choose as choose,
+)
+from ._select import (
+    target_from_environ as target_from_environ,
+)
+from ._select import (
+    target_platforms as target_platforms,
+)
+from ._select import (
+    target_tags as target_tags,
+)
+from ._select import (
+    wheel_rank as wheel_rank,
 )
 from ._uvlock import (
     Edge as Edge,
@@ -93,7 +93,7 @@ from ._uvlock import (
     PackageId as PackageId,
 )
 from ._uvlock import (
-    Resolution as Resolution,
+    Selection as Selection,
 )
 from ._uvlock import (
     build_requirements as build_requirements,
@@ -102,9 +102,7 @@ from ._uvlock import (
     filter_conflicts as filter_conflicts,
 )
 from ._uvlock import (
-    # `plan.py` has a `resolve` of its own, which turns a resolution into a
-    # graph. This one turns a lock file into a resolution.
-    resolve as resolve_lock,
+    select_lock as select_lock,
 )
 
 __all__ = [
@@ -120,7 +118,7 @@ __all__ = [
     "PackageId",
     "Pin",
     "Plan",
-    "Resolution",
+    "Selection",
     "Target",
     "build_requirements",
     "build_system",
@@ -133,7 +131,7 @@ __all__ = [
     "nix_string",
     "open_restricted_store",
     "read_pyproject",
-    "resolve_lock",
+    "select_lock",
     "submit",
     "target_from_environ",
     "target_platforms",

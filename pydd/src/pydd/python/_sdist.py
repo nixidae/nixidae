@@ -3,7 +3,7 @@
 `scripts/plan-sdist.py` is the only caller today. The code lives here, and not
 there, because it is a decision about packaging and not about one planner: the
 same question — what does this archive declare — belongs beside `build_system`
-in `_resolve.py`.
+in `_select.py`.
 
 PEP 517 says a source distribution holds one top directory, named
 `{name}-{version}`, and reads `pyproject.toml` inside it.

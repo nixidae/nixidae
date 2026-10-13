@@ -1,8 +1,8 @@
 """Packaging decisions, made by `packaging` and against one menu of artefacts.
 
-Every planner of this example shares this module. The outer planner resolves
+Every planner of this example shares this module. The outer planner selects
 the roots of the environment, and the planner of a source distribution
-resolves the backend that the archive asks for. Both ask the same two
+selects the backend that the archive asks for. Both ask the same two
 questions: which artefact satisfies this requirement, and does this target
 accept it.
 

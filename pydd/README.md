@@ -96,7 +96,7 @@ names the store; the default is `~/.cache/pydd/store`.
 | `lib/` | the Nix side: `mkPlanner`, `mkEvaluated` |
 | `lib/python/` | `pydd.python.uv`, `pydd.python.poetry`, and `graph.nix`, which turns a plan into derivations |
 | `src/pydd/` | the Python side: `Derivation`, `Planner`, the writers |
-| `src/pydd/python/` | the planners of a Python environment: lock readers, resolver, plan |
+| `src/pydd/python/` | the planners of a Python environment: lock readers, selection, plan |
 | `examples/` | the tour |
 | `docs/` | the research notes of the ddrn lab |
 | `tests/`, `nix/` | the test suite, and the umbrella pins |

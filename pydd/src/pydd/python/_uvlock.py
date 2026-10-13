@@ -1,4 +1,4 @@
-"""Read `uv.lock`, and resolve it for one target.
+"""Read `uv.lock`, and select from it for one target.
 
 **This module invents nothing about packaging.** `packaging` answers every
 question that a PEP defines, and this module answers only the questions that
@@ -429,7 +429,7 @@ class Lock:
         `tool.uv.environments` and `tool.uv.required-environments`, which name
         what the resolution covers.
 
-        **`resolve` calls this before it evaluates one marker, and the order is
+        **`select_lock` calls this before it evaluates one marker, and the order is
         load bearing.** uv simplifies each marker of a lock file against
         `requires-python` before it writes that marker, and it says what such a
         marker needs: "A simplified marker should only exist in contexts where a
@@ -449,7 +449,7 @@ class Lock:
 
 
 @dataclass(frozen=True, slots=True)
-class Resolution:
+class Selection:
     """One package for each name that the target needs."""
 
     packages: tuple[Package, ...]
@@ -507,11 +507,11 @@ def filter_conflicts(lock: Lock, spec: Mapping[str, Sequence[str]]) -> Lock:
     return replace(lock, packages=tuple(prune(package) for package in lock.packages), conflicts=())
 
 
-def resolve(
+def select_lock(
     lock: Lock,
     environment: Mapping[str, str],
     spec: Mapping[str, Sequence[str]],
-) -> Resolution:
+) -> Selection:
     """The one package for each name that this target and selection need.
 
     `spec` maps the name of a root package to the extras and the groups to
@@ -545,7 +545,7 @@ def resolve(
     if not reached:
         raise LockError("the selection reached no package at all")
 
-    return Resolution(packages=_one_of_each_name(reached))
+    return Selection(packages=_one_of_each_name(reached))
 
 
 def build_requirements(
@@ -573,7 +573,7 @@ def build_requirements(
         return []
 
     try:
-        resolution = resolve(lock, environment, {name: [] for name in wanted})
+        selection = select_lock(lock, environment, {name: [] for name in wanted})
     except LockError as error:
         raise LockError(
             f"the lock file does not hold the build system {sorted(wanted)}. **uv.lock records no "
@@ -584,7 +584,7 @@ def build_requirements(
 
     return [
         Requirement(f"{package.raw_name}=={package.version}")
-        for package in sorted(resolution.members, key=lambda package: package.name)
+        for package in sorted(selection.members, key=lambda package: package.name)
     ]
 
 

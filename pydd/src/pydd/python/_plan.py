@@ -25,7 +25,7 @@ from .._writer import HuggormWriter
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ._resolve import Artifact
+    from ._select import Artifact
 
 
 def nix_string(text: str) -> str:

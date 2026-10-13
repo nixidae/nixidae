@@ -25,10 +25,10 @@ from packaging.requirements import Requirement
 from pydd.python import (
     Lock,
     LockError,
-    Resolution,
+    Selection,
     build_requirements,
     filter_conflicts,
-    resolve_lock,
+    select_lock,
 )
 
 LOCKS = Path(__file__).resolve().parent / "fixtures/locks"
@@ -50,7 +50,7 @@ ENVIRONMENT = {
 }
 
 #: The answers of uv2nix, from `lib/expected/lock1.resolveDependencies.*.json`.
-#: The key is the fixture, and the value is the name of each resolved package
+#: The key is the fixture, and the value is the name of each selected package
 #: with its version.
 UV2NIX_ANSWERS = {
     "trivial": {"arpeggio": "arpeggio-2.0.2", "trivial": "trivial-0.1.0"},
@@ -101,8 +101,8 @@ def deps_all(parsed: Lock) -> dict[str, list[str]]:
     }
 
 
-def labels(resolution: Resolution) -> dict[str, str]:
-    return {package.name: package.label for package in resolution.packages}
+def labels(selection: Selection) -> dict[str, str]:
+    return {package.name: package.label for package in selection.packages}
 
 
 class TestAgreesWithUv2nix:
@@ -111,8 +111,8 @@ class TestAgreesWithUv2nix:
     @pytest.mark.parametrize("name", sorted(UV2NIX_ANSWERS))
     def test_the_resolution_matches(self, name: str) -> None:
         parsed = lock(name)
-        resolved = resolve_lock(parsed, ENVIRONMENT, deps_all(parsed))
-        assert labels(resolved) == UV2NIX_ANSWERS[name]
+        selected = select_lock(parsed, ENVIRONMENT, deps_all(parsed))
+        assert labels(selected) == UV2NIX_ANSWERS[name]
 
     def test_a_fork_that_the_environment_does_not_take_drops_the_package(self) -> None:
         # `multi-choice-package` pins arpeggio 2.0.1 for one kernel and 2.0.2
@@ -120,14 +120,14 @@ class TestAgreesWithUv2nix:
         # arpeggio is not in the environment at all. uv2nix answers the same,
         # and this is what the two empty keys cost.
         parsed = lock("multi-choice-package")
-        assert "arpeggio" not in labels(resolve_lock(parsed, ENVIRONMENT, deps_all(parsed)))
+        assert "arpeggio" not in labels(select_lock(parsed, ENVIRONMENT, deps_all(parsed)))
 
     def test_naming_the_kernel_takes_one_branch_of_the_fork(self) -> None:
         parsed = lock("multi-choice-package")
         for release, version in (("5.10.65", "2.0.1"), ("5.10.104", "2.0.2")):
             environment = {**ENVIRONMENT, "platform_release": release}
-            resolved = resolve_lock(parsed, environment, deps_all(parsed))
-            assert labels(resolved)["arpeggio"] == f"arpeggio-{version}"
+            selected = select_lock(parsed, environment, deps_all(parsed))
+            assert labels(selected)["arpeggio"] == f"arpeggio-{version}"
 
 
 class TestSelection:
@@ -140,20 +140,20 @@ class TestSelection:
     """
 
     def test_an_extra_that_nothing_asks_for_is_not_installed(self) -> None:
-        resolved = resolve_lock(lock("optional-deps"), ENVIRONMENT, {"optional-deps": []})
-        assert sorted(labels(resolved)) == ["optional-deps"]
+        selected = select_lock(lock("optional-deps"), ENVIRONMENT, {"optional-deps": []})
+        assert sorted(labels(selected)) == ["optional-deps"]
 
     def test_an_extra_that_the_selection_names_is_installed(self) -> None:
-        resolved = resolve_lock(lock("optional-deps"), ENVIRONMENT, {"optional-deps": ["haxx"]})
-        assert labels(resolved)["arpeggio"] == "arpeggio-2.0.2"
+        selected = select_lock(lock("optional-deps"), ENVIRONMENT, {"optional-deps": ["haxx"]})
+        assert labels(selected)["arpeggio"] == "arpeggio-2.0.2"
 
     def test_a_group_that_nothing_asks_for_is_not_installed(self) -> None:
-        resolved = resolve_lock(lock("with-tool-uv-devdeps"), ENVIRONMENT, {"with-tool-uv-devdeps": []})
-        assert sorted(labels(resolved)) == ["with-tool-uv-devdeps"]
+        selected = select_lock(lock("with-tool-uv-devdeps"), ENVIRONMENT, {"with-tool-uv-devdeps": []})
+        assert sorted(labels(selected)) == ["with-tool-uv-devdeps"]
 
     def test_a_group_that_the_selection_names_is_installed(self) -> None:
-        resolved = resolve_lock(lock("with-tool-uv-devdeps"), ENVIRONMENT, {"with-tool-uv-devdeps": ["dev"]})
-        assert labels(resolved)["coverage"] == "coverage-7.6.1"
+        selected = select_lock(lock("with-tool-uv-devdeps"), ENVIRONMENT, {"with-tool-uv-devdeps": ["dev"]})
+        assert labels(selected)["coverage"] == "coverage-7.6.1"
 
 
 class TestConflicts:
@@ -182,16 +182,16 @@ class TestConflicts:
         ("choice", "version"),
         [(["extra-a"], "2.0.0"), (["extra-b"], "2.0.1"), (["group-c"], "2.0.0")],
     )
-    def test_each_branch_resolves_to_its_own_version(self, choice: list[str], version: str) -> None:
-        resolved = resolve_lock(lock("conflicts"), ENVIRONMENT, {"conflicts": choice})
-        assert labels(resolved)["arpeggio"] == f"arpeggio-{version}"
+    def test_each_branch_selects_its_own_version(self, choice: list[str], version: str) -> None:
+        selected = select_lock(lock("conflicts"), ENVIRONMENT, {"conflicts": choice})
+        assert labels(selected)["arpeggio"] == f"arpeggio-{version}"
 
     def test_taking_two_branches_at_once_is_refused(self) -> None:
         # This is what `deps.all` asks for, and it is what a conflict
         # declaration forbids. uv2nix fails here too, and the caller has to
         # pass a narrower selection.
         with pytest.raises(LockError, match="more than one branch"):
-            resolve_lock(lock("conflicts"), ENVIRONMENT, {"conflicts": ["extra-a", "extra-b"]})
+            select_lock(lock("conflicts"), ENVIRONMENT, {"conflicts": ["extra-a", "extra-b"]})
 
 
 class TestTheBuildSystemClosure:
@@ -242,19 +242,19 @@ class TestAWorkspaceMemberThatIsNotSelected:
     def workspace(self) -> Lock:
         return Lock.parse(tomllib.loads(self.HEAD + self.BODY))
 
-    def test_selecting_the_other_member_alone_resolves(self) -> None:
-        resolved = resolve_lock(self.workspace(), ENVIRONMENT, {"b": []})
-        assert sorted(labels(resolved)) == ["b"]
+    def test_selecting_the_other_member_alone_works(self) -> None:
+        selected = select_lock(self.workspace(), ENVIRONMENT, {"b": []})
+        assert sorted(labels(selected)) == ["b"]
 
     def test_selecting_both_members_still_takes_one_branch(self) -> None:
-        resolved = resolve_lock(self.workspace(), ENVIRONMENT, {"a": ["x"], "b": []})
-        assert sorted(labels(resolved)) == ["a", "b"]
+        selected = select_lock(self.workspace(), ENVIRONMENT, {"a": ["x"], "b": []})
+        assert sorted(labels(selected)) == ["a", "b"]
 
     def test_selecting_both_branches_of_the_named_member_is_still_refused(self) -> None:
         # The declaration constrains the member that the selection names, and
         # this change does not reach that.
         with pytest.raises(LockError, match="more than one branch"):
-            resolve_lock(self.workspace(), ENVIRONMENT, {"a": ["x", "y"], "b": []})
+            select_lock(self.workspace(), ENVIRONMENT, {"a": ["x", "y"], "b": []})
 
 
 class TestEnvironment:
@@ -263,21 +263,21 @@ class TestEnvironment:
     def test_a_python_that_is_too_old_is_refused(self) -> None:
         environment = {**ENVIRONMENT, "python_full_version": "3.10.0", "python_version": "3.10"}
         with pytest.raises(LockError, match="needs a Python of"):
-            resolve_lock(lock("trivial"), environment, {"trivial": []})
+            select_lock(lock("trivial"), environment, {"trivial": []})
 
     def test_a_required_environment_that_does_not_hold_is_refused(self) -> None:
         environment = {**ENVIRONMENT, "sys_platform": "win32", "platform_machine": "AMD64"}
         with pytest.raises(LockError, match="required environment"):
-            resolve_lock(lock("with-required-markers"), environment, {"with-required-environments": []})
+            select_lock(lock("with-required-markers"), environment, {"with-required-environments": []})
 
     def test_a_required_environment_that_holds_is_accepted(self) -> None:
-        resolved = resolve_lock(lock("with-required-markers"), ENVIRONMENT, {"with-required-environments": []})
-        assert sorted(labels(resolved)) == ["with-required-environments"]
+        selected = select_lock(lock("with-required-markers"), ENVIRONMENT, {"with-required-environments": []})
+        assert sorted(labels(selected)) == ["with-required-environments"]
 
     def test_a_supported_environment_that_does_not_hold_is_refused(self) -> None:
         environment = {**ENVIRONMENT, "sys_platform": "win32"}
         with pytest.raises(LockError, match="supported environment"):
-            resolve_lock(lock("with-supported-environments"), environment, {"with-supported-environments": []})
+            select_lock(lock("with-supported-environments"), environment, {"with-supported-environments": []})
 
 
 class TestParse:
@@ -311,9 +311,9 @@ class TestParse:
 
     def test_a_virtual_package_is_not_a_member(self) -> None:
         # `tool.uv.package = false`. It carries edges, and no node builds it.
-        resolved = resolve_lock(lock("virtual"), ENVIRONMENT, {"virtual": []})
-        assert sorted(labels(resolved)) == ["arpeggio", "virtual"]
-        assert sorted(package.name for package in resolved.members) == ["arpeggio"]
+        selected = select_lock(lock("virtual"), ENVIRONMENT, {"virtual": []})
+        assert sorted(labels(selected)) == ["arpeggio", "virtual"]
+        assert sorted(package.name for package in selected.members) == ["arpeggio"]
 
     def test_a_package_with_a_dynamic_version(self) -> None:
         # uv writes no `version` when the version is dynamic. uv2nix puts
@@ -397,14 +397,14 @@ class TestErrors:
 
     def test_a_selection_of_a_name_that_the_lock_does_not_hold(self) -> None:
         with pytest.raises(LockError, match="no such package"):
-            resolve_lock(lock("trivial"), ENVIRONMENT, {"absent": []})
+            select_lock(lock("trivial"), ENVIRONMENT, {"absent": []})
 
     def test_a_selection_of_nothing_reaches_nothing(self) -> None:
         # A caller that passes no root asks for an empty environment. The walk
         # starts nowhere and ends there, and an empty answer is more likely a
         # caller that built its selection wrongly than a request.
         with pytest.raises(LockError, match="reached no package at all"):
-            resolve_lock(lock("trivial"), ENVIRONMENT, {})
+            select_lock(lock("trivial"), ENVIRONMENT, {})
 
     def test_a_version_that_pep_440_does_not_read(self) -> None:
         parsed = self.document(self.entry("a", "not a version"))
@@ -422,7 +422,7 @@ class TestErrors:
             + f'\n[[package.dependencies]]\nname = "a"\nversion = "0.9.9"\nsource = {self.REGISTRY}\n'
         )
         with pytest.raises(LockError, match="and the lock file holds no such package"):
-            resolve_lock(self.document(body), ENVIRONMENT, {"b": []})
+            select_lock(self.document(body), ENVIRONMENT, {"b": []})
 
     def test_a_selection_that_reaches_two_entries_of_one_name(self) -> None:
         # An environment installs one distribution for each name. Two edges of
@@ -436,7 +436,7 @@ class TestErrors:
             + f'\n[[package.dependencies]]\nname = "a"\nversion = "0.1.1"\nsource = {self.REGISTRY}\n'
         )
         with pytest.raises(LockError, match="more than one entry of one name"):
-            resolve_lock(self.document(body), ENVIRONMENT, {"b": []})
+            select_lock(self.document(body), ENVIRONMENT, {"b": []})
 
     def test_a_resolution_marker_decides_between_two_entries_of_one_name(self) -> None:
         # The other half of the answer below. A fork writes a
@@ -448,8 +448,8 @@ class TestErrors:
             '\n[[package]]\nname = "b"\nversion = "0.2.0"\nsource = { editable = "." }\n'
             "resolution-markers = [ \"sys_platform == 'win32'\" ]\n"
         )
-        resolved = resolve_lock(self.document(body), ENVIRONMENT, {"b": []})
-        assert labels(resolved) == {"b": "b-0.1.0"}
+        selected = select_lock(self.document(body), ENVIRONMENT, {"b": []})
+        assert labels(selected) == {"b": "b-0.1.0"}
 
     def test_a_root_of_a_name_that_two_entries_carry(self) -> None:
         # `Lock.find` answers a name and no version, which is what a root is.
@@ -461,7 +461,7 @@ class TestErrors:
             '\n[[package]]\nname = "b"\nversion = "0.2.0"\nsource = { editable = "." }\n'
         )
         with pytest.raises(LockError, match="do not decide between them"):
-            resolve_lock(self.document(body), ENVIRONMENT, {"b": []})
+            select_lock(self.document(body), ENVIRONMENT, {"b": []})
 
     def test_a_conflict_item_that_names_neither_an_extra_nor_a_group(self) -> None:
         # Each item of a conflict declaration names a package and one of the
@@ -506,8 +506,8 @@ class TestThePackageIdentity:
 
     def test_the_environment_takes_the_index_that_its_marker_names(self) -> None:
         parsed = lock("two-indexes")
-        resolved = resolve_lock(parsed, ENVIRONMENT, {"project": []})
-        jinja = resolved.by_name()["jinja2"]
+        selected = select_lock(parsed, ENVIRONMENT, {"project": []})
+        jinja = selected.by_name()["jinja2"]
         assert jinja.source == {"registry": "https://astral-sh.github.io/pytorch-mirror/whl/cu124"}
 
     def test_another_environment_takes_the_other_index(self) -> None:
@@ -516,8 +516,8 @@ class TestThePackageIdentity:
         # find the two entries equal and install whichever it met first.
         parsed = lock("two-indexes")
         environment = {**ENVIRONMENT, "sys_platform": "win32", "os_name": "nt", "platform_system": "Windows"}
-        resolved = resolve_lock(parsed, environment, {"project": []})
-        jinja = resolved.by_name()["jinja2"]
+        selected = select_lock(parsed, environment, {"project": []})
+        jinja = selected.by_name()["jinja2"]
         assert jinja.source == {"registry": "https://astral-sh.github.io/pytorch-mirror/whl/cu118"}
 
     def test_an_edge_of_an_unambiguous_name_takes_the_source_of_that_entry(self) -> None:

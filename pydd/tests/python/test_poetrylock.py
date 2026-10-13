@@ -68,7 +68,7 @@ class TestSelection:
 
 
 class TestBackend:
-    def test_a_backend_resolves_to_its_pin(self) -> None:
+    def test_a_backend_selects_its_pin(self) -> None:
         pins = project().backend([Requirement("flit_core >=3.11,<5")], target(), "myapp")
         assert [str(pin) for pin in pins] == ["flit-core==4.1.0"]
 

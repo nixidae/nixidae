@@ -272,7 +272,7 @@ def groups_of(document: Mapping[str, Any], want: Choice) -> list[str]:
 
 
 def selection(found: Members, extras: Choice, groups: Choice) -> dict[str, list[str]]:
-    """What each member installs, as `resolve_lock` takes it.
+    """What each member installs, as `select_lock` takes it.
 
     **`uv.lock` records none of this.** `uv sync` takes the decision on its
     command line, and `uv.nix` takes it as two arguments. One list carries both

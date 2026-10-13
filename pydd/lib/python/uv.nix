@@ -500,7 +500,7 @@ let
   isGit = package: package.source ? git;
 
   # A package that this reader builds from a directory. A `virtual` package
-  # installs nothing, so it gets no tree, and `Resolution.members` never asks
+  # installs nothing, so it gets no tree, and `Selection.members` never asks
   # for one.
   isTree = package: (localKind package != null || isGit package) && !(package.source ? virtual);
 

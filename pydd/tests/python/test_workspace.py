@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from pydd.python import Lock, resolve_lock
+from pydd.python import Lock, select_lock
 
 PROJECT = Path(__file__).resolve().parents[1] / "projects/workspace"
 
@@ -64,7 +64,7 @@ def pyproject() -> dict[str, object]:
 
 
 def members(lock: Lock, selection: dict[str, list[str]], environment: dict[str, str]) -> set[str]:
-    return {package.name for package in resolve_lock(lock, environment, selection).members}
+    return {package.name for package in select_lock(lock, environment, selection).members}
 
 
 class TestTheManifest:

@@ -2059,7 +2059,7 @@ changes both reports of the **same** environment, because `ws-cli` reads
 
 ### Ask `packaging` for the tags, and do not write the rule again
 
-`target_tags` of `_resolve.py` was written by hand, because
+`target_tags` of `_select.py` was written by hand, because
 `packaging.tags.sys_tags` describes the machine that calls it and a planner
 plans for a machine that it is not running on. That reason is right, and the
 conclusion was wrong: `packaging.tags.cpython_tags` and `compatible_tags` take
@@ -2100,7 +2100,7 @@ them.** Two wheels of one distribution may carry the same tags, and PEP 427
 gives the build tag for exactly this: it "acts as a tie-breaker if two wheel
 file names are the same in all other respects", and it sorts "as an empty tuple
 if unspecified, else as a two-item tuple". `packaging.utils.parse_wheel_filename`
-returns that tuple, and `_resolve.py` discarded it.
+returns that tuple, and `_select.py` discarded it.
 
 uv compares the same two values in the same order. `Package::find_best_wheel`
 keeps `(TagPriority, Option<&BuildTag>)` for each candidate and takes the

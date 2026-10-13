@@ -32,7 +32,7 @@ from pydd.python._uvlock import LockError
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from pydd.python._resolve import Target
+    from pydd.python._select import Target
 
 
 def _holds(marker: str | None, target: Target, extras: Iterable[str]) -> bool:
@@ -102,7 +102,7 @@ class PoetryProject:
                 continue
             roots.append(f"{name}=={package['version']}")
 
-        print(f"plan: poetry.lock resolves {len(roots)} packages", file=sys.stderr)
+        print(f"plan: poetry.lock selects {len(roots)} packages", file=sys.stderr)
         return roots, []
 
     def backend(self, requirements: Iterable[Requirement], target: Target, subject: str) -> list[Requirement]:
