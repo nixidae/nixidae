@@ -390,7 +390,11 @@ let
     application = planned.out;
     program = if application == null then null else chosenProgram;
     name = environmentName;
-    passthru = builtins.removeAttrs planned [ "out" ] // {
+    passthru = builtins.removeAttrs planned [
+      "out"
+      # The root's own `overrideAttrs` is mkDerivation's, not the planner's.
+      "overrideAttrs"
+    ] // {
       dynamic = planned.out;
       inherit lockCheck environment;
       app =

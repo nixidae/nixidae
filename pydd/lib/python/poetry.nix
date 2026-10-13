@@ -142,7 +142,11 @@ let
     inherit pkgs;
     name = environmentName;
     application = planned.out;
-    passthru = builtins.removeAttrs planned [ "out" ] // {
+    passthru = builtins.removeAttrs planned [
+      "out"
+      # The root's own `overrideAttrs` is mkDerivation's, not the planner's.
+      "overrideAttrs"
+    ] // {
       dynamic = planned.out;
       env = root;
     };
