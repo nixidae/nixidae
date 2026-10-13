@@ -115,6 +115,29 @@ class OutWriter(HuggormWriter):
             sink.write(aterm)
 
 
+class RecursiveWriter:
+    """A planner on released Nix with recursive-nix.
+
+    The build gets a daemon socket, so each derivation goes into the store as
+    on `builder-rpc-v0`. A release has no `SubmitOutput`, so the root goes to
+    `$out` as ATerm, as with `OutWriter`. Every derivation the root names is
+    one this build added, and Nix lets an output name what the build added.
+    """
+
+    def __init__(self, inner: Writer) -> None:
+        self.inner = inner
+
+    def add(self, drv: Derivation) -> str:
+        return self.inner.add(drv)
+
+    def submit(self, path: str, output: str) -> None:
+        if output != "out":
+            raise ValueError(f"a planner on released Nix writes only its output 'out', not {output!r}")
+        # recursive-nix puts each path the build added into its sandbox.
+        with open(path, "rb") as source, open(os.environ["out"], "wb") as sink:  # noqa: SIM112 - Nix names it `out`
+            sink.write(source.read())
+
+
 def writer_from_environ() -> Writer:
     """Open the restricted daemon socket that `builder-rpc-v0` gives a builder,
     with the writer that `PYDD_WRITER` names.
@@ -122,8 +145,11 @@ def writer_from_environ() -> Writer:
     A planner runs only inside such a build, so a different `NIX_REMOTE` is an
     error and not a fallback. With `PYDD_PROTOCOL=out` the build is one of
     released Nix instead, which has no socket and gives the planner `$out`.
+    With `PYDD_PROTOCOL=recursive` it is a recursive-nix build of released
+    Nix, which has both.
     """
-    if os.environ.get("PYDD_PROTOCOL") == "out":
+    protocol = os.environ.get("PYDD_PROTOCOL", "rpc")
+    if protocol == "out":
         if "out" not in os.environ:
             raise RuntimeError("PYDD_PROTOCOL is 'out', and this build has no $out to write the root to.")
         return OutWriter()
@@ -131,19 +157,22 @@ def writer_from_environ() -> Writer:
     if not remote.startswith("unix://"):
         raise RuntimeError(
             f"NIX_REMOTE is {remote!r}. A planner runs only inside a "
-            "builder-rpc-v0 build, which sets it to the restricted socket."
+            "builder-rpc-v0 or recursive-nix build, which sets it to the daemon socket."
         )
     # A `builder-rpc-v0` build gets no `$out`. The output arrives through
     # `submit_output` instead, so there is no path to write to.
-    if "out" in os.environ:
+    if protocol == "rpc" and "out" in os.environ:
         raise RuntimeError(f"unexpected: out is set to {os.environ['out']!r}")  # noqa: SIM112 - Nix names it `out`
 
+    writer: Writer
     match os.environ.get("PYDD_WRITER", "cli"):
         case "huggorm":
-            return HuggormWriter(remote)
+            writer = HuggormWriter(remote)
         case "drv":
-            return DrvWriter()
-    return CliWriter()
+            writer = DrvWriter()
+        case _:
+            writer = CliWriter()
+    return RecursiveWriter(writer) if protocol == "recursive" else writer
 
 
 WRITERS = {"cli": CliWriter, "huggorm": HuggormWriter, "drv": DrvWriter}

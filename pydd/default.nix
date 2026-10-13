@@ -41,6 +41,7 @@ let
       [
         "drv"
         "released"
+        "recursive"
       ]
     else
       [
@@ -72,13 +73,13 @@ rec {
               huggorm = huggormReleased;
               nix = nixReleased;
             }
-          else if writer == "released" then
+          else if writer == "released" || writer == "recursive" then
             {
               writer = "drv";
               huggorm = huggormReleased;
               nix = nixReleased;
               pyddDrv = pydd-drv-released;
-              plannerProtocol = "out";
+              plannerProtocol = if writer == "recursive" then "recursive" else "out";
             }
           else
             {
@@ -112,7 +113,7 @@ rec {
         target=''${2:-out}
         shift $(( $# < 2 ? $# : 2 ))
         store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${store}}
-        export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations
+        export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations recursive-nix
         use-cgroups = false"
 
         # What the planner runs on may be built here and nowhere else, such
@@ -225,6 +226,15 @@ rec {
     '';
   };
 
+  # A stock release, with recursive-nix: a planner gets a daemon socket.
+  # nix run --file . run-recursive -- examples.graph.recursive
+  run-recursive = mkRun {
+    name = "pydd-run-recursive";
+    nix = nixReleased;
+    store = "store-${nixReleased.version}";
+    features = "recursive-nix";
+  };
+
   checks = {
     # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
     # Parsed, so key order and quoting cannot fail it.
@@ -278,6 +288,19 @@ rec {
           };
         }
       );
+      # Stock 2.35 with recursive-nix: the planner writes through the build's
+      # daemon socket, with the release's own `nix`, and its root to `$out`.
+      recursive = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "cli";
+            plannerProtocol = "recursive";
+          };
+        }
+      );
     };
 
   # Run every check of `projects` in each mode, and compare the environments.
@@ -289,6 +312,7 @@ rec {
     runtimeInputs = [
       run
       run-released
+      run-recursive
       nix
     ];
     text = ''
@@ -303,13 +327,14 @@ rec {
       failed=0
       for name in "''${names[@]}"; do
         paths=()
-        modes=(cli huggorm drv)
+        modes=(cli huggorm drv recursive)
         if [[ " ''${released[*]} " == *" $name "* ]]; then
           modes+=(out)
         fi
         for mode in "''${modes[@]}"; do
           runner=pydd-run
           [[ $mode == out ]] && runner=pydd-run-released
+          [[ $mode == recursive ]] && runner=pydd-run-recursive
           if "$runner" "projects.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
             echo "pass  $name ($mode)"
             paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "projects.$mode.$name" environment 2>> "$log/$name-$mode.log")")

@@ -15,10 +15,11 @@ The two build different store paths, so each one needs its own name.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
-from pydd.core import writer_from_environ
+from pydd.core import CliWriter, RecursiveWriter, writer_from_environ
 from pydd.python import Artifact, Plan
 
 
@@ -72,13 +73,13 @@ class TestAPlannerRunsInsideABuildOnly:
     ) -> None:
         monkeypatch.delenv("out", raising=False)
         monkeypatch.setenv("NIX_REMOTE", remote)
-        with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 build"):
+        with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 or recursive-nix build"):
             writer_from_environ()
 
     def test_an_unset_socket_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("out", raising=False)
         monkeypatch.delenv("NIX_REMOTE", raising=False)
-        with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 build"):
+        with pytest.raises(RuntimeError, match="runs only inside a builder-rpc-v0 or recursive-nix build"):
             writer_from_environ()
 
     def test_an_output_path_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,3 +90,17 @@ class TestAPlannerRunsInsideABuildOnly:
         monkeypatch.setenv("out", "/nix/store/aaa-demo")
         with pytest.raises(RuntimeError, match="out is set to"):
             writer_from_environ()
+
+    def test_recursive_nix_has_both_a_socket_and_an_output(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PYDD_PROTOCOL", "recursive")
+        monkeypatch.setenv("NIX_REMOTE", "unix:///build/.nix-socket")
+        monkeypatch.setenv("out", "/nix/store/aaa-demo")
+        monkeypatch.delenv("PYDD_WRITER", raising=False)
+        assert isinstance(writer_from_environ(), RecursiveWriter)
+
+    def test_recursive_submit_copies_the_root_to_out(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / "root.drv"
+        root.write_text("Derive([])")
+        monkeypatch.setenv("out", str(tmp_path / "out"))
+        RecursiveWriter(CliWriter()).submit(str(root), "out")
+        assert (tmp_path / "out").read_text() == "Derive([])"

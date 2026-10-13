@@ -14,6 +14,9 @@
 let
   inherit (bash.stdenv.hostPlatform) system;
   released = pydd.protocol == "out";
+  # recursive-nix on a release: the nodes go through the build's daemon
+  # socket, as on `builder-rpc-v0`, and the root to `$out`.
+  recursive = pydd.protocol == "recursive";
   sh = "${bash}/bin/sh";
 
   hostLeaf = derivation {
@@ -71,7 +74,15 @@ let
     builder = "${bash}/bin/bash";
     args = [
       "-c"
-      ''printf '%s' "$graph" | pydd-drv graph ${lib.optionalString released "--out"}''
+      (
+        ''printf '%s' "$graph" | pydd-drv graph ''
+        + (
+          if recursive then
+            ''--store "$NIX_REMOTE" --out''
+          else
+            lib.optionalString released "--out"
+        )
+      )
     ];
     graph = builtins.toJSON graph;
     # An attribute name carries no context, so the leaf's `.drv` becomes an
@@ -81,7 +92,11 @@ let
       pydd.pyddDrv
       coreutils
     ];
-    requiredSystemFeatures = lib.optional (!released) "builder-rpc-v0";
+    requiredSystemFeatures =
+      if recursive then
+        [ "recursive-nix" ]
+      else
+        lib.optional (!released) "builder-rpc-v0";
     __contentAddressed = true;
     outputHashMode = "text";
     outputHashAlgo = "sha256";

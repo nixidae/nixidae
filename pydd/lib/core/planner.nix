@@ -99,6 +99,8 @@ in
 
     `protocol`
     : `"rpc"` writes the graph through `builder-rpc-v0`, on Nix master.
+      `"recursive"` writes it through the daemon socket of recursive-nix,
+      on a release, and the root as ATerm to `$out`.
       `"out"` is for released Nix: the planner writes one derivation, as
       ATerm, to `$out`, and every other derivation it names must be an
       input of the planner. It needs the huggorm writer, which stages the
@@ -129,6 +131,7 @@ in
     assert lib.assertOneOf "protocol" protocol [
       "rpc"
       "out"
+      "recursive"
     ];
     assert lib.assertMsg (
       protocol == "out" -> writer == "huggorm"
@@ -150,7 +153,9 @@ in
             "exec ${python}/bin/python3 ${plan}"
           ];
 
-          requiredSystemFeatures = lib.optional (protocol == "rpc") "builder-rpc-v0";
+          requiredSystemFeatures =
+            lib.optional (protocol == "rpc") "builder-rpc-v0"
+            ++ lib.optional (protocol == "recursive") "recursive-nix";
           # The submitted object is a derivation, and a derivation is
           # text-ingested.
           __contentAddressed = true;
