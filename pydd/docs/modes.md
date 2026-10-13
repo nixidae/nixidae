@@ -99,6 +99,16 @@ which of them the root names. Three things make that work:
    sandbox lacks, and the root then silently becomes another derivation.
    So the writer refuses a root that names such a path.
 
+**So `out` chooses at build time, and it does not construct.** Its
+planners run in builders, and make each decision that needs a build:
+which wheel fits the target, and what an sdist's archive declares. Every
+node they name is one the host made before. That suffices when the host
+can list the candidates, as one node per package can. It fails when the
+number or the shape of the nodes is known only after a build, such as a
+node per source file of an archive, or nesting deeper than the host
+prepared (`sdistPlannerDepth`). `builder-rpc-v0` constructs: a planner
+writes any derivation it decides on.
+
 **The cost is on the host.** It instantiates a node for every wheel it
 might need, and a planner wherever only a build can decide. With
 `builder-rpc-v0` a planner writes what it chose, and nothing more.
