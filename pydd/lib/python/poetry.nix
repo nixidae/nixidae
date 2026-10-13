@@ -32,6 +32,10 @@
   python ? pkgs.python3,
   markers ? { },
   buildTools ? { },
+  # Whether a package built from source takes its native inputs from the
+  # matching package of `python.pkgs`. `./hints.nix` gives the rule, and
+  # `buildTools` replaces it per package.
+  nixpkgsHints ? true,
   fromNixpkgs ? { },
 }:
 let
@@ -78,6 +82,17 @@ let
       };
     }) (package.files or [ ]);
 
+  # A package that the lock file can build from source: it has an sdist, or it
+  # is the project itself.
+  sourceBuilt =
+    map (package: package.name) (
+      lib.filter (package: lib.any (entry: !(isWheel entry.file)) (package.files or [ ])) document.package
+    )
+    ++ lib.optional packageMode projectName;
+  hintedBuildTools = lib.optionalAttrs nixpkgsHints (
+    import ./hints.nix { inherit lib pkgs python; } sourceBuilt
+  );
+
   planned = import ./planner.nix {
     inherit
       pkgs
@@ -86,9 +101,9 @@ let
       markers
       noBinary
       python
-      buildTools
       fromNixpkgs
       ;
+    buildTools = hintedBuildTools // buildTools;
     artifacts = lib.concatMap artifactsOf document.package;
     roots = [ ];
     venvName = environmentName;
