@@ -25,6 +25,8 @@
   # at the environment; a planner of one distribution roots its document at
   # that distribution.
   root,
+  # nixpkgs, imported by the planner, or `null`. `mkSource` gives the reason.
+  pkgs ? null,
 }:
 
 let
@@ -192,6 +194,41 @@ let
     )
     // override.env or { };
 
+  # **A source build, with `stdenv` when the planner has nixpkgs.** Only the
+  # `recursive-nixpkgs` mode passes `pkgs`: its planner imports nixpkgs from
+  # an input store path, which recursive-nix allows. stdenv's hooks then do
+  # what `buildToolsOf` and `fixup-elf.py` do by hand: the compiler wrapper
+  # finds each tool's headers and libraries, and `autoPatchelfHook` fixes the
+  # RUNPATH. The command runs in a subshell, so the script's `set -eu` stays
+  # out of stdenv's own shell. The output differs from a node of `mk`:
+  # stdenv strips and patches what it built.
+  mkSource =
+    node: args:
+    if pkgs == null then
+      mk (args // buildToolsOf node // overridesOf node)
+    else
+      let
+        roots = map (built: built.out) (node.buildTools or [ ]);
+      in
+      pkgs.stdenv.mkDerivation (
+        removeAttrs args [ "args" ]
+        // overridesOf node
+        // floating
+        // {
+          inherit site;
+          nativeBuildInputs = roots ++ [
+            pkgs.autoPatchelfHook
+            tool.python
+            tool.unzip
+          ];
+          buildInputs = roots;
+          dontUnpack = true;
+          dontConfigure = true;
+          dontInstall = true;
+          buildPhase = "(${builtins.elemAt args.args 1})";
+        }
+      );
+
   # The `site-packages` of a node that this graph builds. A node output floats,
   # so this is a downstream placeholder until the node is built.
   sitePath = name: "${built.${name}}/${site}";
@@ -232,7 +269,7 @@ let
         // (if node.platform then patchelfInputs else { })
       )
     else if node.kind == "editable" then
-      mk (
+      mkSource node (
         {
           name = node.name;
           args = [
@@ -250,8 +287,6 @@ let
           inherit (node) backend;
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
-        // buildToolsOf node
-        // overridesOf node
       )
     else if node.kind == "local-wheel" then
       # **A wheel out of a tree, with no archive between the two.** This is what
@@ -263,7 +298,7 @@ let
       # the difference between this node and a node of kind `editable`, and it
       # is the difference that `uv` makes between a git source and a workspace
       # member.
-      mk (
+      mkSource node (
         {
           name = node.name;
           args = [
@@ -277,8 +312,6 @@ let
           inherit (node) backend;
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
-        // buildToolsOf node
-        // overridesOf node
       )
     else if node.kind == "local-sdist" then
       # **The distribution of a local project, as its own store object.** This
@@ -290,7 +323,7 @@ let
       # that a project ships, so it is worth a store path that a reader can
       # open. It also makes the failure legible: an archive that leaves a file
       # out fails in the node below this one, and this node still succeeded.
-      mk (
+      mkSource node (
         {
           name = node.name;
           args = [
@@ -303,8 +336,6 @@ let
           inherit (node) backend;
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
-        // buildToolsOf node
-        // overridesOf node
       )
     else if node.kind == "sdist" then
       # **A node of this kind is a planner, and not a build.** The build system
@@ -334,7 +365,7 @@ let
     else if node.kind == "sdist-build" then
       # What the planner above decided: run one PEP 517 hook, with a backend
       # that is another node of the graph that the planner submitted.
-      mk (
+      mkSource node (
         {
           name = node.name;
           args = [
@@ -359,8 +390,6 @@ let
           # evaluation, so the dependency is real and the order is right.
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
-        // buildToolsOf node
-        // overridesOf node
       )
     else if node.kind == "nixpkgs" then
       # **This node builds nothing, and that is the whole point.** nixpkgs

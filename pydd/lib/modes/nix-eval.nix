@@ -15,6 +15,14 @@
   document,
   # `lib/python/graph.nix`, or a function of the document as it is.
   graph,
+  # nixpkgs as a store path, for `recursive-nixpkgs`, or "". The planner
+  # imports it, and `graph.nix` builds a source node with its stdenv.
+  nixpkgs ? "",
+  # **An overlay is a function, and no function crosses into a sandbox.** So
+  # the overlays are files, as a JSON list of store paths, and `config` is
+  # JSON. An overlay that exists only in the caller's evaluation is lost.
+  overlays ? "[]",
+  config ? "{}",
 }:
 let
   inherit (builtins) storeDir;
@@ -65,6 +73,14 @@ let
     else
       data;
 in
+let
+  plan = value (builtins.fromJSON (builtins.readFile document));
+  pkgs = import nixpkgs {
+    inherit (plan) system;
+    overlays = map import (builtins.fromJSON overlays);
+    config = builtins.fromJSON config;
+  };
+in
 (if builtins.isFunction graph then graph else import graph) (
-  value (builtins.fromJSON (builtins.readFile document))
+  plan // (if nixpkgs == "" then { } else { inherit pkgs; })
 )

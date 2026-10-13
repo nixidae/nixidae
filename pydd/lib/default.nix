@@ -20,11 +20,20 @@
   writer ? "cli",
   plannerProtocol ? "rpc",
   plannerRender ? null,
+  # nixpkgs for a planner to import (`recursive-nixpkgs`), as `pkgs.path`,
+  # with overlays as files and config as JSON. `lib/modes/nix-eval.nix`
+  # says why an overlay has to be a file.
+  plannerNixpkgs ? null,
+  plannerNixpkgsOverlays ? [ ],
+  plannerNixpkgsConfig ? { },
 }:
 let
   planner = callPackage ./core/planner.nix { };
   self = planner // {
     inherit writer pyddDrv;
+    nixpkgs = plannerNixpkgs;
+    nixpkgsOverlays = plannerNixpkgsOverlays;
+    nixpkgsConfig = plannerNixpkgsConfig;
     protocol = plannerProtocol;
     render =
       if plannerRender != null then

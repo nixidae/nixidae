@@ -18,6 +18,18 @@ from pathlib import Path
 from typing import Any
 
 
+def nixpkgs_arguments() -> list[str]:
+    """nixpkgs for `graph.nix`, when the mode is `recursive-nixpkgs`."""
+    nixpkgs = os.environ.get("PYDD_NIXPKGS")
+    if not nixpkgs:
+        return []
+    return [
+        *("--argstr", "nixpkgs", nixpkgs),
+        *("--argstr", "overlays", os.environ.get("PYDD_NIXPKGS_OVERLAYS", "[]")),
+        *("--argstr", "config", os.environ.get("PYDD_NIXPKGS_CONFIG", "{}")),
+    ]
+
+
 def submit_nix_cli(document: dict[str, Any]) -> str:
     """Evaluate `graph.nix` over `document` with `nix eval`, and name the root `.drv`."""
     path = Path.cwd() / "document.json"
@@ -35,6 +47,7 @@ def submit_nix_cli(document: dict[str, Any]) -> str:
             "--argstr",
             "graph",
             os.environ["PYDD_GRAPH_NIX"],
+            *nixpkgs_arguments(),
             "drvPath",
         ],
         stdout=subprocess.PIPE,

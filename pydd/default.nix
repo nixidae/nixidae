@@ -303,6 +303,21 @@ rec {
           };
         }
       );
+      # recursive-eval, with nixpkgs in the planner: a source build is a
+      # `stdenv.mkDerivation`. Its environments differ from every other mode's.
+      recursive-nixpkgs = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "cli";
+            plannerProtocol = "recursive";
+            plannerRender = "nix-cli";
+            plannerNixpkgs = pkgs.path;
+          };
+        }
+      );
       # Stock 2.35 with recursive-nix: the planner writes through the build's
       # daemon socket, with the release's own `nix`, and its root to `$out`.
       recursive = (
@@ -358,6 +373,14 @@ rec {
             failed=1
           fi
         done
+        # stdenv builds a source node of recursive-nixpkgs, so its environment
+        # differs by design. It must pass its check, and joins no comparison.
+        if "pydd-run-recursive" "projects.recursive-nixpkgs.$name" > "$log/$name-recursive-nixpkgs.log" 2>&1; then
+          echo "pass  $name (recursive-nixpkgs, not compared)"
+        else
+          echo "FAIL  $name (recursive-nixpkgs)  ($log/$name-recursive-nixpkgs.log)"
+          failed=1
+        fi
         if (( ''${#paths[@]} == ''${#modes[@]} )); then
           if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
             echo "same  $name  ''${paths[0]#*=}  (''${modes[*]})"

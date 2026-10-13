@@ -570,6 +570,17 @@ let
     pkgs.lib.optionalAttrs (render == "nix" || render == "nix-cli") {
       PYDD_GRAPH_NIX = "${./graph.nix}";
     }
+    // pkgs.lib.optionalAttrs (pydd.nixpkgs != null) {
+      # **`"${pkgs.path}"` copies nixpkgs a second time**, under a new name,
+      # because a path value is copied on interpolation even when it lies in
+      # the store. `builtins.storePath` names the path that is there. Pure
+      # evaluation has no `storePath`, and `currentSystem` says which one
+      # this is.
+      PYDD_NIXPKGS =
+        if builtins ? currentSystem then builtins.storePath pydd.nixpkgs else "${pydd.nixpkgs}";
+      PYDD_NIXPKGS_OVERLAYS = builtins.toJSON (map (overlay: "${overlay}") pydd.nixpkgsOverlays);
+      PYDD_NIXPKGS_CONFIG = builtins.toJSON pydd.nixpkgsConfig;
+    }
     // pkgs.lib.optionalAttrs (render == "nix-cli") {
       PYDD_NIX_EVAL = "${../modes/nix-eval.nix}";
     }
