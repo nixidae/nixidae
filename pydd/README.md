@@ -68,8 +68,10 @@ paths make the same derivations:
 each node kind, and `test-projects` builds each project both ways and
 compares the two environments.
 
-**On released Nix an environment keeps one node per package.** A planner
-there writes only its root, so the host makes the rest:
+**On released Nix an environment keeps one node per package.** With
+recursive-nix a planner writes every node through the build's socket, and
+its root to `$out` (`protocol = "recursive"`). Without it, a planner
+writes only its root, so the host makes the rest:
 
 - the install node of every wheel in the lock, from `graph.nix`;
 - a planner for each sdist, as on `builder-rpc-v0`;
@@ -78,8 +80,10 @@ there writes only its root, so the host makes the rest:
 - a planner for the environment under an application.
 
 `graph.nix` reads a node that another planner writes, of kind `planned`,
-through `builtins.outputOf`. All 14 test projects build on stock Nix 2.35
-this way, with the same environment paths as on `builder-rpc-v0`.
+through `builtins.outputOf`. Every test project builds on stock Nix 2.35
+both ways, with the same environment paths as on `builder-rpc-v0`.
+[The modes page](https://lillecarl.github.io/pydd/modes.html) compares all
+nine modes, and the level of restriction each one needs.
 
 **An sdist gets a planner of its own.** Its build backend is declared
 inside the archive, so no evaluation can know it. That planner reads the
@@ -204,7 +208,7 @@ into a built root, and modes do not import each other.
 | --- | --- | --- | --- |
 | core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols |
 | ecosystem | `lib/python/` | `src/pydd/python/` | lock readers, selection, hints, the plan document, `graph.nix` (each node kind), build scripts |
-| modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `out` (released Nix: host-made nodes and planned nodes) |
+| modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `nix_cli` (`graph.nix` in `nix eval`, over `nix-eval.nix`), `out` (released Nix: host-made nodes and planned nodes) |
 
 A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
 
@@ -224,9 +228,10 @@ A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
 workspaces, git, URL and path sources, a local registry, binary and native
 wheels, applications, and nixpkgs packages in place of PyPI ones. Each one
 needs `builder-rpc-v0` or a release, so it builds in the private store of
-`run` or `run-released`. It builds each project in three modes, the two
-writers on `builder-rpc-v0` and `out` on Nix 2.35, and fails when the
-environments have different store paths.
+`run`, `run-released` or `run-recursive`. It builds each project in nine
+modes, in two groups: the plain modes, and the modes whose source nodes
+are stdenv's. It fails when two modes of a group give different store
+paths for one environment.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock

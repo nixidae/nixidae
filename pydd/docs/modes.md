@@ -1,32 +1,60 @@
 # The modes, compared
 
-pydd builds one Python environment in four modes. The plan is the same in
-each mode. A mode decides how the plan becomes derivations, and how the
-derivations reach the store.
+pydd builds one Python environment in nine modes. The plan is the same in
+each mode. A mode decides what the planner may do, how the plan becomes
+derivations, and how a source distribution is built.
 
-**The modes give the same environment, and a test proves it.**
-`nix run --file . test-projects` builds each of the 19 test projects in
-every mode. It fails when two modes give different store paths for one
-environment. So a mode differs from another in cost and in what it needs,
-and never in what it builds.
+**Modes that build a source node the same way give the same environment,
+and a test proves it.** `nix run --file . test-projects` builds each of the
+19 test projects in every mode, in two groups. It fails when two modes of a
+group give different store paths for one environment.
 
-## What the names mean
+- **The plain group:** `cli`, `huggorm`, `drv`, `recursive`,
+  `recursive-eval` and `out`. A source node runs pydd's own build scripts.
+- **The stdenv group:** `recursive-nixpkgs`, `stdenv` and `out-stdenv`. A
+  source node is the derivation `stdenv.mkDerivation` writes, and stdenv
+  strips and patches what it builds, so these environments differ from the
+  plain ones.
 
-**A mode is two choices, and the four names mix them.** One choice is the
-Nix that the planner runs under. The other is the tool that writes the
-derivations.
+## The levels of restriction
 
-### The Nix: `builder-rpc-v0`, or `$out`
+**This repository exists to show what a planner can do at each level.**
+From the most restricted to the least:
+
+| level | Nix | a planner may | modes |
+| --- | --- | --- | --- |
+| `$out` | any release | write one derivation, its root, as ATerm to `$out` | `out`, `out-stdenv` |
+| `builder-rpc-v0` | master | add derivations through a socket, and submit the root | `cli`, `huggorm`, `drv`, `stdenv` |
+| `builder-rpc-v0` with EnsurePath | master with Lillecarl/nix#371 | also `builtins.storePath` and `builtins.appendContext` | none built (pydd#8); `recursive-eval` shows what it allows |
+| recursive-nix | any release, with `recursive-nix` | also `QueryPathInfo`, and building | `recursive`, `recursive-eval`, `recursive-nixpkgs` |
+
+**pydd uses recursive-nix as a `builder-rpc-v0` with more allowed, and
+never builds through it.** recursive-nix lets a build build, and a build
+that waits on another build holds a build slot. So a pydd planner only adds
+derivations and evaluates. Every planner sets
+`allow-import-from-derivation = false`, so an evaluator in it cannot build
+to import. `.override { allowImportFromDerivation = true; }` on the root, or
+`overrideAttrs` on `mkPlanner`'s result, changes that.
+
+**On a release, recursive-nix gives the whole graph to the planner.** A
+planner writes every node through the socket, and its root to `$out`. Nix
+lets an output name a path that the build added. So the host makes no node,
+as with `builder-rpc-v0`, and the environments are the same paths.
+
+### The Nix: `builder-rpc-v0`, recursive-nix, or `$out`
 
 **`builder-rpc-v0` is on Nix master, and in no release.** Nix gives the
 planner a restricted daemon socket. The planner writes each derivation of
 its graph through that socket, and then submits the root as its output.
-`cli`, `huggorm` and `drv` run this way.
 
-**On a release, a planner writes one derivation: its root.** It writes the
-root as ATerm text to `$out`, and Nix reads that text as a derivation. The
-planner cannot add any other derivation, so the host makes every other
-node before the planner runs. `out` runs this way, on Nix 2.35.
+**recursive-nix is in every release, as an experimental feature.** The
+planner gets a daemon socket, as above. A release has no `SubmitOutput`,
+so the planner writes its root as ATerm to `$out`.
+
+**On a release with neither, a planner writes one derivation: its root.**
+It writes the root as ATerm text to `$out`, and Nix reads that text as a
+derivation. The planner cannot add any other derivation, so the host makes
+every other node before the planner runs.
 
 ### The writer: `nix`, huggorm, or `pydd-drv`
 
@@ -48,14 +76,63 @@ node before the planner runs. `out` runs this way, on Nix 2.35.
   because they add one derivation per call, and a new process does not
   keep the in-memory store (Lillecarl/pydd#15).
 
-### The four modes
+### The nine modes
 
-| mode | Nix | writer | plan to derivations | the host evaluates |
+| mode | Nix | writer | plan to derivations | a source node |
 | --- | --- | --- | --- | --- |
-| `cli` | master, `builder-rpc-v0` | `nix` | `pydd.modes.render`, in Python | one fetch per artefact, and a planner per sdist |
-| `huggorm` | master, `builder-rpc-v0` | huggorm | `lib/python/graph.nix`, in huggorm's evaluator | the same |
-| `drv` | master, `builder-rpc-v0` | `pydd-drv` | `pydd.modes.render`, in Python | the same |
-| `out` | 2.35, `$out` | huggorm | `pydd.modes.render`, in Python | also a node per wheel, a planner per local project, and the environment's planner under an application |
+| `cli` | master, `builder-rpc-v0` | `nix` | `pydd.modes.render`, in Python | pydd's scripts |
+| `huggorm` | master, `builder-rpc-v0` | huggorm | `graph.nix`, in huggorm's evaluator | pydd's scripts |
+| `drv` | master, `builder-rpc-v0` | `pydd-drv` | `pydd.modes.render`, in Python | pydd's scripts |
+| `stdenv` | master, `builder-rpc-v0` | `nix` | `pydd.modes.render`, in Python | stdenv, as data |
+| `recursive` | 2.35, recursive-nix | `nix` | `pydd.modes.render`, in Python | pydd's scripts |
+| `recursive-eval` | 2.35, recursive-nix | `nix` | `graph.nix`, in `nix eval` | pydd's scripts |
+| `recursive-nixpkgs` | 2.35, recursive-nix | `nix` | `graph.nix`, in `nix eval` | stdenv, from nixpkgs in the planner |
+| `out` | 2.35, `$out` | huggorm | `pydd.modes.render`, in Python | pydd's scripts |
+| `out-stdenv` | 2.35, `$out` | huggorm | `pydd.modes.render`, in Python | stdenv, as data |
+
+**`recursive-eval` is what EnsurePath buys.** A stock `nix eval` in the
+planner evaluates `graph.nix` over `lib/modes/nix-eval.nix`, which attaches
+the context with `builtins.storePath` and `builtins.appendContext`. It
+needs no huggorm and no renderer, and it writes the same `.drv` for every
+node kind (`checks.tests`). On `builder-rpc-v0` the same needs
+Lillecarl/nix#371.
+
+## Three ways to give a node stdenv
+
+**A node of pydd runs no stdenv, so pydd does stdenv's work by hand**:
+`-g0`, `CPPFLAGS` and `LDFLAGS`, and `scripts/fixup-elf.py` in place of
+`autoPatchelfHook`. Three ways give a node stdenv instead:
+
+| | nixpkgs in the planner | stdenv as data | host builders |
+| --- | --- | --- | --- |
+| modes | `recursive-nixpkgs` | `stdenv`, `out-stdenv`, any other | any (`builders`, pydd#6) |
+| how | the planner imports nixpkgs and calls `stdenv.mkDerivation` | the host evaluates `stdenv.mkDerivation` once, and the planner lays a node's attributes over the result | the host calls a function per artefact, before planning |
+| needs | recursive-nix | nothing more | nothing more |
+| keeps | all of nixpkgs, at plan time | stdenv's phases and setup hooks | all of nixpkgs |
+| loses | overlays and config, except as files and JSON | `mkDerivation`'s logic at evaluation: `overrideAttrs`, `passthru`, inputs it derives | the planner's choice: the host decides per artefact |
+
+**The first two write the same derivation.** `checks.stdenvAsData` holds
+them to one `.drv` for every source node, and `test-projects` to one
+environment for every project. A planner with no nixpkgs, on
+`builder-rpc-v0` or on a release with no socket, so writes exactly what a
+planner that imports nixpkgs writes.
+
+**nixpkgs is evaluated only where a node forces it.** A wheel node never
+does, so a planner of a wheel-only lock never imports nixpkgs. Each sdist
+planner and local-project planner that builds from source evaluates
+stdenv once.
+
+:::{warning}
+**An overlay does not reach a planner.** An overlay is a Nix function, and
+no function crosses into a sandbox. `recursive-nixpkgs` takes overlays only
+as files (`plannerNixpkgsOverlays`) and config only as JSON
+(`plannerNixpkgsConfig`). A package set that the caller changed in memory
+is not the one the planner imports.
+
+**`"${pkgs.path}"` copies nixpkgs a second time**, because a path value is
+copied on interpolation even when it lies in the store. pydd names the
+path with `builtins.storePath` instead, in an impure evaluation.
+:::
 
 ### How `out` builds a graph from one derivation
 
@@ -160,7 +237,14 @@ Lillecarl/pydd#9: a planner that imports nixpkgs fails after 33 s with
 `Operation 26 not allowed inside derivation`. Operation 26 is
 `QueryPathInfo`. `fetchToStore` calls it after it copies a path literal
 into the store, and nixpkgs has a path literal in every setup hook.
-Lillecarl/nix#371 allows `EnsurePath`, and not `QueryPathInfo`.
+Lillecarl/nix#371 allows `EnsurePath`, and not `QueryPathInfo`. recursive-nix
+allows both, so `recursive-nixpkgs` works. Stdenv as data needs neither,
+so `stdenv` and `out-stdenv` get stdenv's nodes without it.
+
+**The recursive modes could build, and refuse to.** recursive-nix gives a
+planner a socket that builds. pydd's planners only add derivations, and an
+evaluator in them refuses import from derivation. Nothing in Nix holds a
+planner to that: it is pydd's convention, and the one setting.
 
 **`out` makes the host do the planning that a planner cannot.**
 
@@ -178,12 +262,13 @@ Each item is a change to Nix, and each one is measured above or in the
 issue it names.
 
 1. **`EnsurePath` in `builder-rpc-v0`** (Lillecarl/nix#371). A planner can
-   then run a plain `nix eval` over `graph.nix`, with no huggorm. pydd#8
-   is the mode that would show it.
+   then run a plain `nix eval` over `graph.nix`, with no huggorm.
+   `recursive-eval` shows it today, on a release, through recursive-nix.
 2. **`QueryPathInfo` in `builder-rpc-v0`, or a `fetchToStore` that does
-   not query.** A planner can then evaluate nixpkgs and write nodes with
-   `stdenv.mkDerivation` (pydd#9). Without it, only the host can use
-   stdenv, as `builders` does (pydd#6).
+   not query.** A planner can then evaluate nixpkgs, as
+   `recursive-nixpkgs` does through recursive-nix. It is the weakest
+   request here: stdenv as data writes the same nodes with no nixpkgs in
+   the planner, at every level.
 3. **Tools over the daemon protocol, and not a second protocol.**
    `pydd-drv` (pydd#1) is the shape: `add` and `submit` are the two
    commands Nix has, and `graph` writes a whole graph in one process. It
