@@ -96,7 +96,7 @@ every mode, released Nix included.
 | a library linked through another one | none: the fixup step (`scripts/fixup-elf.py`) | done, #4 |
 | tools that nixpkgs does not imply | `[tool.pydd.build-tools]`, or `buildTools` | done |
 | a package from nixpkgs instead of PyPI | `[tool.pydd.from-nixpkgs]`, or `fromNixpkgs` | done |
-| env, `config_settings`, patches, hooks | node overrides | #5 |
+| env, `config_settings`, patches, hooks | `[tool.pydd.overrides.<package>]`, or `overrides` | done, #5 |
 | a build that nothing above covers | a host function `artefact -> derivation` | #6 |
 
 **The hints follow your nixpkgs.** They come from `python.pkgs`, so an
@@ -104,6 +104,24 @@ overlay or `packageOverrides` that changes a nixpkgs Python package
 changes what pydd builds that package with. A declaration in
 `[tool.pydd.build-tools]` or `buildTools` replaces the hints for that
 package.
+
+**A node override is data.** The planner writes it into the node that
+builds the package from source, so it works in every mode. A wheel node
+takes none.
+
+    [tool.pydd.overrides.numpy]
+    config-settings = { setup-args = ["-Dblas=blas", "-Dlapack=lapack"] }
+    patches = ["patches/numpy.patch"]
+    env = { NPY_DISABLE_SVML = "1" }
+    pre-build = "export CFLAGS=-O2"
+    post-install = "rm -r $out/bin"
+    fixup = false
+    build-tools = ["openblas"]
+
+The `overrides` argument of `uv` and `poetry` takes the same keys in
+camelCase, and wins per key. `lib/python/overrides.nix` and `graph.nix`
+(at `overridesOf`) give each key. `tests/projects/numpy-sdist` chooses
+BLAS this way.
 
 **The fixup step needs no declaration.** A node that builds with tools
 adds to each ELF file's `RUNPATH` the directory of every `DT_NEEDED`

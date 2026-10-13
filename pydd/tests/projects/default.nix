@@ -70,6 +70,13 @@ let
         pkgs.zeromq
       ];
     };
+    # BLAS through PEP 517 config_settings, from a node override
+    # (Lillecarl/pydd#5). nixpkgs hints give the rest.
+    numpy-sdist = check ./check-native.nix {
+      project = ./numpy-sdist;
+      venvName = "numpy-sdist";
+      script = ./scripts/check-numpy.py;
+    };
     git-app = check ./check-git.nix { };
     vendored-app = check ./check-vendored.nix { };
     local-index = check ./check-index.nix { };

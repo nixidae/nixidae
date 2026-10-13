@@ -29,6 +29,8 @@
   # `CPPFLAGS` and `LDFLAGS`, and `docs/PACKAGING-FACTS.md` records that
   # measurement.
   buildTools ? { },
+  # What runs in the environment, and fails the check by exiting non-zero.
+  script ? ./scripts/check-native.py,
 }:
 
 let
@@ -55,7 +57,7 @@ in
       # refuses. `./check-uv.nix` gives the whole reason, and the `return 1`
       # line below with it.
       report() {
-        "${venv}/bin/python" ${./scripts/check-native.py} || return 1
+        "${venv}/bin/python" ${script} || return 1
       }
 
       if ! report > "$out" 2>&1; then
