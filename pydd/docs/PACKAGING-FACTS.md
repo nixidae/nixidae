@@ -1243,7 +1243,7 @@ tomli = {version = ">=1.1.0", markers = "python_full_version < \"3.11.0a7\""}
 
 **Neither version records a URL.** Every artefact is a `{file, hash}` pair:
 
-```toml
+```text
 {file = "pytest-7.1.3-py3-none-any.whl", hash = "sha256:1377bda3466d…"},
 ```
 
@@ -1262,7 +1262,7 @@ is how a reader tells that a lock file is stale.
 **The same layering suits this lab, and the interface already exists.**
 `plan.py` builds one document and hands it to `graph.nix`:
 
-```json
+```text
 { "system": …, "pythonVersion": …, "tools": …, "scripts": …,
   "nodes": [ … ], "installer": …, "editables": …, "venv": { … } }
 ```
@@ -1457,7 +1457,7 @@ $ /nix/store/...-python3-minimal-3.14.6/bin/python3 -c 'import zlib'
 The two knobs are separate, so a third combination exists: keep every optional
 dependency, and strip the dead weight only.
 
-```console
+```shell
 $ nix build --expr '(import <nixpkgs> {}).python3.override {
     stripConfig = true; stripIdlelib = true; stripTests = true; stripTkinter = true;
   }' --impure --no-link --print-out-paths
@@ -1479,7 +1479,7 @@ section below measures what each one adds to a target that already holds
 `python` argument, so the whole graph builds against whichever interpreter the
 caller names:
 
-```console
+```shell
 $ nix build --file uv.nix --arg project ./projects/pure-app \
     --arg python '(import <nixpkgs> {}).python3.override {
       stripConfig = true; stripIdlelib = true; stripTests = true; stripTkinter = true;

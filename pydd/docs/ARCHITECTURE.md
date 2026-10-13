@@ -244,7 +244,7 @@ path, so the machine holds both. The 62925592 bytes are added, and the
 `default.nix` and `uv.nix` take a `python` argument anyway, and its default is
 `pkgs.python3`:
 
-```console
+```shell
 $ nix build --file ddrn/examples/venv-graph/uv.nix \
     --arg project ./ddrn/examples/venv-graph/projects/pure-app \
     --arg python '(import <nixpkgs> {}).python3.override {
