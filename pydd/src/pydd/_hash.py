@@ -46,3 +46,20 @@ def downstream_placeholder(drv_path: str, output: str = "out") -> str:
     drv_name = name.removesuffix(".drv")
     clear = f"nix-upstream-output:{hash_part}:{output_path_name(drv_name, output)}"
     return "/" + nix32(hashlib.sha256(clear.encode()).digest())
+
+
+def dynamic_placeholder(drv_path: str, output: str = "out", inner: str = "out") -> str:
+    """What another derivation writes for output ``output`` of the derivation
+    that output ``inner`` of ``drv_path`` is: ``builtins.outputOf``.
+
+    ``DownstreamPlaceholder::unknownDerivation``.
+    """
+    base = posixpath.basename(drv_path)
+    hash_part, _, name = base.partition("-")
+    drv_name = name.removesuffix(".drv")
+    upstream = f"nix-upstream-output:{hash_part}:{output_path_name(drv_name, inner)}"
+    folded = bytearray(20)
+    for index, byte in enumerate(hashlib.sha256(upstream.encode()).digest()):
+        folded[index % 20] ^= byte
+    clear = f"nix-computed-output:{nix32(bytes(folded))}:{output}"
+    return "/" + nix32(hashlib.sha256(clear.encode()).digest())

@@ -25,7 +25,7 @@ def drv_path(drv: Derivation) -> str:
         check=True,
         env={
             **os.environ,
-            "NIX_CONFIG": "extra-experimental-features = nix-command ca-derivations",
+            "NIX_CONFIG": "extra-experimental-features = nix-command ca-derivations dynamic-derivations",
         },
     )
     return result.stdout.strip()

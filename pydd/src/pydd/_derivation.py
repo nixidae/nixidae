@@ -58,6 +58,8 @@ class Derivation:
 
     Store paths are absolute. ``drvs`` maps each input ``.drv`` to the outputs
     the build reads; ``srcs`` lists every other store path it reads.
+    ``dynamic`` maps an input ``.drv`` to an output of it that is itself a
+    derivation, and that output to the outputs the build reads of it.
     """
 
     name: str
@@ -68,6 +70,9 @@ class Derivation:
     srcs: Collection[str] = ()
     drvs: Mapping[str, Collection[str]] = field(default_factory=dict[str, Collection[str]])
     outputs: Mapping[str, Output] = field(default_factory=_one_floating_output)
+    dynamic: Mapping[str, Mapping[str, Collection[str]]] = field(
+        default_factory=dict[str, Mapping[str, Collection[str]]]
+    )
 
     def to_json(self) -> dict[str, Any]:
         """The derivation in Nix's JSON format, version 4."""
@@ -87,8 +92,14 @@ class Derivation:
             "inputs": {
                 "srcs": sorted({posixpath.basename(path) for path in self.srcs}),
                 "drvs": {
-                    posixpath.basename(drv): {"outputs": sorted(outputs), "dynamicOutputs": {}}
-                    for drv, outputs in sorted(self.drvs.items())
+                    posixpath.basename(drv): {
+                        "outputs": sorted(self.drvs.get(drv, ())),
+                        "dynamicOutputs": {
+                            output: {"outputs": sorted(read), "dynamicOutputs": {}}
+                            for output, read in sorted(self.dynamic.get(drv, {}).items())
+                        },
+                    }
+                    for drv in sorted({*self.drvs, *self.dynamic})
                 },
             },
             "outputs": {name: _output_json(kind) for name, kind in self.outputs.items()},

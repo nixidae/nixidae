@@ -83,6 +83,7 @@ runCommand "pydd-tests"
         ../src
         ../tests
         ../examples
+        ../lib/python/graph.nix
       ];
     };
     PYDD_FIXTURE = builtins.toJSON fixture;
@@ -92,8 +93,13 @@ runCommand "pydd-tests"
     chmod -R u+w source
     cd source
     export HOME=$TMPDIR
+    # `graph.nix` over every node kind, for `tests/test_render.py`. `outputOf`
+    # reads the planner's `.drv`, so the oracle writes to a store of its own.
+    NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations" \
+      nix eval --store "local?root=$TMPDIR/oracle" --json --file tests/render-oracle.nix > $TMPDIR/oracle.json
+    export PYDD_RENDER_ORACLE=$TMPDIR/oracle.json
     ruff check --no-cache .
     ruff format --no-cache --check .
-    PYTHONPATH=src pytest -p no:cacheprovider tests
+    PYTHONPATH=src:tests pytest -p no:cacheprovider tests
     touch $out
   ''
