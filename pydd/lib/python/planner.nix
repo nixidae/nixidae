@@ -166,6 +166,9 @@
   # compiler of another package is a build whose declaration is wrong, and the
   # failure names the package that has to declare it.
   buildTools ? { },
+  # Per-package node overrides, by package name, from `./overrides.nix`.
+  # `graph.nix` gives the meaning of each key, at `overridesOf`.
+  overrides ? { },
   # The interpreter that the environment runs, and that every install step
   # uses. **This is the whole runtime closure of an environment**, and
   # `docs/PACKAGING-FACTS.md` measures it: 219 MB of the 238 MB that the
@@ -334,6 +337,14 @@ let
     buildTools = pkgs.lib.mapAttrs (_: map built) buildTools;
   };
 
+  # A patch travels as a tool does, so a `fetchpatch` output names its `.drv`.
+  overridePaths = pkgs.lib.optionalAttrs (overrides != { }) {
+    overrides = pkgs.lib.mapAttrs (
+      _: override:
+      override // pkgs.lib.optionalAttrs (override ? patches) { patches = map built override.patches; }
+    ) overrides;
+  };
+
   # **A tool travels as an artefact does: the `.drv`, and the path of one
   # output.** A node then names the tool's derivation as an input, as a node
   # that the host evaluates from `graph.nix` names it. With a plain store path
@@ -360,6 +371,8 @@ let
       gzip
       patchelf
       ;
+    # Only a node with `patches` reads this.
+    patch = pkgs.gnupatch;
     inherit python;
     # `patchelf` and the three below reach only a node that installs a
     # binary wheel. `pkgs.autoPatchelfHook` is a setup hook, and a graph
@@ -413,6 +426,7 @@ let
   baseInputs =
     mode.menu
     // buildToolPaths
+    // overridePaths
     // {
       inherit
         roots

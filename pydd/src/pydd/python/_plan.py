@@ -13,6 +13,7 @@ roots its document at the build of that distribution.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -86,6 +87,41 @@ def build_tools_from(inputs: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     return {canonicalize_name(name): list(roots) for name, roots in given.items()}
 
 
+#: The keys of a node override, and the type that each value takes.
+OVERRIDE_KEYS = {
+    "env": dict,
+    "configSettings": dict,
+    "patches": list,
+    "preBuild": str,
+    "postInstall": str,
+    "fixup": bool,
+}
+
+
+def overrides_from(inputs: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The node override of each package, by PEP 503 name, ready for a node.
+
+    `lib/python/overrides.nix` gives the keys. **`configSettings` becomes one
+    JSON string here**, so `graph.nix` and the renderer pass the same bytes and
+    neither serialises a value.
+    """
+    given: dict[str, dict[str, Any]] = inputs.get("overrides", {})
+    result: dict[str, dict[str, Any]] = {}
+    for name, override in given.items():
+        for key, value in override.items():
+            expected = OVERRIDE_KEYS.get(key)
+            if expected is None or not isinstance(value, expected):
+                raise ValueError(f"the override of '{name}' gives {key} = {value!r}, and the keys are {OVERRIDE_KEYS}")
+        for key, value in override.get("env", {}).items():
+            if not isinstance(value, str):
+                raise ValueError(f"the override of '{name}' gives env.{key} = {value!r}, and a variable is a string")
+        node = dict(override)
+        if "configSettings" in node:
+            node["configSettings"] = json.dumps(node["configSettings"], sort_keys=True, separators=(",", ":"))
+        result[canonicalize_name(name)] = node
+    return result
+
+
 @dataclass
 class Plan:
     """The graph that a planner decided, in the shape `graph.nix` takes."""
@@ -107,17 +143,21 @@ class Plan:
     #: The store paths that each package needs to build, by PEP 503 name.
     #: `build_tools_from` reads the value out of the inputs of the planner.
     build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
+    #: The node override of each package, by PEP 503 name, from `overrides_from`.
+    overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
     _seen: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
 
     def tools_for(self, package: str) -> dict[str, Any]:
-        """The `buildTools` key of the node that builds `package`, or nothing.
+        """The `buildTools` and `overrides` keys of the node that builds `package`.
 
         **A package with no entry gets no key at all.** A node is the name of a
         store path, so an empty key would change the output path of every node
         of every graph that this repository has already built.
         """
-        roots = self.build_tools.get(canonicalize_name(package))
-        return {"buildTools": roots} if roots else {}
+        name = canonicalize_name(package)
+        roots = self.build_tools.get(name)
+        override = self.overrides.get(name)
+        return ({"buildTools": roots} if roots else {}) | ({"overrides": override} if override else {})
 
     def add(self, entry: dict[str, Any]) -> str:
         """Add one node, and return its name.

@@ -151,10 +151,25 @@ class Graph:
             "CPPFLAGS": cat("-g0 ", join(" ", (cat("-isystem ", root, "/include") for root in roots))),
             "LDFLAGS": join(" ", (cat("-L", root, "/lib") for root in roots)),
             "PKG_CONFIG_PATH": join(":", (cat(root, "/lib/pkgconfig") for root in roots)),
-            "fixupElf": self.script["fixupElf"],
-            "fixupPaths": join(":", (cat(root, "/lib") for root in roots)),
-            "patchelf": cat(self.tool["patchelf"], "/bin/patchelf"),
+        } | (
+            {
+                "fixupElf": self.script["fixupElf"],
+                "fixupPaths": join(":", (cat(root, "/lib") for root in roots)),
+                "patchelf": cat(self.tool["patchelf"], "/bin/patchelf"),
+            }
+            if node.get("overrides", {}).get("fixup", True)
+            else {}
+        )
+
+    def overrides_of(self, node: dict[str, Any]) -> dict[str, Text]:
+        override: dict[str, Any] = node.get("overrides", {})
+        attrs: dict[str, Text] = {
+            key: override[key] for key in ("configSettings", "preBuild", "postInstall") if key in override
         }
+        if "patches" in override:
+            attrs["patches"] = join(" ", (patch["out"] for patch in override["patches"]))
+            attrs["patch"] = cat(self.tool["patch"], "/bin/patch")
+        return attrs | override.get("env", {})
 
     def local(self, node: dict[str, Any], mode: str) -> dict[str, Any]:
         return {
@@ -197,6 +212,7 @@ class Graph:
                         "backendPath": self.backend_path(node),
                     }
                     | self.build_tools_of(node)
+                    | self.overrides_of(node)
                 )
             case "local-wheel":
                 return self.mk(
@@ -207,12 +223,14 @@ class Graph:
                         "backendPath": self.backend_path(node),
                     }
                     | self.build_tools_of(node)
+                    | self.overrides_of(node)
                 )
             case "local-sdist":
                 return self.mk(
                     self.local(node, "sdist")
                     | {"backend": node["backend"], "backendPath": self.backend_path(node)}
                     | self.build_tools_of(node)
+                    | self.overrides_of(node)
                 )
             case "sdist":
                 artifact = node["artifact"]
@@ -237,6 +255,7 @@ class Graph:
                         "backendPath": self.backend_path(node),
                     }
                     | self.build_tools_of(node)
+                    | self.overrides_of(node)
                 )
             case "nixpkgs":
                 return self.fetched(node["artifact"])

@@ -21,6 +21,9 @@ from ._freshness import (
     check as check_freshness,
 )
 from ._plan import (
+    OVERRIDE_KEYS as OVERRIDE_KEYS,
+)
+from ._plan import (
     LocalNode as LocalNode,
 )
 from ._plan import (
@@ -31,6 +34,9 @@ from ._plan import (
 )
 from ._plan import (
     nix_string as nix_string,
+)
+from ._plan import (
+    overrides_from as overrides_from,
 )
 from ._sdist import (
     PYPROJECT as PYPROJECT,
@@ -101,6 +107,7 @@ from ._uvlock import (
 
 __all__ = [
     "FALLBACK_BACKEND",
+    "OVERRIDE_KEYS",
     "PYPROJECT",
     "Artifact",
     "Edge",
@@ -123,6 +130,7 @@ __all__ = [
     "filter_conflicts",
     "is_pyproject",
     "nix_string",
+    "overrides_from",
     "read_pyproject",
     "select_lock",
     "target_from_environ",

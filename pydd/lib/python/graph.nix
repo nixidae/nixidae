@@ -145,12 +145,52 @@ let
         CPPFLAGS = "-g0 ${join " " (root: "-isystem ${root}/include")}";
         LDFLAGS = join " " (root: "-L${root}/lib");
         PKG_CONFIG_PATH = join ":" (root: "${root}/lib/pkgconfig");
-        # **A node that builds with tools also fixes the RUNPATH of what it
-        # built.** `scripts/fixup-elf.py` gives the reason (Lillecarl/pydd#4).
-        fixupElf = script.fixupElf;
-        fixupPaths = join ":" (root: "${root}/lib");
-        patchelf = "${tool.patchelf}/bin/patchelf";
-      };
+      }
+      # **A node that builds with tools also fixes the RUNPATH of what it
+      # built.** `scripts/fixup-elf.py` gives the reason (Lillecarl/pydd#4).
+      // (
+        if node.overrides.fixup or true then
+          {
+            fixupElf = script.fixupElf;
+            fixupPaths = join ":" (root: "${root}/lib");
+            patchelf = "${tool.patchelf}/bin/patchelf";
+          }
+        else
+          { }
+      );
+
+  # **What one package needs beyond its tools, as data** (Lillecarl/pydd#5).
+  # `overrides.nix` reads it from the project and the caller, and the planner
+  # attaches it to the node that builds that package. The build scripts read:
+  #
+  #   patches         applied with `patch -p1` in the project, before the build
+  #   preBuild        shell, run in the project before the build; it may export
+  #   configSettings  PEP 517 `config_settings`, as JSON
+  #   postInstall     shell, run in the project after the install, with `$out`
+  #
+  # `env` comes last, so it can replace any variable above, `PATH` included.
+  # A store path in `env` is a dependency only when it is the whole value;
+  # a build tool is the way to name one inside a flag.
+  overridesOf =
+    node:
+    let
+      override = node.overrides or { };
+    in
+    builtins.intersectAttrs {
+      configSettings = null;
+      preBuild = null;
+      postInstall = null;
+    } override
+    // (
+      if override ? patches then
+        {
+          patches = builtins.concatStringsSep " " (map (patch: patch.out) override.patches);
+          patch = "${tool.patch}/bin/patch";
+        }
+      else
+        { }
+    )
+    // override.env or { };
 
   # The `site-packages` of a node that this graph builds. A node output floats,
   # so this is a downstream placeholder until the node is built.
@@ -211,6 +251,7 @@ let
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
         // buildToolsOf node
+        // overridesOf node
       )
     else if node.kind == "local-wheel" then
       # **A wheel out of a tree, with no archive between the two.** This is what
@@ -237,6 +278,7 @@ let
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
         // buildToolsOf node
+        // overridesOf node
       )
     else if node.kind == "local-sdist" then
       # **The distribution of a local project, as its own store object.** This
@@ -262,6 +304,7 @@ let
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
         // buildToolsOf node
+        // overridesOf node
       )
     else if node.kind == "sdist" then
       # **A node of this kind is a planner, and not a build.** The build system
@@ -317,6 +360,7 @@ let
           backendPath = builtins.concatStringsSep ":" (map sitePath node.backendPath);
         }
         // buildToolsOf node
+        // overridesOf node
       )
     else if node.kind == "nixpkgs" then
       # **This node builds nothing, and that is the whole point.** nixpkgs

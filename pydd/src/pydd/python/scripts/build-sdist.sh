@@ -15,6 +15,8 @@
 #   backendPath    PYTHONPATH for the backend, from the nodes that built it
 #   installerPath  PYTHONPATH for `installer`, from the node that unpacked it
 #   out            the output path
+# and, from a node override (`graph.nix` at `overridesOf`), any of `patches`,
+# `patch`, `preBuild`, `configSettings` and `postInstall`.
 # SC2154: graph.nix passes each variable below as an attribute of the
 # derivation, so the build environment holds it.
 # shellcheck disable=SC2154
@@ -58,10 +60,17 @@ if [ ! -d "$project" ]; then
 fi
 
 cd "$project"
+read -ra patchFiles <<<"${patches:-}"
+for patchFile in "${patchFiles[@]}"; do
+  "$patch" -p1 -i "$patchFile"
+done
+eval "${preBuild:-}"
 # The backend runs with the built backend nodes on its path, and with nothing
 # else. There is no network here, and no index.
 PYTHONPATH="$backendPath" python3 -c '
 import importlib
+import json
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -89,7 +98,7 @@ module, _, attribute = backend_name.partition(":")
 backend = importlib.import_module(module)
 if attribute:
     backend = getattr(backend, attribute)
-print(backend.build_wheel(wheel_directory))
+print(backend.build_wheel(wheel_directory, json.loads(os.environ.get("configSettings") or "null")))
 ' "$backend" "$root/wheel"
 cd "$root"
 
@@ -98,6 +107,8 @@ cd "$root"
 for built in "$root"/wheel/*.whl; do
   PYTHONPATH="$installerPath" python3 -m installer --prefix "$out" "$built"
 done
+
+(cd "$project" && eval "${postInstall:-}")
 
 # A node with build tools fixes the RUNPATH of what it built.
 if [ -n "${fixupElf:-}" ]; then

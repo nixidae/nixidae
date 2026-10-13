@@ -63,6 +63,7 @@ from pydd.python import (
     check_freshness,
     choose,
     env,
+    overrides_from,
     select_lock,
     target_from_environ,
 )
@@ -112,6 +113,8 @@ class Request:
     #: node the tools of its own package alone. `default.nix` gives the reason
     #: at its `buildTools` argument.
     build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
+    #: The node override of each package, by PEP 503 name.
+    overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
 
     @classmethod
     def from_json(cls, inputs: dict[str, Any], roots: list[str]) -> Request:
@@ -124,6 +127,7 @@ class Request:
             no_binary=frozenset(inputs.get("noBinary", [])),
             from_nixpkgs={canonicalize_name(name): entry for name, entry in supplied.items()},
             build_tools=build_tools_from(inputs),
+            overrides=overrides_from(inputs),
         )
 
 
@@ -350,7 +354,7 @@ def make_plan(
     reader: UvProject | PoetryProject | None = None,
 ) -> Plan:
     """Turn the lock file into the graph that builds the environment."""
-    plan = Plan(build_tools=request.build_tools)
+    plan = Plan(build_tools=request.build_tools, overrides=request.overrides)
     artifacts = request.artifacts
 
     # **The installer bootstraps, and it does so by unpacking.** Every other

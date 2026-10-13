@@ -37,6 +37,7 @@ from pydd.python import (
     build_tools_from,
     choose,
     env,
+    overrides_from,
     read_pyproject,
     target_from_environ,
 )
@@ -91,7 +92,7 @@ def main() -> int:
     # **The tools travel with the inputs, so a nested planner has them too.**
     # A source distribution that holds C code needs a compiler wherever its
     # build node is, and this planner is what makes that node.
-    plan = Plan(build_tools=build_tools_from(inputs))
+    plan = Plan(build_tools=build_tools_from(inputs), overrides=overrides_from(inputs))
     no_binary = frozenset(inputs.get("noBinary", []))
 
     # The installer, on the same terms as in the outer graph. The node is the

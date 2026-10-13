@@ -37,6 +37,9 @@
   # `buildTools` replaces it per package.
   nixpkgsHints ? true,
   fromNixpkgs ? { },
+  # Per-package node overrides. `./overrides.nix` gives the keys, and
+  # `[tool.pydd.overrides.<package>]` declares the same; this argument wins.
+  overrides ? { },
 }:
 let
   inherit (pkgs) lib;
@@ -93,6 +96,12 @@ let
     import ./hints.nix { inherit lib pkgs python; } sourceBuilt
   );
 
+  overridden = import ./overrides.nix {
+    inherit lib pkgs project projectName;
+    declared = pyproject.tool.pydd.overrides or { };
+    inherit overrides;
+  };
+
   planned = import ./planner.nix {
     inherit
       pkgs
@@ -103,7 +112,8 @@ let
       python
       fromNixpkgs
       ;
-    buildTools = hintedBuildTools // buildTools;
+    buildTools = hintedBuildTools // overridden.buildTools // buildTools;
+    overrides = overridden.nodes;
     artifacts = lib.concatMap artifactsOf document.package;
     roots = [ ];
     venvName = environmentName;

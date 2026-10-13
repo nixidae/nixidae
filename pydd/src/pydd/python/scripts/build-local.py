@@ -55,11 +55,16 @@ The environment gives:
     backendPath    PYTHONPATH for the backend, from the nodes that built it
     installerPath  PYTHONPATH for `installer`, in every mode but `sdist`
     out            the output path
+
+and, from a node override (`graph.nix` at `overridesOf`), any of `patches`,
+`patch`, `preBuild`, `configSettings` and `postInstall`, with the meaning that
+`build-sdist.sh` gives them.
 """
 
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -229,6 +234,35 @@ def writable_copy(source: Path) -> Path:
     return build_dir
 
 
+def config_settings() -> dict[str, str | list[str]] | None:
+    return json.loads(os.environ.get("configSettings") or "null")
+
+
+def prepare(project: Path) -> None:
+    """Apply the patches of an override, then run its `preBuild`.
+
+    **`preBuild` may export a variable, as it may in `build-sdist.sh`.** It runs
+    in bash, and the environment that it leaves becomes the environment of
+    this process.
+    """
+    for patch in os.environ.get("patches", "").split():
+        subprocess.run([env("patch"), "-p1", "-i", patch], check=True, cwd=project)
+    if os.environ.get("preBuild"):
+        dump = subprocess.run(
+            ["bash", "-c", 'eval "$preBuild"; env -0'], check=True, cwd=project, capture_output=True
+        ).stdout
+        os.environ.clear()
+        for entry in dump.decode().split("\0"):
+            name, separator, value = entry.partition("=")
+            if separator:
+                os.environ[name] = value
+
+
+def post_install(project: Path) -> None:
+    if post := os.environ.get("postInstall"):
+        subprocess.run(["bash", "-c", post], check=True, cwd=project)
+
+
 def install(wheel: Path, out: Path, installer_path: str) -> None:
     """Install one wheel with `pypa/installer`, which is what a wheel node uses.
 
@@ -250,7 +284,7 @@ def build_editable(project: Path, out: Path, backend_name: str, installer_path: 
 
     os.chdir(project)
     backend = cast("Pep660Backend", load_backend(backend_name, "build_editable"))
-    wheel_name = backend.build_editable(str(dist))
+    wheel_name = backend.build_editable(str(dist), config_settings())
     print(f"editable: {backend_name} wrote {wheel_name}", file=sys.stderr)
     os.chdir(dist.parent)
 
@@ -285,7 +319,7 @@ def build_wheel(project: Path, out: Path, backend_name: str, installer_path: str
 
     os.chdir(project)
     backend = cast("Pep517WheelBackend", load_backend(backend_name, "build_wheel"))
-    wheel_name = backend.build_wheel(str(dist))
+    wheel_name = backend.build_wheel(str(dist), config_settings())
     print(f"wheel: {backend_name} wrote {wheel_name}", file=sys.stderr)
     os.chdir(dist.parent)
 
@@ -305,7 +339,7 @@ def build_sdist(project: Path, out: Path, backend_name: str) -> None:
 
     os.chdir(project)
     backend = cast("Pep517SdistBackend", load_backend(backend_name, "build_sdist"))
-    archive = backend.build_sdist(str(out))
+    archive = backend.build_sdist(str(out), config_settings())
     os.chdir(out.parent)
 
     size = (out / archive).stat().st_size
@@ -334,6 +368,7 @@ def main() -> int:
     # carries its own backend means that one, and not a package of the same
     # name that the plan happened to install.
     sys.path[:0] = in_tree_path(project) + [entry for entry in backend_path.split(":") if entry]
+    prepare(project)
 
     if mode == "editable":
         build_editable(project, out, backend_name, env("installerPath"), env("editableRoot"))
@@ -341,6 +376,7 @@ def main() -> int:
         build_wheel(project, out, backend_name, env("installerPath"))
     else:
         build_sdist(project, out, backend_name)
+    post_install(project)
 
     # A node with build tools fixes the RUNPATH of what it built.
     if fixup := os.environ.get("fixupElf"):

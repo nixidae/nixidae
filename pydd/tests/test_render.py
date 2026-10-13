@@ -16,6 +16,7 @@ import pytest
 from test_against_nix import drv_path
 
 from pydd.modes.render import Graph
+from pydd.python import OVERRIDE_KEYS
 
 ORACLE: dict[str, Any] = json.loads(Path(os.environ["PYDD_RENDER_ORACLE"]).read_text())
 
@@ -29,6 +30,11 @@ def rendered(name: str) -> str:
 @pytest.mark.parametrize("name", sorted(ORACLE["expected"]))
 def test_each_kind_renders_what_graph_nix_makes(name: str) -> None:
     assert rendered(name) == ORACLE["expected"][name]
+
+
+def test_the_oracle_covers_every_override_key() -> None:
+    keys = {key for node in ORACLE["document"]["nodes"] for key in node.get("overrides", {})}
+    assert keys == set(OVERRIDE_KEYS)
 
 
 def test_the_oracle_covers_every_kind() -> None:

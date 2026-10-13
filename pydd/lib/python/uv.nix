@@ -113,6 +113,10 @@
   # matching package of `python.pkgs`, when neither `buildTools` nor
   # `[tool.pydd.build-tools]` names it. `./hints.nix` gives the rule.
   nixpkgsHints ? true,
+  # Per-package node overrides, as `{ numpy = { configSettings = { ... }; }; }`.
+  # `./overrides.nix` gives the keys. **The project declares the same thing in
+  # `[tool.pydd.overrides.<package>]`**, and this argument wins per key.
+  overrides ? { },
   # Whether uv itself checks the lock file, in a derivation of its own, before
   # the planner runs.
   #
@@ -472,7 +476,13 @@ let
   hintedBuildTools = lib.optionalAttrs nixpkgsHints (
     import ./hints.nix { inherit lib pkgs python; } sourceBuilt
   );
-  chosenBuildTools = hintedBuildTools // declaredBuildTools // buildTools;
+  overridden = import ./overrides.nix {
+    inherit lib pkgs project projectName;
+    declared = declared.overrides or { };
+    inherit overrides;
+  };
+  chosenBuildTools =
+    hintedBuildTools // declaredBuildTools // overridden.buildTools // buildTools;
 
   # **Which package comes from nixpkgs rather than the index, in that same
   # table.** The reason is the one that `./planner.nix` gives at its
@@ -812,6 +822,7 @@ let
       ;
 
     buildTools = chosenBuildTools;
+    overrides = overridden.nodes;
     fromNixpkgs = chosenFromNixpkgs;
 
     artifacts = lib.concatMap artifactsOf document.package;

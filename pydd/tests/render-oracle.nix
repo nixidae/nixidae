@@ -74,6 +74,7 @@ let
     "autoPatchelf"
     "bintools"
     "gccLib"
+    "patch"
   ] tool;
 
   scripts = names [
@@ -157,6 +158,31 @@ let
       buildTools = compiler;
     }
     {
+      # Every key of a node override, as `pydd.python._plan.overrides_from`
+      # hands it over: `configSettings` already JSON.
+      name = "numpy";
+      kind = "sdist-build";
+      platform = false;
+      artifact = fetch "numpy-2.3.0.tar.gz";
+      backend = "mesonpy";
+      backendPath = [ "flit-sdist" ];
+      buildTools = compiler;
+      overrides = {
+        env = {
+          NPY_DISABLE_SVML = "1";
+          PATH = "/replaced";
+        };
+        configSettings = ''{"setup-args":["-Dblas=openblas","-Dlapack=openblas"]}'';
+        patches = [
+          { out = source "numpy.patch"; }
+          (built (package "fetched-patch"))
+        ];
+        preBuild = "export FOO=1";
+        postInstall = "rm -r $out/bin";
+        fixup = false;
+      };
+    }
+    {
       name = "app-editable";
       kind = "editable";
       platform = false;
@@ -221,6 +247,7 @@ let
         "rich"
         "psutil"
         "idna"
+        "numpy"
         "app-editable"
         "git-from-tree"
         "lib-from-sdist"
