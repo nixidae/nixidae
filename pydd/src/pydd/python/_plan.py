@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from packaging.utils import canonicalize_name
 
-from .._writer import CliWriter, HuggormWriter, OutWriter, Writer
+from ..core._writer import CliWriter, HuggormWriter, OutWriter, Writer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

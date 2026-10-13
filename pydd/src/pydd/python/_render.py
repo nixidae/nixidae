@@ -15,8 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from .._derivation import Derivation, Floating
-from .._hash import downstream_placeholder, dynamic_placeholder
+from ..core._derivation import Derivation, Floating
+from ..core._hash import downstream_placeholder, dynamic_placeholder
 from ._plan import BUILT_PAIRS, output_name
 
 if TYPE_CHECKING:

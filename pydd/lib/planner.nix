@@ -10,12 +10,13 @@ let
   inherit (lib) fileset;
 
   # Only `.py` files, so a stray `__pycache__` cannot change a planner.
-  # A mode adds its own subpackage through `modules`, so an edit to one mode
-  # does not rebuild the planners of the others.
-  core = fileset.difference (fileset.fileFilter (file: file.hasExt "py") ../src/pydd) (
+  # The core is `pydd` and `pydd.core`. An ecosystem and a mode add their own
+  # subpackage through `modules`, so an edit to one does not rebuild the
+  # planners of the others.
+  core = fileset.intersection (fileset.fileFilter (file: file.hasExt "py") ../src/pydd) (
     fileset.unions [
-      ../src/pydd/python
-      ../src/pydd/evaluate.py
+      ../src/pydd/__init__.py
+      ../src/pydd/core
     ]
   );
   pyddSrc =

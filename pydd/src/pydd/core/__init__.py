@@ -1,0 +1,33 @@
+"""The dynamic-derivation core: derivations as JSON, placeholders, planners and writers.
+
+It knows no language ecosystem and no way of turning a plan into a graph.
+It is standard library only, and the huggorm writer imports huggorm when it
+is made.
+"""
+
+from __future__ import annotations
+
+from ._derivation import Derivation, Fixed, Floating, InputAddressed, Method, Output
+from ._hash import downstream_placeholder, dynamic_placeholder, nix32, output_path_name, placeholder
+from ._planner import Node, Planner
+from ._writer import CliWriter, HuggormWriter, OutWriter, Writer
+
+__all__ = [
+    "CliWriter",
+    "Derivation",
+    "Fixed",
+    "Floating",
+    "HuggormWriter",
+    "InputAddressed",
+    "Method",
+    "Node",
+    "OutWriter",
+    "Output",
+    "Planner",
+    "Writer",
+    "downstream_placeholder",
+    "dynamic_placeholder",
+    "nix32",
+    "output_path_name",
+    "placeholder",
+]
