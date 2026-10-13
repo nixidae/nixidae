@@ -6,6 +6,7 @@
   nixVersions,
   ruff,
   huggorm,
+  pydd-drv,
 }:
 let
   system = "x86_64-linux";
@@ -87,6 +88,7 @@ runCommand "pydd-tests"
       ];
     };
     PYDD_FIXTURE = builtins.toJSON fixture;
+    PYDD_DRV = lib.getExe pydd-drv;
   }
   ''
     cp -r $src source

@@ -41,6 +41,11 @@ in
 rec {
   inherit pkgs pydd huggorm;
 
+  # Writes derivations from a build, as JSON, for a planner in any language
+  # (Lillecarl/pydd#1). One per Nix: only master has `builder-rpc-v0`.
+  pydd-drv = pkgs.callPackage ./tools/pydd-drv { inherit (nix.libs) nix-store; };
+  pydd-drv-released = pkgs.callPackage ./tools/pydd-drv { inherit (nixReleased.libs) nix-store; };
+
   # nix run --file . run -- examples.hello.cli
   # nix run --file . run -- examples.venv.huggorm check
   examples = lib.mapAttrs (
@@ -126,7 +131,7 @@ rec {
   };
 
   checks = {
-    tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm; };
+    tests = pkgs.callPackage ./nix/tests.nix { inherit huggorm pydd-drv; };
   };
 
   # The uv projects of the ddrn lab, each with its check, once for each
