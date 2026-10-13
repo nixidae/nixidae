@@ -356,7 +356,14 @@ let
           file: file.hasExt "py"
         ) ../../src/pydd/python) scriptDir)
         ../../src/pydd/modes/__init__.py
-        (if render == "nix" then ../../src/pydd/modes/evaluate else ../../src/pydd/modes/render)
+        (
+          {
+            nix = ../../src/pydd/modes/evaluate;
+            nix-cli = ../../src/pydd/modes/nix_cli;
+            python = ../../src/pydd/modes/render;
+          }
+          .${render}
+        )
       ]
       ++ pkgs.lib.optional (protocol == "out") ../../src/pydd/modes/out;
     };
@@ -560,8 +567,11 @@ let
   };
 
   plannerEnv =
-    pkgs.lib.optionalAttrs (render == "nix") {
+    pkgs.lib.optionalAttrs (render == "nix" || render == "nix-cli") {
       PYDD_GRAPH_NIX = "${./graph.nix}";
+    }
+    // pkgs.lib.optionalAttrs (render == "nix-cli") {
+      PYDD_NIX_EVAL = "${../modes/nix-eval.nix}";
     }
     // targetEnv;
 

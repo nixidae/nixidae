@@ -10,7 +10,16 @@ from __future__ import annotations
 from ._derivation import Derivation, Fixed, Floating, InputAddressed, Method, Output
 from ._hash import downstream_placeholder, dynamic_placeholder, nix32, output_path_name, placeholder
 from ._planner import Node, Planner
-from ._writer import CliWriter, DrvWriter, HuggormWriter, OutWriter, RecursiveWriter, Writer, writer_from_environ
+from ._writer import (
+    CliWriter,
+    DrvWriter,
+    HuggormWriter,
+    OutWriter,
+    RecursiveWriter,
+    Writer,
+    huggorm_store_writer,
+    writer_from_environ,
+)
 
 __all__ = [
     "CliWriter",
@@ -29,6 +38,7 @@ __all__ = [
     "Writer",
     "downstream_placeholder",
     "dynamic_placeholder",
+    "huggorm_store_writer",
     "nix32",
     "output_path_name",
     "placeholder",

@@ -16,7 +16,7 @@ import os
 from typing import Any
 
 from ...core._planner import Planner
-from ...core._writer import HuggormWriter
+from ...core._writer import huggorm_store_writer
 
 
 def to_value(state: Any, data: Any, store_dir: str = "/nix/store") -> Any:
@@ -73,9 +73,10 @@ def main() -> None:
     import huggorm
 
     planner = Planner.from_environ()
-    if not isinstance(planner.writer, HuggormWriter):
+    inner = huggorm_store_writer(planner.writer)
+    if inner is None:
         raise RuntimeError('an evaluated planner needs writer = "huggorm"')
-    store = planner.writer.store
+    store = inner.store
     state = huggorm.EvalState(store)
 
     expression = state.eval_file(planner.menu["expression"])

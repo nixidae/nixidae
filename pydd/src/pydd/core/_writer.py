@@ -138,6 +138,12 @@ class RecursiveWriter:
             sink.write(source.read())
 
 
+def huggorm_store_writer(writer: Writer) -> HuggormWriter | None:
+    """The huggorm writer that `writer` is, or wraps, or nothing."""
+    inner = writer.inner if isinstance(writer, RecursiveWriter) else writer
+    return inner if isinstance(inner, HuggormWriter) else None
+
+
 def writer_from_environ() -> Writer:
     """Open the restricted daemon socket that `builder-rpc-v0` gives a builder,
     with the writer that `PYDD_WRITER` names.

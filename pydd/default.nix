@@ -288,6 +288,21 @@ rec {
           };
         }
       );
+      # recursive-nix with EnsurePath used: a stock `nix eval` evaluates
+      # graph.nix in the planner, with `builtins.storePath` and
+      # `builtins.appendContext`. No huggorm, and no renderer.
+      recursive-eval = (
+        import ./tests/projects {
+          inherit pkgs;
+          pydd = pkgs.callPackage ./lib {
+            huggorm = huggormReleased;
+            nix = nixReleased;
+            writer = "cli";
+            plannerProtocol = "recursive";
+            plannerRender = "nix-cli";
+          };
+        }
+      );
       # Stock 2.35 with recursive-nix: the planner writes through the build's
       # daemon socket, with the release's own `nix`, and its root to `$out`.
       recursive = (
@@ -327,14 +342,14 @@ rec {
       failed=0
       for name in "''${names[@]}"; do
         paths=()
-        modes=(cli huggorm drv recursive)
+        modes=(cli huggorm drv recursive recursive-eval)
         if [[ " ''${released[*]} " == *" $name "* ]]; then
           modes+=(out)
         fi
         for mode in "''${modes[@]}"; do
           runner=pydd-run
           [[ $mode == out ]] && runner=pydd-run-released
-          [[ $mode == recursive ]] && runner=pydd-run-recursive
+          [[ $mode == recursive* ]] && runner=pydd-run-recursive
           if "$runner" "projects.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
             echo "pass  $name ($mode)"
             paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "projects.$mode.$name" environment 2>> "$log/$name-$mode.log")")
