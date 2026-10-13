@@ -11,7 +11,7 @@ and say nothing, which is the worst answer of the three.
     requires-dist = [{ name = "rich", specifier = ">=13" }]
 
     [package.metadata.requires-dev]
-    ddrn = [{ name = "installer", specifier = ">=1.0.1" }]
+    build = [{ name = "installer", specifier = ">=1.0.1" }]
 
 This module makes the part of that comparison that is exact, and it refuses to
 guess at the rest. `docs/PACKAGING-FACTS.md` records what each part costs.

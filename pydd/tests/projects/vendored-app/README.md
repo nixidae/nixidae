@@ -26,7 +26,7 @@ address.** A package of an index gives a `url` on each row of `wheels` and on
 table gives the hash alone. `PACKAGING-FACTS.md` records the three shapes that
 `WheelWireSource` of uv defines.
 
-`archived` needs a build, so `flit-core` is in the `ddrn` dependency group. The
+`archived` needs a build, so `flit-core` is in the `build` dependency group. The
 selection does not enable that group, so `flit_core` is not in the environment;
 the graph installs it into the build of `archived` only.
 

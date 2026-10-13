@@ -1,7 +1,7 @@
 # The graph, as a function of the plan that `plan.py` decided.
 #
 # **`plan.py` decides what the graph is, and this file says how a node is
-# built.** The split is the whole argument of `ddrn`: every packaging decision
+# built.** The split is the whole argument of pydd: every packaging decision
 # needs `packaging`, which is Python, and every build step needs a derivation,
 # which is Nix. Neither half reimplements the other.
 #

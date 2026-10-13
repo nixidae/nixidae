@@ -27,7 +27,7 @@ import re
 import sys
 from importlib import metadata
 
-#: In the `ddrn` dependency group of the workspace root, which no selection
+#: In the `build` dependency group of the workspace root, which no selection
 #: enables. Every one of these builds the environment, and none is in it.
 EXCLUDED = {"hatchling", "installer", "editables", "packaging", "pathspec", "pluggy", "trove-classifiers"}
 

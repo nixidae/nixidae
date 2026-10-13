@@ -4,9 +4,9 @@
 second replace the first. `Plan.add` refuses that, and this module holds the
 one case that reaches the refusal in a real build.
 
-**The installer is both the bootstrap and a member.** `uv add --group ddrn
+**The installer is both the bootstrap and a member.** `uv add --group build
 installer` puts the wheel installer in a dependency group of
-`../projects/pure-app`, and `groups = [ "ddrn" ]` of `../uv.nix` then selects
+`../projects/pure-app`, and `groups = [ "build" ]` of `../uv.nix` then selects
 that group. The graph holds one node that unpacks the wheel to bootstrap every
 install, and a second node that installs the same wheel into the environment.
 The two build different store paths, so each one needs its own name.

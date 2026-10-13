@@ -335,7 +335,7 @@ test = ["pytest"]
 
 [dependency-groups]
 dev = ["ruff"]
-ddrn = ["installer"]
+build = ["installer"]
 """
 
     def found(self, tmp_path: Path, text: str | None = None) -> Members:
@@ -355,19 +355,19 @@ ddrn = ["installer"]
 
     def test_all_takes_every_extra_and_every_group(self, tmp_path: Path) -> None:
         """`uv sync --all-extras --all-groups`."""
-        assert selection(self.found(tmp_path), ALL, ALL) == {"app": ["ddrn", "dev", "docs", "test"]}
+        assert selection(self.found(tmp_path), ALL, ALL) == {"app": ["build", "dev", "docs", "test"]}
 
     def test_a_list_names_them(self, tmp_path: Path) -> None:
-        assert selection(self.found(tmp_path), ["docs"], ["ddrn"]) == {"app": ["ddrn", "docs"]}
+        assert selection(self.found(tmp_path), ["docs"], ["build"]) == {"app": ["build", "docs"]}
 
     def test_default_groups_replaces_the_dev_default(self, tmp_path: Path) -> None:
-        text = self.DOCUMENT + '\n[tool.uv]\ndefault-groups = ["ddrn"]\n'
-        assert selection(self.found(tmp_path, text), None, None) == {"app": ["ddrn"]}
+        text = self.DOCUMENT + '\n[tool.uv]\ndefault-groups = ["build"]\n'
+        assert selection(self.found(tmp_path, text), None, None) == {"app": ["build"]}
 
     def test_default_groups_takes_the_literal_all(self, tmp_path: Path) -> None:
         """`DefaultGroups::All` of `crates/uv-normalize/src/group_name.rs`."""
         text = self.DOCUMENT + '\n[tool.uv]\ndefault-groups = "all"\n'
-        assert selection(self.found(tmp_path, text), None, None) == {"app": ["ddrn", "dev"]}
+        assert selection(self.found(tmp_path, text), None, None) == {"app": ["build", "dev"]}
 
     def test_a_default_group_that_is_not_declared_is_refused(self, tmp_path: Path) -> None:
         """uv gives `MissingDefaultGroup` for the same file."""

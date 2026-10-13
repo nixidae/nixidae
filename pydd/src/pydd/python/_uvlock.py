@@ -578,7 +578,7 @@ def build_requirements(
         raise LockError(
             f"the lock file does not hold the build system {sorted(wanted)}. **uv.lock records no "
             "build system**, so a backend reaches it only as an ordinary package. Pin each one in "
-            "a dependency group, with `uv add --group ddrn <name>`, and lock the project again. "
+            "a dependency group, with `uv add --group build <name>`, and lock the project again. "
             f"({error})"
         ) from error
 

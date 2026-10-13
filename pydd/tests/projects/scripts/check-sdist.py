@@ -31,7 +31,7 @@ import packaged_app  # pyright: ignore[reportMissingImports] -- only the graph i
 #: as a wheel, and `pypa/installer` writes the same `.dist-info` for either.
 EXPECTED = {"packaged-app", "rich", "markdown-it-py", "mdurl", "pygments"}
 
-#: In the `ddrn` dependency group, which the selection does not enable. The
+#: In the `build` dependency group, which the selection does not enable. The
 #: backend built the archive and then built the wheel, and it is in neither.
 EXCLUDED = {"hatchling", "installer", "editables", "flit-core", "packaging", "pathspec", "pluggy"}
 

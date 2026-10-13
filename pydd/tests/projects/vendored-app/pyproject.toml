@@ -14,7 +14,7 @@ vendored = { path = "vendor/vendored-1.0.0-py3-none-any.whl" }
 archived = { path = "vendor/archived-1.0.0.tar.gz" }
 
 [dependency-groups]
-ddrn = [
+build = [
     "flit-core>=3.11,<4",
     "installer>=1.0.1",
 ]

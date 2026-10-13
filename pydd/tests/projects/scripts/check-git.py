@@ -24,7 +24,7 @@ Two facts of that build show up here, and `check-git.nix` adds two more:
 1. The version is `3.12.0`, which is the tag that `uv.lock` resolved. The
    metadata comes from the checkout, and no index answered for it.
 2. The environment holds this one distribution and nothing else. `installer`
-   is in the same lock file, in the `ddrn` dependency group, and the selection
+   is in the same lock file, in the `build` dependency group, and the selection
    did not enable that group.
 """
 
@@ -38,7 +38,7 @@ from importlib import metadata
 #: declares `dependencies = []`, so the closure is the one package.
 EXPECTED = {"flit-core"}
 
-#: In the same lock file, in the `ddrn` dependency group.
+#: In the same lock file, in the `build` dependency group.
 EXCLUDED = "installer"
 
 #: The tag that `uv add` resolved, and the commit that it wrote beside it.
@@ -77,7 +77,7 @@ def main() -> int:
         print(f"the environment holds {sorted(found)}, and uv.lock resolves {sorted(EXPECTED)}")
         return 1
     if EXCLUDED in found:
-        print(f"'{EXCLUDED}' is a build tool of the 'ddrn' group, and the selection did not enable it")
+        print(f"'{EXCLUDED}' is a build tool of the 'build' group, and the selection did not enable it")
         return 1
 
     return 0

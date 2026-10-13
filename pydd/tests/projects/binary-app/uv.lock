@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-ddrn = [
+build = [
     { name = "installer" },
 ]
 
@@ -19,7 +19,7 @@ ddrn = [
 requires-dist = [{ name = "pyzmq", specifier = ">=27.1.0" }]
 
 [package.metadata.requires-dev]
-ddrn = [{ name = "installer", specifier = ">=1.0.1" }]
+build = [{ name = "installer", specifier = ">=1.0.1" }]
 
 [[package]]
 name = "cffi"

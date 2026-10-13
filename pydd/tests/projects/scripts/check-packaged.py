@@ -30,7 +30,7 @@ import packaged_app  # pyright: ignore[reportMissingImports] -- only the graph i
 #: too, because a PEP 660 install writes a `.dist-info` like any other wheel.
 EXPECTED = {"packaged-app", "rich", "markdown-it-py", "mdurl", "pygments"}
 
-#: In the `ddrn` dependency group, which the selection does not enable. Every
+#: In the `build` dependency group, which the selection does not enable. Every
 #: one of these builds the environment, and none of them is in it.
 EXCLUDED = {"hatchling", "installer", "editables", "flit-core", "packaging", "pathspec", "pluggy"}
 

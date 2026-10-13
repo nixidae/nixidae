@@ -92,7 +92,7 @@ $ nix run --file . pkgs.uv -- init --app --no-package --name pure-app \
     --python 3.13 --no-workspace --vcs none pure-app
 $ cd pure-app
 $ nix run --file . pkgs.uv -- add --no-sync rich
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer
 ```
 
 Three parts of those commands matter:
@@ -101,7 +101,7 @@ Three parts of those commands matter:
   `source = { virtual = "." }` for it, so the project takes part in the
   resolution and no node of the graph builds it. The environment is the closure
   of the dependencies.
-- **`--group ddrn` pins the wheel installer.** Every graph installs its wheels
+- **`--group build` pins the wheel installer.** Every graph installs its wheels
   with `pypa/installer`, and that is a tool of this build system and not a
   dependency of the project. PEP 735 dependency groups are what uv offers for
   exactly that, so one lock file pins the whole build. The selection does not
@@ -126,7 +126,7 @@ $ nix run --file . pkgs.uv -- init --lib --package --build-backend hatch \
     --name packaged-app --python 3.13 --no-workspace --vcs none packaged-app
 $ cd packaged-app
 $ nix run --file . pkgs.uv -- add --no-sync rich
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn \
+$ nix run --file . pkgs.uv -- add --no-sync --group build \
     hatchling editables installer flit-core
 ```
 
@@ -140,7 +140,7 @@ requires = ["hatchling", "editables"]
 no-binary-package = ["mdurl"]
 ```
 
-### Why the `ddrn` group holds four packages
+### Why the `build` group holds four packages
 
 **`uv.lock` records no build system.** The `[build-system]` table of the
 project is not in it, and neither is the build system of any source
@@ -232,7 +232,7 @@ $ nix run --file . pkgs.uv -- init --lib --package --build-backend hatch \
 $ nix run --file . pkgs.uv -- init --lib --package --build-backend hatch \
     --name ws-cli --python 3.13 --vcs none packages/ws-cli
 $ nix run --file . pkgs.uv -- add --no-sync --package ws-cli rich ws-core
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn \
+$ nix run --file . pkgs.uv -- add --no-sync --group build \
     hatchling editables installer
 ```
 
@@ -330,7 +330,7 @@ $ nix run --file . pkgs.uv -- init --app --no-package --name binary-app \
 $ cd binary-app
 $ rm main.py
 $ nix run --file . pkgs.uv -- add --no-sync pyzmq
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer
 ```
 
 `pyproject.nix` uses `pyzmq` for the same purpose, which is why this project
@@ -395,7 +395,7 @@ $ cd git-app
 $ rm main.py
 $ nix run --file . pkgs.uv -- add --no-sync \
     "flit-core @ git+https://github.com/pypa/flit@3.12.0#subdirectory=flit_core"
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer
 ```
 
 `main.py` goes, for the reason that `binary-app` drops its own: this project
@@ -476,11 +476,11 @@ $ mkdir vendor
 $ # write vendor/vendored-1.0.0-py3-none-any.whl and vendor/archived-1.0.0.tar.gz
 $ nix run --file . pkgs.uv -- add --no-sync \
     vendor/vendored-1.0.0-py3-none-any.whl vendor/archived-1.0.0.tar.gz
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer "flit-core>=3.11,<4"
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer "flit-core>=3.11,<4"
 ```
 
 `main.py` goes, for the reason that `git-app` drops its own. `flit-core` joins
-the `ddrn` group because the archive builds through `flit_core.buildapi`, and
+the `build` group because the archive builds through `flit_core.buildapi`, and
 the selection enables no group, so that backend stays out of the environment.
 
 uv puts the location on the source, and writes the two shapes that the kind
@@ -538,7 +538,7 @@ $ mkdir index
 $ # write index/stocked-1.0.0-py3-none-any.whl and index/crated-1.0.0.tar.gz
 $ # add the two index tables below to pyproject.toml
 $ nix run --file . pkgs.uv -- add --no-sync stocked crated
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer "flit-core>=3.11,<4"
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer "flit-core>=3.11,<4"
 ```
 
 ```toml
@@ -557,7 +557,7 @@ url = "https://pypi.org/simple"
 entry that names the index by name makes uv write the absolute path of the
 index into `[package.metadata]`, and that path is the machine that ran the
 command. The local index as the default writes no such key, and the second
-table keeps PyPI available for the `ddrn` group.
+table keeps PyPI available for the `build` group.
 
 uv puts the directory of the registry on the source and the name of the file on
 the row:
@@ -601,7 +601,7 @@ $ nix run --file . pkgs.uv -- init --app --no-package --name native-app \
 $ cd native-app
 $ rm main.py
 $ nix run --file . pkgs.uv -- add --no-sync psutil cffi
-$ nix run --file . pkgs.uv -- add --no-sync --group ddrn installer setuptools
+$ nix run --file . pkgs.uv -- add --no-sync --group build installer setuptools
 ```
 
 Then `tool.uv.no-binary-package` names both, so the planner takes the source
@@ -612,7 +612,7 @@ distribution of each and not the wheel that PyPI serves:
 no-binary-package = ["cffi", "psutil"]
 ```
 
-**`setuptools` is in the `ddrn` group for the reason that `installer` is.** The
+**`setuptools` is in the `build` group for the reason that `installer` is.** The
 backend of both distributions is `setuptools`, and no lock file records the
 build system of a package. The planner resolves the backend out of the same
 menu, so `setuptools` has to be a package of this lock file.

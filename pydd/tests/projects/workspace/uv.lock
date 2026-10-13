@@ -127,7 +127,7 @@ version = "0.1.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
-ddrn = [
+build = [
     { name = "editables" },
     { name = "hatchling" },
     { name = "installer" },
@@ -136,7 +136,7 @@ ddrn = [
 [package.metadata]
 
 [package.metadata.requires-dev]
-ddrn = [
+build = [
     { name = "editables", specifier = ">=0.6" },
     { name = "hatchling", specifier = ">=1.31.0" },
     { name = "installer", specifier = ">=1.0.1" },

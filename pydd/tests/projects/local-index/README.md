@@ -36,7 +36,7 @@ itself, so uv records no digest for it. That costs nothing here, because
 There the source *is* the file, and the row carries the name and the hash. The
 two are the two shapes of `WheelWireSource` that name no address.
 
-`crated` needs a build, so `flit-core` is in the `ddrn` dependency group. The
+`crated` needs a build, so `flit-core` is in the `build` dependency group. The
 selection does not enable that group, so `flit_core` is not in the
 environment; the graph installs it into the build of `crated` only.
 `../scripts/check-index.py` reads what the environment

@@ -9,7 +9,7 @@ tested proves nothing.
 
 The environment below is what `pyproject-nix`'s `pep508.mkEnviron
 pkgs.python312` builds, which is what uv2nix passed when it recorded those
-answers. Two keys are empty on purpose, and `ddrn/PACKAGING-FACTS.md` gives
+answers. Two keys are empty on purpose, and `docs/PACKAGING-FACTS.md` gives
 the reason: no build knows the kernel of the machine that will run the
 environment.
 """
@@ -213,7 +213,7 @@ class TestTheBuildSystemClosure:
         # **`uv.lock` records no build system**, so a backend reaches it only
         # as an ordinary package. The message gives the command that puts one
         # there, because a reader who meets this has no other way to know.
-        with pytest.raises(LockError, match="uv add --group ddrn"):
+        with pytest.raises(LockError, match="uv add --group build"):
             build_requirements(lock("trivial"), ENVIRONMENT, [Requirement("hatchling")])
 
 
@@ -330,7 +330,7 @@ class TestParse:
     @pytest.mark.parametrize(("name", "kind"), [("git-subdirectory", "git"), ("url-subdirectory", "url")])
     def test_a_source_that_names_a_place_parses(self, name: str, kind: str) -> None:
         # `git` and `url` sources are 2 of the 1911 packages that
-        # `ddrn/PACKAGING-FACTS.md` measured. `test_git_and_url_sources.py`
+        # `docs/PACKAGING-FACTS.md` measured. `test_git_and_url_sources.py`
         # covers what the Nix half then does with each one.
         assert any(kind in package.source for package in lock(name).packages)
 

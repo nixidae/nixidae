@@ -9,6 +9,6 @@ dependencies = [
 ]
 
 [dependency-groups]
-ddrn = [
+build = [
     "installer>=1.0.1",
 ]

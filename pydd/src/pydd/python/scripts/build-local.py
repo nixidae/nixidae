@@ -20,7 +20,7 @@ more requirements at build time, through `get_requires_for_build_sdist`,
 frontend calls the hook, resolves what comes back, and adds it to the build
 environment. This lab cannot: the node runs in a sandbox with no index and no
 store, and the path of the backend is what the plan already decided. So the
-`ddrn` dependency group of the project supplies the same packages instead, and
+`build` dependency group of the project supplies the same packages instead, and
 `projects/README.md` records the one case that this costs.
 
 **An editable install is a redirection, and the redirection has to survive the

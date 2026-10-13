@@ -23,7 +23,7 @@ build-backend = "hatchling.build"
 # ordinary package. The selection of `uv.nix` enables no group, so none of
 # these enters the environment. `../README.md` gives the reason for each one.
 [dependency-groups]
-ddrn = [
+build = [
     "editables>=0.5",
     "flit-core>=3.12.0",
     "hatchling>=1.31.0",

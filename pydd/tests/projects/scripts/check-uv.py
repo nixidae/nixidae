@@ -5,7 +5,7 @@ graph built. Nothing here adds a path: an import that works proves that the
 environment finds its own `site-packages`.
 
 **Two assertions carry the proof, and both are about `uv.lock`.** The lock file
-resolves `rich`, and it also pins `installer` in the `ddrn` dependency group.
+resolves `rich`, and it also pins `installer` in the `build` dependency group.
 The selection enabled no group, so the planner must install the first and must
 not install the second. A resolver that installed every `[[package]]` of the
 lock file would fail the second assertion.
@@ -23,7 +23,7 @@ from rich.console import Console
 #: the three packages that the edges of `rich` reach.
 EXPECTED = {"rich", "markdown-it-py", "mdurl", "pygments"}
 
-#: In the same lock file, in the `ddrn` dependency group. The graph installs
+#: In the same lock file, in the `build` dependency group. The graph installs
 #: its wheels with this tool, and the environment must not hold it.
 EXCLUDED = "installer"
 
@@ -58,7 +58,7 @@ def main() -> int:
         print(f"the environment holds {sorted(found)}, and uv.lock resolves {sorted(EXPECTED)}")
         return 1
     if EXCLUDED in found:
-        print(f"'{EXCLUDED}' is a build tool of the 'ddrn' group, and the selection did not enable it")
+        print(f"'{EXCLUDED}' is a build tool of the 'build' group, and the selection did not enable it")
         return 1
 
     # **A console script exists only because an installer wrote it.** An

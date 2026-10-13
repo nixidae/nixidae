@@ -1,16 +1,11 @@
 """Select a Python environment from a lock file, and register it as a graph of derivations.
 
-This script is the builder of `ddrn/examples/venv-graph/default.nix`. It runs
-inside the sandbox of a `builder-rpc-v0` build, and it needs the three changes
-to Nix that `docs/UPSTREAM.md` gives.
+This script is the builder of the planner that `lib/python/planner.nix` makes.
+It runs inside the sandbox of a `builder-rpc-v0` build, on stock Nix master.
 
-**Compare it with `ddrn/examples/venv/plan.py`.** That planner makes the same
-packaging decisions and then emits **one** derivation, because a planner that
-writes to `$out` can emit exactly one. So it installs every wheel in a single
-build step, and it cannot build a source distribution at all: the backend that
-builds the source would have to exist before the plan runs.
-
-This planner emits a graph:
+A planner that writes to `$out` can emit exactly one derivation, so it cannot
+build a source distribution: the backend would have to exist before the plan
+runs. This planner emits a graph:
 
 - one node for each wheel, which installs it;
 - one node for each source distribution, which runs its PEP 517 backend;
@@ -20,7 +15,7 @@ This planner emits a graph:
   over that same tree, and a second node builds a wheel out of the archive;
 - one node for the environment, which composes the members.
 
-**The source distribution is the case that motivates the whole lab.** `idna`
+**The source distribution is the case that motivates the planner.** `idna`
 is in the lock file as an sdist only. Its `pyproject.toml` asks for
 `flit_core`, the planner selects that name from the same lock file, and
 the wheel of `flit_core` becomes another node of the same graph. The build of
@@ -28,16 +23,16 @@ the wheel of `flit_core` becomes another node of the same graph. The build of
 without the other, and neither can exist before the plan runs.
 
 **The decisions live in `pydd.python`, and this file reads one document.**
-`pydd.python` holds what every planner of this example shares. What remains here
+`pydd.python` holds what every planner of an environment shares. What remains here
 is reading `PYDD_INPUTS`, which the Nix half builds from a lock file, and
 turning it into the plan document.
 
 **Two lock formats reach this planner, and `PYDD_INPUTS` is the same for
 both.**
-`lock.json` is the hand-written one of this example, and its `roots` name what
-to install. `uv.lock` is the one that `uv` writes, and it names no root: this
-planner selects from it here, with `pydd.python._uvlock`, and the members of
-that selection become roots. `./uv.nix` is the Nix half of the second one.
+`uv.lock` and `poetry.lock` name no root: this planner selects from them
+here, with `pydd.python._uvlock` and `pydd.python._poetrylock`, and the
+packages of that selection become roots. `lib/python/uv.nix` and
+`lib/python/poetry.nix` are the Nix halves.
 """
 
 from __future__ import annotations

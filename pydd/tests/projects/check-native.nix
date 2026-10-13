@@ -15,7 +15,7 @@
   project ? ./native-app,
   venvName ? "native-app",
   # **This file names no build tool, and the project names both.**
-  # `projects/native-app/pyproject.toml` holds `[tool.ddrn.build-tools]`, and
+  # `projects/native-app/pyproject.toml` holds `[tool.pydd.build-tools]`, and
   # `uv.nix` reads it. So this argument is empty, and a caller who overrides
   # one package still can: `uv.nix` merges the two, and the argument wins for
   # the package that it names.

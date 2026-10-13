@@ -8,7 +8,7 @@
 # nothing else.** `rich` is the one package that the project asked for, and
 # `markdown-it-py`, `mdurl` and `pygments` reached the environment because the
 # planner walked the edges of the lock file. `installer` is in the same lock
-# file, in the `ddrn` dependency group, and it must **not** be here: the
+# file, in the `build` dependency group, and it must **not** be here: the
 # selection did not enable that group.
 {
   pkgs,

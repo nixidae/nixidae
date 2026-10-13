@@ -44,7 +44,7 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-ddrn = [
+build = [
     { name = "flit-core" },
     { name = "installer" },
 ]
@@ -56,7 +56,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-ddrn = [
+build = [
     { name = "flit-core", specifier = ">=3.11,<4" },
     { name = "installer", specifier = ">=1.0.1" },
 ]

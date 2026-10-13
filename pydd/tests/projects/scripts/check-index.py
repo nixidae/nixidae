@@ -20,7 +20,7 @@ could reach. uv joins the same three parts in `to_registry_wheel`, and
 Two facts show up here:
 
 1. Both distributions are present, at the version that each file carries.
-2. `flit_core` is not. It builds `crated`, and `uv.lock` pins it in the `ddrn`
+2. `flit_core` is not. It builds `crated`, and `uv.lock` pins it in the `build`
    dependency group that the selection does not enable. `installer` is in that
    same group.
 """
@@ -35,7 +35,7 @@ from importlib import metadata
 #: distribution declares a dependency, so the closure is these two.
 EXPECTED = {"stocked", "crated"}
 
-#: In the same lock file, in the `ddrn` dependency group. `flit-core` builds
+#: In the same lock file, in the `build` dependency group. `flit-core` builds
 #: `crated`, and the environment must not hold it.
 EXCLUDED = {"flit-core", "installer"}
 

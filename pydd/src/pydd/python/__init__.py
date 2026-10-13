@@ -1,7 +1,7 @@
-"""What every planner of `ddrn/examples/venv-graph` shares.
+"""What every planner of a Python environment shares.
 
-The example has more than one planner. The outer one resolves the environment,
-and the planner of a source distribution resolves the backend that the archive
+An environment has more than one planner. The outer one selects the environment,
+and the planner of a source distribution selects the backend that the archive
 asks for. Both make packaging decisions with `packaging`, both write a plan
 document, and both submit the root that `graph.nix` wrote.
 

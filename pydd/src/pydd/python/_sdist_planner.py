@@ -12,9 +12,8 @@ downloads it before this script runs. This script reads `pyproject.toml` out of
 the archive, selects the backend from the same menu of artefacts that the
 outer planner used, and submits a graph that builds the distribution.
 
-`ddrn/examples/submitted-graph` submits a graph from a build.
-`tests/functional/dyn-drv/eval-submit.sh` of the patched Nix runs three such
-levels. This script is the second level of that chain, and the graph that it
+`examples/nested` shows two levels of planners. This script is the second
+level of that chain, and the graph that it
 submits may hold a third: a backend that is itself a source distribution
 becomes another node of kind `sdist`, which is another planner.
 """

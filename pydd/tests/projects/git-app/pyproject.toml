@@ -12,6 +12,6 @@ dependencies = [
 flit-core = { git = "https://github.com/pypa/flit", subdirectory = "flit_core", rev = "3.12.0" }
 
 [dependency-groups]
-ddrn = [
+build = [
     "installer>=1.0.1",
 ]

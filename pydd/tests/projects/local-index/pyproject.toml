@@ -20,7 +20,7 @@ name = "pypi"
 url = "https://pypi.org/simple"
 
 [dependency-groups]
-ddrn = [
+build = [
     "flit-core>=3.11,<4",
     "installer>=1.0.1",
 ]
