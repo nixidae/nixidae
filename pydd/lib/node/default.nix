@@ -4,8 +4,8 @@ let
 
   npm =
     {
-      # The directory that holds `package.json` and `package-lock.json`: a
-      # package, or the root of a workspace.
+      # The directory that holds `package.json` and the lock: a package, or
+      # the root of a workspace.
       project,
       # A directory that holds `project` and every file the lock names
       # outside it.
@@ -13,17 +13,19 @@ let
       manifest ? lib.importJSON (project + "/package.json"),
       # The name of the root. A store path takes no `@` and no `/`, so a
       # scoped package `@scope/tool` gives `scope-tool`.
-      name ?
-        lib.replaceStrings [ "@" "/" ] [ "" "-" ] (
-          manifest.name or (throw (
-            "pydd.node.npm: ${toString project}/package.json names no package. Pass `name`."
-          ))
-        ),
+      name ? lib.replaceStrings [ "@" "/" ] [ "" "-" ] (
+        manifest.name
+          or (throw ("pydd.node.npm: ${toString project}/package.json names no package. Pass `name`."))
+      ),
       # The program that `meta.mainProgram` names, or `null`. By default the
       # program of the project's own name, or its only program.
       program ?
         let
-          bins = if builtins.isString (manifest.bin or { }) then { ${name} = manifest.bin; } else manifest.bin or { };
+          bins =
+            if builtins.isString (manifest.bin or { }) then
+              { ${name} = manifest.bin; }
+            else
+              manifest.bin or { };
         in
         if bins ? ${name} then
           name
@@ -54,10 +56,24 @@ let
       # `nix store prefetch-file --unpack <url>` prints it, and the planner's
       # error names the URL.
       outputHashes ? { },
+      # The lock that the planner reads: npm's, pnpm's, bun's or Yarn v1's. By
+      # default the first of them that `project` holds.
+      lockfile ? lib.findFirst (file: builtins.pathExists (project + "/${file}")) null [
+        "package-lock.json"
+        "pnpm-lock.yaml"
+        "bun.lock"
+        "yarn.lock"
+      ],
+      # More packages whose install scripts run, by name. pnpm and bun run
+      # only the scripts that the project allows (`allowBuilds`,
+      # `onlyBuiltDependencies`, `trustedDependencies`), and Yarn v1's lock
+      # records no scripts.
+      installScripts ? [ ],
     }:
-    assert lib.assertMsg (builtins.pathExists (project + "/package-lock.json")) (
-      "pydd.node.npm: ${toString project} holds no package-lock.json. The planner builds what "
-      + "the lock pins. Run `npm install --package-lock-only` there, and commit the file."
+    assert lib.assertMsg (lockfile != null) (
+      "pydd.node.npm: ${toString project} holds no package-lock.json, pnpm-lock.yaml, bun.lock "
+      + "or yarn.lock. The planner builds what the lock pins. Run `npm install --package-lock-only` "
+      + "there, and commit the file."
     );
     let
       # `"pydd"` of `package.json`:
@@ -78,7 +94,8 @@ let
             "pydd.node.npm: \"pydd\".buildTools of ${name} gives '${package}' "
             + "the name '${attribute}', and nixpkgs holds no attribute of that name."
           );
-      tools = lib.mapAttrs (package: map (attributeOf package)) (declared.buildTools or { }) // buildTools;
+      tools =
+        lib.mapAttrs (package: map (attributeOf package)) (declared.buildTools or { }) // buildTools;
       env = lib.zipAttrsWith (_: lib.foldl' (a: b: a // b) { }) [
         (lib.mapAttrs (_: override: override.env or { }) (declared.overrides or { }))
         (lib.mapAttrs (_: override: override.env or { }) overrides)
@@ -153,22 +170,33 @@ let
         tools = map toString scriptTools;
         libc = if pkgs.stdenv.hostPlatform.isMusl then "musl" else "glibc";
         hashes = outputHashes;
+        inherit lockfile;
+        install_scripts = declared.installScripts or [ ] ++ installScripts;
       };
       # On released Nix the host makes each node, and the planner writes only
       # the root (`./graph.nix`). Each node's `.drv` is an input of the
       # planner, and nothing builds it until the root names it.
-      hostNodes = import ./graph.nix {
-        inherit lib menu;
-        inherit (pkgs.stdenv.hostPlatform) system;
-        lock = lib.importJSON (project + "/package-lock.json");
-      };
+      hostNodes =
+        if lockfile != "package-lock.json" then
+          throw (
+            "pydd.node.npm: out mode reads npm's lock on the host, and ${toString project} has "
+            + "${lockfile}. Use a mode with a planner socket, or write package-lock.json."
+          )
+        else
+          import ./graph.nix {
+            inherit lib menu;
+            inherit (pkgs.stdenv.hostPlatform) system;
+            lock = lib.importJSON (project + "/package-lock.json");
+          };
       planned = pydd.mkPlanner {
         inherit name menu;
         plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.node._npm import main\nsys.exit(main())\n";
         modules = [
           ../../src/pydd/node/__init__.py
           ../../src/pydd/node/_npm.py
+          ../../src/pydd/node/_readers.py
         ];
+        pythonPath = lib.optional (lockfile == "pnpm-lock.yaml") pkgs.python3Packages.pyyaml;
         env = lib.optionalAttrs (pydd.protocol == "out") {
           PYDD_HOST_NODES = toString (
             map (node: builtins.unsafeDiscardOutputDependency node.drvPath) (builtins.attrValues hostNodes)

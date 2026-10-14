@@ -93,7 +93,9 @@ let
           }
         ) (filter (item: item != "") (splitString " " integrity))
       );
-      algorithm = findFirst (algorithm: hashes ? ${algorithm}) (throw "no hash that Nix reads in ${integrity}") algorithms;
+      algorithm = findFirst (
+        algorithm: hashes ? ${algorithm}
+      ) (throw "no hash that Nix reads in ${integrity}") algorithms;
     in
     "${algorithm}-${hashes.${algorithm}}";
 
@@ -249,7 +251,12 @@ let
       ) [ ] parts;
       joined = concatStringsSep "/" folded;
     in
-    if absolute then "/" + joined else if joined == "" then "." else joined;
+    if absolute then
+      "/" + joined
+    else if joined == "" then
+      "."
+    else
+      joined;
 
   # `posixpath.relpath` between two relative paths.
   relpath =
@@ -259,7 +266,12 @@ let
       from = filter (part: part != ".") (splitString "/" (normpath start));
       common =
         let
-          go = n: if n < length to && n < length from && builtins.elemAt to n == builtins.elemAt from n then go (n + 1) else n;
+          go =
+            n:
+            if n < length to && n < length from && builtins.elemAt to n == builtins.elemAt from n then
+              go (n + 1)
+            else
+              n;
         in
         go 0;
       parts = lib.genList (_: "..") (length from - common) ++ lib.drop common to;
@@ -380,11 +392,10 @@ let
       }
     else if match "https?://.*" resolved != null then
       {
-        file =
-          "${fixed (fetch_name resolved) {
-            action = "fetch";
-            url = resolved;
-          } (strongest entry.integrity) "flat"}";
+        file = "${fixed (fetch_name resolved) {
+          action = "fetch";
+          url = resolved;
+        } (strongest entry.integrity) "flat"}";
         srcs = [ ];
       }
     else if hasPrefix "git+" resolved || hasPrefix "git:" resolved then
@@ -392,11 +403,10 @@ let
         url = hosted_archive resolved;
       in
       {
-        file =
-          "${fixed (fetch_name resolved) {
-            action = "archive";
-            inherit url;
-          } menu.hashes.${key} "recursive"}";
+        file = "${fixed (fetch_name resolved) {
+          action = "archive";
+          inherit url;
+        } menu.hashes.${key} "recursive"}";
         srcs = [ ];
       }
     else
@@ -413,7 +423,7 @@ let
       entry = entryOf path;
       name = name_of path entry;
       version = entry.version or "0";
-      scripted = entry.hasInstallScript or false;
+      scripted = entry.hasInstallScript or false || builtins.elem name menu.install_scripts;
       source = tarball path;
       deps = if scripted then closure path else [ ];
       tree = listToAttrs (
@@ -431,7 +441,9 @@ let
         inherit path name version;
         bins = bins_of path entry;
         scripts = scripted;
-        git = (hasPrefix "git+" (entry.resolved or "") || hasPrefix "git:" (entry.resolved or "")) && source.srcs == [ ];
+        git =
+          (hasPrefix "git+" (entry.resolved or "") || hasPrefix "git:" (entry.resolved or ""))
+          && source.srcs == [ ];
         inherit tree;
         links = if scripted then bin_links (deps ++ [ path ]) else { };
         nested = filter (other: tree ? ${other}) (nested path);

@@ -1,0 +1,452 @@
+"""Read a pnpm, bun or Yarn v1 lock into the `packages` of an npm lock.
+
+The npm lane plans from npm's map of install paths. bun's lock holds those
+paths already. pnpm's and Yarn's hold a graph of versions, so the reader
+places each version as npm does: as high in the tree as no other version of
+that name prevents. Node then resolves each `require` to the version that the
+lock names.
+
+What a lock leaves out comes from the project or from the call: pnpm and bun
+run the install scripts of the packages that the project allows, and Yarn v1
+records no scripts, no programs and no platforms.
+"""
+
+from __future__ import annotations
+
+import json
+import posixpath
+import re
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+#: The lock files that the npm lane reads, in the order that it looks for them.
+LOCKS = ("package-lock.json", "pnpm-lock.yaml", "bun.lock", "yarn.lock")
+
+REGISTRY = "https://registry.npmjs.org"
+
+#: A dependency's version in a lock, or a link to a workspace member, as `link:<path>`.
+type Ref = str
+
+
+def find_lock(directory: str) -> str:
+    for name in LOCKS:
+        if Path(directory, name).is_file():
+            return name
+    raise SystemExit(f"pydd.node.npm: {directory} holds none of {', '.join(LOCKS)}.")
+
+
+def manifest(directory: str, path: str) -> dict[str, Any]:
+    return json.loads(Path(directory, path, "package.json").read_text(encoding="utf-8"))
+
+
+def registry_url(name: str, version: str, registry: str = REGISTRY) -> str:
+    return f"{registry.rstrip('/')}/{name}/-/{name.rsplit('/', 1)[-1]}-{version}.tgz"
+
+
+def split_id(ident: str) -> tuple[str, str]:
+    """`@scope/name@1.0.0` as its name and version."""
+    name, _, version = ident[1:].partition("@")
+    return ident[0] + name, version
+
+
+def importer_entry(directory: str, path: str, deps: dict[str, dict[str, Ref]]) -> dict[str, Any]:
+    """The entry of the project or a workspace member: its manifest, with the dependencies the lock resolves."""
+    data = manifest(directory, path)
+    entry = {key: data[key] for key in ("name", "version", "bin", "workspaces") if key in data}
+    for kind, names in deps.items():
+        if names:
+            entry[kind] = dict.fromkeys(sorted(names), "*")
+    return entry
+
+
+@dataclass
+class Version:
+    """One version of a package, as a graph lock names it."""
+
+    name: str
+    version: str
+    resolved: str
+    integrity: str | None = None
+    dependencies: dict[str, Ref] = field(default_factory=dict[str, Ref])
+    optional: dict[str, Ref] = field(default_factory=dict[str, Ref])
+    os: list[str] | None = None
+    cpu: list[str] | None = None
+    libc: list[str] | None = None
+    bin: dict[str, str] | None = None
+    has_bin: bool = False
+
+    def entry(self, scripted: bool) -> dict[str, Any]:
+        entry: dict[str, Any] = {"name": self.name, "version": self.version, "resolved": self.resolved}
+        if self.integrity:
+            entry["integrity"] = self.integrity
+        if self.dependencies:
+            entry["dependencies"] = dict.fromkeys(sorted(self.dependencies), "*")
+        if self.optional:
+            entry["optionalDependencies"] = dict.fromkeys(sorted(self.optional), "*")
+        for key in ("os", "cpu", "libc", "bin"):
+            if (value := getattr(self, key)) is not None:
+                entry[key] = value
+        if self.has_bin and self.bin is None:
+            entry["hasBin"] = True
+        if scripted:
+            entry["hasInstallScript"] = True
+        return entry
+
+
+@dataclass
+class Graph:
+    """A lock as a graph of versions: what each importer and each version depends on."""
+
+    versions: dict[str, Version]
+    #: Each importer's dependencies by kind (`dependencies`, `devDependencies`,
+    #: `optionalDependencies`), by importer path, the project first.
+    importers: dict[str, dict[str, dict[str, Ref]]]
+    #: How a version is named in `versions`, from a dependency's name and ref.
+    key: Any
+
+    def target(self, importer: str, name: str, ref: Ref) -> str:
+        """A version's key, or the member a link names as `link:<path>`."""
+        if ref.startswith("link:"):
+            return "link:" + posixpath.normpath(posixpath.join(importer, ref.removeprefix("link:")))
+        return self.key(name, ref)
+
+
+def lookup(layout: dict[str, str], path: str, name: str) -> str | None:
+    """The path that Node finds `name` at from `path`, in a partial layout."""
+    parts = path.split("/") if path else []
+    for depth in range(len(parts), -1, -1):
+        if depth and parts[depth - 1] == "node_modules":
+            continue
+        directory = "/".join(parts[:depth])
+        candidate = f"{directory}/node_modules/{name}" if directory else f"node_modules/{name}"
+        if candidate in layout:
+            return candidate
+    return None
+
+
+def hoist(graph: Graph, directory: str, scripted: set[str]) -> dict[str, dict[str, Any]]:
+    """Place every version as npm does, and give the result as npm's `packages`.
+
+    A version goes to the top `node_modules` unless another version of that
+    name is already visible from its dependent; then it goes inside the
+    dependent. Placement never moves a version that is already placed, so
+    every `require` resolved before still resolves the same way.
+    """
+    layout: dict[str, str] = {}
+    packages: dict[str, dict[str, Any]] = {}
+    queue: list[tuple[str, str, dict[str, Ref]]] = []
+    for importer, kinds in graph.importers.items():
+        packages[importer] = importer_entry(directory, importer, kinds)
+        wanted: dict[str, Ref] = {}
+        for refs in kinds.values():
+            wanted |= refs
+        queue.append((importer, importer, wanted))
+    while queue:
+        path, importer, wanted = queue.pop(0)
+        for name in sorted(wanted):
+            target = graph.target(importer, name, wanted[name])
+            found = lookup(layout, path, name)
+            if found is not None and layout[found] == target:
+                continue
+            if found is None:
+                place = f"node_modules/{name}"
+            else:
+                place = f"{path}/node_modules/{name}" if path else f"node_modules/{name}"
+            if place in layout:
+                raise SystemExit(f"pydd.node.npm: {path or 'the project'} needs two packages named {name}.")
+            layout[place] = target
+            if target.startswith("link:"):
+                packages[place] = {"resolved": target.removeprefix("link:"), "link": True}
+                continue
+            version = graph.versions[target]
+            packages[place] = version.entry(version.name in scripted)
+            # A link in a version's dependencies is relative to the project.
+            queue.append((place, "", version.dependencies | version.optional))
+    # npm links every workspace member at the top, needed or not.
+    for member in graph.importers:
+        name = packages[member].get("name")
+        if member and name and f"node_modules/{name}" not in layout:
+            packages[f"node_modules/{name}"] = {"resolved": member, "link": True}
+    return dict(sorted(packages.items()))
+
+
+def mark(packages: dict[str, dict[str, Any]]) -> None:
+    """Set npm's `dev` and `optional` on each package, from what reaches it.
+
+    `dev`: no path from a production dependency of an importer reaches it.
+    `optional`: every path to it passes an optional dependency.
+    """
+    from pydd.node._npm import Lock
+
+    lock = Lock(packages, "")
+    importers = [path for path in packages if "node_modules/" not in path]
+
+    def walk(start: dict[str, list[str]], kinds: Iterable[str]) -> set[str]:
+        seen: set[str] = set()
+        stack = [(path, name) for path, names in start.items() for name in names]
+        while stack:
+            path, name = stack.pop()
+            found = lock.resolve(path, name)
+            if found is None or found in seen:
+                continue
+            seen.add(found)
+            entry = packages[found]
+            stack += [(found, dep) for kind in kinds for dep in entry.get(kind, {})]
+        return seen
+
+    def names(kinds: Iterable[str]) -> dict[str, list[str]]:
+        return {path: [name for kind in kinds for name in packages[path].get(kind, {})] for path in importers}
+
+    production = walk(
+        names(("dependencies", "optionalDependencies")),
+        ("dependencies", "optionalDependencies", "peerDependencies"),
+    )
+    required = walk(names(("dependencies", "devDependencies")), ("dependencies", "peerDependencies"))
+    for path, entry in packages.items():
+        if "node_modules/" not in path or entry.get("link"):
+            continue
+        if path not in production:
+            entry["dev"] = True
+        if path not in required:
+            entry["optional"] = True
+
+
+def peel(ref: Ref) -> str:
+    """A pnpm version without its peers: `18.2.0(react@18.2.0)` is `18.2.0`."""
+    return ref.split("(", 1)[0]
+
+
+def pnpm_key(name: str, ref: Ref) -> str:
+    # An alias names the real package and its version: `string-width-cjs: string-width@4.2.3`.
+    if re.match(r"^@?[^@]+@", ref) and not ref[0].isdigit():
+        return ref
+    return f"{name}@{ref}"
+
+
+def pnpm_resolved(name: str, version: str, resolution: dict[str, Any]) -> str:
+    if "tarball" in resolution:
+        return resolution["tarball"]
+    if resolution.get("type") == "git":
+        repo = resolution["repo"].removeprefix("git+")
+        return f"git+{repo}#{resolution['commit']}"
+    if resolution.get("type") == "directory":
+        return f"file:{resolution['directory']}"
+    return registry_url(name, version)
+
+
+def read_pnpm(directory: str, data: dict[str, Any]) -> tuple[Graph, set[str]]:
+    version = str(data.get("lockfileVersion", ""))
+    if not version.startswith("9."):
+        raise SystemExit(
+            f"pydd.node.npm: pnpm-lock.yaml has version {version}. pydd reads version 9, of pnpm 9 and 10."
+        )
+    metadata = data.get("packages") or {}
+    versions = {}
+    for key, snapshot in (data.get("snapshots") or {}).items():
+        name, ref = split_id(key)
+        meta = metadata[f"{name}@{peel(ref)}"]
+        listed = lambda value: [value] if isinstance(value, str) else value  # noqa: E731
+        versions[key] = Version(
+            name=name,
+            version=peel(ref),
+            resolved=pnpm_resolved(name, peel(ref), meta["resolution"]),
+            integrity=meta["resolution"].get("integrity"),
+            dependencies={dep: ref for dep, ref in (snapshot.get("dependencies") or {}).items()},
+            optional={dep: ref for dep, ref in (snapshot.get("optionalDependencies") or {}).items()},
+            os=listed(meta.get("os")),
+            cpu=listed(meta.get("cpu")),
+            libc=listed(meta.get("libc")),
+            has_bin=bool(meta.get("hasBin")),
+        )
+    importers = {}
+    for path, importer in sorted((data.get("importers") or {}).items(), key=lambda item: item[0] != "."):
+        importers["" if path == "." else path] = {
+            kind: {name: spec["version"] for name, spec in (importer.get(kind) or {}).items()}
+            for kind in ("dependencies", "devDependencies", "optionalDependencies")
+        }
+    graph = Graph(versions, importers, lambda name, ref: pnpm_key(name, ref))
+    built = set(manifest(directory, "").get("pnpm", {}).get("onlyBuiltDependencies", []))
+    workspace = Path(directory, "pnpm-workspace.yaml")
+    if workspace.is_file():
+        import yaml
+
+        settings = yaml.safe_load(workspace.read_text(encoding="utf-8")) or {}
+        built |= set(settings.get("onlyBuiltDependencies", []))
+        # pnpm 11: `allowBuilds`, by name or by `name@version`.
+        built |= {
+            split_id(spec)[0] if "@" in spec[1:] else spec
+            for spec, allowed in (settings.get("allowBuilds") or {}).items()
+            if allowed is True
+        }
+    return graph, built
+
+
+def bun_path(key: str, members: dict[str, str]) -> str:
+    """An install path from a bun key: `chalk/ansi-styles` is `node_modules/chalk/node_modules/ansi-styles`.
+
+    A key that starts with a workspace member's name lies inside that member.
+    """
+    parts = key.split("/")
+    names = []
+    while parts:
+        part = parts.pop(0)
+        names.append(f"{part}/{parts.pop(0)}" if part.startswith("@") and parts else part)
+    prefix = ""
+    if len(names) > 1 and names[0] in members:
+        prefix = members[names.pop(0)] + "/"
+    return prefix + "/".join(f"node_modules/{name}" for name in names)
+
+
+def read_bun(directory: str, text: str) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    # bun writes JSON with trailing commas.
+    data = json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+    workspaces: dict[str, dict[str, Any]] = data["workspaces"]
+    members = {meta["name"]: path for path, meta in workspaces.items() if path}
+    packages: dict[str, dict[str, Any]] = {}
+    for path, meta in workspaces.items():
+        packages[path] = importer_entry(
+            directory,
+            path,
+            {kind: meta.get(kind, {}) for kind in ("dependencies", "devDependencies", "optionalDependencies")},
+        )
+    trusted = set(manifest(directory, "").get("trustedDependencies", []))
+    for key, value in data["packages"].items():
+        path = bun_path(key, members)
+        name, ref = split_id(value[0])
+        if ref.startswith("workspace:"):
+            packages[path] = {"resolved": ref.removeprefix("workspace:"), "link": True}
+            continue
+        if len(value) != 4 or not isinstance(value[1], str):
+            raise SystemExit(f"pydd.node.npm: bun.lock gives {key} as {value[0]}. pydd reads packages from a registry.")
+        _, registry, meta, integrity = value
+        entry: dict[str, Any] = {
+            "name": name,
+            "version": ref,
+            "resolved": registry_url(name, ref, registry or REGISTRY),
+            "integrity": integrity,
+        }
+        for field_name in ("dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bin"):
+            if field_name in meta:
+                entry[field_name] = meta[field_name]
+        for field_name in ("os", "cpu", "libc"):
+            if field_name in meta:
+                entry[field_name] = [meta[field_name]] if isinstance(meta[field_name], str) else meta[field_name]
+        if name in trusted:
+            entry["hasInstallScript"] = True
+        packages[path] = entry
+    return dict(sorted(packages.items())), trusted
+
+
+def parse_yarn(text: str) -> dict[str, dict[str, Any]]:
+    """A Yarn v1 lock as a map from each of its `name@range` keys to its block."""
+    blocks: dict[str, dict[str, Any]] = {}
+    current: dict[str, Any] = {}
+    section: dict[str, str] | None = None
+
+    def unquote(word: str) -> str:
+        return word[1:-1] if word.startswith('"') else word
+
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            current = {}
+            for key in line.rstrip(":").split(", "):
+                blocks[unquote(key.strip())] = current
+            continue
+        word, _, value = line.strip().partition(" ")
+        word = unquote(word.rstrip(":"))
+        if indent == 2 and not value:
+            section = current.setdefault(word, {})
+        elif indent == 2:
+            current[word] = unquote(value)
+            section = None
+        elif section is not None:
+            section[word] = unquote(value)
+    return blocks
+
+
+def read_yarn(directory: str, text: str) -> Graph:
+    if "# yarn lockfile v1" not in text:
+        raise SystemExit(
+            "pydd.node.npm: yarn.lock is a lock of Yarn 2 or newer. Its checksums are of Yarn's own "
+            "zip archives, not of the packages, so Nix cannot check a fetch against them."
+        )
+    blocks = parse_yarn(text)
+    root = manifest(directory, "")
+    patterns = root.get("workspaces", [])
+    patterns = patterns.get("packages", []) if isinstance(patterns, dict) else patterns
+    members = {}
+    for pattern in patterns:
+        for found in sorted(Path(directory).glob(pattern)):
+            if (found / "package.json").is_file():
+                path = found.relative_to(directory).as_posix()
+                members[manifest(directory, path)["name"]] = path
+
+    # Several ranges share one block: the version is the block, by its first key.
+    first: dict[int, str] = {}
+    for spec, block in blocks.items():
+        first.setdefault(id(block), spec)
+
+    def key(name: str, ref: Ref) -> str:
+        return first[id(blocks[f"{name}@{ref}"])]
+
+    def refs(importer: str, deps: dict[str, str]) -> dict[str, Ref]:
+        return {
+            name: f"link:{posixpath.relpath(members[name], importer or '.')}"
+            if name in members and f"{name}@{spec}" not in blocks
+            else spec
+            for name, spec in deps.items()
+        }
+
+    versions = {}
+    for spec, block in blocks.items():
+        if first[id(block)] != spec:
+            continue
+        name = spec[0] + spec[1:].split("@", 1)[0]
+        resolved = block.get("resolved", "").split("#", 1)[0]
+        versions[spec] = Version(
+            name=name,
+            version=block["version"],
+            resolved=resolved,
+            integrity=block.get("integrity"),
+            dependencies=refs("", block.get("dependencies", {})),
+            optional=refs("", block.get("optionalDependencies", {})),
+            # Yarn v1 records no programs, so the node reads them from the package.
+            has_bin=True,
+        )
+    importers = {}
+    for path in ["", *sorted(members.values())]:
+        data = manifest(directory, path)
+        importers[path] = {
+            kind: refs(path, data.get(kind, {})) for kind in ("dependencies", "devDependencies", "optionalDependencies")
+        }
+    return Graph(versions, importers, key)
+
+
+def read(directory: str, lock: str, scripts: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
+    """The `packages` of an npm lock, from a lock of another tool in `directory`.
+
+    `scripts` names more packages whose install scripts run.
+    """
+    text = Path(directory, lock).read_text(encoding="utf-8")
+    match lock:
+        case "pnpm-lock.yaml":
+            import yaml
+
+            graph, built = read_pnpm(directory, yaml.safe_load(text))
+            packages = hoist(graph, directory, built | set(scripts))
+        case "bun.lock":
+            packages, _ = read_bun(directory, text)
+            for entry in packages.values():
+                if entry.get("name") in set(scripts):
+                    entry["hasInstallScript"] = True
+        case "yarn.lock":
+            packages = hoist(read_yarn(directory, text), directory, set(scripts))
+        case _:
+            raise SystemExit(f"pydd.node.npm: pydd reads no lock named {lock}.")
+    mark(packages)
+    return packages

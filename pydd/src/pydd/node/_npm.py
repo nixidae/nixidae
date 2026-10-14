@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydd.core import Derivation, Fixed, Node, Planner, tool_env
+from pydd.node import _readers
 
 #: Nix's systems as npm's `cpu` and `os` name them.
 CPU = {"x86_64": "x64", "aarch64": "arm64", "i686": "ia32", "armv7l": "arm", "riscv64": "riscv64"}
@@ -61,6 +62,11 @@ class Menu:
     #: `[drv, output]`. A node names that derivation as its input, as a string
     #: with that path names it in Nix, and names every other path as a source.
     refs: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+    #: The lock file in the project's directory: npm's, pnpm's, bun's or Yarn's.
+    lockfile: str = "package-lock.json"
+    #: More packages whose install scripts run. pnpm and bun run only those
+    #: that the project allows, and Yarn v1 records none.
+    install_scripts: list[str] = field(default_factory=list[str])
 
     @property
     def directory(self) -> str:
@@ -259,6 +265,21 @@ class Lock:
         return "node_modules/" in path and not entry.get("link") and not entry.get("inBundle")
 
 
+def bin_probes(lock: Lock, paths: list[str]) -> list[list[str]]:
+    """The packages of `paths` whose programs the lock does not name, as `[.bin directory, package path]`.
+
+    pnpm and Yarn v1 record only that a package has programs, or nothing. A
+    node reads the names from the package's own `package.json`.
+    """
+    probes = []
+    for path in sorted(paths):
+        entry = lock.packages[path]
+        if entry.get("link") or "bin" in entry or not entry.get("hasBin"):
+            continue
+        probes.append([path.rsplit("node_modules/", 1)[0] + "node_modules/.bin", path])
+    return probes
+
+
 def bin_links(lock: Lock, paths: list[str]) -> dict[str, str]:
     """The `.bin` link of each program of each package of `paths`, relative to its target.
 
@@ -416,6 +437,7 @@ class Graph:
         scripted = bool(entry.get("hasInstallScript"))
         tree: dict[str, str] = {}
         links: dict[str, str] = {}
+        probes: list[list[str]] = []
         if scripted:
             closure = self.lock.closure(path)
             for dep in closure:
@@ -427,6 +449,7 @@ class Graph:
                 tree[dep] = node.output()
                 inputs.append(node)
             links = bin_links(self.lock, [*closure, path])
+            probes = bin_probes(self.lock, [*closure, path])
         spec = {
             "action": "package",
             "tarball": tarball,
@@ -442,6 +465,11 @@ class Graph:
             "nested": [nested for nested in self.lock.nested(path) if nested in tree],
             "nodejs": self.menu.nodejs,
         }
+        # Only when the lock lacks them, so a node of an npm lock keeps its path.
+        if probes:
+            spec["probes"] = probes
+        if entry.get("hasBin") and "bin" not in entry:
+            spec["bins"] = None
         drv = self.derivation(f"{store_name(name)}-{entry.get('version', '0')}", spec, inputs, name, scripted)
         self.planning.pop()
         self.nodes[path] = self.planner.add(drv)
@@ -478,6 +506,9 @@ class Graph:
             "programs": bins,
             "nodejs": self.menu.nodejs,
         }
+        if build_probes := bin_probes(lock, [*tree, *links]):
+            spec["build_probes"] = build_probes
+            spec["probes"] = bin_probes(lock, [path for path in [*tree, *links] if path in shipped or path in links])
         inputs = [self.nodes[path] for path in tree]
         return self.planner.add(self.derivation(self.menu.name, spec, inputs, lock.packages[""].get("name"), True))
 
@@ -485,7 +516,14 @@ class Graph:
 def main() -> int:
     planner = Planner.from_environ()
     menu = Menu(**planner.menu)
-    with open(posixpath.join(menu.directory, "package-lock.json"), encoding="utf-8") as handle:
-        lock = Lock.read(json.load(handle), planner.system, menu.libc, menu.omit)
+    if menu.lockfile == "package-lock.json":
+        with open(posixpath.join(menu.directory, menu.lockfile), encoding="utf-8") as handle:
+            lock = Lock.read(json.load(handle), planner.system, menu.libc, menu.omit)
+        for path, entry in lock.packages.items():
+            if path and name_of(path, entry) in menu.install_scripts:
+                entry["hasInstallScript"] = True
+    else:
+        packages = _readers.read(menu.directory, menu.lockfile, menu.install_scripts)
+        lock = Lock(packages, planner.system, menu.libc, menu.omit)
     planner.submit(Graph(planner, menu, lock).root(menu.scripts))
     return 0

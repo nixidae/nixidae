@@ -97,6 +97,29 @@ def programs(package: Path, bins: dict[str, str]) -> None:
         patch_shebang(target)
 
 
+def manifest_bins(package: Path) -> dict[str, str]:
+    """The programs that a package's own `package.json` names, by program name."""
+    data = json.loads((package / "package.json").read_text())
+    match data.get("bin"):
+        case str(file):
+            return {data["name"].rsplit("/", 1)[-1]: file}
+        case dict(bins):
+            return bins
+        case _:
+            return {}
+
+
+def probe(tree: Path, probes: list[list[str]]) -> dict[str, str]:
+    """The `.bin` links of packages whose programs the lock does not name, read from each package."""
+    links = {}
+    for directory, path in probes:
+        for program, file in manifest_bins(tree / path).items():
+            links[f"{directory}/{posixpath.basename(program)}"] = posixpath.relpath(
+                posixpath.join(path, file), directory
+            )
+    return links
+
+
 def node_gyp(top: Path, nodejs: str) -> Path:
     """A `node-gyp` on `PATH`, as npm gives one to a script."""
     directory = top / "node-gyp-bin"
@@ -176,7 +199,7 @@ def package(spec: dict[str, Any], top: Path, out: Path) -> None:
         unpack(spec["tarball"], out)
         if spec["git"]:
             refuse_prepare(out, spec["name"])
-        programs(out, spec["bins"])
+        programs(out, manifest_bins(out) if spec["bins"] is None else spec["bins"])
         return
     tree = top / "tree"
     tree.mkdir()
@@ -185,7 +208,7 @@ def package(spec: dict[str, Any], top: Path, out: Path) -> None:
     unpack(spec["tarball"], where)
     if spec["git"]:
         refuse_prepare(where, spec["name"])
-    place(tree, {}, spec["links"])
+    place(tree, {}, spec["links"] | probe(tree, spec.get("probes", [])))
     run_lifecycle(top, where, tree, nodejs, spec["name"], spec["version"])
     for nested in spec["nested"]:
         shutil.rmtree(tree / nested)
@@ -194,7 +217,7 @@ def package(spec: dict[str, Any], top: Path, out: Path) -> None:
     if modules.is_dir() and not any(modules.iterdir()):
         modules.rmdir()
     shutil.copytree(where, out, symlinks=True)
-    programs(out, spec["bins"])
+    programs(out, manifest_bins(out) if spec["bins"] is None else spec["bins"])
 
 
 def root(spec: dict[str, Any], top: Path, out: Path) -> None:
@@ -205,7 +228,8 @@ def root(spec: dict[str, Any], top: Path, out: Path) -> None:
     shutil.copytree(spec["source"], tree, symlinks=True)
     writable(tree)
     place(tree, spec["tree"], spec["links"])
-    place(tree, {}, spec["build_bins"])
+    build_bins = spec["build_bins"] | probe(tree, spec.get("build_probes", []))
+    place(tree, {}, build_bins)
     env = script_env(top, tree, tree, nodejs, spec["name"], "")
     for script in spec["scripts"]:
         arguments = ["--if-present", *(["--workspaces", "--include-workspace-root"] if spec["workspaces"] else [])]
@@ -218,11 +242,11 @@ def root(spec: dict[str, Any], top: Path, out: Path) -> None:
         while parent != tree and parent.is_dir() and not any(parent.iterdir()):
             parent.rmdir()
             parent = parent.parent
-    for link in spec["build_bins"]:
+    for link in build_bins:
         (tree / link).unlink(missing_ok=True)
         if (tree / link).parent.is_dir() and not any((tree / link).parent.iterdir()):
             (tree / link).parent.rmdir()
-    place(tree, {}, spec["bins"])
+    place(tree, {}, spec["bins"] | probe(tree, spec.get("probes", [])))
     for program, file in spec["programs"].items():
         if not (tree / file).is_file():
             raise SystemExit(f"pydd: the program {program} names {file}, which the project does not hold.")
