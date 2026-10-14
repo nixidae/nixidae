@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "csi"
+version = "0.1.0"
+description = "CSI driver spec for Python"
+authors = [
+    { name="Carl Andersson", email="github@lillecarl.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+# What protoc writes imports: `csi_grpc.py` imports grpclib, `csi_pb2.py`
+# imports google.protobuf.
+dependencies = ["grpclib", "protobuf"]

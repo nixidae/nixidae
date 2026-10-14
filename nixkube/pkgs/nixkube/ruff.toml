@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+
+# The anyio vocabulary, shared with the other ported package.
+extend = "../ruff-anyio.toml"
+
+# `BaseExceptionGroup` is a builtin from 3.11. Without this ruff assumes an
+# older Python and reports F821 for it.
+target-version = "py313"

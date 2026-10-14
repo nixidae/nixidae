@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: MIT
+
+# What has to be true of a nixkube deployment for it to come up inside a Nix
+# build sandbox, on User-Mode Linux.
+#
+# An easykubenix module rather than a patch to `kubenix/`: none of this is how
+# nixkube should behave on a real cluster, and a default that only suits a
+# test is a default that misleads everybody else.
+#
+# Two things are different in a sandbox, and both come from the same fact --
+# there is no network:
+#
+#   images   Nothing can be pulled. Every image is imported into containerd
+#            before kubelet starts (see ./images.nix and
+#            `services.vivarium-k8s.extraImages`), so every container has to say
+#            `Never` -- `Always`, which two of them do say, fails on an image
+#            that is already there.
+#
+#   store    The node's Nix store is a directory of its own that the init
+#            container fills by *substituting* into it, and there is no
+#            binary cache to substitute from. So the guest fills it first:
+#            its own /nix/store is the sandbox's, over hostfs, and
+#            `nixkube-seed-store` copies what nixkube needs one directory
+#            across before kubelet starts. The init container then finds
+#            the paths already valid and copies nothing.
+{ lib, ... }:
+let
+  # Every container in an object, whether it runs first or not.
+  pullNever =
+    object:
+    let
+      never = container: container // { imagePullPolicy = "Never"; };
+      fix =
+        spec:
+        spec
+        // lib.optionalAttrs (spec ? containers) { containers = map never spec.containers; }
+        // lib.optionalAttrs (spec ? initContainers) {
+          initContainers = map never spec.initContainers;
+        };
+    in
+    if object ? spec && object.spec ? template && object.spec.template ? spec then
+      lib.recursiveUpdate object { spec.template.spec = fix object.spec.template.spec; }
+    else
+      object;
+in
+{
+  kubernetes.transformers = [ pullNever ];
+
+  nixkube = {
+    # One architecture. Nothing here cross-compiles, and the sandbox has no
+    # builder to send the other one to.
+    systems = {
+      x86_64-linux = true;
+      aarch64-linux = false;
+    };
+
+    /*
+      The cache StatefulSet, for how it starts rather than for what it does.
+
+      Nothing is built here -- every path a workload asks for is already in
+      the sandbox because the test derivation named it -- so pynixd
+      coordinates no distributed build in this test. What it does do is boot:
+      an `appstarter-init` initContainer fills its PVC, and the pod runs
+      `appstarter run` out of it. That path has no other test. `test-kind-cache`
+      needs a cluster and a published image; this needs neither. Issue #49.
+
+      The claim binds against `services.vivarium-k8s.persistentVolumes` in
+      ./default.nix. `storageClassName` stays null, which means the cluster
+      default, which is the `standard` class that option creates.
+    */
+    pynixd.enable = true;
+
+    # The host phase switches the guest's own system. Issue #24.
+    nixosHost.enable = true;
+
+    # The guest's whole disk is 4 GiB (`vivarium.diskSize`), and the node's
+    # own store is already on it. `cacheEnv` is about 512 MiB, so this is what
+    # pynixd actually writes here plus room to see it grow. The 10Gi default
+    # is for a cluster; against this disk it would only look satisfied,
+    # because a hostPath volume enforces no size at all.
+    pynixd.storageSize = "1Gi";
+
+    # No builders. `builder-min = 1` is the default, and pynixd created two
+    # builder Jobs here that sat in ContainerCreating for the whole run --
+    # every path a workload asks for is already in the sandbox, so there is
+    # nothing for a builder to build and nowhere for it to pull an image from.
+    pynixd.controller.settings.builder-min = 0;
+
+    # Keeps the Nix string context on the DaemonSet's store paths, so the node
+    # environment is part of the manifest's closure. That is what carries it
+    # into the sandbox at all, and `vivarium.nixDatabase.extraRoots` in
+    # ./default.nix registers that same closure inside the guest.
+    discardStringContext = false;
+
+    /*
+      A directory of the node's own, on the node's own filesystem.
+
+      `/` was tried first, and it is very nearly right: the guest's
+      /nix/store is the build sandbox's over hostfs, so pointing the node
+      at `/` gives it a store that already holds everything the manifest
+      names, with nothing copied and nothing fetched. The whole DaemonSet
+      came up in 34 seconds that way.
+
+      It breaks one thing, and the thing it breaks is not small. The
+      driver's own state lives at `/nix/var/nix-csi` *inside the node
+      container*, which is this path plus `nix/var/nix-csi` on the node.
+      With `/` that is the guest's /nix -- an overlay, because a guest's
+      whole /nix is one overlay mount over hostfs. NRI's read-write mode
+      then asks the kernel for an overlay whose upperdir is on that
+      overlay, and the kernel refuses:
+
+          fsconfig('upperdir'=.../containers/<id>/upper): Invalid argument
+
+      overlayfs does not accept an overlayfs as an upper layer. A real node
+      has an ordinary directory here and never meets this, so the test was
+      the only thing that did -- and it was hiding half of NRI.
+
+      The cost is a copy: this directory is not the guest's store, so
+      something has to fill it. `nixkube-seed-store` in ./default.nix does,
+      before kubelet starts, from the guest's own store on the same disk.
+      Measured at about 40 seconds, against `kubeadm init` taking longer --
+      so it costs nothing in wall clock, and nothing is fetched.
+    */
+    hostMountPath = "/nixkube";
+
+    /*
+      No substituters at all, for every role. Each role's list has its own
+      default of cache.nixos.org and a list concatenates, so the top-level
+      `nixkube.nixConfig` cannot empty it; only `mkForce` on the role does.
+
+      Nothing needs one: `nixkube-seed-store` in ./default.nix copies
+      everything this node will be asked for into its store before kubelet
+      starts, so the init container finds the paths already valid.
+
+      An unreachable substituter is worse than none. kubenix/ci lists
+      cachix and cache.nixos.org, and each miss against those costs four
+      HTTP retries and a DNS timeout against a resolver a build sandbox
+      cannot reach -- which reads as a hang. Empty means a genuine miss
+      fails at once and says which path:
+
+          error: path '...-nodeEnv' is required, but there is no
+          substituter that can build it
+
+      The node alone was not enough. pynixd's appstarter-init reads the
+      controller's nix.conf, and each unreachable cache there cost five
+      retries and a DNS failure: measured, pynixd-0 spent 90s in Init.
+    */
+    node.nixConfig.settings.substituters = lib.mkForce [ ];
+    pynixd.controller.nixConfig.settings.substituters = lib.mkForce [ ];
+    pynixd.builder.nixConfig.settings.substituters = lib.mkForce [ ];
+  };
+}

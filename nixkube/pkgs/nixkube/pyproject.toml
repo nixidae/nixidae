@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nixkube"
+version = "0.5.0"
+description = "Kubernetes CSI driver and NRI plugin for mounting Nix stores"
+authors = [{ name = "lillecarl", email = "github@lillecarl.com" }]
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+dependencies = [
+  "anyio",
+  "kr8s",
+  "csi",
+  "nri",
+  "cri",
+  # Imported directly, not only through the three above: `errors.py` and
+  # `cri.py` use `grpclib` itself, and `csi/identity.py` uses
+  # `google.protobuf`.
+  "grpclib",
+  "protobuf",
+  "grpclib-nri",
+  "pyzmq",
+  # The GC cycle reduces `nix path-info --all --json` as it reads it. That
+  # answer is one JSON line, 282 MB on a store of 216,455 paths, and parsing
+  # it whole held this event loop for 1.374s. See `gc_task.scan_path_info`.
+  "ijson",
+  "cachetools",
+  "structlog",
+  "rich",
+  "prometheus-client",
+]
+
+[project.scripts]
+nixkube = "src.cli:main"
+nixkube-host-check = "src.host_check:main"
+nixkube-composefs-dump = "src.composefs:main"
+nixkube-composefs-build = "src.composefs:builder"
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-asyncio", "hypothesis"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"

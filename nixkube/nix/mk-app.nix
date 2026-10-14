@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: MIT
+
+# One of this repository's applications, as a release build.
+#
+# nanopynix' `mkApp` builds the venv and projects it, and wraps exactly one
+# program, `$out/bin/${name}`. Neither is enough here: `pynixd-nixkube`
+# installs three programs and the manifests exec `-central`, and both
+# applications need variables set rather than only a PATH. So the wrapping
+# happens here and covers every program the venv installs.
+#
+# **`shutil.which` is how nixkube finds every tool it runs** -- `wait`,
+# `coreutils`, `nix`, `git`, `ssh`, `mount`. That is why they belong on this
+# PATH and not in `dependencies`: a name in `dependencies` reaches the runtime
+# closure of every consumer of the library as well.
+{
+  lib,
+  symlinkJoin,
+  makeWrapper,
+  mkApp,
+}:
+
+{
+  name,
+  pythonSet,
+  # On the PATH of every program here. Tools the program runs as subprocesses.
+  pathInputs ? [ ],
+  # Set on every program here. Store paths the program reads at start-up.
+  env ? { },
+  # A variable set to this wrapper's own store path, which `env` cannot name:
+  # it is the derivation being built.
+  selfEnv ? null,
+  # Merged over what the venv projection already carries (`venv`, `package`,
+  # `version`). For a build artefact a consumer reads off the application.
+  passthru ? { },
+  # Needed only where the project installs more than one program. With one,
+  # pyproject.nix names it; with several it names none, and `lib.getExe` then
+  # guesses the derivation's own name -- which here is `<name>-wrapped`, a
+  # path that does not exist.
+  mainProgram ? null,
+}:
+
+let
+  app = mkApp { inherit name pythonSet; };
+
+  wrapperArgs =
+    lib.optionals (pathInputs != [ ]) [
+      "--prefix"
+      "PATH"
+      ":"
+      (lib.makeBinPath pathInputs)
+    ]
+    ++ lib.concatLists (
+      lib.mapAttrsToList (variable: value: [
+        "--set"
+        variable
+        "${value}"
+      ]) env
+    );
+  meta = app.meta // lib.optionalAttrs (mainProgram != null) { inherit mainProgram; };
+in
+if wrapperArgs == [ ] && selfEnv == null then
+  app.overrideAttrs (old: {
+    inherit meta;
+    passthru = old.passthru // passthru;
+  })
+else
+  symlinkJoin {
+    name = "${name}-wrapped";
+    paths = [ app ];
+    nativeBuildInputs = [ makeWrapper ];
+    # `rm` first, because the join already linked each program to its name.
+    postBuild = ''
+      for program in "$out"/bin/*; do
+        base=$(basename "$program")
+        rm "$program"
+        makeWrapper "${app}/bin/$base" "$program" ${lib.escapeShellArgs wrapperArgs} ${
+          lib.optionalString (selfEnv != null) ''--set ${selfEnv} "$out"''
+        }
+      done
+    '';
+    inherit meta;
+    passthru = app.passthru // passthru;
+  }
