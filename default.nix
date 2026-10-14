@@ -27,6 +27,8 @@ rec {
   # repository. .github/workflows/josh-export.yml runs both.
   lock-subtrees = pkgs.callPackage ./pkgs/lock-subtrees { };
   josh-export = pkgs.callPackage ./pkgs/josh-export { };
+  # The josh josh-export runs, for a job that needs a source's own commit.
+  inherit (pkgs) josh;
 
   # -- the sources -----------------------------------------------------------
   #
