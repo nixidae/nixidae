@@ -1,0 +1,46 @@
+# Export each source to its own repository. `pkgs/josh-export` says what it
+# checks before a push, and `pkgs/lock-subtrees` why every source's lock has
+# to name the commit under it. nixidae/nixidae#4.
+
+name: josh export
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One export at a time, in push order: two at once could race to the same
+# branch, and the later one would be refused as behind.
+concurrency:
+  group: josh-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # josh filters the whole history, and the default depth is one commit.
+      # A persisted credential is the run's own GITHUB_TOKEN, sent as a
+      # header that wins over the token in the push URL: GitHub refuses it
+      # as github-actions[bot], which cannot write to the sources.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+        timeout-minutes: 10
+      - uses: cachix/install-nix-action@master
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
+        timeout-minutes: 15
+      - name: Check the locks of the sources
+        run: nix run --file . lock-subtrees -- --check "$GITHUB_SHA"
+        timeout-minutes: 20
+      - name: Export
+        env:
+          JOSH_REMOTE: "https://x-access-token:${{ secrets.JOSH_EXPORT_TOKEN }}@github.com/{}.git"
+        run: nix run --file . josh-export -- "$GITHUB_SHA" --verify --push
+        timeout-minutes: 30
