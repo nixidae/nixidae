@@ -40,6 +40,4 @@ one project.
 | setuptools writes an import finder with the build path | the tokenizer rewrites each string literal that names it |
 | two single-module packages each ship `__pycache__` | the environment merges directories |
 | fastapi and fastapi-cli both install `bin/fastapi` | one wins by a fixed rule, with a warning: the one that requires the other |
-
-**Open.** In `mcp-python-sdk`, pyyaml's C extension did not link, and
-pyyaml fell back to pure Python, which its build allows.
+| pyyaml found no `-lyaml`, and fell back to pure Python without an error | the nixpkgs hints read every output of an input, not only the output stdenv chose |

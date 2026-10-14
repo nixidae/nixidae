@@ -241,6 +241,20 @@ rec {
       ) "stdenv as data differs from mkDerivation: ${builtins.toJSON differ}";
       pkgs.runCommand "stdenv-as-data" { } "echo ${toString (builtins.attrNames compared)} > $out";
 
+    # nixpkgs gives pyyaml `libyaml.dev`, and the hints must still hold the
+    # library itself.
+    hints =
+      let
+        hints = import ./lib/python/hints.nix {
+          inherit lib pkgs;
+          python = pkgs.python3;
+        } [ "pyyaml" ];
+        names = map (drv: drv.outPath) hints.pyyaml;
+      in
+      assert lib.assertMsg (builtins.elem pkgs.libyaml.out.outPath names)
+        "hints of pyyaml lack ${pkgs.libyaml.out}: ${toString names}";
+      pkgs.runCommand "hints" { } "echo ${toString names} > $out";
+
     # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
     # Parsed, so key order and quoting cannot fail it.
     ciWorkflow =

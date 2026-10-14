@@ -51,6 +51,9 @@ let
       src = github "modelcontextprotocol" "python-sdk" "754254c08fe1c3eda18b69da3d336106fe8d72d6" "sha256-3vncmONkKNoKoi1kCFYszfR+BP+rtelhY5Ua8ioBae4=";
       check = ''
         python -c 'import mcp, mcp.server.mcpserver; print("mcp", mcp.server.mcpserver.MCPServer.__name__)'
+        # pyyaml 6.0.2 has no wheel for 3.14, and its sdist falls back to pure
+        # Python when the link of libyaml fails.
+        python -c 'import yaml; assert yaml.__with_libyaml__, "pyyaml without libyaml"'
       '';
     };
   };
