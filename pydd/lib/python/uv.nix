@@ -124,6 +124,11 @@
   # default, and `.override { allowImportFromDerivation = true; }` on the
   # result reaches every planner.
   allowImportFromDerivation ? false,
+  # Whether the planner falls back to pydd's lock of the installer and the
+  # common build backends (`./build-systems`) where `uv.lock` holds none. uv
+  # resolves build dependencies apart from the project, so a lock in the wild
+  # holds none of them.
+  buildSystems ? true,
   # Whether uv itself checks the lock file, in a derivation of its own, before
   # the planner runs.
   #
@@ -832,6 +837,12 @@ let
   # earlier of the two, and it names the file.
   lockVersion = document.version or null;
 
+  ownArtifacts = lib.concatMap artifactsOf document.package;
+  fallback = import ./build-systems {
+    inherit pkgs;
+    own = ownArtifacts;
+  };
+
   planned = import ./planner.nix {
     inherit
       pkgs
@@ -849,7 +860,8 @@ let
     inherit builders allowImportFromDerivation;
     fromNixpkgs = chosenFromNixpkgs;
 
-    artifacts = lib.concatMap artifactsOf document.package;
+    artifacts = ownArtifacts ++ lib.optionals buildSystems fallback.rows;
+    buildSystems = if buildSystems then fallback.lock else null;
 
     # `uv.lock` travels into the sandbox as a store path, and the planner
     # reads it there. The Nix half never resolves it.

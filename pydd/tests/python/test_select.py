@@ -25,9 +25,11 @@ from packaging.tags import Tag
 from pydd.python import (
     FALLBACK_BACKEND,
     Artifact,
+    Plan,
     Target,
     build_system,
     choose,
+    has_native_sources,
     is_pyproject,
     read_pyproject,
     target_from_environ,
@@ -430,9 +432,10 @@ class TestBuildSystem:
         assert [str(item) for item in requirements] == ["demo-backend>=1.0"]
 
     def test_a_project_with_no_table_gets_the_fallback(self) -> None:
+        # PEP 518: no table means setuptools, as a requirement and as the backend.
         backend, requirements = build_system({})
         assert backend == FALLBACK_BACKEND
-        assert requirements == []
+        assert [str(item) for item in requirements] == ["setuptools>=40.8.0"]
 
     def test_a_table_with_requires_and_no_backend_gets_the_fallback(self) -> None:
         backend, requirements = build_system({"build-system": {"requires": ["setuptools"]}})
@@ -521,3 +524,31 @@ def tar_bytes(member: str) -> bytes:
         info.size = len(PYPROJECT)
         archive.addfile(info, io.BytesIO(PYPROJECT))
     return buffer.getvalue()
+
+
+class TestNativeSources:
+    """A source that holds native code gets the default compiler."""
+
+    def test_a_tree_with_c_is_native(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "speedups.c").write_text("int x;")
+        assert has_native_sources(tmp_path)
+
+    def test_a_pure_tree_is_not(self, tmp_path: Path) -> None:
+        (tmp_path / "module.py").write_text("x = 1")
+        assert not has_native_sources(tmp_path)
+
+    def test_an_archive_with_cython_is_native(self, tmp_path: Path) -> None:
+        archive = tmp_path / "demo-1.0.tar.gz"
+        source = tmp_path / "parser.pyx"
+        source.write_text("")
+        with tarfile.open(archive, "w:gz") as handle:
+            handle.add(source, arcname="demo-1.0/parser.pyx")
+        assert has_native_sources(archive)
+
+    def test_a_declaration_wins_over_the_default(self) -> None:
+        plan = Plan(build_tools={"demo": [{"out": "/nix/store/x-tool"}]})
+        plan.compile_with("demo", {"out": "/nix/store/y-cc"})
+        assert plan.build_tools["demo"] == [{"out": "/nix/store/x-tool"}]
+        plan.compile_with("other", {"out": "/nix/store/y-cc"})
+        assert plan.build_tools["other"] == [{"out": "/nix/store/y-cc"}]

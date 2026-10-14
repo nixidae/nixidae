@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from packaging.requirements import Requirement
 
 from pydd.python import Artifact, Plan, overrides_from
 
@@ -31,3 +32,13 @@ def test_only_the_named_package_gets_the_override() -> None:
     plan.artifact_node(sdist("idna"), "sdist-build", backend="flit_core.buildapi")
     assert plan.nodes[0]["overrides"] == {"preBuild": "true"}
     assert "overrides" not in plan.nodes[1]
+
+
+def test_a_tree_with_a_vcs_version_plugin_gets_the_locked_version() -> None:
+    plan = Plan(overrides=overrides_from({"overrides": {"kept": {"env": {"UV_DYNAMIC_VERSIONING_BYPASS": "9"}}}}))
+    plan.pretend_version("demo", "1.2.3", [Requirement("hatchling"), Requirement("uv-dynamic-versioning>=0.7")])
+    plan.pretend_version("plain", "1.0", [Requirement("hatchling")])
+    plan.pretend_version("kept", "0.0.0", [Requirement("uv-dynamic-versioning")])
+    assert plan.overrides["demo"]["env"] == {"UV_DYNAMIC_VERSIONING_BYPASS": "1.2.3"}
+    assert "plain" not in plan.overrides
+    assert plan.overrides["kept"]["env"] == {"UV_DYNAMIC_VERSIONING_BYPASS": "9"}

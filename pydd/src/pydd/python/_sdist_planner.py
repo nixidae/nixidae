@@ -23,24 +23,21 @@ from __future__ import annotations
 import json
 import sys
 
-from packaging.requirements import Requirement
-
 from pydd.core import writer_from_environ
 from pydd.modes import submit
 from pydd.python import (
     Artifact,
-    Lock,
-    LockError,
     Plan,
-    build_requirements,
     build_system,
     build_tools_from,
     choose,
     env,
+    has_native_sources,
     overrides_from,
     read_pyproject,
     target_from_environ,
 )
+from pydd.python import _build_systems as build_systems
 from pydd.python._poetrylock import PoetryProject
 
 
@@ -81,24 +78,25 @@ def main() -> int:
     # of that closure.** `flit_core` needs nothing, and `hatchling` needs four
     # packages to import at all. A `uv.lock` holds the edges of every package
     # that it lists, so it expands the list when there is one.
+    reader: build_systems.Reader | None = None
     if (spec := inputs.get("uv")) is not None:
-        try:
-            requirements = build_requirements(Lock.read(spec["lock"]), target.markers, requirements)
-        except LockError as error:
-            raise RuntimeError(f"{sdist.filename}: {error}") from error
+        reader = build_systems.UvLockReader(spec["lock"])
     elif (spec := inputs.get("poetry")) is not None:
-        requirements = PoetryProject.from_json(spec).backend(requirements, target, sdist.filename)
+        reader = PoetryProject.from_json(spec)
+    requirements = build_systems.backend(reader, requirements, target, sdist.filename, inputs.get("buildSystems"))
 
     # **The tools travel with the inputs, so a nested planner has them too.**
     # A source distribution that holds C code needs a compiler wherever its
     # build node is, and this planner is what makes that node.
     plan = Plan(build_tools=build_tools_from(inputs), overrides=overrides_from(inputs))
+    if has_native_sources(archive):
+        plan.compile_with(sdist.package, inputs["tools"].get("compiler"))
     no_binary = frozenset(inputs.get("noBinary", []))
 
     # The installer, on the same terms as in the outer graph. The node is the
     # same wheel unpacked by the same script, so its content is the same and
     # content addressing gives it the same output path in both graphs.
-    bootstrap = choose(artifacts, Requirement(inputs["installer"]), target)
+    bootstrap = build_systems.installer(artifacts, inputs["installer"], target)
     if bootstrap is None:
         raise RuntimeError(f"the installer '{inputs['installer']}' is not in the menu")
     plan.installer = plan.artifact_node(bootstrap, "unpack")

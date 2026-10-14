@@ -51,6 +51,7 @@ from pydd.core import writer_from_environ
 from pydd.modes import root as choose_root
 from pydd.modes import submit
 from pydd.python import (
+    EDITABLE_REQUIRES,
     Artifact,
     LocalNode,
     Lock,
@@ -63,10 +64,12 @@ from pydd.python import (
     check_freshness,
     choose,
     env,
+    has_native_sources,
     overrides_from,
     select_lock,
     target_from_environ,
 )
+from pydd.python import _build_systems as build_systems
 from pydd.python._poetrylock import PoetryProject
 from pydd.python._workspace import members as members_of
 from pydd.python._workspace import selection
@@ -115,6 +118,10 @@ class Request:
     build_tools: dict[str, list[dict[str, str]]] = field(default_factory=dict[str, list[dict[str, str]]])
     #: The node override of each package, by PEP 503 name.
     overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
+    #: pydd's lock of build systems, `pydd.python._build_systems`, or None.
+    build_systems: str | None = None
+    #: The compiler that a source with native code gets by default.
+    compiler: dict[str, str] | None = None
 
     @classmethod
     def from_json(cls, inputs: dict[str, Any], roots: list[str]) -> Request:
@@ -128,6 +135,8 @@ class Request:
             from_nixpkgs={canonicalize_name(name): entry for name, entry in supplied.items()},
             build_tools=build_tools_from(inputs),
             overrides=overrides_from(inputs),
+            build_systems=inputs.get("buildSystems"),
+            compiler=inputs["tools"].get("compiler"),
         )
 
 
@@ -259,6 +268,7 @@ class UvProject:
                     root=spec["root"],
                     mode=spec.get("mode", "editable"),
                     subdirectory=spec.get("subdirectory", ""),
+                    version=str(package.version or ""),
                 )
             )
 
@@ -311,6 +321,8 @@ class LocalProject:
     root: str
     mode: str = "editable"
     subdirectory: str = ""
+    #: The version the lock records, or "" for a dynamic one.
+    version: str = ""
 
     @property
     def tree(self) -> Path:
@@ -362,7 +374,7 @@ def make_plan(
     # `.dist-info` and each console script. Nothing can install the installer
     # itself, so its node unzips the wheel and puts it on a path. This is the
     # same bootstrap that `pip` performs, and it is one node of the graph.
-    bootstrap = choose(artifacts, Requirement(request.installer), target)
+    bootstrap = build_systems.installer(artifacts, request.installer, target)
     if bootstrap is None:
         raise RuntimeError(f"the installer '{request.installer}' is not in the lock file")
     plan.installer = plan.artifact_node(bootstrap, "unpack")
@@ -412,17 +424,21 @@ def make_plan(
         print(f"plan: {package}: {chosen.filename} ({chosen.kind}){binary}", file=sys.stderr)
 
     for project in projects:
+        if has_native_sources(project.source):
+            plan.compile_with(project.name, request.compiler)
         # **A local project declares a build backend the same way an sdist
         # does.** The planner reads that declaration from the project itself,
         # and selects it from the same lock file.
         subject = f"{project.name} ({project.mode})"
         backend, requirements = build_system(project.pyproject)
+        if project.mode == "editable":
+            requirements += [Requirement(text) for text in EDITABLE_REQUIRES.get(backend, ())]
+        plan.pretend_version(project.name, project.version or "0.0.0", requirements)
         # **A backend needs its own dependencies, and `requires` names only the
         # top of that closure.** `uv.lock` and `poetry.lock` hold the edges of
         # every package they list, so the lock file expands the list when there
         # is one.
-        if reader is not None:
-            requirements = reader.backend(requirements, target, subject)
+        requirements = build_systems.backend(reader, requirements, target, subject, request.build_systems)
         # **One path serves both hooks, and PEP 517 says that it may.** The
         # `requires` of the project is the environment that a backend builds
         # in, whichever hook the frontend calls. What this lab does not do is

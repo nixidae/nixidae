@@ -42,10 +42,16 @@ from ._sdist import (
     PYPROJECT as PYPROJECT,
 )
 from ._sdist import (
+    has_native_sources as has_native_sources,
+)
+from ._sdist import (
     is_pyproject as is_pyproject,
 )
 from ._sdist import (
     read_pyproject as read_pyproject,
+)
+from ._select import (
+    EDITABLE_REQUIRES as EDITABLE_REQUIRES,
 )
 from ._select import (
     FALLBACK_BACKEND as FALLBACK_BACKEND,
@@ -106,6 +112,7 @@ from ._uvlock import (
 )
 
 __all__ = [
+    "EDITABLE_REQUIRES",
     "FALLBACK_BACKEND",
     "OVERRIDE_KEYS",
     "PYPROJECT",
@@ -128,6 +135,7 @@ __all__ = [
     "choose",
     "env",
     "filter_conflicts",
+    "has_native_sources",
     "is_pyproject",
     "nix_string",
     "overrides_from",

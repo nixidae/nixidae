@@ -22,6 +22,8 @@ from packaging.utils import canonicalize_name
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from packaging.requirements import Requirement
+
     from ._select import Artifact
 
 
@@ -122,6 +124,16 @@ def overrides_from(inputs: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+#: The variable that fixes the version, for each VCS-versioning plugin.
+PRETEND_VERSION = {
+    "setuptools-scm": "SETUPTOOLS_SCM_PRETEND_VERSION",
+    "hatch-vcs": "SETUPTOOLS_SCM_PRETEND_VERSION",
+    "flit-scm": "SETUPTOOLS_SCM_PRETEND_VERSION",
+    "uv-dynamic-versioning": "UV_DYNAMIC_VERSIONING_BYPASS",
+    "poetry-dynamic-versioning": "POETRY_DYNAMIC_VERSIONING_BYPASS",
+}
+
+
 @dataclass
 class Plan:
     """The graph that a planner decided, in the shape `graph.nix` takes."""
@@ -146,6 +158,34 @@ class Plan:
     #: The node override of each package, by PEP 503 name, from `overrides_from`.
     overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
     _seen: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
+
+    def compile_with(self, package: str, compiler: dict[str, str] | None) -> None:
+        """Give `package` the default compiler, unless it has build tools of its own.
+
+        The planner calls this for a source that holds native code
+        (`has_native_sources`). A declaration, a hint or an override wins.
+        """
+        name = canonicalize_name(package)
+        if compiler is not None and not self.build_tools.get(name):
+            self.build_tools[name] = [compiler]
+
+    def pretend_version(self, package: str, version: str, requirements: Sequence[Requirement]) -> None:
+        """Give a tree that a VCS-versioning plugin builds the version, by its variable.
+
+        **A tree in the store has no `.git`**, and setuptools-scm, hatch-vcs,
+        uv-dynamic-versioning and poetry-dynamic-versioning read the version
+        from there. Each takes a fixed one from a variable instead. The lock
+        records the version uv computed, and a dynamic one is "0.0.0". An
+        `env` override of the package wins.
+        """
+        names = {canonicalize_name(requirement.name) for requirement in requirements}
+        variables = {variable for plugin, variable in PRETEND_VERSION.items() if plugin in names}
+        if not variables:
+            return
+        override = self.overrides.setdefault(canonicalize_name(package), {})
+        env: dict[str, str] = override.setdefault("env", {})
+        for variable in sorted(variables):
+            env.setdefault(variable, version)
 
     def tools_for(self, package: str) -> dict[str, Any]:
         """The `buildTools` and `overrides` keys of the node that builds `package`.

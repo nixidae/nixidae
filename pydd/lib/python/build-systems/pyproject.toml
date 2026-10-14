@@ -1,0 +1,35 @@
+# The installer and the common build backends, locked: what pydd falls back
+# to when a project's own uv.lock does not hold a build system. uv resolves
+# build dependencies apart from the project, so a uv.lock in the wild holds
+# none of them. Lock again with:
+#
+#     UV_PYTHON=<nixpkgs python3>/bin/python3 UV_PYTHON_DOWNLOADS=never uv lock
+[project]
+name = "pydd-build-systems"
+version = "0"
+requires-python = ">=3.10"
+
+[dependency-groups]
+build = [
+    "installer",
+    "packaging",
+    "setuptools",
+    "setuptools-scm",
+    "wheel",
+    "hatchling",
+    "hatch-vcs",
+    "hatch-fancy-pypi-readme",
+    "editables",
+    "flit-core",
+    "flit-scm",
+    "pdm-backend",
+    "poetry-core",
+    "poetry-dynamic-versioning",
+    "uv-build",
+    "uv-dynamic-versioning",
+    "meson-python",
+    "scikit-build-core",
+    "cython",
+    "cffi",
+    "pybind11",
+]

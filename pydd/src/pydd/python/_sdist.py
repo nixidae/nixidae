@@ -46,6 +46,31 @@ def is_pyproject(name: str, subdirectory: str = "") -> bool:
     return len(parts) == len(wanted) + 1 and parts[1:] == wanted
 
 
+#: The suffixes of source that a compiler builds. Rust is not one: a crate
+#: needs cargo and the network, which a sandbox has neither of.
+NATIVE_SUFFIXES = frozenset({".c", ".cc", ".cpp", ".cxx", ".pyx", ".f", ".f90"})
+
+
+def has_native_sources(source: str | Path) -> bool:
+    """Whether an archive, or a tree, holds source that a compiler builds.
+
+    **nixpkgs names no compiler for a package**, because stdenv gives every
+    package one. So the hints of `lib/python/hints.nix` give none to a package
+    whose other inputs are all Python, such as `httptools`, and the planner
+    looks at what it is about to build instead.
+    """
+    path = Path(source)
+    if path.is_dir():
+        names = [str(member) for member in path.rglob("*")]
+    elif path.name.endswith(".zip"):
+        with zipfile.ZipFile(path) as archive_file:
+            names = archive_file.namelist()
+    else:
+        with tarfile.open(path) as archive_file:
+            names = archive_file.getnames()
+    return any(PurePosixPath(name).suffix in NATIVE_SUFFIXES for name in names)
+
+
 def read_pyproject(archive: str | Path, subdirectory: str = "") -> dict[str, Any]:
     """The `pyproject.toml` of a source distribution, read from the archive.
 

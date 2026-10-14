@@ -44,6 +44,9 @@
   builders ? { },
   # Whether an evaluator in a planner may build to import, as in `./uv.nix`.
   allowImportFromDerivation ? false,
+  # Whether the planner falls back to pydd's lock of the installer and the
+  # common build backends, as in `./uv.nix`.
+  buildSystems ? true,
 }:
 let
   inherit (pkgs) lib;
@@ -106,6 +109,12 @@ let
     inherit overrides;
   };
 
+  ownArtifacts = lib.concatMap artifactsOf document.package;
+  fallback = import ./build-systems {
+    inherit pkgs;
+    own = ownArtifacts;
+  };
+
   planned = import ./planner.nix {
     inherit
       pkgs
@@ -120,7 +129,8 @@ let
       ;
     buildTools = hintedBuildTools // overridden.buildTools // buildTools;
     overrides = overridden.nodes;
-    artifacts = lib.concatMap artifactsOf document.package;
+    artifacts = ownArtifacts ++ lib.optionals buildSystems fallback.rows;
+    buildSystems = if buildSystems then fallback.lock else null;
     roots = [ ];
     venvName = environmentName;
     editables = lib.optionalAttrs packageMode {

@@ -37,6 +37,15 @@ if TYPE_CHECKING:
 #: The backend that PEP 517 names when a project declares no `build-backend`.
 FALLBACK_BACKEND = "setuptools.build_meta:__legacy__"
 
+#: What PEP 518 has a project with no `[build-system]` table require. pip
+#: requires the same, and setuptools 70.1 and later build a wheel with no
+#: `wheel` package.
+FALLBACK_REQUIRES = ("setuptools>=40.8.0",)
+
+#: What a backend's `get_requires_for_build_editable` adds, by backend. The
+#: planner cannot call that hook: the backend is not built when it plans.
+EDITABLE_REQUIRES = {"hatchling.build": ("editables",)}
+
 #: The oldest and the newest glibc minor version that a `manylinux_2_Y` tag
 #: may name. PEP 600 defines the scheme, and 2.17 is the floor that
 #: `manylinux2014` corresponds to.
@@ -97,6 +106,8 @@ class Artifact:
     #: instantiated. Only a row of kind `sdist` carries one.
     planner_drv: str = ""
     planner_out: str = ""
+    #: From pydd's lock of build systems, and not the project's.
+    build_systems: bool = False
     #: The node that a host function made for this artefact (Lillecarl/pydd#6).
     host_drv: str = ""
     host_out: str = ""
@@ -115,6 +126,7 @@ class Artifact:
             subdirectory=row.get("subdirectory", ""),
             planner_drv=row.get("plannerDrv", ""),
             planner_out=row.get("plannerOut", ""),
+            build_systems=row.get("buildSystems", False),
             host_drv=row.get("hostDrv", ""),
             host_out=row.get("hostOut", ""),
         )
@@ -352,6 +364,8 @@ def build_system(pyproject: dict[str, Any]) -> tuple[str, list[Requirement]]:
     both planners read it with this function. PEP 517 gives the fallback for a
     project that declares no backend.
     """
-    table = pyproject.get("build-system", {})
+    if "build-system" not in pyproject:
+        return FALLBACK_BACKEND, [Requirement(text) for text in FALLBACK_REQUIRES]
+    table = pyproject["build-system"]
     backend = table.get("build-backend", FALLBACK_BACKEND)
     return backend, [Requirement(text) for text in table.get("requires", [])]

@@ -76,7 +76,11 @@ let
   # cannot rank wheels, so it takes the lock file's only one.
   installerWheel =
     let
-      found = builtins.filter (entry: normalise entry.package == normalise installer) wheels;
+      every = builtins.filter (entry: normalise entry.package == normalise installer) wheels;
+      # The project's own installer before pydd's (`../python/build-systems`),
+      # as the planner chooses.
+      own = builtins.filter (entry: !(entry.buildSystems or false)) every;
+      found = if own != [ ] then own else every;
     in
     if builtins.length found == 1 then
       builtins.head found

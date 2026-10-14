@@ -31,6 +31,10 @@
   # A reader of a different lock format fills this list, and so does a test
   # that builds its artefacts rather than fetching them.
   artifacts ? null,
+  # pydd's own lock of the installer and the common build backends
+  # (`./build-systems`), as a path, or `null`. The planner falls back to it
+  # when the project's lock holds no installer or no build system.
+  buildSystems ? null,
   roots ? lock.roots,
   installer ? lock.installer,
   # **A `uv.lock` for the planner to resolve, as a path.** `./uv.nix` gives a
@@ -431,6 +435,9 @@ let
       ;
     # Only a node with `patches` reads this.
     patch = pkgs.gnupatch;
+    # What a source with native code builds with, when nothing names a tool
+    # for it (`pydd.python.has_native_sources`).
+    compiler = pkgs.stdenv.cc;
     inherit python;
     # `patchelf` and the three below reach only a node that installs a
     # binary wheel. `pkgs.autoPatchelfHook` is a setup hook, and a graph
@@ -515,6 +522,7 @@ let
     // buildToolPaths
     // overridePaths
     // stdenvTemplate
+    // pkgs.lib.optionalAttrs (buildSystems != null) { buildSystems = "${buildSystems}"; }
     // {
       inherit
         roots
