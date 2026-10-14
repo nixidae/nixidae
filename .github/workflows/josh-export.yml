@@ -1,6 +1,11 @@
 # Export each source to its own repository. `pkgs/josh-export` says what it
 # checks before a push, and `pkgs/lock-subtrees` why every source's lock has
 # to name the commit under it. nixidae/nixidae#4.
+#
+# JOSH_EXPORT_TOKEN is a fine-grained token, resource owner nixidae, on the
+# nine sources of nix/members.nix: Contents and Workflows read/write.
+# Without Workflows, GitHub refuses a push that creates a workflow file. The
+# nixkube release job uses the same token for nixidae/nixkube.
 
 name: josh export
 on:
