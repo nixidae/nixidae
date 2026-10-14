@@ -118,7 +118,8 @@ a vendor directory that nixpkgs makes from `Cargo.lock`. A node reads its
 build script's output when it builds. The lane uses only `pydd.core`, and
 builds in the `cli`, `huggorm`, `drv` and `recursive` modes. `out` cannot
 build it: there the host makes every node, and only cargo knows the
-units. [The Rust page](https://lillecarl.github.io/pydd/rust.html) has
+units. A crate that links a system library gets it from nixpkgs'
+`defaultCrateOverrides`, or from `[package.metadata.pydd.build-tools]`. [The Rust page](https://lillecarl.github.io/pydd/rust.html) has
 the detail.
 
 ## Extending a build

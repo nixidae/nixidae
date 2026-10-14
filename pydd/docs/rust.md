@@ -52,9 +52,45 @@ the target, the mode, the platform, the features, the profile and the
 metadata of each dependency. It holds no path of the host, so every mode
 gives the same file names.
 
+## Native libraries
+
+A crate that links a system library, such as openssl-sys, needs that
+library and often `pkg-config` (Lillecarl/pydd#17). Three sources give
+the nodes of a crate its tools, and a later one wins for the crate it
+names:
+
+| source | example | holds |
+| --- | --- | --- |
+| nixpkgs hints, `nixpkgsHints = true` | `defaultCrateOverrides.openssl-sys` | tools, variables |
+| the project | `[package.metadata.pydd.build-tools]`, `[package.metadata.pydd.overrides.<crate>]` | tools, `env` |
+| the call | `buildTools.<crate>`, `overrides.<crate>.env` | tools, `env` |
+
+**The hints are nixpkgs' own table.** `defaultCrateOverrides` tells
+`buildRustCrate` the inputs of each crate that needs one, so an overlay
+that changes it changes pydd's nodes too. A variable in capitals in an
+entry becomes a variable of the node: zstd-sys gets
+`ZSTD_SYS_USE_PKG_CONFIG`, and so links the libzstd of nixpkgs rather
+than the copy it bundles.
+
+**A tool reaches the build script and the compile of its crate, and no
+other node.** `bin` goes on `PATH`, `lib/pkgconfig` and `share/pkgconfig`
+on `PKG_CONFIG_PATH`, and `include` into `CFLAGS` and `CXXFLAGS` as
+`-isystem`. The library is linked where the build script says, and the
+linker wrapper of nixpkgs writes the RUNPATH.
+
+`tests/rust/native-app` builds openssl and zstd with no declaration.
+`tests/rust/native-declared` turns the hints off and declares the same
+inputs, in `Cargo.toml` for openssl-sys and in the call for zstd-sys.
+With the hints off and nothing declared, openssl-sys fails: it finds
+neither `pkg-config` nor OpenSSL.
+
+**cargo-dyndrv has no hints.** Its caller writes an `extern` set by hand,
+keyed by the full crate ID, with the `PATH` and the environment of each
+build script.
+
 ## The modes
 
-serde-app gives one binary and one root in four modes:
+Each project of `tests/rust` gives one binary and one root in four modes:
 `nix run --file . test-rust`.
 
 | mode | Nix | writes through |
@@ -81,14 +117,11 @@ build script through a small wrapper binary.
 pydd's lane is a Python planner over `pydd.core`, so it runs in every
 mode that the core has, recursive-nix included. A node builds with a
 Python script and `rustc`, and keeps the output of a build script as JSON.
-cargo-dyndrv has an `extern` configuration for native inputs, which pydd
-does not have yet.
 
 ## What is missing
 
 | need | issue |
 | --- | --- |
-| native dependencies, per-crate overrides | Lillecarl/pydd#17 |
 | workspaces, path and git sources, profiles, features | Lillecarl/pydd#18 |
 | `CARGO`, `links` metadata, more build-script keys | Lillecarl/pydd#19 |
 | fetch only the crates that the graph uses | Lillecarl/pydd#20 |
