@@ -76,6 +76,9 @@ def parse_cfg(text):
     values = {}
     for line in text.splitlines():
         key, _, value = line.partition("=")
+        # Cargo leaves this out: the profile decides it, and `PROFILE` says so.
+        if key == "debug_assertions":
+            continue
         values.setdefault(key, [])
         if value:
             values[key].append(value.strip('"'))

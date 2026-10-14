@@ -15,6 +15,10 @@ let
       # The program that `meta.mainProgram` names, or `null`.
       program ? name,
     }:
+    assert lib.assertMsg (pydd.protocol != "out") (
+      "pydd.rust.cargo: plannerProtocol = \"out\" needs the host to make every node, "
+      + "and only cargo, in a build, knows the units. Use \"rpc\" or \"recursive\"."
+    );
     let
       source = lib.cleanSourceWith {
         src = project;
