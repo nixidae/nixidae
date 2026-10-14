@@ -130,8 +130,9 @@ in the build, chooses the packages for the platform, and writes a
 fixed-output fetch and a node for each one. A package with an install
 script runs it in its own node, node-gyp included. The root copies each
 node to the path that the lock gives it, so Node resolves every `require`
-as after `npm ci`, and runs `npm run build`. The lane builds in the `cli`,
-`huggorm`, `drv` and `recursive` modes. [The npm
+as after `npm ci`, and runs `npm run build`. The lane builds in every
+mode. In `out` the host makes each node from the lock, and the planner
+writes only the root. [The npm
 page](https://lillecarl.github.io/pydd/node.html) has the detail.
 
 ## Extending a build
@@ -277,9 +278,9 @@ four modes, and compares the binaries and the roots. `test-rust-live`
 builds ripgrep, fd, hyperfine and bat from GitHub, as they are, in three.
 
 `nix run --file . test-node` builds the npm projects of `tests/node` in
-four modes. `test-node-live` builds http-server, nodemon,
+five modes. `test-node-live` builds http-server, nodemon,
 npm-check-updates and json-server, at the releases that nixpkgs builds,
-in three.
+in four.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock

@@ -140,7 +140,7 @@ A program's `#!/usr/bin/env node` becomes the path of Node, as stdenv's
 
 ## The modes
 
-Each project of `tests/node` gives one result in four modes:
+Each project of `tests/node` gives one result in five modes:
 `nix run --file . test-node`.
 
 | mode | Nix | writes through |
@@ -149,13 +149,47 @@ Each project of `tests/node` gives one result in four modes:
 | `huggorm` | master, `builder-rpc-v0` | huggorm |
 | `drv` | master, `builder-rpc-v0` | `pydd-drv` |
 | `recursive` | 2.35, recursive-nix | `nix derivation add`, root to `$out` |
+| `out` | 2.35, no socket | the host makes every node; the planner writes the root to `$out` |
 
-**`out` is possible for npm, and not written.** In `out`, the host makes
-every node. Only cargo, in a build, knows Rust's units, so the Rust lane
-cannot have `out`. The npm lock names every node, so the host could make
-them all, as the Python lane does with `graph.nix`. The graph is then
-static, as nixpkgs' `importNpmLock` already gives. The difference
-between the ecosystems is whether the lock is the whole plan.
+## `out`: the host makes the graph
+
+**`out` exists for npm, and not for Cargo.** On released Nix with no
+socket, a planner writes one derivation. Every node that its root names
+must exist before the planner runs, as an input of it. Only cargo, in a
+build, knows Rust's units, so the host cannot make them. The npm lock
+names every node, so the host can.
+
+`lib/node/graph.nix` is the planner's resolution a second time, in Nix:
+the platform, Node's walk, the closure of an install script, the `.bin`
+links, and the spec of each node. It must give the `.drv` that the
+planner gives, byte for byte. `OutWriter` refuses a root that names any
+other, so a difference fails the build and does not pass unseen. Three
+rules make the two agree:
+
+- **JSON as `builtins.toJSON` writes it**: sorted keys, no spaces, no
+  escaped Unicode. Every list in a spec is sorted.
+- **A tool is an input derivation.** A string with a package's path
+  carries that derivation in Nix. So the menu gives the planner `refs`,
+  the derivation and output of each such path, and a node names the
+  derivation and not the path.
+- **A fetch is named by its URL**, and not by the first path that needs
+  it, so the order of a walk cannot change a name.
+
+The planner then only chooses the root. The graph is static, as
+`importNpmLock` makes it, and the evaluation reads the lock:
+
+| nodemon, 807 lock entries | evaluator CPU | function calls |
+| --- | --- | --- |
+| `cli`, the planner reads the lock | 1.01 s | 0.27 M |
+| `out`, the host reads the lock | 1.31 s | 1.99 M |
+
+The cost of `cli` does not grow with the lock. The cost of `out` does.
+Whether a lock is the whole plan decides whether an ecosystem has `out`
+at all.
+
+A variable in `overrides.<name>.env` that names a store path differs
+between the two in `out`: the menu gives the planner the text, without
+the derivation.
 
 ## What is missing
 
