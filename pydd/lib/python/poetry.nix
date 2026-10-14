@@ -148,7 +148,7 @@ let
 in
 # An ordinary derivation, as `./uv.nix` gives it (Lillecarl/pydd#7).
 let
-  root = import ./application.nix {
+  root = import ../core/root.nix {
     inherit pkgs;
     name = environmentName;
     application = planned.out;

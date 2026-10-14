@@ -27,8 +27,8 @@
 # usually installs a console script of its own name, and a member that does not
 # is why `program` is an argument at all.
 #
-# `uv.nix` and `poetry.nix` call this for their result, and `tests/sealed.nix`
-# calls it over the fixtures.
+# Each ecosystem calls this for its result: `python/uv.nix`, `python/poetry.nix`
+# and `rust/default.nix`.
 {
   pkgs,
   # The dynamic output, as `builtins.outputOf <planner>.outPath "out"`.

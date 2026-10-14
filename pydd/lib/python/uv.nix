@@ -371,7 +371,7 @@ let
       );
 
   # **The result is an ordinary derivation** (Lillecarl/pydd#7), and
-  # `./application.nix` gives the shape. It takes `overrideAttrs` and every
+  # `../core/root.nix` gives the shape. It takes `overrideAttrs` and every
   # install hook, and `pydd.python.uv` gives it `override` over the arguments
   # of this file. `passthru` holds the planner, and `dynamic` is the output
   # that the planner submits.
@@ -390,7 +390,7 @@ let
   # itself is one store path that both graphs reach.
   environment = if environmentTarget == null then root else environmentTarget;
 
-  root = import ./application.nix {
+  root = import ../core/root.nix {
     inherit pkgs;
     application = planned.out;
     program = if application == null then null else chosenProgram;
