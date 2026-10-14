@@ -109,7 +109,9 @@ class Graph:
     def target(self, importer: str, name: str, ref: Ref) -> str:
         """A version's key, or the member a link names as `link:<path>`."""
         if ref.startswith("link:"):
-            return "link:" + posixpath.normpath(posixpath.join(importer, ref.removeprefix("link:")))
+            # npm names the project itself by the empty path.
+            path = posixpath.normpath(posixpath.join(importer, ref.removeprefix("link:")))
+            return "link:" + ("" if path == "." else path)
         return self.key(name, ref)
 
 

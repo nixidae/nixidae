@@ -480,7 +480,7 @@ class Graph:
         present = [path for path in lock.packages if path and lock.present(path)]
         tree = {path: self.package(path).output() for path in present if lock.is_package(path)}
         links = {
-            path: posixpath.relpath(lock.packages[path]["resolved"], posixpath.dirname(path))
+            path: posixpath.relpath(lock.packages[path]["resolved"] or ".", posixpath.dirname(path))
             for path in lock.packages
             if lock.packages[path].get("link")
         }
@@ -502,7 +502,8 @@ class Graph:
             "bins": bin_links(lock, [path for path in [*tree, *links] if path in shipped or path in links]),
             "omit": sorted(path for path in tree if path not in shipped),
             "scripts": scripts,
-            "workspaces": bool(members),
+            # pnpm, Yarn and bun run a script in the project only.
+            "workspaces": bool(members) and self.menu.lockfile == "package-lock.json",
             "programs": bins,
             "nodejs": self.menu.nodejs,
         }
