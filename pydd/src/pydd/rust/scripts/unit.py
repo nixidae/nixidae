@@ -17,8 +17,9 @@ import os
 import subprocess
 import sys
 
-unit = json.loads(os.environ["PYDD_UNIT"])
-out = os.environ["out"]  # noqa: SIM112 - Nix names it `out`
+# A test imports this file with neither set.
+unit = json.loads(os.environ.get("PYDD_UNIT", "{}"))
+out = os.environ.get("out", "")  # noqa: SIM112 - Nix names it `out`
 
 
 def read_json(path, default):
@@ -223,19 +224,20 @@ def run_unit():
     write_json(f"{out}/flags.json", printed)
 
 
-match unit["action"]:
-    case "compile":
-        compile_unit()
-    case "run":
-        run_unit()
-    case "doctest":
-        doctest_unit()
-    case "check":
-        check_unit()
-    case "join":
-        os.makedirs(f"{out}/bin")
-        for directory in unit["bins"]:
-            for name in sorted(os.listdir(directory)):
-                os.symlink(f"{directory}/{name}", f"{out}/bin/{name}")
-        for name, path in unit.get("logs", {}).items():
-            os.symlink(f"{path}/log", f"{out}/{name}.log")
+if __name__ == "__main__":
+    match unit["action"]:
+        case "compile":
+            compile_unit()
+        case "run":
+            run_unit()
+        case "doctest":
+            doctest_unit()
+        case "check":
+            check_unit()
+        case "join":
+            os.makedirs(f"{out}/bin")
+            for directory in unit["bins"]:
+                for name in sorted(os.listdir(directory)):
+                    os.symlink(f"{directory}/{name}", f"{out}/bin/{name}")
+            for name, path in unit.get("logs", {}).items():
+                os.symlink(f"{path}/log", f"{out}/{name}.log")
