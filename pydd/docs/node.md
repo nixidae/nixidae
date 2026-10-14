@@ -84,6 +84,30 @@ that the package bundles.
 Install scripts that depend on each other in a cycle are refused, with
 the cycle in the message. npm runs them in an order of its own choice.
 
+## Other sources
+
+| `resolved` in the lock | source |
+| --- | --- |
+| `https://...` with `integrity` | a fixed-output fetch of the tarball |
+| `git+ssh://git@github.com/...#<commit>`, GitLab, sourcehut | a fixed-output fetch of the commit's archive, unpacked |
+| a path in the project, `file:...` | the project's own file |
+| a workspace member, with `link: true` | a link in the root, to the member |
+
+**A git dependency needs its hash.** The lock names the commit and no
+hash. The call gives `outputHashes."<name>-<version>"`, the hash of the
+unpacked archive, as `fetchFromGitHub` takes it. The planner's error
+names the URL, and `nix store prefetch-file --unpack <url>` prints the
+hash. nixpkgs' `prefetch-npm-deps` maps the URLs of the three hosts the
+same way. A git dependency with a `prepare` script is refused: npm runs
+it with the package's development dependencies, and the lock does not
+name those.
+
+**`overrides.<name>.src` replaces a package**, with a tarball or a
+directory, wherever the lock installs it. Its fetch is not written. This
+is how a patched or a prebuilt package goes in, as nixpkgs'
+`importNpmLock` takes `packageSourceOverrides`. `tests/node/git-dep`
+replaces `ms`, and fetches `isarray` from a commit on GitHub.
+
 ## Native inputs
 
 nixpkgs has no table of npm packages and their inputs, as
@@ -103,8 +127,13 @@ the Rust lane (`tool_env` of `pydd.core`).
 The root copies the project, places every node, and links each workspace
 member where the lock names it. It runs each script of `scripts`
 (`[ "build" ]`) with `npm run --if-present`, in the project and in each
-workspace member. It then removes what `omit` leaves out, and links each
-program of the project and of its workspace members into `bin`.
+workspace member. The project builds in the build directory, and not in
+`$out/lib/node_modules`: TypeScript, and api-extractor over it, skip
+every file under a `node_modules`, the project's own included.
+
+The root then removes what `omit` leaves out, and the directories that
+this leaves empty. It links each program of the project and of its
+workspace members into `bin`.
 
 A program's `#!/usr/bin/env node` becomes the path of Node, as stdenv's
 `patchShebangs` does. The packages' programs get the same.
@@ -130,7 +159,7 @@ between the ecosystems is whether the lock is the whole plan.
 
 ## What is missing
 
-- Git dependencies and remote tarballs without a hash. The planner refuses
-  them by name.
+- A git dependency outside GitHub, GitLab and sourcehut, and one with a
+  `prepare` script. The planner and the node refuse them by name.
 - `npm test` as `root.tests`.
 - bun and pnpm locks, which would read into the same graph.
