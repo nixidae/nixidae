@@ -6,5 +6,5 @@ contact_links:
     url: https://github.com/nixidae/.github/blob/main/SECURITY.md
     about: Do not open a public issue — report it privately instead.
   - name: Nixidae projects
-    url: https://github.com/nixidae
-    about: Not sure which repository your issue belongs to? Start here.
+    url: https://github.com/nixidae/nixidae/issues
+    about: Every project's issues go to nixidae/nixidae.

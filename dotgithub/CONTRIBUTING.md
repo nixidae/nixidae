@@ -4,6 +4,13 @@ Thanks for looking. These are the defaults for every repository in the
 [Nixidae](https://github.com/nixidae) organisation. Individual repositories may
 ship their own `CONTRIBUTING.md`, and where they do, that one wins.
 
+## Where changes go
+
+Every project lives in [nixidae/nixidae](https://github.com/nixidae/nixidae).
+Open issues and pull requests there. Each project also has a repository of its
+own, which an export writes on every push to `main`. A commit pushed to one of
+those repositories does not come back, so do not open a pull request there.
+
 ## Before you write code
 
 For anything more than a typo fix, **open an issue first**. These projects are

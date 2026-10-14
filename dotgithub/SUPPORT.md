@@ -7,18 +7,21 @@ no on-call rota, but questions are welcome and get answered.
 
 **Read the docs first.** Several projects publish generated documentation:
 
-- [nanopynix](https://lillecarl.github.io/nanopynix/)
-- [pynixd](https://lillecarl.github.io/pynixd/)
+- [nanopynix](https://nixidae.github.io/nanopynix/)
+- [pynixd](https://nixidae.github.io/pynixd/)
+- [easykubenix](https://nixidae.github.io/easykubenix/)
+- [nixkube](https://nixidae.github.io/nixkube/)
+- [pydd](https://nixidae.github.io/pydd/)
 
 The other repositories document themselves in their `README.md` and under
 `docs/` in the repository itself.
 
-**Then open an issue** on the repository the question is about. Use the
-*Question* template if the repository has one, or the blank issue form
-otherwise. Questions asked in the open help the next person with the same
+**Then open an issue** on [nixidae/nixidae](https://github.com/nixidae/nixidae/issues),
+the one tracker for every project. Use the *Question* template, and name the
+project in the title. Questions asked in the open help the next person with the same
 problem, which is why there is no private support channel.
 
-Ask on the specific repository rather than here — an issue on
+Ask there rather than here, or on a project's own repository. An issue on
 `nixidae/.github` about a `nanopynix` crash will just get moved.
 
 ## Making a question easy to answer

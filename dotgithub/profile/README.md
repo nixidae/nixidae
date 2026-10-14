@@ -12,7 +12,9 @@ Nixidae is the home of a set of related projects: Python libraries that drive
 Nix, Nix tooling written in Python, and infrastructure that hands Nix store
 paths to systems that were never designed to receive them.
 
-They are separate repositories with separate release cycles, but they share a
+They live in one repository, [nixidae/nixidae](https://github.com/nixidae/nixidae),
+so a change that crosses two projects lands in one commit. Each project is also
+exported to a repository of its own. They share a
 premise — that Nix is worth talking to from a real programming language, and
 that Python is a good one for the job.
 
@@ -29,11 +31,16 @@ Non-venomous. Bites anyway if you pass `--impure`.
 
 | Project | What it is |
 | --- | --- |
-| [**nanopynix**](https://github.com/Lillecarl/nanopynix) | nanobind-based Python bindings for Nix. Nix runs in an isolated worker subprocess and is driven over gRPC, so several differently configured Nix instances can run in parallel from one process. Async API for stores, evaluation and builds. |
-| [**pynix**](https://github.com/Lillecarl/nanopynix/tree/develop/pynix) | A Nix CLI built on nanopynix — `build`, `eval`, `develop`, `repl`, `store`, `path-info`, `flake`, option search — plus a Nix language server that understands the NixOS module system. |
-| [**pynixd**](https://github.com/Lillecarl/pynixd) | The Nix daemon protocol, in Python. Sits between Nix clients and remote builders over SSH: deduplicates concurrent builds, caches path queries locally, and schedules work across multiple backends. |
-| [**nixkube**](https://github.com/Lillecarl/nixkube) | Mounts `/nix` into Kubernetes pods through a CSI driver and an NRI plugin. Store paths, flake refs and Nix expressions become pod volumes with pod lifetime. |
-| [**easykubenix**](https://github.com/Lillecarl/easykubenix) | Kubernetes manifests from the NixOS module system, without generating Nix types for the whole Kubernetes API. Validation runs against an ephemeral `etcd` and `kube-apiserver`. |
+| [**nanopynix**](https://github.com/nixidae/nanopynix) | nanobind-based Python bindings for Nix. Nix runs in an isolated worker subprocess and is driven over gRPC, so several differently configured Nix instances can run in parallel from one process. Async API for stores, evaluation and builds. |
+| [**pynix**](https://github.com/nixidae/nanopynix/tree/main/pynix) | A Nix CLI built on nanopynix — `build`, `eval`, `develop`, `repl`, `store`, `path-info`, `flake`, option search — plus a Nix language server that understands the NixOS module system. |
+| [**pynixd**](https://github.com/nixidae/pynixd) | The Nix daemon protocol, in Python. Sits between Nix clients and remote builders over SSH: deduplicates concurrent builds, caches path queries locally, and schedules work across multiple backends. |
+| [**nixkube**](https://github.com/nixidae/nixkube) | Mounts `/nix` into Kubernetes pods through a CSI driver and an NRI plugin. Store paths, flake refs and Nix expressions become pod volumes with pod lifetime. |
+| [**easykubenix**](https://github.com/nixidae/easykubenix) | Kubernetes manifests from the NixOS module system, without generating Nix types for the whole Kubernetes API. Validation runs against an ephemeral `etcd` and `kube-apiserver`. |
+| [**vivarium**](https://github.com/nixidae/vivarium) | NixOS integration tests without KVM. Guests run as User-Mode Linux, QEMU or container processes, so a test is a derivation that passes or fails. |
+| [**huggorm**](https://github.com/nixidae/huggorm) | Nix C++ bindings for Python, generated from a declaration language written in Python. One declaration gives the C++ binding, the type stubs and the async API. |
+| [**havsorm**](https://github.com/nixidae/havsorm) | Salt states written in Nix and evaluated by huggorm. |
+| [**pydd**](https://github.com/nixidae/pydd) | Dynamic derivations planned in Python: one derivation per package, from a lock file, for Python, Rust and npm. |
+| [**ghanix**](https://github.com/nixidae/ghanix) | GitHub Actions workflows written as NixOS modules. |
 
 ## How the pieces fit
 
@@ -71,19 +78,19 @@ the other makes the store available to the pods they describe.
 ## Where to start
 
 - **Curious what Nix-from-Python looks like?** Read the
-  [nanopynix quickstart](https://lillecarl.github.io/nanopynix/).
+  [nanopynix quickstart](https://nixidae.github.io/nanopynix/).
 - **Want a faster `nix repl` / better editor support?** Look at `pynix`.
 - **Running Nix builds across machines?** Look at `pynixd`.
 - **Running Nix in Kubernetes?** Look at `nixkube`.
 
 ## Status
 
-Nixidae is new. The repositories above still live under
-[@Lillecarl](https://github.com/Lillecarl) and are moving here; GitHub keeps the
-old URLs working, so nothing you bookmark today will break.
+Every project lives in [nixidae/nixidae](https://github.com/nixidae/nixidae).
+The repositories above moved here from [@Lillecarl](https://github.com/Lillecarl);
+GitHub keeps the old URLs working.
 
 Everything here is pre-1.0 and moving. Issues and pull requests are welcome on
-the individual repositories — see [CONTRIBUTING.md](https://github.com/nixidae/.github/blob/main/CONTRIBUTING.md)
+[nixidae/nixidae](https://github.com/nixidae/nixidae) — see [CONTRIBUTING.md](https://github.com/nixidae/.github/blob/main/CONTRIBUTING.md)
 for how that works, and [SECURITY.md](https://github.com/nixidae/.github/blob/main/SECURITY.md)
 if you have found something that should not be reported in public.
 
