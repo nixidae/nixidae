@@ -87,7 +87,8 @@ Security issues do **not** go in the issue tracker — see
 ## Licensing
 
 Contributions are accepted under the licence of the repository you are
-contributing to (MIT unless that repository says otherwise). There is no CLA.
+contributing to (Apache-2.0 unless that repository says otherwise). There is no
+CLA.
 
 ## Conduct
 

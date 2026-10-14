@@ -93,7 +93,7 @@ After transferring a repository:
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
 
 The logo is **not** covered by that licence, and carries disclaimer obligations
 that travel with it wherever it is used. Read
