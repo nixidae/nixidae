@@ -4,8 +4,10 @@
 placeholders, which Nix has replaced with real paths by now.
 
 A compile writes `$out/lib/<file>` (or `$out/bin/<name>`) and
-`$out/link.json`, the link flags of the unit and of what it links, as
-`[flag, value]` pairs. A run of a
+`$out/link.json`, the search paths of the unit and of what it links, as
+`[flag, value]` pairs: cargo passes `rustc-link-search` on to every
+dependent, and `rustc-link-lib` and the link arguments to the package
+alone. A run of a
 build script writes `OUT_DIR` to `$out/out` and what the script printed, by
 kind, to `$out/flags.json`.
 """
@@ -36,31 +38,68 @@ def unique(items):
     return list(dict.fromkeys(items))
 
 
+#: Target kinds that are a library, which takes the package's `-l`.
+LIBRARIES = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+
+
+def link_argument_applies(scope, name):
+    """Whether a `rustc-link-arg*` of the package reaches this unit."""
+    kinds = set(unit.get("kinds", []))
+    testing = unit.get("testing", False)
+    match scope:
+        case "all":
+            return testing or bool(kinds & {"bin", "example", "bench", "test", "cdylib"})
+        case "bins":
+            return "bin" in kinds and not testing
+        case "bin":
+            return "bin" in kinds and not testing and name == unit["file"]
+        case "tests":
+            return testing or "test" in kinds
+        case "examples":
+            return "example" in kinds
+        case "benches":
+            return "bench" in kinds
+        case "cdylib":
+            return "cdylib" in kinds
+    return False
+
+
 def prepare():
-    """The flags, environment and link pairs of a unit, with its build script's output."""
+    """The flags, environment and link pairs of a unit, with its build script's output.
+
+    `search` goes on to every unit that links this one; `link` is the
+    unit's own.
+    """
     flags = list(unit["flags"])
     env = dict(os.environ) | unit["env"]
-    link = []
+    search = []
     for dependency in unit["link_from"]:
-        link += read_json(f"{dependency}/link.json", [])
+        search += read_json(f"{dependency}/link.json", [])
+    link = []
     if script := unit["build_script"]:
         printed = read_json(f"{script}/flags.json", {})
         env["OUT_DIR"] = f"{script}/out"
         env |= printed["env"]
         for cfg in printed["cfg"]:
             flags += ["--cfg", cfg]
-        link = printed["link"] + link
+        search = printed["search"] + search
+        kinds = set(unit.get("kinds", []))
+        if (kinds & LIBRARIES and not unit.get("testing")) or not unit.get("has_lib"):
+            link += printed["libs"]
+        arguments = [arg for scope, name, arg in printed["args"] if link_argument_applies(scope, name)]
+        link += [["-C", f"link-arg={arg}"] for arg in arguments]
     # Pairs, so that `-l ssl -l crypto` keeps both `-l`.
-    link = [list(pair) for pair in unique(tuple(pair) for pair in link)]
+    search = [list(pair) for pair in unique(tuple(pair) for pair in search)]
+    link = search + [list(pair) for pair in unique(tuple(pair) for pair in link)]
     for path in unit["search"]:
         flags.append(f"-Ldependency={path}")
     for extern in unit["externs"]:
         flags += ["--extern", f"{extern['name']}={extern['path']}"]
-    return flags, env, link
+    return flags, env, link, search
 
 
 def compile_unit():
-    flags, env, link = prepare()
+    flags, env, link, search = prepare()
     match unit["output"]:
         case "lib":
             directory = f"{out}/lib"
@@ -75,7 +114,7 @@ def compile_unit():
     command = ["rustc", unit["src"], *flags, *target, *(arg for pair in link for arg in pair)]
     print(" ".join(command), file=sys.stderr)
     subprocess.run(command, env=env, check=True)
-    write_json(f"{out}/link.json", link)
+    write_json(f"{out}/link.json", search)
 
 
 def logged(command, env, cwd=None):
@@ -91,11 +130,11 @@ def logged(command, env, cwd=None):
 
 
 def doctest_unit():
-    flags, env, link = prepare()
+    flags, env, _, search = prepare()
     # rustdoc takes search paths, and a library records the libraries it
     # links in its own metadata.
-    search = [arg for pair in link if pair[0] == "-L" for arg in pair]
-    command = ["rustdoc", "--test", unit["src"], *flags, *search, "--test-run-directory", unit["cwd"]]
+    paths = [arg for pair in search for arg in pair]
+    command = ["rustdoc", "--test", unit["src"], *flags, *paths, "--test-run-directory", unit["cwd"]]
     logged(command, env)
 
 
@@ -144,7 +183,7 @@ def run_unit():
 
     result = subprocess.run([unit["program"]], cwd=unit["cwd"], env=env, stdout=subprocess.PIPE, text=True, check=True)
     sys.stderr.write(result.stdout)
-    printed = {"cfg": [], "env": {}, "link": [], "metadata": {}}
+    printed = {"cfg": [], "env": {}, "search": [], "libs": [], "args": [], "metadata": {}}
     links = (unit["links"] or "").upper().replace("-", "_")
     for line in result.stdout.splitlines():
         if not line.startswith("cargo:"):
@@ -157,13 +196,21 @@ def run_unit():
                 name, _, setting = value.partition("=")
                 printed["env"][name] = setting
             case "rustc-link-lib":
-                printed["link"].append(["-l", value])
+                printed["libs"].append(["-l", value])
             case "rustc-link-search":
-                printed["link"].append(["-L", value])
-            case "rustc-link-arg":
-                printed["link"].append(["-C", f"link-arg={value}"])
+                printed["search"].append(["-L", value])
             case "rustc-flags":
-                printed["link"] += rustc_flags(value)
+                for flag, setting in rustc_flags(value):
+                    printed["search" if flag == "-L" else "libs"].append([flag, setting])
+            case "rustc-link-arg":
+                printed["args"].append(["all", "", value])
+            case "rustc-link-arg-bin":
+                name, _, argument = value.partition("=")
+                printed["args"].append(["bin", name, argument])
+            case "rustc-link-arg-bins" | "rustc-link-arg-tests" | "rustc-link-arg-examples" | "rustc-link-arg-benches":
+                printed["args"].append([key.removeprefix("rustc-link-arg-"), "", value])
+            case "rustc-link-arg-cdylib" | "rustc-cdylib-link-arg":
+                printed["args"].append(["cdylib", "", value])
             case "error":
                 sys.exit(f"build script error: {value}")
             case "metadata" if links:

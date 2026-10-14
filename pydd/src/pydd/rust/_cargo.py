@@ -356,6 +356,13 @@ class Graph:
             "env": env,
             "output": "build-script" if build_script else ("bin" if crate_type == "bin" or testing else "lib"),
             "file": target["name"],
+            # Which of the package's `rustc-link-lib` and link arguments apply.
+            "kinds": target["kind"],
+            "testing": testing,
+            "has_lib": any(
+                set(other["kind"]) & {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+                for other in package["targets"]
+            ),
         }
 
     def externs(self, index: int) -> list[dict[str, str]]:
@@ -437,6 +444,7 @@ class Graph:
             "OPT_LEVEL": profile["opt_level"],
             "DEBUG": "true" if profile["debuginfo"] else "false",
             "NUM_JOBS": "1",
+            "CARGO": f"{self.menu.cargo}/bin/cargo",
             "RUSTC": f"{self.menu.rustc}/bin/rustc",
             "RUSTDOC": f"{self.menu.rustc}/bin/rustdoc",
             "CARGO_ENCODED_RUSTFLAGS": "",
@@ -447,7 +455,7 @@ class Graph:
             "action": "run",
             "program": f"{self.nodes[program].output()}/bin/build-script-build",
             "cwd": manifest_dir,
-            "srcs": [store_root(manifest_dir)],
+            "srcs": [store_root(manifest_dir), self.menu.cargo],
             "target": target,
             "links": package.get("links"),
             "metadata_from": [

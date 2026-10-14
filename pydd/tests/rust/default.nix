@@ -46,9 +46,10 @@ let
         grep -q 'libzstd.so' <<< "$needed"
       '';
     };
-    # A virtual workspace: a member with a build script that writes OUT_DIR,
-    # a path dependency on it, a git dependency at a tag, and a feature that
-    # crosses the members.
+    # A virtual workspace: a member with a build script that writes OUT_DIR
+    # and gives `links` metadata, a path dependency on it whose build script
+    # reads that metadata, runs $CARGO and adds a link argument for its
+    # binaries, a git dependency at a tag, and a feature across members.
     workspace = {
       src = ./workspace;
       arguments = {
@@ -57,7 +58,8 @@ let
         outputHashes."itoa-1.0.15" = "sha256-7be7w9eSbX6d6nb6zaTNvp8gt8pxYdAQLGaaKfaUUns=";
       };
       check = ''
-        test "$(ws-app)" = 'HELLO FROM THE WORKSPACE 42'
+        test "$(ws-app)" = 'HELLO FROM THE WORKSPACE 42 (greeting/build.rs)'
+        readelf -d "$(command -v ws-app)" | grep -q /pydd-link-arg-bins
       '';
     };
     # A path dependency outside the project: `root` holds both.
