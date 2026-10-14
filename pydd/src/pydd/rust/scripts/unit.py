@@ -4,7 +4,8 @@
 placeholders, which Nix has replaced with real paths by now.
 
 A compile writes `$out/lib/<file>` (or `$out/bin/<name>`) and
-`$out/link.json`, the link flags of the unit and of what it links. A run of a
+`$out/link.json`, the link flags of the unit and of what it links, as
+`[flag, value]` pairs. A run of a
 build script writes `OUT_DIR` to `$out/out` and what the script printed, by
 kind, to `$out/flags.json`.
 """
@@ -48,7 +49,8 @@ def compile_unit():
         for cfg in printed["cfg"]:
             flags += ["--cfg", cfg]
         link = printed["link"] + link
-    link = unique(link)
+    # Pairs, so that `-l ssl -l crypto` keeps both `-l`.
+    link = [list(pair) for pair in unique(tuple(pair) for pair in link)]
     for path in unit["search"]:
         flags.append(f"-Ldependency={path}")
     for extern in unit["externs"]:
@@ -65,10 +67,24 @@ def compile_unit():
             directory = f"{out}/bin"
             target = ["--emit=link", "-o", f"{directory}/build-script-build"]
     os.makedirs(directory)
-    command = ["rustc", unit["src"], *flags, *target, *link]
+    command = ["rustc", unit["src"], *flags, *target, *(arg for pair in link for arg in pair)]
     print(" ".join(command), file=sys.stderr)
     subprocess.run(command, env=env, check=True)
     write_json(f"{out}/link.json", link)
+
+
+def rustc_flags(value):
+    """`cargo:rustc-flags`, which takes `-l` and `-L`, with or without a space."""
+    pairs, words = [], value.split()
+    while words:
+        word = words.pop(0)
+        if word in ("-l", "-L"):
+            pairs.append([word, words.pop(0)])
+        elif word[:2] in ("-l", "-L"):
+            pairs.append([word[:2], word[2:]])
+        else:
+            sys.exit(f"cargo:rustc-flags takes only -l and -L, not {word!r}")
+    return pairs
 
 
 def parse_cfg(text):
@@ -111,13 +127,13 @@ def run_unit():
                 name, _, setting = value.partition("=")
                 printed["env"][name] = setting
             case "rustc-link-lib":
-                printed["link"] += ["-l", value]
+                printed["link"].append(["-l", value])
             case "rustc-link-search":
-                printed["link"] += ["-L", value]
+                printed["link"].append(["-L", value])
             case "rustc-link-arg":
-                printed["link"] += ["-C", f"link-arg={value}"]
+                printed["link"].append(["-C", f"link-arg={value}"])
             case "rustc-flags":
-                printed["link"] += value.split()
+                printed["link"] += rustc_flags(value)
             case "error":
                 sys.exit(f"build script error: {value}")
             case "metadata" if links:
