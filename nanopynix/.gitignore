@@ -1,0 +1,59 @@
+result*
+__pycache__
+docs/_build
+.coverage
+.coverage.*
+htmlcov
+.pytest-agent
+.terraform
+# Written beside the benchmark modules that produce it, by
+# grpclib-transports/benchmarks/_bench_utils.py.
+.bench-dumps
+
+# Nix / direnv
+.direnv/
+
+# Logs of scripts/run-tests.sh. Inside the repository so that a run is easy to
+# find, and ignored so that it stays out of the source that every
+# nanopynix-tests-* derivation reads with `cd ${../.}`.
+.test-runs/
+
+# Reports and diagnostics that a test run writes into the repository root.
+# `ci/steps.nix` writes each one and uploads it as a CI artefact, and nothing
+# reads any of them back. All five were tracked until now, so every run put
+# its output into the working copy and a later commit carried it: one of them
+# added about 6000 lines of noise to a commit that changed no test.
+coverage.xml
+junit.xml
+gc-thread-debug.log
+test-gdb-output.log
+nanopynix-test-store-paths.txt
+
+# The three that the list above did not name. `ci/steps.nix` writes them into
+# the same directory, from the TSan legs: `tsan-output-<version>.log` at line
+# 257, `tsan-output-broad-<version>.log` at line 325, and one
+# `soak-<version>-run<seed>.json` for each seed at line 276. A local run of
+# `ciSteps.<version>-tsan` writes them too, so a developer got the same
+# result. One commit then carried a 610 KB TSan log and ten soak reports.
+# `nix/clean-source.nix` repeats these three rules, and a self-check keeps
+# the two files in agreement.
+tsan-output-*.log
+soak-*.json
+
+# A jj workspace that lives inside the repository. `jj` knows its own
+# workspaces and never offers one, so `jj st` stays silent, and only a `git
+# add` sees it. One workspace holds a whole second checkout.
+.workspaces/
+
+# `flake.nix` is a surface and not a build, and commit 39cc78a1 removed the
+# lock it used to carry. A `nix flake` command run in this directory writes
+# the file back, because Nix writes a lock beside the flake it locks. Nothing
+# reads the result: a `github:` or `git+` flake reference reads committed
+# files only, so the file in the working copy is inert.
+#
+# It was not ignored, so jj tracked it on sight and every `jj diff` showed it
+# as a new file. That made it look like it was written again on every
+# command, and it made `umbrella land` carry it into a commit unless somebody
+# moved it aside first. Issue #300 decides whether a lock gets committed on
+# purpose; until then a generated one stays out of the way.
+/flake.lock

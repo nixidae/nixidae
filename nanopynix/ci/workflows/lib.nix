@@ -1,0 +1,1229 @@
+# Shared GitHub Actions job builders.  This file is imported by the rendered
+# workflow entrypoints; ci/render.py deliberately renders only on_*.nix.
+#
+# **No step here carries a script.** Every `run:` is one line, and it calls
+# either one command or a package from `ci/steps.nix`. Every value that comes
+# from a workflow expression reaches a step through `env:`. `CLAUDE.md` gives
+# the rule and `tests/meta/test_ci_step_policy.py` keeps it.
+{ }:
+let
+  # `import ../../.`, and not `builtins.getFlake`.
+  #
+  # This file used to read `flake.packages.<system>` and pick the test runners
+  # out of it by a `passthru.addToMatrix` marker, because a flake output set is
+  # flat and the version names had to survive being flattened into it. That is
+  # no longer necessary: `nix build --file . <attrpath>` reaches any attribute,
+  # so CI names `ciSteps.nix_2_34-tsan` directly and this file reads the same
+  # attributes CI builds. The marker is gone with it.
+  repo = import ../../. { };
+  inherit (repo) lib ciVersionMatrix sources;
+
+  # ghanix is its own repository now, pinned by the umbrella like any other
+  # source. It used to be `../../ghanix`, a directory here, and it moved
+  # because nixkube wants it and has no nanopynix dependency to reach it
+  # through. Nothing about the import changed but the path: it still takes
+  # `lib` and nothing else.
+  ghalib = import sources.ghanix { inherit lib; };
+  inherit (ghalib)
+    steps
+    withCond
+    withTimeout
+    ;
+
+  # Every workflow of this repository, with the environment every job needs.
+  #
+  # It wraps ghanix's `evalWorkflow` rather than writing `env` in each
+  # `on_*.nix`, so a workflow added later cannot be the one that forgets it.
+  # A workflow that sets its own `env` wins, because it is written after the
+  # default in the `//`.
+  #
+  # **UMBRELLA_GIT makes the umbrella fetch each source over the git
+  # protocol, instead of through api.github.com.** Anonymous api.github.com
+  # allows 60 calls an hour per IP, GitHub's runners share a NAT pool, and
+  # every source a job resolves is one call. Issue #301.
+  #
+  # The token this repository installs raises that to 1000 an hour per
+  # repository. This removes the dependency instead: a `git+https://`
+  # reference spends nothing from either budget.
+  #
+  # Measured with a deliberately wrong token, which answers 401 if a request
+  # carried it. On an empty store with an empty `~/.cache/nix`,
+  # `github:NixOS/nixpkgs/<rev>?narHash=<hash>` answers 401 -- it asks the
+  # API first, and it does so even when the store path the narHash names is
+  # already valid. The same revision over git answers with the path. The
+  # store path is the same one either way.
+  # The job that resolves the umbrella once, for the whole run.
+  #
+  # **Every other job reads the answer, so no two jobs can disagree.**
+  # `nix/sources.nix` fetches the umbrella unlocked when nothing pins it, so
+  # it resolves the head of the default branch again in each job. `umbrella
+  # land` pushes the working copies, which starts the run, and the umbrella
+  # lock commit follows seconds later, so a run straddles the push and its
+  # jobs read two different revisions.
+  #
+  # Measured, nixkube run 35026926963: `build-amd64` started at 21:40:23 UTC
+  # and pushed `fc7rz74f...-cacheEnv`; the lock commit landed at 21:40:30;
+  # `build-manifests` started at 21:43:07 and asked for
+  # `zsn1x27a...-cacheEnv`, which nothing had built. Issue #301 records the
+  # same failure twice before that, once with a six second margin.
+  #
+  # **It resolves the umbrella that locks this commit, not the head of the
+  # umbrella default branch.** The head is a moving answer: it is whatever
+  # landed most recently, which for a branch nobody landed is not related to
+  # this commit at all. `ci/walkback.sh` reads
+  # `refs/umbrella/nanopynix/<revision>` from the umbrella remote instead,
+  # walking HEAD backwards to the nearest revision the umbrella has locked.
+  #
+  # git and not Nix: the runner has git, and this job must be the cheapest in
+  # the run because every other job waits for it. One `git ls-remote` and one
+  # `git rev-list`.
+  umbrellaRevJob = "umbrella-rev";
+
+  mkUmbrellaRevJob = {
+    runs-on = "ubuntu-24.04";
+    timeout-minutes = 5;
+    # This job clones a repository and reads a revision out of it. It builds
+    # nothing, so it needs none of the space, and the step is not free: it
+    # deletes tens of gigabytes and prunes every Docker image, which is
+    # minutes. The cap below is five, and it was set for a job that took
+    # seconds.
+    ghanix.freeDiskSpace.enable = false;
+    outputs.rev = "\${{ steps.resolve.outputs.rev }}";
+    steps = [
+      {
+        uses = "actions/checkout@v4";
+        # walkback walks HEAD backwards until it reaches a commit the
+        # umbrella has locked. A branch nobody landed needs its branch
+        # point, so the checkout has to reach that far back.
+        "with".fetch-depth = 100;
+      }
+      {
+        id = "resolve";
+        name = "Resolve the umbrella revision";
+        run = "ci/walkback.sh https://github.com/nixidae/nixidae nanopynix | sed 's/^/rev=/' >> \"$GITHUB_OUTPUT\"";
+      }
+    ];
+  };
+
+  # Every workflow of this repository, with the environment every job needs
+  # and the umbrella revision every job shares.
+  #
+  # It wraps ghanix's `evalWorkflow` rather than writing `env` and `needs` in
+  # each `on_*.nix`, so a workflow or a job added later cannot be the one that
+  # forgets either. A workflow that sets its own `env` wins, and so does a job.
+  #
+  # **UMBRELLA_GIT makes the umbrella fetch each source over the git
+  # protocol, instead of through api.github.com.** Anonymous api.github.com
+  # allows 60 calls an hour per IP, GitHub's runners share a NAT pool, and
+  # every source a job resolves is one call. Issue #301.
+  #
+  # The token this repository installs raises that to 1000 an hour per
+  # repository. This removes the dependency instead: a `git+https://`
+  # reference spends nothing from either budget.
+  #
+  # Measured with a deliberately wrong token, which answers 401 if a request
+  # carried it. On an empty store with an empty `~/.cache/nix`,
+  # `github:NixOS/nixpkgs/<rev>?narHash=<hash>` answers 401 -- it asks the
+  # API first, and it does so even when the store path the narHash names is
+  # already valid. The same revision over git answers with the path. The
+  # store path is the same one either way.
+  evalWorkflow =
+    workflow:
+    let
+      # `needs` is a string, a list or absent, and it has to stay whichever
+      # it was plus one name.
+      asList = n: if n == null then [ ] else if builtins.isList n then n else [ n ];
+
+      pin =
+        name: job:
+        job
+        // {
+          needs = asList (job.needs or null) ++ [ umbrellaRevJob ];
+          env = {
+            UMBRELLA_REV = "\${{ needs.${umbrellaRevJob}.outputs.rev }}";
+          } // (if job.env or null == null then { } else job.env);
+        };
+    in
+    ghalib.evalWorkflow (
+      { env = { UMBRELLA_GIT = "1"; }; }
+      // workflow
+      // {
+        jobs = builtins.mapAttrs pin workflow.jobs // {
+          ${umbrellaRevJob} = mkUmbrellaRevJob;
+        };
+      }
+    );
+
+  # `default.nix` groups the version names, so this file no longer repeats the
+  # variant suffixes as a second list, and `on_schedule.nix` no longer writes
+  # them a third time as a regular expression.
+  inherit (ciVersionMatrix)
+    regular
+    tsan
+    ubsan
+    asan
+    nogc
+    ;
+
+  # The `outputs` of the `version-matrix` job, one for each group above.
+  versionMatrixOutputs = builtins.listToAttrs (
+    map (group: {
+      name = "${group}_versions";
+      value = "\${{ steps.versions.outputs.${group}_versions }}";
+    }) (builtins.attrNames ciVersionMatrix)
+  );
+
+  # Every gate of nix/checks.nix, so a new one cannot be forgotten by the job
+  # that is supposed to run them all.
+  #
+  # `isDerivation` is load-bearing: `checks` comes from `callPackage`, so
+  # `makeOverridable` adds `override` and `overrideDerivation` to it, and both
+  # are functions that `nix build` cannot realise.
+  checkAttrs = builtins.attrNames (lib.filterAttrs (_: lib.isDerivation) repo.checks);
+
+  # Coverage-collecting backends run as separate matrix jobs (test-daemon-*,
+  # test-local-*) rather than serially inside one job, so covering both stays
+  # roughly free in wall-clock: they run in parallel. TSAN already exercises
+  # local+daemon together in its own repeated stress runs, but deliberately
+  # without coverage instrumentation (see mkTsanTestJob).
+  regularBackends = [
+    "daemon"
+    "local"
+  ];
+
+  # A cap for each step that this file writes, in minutes. ghanix's
+  # `steps.nix` carries the caps of the steps that it builds.
+  #
+  # **The cap belongs to the step, and not to the job.** A cap exists for the
+  # case that is not a slow step but a stopped one -- twice a daemon job has
+  # hung on a forkserver child that never reported, and GitHub's unset default
+  # let it sit for 117 and 145 minutes before a person cancelled it. One cap
+  # for a whole job can only hold the sum, so the slack of the longest step
+  # reaches every other step: a sanitized job that builds for 40 minutes and
+  # then tests for 10 needs a cap of 50, and a hung suite under that cap runs
+  # for 40 minutes before it stops. A cap for each step gives the build the
+  # time that the build needs, and it holds the suite to the time that the
+  # suite needs.
+  #
+  # This also answers a real cost. A change to huggorm's `nix/sanitizer.nix`
+  # rebuilds the instrumented closure, which takes 25 minutes for the TSAN variant and
+  # 38 for the UBSan one, and one 30-minute job cap stopped two TSAN jobs for
+  # that reason alone (run 30782379867). The build step now holds that number
+  # by itself, and the test steps keep the tight cap that makes a hang visible.
+  #
+  # Each number is generous against a measurement, and each measurement is
+  # named beside it.
+  caps = {
+    # `nix build` of the CI step package, which pulls the test runner into its
+    # closure. cachix holds the closure, so this is a fetch and a build of the
+    # five packages of this repository: 2.3 minutes. The cap holds a cold build
+    # of Nix itself, which a bumped nixpkgs causes.
+    build = 30;
+    # The same build, instrumented. Cold, and measured: 25 minutes for TSAN,
+    # 38 for UBSan on the slowest version. A change to huggorm's
+    # nix/sanitizer.nix is the only thing that makes it cold.
+    tsanBuild = 45;
+    ubsanBuild = 60;
+    # The ASAN build has two numbers now, and they answer a question this
+    # comment used to guess at: 26 minutes cold in run 30860160011, and 25
+    # minutes in run 30883251498, which builds boost as well. `sanitizeBoost`
+    # in huggorm's nix/sanitizer.nix gives the reason that variant needs its
+    # own boost, and the second number says that boost costs nothing next to the nix
+    # closure. The cap stays at the UBSan one.
+    # There is no `nogcBuild`: `-Dgc=disabled` rebuilds nix-expr, nix-flake
+    # and the bindings and nothing else -- measured, three derivations -- so
+    # that job takes the plain `build` cap.
+    asanBuild = 60;
+    # The full suite. It takes 8 to 13 minutes on every version and backend,
+    # and 9.7 to 13 under UBSan (run 30782379867). The no-collector job takes
+    # the same cap, and it measured 12 minutes locally: a fork for each
+    # in-process test costs about half again as much as one process.
+    suite = 30;
+    # The same suite on macOS, which is slower for two reasons and gets its
+    # own number for that.
+    #
+    # **Run 31949782513 was killed by the 30-minute cap at 94 percent.** Four
+    # LSP tests were burning a 120-second deadline each there, which issue #44
+    # holds and which the move to `test_lsp_protocol.py` took out of this job.
+    # That is about eight minutes back, so the same run reaches the end.
+    #
+    # What stays is the machine. The local backend is not available here, so
+    # every store operation crosses the daemon socket, and the runner of the
+    # macOS job is slower than the Linux one. Measured on an M-series Mac, in
+    # the configuration this job runs: 22 minutes. The runner is slower still.
+    #
+    # **Two complete runs then measured the spread of the runner itself**, and
+    # 45 was not enough headroom for it. Run 31958491707 took 24.6 minutes and
+    # run 31960925314 took 32.7 minutes, on the same commit: the median test
+    # over one second was 1.27 times slower in the second. Another 1.27 on the
+    # slower of those two is 41.5 minutes, which 45 does not clear.
+    #
+    # 60 clears it. The cap is a ceiling and not a cost: a job that finishes in
+    # 25 minutes pays nothing for it, and what it buys is that a slow runner
+    # reports its failures instead of being killed with nothing to read. That
+    # is what 30 cost once already.
+    darwinSuite = 60;
+    # `nanopynix/tests` under ASAN. Three runs measured the way here:
+    #
+    #   30860160011  686 tests, stopped at a 60-minute cap
+    #   30883251498  686 tests, stopped at a 60-minute cap
+    #   30895974566  806 tests, stopped at a 120-minute cap, 0 ASAN reports
+    #
+    # The third raised the three deadlines and got *slower* per test, because
+    # each failure then waited out a longer clock. `ci/steps.nix` answers both
+    # halves: it drops `pynix/tests`, where all ten of that run's failures
+    # were, and brings the deadlines back to a middle ground. The remaining
+    # selection is about 600 tests, and the passing rate of run 30895974566
+    # puts that inside 60 minutes. This is the measurement that confirms it.
+    asanSuite = 60;
+    # One run of the concurrency soak, in the jobs that are not TSAN. It took
+    # 45 seconds in the TSAN jobs of run 30930842932, which is the slow build.
+    soak = 15;
+    # Five runs of the concurrency soak, one per seed. Each run deals every
+    # eligible test into eight overlapping lanes -- see nanopynix_testing.soak.
+    tsanStress = 25;
+    tsanBroad = 20;
+    # `nix build` of every gate, which takes about a minute between them.
+    staticChecks = 20;
+    # Three `sysctl` calls, behind one evaluation.
+    sandbox = 10;
+    # The documentation build, and the copy of its output into `public/`.
+    docsBuild = 30;
+    docsPrepare = 10;
+    # An upload of the whole site, and then a wait on GitHub Pages. Both are
+    # out of our hands.
+    docsUpload = 15;
+    docsDeploy = 20;
+    # One `echo` of a value that `env` already holds. Issue #132.
+    docsGateReport = 2;
+    # A fetch of one ref and a push of one ref. Issue #283.
+    lastGreen = 5;
+    # `actions/deploy-pages` polls the Pages API, and it gives up on its own
+    # after `timeout` milliseconds. That limit defaults to ten minutes, which
+    # is below `docsDeploy` above, so the action decided the deadline and the
+    # job cap never applied. Measured, on two runs of the same site:
+    #
+    #     2026-08-06 11:12:23 -> 11:21:21   success, 8m58s
+    #     2026-08-06 14:52:37 -> 15:02:47   "Timeout reached, aborting!"
+    #
+    # A deployment of this site takes about nine minutes, so the default left
+    # one minute of margin. This raises the limit of the action, and keeps it
+    # under `docsDeploy` so that the job cap stays the outer bound.
+    docsDeployPollMs = 15 * 60 * 1000;
+    # An upload to Codecov of one XML file.
+    codecov = 10;
+    # One `echo` for each group, behind one evaluation of the tree.
+    versionMatrix = 20;
+  };
+
+  # The cap of a job, derived from the caps of its steps.
+  #
+  # GitHub applies both caps, and the smaller one wins. A job cap is therefore
+  # not a second opinion about how long the work takes; it is a backstop for
+  # the time that belongs to no step. Derive it, so that a raised step cap
+  # cannot leave a job cap behind that silently overrides it.
+  #
+  # The sum of the caps is a sum of worst cases, so a derived job cap is much
+  # larger than any run. That is correct for a backstop: each step already
+  # holds its own time, and the job cap only has to catch what no step covers.
+  #
+  # `jobSlack` is that uncovered time. The post phase of an action is the real
+  # case: `cachix/cachix-action` pushes the paths that the job built after the
+  # last step ends, and no step cap reaches it.
+  jobSlack = 15;
+
+  # The sum itself is ghanix's now -- `ghanix.deriveTimeout`. It has to be:
+  # a job can ask ghanix for steps of its own, and a sum taken here, before
+  # the schema is evaluated, would come out short by exactly those steps.
+  mkJob =
+    job:
+    lib.recursiveUpdate job {
+      ghanix.deriveTimeout = {
+        enable = true;
+        slack = jobSlack;
+      };
+    };
+
+  # A single cachix/install-nix-action (multi-user) install suffices for every
+  # job now: the test suite owns its own daemon and local store paths
+  # entirely (see nanopynix_testing.nix_environment), so the CI runner's own
+  # Nix install mode no longer affects what gets exercised. The remaining
+  # local/daemon axis lives in `--nix-test-backends`, not in how Nix itself
+  # was installed.
+  # **What the suite needs of the Nix that owns the store it writes to.**
+  # `nanopynix.settings.DEFAULT_EXPERIMENTAL_FEATURES`, spelled here because a
+  # workflow cannot import Python.
+  #
+  # A job that makes its own daemon does not read this: `_start_daemon` pins
+  # the same list on the command line so that daemon ignores the host. The
+  # macOS job has no private daemon -- `NANOPYNIX_TEST_SYSTEM_STORE` puts it on
+  # the store of the machine -- so the installed Nix is the one that has to
+  # allow them.
+  #
+  # Measured: without it, `test_inproc_read_derivation_keeps_nested_input_drvs`
+  # and its rpc twin fail on `builtins.outputOf` with "experimental Nix feature
+  # 'ca-derivations' is disabled". The comment on `_start_daemon` named those
+  # two tests years before this job existed.
+  suiteExperimentalFeatures = [
+    "flakes"
+    "nix-command"
+    "ca-derivations"
+    "dynamic-derivations"
+    "recursive-nix"
+  ];
+
+  mkTestSetup =
+    {
+      ref ? null,
+      experimentalFeatures ? null,
+    }:
+    [ (steps.checkout { inherit ref; }) ]
+    ++ [
+      (steps.installNix (
+        lib.optionalAttrs (experimentalFeatures != null) { inherit experimentalFeatures; }
+      ))
+      (steps.cachix { })
+    ];
+
+  # `nix run --file .`, for a step that needs no out-link. The attribute path
+  # is the whole interface, and `ci/steps.nix` holds the body.
+  mkNixRunStep =
+    {
+      name,
+      attr,
+      cap,
+      env ? null,
+    }:
+    {
+      inherit name;
+      timeout-minutes = cap;
+      run = "nix run --file . ciSteps.${attr}";
+    }
+    // lib.optionalAttrs (env != null) { inherit env; };
+
+  # The runner has to allow an unprivileged user namespace before any test
+  # that unshares one can run.
+  mkSandboxStep =
+    { }:
+    mkNixRunStep {
+      name = "Enable Nix sandbox namespaces";
+      attr = "enable-sandbox-namespaces";
+      cap = caps.sandbox;
+    };
+
+  # Build the CI step package of one version, and leave it at `result`.
+  #
+  # `$CI_STEP` is a job-level environment variable, so the version reaches this
+  # command without a workflow expression in the body -- which is what keeps
+  # the scheduled workflow, where the version is `${{ matrix.version }}`, on
+  # the same one line as the per-commit workflow.
+  mkBuildStep =
+    { name, cap }:
+    {
+      inherit name;
+      timeout-minutes = cap;
+      run = ''nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths'';
+    };
+
+  # Run one subcommand of the package that `mkBuildStep` left at `result`.
+  mkRunStep =
+    {
+      name,
+      subcommand,
+      cap,
+    }:
+    {
+      inherit name;
+      timeout-minutes = cap;
+      run = "./result/bin/nanopynix-ci ${subcommand}";
+    };
+
+  # The concurrency soak, as a step of its own. `ci/steps.nix` says why it
+  # must not share a process with the rest of the suite.
+  mkSoakStep =
+    { label }:
+    mkRunStep {
+      name = "Run the concurrency soak (${label})";
+      subcommand = "soak";
+      cap = caps.soak;
+    };
+
+  # The job-level environment of a test job: which step package to build, and
+  # for a regular build, which backend to drive.
+  testJobEnv =
+    {
+      version,
+      backend ? null,
+    }:
+    {
+      CI_STEP = "ciSteps.${version}";
+    }
+    // lib.optionalAttrs (backend != null) { BACKEND = backend; };
+
+  mkRegularTestJob =
+    {
+      version,
+      backend,
+      ref ? null,
+      needs ? [ ],
+    }:
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        env = testJobEnv { inherit version backend; };
+        steps = mkTestSetup { inherit ref; } ++ [
+          (mkBuildStep {
+            name = "Build the CI step package for Nix ${version}";
+            cap = caps.build;
+          })
+          (steps.verifyClosure { name = "Verify test runner closure after build"; })
+          (mkSandboxStep { })
+          (mkRunStep {
+            name = "Test nanopynix against Nix ${version} (full suite, ${backend} backend)";
+            subcommand = "suite";
+            cap = caps.suite;
+          })
+          (mkSoakStep { label = "${version}, ${backend} backend"; })
+          (steps.uploadArtifact {
+            name = "Upload test output";
+            artifactName = "test-output-${backend}-${version}";
+            path = "\${{ github.workspace }}/test-gdb-output.log";
+          })
+          # Uploaded on every run, not just a crash. The suite step inlines
+          # this into the log only when pytest died of a signal, which turned
+          # out to be the wrong trigger: the same suspected evaluator-state
+          # corruption also surfaces as an ordinary *test failure* (a value of
+          # the wrong type reaching nixpkgs' `env` type check, exit 1), and
+          # that path needs the same registration history to correlate
+          # against. As an artifact it costs no log space.
+          (steps.uploadArtifact {
+            name = "Upload Boehm GC thread registration log";
+            artifactName = "gc-thread-debug-${backend}-${version}";
+            path = "\${{ github.workspace }}/gc-thread-debug.log";
+          })
+          # **This is the only copy of a hang report that survives.**
+          # `test_support.deadline` attaches the report to the `TimeoutError`,
+          # and pytest renders that note in its end-of-run FAILURES section.
+          # The suite step is killed at 30 minutes, and six tests hanging for
+          # 120 s each spend 12 of those, so the section never prints. This
+          # step runs anyway, because `uploadArtifact` carries
+          # `if: !cancelled()` and the job timeout is far above the step one.
+          # Issue #271 ran on CI many times and produced no report at all.
+          (steps.uploadArtifact {
+            name = "Upload hang reports";
+            artifactName = "hang-report-${backend}-${version}";
+            path = "\${{ github.workspace }}/hang-report.log";
+          })
+          (withCond "\${{ !cancelled() }}" (
+            withTimeout caps.codecov {
+              name = "Upload coverage reports to Codecov";
+              uses = "codecov/codecov-action@main";
+              "with" = {
+                token = "\${{ secrets.CODECOV_TOKEN }}";
+                files = "\${{ github.workspace }}/coverage.xml";
+                flags = "${backend}-${version}";
+              };
+            }
+          ))
+          (withCond "\${{ !cancelled() }}" (
+            withTimeout caps.codecov {
+              name = "Upload test results to Codecov";
+              uses = "codecov/codecov-action@main";
+              "with" = {
+                token = "\${{ secrets.CODECOV_TOKEN }}";
+                files = "\${{ github.workspace }}/junit.xml";
+                flags = "${backend}-${version}";
+                report_type = "test_results";
+              };
+            }
+          ))
+          (steps.verifyClosure { name = "Verify test runner closure after tests"; })
+        ];
+      }
+    );
+
+  # **One test job on macOS, and the whole suite inside it.** Issue #143.
+  #
+  # The subset is the *job*, and not the tests. The suite has never run off
+  # Linux, so the first run does not report a macOS defect: it reports which
+  # tests assume Linux. A hand-picked list of tests would hide exactly that.
+  # `nix_platform` carries the five that cannot answer there, and each one
+  # names what it excludes.
+  #
+  # **The reason this job earns a slot is #140.** Darwin is the one host in
+  # this matrix that is clang with libc++, measured:
+  #
+  #   nanopynixVersions.nix_2_34.huggorm-bindings.stdenv.cc.name
+  #     -> clang-wrapper-21.1.8
+  #   ...stdenv.cc.libcxx.name  -> libcxx-21.1.6+apple-sdk-26.5
+  #
+  # That is the library which compares `type_info` by address, which is the
+  # claim nanobind's `-fvisibility=hidden` makes risky, and that nothing can
+  # confirm today. Its two failures are a lost exception translation and a
+  # null `dynamic_cast`, and the second is a *wrong answer* rather than an
+  # error.
+  #
+  # Three steps of a Linux test job are absent, and each for a reason:
+  #
+  # - the sandbox step unshares a user namespace, which is Linux;
+  # - the soak, which is the ThreadSanitizer workload, and this job runs no
+  #   sanitizer;
+  # - the coverage upload and the collector-thread log, which answer questions
+  #   about a job that is already understood.
+  #
+  # **The test log and the JUnit report are artifacts, and they are not
+  # optional here.** Run 31940698516 lost the whole suite: the runner's own
+  # worker process died with `System.IO.IOException: Illegal byte sequence`
+  # while it wrote its diagnostic log, so the step got no conclusion and
+  # GitHub archived nothing to read. The suite writes both files itself, so an
+  # upload costs one step and answers the run that the live log cannot.
+  #
+  # **`continue-on-error`, to start.** A job that fails for a week and that
+  # nobody reads is worse than no job, and this one is expected to fail until
+  # the Linux assumptions are gone. Remove the flag when it passes, and that
+  # removal is the moment it becomes a gate.
+  mkDarwinTestJob =
+    {
+      version,
+      backend,
+      ref ? null,
+      needs ? [ ],
+    }:
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        runs-on = "macos-latest";
+        continue-on-error = true;
+        # **This job runs what macOS can run, and skips the rest.** macOS is
+        # the less capable platform and this repository cannot change that,
+        # so a test that fails there for a reason it does not own is a test
+        # that must not run there. A marker of `nanopynix_testing.nix_markers`
+        # names each such capability, and the marker is what excludes the
+        # test. Issue #210.
+        #
+        # **It took the store of the machine until then, and that was a way
+        # around the limit rather than a measurement of it.**
+        # `NANOPYNIX_TEST_SYSTEM_STORE` pointed every fixture at
+        # `/nix/store`, which is not diverted, so a build was a plain build.
+        # It also made the job write to the store of the runner, and it hid
+        # which tests really need a capability that macOS lacks. The variable
+        # is gone from this job, and `derivation-builder.cc:2111` is the limit
+        # it was hiding: a build refuses when
+        # `storeDir != realStoreDir` and the platform is not Linux.
+        #
+        # **The backend is `local`, because the stores are our own again.**
+        # `daemon` was the pair of the system store: the runner takes the
+        # multi-user installer, so `/nix/var/nix/db` belongs to root and only
+        # the daemon may write it. A store under the temporary directory of
+        # the suite belongs to the user who runs the job, so a direct
+        # `local://` store opens and writes without a daemon in the middle.
+        env = testJobEnv { inherit version backend; } // {
+          # **This runner is short of compute and of I/O, and the deadline has
+          # to allow for it.** A GitHub runner for Linux is a VM among many; a
+          # runner for macOS is a real Apple machine from a much smaller pool.
+          #
+          # Two runs of the same commit measured the spread: 31958491707 took
+          # 1478 s and 31960925314 took 1960 s, and the median test over one
+          # second was 1.27 times slower in the second. The increase was even
+          # across flake, repl, example and store tests, so it is the machine
+          # and not one subsystem.
+          #
+          # `test_search_builds_index_and_finds_a_match` crossed the 30 s
+          # deadline at 30.9 s in the slower run, having taken 20.4 s in the
+          # faster one. 90 s restores the headroom that 30 s gives a Linux job.
+          #
+          # `ci/steps.nix` keeps 30 as the default, so no Linux job moves.
+          NANOPYNIX_RPC_TIMEOUT = "90";
+        };
+        steps =
+          mkTestSetup {
+            inherit ref;
+            experimentalFeatures = suiteExperimentalFeatures;
+          }
+          ++ [
+            (mkBuildStep {
+              name = "Build the CI step package for Nix ${version}";
+              cap = caps.build;
+            })
+            (steps.verifyClosure { name = "Verify test runner closure after build"; })
+            (mkRunStep {
+              name = "Test nanopynix against Nix ${version} (full suite, ${backend} backend)";
+              subcommand = "suite";
+              cap = caps.darwinSuite;
+            })
+            (steps.uploadArtifact {
+              name = "Upload test output";
+              artifactName = "test-output-darwin-${backend}-${version}";
+              path = "\${{ github.workspace }}/test-gdb-output.log";
+            })
+            (steps.uploadArtifact {
+              name = "Upload the JUnit report";
+              artifactName = "junit-darwin-${backend}-${version}";
+              path = "\${{ github.workspace }}/junit.xml";
+            })
+          ];
+      }
+    );
+
+  # The concurrency soak and the concurrency tests, under ThreadSanitizer.
+  # `ci/steps.nix` carries the collector reasoning, the seed loop and the
+  # forensics that issue #69 asks for.
+  mkTsanTestJob =
+    {
+      version,
+      ref ? null,
+      needs ? [ ],
+    }:
+    let
+      bareVersion = lib.removeSuffix "-tsan" version;
+    in
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        env = testJobEnv { inherit version; };
+        steps = mkTestSetup { inherit ref; } ++ [
+          (mkBuildStep {
+            name = "Build the TSAN CI step package (${bareVersion})";
+            cap = caps.tsanBuild;
+          })
+          (mkSandboxStep { })
+          (mkRunStep {
+            name = "Run TSAN-instrumented concurrency soak (five seeds, local+daemon backends)";
+            subcommand = "soak-seeds";
+            cap = caps.tsanStress;
+          })
+          (mkRunStep {
+            name = "Run TSAN-instrumented concurrency tests (single pass, local+daemon backends)";
+            subcommand = "broad";
+            cap = caps.tsanBroad;
+          })
+          (steps.uploadArtifact {
+            name = "Upload TSAN output (${bareVersion})";
+            artifactName = "tsan-race-report-${bareVersion}";
+            # The soak manifests travel with the log. The log says which tests
+            # were in flight when a race fired; a manifest replays that exact
+            # composition with `--soak-manifest`.
+            path = "\${{ github.workspace }}/tsan-output-${bareVersion}.log\n\${{ github.workspace }}/tsan-output-broad-${bareVersion}.log\n\${{ github.workspace }}/soak-${bareVersion}-run*.json\n";
+          })
+        ];
+      }
+    );
+
+  # The full suite under UndefinedBehaviorSanitizer, against one Nix version.
+  #
+  # UBSan runs on its own rather than beside TSAN, although the two combine.
+  # One sanitizer for each job keeps a red job attributable to one sanitizer.
+  # The reason used to be 2.31, which the TSAN matrix skipped, and issue #126
+  # dropped that version. See huggorm's nix/sanitizer.nix.
+  #
+  # The AddressSanitizer job is `mkAsanTestJob` below, and it needs a libexpr
+  # with no collector. `mkNoGCTestJob` is that build without the sanitizer.
+  mkUbsanTestJob =
+    {
+      version,
+      ref ? null,
+      needs ? [ ],
+    }:
+    let
+      bareVersion = lib.removeSuffix "-ubsan" version;
+    in
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        env = testJobEnv { inherit version; };
+        steps = mkTestSetup { inherit ref; } ++ [
+          (mkBuildStep {
+            name = "Build the UBSAN CI step package (${bareVersion})";
+            cap = caps.ubsanBuild;
+          })
+          (mkSandboxStep { })
+          (mkRunStep {
+            name = "Run UBSAN-instrumented suite (${bareVersion}, local backend)";
+            subcommand = "suite";
+            cap = caps.suite;
+          })
+          (mkSoakStep { label = "UBSAN, ${bareVersion}"; })
+          (steps.uploadArtifact {
+            name = "Upload UBSAN output (${bareVersion})";
+            artifactName = "ubsan-report-${bareVersion}";
+            path = "\${{ github.workspace }}/ubsan-output-${bareVersion}.log";
+          })
+        ];
+      }
+    );
+
+  # The suite against a libexpr with no collector, and no sanitizer.
+  #
+  # **This job exists to keep a failure attributable.** The ASAN job below
+  # runs against the same libexpr, so a red ASAN job has two possible causes:
+  # a memory error, or an evaluator that does not work without the collector.
+  # This one costs a plain build and a plain suite, and it tells the two
+  # apart. It is also the answer to acceptance criterion 2 of issue #47, which
+  # asks that an RPC worker run the suite against such a build.
+  #
+  # **Every test that builds an evaluator in the pytest process runs in a fork
+  # of it, and that is what makes this job possible.** Such a build leaks by
+  # design, and Nix's own package option gives the condition that makes the
+  # leak acceptable: evaluation takes place within short-lived processes. An
+  # RPC worker is one. A forked child is another, and it gives its memory back
+  # when the test ends, so the pytest process stops accumulating.
+  #
+  # The measurements against nix_2_34-nogc say how much that is worth. The
+  # same in-process subset needs about 10 GB in one process and 297 MB forked,
+  # and it runs in 16 seconds rather than 86. The whole suite forked: 2077
+  # passed, 13 skipped, 3 GB peak, 12 minutes.
+  #
+  # `nanopynix_testing.nix_runtime` holds the rule, and
+  # `tests/meta/test_no_collector_rule.py` keeps it from going stale. Four
+  # tests skip separately, through the `boehm_gc` capability that `build_info`
+  # publishes: three measure the collector, and one abandons an evaluator in
+  # the middle of work that Nix will not stop, which no fork can bound.
+  mkNoGCTestJob =
+    {
+      version,
+      ref ? null,
+      needs ? [ ],
+    }:
+    let
+      bareVersion = lib.removeSuffix "-nogc" version;
+    in
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        env = testJobEnv { inherit version; };
+        steps = mkTestSetup { inherit ref; } ++ [
+          (mkBuildStep {
+            name = "Build the no-collector CI step package (${bareVersion})";
+            # The plain cap, not a sanitizer one. `-Dgc=disabled` rebuilds
+            # nix-expr, nix-flake and the bindings, and leaves nix-util,
+            # nix-store and nix-fetchers alone -- measured, three derivations.
+            cap = caps.build;
+          })
+          (mkSandboxStep { })
+          (mkRunStep {
+            name = "Run the suite without a collector (${bareVersion}, local backend)";
+            subcommand = "suite";
+            cap = caps.suite;
+          })
+          (mkSoakStep { label = "no collector, ${bareVersion}"; })
+        ];
+      }
+    );
+
+  # The suite under AddressSanitizer, against one Nix version. `mkNoGCTestJob`
+  # above says how a build with no collector runs the whole suite, and this job
+  # inherits that rule because it builds against the same libexpr: every test
+  # that builds an evaluator in the pytest process runs in a fork of it.
+  #
+  # **The build has no collector, and that is not a tuning choice.** libexpr
+  # refuses ASAN together with the Boehm collector, because a conservative
+  # collector cannot see through the allocator of ASAN and will free an object
+  # that is still live. The first ASAN variant of this repository passed the
+  # flag through `NIX_CFLAGS_COMPILE`, which meson never reads, and it then
+  # reported exactly that -- a tag read of a freed `Value`, which was not
+  # evidence of anything. See `requiresNoGC` in huggorm's nix/sanitizer.nix.
+  #
+  # `detect_leaks=0` is not a workaround. Without the collector the evaluator
+  # allocates and never releases, so a leak checker reports the design of the
+  # build. This job is here for a memory error.
+  #
+  # `detect_stack_use_after_return=1` is not the default, and it is the shape
+  # of the defect of issue #34 -- a stack-local `nix::fetchers::Settings` whose
+  # address outlived the frame. That defect is the acceptance test of issue
+  # #35: restore it, and this job must go red.
+  #
+  # `PYTHONMALLOC=malloc` gives ASAN the allocations of CPython itself. Without
+  # it a report names the arena rather than the caller.
+  mkAsanTestJob =
+    {
+      version,
+      ref ? null,
+      needs ? [ ],
+    }:
+    let
+      bareVersion = lib.removeSuffix "-asan" version;
+    in
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        env = testJobEnv { inherit version; };
+        steps = mkTestSetup { inherit ref; } ++ [
+          (mkBuildStep {
+            name = "Build the ASAN CI step package (${bareVersion})";
+            cap = caps.asanBuild;
+          })
+          (mkSandboxStep { })
+          (mkRunStep {
+            name = "Run ASAN-instrumented suite (${bareVersion}, local backend)";
+            subcommand = "suite";
+            cap = caps.asanSuite;
+          })
+          (mkSoakStep { label = "ASAN, ${bareVersion}"; })
+          (steps.uploadArtifact {
+            name = "Upload ASAN output (${bareVersion})";
+            artifactName = "asan-report-${bareVersion}";
+            path = "\${{ github.workspace }}/asan-output-${bareVersion}.log";
+          })
+        ];
+      }
+    );
+
+  # The gates of nix/checks.nix, in one job. They share a checkout and a Nix
+  # install, they take about a minute between them, and Nix already builds
+  # them in parallel -- so one job costs one runner and reports every gate.
+  # `--keep-going` is what makes that last part true: without it the first
+  # failing gate hides the rest.
+  #
+  # **The list comes from `repo.checks`, so a new gate joins this job by
+  # existing.** It was written by hand until this file could read the
+  # attribute set directly, and a gate that nobody added here ran nowhere.
+  #
+  # `grpclib-transports` and `pytest-agent` are the odd ones out, each being a
+  # run rather than a static tool. Both are here rather than in the `test-*`
+  # matrix because both are version-independent: that matrix exists to run one
+  # suite against each supported Nix version, and neither subproject links Nix
+  # at all. Three copies of either would be three identical runs.
+  mkStaticChecksJob =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        steps = [
+          (steps.checkout { inherit ref; })
+        ]
+        ++ [
+          (steps.installNix { })
+          (steps.cachix { })
+          {
+            name = "Run the gates (${builtins.concatStringsSep ", " checkAttrs})";
+            timeout-minutes = caps.staticChecks;
+            run = "nix build --file . --no-link --print-build-logs --keep-going ${
+              builtins.concatStringsSep " " (map (attr: "checks.${attr}") checkAttrs)
+            }";
+          }
+        ];
+      }
+    );
+
+  # **The build waits for nothing, and the deploy carries the argument.**
+  # `docs-build` used to name every gating test job, so one red job in the
+  # matrix skipped it. A sanitizer job reads the memory of the C++ libraries,
+  # which does not say whether the documentation builds. The build either
+  # succeeds or it does not, and that is the whole of what it proves.
+  # Issue #132.
+
+  # **The commit whose whole matrix passed, kept on a branch.**
+  #
+  # A red `develop` gives no answer to "what was the last commit that worked",
+  # and the person who needs that answer is the one bisecting. This job is
+  # that answer, written by CI rather than by hand.
+  #
+  # `gates` is the same list that a docs deploy waits for, and the argument
+  # for the list is the same: the macOS job is not in it, because
+  # `continue-on-error` lets the run conclude `success` while that job is red.
+  # So this branch means "every gate that this repository trusts today". The
+  # three runs of 2026-08-25 all concluded `success` with `test-darwin-nix_2_34`
+  # red, which is exactly the case a plain reading of the run conclusion would
+  # have got wrong.
+  #
+  # **The condition is on the steps, and not on the job**, for the reason
+  # `mkDocsDeployJob` gives: an `if` on the job that does not name `success()`
+  # replaces the rule that every dependency succeeded. `skipped` counts
+  # against as well, so a `workflow_dispatch` that selects a few jobs cannot
+  # move the branch on the strength of jobs that never ran.
+  #
+  # It installs no Nix. The work is one `git fetch` and one `git push`, and
+  # `scripts/last-green.sh` is read by `check-shell` like every other script
+  # there, so the body still meets a gate without a minute of installer.
+  mkLastGreenJob =
+    {
+      gates,
+      branch ? "last-green",
+    }:
+    mkJob {
+      needs = gates;
+      # No Nix, so nothing to make room for. See the paragraph above.
+      ghanix.freeDiskSpace.enable = false;
+      permissions = {
+        contents = "write";
+      };
+      steps = [
+        (steps.checkout {
+          # **The whole history, because the script asks an ancestry
+          # question.** `git merge-base --is-ancestor` walks from one commit to
+          # the other, and the default checkout fetches one commit. On a
+          # shallow clone the two tips share no ancestry that git can see, so
+          # the check answers "not ahead" every time and the branch never
+          # advances past the first run -- the one failure this job cannot
+          # afford, because it is silent and it looks like nothing happening.
+          fetchDepth = 0;
+        })
+        (withCond
+          "\${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}"
+          {
+            name = "Move the last-green branch";
+            timeout-minutes = caps.lastGreen;
+            env = {
+              LAST_GREEN_BRANCH = branch;
+              LAST_GREEN_COMMIT = "\${{ github.sha }}";
+            };
+            run = "./scripts/last-green.sh";
+          }
+        )
+      ];
+    };
+
+  mkDocsBuildJob =
+    {
+      needs ? [ ],
+      ref ? null,
+    }:
+    mkJob (
+      lib.optionalAttrs (needs != [ ]) { inherit needs; }
+      // {
+        steps = [
+          (steps.checkout { inherit ref; })
+        ]
+        ++ [
+          (steps.installNix { })
+          (steps.cachix { })
+          {
+            name = "Build documentation";
+            timeout-minutes = caps.docsBuild;
+            run = "nix build --file . nanopynix-docs --out-link result --print-build-logs --print-out-paths";
+          }
+          (steps.verifyClosure { name = "Verify docs closure"; })
+          (mkNixRunStep {
+            name = "Prepare Pages artifact";
+            attr = "prepare-pages";
+            cap = caps.docsPrepare;
+          })
+          {
+            uses = "actions/upload-pages-artifact@main";
+            timeout-minutes = caps.docsUpload;
+            "with" = {
+              path = "public";
+            };
+          }
+        ];
+      }
+    );
+
+  # **The deploy carries the gate, and it says when it does not run.**
+  # `gates` names the jobs that answer whether the code works. A skipped job
+  # reports nothing, so this job runs whatever they did and decides in a step:
+  # the run then holds the reason a deploy did not happen, rather than only
+  # the dependency graph. Issue #132.
+  mkDocsDeployJob =
+    {
+      needs,
+      gates ? [ ],
+    }:
+    mkJob {
+      needs = if gates == [ ] then needs else lib.toList needs ++ gates;
+      # It deploys an artifact another job built, and installs no Nix, so it
+      # has nothing to make room for.
+      ghanix.freeDiskSpace.enable = false;
+      permissions = {
+        pages = "write";
+        id-token = "write";
+      };
+      environment = {
+        name = "github-pages";
+        url = "\${{ steps.deployment.outputs.page_url }}";
+      };
+      concurrency = {
+        group = "pages";
+        cancel-in-progress = false;
+      };
+      steps = [
+        # The results of the jobs this one waits for, as one line of the run.
+        # A deploy that does not happen is otherwise a grey square, and a
+        # reader has to open the dependency graph to learn which job stopped
+        # it. `env` carries the expression, because a `run:` body holds none.
+        (withCond "\${{ always() }}" {
+          name = "Report what the gating jobs did";
+          timeout-minutes = caps.docsGateReport;
+          env = {
+            GATE_RESULTS = "\${{ join(needs.*.result, ' ') }}";
+          };
+          run = "echo \"the jobs this deploy waits for finished as: $GATE_RESULTS\"";
+        })
+        # **The gate is here, and not on the job.** An `if` on the job that
+        # does not name `success()` replaces the rule that every dependency
+        # must have succeeded, so the job runs whatever the matrix did. That
+        # is what lets the step above report; it is also what makes this
+        # condition necessary, or a red matrix would publish.
+        #
+        # `skipped` counts as a failure to pass. A dispatch that selects a
+        # few jobs leaves the rest skipped, and a deploy then rests on jobs
+        # that never ran.
+        (withCond
+          "\${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}"
+          {
+            name = "Deploy to GitHub Pages";
+            id = "deployment";
+            timeout-minutes = caps.docsDeploy;
+            uses = "actions/deploy-pages@main";
+            "with" = {
+              timeout = caps.docsDeployPollMs;
+            };
+          }
+        )
+      ];
+    };
+in
+{
+  inherit
+    evalWorkflow
+    steps
+    withCond
+    withTimeout
+    # A job that this file does not build still needs a derived cap, and its
+    # bespoke steps still need one each. `on_schedule.nix` writes two such
+    # jobs.
+    caps
+    mkJob
+    mkNixRunStep
+    mkSandboxStep
+    regularBackends
+    versionMatrixOutputs
+    mkRegularTestJob
+    mkDarwinTestJob
+    mkTsanTestJob
+    mkUbsanTestJob
+    mkAsanTestJob
+    mkNoGCTestJob
+    mkStaticChecksJob
+    mkDocsBuildJob
+    mkDocsDeployJob
+    mkLastGreenJob
+    ;
+
+  # Why these expand statically here, and through a GHA matrix in
+  # `on_schedule.nix`, for the same jobs.
+  #
+  # The names come from `ciVersionMatrix`, which `default.nix` computes and
+  # this file reads at *render* time. The scheduled workflow computes its list
+  # in a step instead, so a nixpkgs that arrives between renders can add or
+  # drop a Nix version and the schedule still tests it. That is the whole of
+  # the difference.
+  #
+  # The per-commit side cannot use a matrix in exchange: the `jobs` dispatch
+  # input selects by exact job name, and a matrix collapses eight jobs into
+  # one id with eight legs. Both mechanisms are load-bearing, so the rule is
+  # that every *kind* of test job exists on both sides, and only the expansion
+  # differs.
+  #
+  # **`asan` is on both sides now, and it has the number issue #35 asked
+  # for.** That issue said "Do not put it in the per-commit workflow until the
+  # run time is known". Run 30905635880 knows it: 1622 tests in 18m30s, and
+  # 19m42s for the whole job. It earns the slot rather than merely fitting it,
+  # because it is the only build that reports a use-after-free or a
+  # stack-use-after-return -- which is how the defect of #34 was caught, as a
+  # `stack-use-after-return` in `warnDirty`.
+  #
+  # **`nogc` is on both sides, and it has the number the rule asks for.** The
+  # whole suite against nix_2_34-nogc measured 12 minutes at a 3 GB peak, so
+  # it takes `caps.suite` with room to spare. It earns the per-commit slot
+  # rather than merely fitting it: it is the only build where an evaluator
+  # cannot hide a leak behind the collector, and where a worker that aborts
+  # has nothing to reclaim its memory. Issue #55 exists because such an abort
+  # happened inside one of these runs and reported success.
+  mkStaticTestJobs =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    builtins.listToAttrs (
+      builtins.concatMap (
+        backend:
+        map (version: {
+          name = "test-${backend}-${version}";
+          value = mkRegularTestJob {
+            inherit
+              version
+              backend
+              ref
+              needs
+              ;
+          };
+        }) regular
+      ) regularBackends
+    );
+
+  mkStaticUbsanTestJobs =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    builtins.listToAttrs (
+      map (version: {
+        name = "test-ubsan-${lib.removeSuffix "-ubsan" version}";
+        value = mkUbsanTestJob {
+          inherit
+            version
+            ref
+            needs
+            ;
+        };
+      }) ubsan
+    );
+
+  mkStaticNoGCTestJobs =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    builtins.listToAttrs (
+      map (version: {
+        name = "test-nogc-${lib.removeSuffix "-nogc" version}";
+        value = mkNoGCTestJob {
+          inherit
+            version
+            ref
+            needs
+            ;
+        };
+      }) nogc
+    );
+
+  mkStaticAsanTestJobs =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    builtins.listToAttrs (
+      map (version: {
+        name = "test-asan-${lib.removeSuffix "-asan" version}";
+        value = mkAsanTestJob {
+          inherit
+            version
+            ref
+            needs
+            ;
+        };
+      }) asan
+    );
+
+  mkStaticTsanTestJobs =
+    {
+      ref ? null,
+      needs ? [ ],
+    }:
+    builtins.listToAttrs (
+      map (version: {
+        name = "test-tsan-${lib.removeSuffix "-tsan" version}";
+        value = mkTsanTestJob {
+          inherit
+            version
+            ref
+            needs
+            ;
+        };
+      }) tsan
+    );
+}

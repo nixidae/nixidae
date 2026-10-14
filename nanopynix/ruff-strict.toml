@@ -1,0 +1,562 @@
+target-version = "py313"
+line-length = 120
+
+[lint]
+select = [
+  # Pyflakes
+  "F",
+  # Pycodestyle errors & warnings
+  "E",
+  "W",
+  # isort
+  "I",
+  # flake8-bugbear
+  "B",
+  # flake8-simplify
+  "SIM",
+  # flake8-type-checking (TC001-003 ignored below — see rationale; TC004 in
+  # particular is kept, and is the rule that actually matters here: it catches
+  # an import stranded inside a type-checking block that runtime code needs)
+  "TC",
+  # Ruff-specific
+  "RUF",
+  # flake8-comprehensions
+  "C4",
+  # commented-out code
+  "ERA",
+  # pyupgrade
+  "UP",
+  # flake8-builtins
+  "A",
+  # flake8-use-pathlib
+  "PTH",
+  # flake8-unused-arguments
+  "ARG",
+  # Perflint
+  "PERF",
+  # flake8-return
+  "RET",
+  # flake8-raise
+  "RSE",
+  # flake8-print
+  "T20",
+  # flake8-pie
+  "PIE",
+  # flake8-2020
+  "YTT",
+  # flake8-async
+  "ASYNC",
+  # tryceratops
+  "TRY",
+  # refurb
+  "FURB",
+  # flake8-tidy-imports
+  "TID",
+  # pep8-naming
+  "N",
+  # flynt
+  "FLY",
+  # flake8-quotes
+  "Q",
+  # flake8-future-annotations
+  "FA",
+  # flake8-pytest-style
+  "PT",
+  # flake8-blind-except
+  "BLE",
+  # flake8-todos
+  "TD",
+  # flake8-logging
+  "LOG",
+  # pygrep-hooks: require targeted type-checker and lint suppressions,
+  # and flag no-paren mock-assert typos
+  "PGH003",
+  "PGH004",
+  "PGH005",
+  # pylint — import should be at top-level
+  "PLC0415",
+  # flake8-bandit
+  "S",
+  # flake8-datetimez
+  "DTZ",
+  # mccabe — flag existing complexity hotspots (tracked via noqa) and hold
+  # new code to the same bar
+  "C901",
+  # flake8-annotations (ANN401 ignored below — see rationale)
+  "ANN",
+  # flake8-commas — only the bare-tuple-comma check; COM812/COM819 are
+  # intentionally omitted (see ignore list below): both actively fight
+  # `ruff format`'s own trailing-comma/line-splitting decisions rather than
+  # just being redundant with it, per ruff's own formatter-compatibility
+  # docs. Layout is the formatter's job, not the linter's.
+  "COM818",
+  # flake8-implicit-str-concat
+  "ISC",
+  # pydocstyle — curated subset only; this codebase uses flowing-prose
+  # docstrings without universal coverage, so presence/mood/blank-line
+  # rules (D100-107, D205, D400, D401, D415, ...) are deliberately excluded
+  "D301",
+  "D402",
+  "D404",
+  "D414",
+  "D417",
+  "D418",
+  "D419",
+  # pylint — the remainder of the family, curated to exclude Preview-status
+  # codes, arbitrary-threshold noise, and rules that conflict with an
+  # established convention (see ignore list for PLC0414)
+  "PLC0105",
+  "PLC0131",
+  "PLC0132",
+  "PLC0205",
+  "PLC0206",
+  "PLC0207",
+  "PLC0208",
+  "PLC1802",
+  "PLC2401",
+  "PLC2403",
+  "PLC3002",
+  "PLE0100",
+  "PLE0101",
+  "PLE0115",
+  "PLE0116",
+  "PLE0117",
+  "PLE0118",
+  "PLE0237",
+  "PLE0241",
+  "PLE0302",
+  "PLE0303",
+  "PLE0305",
+  "PLE0307",
+  "PLE0308",
+  "PLE0309",
+  "PLE0604",
+  "PLE0605",
+  "PLE0643",
+  "PLE0704",
+  "PLE1132",
+  "PLE1142",
+  "PLE1205",
+  "PLE1206",
+  "PLE1300",
+  "PLE1307",
+  "PLE1310",
+  "PLE1507",
+  "PLE1519",
+  "PLE1520",
+  "PLE1700",
+  "PLE2502",
+  "PLE2510",
+  "PLE2512",
+  "PLE2513",
+  "PLE2514",
+  "PLE2515",
+  "PLR0124",
+  "PLR0133",
+  "PLR0206",
+  "PLR0402",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  "PLR1704",
+  "PLR1716",
+  "PLR1722",
+  "PLR1730",
+  "PLR1733",
+  "PLR1736",
+  "PLR2004",
+  "PLR2044",
+  "PLR5501",
+  "PLW0108",
+  "PLW0120",
+  "PLW0127",
+  "PLW0128",
+  "PLW0129",
+  "PLW0131",
+  "PLW0133",
+  "PLW0177",
+  "PLW0211",
+  "PLW0245",
+  "PLW0406",
+  "PLW0602",
+  "PLW0603",
+  "PLW0604",
+  "PLW0642",
+  "PLW0711",
+  "PLW1501",
+  "PLW1507",
+  "PLW1508",
+  "PLW1509",
+  "PLW1510",
+  "PLW1641",
+  "PLW2101",
+  "PLW2901",
+  "PLW3301",
+  # flake8-logging-format
+  "G",
+  # flake8-slots
+  "SLOT",
+  # flake8-self
+  "SLF",
+  # flake8-executable
+  "EXE",
+  # flake8-debugger
+  "T10",
+]
+
+ignore = [
+  # E501 line length — we use line-length=120 instead of the default 88
+  "E501",
+  # open-file-without-context-manager in http decompression generators
+  # (generator assigns the handle then wraps with `with ctx as f:`)
+  "SIM115",
+  # relative imports — pynixd uses relative imports by design within packages
+  "TID252",
+  # unused method arguments — protocol interfaces have uniform signatures
+  # (from_reader, to_writer, execute, handle) where not every param is used
+  "ARG002",
+  # long exception messages are acceptable — custom subclasses would be excessive
+  "TRY003",
+  # blind except — production code always logs before passing; AGENTS.md convention
+  "BLE001",
+  # Any is pervasive/intentional for dynamic Nix-eval/JSON-bridging values
+  "ANN401",
+  # both documented by ruff as incompatible with the formatter: COM812
+  # fights the formatter's own single-line-vs-multiline decision (adding a
+  # trailing comma turns it into a "magic trailing comma" the formatter then
+  # preserves as multiline, overriding what it would otherwise pick), and
+  # COM819 conflicts with the default (unset) format.skip-magic-trailing-comma
+  # = false the same way in reverse
+  "COM812",
+  "COM819",
+  # re-export pattern `import Name as Name` is CLAUDE.md-mandated style,
+  # not a useless alias
+  "PLC0414",
+  # "move this annotation-only import into a type-checking block" -- actively
+  # wrong for this codebase, and dangerously so. beartype checks these hints
+  # at runtime, which means it has to resolve them for real. An import moved
+  # into a plain `if TYPE_CHECKING:` block is not merely unchecked: measured
+  # under NANOPYNIX_BEARTYPING, calling the annotated function then raises
+  # BeartypeCallHintForwardRefException, for correct arguments as readily as
+  # for wrong ones. Measured for a bare name and for a subscripted generic
+  # alike, so this is not a quirk of one hint shape.
+  #
+  # Worst case is a union. `X | None` short-circuits on `None` and raises for
+  # everything else, so the breakage is *input-dependent*: a test that only
+  # ever passes None goes green while production dies on the first real
+  # argument. Ruff offers all 143 of these as `--unsafe-fixes`, so applying
+  # them in bulk would plant that, not tidy anything.
+  #
+  # The codebase's idiom for a genuinely annotation-only import is
+  # `if TYPE_CHECKING or BEARTYPING:` (see nanopynix/_typechecking.py), which
+  # keeps the import real exactly when something will check it. Ruff flags
+  # that too -- it does not recognise the disjunction as a type-checking
+  # block -- so there is no spelling that satisfies these three rules and
+  # keeps runtime checking. They have to go.
+  #
+  # TC004 stays enabled: it is the useful half of the family here, catching
+  # the reverse mistake of stranding a runtime-needed import inside a
+  # type-checking block.
+  "TC001",
+  "TC002",
+  "TC003",
+]
+
+[lint.flake8-builtins]
+ignorelist = ["eval"]
+
+# Raw-asyncio APIs this codebase does not use, with the anyio replacement named
+# in the message so the fix is in the diagnostic rather than in someone's head.
+#
+# Scope, and why it is not larger. Every entry here was checked against the
+# call sites that already exist: an API is banned only when *none* of its
+# current uses would need restructuring to comply. That rule is what keeps this
+# a lint config rather than a migration ticket in disguise -- the surveyed
+# alternative banned six more symbols and would have imported 75 sites of real
+# refactoring (changed exception aggregation, `async with` blocks where a
+# function call used to be) behind a config diff. Those six are named at the
+# bottom with what they would actually cost.
+#
+# Two tiers, deliberately labelled, because they are not the same kind of rule:
+# CORRECTNESS entries prevent a defect, CONSISTENCY entries express a
+# preference. A consistency rule dressed up as a correctness rule is how a
+# lint config loses its credibility, so they are marked.
+#
+# Ruff reports a `from asyncio import X` at the import, and a plain
+# `asyncio.X` / aliased `aio.X` at the call, so neither spelling escapes.
+# What it cannot see is a call laundered through a local binding
+# (`fn = asyncio.gather; fn(...)`) -- that needs whole-program inference, which
+# pyright already provides and which this table is not trying to replicate.
+[lint.flake8-tidy-imports.banned-api]
+
+# -- CORRECTNESS ------------------------------------------------------------
+
+# Deprecated since 3.12 and no longer creates a loop when none is running: it
+# raises instead, so the classic `loop = asyncio.get_event_loop()` at import
+# time is now a crash rather than the implicit-loop convenience it once was.
+"asyncio.get_event_loop".msg = "Use asyncio.get_running_loop() inside async code; time.monotonic() for timestamps. Deprecated since 3.12 and raises when no loop is running."
+
+# anyio.run owns the loop. Installing or replacing a process-global default
+# loop underneath it desynchronises anyio's runner state from the loop actually
+# executing tasks.
+"asyncio.set_event_loop".msg = "anyio.run() owns the event loop; do not install a process-global default underneath it."
+"asyncio.new_event_loop".msg = "Use anyio.run(), which creates and owns the loop."
+"asyncio.get_event_loop_policy".msg = "Select a backend via anyio.run(backend=...) rather than a global loop policy."
+"asyncio.set_event_loop_policy".msg = "Select a backend via anyio.run(backend=..., backend_options=...) rather than a global loop policy."
+
+# The real difference is resource bounding, not spelling: asyncio.to_thread
+# spawns without limit, so a fan-out over N items creates N threads. anyio's
+# goes through a CapacityLimiter (40 by default, overridable per call via
+# limiter=), which is why nanopynix can fan out over a store query without
+# sizing a pool by hand.
+#
+# Not a drop-in when the callable takes keyword arguments, and it fails in the
+# nastiest possible way. asyncio.to_thread(fn, /, *args, **kwargs) forwards
+# kwargs to fn; anyio's run_sync(fn, *args, ...) does not -- its keyword
+# parameters are its own (abandon_on_cancel, cancellable, limiter). So a
+# mechanical rewrite of `to_thread(fn, x, flag=True)` sends `flag` to run_sync
+# rather than to fn, which is a TypeError at call time, in a thread, at
+# runtime. Wrap it: `run_sync(functools.partial(fn, x, flag=True))`.
+#
+# Also import the submodule (`import anyio.to_thread`). A bare `import anyio`
+# reaches it at runtime but pyright will not resolve the attribute, and the
+# resulting Unknown silently disables type checking of the whole call.
+"asyncio.to_thread".msg = "Use anyio.to_thread.run_sync(fn, *args) -- bounded by a CapacityLimiter, unlike asyncio's unbounded spawn. It does NOT forward **kwargs: wrap keyword args in functools.partial."
+
+# Bridging a concurrent.futures.Future into the running loop. Banned so the
+# two places that legitimately need it stay visible; both carry an inline
+# `# noqa: TID251 -- ...` naming the reason, per CLAUDE.md's documented
+# exception for _core/_nix_executor.py.
+"asyncio.wrap_future".msg = "Prefer anyio.to_thread / anyio.from_thread.BlockingPortal. The dedicated-executor-thread exception is documented in CLAUDE.md and must carry an inline noqa saying so."
+
+# -- CONSISTENCY ------------------------------------------------------------
+# These work correctly today on the asyncio backend. The argument is that
+# nanopynix expresses concurrency in one vocabulary, and that anyio's
+# primitives are the ones that stay correct if a backend ever changes.
+
+"asyncio.sleep".msg = "Use anyio.sleep()."
+"asyncio.Lock".msg = "Use anyio.Lock()."
+# anyio.Event is deliberately not resettable -- it has no clear(). Code that
+# needs to re-arm creates a new Event, which is what makes the wait/set race
+# that clear() invites unrepresentable.
+"asyncio.Event".msg = "Use anyio.Event(). Note it has no clear(): create a new Event to re-arm."
+"asyncio.Semaphore".msg = "Use anyio.Semaphore(initial_value)."
+"asyncio.BoundedSemaphore".msg = "Use anyio.Semaphore(n, max_value=n)."
+"asyncio.Condition".msg = "Use anyio.Condition()."
+"asyncio.TaskGroup".msg = "Use `async with anyio.create_task_group() as tg:`."
+"asyncio.timeout".msg = "Use `with anyio.fail_after(seconds):` (or move_on_after to expire silently)."
+"asyncio.timeout_at".msg = "Use `with anyio.CancelScope(deadline=...):`, against anyio.current_time()."
+
+# -- DELIBERATELY ABSENT ----------------------------------------------------
+#
+# Not oversights. Each of these has current uses that anyio cannot express
+# without changing behaviour, so banning them would assert a migration this
+# repo has not made:
+#
+#   asyncio.gather (46 uses)  anyio has no gather(). Every site becomes a task
+#                             group plus manual indexed result collection, and
+#                             error aggregation changes from gather's
+#                             first-exception model to an ExceptionGroup.
+#   create_subprocess_exec    Two thirds of the uses call proc.communicate(),
+#   /_shell (12)              which anyio has no equivalent for -- replacing it
+#                             means hand-rolling concurrent pipe drainage to
+#                             avoid deadlock. One site needs preexec_fn
+#                             (PR_SET_PDEATHSIG), which open_process does not
+#                             accept at all.
+#   asyncio.create_task (10)  Several sites hold a task across two
+#                             independently-callable public methods
+#                             (open()/close()); anyio has no spawn-now,
+#                             join-later primitive outside a same-task group.
+#                             CLAUDE.md documents this shape as intentional.
+#   asyncio.wait_for (9)      fail_after is a context manager, not a call
+#                             wrapper, so each site is a control-flow rewrite.
+#   asyncio.ensure_future (4) Same task-group restructuring as create_task.
+#   asyncio.Queue (2)         Memory object streams split send and receive into
+#                             two objects, so both the producer wiring and the
+#                             consumer loop change shape.
+#
+# Turning any of these on is a refactor with its own tests, not a config edit.
+
+[lint.per-file-ignores]
+# tests intentionally inspect private implementation state, use bare
+# assert (pytest idiom), reference fake/illustrative "/tmp/..." fixture
+# paths (not real temp-file usage), skip -> None annotations, and compare
+# against unnamed literal expected values
+#
+# **`**/tests/**` and not `tests/**`.** Issue #130 gives each project its own
+# suite, so a new `<project>/tests/` appears with every move and an entry per
+# project would be a list that a move forgets to extend. The glob matches the
+# repository's own `tests/` as well.
+#
+# It reaches a suite only, and never a `src/`: the source of a shared helper
+# gets no blanket exemption, so the private accesses in `test-support/src` and
+# `nanopynix-testing/src` carry inline noqa comments naming the rule.
+"**/tests/**" = ["SLF001", "S101", "S108", "ANN201", "PLR2004"]
+# doc/example snippets use bare assert and illustrative literal comparisons
+"docs/**" = ["S101", "PLR2004"]
+# dev-tooling subprocess/git-plumbing harness, not shipped production code.
+# T20 too: pytest-agent is a CLI whose entire job is printing to stdout
+# (`pytest-agent show/last-failures/digest`), so print() is the interface,
+# not a stray debug statement -- unlike the library code everywhere else in
+# this tree, which must route output through logging.
+"pytest-agent/**" = ["S101", "S108", "S603", "S607", "PLR2004", "T20"]
+
+# ---------------------------------------------------------------------------
+# grpclib-transports, the vendored subproject.
+#
+# `tests/**` and `docs/**` above are anchored at the repository root and so do
+# not reach this tree; its own test, benchmark and example directories need
+# the same allowances, stated again here.
+#
+# The `TID251` entries are the ones that carry an argument beyond "this is
+# test code", so they are the ones to read. That rule bans the raw `asyncio`
+# primitives in favour of their anyio equivalents, and the ban is right for
+# nanopynix, which is anyio-structured throughout. grpclib-transports is not:
+# it is an asyncio *transport and protocol* layer for grpclib, which is an
+# asyncio library. Its subject matter is `asyncio.Protocol` callbacks,
+# `loop.connect_write_pipe` and `asyncio.StreamWriter`, and a test or
+# benchmark that drives that surface has to speak the same dialect --
+# `asyncio.sleep` between two protocol callbacks is the thing under test, not
+# a lapse. The library's own `src/` is held to the rule and passes it: the two
+# places that had a real anyio equivalent (`limits.py`'s semaphore,
+# `multiprocessing.py`'s thread offload) were converted rather than exempted.
+
+# Same allowances as the repository's own `tests/**`, plus: ANN202 on local
+# helper coroutines defined inside a test, S106 for the literal "password" the
+# demo SSH server authenticates with, and PT017 for one test that asserts on
+# an exception caught by `except` rather than through `pytest.raises`.
+"grpclib-transports/tests/**" = [
+  "SLF001",
+  "S101",
+  "S106",
+  "S108",
+  "ANN201",
+  "ANN202",
+  "PLR2004",
+  "PT017",
+  "TID251",
+]
+# A measurement harness, not a correctness gate. It prints its own result
+# tables (C901/PLR0912 are that table-rendering function), defines its
+# workloads as small local closures, and imports optional transports lazily so
+# a missing one skips instead of failing collection.
+"grpclib-transports/benchmarks/**" = [
+  "S101",
+  "S106",
+  "ANN201",
+  "ANN202",
+  "C901",
+  "PLC0415",
+  "PLR0912",
+  "TID251",
+]
+# Runnable documentation. `print()` is how an example shows its output to a
+# reader, and a standalone script that a reader is meant to copy uses plain
+# `asyncio` rather than importing a structured-concurrency framework to say
+# "sleep". Kept honest by grpclib-transports/tests/test_examples.py, which
+# runs every one of them.
+"grpclib-transports/docs/examples/**" = [
+  "S101",
+  "S106",
+  "ANN202",
+  "PLC0415",
+  "T20",
+  "TID251",
+]
+# Runnable documentation, for the same reason. `docs/libpynix/index.md`
+# includes both of these files, and
+# `libpynix/tests/test_documented_examples.py` runs them. `T20` because a
+# command-line program prints, which is the whole subject: an example that
+# produced no output would show a reader nothing.
+"libpynix/examples/**" = ["T20"]
+# Fourteen transport constructors and `serve_*`/`connect_*` factories, spread
+# over six modules. Every argument past the second is keyword-only and is a
+# transport option: `tuning`, `max_concurrency`, `status_details_codec`, `cwd`,
+# `env`, `stderr`. The count is what a transport's configuration surface costs,
+# not an accident, and PLR0913 counts keyword-only parameters the same as
+# positional ones -- so the rule fires on precisely the signatures its
+# readability argument does not apply to.
+#
+# Collapsing them into one options object is the real answer if this ever
+# becomes a burden. That is an API redesign with its own tests, and it was not
+# in scope for vendoring the library, so this records the decision instead of
+# quietly making it.
+"grpclib-transports/src/grpclib_transports/**" = ["PLR0913"]
+
+# ---------------------------------------------------------------------------
+# completion-spike, the subproject that answers whether a cyclopts program can
+# have a dynamic shell completion.
+#
+# `tests/**` above is anchored at the repository root and does not reach this
+# tree, so the same allowance is stated again. Only `S101` is needed: these
+# tests assert, and they need nothing else that the rest of the repository
+# forbids.
+"completion-spike/tests/**" = ["S101"]
+# The demo CLI and the demo client that `docs/examples` and the `__main__`
+# entry point share. A hardcoded "password" and a fixed `/tmp` socket path are
+# what a demo is.
+"grpclib-transports/src/grpclib_transports/__main__.py" = ["S108"]
+"grpclib-transports/src/grpclib_transports/example/**" = ["S107"]
+# This module exists to reach into h2's internals: it replaces
+# `H2Connection._receive_frame` with a copy that skips the expensive
+# trace-logging frame reprs, and it reads `_events`, `_transport` and
+# `_connection` off h2 and grpclib objects that expose no public equivalent.
+# SLF001 and PLW0603 (the module-level "patch installed" flag, which has to be
+# process-global because the patch is) are the shape of that job. The patch
+# verifies h2's signature before applying itself and raises if it has changed,
+# which is the real guard here -- a lint rule could not have been one.
+"grpclib-transports/src/grpclib_transports/protocol.py" = ["SLF001", "PLW0603"]
+
+[lint.isort]
+combine-as-imports = true
+# CLAUDE.md requires `from __future__ import annotations` in every module, and
+# nothing checked it. The `FA` rules are not that check: they fire only when an
+# annotation forces the import, so a module with no annotation passes and then
+# drifts. Measured before this line landed: 16 of 266 files did not have it.
+#
+# This matters more here than in most codebases. beartype resolves annotations
+# at runtime, and the future import is what makes a forward reference legal in
+# the first place -- see the TC001-003 rationale above for what happens when
+# an annotation cannot be resolved.
+required-imports = ["from __future__ import annotations"]
+known-first-party = [
+  # `support` and `_shared_sessions` are `pynix/tests/`'s own modules.
+  # pytest puts that directory on `sys.path` because the suite has no
+  # `__init__.py`, so they are importable by bare name and isort cannot
+  # tell them from a third-party package without being told.
+  "_shared_sessions",
+  "nanopynix",
+  "nanopynix_fetchers",
+  "nanopynix_store",
+  "nanopynix_util",
+  "support",
+  # Named here, unlike `nanopynix`, which ruff finds by itself: with no `src`
+  # setting it looks for a directory of the same name beside this file, and
+  # these are at `test-support/src/test_support`,
+  # `nanopynix-testing/src/nanopynix_testing` and `pynix-lsp/src/pynix_lsp`.
+  # Add a project the same way when its directory name and its module name
+  # differ.
+  "test_support",
+  "nanopynix_testing",
+  "pynix_lsp",
+  # `pynix` as well, although a directory of that name is beside this file.
+  # ruff found it by itself only for a file under `pynix/`; a module of
+  # `pynix-lsp/` that imports `pynix` had it sorted as a third-party package,
+  # and one project cannot be in two groups.
+  "pynix",
+  # The CLI layer of issue #222, here for the same reason as `pynix` above:
+  # every command module of `pynix/` imports it.
+  "libpynix",
+  # The support package of `pynix-lsp/tests/`, importable by bare name for
+  # the reason that `support` above gives.
+  "lsp_support",
+  # The startup shim of a spawned interpreter. `nanopynix-testing` puts its
+  # directory on PYTHONPATH rather than making it a package, so ruff sorted it
+  # with the third-party imports. `nanopynix/tests/test_beartype_instrumentation.py`
+  # reads `PACKAGES` out of it.
+  "beartype_bootstrap",
+]
+
+[format]
+docstring-code-format = true

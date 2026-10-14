@@ -1,0 +1,241 @@
+"""An installed `pynix`, its completion scripts, and a shell that loaded one.
+
+**These fixtures complete against what a user installs, and not against a
+checkout.** Issue #105 measured the failure this exists to catch: three files
+holding an ANSI-coloured help screen, each written to a path that a shell
+loads. Only the built package can say whether that happened, so the gate hands
+this suite the store path of the application and the suite reads `share/` out
+of it.
+
+A run in the dev shell has no such path. It renders the same three scripts with
+`nix/render-completions.py`, which is the script the build itself runs, so a
+developer sees the same answers without building anything. What that run cannot
+see is a fault in the *installation* -- a wrong path under `share/`, or a file
+`installShellCompletion` never wrote -- and `installed_prefix` says so where the
+distinction matters.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+from test_support.shell_pty import SHELLS, ShellSession
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+#: The store path of the built `pynix`, when a build runs this suite.
+#: `checks.completions` in nix/checks.nix sets it.
+PREFIX_VARIABLE = "PYNIX_INSTALLED_PREFIX"
+
+#: Where `installShellCompletion` puts each script, relative to that prefix.
+#: A path here is a fact about the installation and not about clypi, so a
+#: change to any of the three is a change a user would meet.
+INSTALLED_PATHS = {
+    "bash": "share/bash-completion/completions/pynix.bash",
+    "fish": "share/fish/vendor_completions.d/pynix.fish",
+    "zsh": "share/zsh/site-functions/_pynix",
+}
+
+#: The repository root, three directories above the one this file is in.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+#: The renderer that the build runs, for a run that has no built package.
+RENDERER = REPO_ROOT / "nix" / "render-completions.py"
+
+#: Seconds of silence that end the one read of a session that cannot wait for
+#: a marker. `ShellSession.__init__` makes that read, to clear what the setup
+#: of the shell left behind.
+#:
+#: **This suite raised it to 1.5 s while every read waited for silence.** The
+#: driver now waits for a marker instead, so no read of an answer depends on
+#: this number and the default of the driver is enough. Issue #225 holds the
+#: measurement; issue #213 holds the defect that a short wait hid, which was
+#: `pynix build --<TAB>` reading an empty answer and passing every row.
+SETTLE = 0.4
+
+
+@pytest.fixture(scope="session")
+def renderer() -> Path:
+    """The renderer that `nix/mk-app.nix` runs.
+
+    A fixture and not an import. `test_installed_scripts.py` needs the same
+    path, and `from conftest import RENDERER` is a real import of a module
+    that pytest also loads as a plugin -- pyright resolves the name against
+    the wrong `conftest.py` of the several in this repository, and reports it
+    as unknown.
+    """
+    return RENDERER
+
+
+@pytest.fixture(scope="session")
+def installed_prefix() -> Path | None:
+    """The store path of the built application, or None in a dev shell."""
+    prefix = os.environ.get(PREFIX_VARIABLE)
+    return Path(prefix) if prefix else None
+
+
+@pytest.fixture(scope="session")
+def pynix_bin(installed_prefix: Path | None) -> str:
+    """The directory that holds a runnable `pynix`.
+
+    The installed one when there is one. A shell completes by *starting the
+    program*, so the program that answers must be the program under test.
+    """
+    if installed_prefix is not None:
+        return str(installed_prefix / "bin")
+    found = shutil.which("pynix")
+    if found is None:
+        pytest.fail(
+            f"no `pynix` on PATH and no {PREFIX_VARIABLE} in the environment. "
+            "Run this from the dev shell, or build `checks.pynix-completions`."
+        )
+    return str(Path(found).parent)
+
+
+@pytest.fixture(scope="session")
+def scripts(installed_prefix: Path | None, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """One completion script for each shell, keyed by the name of the shell."""
+    if installed_prefix is not None:
+        found = {shell: installed_prefix / tail for shell, tail in INSTALLED_PATHS.items()}
+        for shell, path in found.items():
+            if not path.is_file():
+                pytest.fail(f"the build installed no {shell} completion at {path}")
+        return found
+    directory = tmp_path_factory.mktemp("rendered")
+    # The renderer that nix/mk-app.nix runs, with the arguments it passes.
+    #
+    # **Two arguments, and not three.** clypi needed a display name between
+    # the program and the directory, and issue #214 removed it along with
+    # clypi. This call kept it, so `render-completions.py` read `"Pynix"` as
+    # the output directory and wrote the three scripts into a directory of
+    # that name, beside the working directory of the run. The fixture then
+    # handed each test a path that held no file, `source` on a missing file is
+    # quiet in all three shells, and every case reported an empty answer.
+    #
+    # No CI job saw it, because a gate run sets `PYNIX_INSTALLED_PREFIX` and
+    # takes the branch above. `test_the_renderer_writes_where_it_is_told`
+    # states the argument count now, so a third one fails a test rather than
+    # emptying a suite.
+    subprocess.run(  # noqa: S603 -- this interpreter, and a path from this file
+        [sys.executable, str(RENDERER), "pynix", str(directory)],
+        check=True,
+        capture_output=True,
+    )
+    for shell in SHELLS:
+        rendered = directory / shell
+        if not rendered.is_file():
+            pytest.fail(f"the renderer wrote no {shell} script at {rendered}")
+    return {shell: directory / shell for shell in SHELLS}
+
+
+@pytest.fixture(scope="session")
+def workdir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """**An empty directory, and it stays empty.**
+
+    argcomplete's bash script ends in `complete -o default`, so bash offers the
+    files of the working directory when the program answers with nothing. A
+    file beside the shell would then read as a candidate of the program. That
+    is why `nix_fixture` below is a directory of its own and not this one.
+    """
+    return tmp_path_factory.mktemp("work")
+
+
+@pytest.fixture(scope="session")
+def home(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A home directory of this run, and not of the developer.
+
+    Separate from `workdir`, so the history file a shell writes at exit cannot
+    appear in a menu.
+    """
+    return tmp_path_factory.mktemp("home")
+
+
+@pytest.fixture(scope="session")
+def nix_fixture(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A Nix file and a flake that a completer can evaluate in milliseconds.
+
+    **A completion runs while a person holds a key down, so its target has to
+    be cheap.** A row that pointed at nixpkgs would measure the evaluation of
+    nixpkgs. These two files hold a handful of attributes and import nothing.
+
+    **Its own directory, and not `workdir`.** A `.nix` file beside the shell
+    would come back as a bash candidate through `complete -o default`, and two
+    rows of the table assert that the program offers nothing.
+
+    A row reaches it by writing `{nix}` in its line, which
+    `test_the_shell_offers_what_the_command_owes` fills in. Issue #223 is the
+    completer that will read these attributes; until it lands, the row that
+    uses this states that a real path with a `#` in it survives the lexer.
+    """
+    directory = tmp_path_factory.mktemp("nix")
+    (directory / "default.nix").write_text(
+        '{ }:\n{\n  hello = "fast";\n  nested = { attr = "fast"; };\n}\n',
+        encoding="utf-8",
+    )
+    (directory / "flake.nix").write_text(
+        '{\n  outputs = { self }: {\n    packages.x86_64-linux.hello = "fast";\n  };\n}\n',
+        encoding="utf-8",
+    )
+    return directory
+
+
+@pytest.fixture(scope="session")
+def session_env(pynix_bin: str, home: Path) -> dict[str, str]:
+    """The whole environment a session gets, and nothing else.
+
+    A small environment on purpose: a shell that inherited this developer's own
+    would pick up their `fish_complete_path`, their history and their aliases,
+    and the suite would pass or fail for reasons outside the repository.
+
+    **`SHELL` is not in it, and that is the point.** clypi resolves a
+    completion through `Path(os.environ["SHELL"]).name` and raises when the
+    variable is missing. `nix/render-completions.py` puts the right name into
+    each callback instead, so every answer here proves that correction is still
+    applied.
+    """
+    env = {
+        "PATH": os.pathsep.join([pynix_bin, os.environ["PATH"]]),
+        "HOME": str(home),
+    }
+    terminfo = os.environ.get("TERMINFO_DIRS")
+    if terminfo:
+        env["TERMINFO_DIRS"] = terminfo
+    return env
+
+
+@pytest.fixture(scope="session")
+def shell(
+    request: pytest.FixtureRequest, scripts: dict[str, Path], session_env: dict[str, str], workdir: Path
+) -> Iterator[ShellSession]:
+    """A shell that has loaded `pynix`'s completion script.
+
+    Indirectly parametrized: each test names the shell it wants, because the
+    table of cases marks a row broken in one shell and correct in another.
+
+    **One shell for each name, for the whole run.** Starting fish, bash or zsh
+    and loading a completion script costs about a second, and the table asks
+    each shell for ten completions. `ShellSession.raw_complete` was written for
+    reuse: it abandons the line with Ctrl-U and Ctrl-C, waits for the sentinel
+    prompt, and reads the next answer from the row the cursor is on. So a
+    session answers many completions and each answer starts clean.
+
+    Reuse also carries the marker binding, which the setup of the session
+    installs once. Issue #225 measured that reuse saves 1.8 s of 296 s on its
+    own, so it is the marker and not the reuse that makes a row cheap.
+
+    Three processes live at once, one for each name. `ROWS` groups its rows by
+    shell so pytest builds each one once, rather than relying on the reordering
+    that a higher-scoped parameter usually gets.
+    """
+    name = request.param
+    with ShellSession(name, session_env, cwd=str(workdir), settle=SETTLE) as session:
+        session.load(str(scripts[name]))
+        yield session

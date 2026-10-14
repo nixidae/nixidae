@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test-support"
+version = "0.1.0"
+description = "Test helpers with no Nix knowledge, shared by every project in this repository"
+authors = [{ name = "nanopynix contributors" }]
+requires-python = ">=3.10"
+# PEP 639. The repository is Apache-2.0.
+#
+# The file is a copy of the one at the root of the repository, because the
+# source root of this project is this directory, and a path above it is not in
+# the sdist.
+license = "Apache-2.0"
+license-files = [ "LICENSE" ]
+# `anyio` for the subprocess runner, `pygit2` for the Git fixtures, and
+# `pexpect` with `pyte` for the pty driver in `shell_pty`: `pexpect` drives the
+# shell, and `pyte` is the terminal that reads what the shell drew. Neither
+# `pytest` nor `pytest-agent` is here: `notes.py` finds pytest-agent at run
+# time when it is present, and a helper that a non-pytest program can call
+# should not drag a test runner into that program's closure.
+dependencies = ["anyio", "pygit2", "pexpect", "pyte"]
+
+[project.optional-dependencies]
+test = ["pytest", "anyio"]
+
+[project.urls]
+Homepage = "https://github.com/lillecarl/nanopynix"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/test_support"]

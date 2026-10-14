@@ -1,0 +1,66 @@
+target-version = "py313"
+line-length = 120
+
+[lint]
+select = [
+  "E",
+  "W", # pycodestyle
+  "F", # pyflakes (real bugs)
+  "I", # isort
+]
+
+ignore = [
+  "E501", # line length handled by line-length setting
+]
+
+[lint.flake8-builtins]
+ignorelist = ["eval"]
+
+[lint.per-file-ignores]
+# `**/tests/**` and not `tests/**`: issue #130 gives each project its own
+# suite, so an entry per project would be a list that the next move forgets to
+# extend. It reaches a suite only, never a `src/`. See `ruff-strict.toml`,
+# which carries the same glob and the full argument.
+"**/tests/**" = [
+  "SLF001",
+] # tests intentionally inspect private implementation state
+
+[lint.isort]
+combine-as-imports = true
+known-first-party = [
+  # `support` and `_shared_sessions` are `pynix/tests/`'s own modules.
+  # pytest puts that directory on `sys.path` because the suite has no
+  # `__init__.py`, so they are importable by bare name and isort cannot
+  # tell them from a third-party package without being told.
+  "_shared_sessions",
+  "nanopynix",
+  "nanopynix_fetchers",
+  "nanopynix_store",
+  "nanopynix_util",
+  "support",
+  # Named here, unlike `nanopynix`, which ruff finds by itself: with no `src`
+  # setting it looks for a directory of the same name beside this file, and
+  # these are at `test-support/src/test_support`,
+  # `nanopynix-testing/src/nanopynix_testing` and `pynix-lsp/src/pynix_lsp`.
+  # Add a project the same way when its directory name and its module name
+  # differ.
+  "test_support",
+  "nanopynix_testing",
+  "pynix_lsp",
+  # `pynix` as well, although a directory of that name is beside this file.
+  # ruff found it by itself only for a file under `pynix/`; a module of
+  # `pynix-lsp/` that imports `pynix` had it sorted as a third-party package,
+  # and one project cannot be in two groups.
+  "pynix",
+  # The CLI layer of issue #222, here for the same reason as `pynix` above:
+  # every command module of `pynix/` imports it.
+  "libpynix",
+  # The support package of `pynix-lsp/tests/`, importable by bare name for
+  # the reason that `support` above gives.
+  "lsp_support",
+  # The startup shim of a spawned interpreter. `nanopynix-testing` puts its
+  # directory on PYTHONPATH rather than making it a package, so ruff sorted it
+  # with the third-party imports. `nanopynix/tests/test_beartype_instrumentation.py`
+  # reads `PACKAGES` out of it.
+  "beartype_bootstrap",
+]

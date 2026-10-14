@@ -1,0 +1,219 @@
+"""The binary-name index that Hydra ships, and the one question it answers.
+
+**"Which package gives me `rg`?" is the thing `nix search` cannot answer**, and
+issue #85 calls it the single largest improvement a package search can make.
+`pynix/_packages.py` gets close with `meta.mainProgram`, and stops short: that
+field names one binary, and a package installs many. Measured against the real
+index: `rg` resolves through `mainProgram`, and `ssh-keygen`, `convert`, `awk`
+and `xxd` each resolve to nothing.
+
+Hydra publishes the answer. `programs.sqlite` sits inside `nixexprs.tar.xz`,
+holds 161 511 rows of binary name to package, and `builtins.fetchTarball`
+reaches it in one call -- 13.0 s cold, and a store hit after that. The file is
+17.0 MB, its schema is three text columns, and the standard library reads it,
+so this module adds no dependency.
+
+**The rows are per system.** Measured: 83 048 for `x86_64-linux`, 77 917 for
+`aarch64-linux` and 546 for `i686-linux`. A query that ignores the system
+answers for a machine the caller does not have.
+
+**This index describes one channel release, and the package walk describes the
+nixpkgs the caller pinned.** The two join on the package name, which is stable
+across releases in a way a version is not. So a miss means "no binary is
+known", and never a wrong answer.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from nanopynix._typechecking import BEARTYPING
+
+if TYPE_CHECKING or BEARTYPING:
+    from collections.abc import Iterable, Mapping
+
+    from nanopynix import AsyncEvalSession
+
+#: Where Hydra publishes the channel artifacts.
+CHANNEL_URL = "https://channels.nixos.org"
+
+#: The expression that fetches and unpacks `nixexprs.tar.xz`.
+#:
+#: **The evaluation has to be impure.** A channel artifact is mutable, so its
+#: hash is not known beforehand, and pure mode refuses: "in pure evaluation
+#: mode, 'fetchurl' requires a 'sha256' argument". `fetchTarball` puts the
+#: result in the store, so the garbage collector owns it and a second call
+#: costs nothing.
+_FETCH_NIXEXPRS = 'builtins.fetchTarball "{url}/{channel}/nixexprs.tar.xz"'
+
+
+@dataclass(frozen=True)
+class ProgramIndex:
+    """The binary names of one channel release, for one system."""
+
+    #: The `programs.sqlite` that `nixexprs.tar.xz` carries.
+    path: Path
+
+    #: The system whose rows this index answers for, such as `x86_64-linux`.
+    system: str
+
+    #: The nixpkgs release these rows describe, such as `26.11`. Empty when
+    #: the caller built the index by hand rather than from a channel.
+    release: str = ""
+
+    #: The nixpkgs commit these rows describe, in full.
+    revision: str = ""
+
+    @property
+    def origin(self) -> str:
+        """What to print so that an answer names where it came from.
+
+        **An answer has to say which release answered it.** Issue #85 asks for
+        this, and the reason is that the two sources of a package search
+        disagree by design: this index describes one channel release, and the
+        walk of `pkgs` describes the nixpkgs the caller pinned. A binary that
+        only one of them knows is not a defect, and a reader can only tell the
+        two apart if the answer says which is which.
+        """
+        if not self.release:
+            return "an unnamed index"
+        if not self.revision:
+            return self.release
+        return f"{self.release} ({self.revision[:12]})"
+
+    def packages_for_binary(self, binary: str) -> list[str]:
+        """The packages that install a binary called *binary*, by attribute.
+
+        This is the question the caller really asks. `ssh-keygen` gives
+        `openssh`, and `convert` gives `imagemagick`, and neither package
+        names that binary as its `mainProgram`.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                "select package from Programs where name = ? and system = ? order by package",
+                (binary, self.system),
+            )
+            return [str(row[0]) for row in rows]
+
+    def binaries_for_packages(self, packages: Iterable[str]) -> Mapping[str, list[str]]:
+        """The binaries that each of *packages* installs, by attribute.
+
+        The caller passes the packages it is about to show, and not the whole
+        index. A search shows a page of results, and this is what fills in
+        "what arrives on PATH" for that page.
+        """
+        wanted = list(dict.fromkeys(packages))
+        if not wanted:
+            return {}
+        found: dict[str, list[str]] = {package: [] for package in wanted}
+        placeholders = ",".join("?" for _ in wanted)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"select package, name from Programs where system = ? and package in ({placeholders}) order by name",  # noqa: S608 -- the placeholders are generated, and every value is bound
+                (self.system, *wanted),
+            )
+            for package, name in rows:
+                found[str(package)].append(str(name))
+        return found
+
+    def binaries_by_package(self) -> Mapping[str, list[str]]:
+        """Every package of this system, with the binaries it installs.
+
+        **This is the bulk join, and `binaries_for_packages` is the page one.**
+        A query cannot bind 24 571 package names: SQLite bounds the number of
+        variables in one statement, and the walk of nixpkgs returns more than
+        that. So this reads the rows of the system in one pass and groups them
+        here. Measured: 83 048 rows for `x86_64-linux`.
+        """
+        found: dict[str, list[str]] = {}
+        with self._connect() as connection:
+            rows = connection.execute(
+                "select package, name from Programs where system = ? order by package, name",
+                (self.system,),
+            )
+            for package, name in rows:
+                found.setdefault(str(package), []).append(str(name))
+        return found
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open the index read-only, because nothing here ever writes to it."""
+        return sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+
+
+async def fetch_program_index(session: AsyncEvalSession, system: str, channel: str = "nixos-unstable") -> ProgramIndex:
+    """Fetch the channel expressions, and point at the `programs.sqlite` in them.
+
+    The fetch runs through the evaluator, so it uses the store and the cache
+    that Nix already has. A second call for an unchanged release downloads
+    nothing.
+    """
+    expression = _FETCH_NIXEXPRS.format(url=CHANNEL_URL, channel=channel)
+    fetched = await session.string(expression)
+    root = await fetched.to_python()
+    if not isinstance(root, str):
+        raise TypeError(f"fetchTarball must give a path, got {type(root).__name__}")
+    source = Path(root)
+    index = index_at(source, system)
+    if index is None:
+        raise FileNotFoundError(f"the channel expressions hold no programs.sqlite at {source}")
+    return index
+
+
+def index_at(source: Path, system: str) -> ProgramIndex | None:
+    """The index inside the nixpkgs source at *source*, or `None`.
+
+    **A nixpkgs source tree usually holds none.** Hydra runs
+    `generate-programs-index` for the channel job alone, and puts the result
+    into `nixexprs.tar.xz`. A git checkout, a flake input, and the tarball
+    that the flake registry serves are the same tree without it. Measured on
+    one NixOS machine: `<nixpkgs>` and `/etc/nixpkgs` resolve to one store
+    path, that path carries `.version` and `.git-revision`, and it carries no
+    database.
+
+    The check costs one `stat`, and it answers for a caller who does read a
+    channel. So :func:`program_index_for` asks this first, and fetches second.
+    """
+    database = source / "programs.sqlite"
+    if not database.is_file():
+        return None
+    return ProgramIndex(
+        path=database,
+        system=system,
+        release=_read(source / ".version"),
+        revision=_read(source / ".git-revision"),
+    )
+
+
+async def program_index_for(
+    session: AsyncEvalSession,
+    pkgs_path: Path,
+    system: str,
+    channel: str = "nixos-unstable",
+) -> ProgramIndex:
+    """The binary index for the nixpkgs at *pkgs_path*, local first.
+
+    *pkgs_path* is what nixpkgs calls its own source, which
+    :func:`~pynix._packages.package_identity` reads. The local database
+    matches the pinned nixpkgs exactly and costs nothing. The channel is the
+    fallback, and it describes a different revision, so
+    :attr:`ProgramIndex.origin` has to reach the reader either way.
+    """
+    local = index_at(pkgs_path, system)
+    if local is not None:
+        return local
+    return await fetch_program_index(session, system, channel)
+
+
+def _read(path: Path) -> str:
+    """The text of *path*, or an empty string when it is not there.
+
+    nixpkgs writes `.version` and `.git-revision` beside its own source, and
+    a channel that stops doing so must not stop the search.
+    """
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""

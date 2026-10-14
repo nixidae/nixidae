@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pynix"
+version = "0.1.0"
+description = "End-to-end harness that consumes nanopynix as a library dependency"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = [ "LICENSE" ]
+dependencies = [
+  "nanopynix",
+  "nanopynix-helpers",
+  # The command-line layer, which issue #222 moved out of this project so that
+  # a second Nix CLI in Python does not have to copy 359 lines to exist. It
+  # depends on no part of nanopynix, which is why it is a project beside this
+  # one rather than a module of `nanopynix-helpers`.
+  "libpynix",
+  "myst-parser",
+  "prompt-toolkit",
+  "pydantic",
+  "rapidfuzz",
+  "rich",
+  "structlog",
+  "tree-sitter",
+  "tree-sitter-nix",
+]
+
+[project.scripts]
+pynix = "pynix:main"
+
+[project.optional-dependencies]
+test = ["nanopynix[test]", "pytest-lsp"]
+# The documentation toolchain. Declared here rather than wired into the Nix
+# build because sphinx has to import what it documents, so it belongs in the
+# same environment as pynix and everything pynix depends on.
+docs = ["sphinx", "myst-parser", "furo"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pynix"]
