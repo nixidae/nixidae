@@ -4,7 +4,9 @@
 #
 # Inside nixidae this directory is `<nixidae>/pydd`, and nixidae's own
 # nix/wire.nix answers. On its own, `flake.lock` names the nixidae commit to
-# build against, and this tree takes the place of its copy there.
+# build against, and this tree takes the place of its copy there: what git
+# tracks of it, as a store path named `source`, the way nixidae copies each
+# source.
 let
   root = toString ../.;
   # `../..` from a bare store path leaves the store root, and Nix refuses to
@@ -15,6 +17,13 @@ let
   lock = builtins.fromJSON (builtins.readFile ../flake.lock);
   nixidae = builtins.fetchTree lock.nodes.${lock.nodes.${lock.root}.inputs.nixidae}.locked;
 
-  wire = if inNixidae then ../../nix/wire.nix else "${nixidae}/nix/wire.nix";
+  tree = if builtins.pathExists ../.git then (builtins.fetchGit { url = root; }).outPath else ../.;
+  self = builtins.path {
+    path = tree;
+    name = "source";
+  };
 in
-import wire { overrides.pydd = ../.; }
+if inNixidae then
+  import ../../nix/wire.nix { }
+else
+  import "${nixidae}/nix/wire.nix" { overrides.pydd = self; }
