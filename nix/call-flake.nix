@@ -1,28 +1,35 @@
-# Read a flake we do not own, with the umbrella's sources in place of its own
-# lock file.
+# Read a flake we do not own, with our sources in place of its own lock file.
 #
-# Our own repositories are not flakes. They take the sources the umbrella
-# gives them and import what they want. A third party's repository is often a
-# flake, and sometimes its outputs are the only way in, so this reads one.
-# It is the only place a flake is read.
-#
-# Takes the *name*, not a directory. nix/inputs.nix holds a path for a
-# working copy and a flake reference string for a locked source, and
-# flake-compatish takes either as a source. A directory would not do: a
-# fetched one is a string carrying store-path context, and flake-compatish
-# would hand that to parseFlakeRef, which a pure evaluation refuses.
+# Takes the *name*, not a directory. flake-compatish gets a path for a
+# directory in this tree, and a locked reference for a pin. A fetched
+# directory would not do: it is a string carrying store-path context, and
+# flake-compatish would hand that to parseFlakeRef, which a pure evaluation
+# refuses.
 #
 # The overrides are the whole set. flake-compatish reads the flake's own
-# flake.nix for the names it declares and ignores the rest, so nothing here
-# has to know what the flake wants. A name it does declare comes from the
-# umbrella; a name it declares that the umbrella does not name comes from its
-# own lock.
+# flake.nix for the names it declares and ignores the rest. A name it
+# declares that we do not carry comes from its own lock.
 {
-  inputs ? import ./inputs.nix,
+  sources ? import ./wire.nix { },
 }:
+let
+  lock = builtins.fromJSON (builtins.readFile ../flake.lock);
+  ref =
+    name: value:
+    if builtins.isPath value then
+      value
+    else
+      let
+        locked = lock.nodes.${lock.nodes.${lock.root}.inputs.${name}}.locked;
+      in
+      "github:${locked.owner}/${locked.repo}/${locked.rev}?narHash=${
+        builtins.replaceStrings [ "=" ] [ "%3D" ] locked.narHash
+      }";
+  refs = builtins.mapAttrs ref sources;
+in
 name:
-(import (import ./fetch.nix inputs.flake-compatish) {
-  source = inputs.${name};
-  overrides = inputs;
+(import sources.flake-compatish {
+  source = refs.${name};
+  overrides = refs;
   warnOverrides = false;
 }).outputs

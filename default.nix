@@ -1,45 +1,38 @@
+let
+  compat = import ./nix/compat.nix;
+in
 {
-  inputs ? import ./nix/inputs.nix,
+  inputs ? compat,
   system ? builtins.currentSystem,
-  # nix/fetch.nix and not `sources` below, because an argument cannot see the
-  # body it belongs to.
-  pkgs ? import (import ./nix/fetch.nix inputs.nixpkgs) {
+  pkgs ? import inputs.nixpkgs {
     inherit system;
     # nixkube asks for this, and so does nanopynix. One package set for
-    # everybody means the umbrella has to ask for it too, or those two would
-    # each need a set of their own and the sharing would be gone.
+    # everybody means the root has to ask for it too, or those two would each
+    # need a set of their own and the sharing would be gone.
     config.allowUnfree = true;
   },
 }:
 rec {
-  # Every source, as a directory. Each project takes this and imports what it
-  # wants; none of them is a flake, so there is nothing else to resolve.
-  #
-  # nix/wire.nix is the one implementation, and a project's own default.nix
-  # calls it too. Passing `inputs` here rather than letting it read
-  # nix/inputs.nix itself is what makes an argument to this file reach the
-  # projects.
+  # Every source, as a directory. Each one takes this and imports what it
+  # wants. nix/wire.nix is the one implementation, and a source's own
+  # nix/sources.nix calls it too.
   sources = import ./nix/wire.nix { inherit inputs; };
 
   # Read a flake we do not own, with these sources in place of its own lock.
-  callFlake = import ./nix/call-flake.nix { inherit inputs; };
+  callFlake = import ./nix/call-flake.nix { inherit sources; };
 
-  # umbrella drives this collection. It keeps a commit that no remote has out
-  # of nix/sources.lock, and it makes worktreespaces that share storage
-  # instead of cloning every repository again.
+  shell = pkgs.callPackage ./pkgs/shell { };
+
+  # Write each source's flake.lock, and export each source to its own
+  # repository. .github/workflows/josh-export.yml runs both.
+  lock-subtrees = pkgs.callPackage ./pkgs/lock-subtrees { };
+  josh-export = pkgs.callPackage ./pkgs/josh-export { };
+
+  # -- the sources -----------------------------------------------------------
   #
-  # It is one of the locked sources too, so it can be edited in place like the
-  # rest. It is also the tool that fetches the others, so a clone that has
-  # none of them has to be able to build it anyway: `sources` gives the
-  # revision in nix/sources.lock when the directory is not there.
-  umbrella = (import sources.umbrella { inherit pkgs; }).umbrella;
-
-  shell = pkgs.callPackage ./pkgs/shell { inherit umbrella; };
-
-  # -- the four projects ---------------------------------------------------
-  #
-  # Each one is a repository somebody can build on its own, and each one asks
-  # the umbrella for the same set this file hands it here.
+  # Each one is also a repository somebody can build on its own, exported by
+  # josh. A source called here gets the arguments its own default.nix would
+  # give itself, so the two builds are the same derivations.
   pynixd = import sources.pynixd { inherit pkgs sources; };
 
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
@@ -51,27 +44,36 @@ rec {
   nixkube = import sources.nixkube { inherit sources system; };
 
   # NixOS integration tests on User-Mode Linux, so a guest is a process and a
-  # test is a derivation that passes or fails. easykubenix drives
-  # `ekn kubeapply` against a cluster it builds.
-  #
-  # The one here that does not ask the umbrella for anything. It depends on
-  # nixpkgs and on nothing else in this collection, so it takes a package set
-  # rather than the source set -- it is a checkout somebody can hack on here,
-  # not a repository wired into the rest. `sources.vivarium` is still
-  # how this file and easykubenix find the directory.
+  # test is a derivation that passes or fails.
   vivarium = import sources.vivarium { inherit pkgs; };
 
-  checks = {
-    # That every name resolves, and that a working copy wins where there is
-    # one. nix/wired.nix says why a source that quietly comes from the wrong
-    # place is worse than one that breaks.
-    wired = pkgs.callPackage ./nix/wired.nix { inherit sources; };
+  # huggorm and the two built on it take a package set of their own, with no
+  # config: their flakes build the same one, and a plain `import nixpkgs { }`
+  # would read ~/.config/nixpkgs.
+  huggormPkgs = import inputs.nixpkgs {
+    inherit system;
+    config = { };
+    overlays = [ ];
+  };
+  huggorm = import sources.huggorm {
+    inherit sources;
+    pkgs = huggormPkgs;
+  };
 
+  pydd = import sources.pydd {
+    inherit sources;
+    huggormSet = huggorm;
+  };
+
+  havsorm = import sources.havsorm { inherit sources huggorm; };
+
+  ghanix = import sources.ghanix { inherit (pkgs) lib; };
+
+  checks = {
     # That calling a flake we do not own uses our inputs and not its lock.
     # nix/examples/call-flake.nix is the worked example as well as the gate.
     callFlake = pkgs.callPackage ./nix/examples/call-flake.nix {
-      inherit sources inputs pkgs;
-      callFlake = callFlake;
+      inherit sources pkgs callFlake;
     };
   };
 }

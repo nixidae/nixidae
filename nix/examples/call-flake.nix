@@ -26,7 +26,6 @@
   # From default.nix.
   sources,
   callFlake,
-  inputs,
 }:
 let
   # What a flake's own lock file names for one of its root inputs.
@@ -55,7 +54,7 @@ let
   # runs often reads the number instead.
   ownLockRev = name: inputName: (ownLockNode name inputName).rev;
 
-  umbrellaLock = builtins.fromJSON (builtins.readFile ../sources.lock);
+  lock = builtins.fromJSON (builtins.readFile ../../flake.lock);
 
   # -- the three cases -----------------------------------------------------
 
@@ -87,7 +86,7 @@ let
     {
       name = "treefmt-nix would have used another nixpkgs revision";
       have = ownLockRev "treefmt-nix" "nixpkgs";
-      want = umbrellaLock.sources.nixpkgs.rev;
+      want = lock.nodes.nixpkgs.locked.rev;
       # The one row that wants the two to differ. Without it the row above
       # passes when nothing was overridden at all, because the flake happens
       # to name the revision we do.
