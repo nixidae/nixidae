@@ -85,6 +85,7 @@ builtins.mapAttrs (
       ];
     };
     environment = venv;
+    root = planner;
     inherit (planner) closure;
   }
 ) projects

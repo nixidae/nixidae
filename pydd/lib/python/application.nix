@@ -18,6 +18,11 @@
 # realises the installable and then reads the result, so it works.
 # `lib.getExe` gives a placeholder, which is correct inside another derivation.
 #
+# **The output floats too** (Lillecarl/pydd#14). The `.drv` names the planner,
+# and each mode has its own planner. An input-addressed root would get a path
+# for each mode around one environment. A floating root gets the path of
+# its links, so every mode that gives one environment gives one root.
+#
 # **The build verifies the program rather than trust the name.** A member
 # usually installs a console script of its own name, and a member that does not
 # is why `program` is an argument at all.
@@ -39,6 +44,9 @@
 pkgs.stdenvNoCC.mkDerivation {
   name = if program != null then program else name;
   inherit application passthru;
+  __contentAddressed = true;
+  outputHashMode = "recursive";
+  outputHashAlgo = "sha256";
   dontUnpack = true;
   dontConfigure = true;
   dontBuild = true;

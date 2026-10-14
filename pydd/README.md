@@ -91,7 +91,8 @@ archive, chooses the backend from the same lock, and submits the build.
 
 **The result is an ordinary derivation** (#7). Its output is a tree of
 links into the environment, or into the application when the call names
-one. It takes `override` over the arguments of `uv`, `overrideAttrs` and
+one. Its output floats (#14), so every mode that gives one environment
+gives one root. It takes `override` over the arguments of `uv`, `overrideAttrs` and
 the install hooks, and it works in `environment.systemPackages` and
 `buildInputs`. Its `passthru` holds `planner`, `dynamic` (the output that
 the planner submits), `env`, `app` and `shell`. The reader handles

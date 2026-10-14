@@ -1,6 +1,6 @@
 # Every check of the test projects, by name, in the shape that `run` builds:
-# `out` is the check, `environment` is the environment it checks, and
-# `closure` is what the planners run on.
+# `out` is the check, `environment` is the environment it checks, `root` is
+# the derivation around it, and `closure` is what the planners run on.
 #
 #     nix run --file . run -- projects.cli.pure-app
 #     nix run --file . test-projects
@@ -108,4 +108,5 @@ in
 builtins.mapAttrs (_: out: {
   inherit out closure;
   environment = out.planner.dynamic;
+  root = out.planner;
 }) checks

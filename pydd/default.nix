@@ -439,19 +439,22 @@ rec {
         read -ra released <<< "$(nix eval --raw --file . ${set}.out --apply 'p: toString (builtins.attrNames p)')"
         failed=0
         # One group of modes for each way to build a source node: every mode of
-        # a group must give one environment. stdenv strips and patches what it
-        # builds, so the stdenv modes are a group of their own.
+        # a group must give one environment, and one root around it. stdenv
+        # strips and patches what it builds, so the stdenv modes are a group of
+        # their own.
         compare() {
           local name=$1 group=$2
           shift 2
-          local modes=("$@") paths=() mode runner
+          local modes=("$@") paths=() mode runner environment root
           for mode in "''${modes[@]}"; do
             runner=pydd-run
             [[ $mode == out* ]] && runner=pydd-run-released
             [[ $mode == recursive* ]] && runner=pydd-run-recursive
             if "$runner" "${set}.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
               echo "pass  $name ($mode)"
-              paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" environment 2>> "$log/$name-$mode.log")")
+              environment=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" environment 2>> "$log/$name-$mode.log")
+              root=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" root 2>> "$log/$name-$mode.log")
+              paths+=("$mode=$environment $root")
             else
               echo "FAIL  $name ($mode)  ($log/$name-$mode.log)"
               failed=1
