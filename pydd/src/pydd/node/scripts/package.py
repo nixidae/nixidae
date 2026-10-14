@@ -190,8 +190,15 @@ def root(spec: dict[str, Any], top: Path, out: Path) -> None:
         subprocess.run([f"{nodejs}/bin/npm", "run", script, *arguments], cwd=tree, env=env, check=True)
     for path in spec["omit"]:
         shutil.rmtree(tree / path, ignore_errors=True)
+        # A scope, as `@esbuild`, and a nested `node_modules` can become empty.
+        parent = (tree / path).parent
+        while parent != tree and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
     for link in spec["build_bins"]:
         (tree / link).unlink(missing_ok=True)
+        if (tree / link).parent.is_dir() and not any((tree / link).parent.iterdir()):
+            (tree / link).parent.rmdir()
     place(tree, {}, spec["bins"])
     bin_directory = out / "bin"
     for program, file in spec["programs"].items():

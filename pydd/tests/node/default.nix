@@ -30,6 +30,8 @@ let
         modules=$(dirname "$(readlink -f "$(command -v esbuild-app)")")/../node_modules
         test -d "$modules/ms"
         test ! -e "$modules/esbuild"
+        test ! -e "$modules/@esbuild"
+        test ! -e "$modules/.bin"
       '';
     };
     # An npm workspace: the program is a member's, and its dependency is the
