@@ -34,10 +34,13 @@ let
         test "$(http-server -v)" = v14.1.1
       '';
     };
+    # The source says version 0.0.0-development, which semantic-release
+    # replaces at publication, so `nodemon --version` names no release.
     nodemon = {
       src = github "remy" "nodemon" "v3.1.14" "sha256-Kk42VjCmbkAfYzZEh4njyA4fodjmeCxIDraAZ8Hsd4g=";
       check = ''
-        test "$(nodemon --version)" = 3.1.14
+        nodemon --help > help
+        grep -q "Usage: nodemon" help
       '';
     };
     # TypeScript, bundled by vite in `npm run build`.

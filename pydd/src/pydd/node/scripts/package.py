@@ -178,7 +178,9 @@ def package(spec: dict[str, Any], top: Path, out: Path) -> None:
 
 def root(spec: dict[str, Any], top: Path, out: Path) -> None:
     nodejs = spec["nodejs"]
-    tree = out / "lib" / "node_modules" / spec["name"]
+    # Not in `$out/lib/node_modules`: TypeScript, and the tools over it,
+    # skip every file under a `node_modules`, the project's own included.
+    tree = top / "project"
     shutil.copytree(spec["source"], tree, symlinks=True)
     writable(tree)
     place(tree, spec["tree"], spec["links"])
@@ -200,15 +202,17 @@ def root(spec: dict[str, Any], top: Path, out: Path) -> None:
         if (tree / link).parent.is_dir() and not any((tree / link).parent.iterdir()):
             (tree / link).parent.rmdir()
     place(tree, {}, spec["bins"])
+    for program, file in spec["programs"].items():
+        if not (tree / file).is_file():
+            raise SystemExit(f"pydd: the program {program} names {file}, which the project does not hold.")
+        (tree / file).chmod((tree / file).stat().st_mode | 0o111)
+        patch_shebang(tree / file)
+    installed = out / "lib" / "node_modules" / spec["name"]
+    shutil.copytree(tree, installed, symlinks=True)
     bin_directory = out / "bin"
     for program, file in spec["programs"].items():
-        target = tree / file
-        if not target.is_file():
-            raise SystemExit(f"pydd: the program {program} names {file}, which the project does not hold.")
-        target.chmod(target.stat().st_mode | 0o111)
-        patch_shebang(target)
         bin_directory.mkdir(exist_ok=True)
-        (bin_directory / program).symlink_to(posixpath.relpath(target, bin_directory))
+        (bin_directory / program).symlink_to(posixpath.relpath(installed / file, bin_directory))
 
 
 def main() -> None:
