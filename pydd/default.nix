@@ -379,6 +379,33 @@ rec {
       };
     };
 
+  # Cargo projects of `tests/rust`, in each mode where a planner writes its
+  # own nodes. `out` is not one: there the host makes every node, and only
+  # cargo, in a build, knows the units.
+  # nix run --file . run -- rust.cli.serde-app
+  rust =
+    lib.genAttrs [ "cli" "huggorm" "drv" ] (
+      writer:
+      import ./tests/rust {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          inherit huggorm nix writer;
+          pyddDrv = pydd-drv;
+        };
+      }
+    )
+    // {
+      recursive = import ./tests/rust {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "cli";
+          plannerProtocol = "recursive";
+        };
+      };
+    };
+
   # Run every check of a test set in each mode, and compare the environments
   # and the roots. A check needs a Nix that this machine's daemon may not be,
   # so it builds in the private store of a lane, and no `checks` attribute
@@ -396,5 +423,11 @@ rec {
   test-live = mkRunner "pydd-test-live" [
     "test"
     "live"
+  ];
+
+  # The Cargo projects of `tests/rust`.
+  test-rust = mkRunner "pydd-test-rust" [
+    "test"
+    "rust"
   ];
 }

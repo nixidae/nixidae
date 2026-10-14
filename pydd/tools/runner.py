@@ -145,6 +145,9 @@ GROUPS = {
     "live": {
         "live": ["cli", "huggorm", "recursive", "out"],
     },
+    "rust": {
+        "rust": ["cli", "huggorm", "drv", "recursive"],
+    },
 }
 RELEASED = {"out", "out-stdenv"}
 
@@ -211,10 +214,11 @@ async def test(arguments: argparse.Namespace) -> int:
     cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
     log = arguments.log or cache / "pydd" / arguments.set
     log.mkdir(parents=True, exist_ok=True)
+    modes = {mode for group in GROUPS[arguments.set].values() for mode in group}
     test_set = TestSet(
         arguments.set,
         log,
-        set(await attribute_names(f"{arguments.set}.out")),
+        set(await attribute_names(f"{arguments.set}.out")) if modes & RELEASED else set(),
         lanes(),
         Timeouts(arguments.eval_timeout, arguments.build_timeout),
     )
