@@ -109,6 +109,18 @@ takes PyPI packages only.
 This planner is a port of the ddrn lab of nanopynix. `docs/` holds its
 research notes.
 
+## Cargo projects
+
+`pydd.rust.cargo { project = ./.; }` builds a Cargo project, with one node
+for each unit of cargo's unit graph: a library, a proc-macro, a binary,
+and a build script's compile and run. Cargo plans the build, offline over
+a vendor directory that nixpkgs makes from `Cargo.lock`. A node reads its
+build script's output when it builds. The lane uses only `pydd.core`, and
+builds in the `cli`, `huggorm`, `drv` and `recursive` modes. `out` cannot
+build it: there the host makes every node, and only cargo knows the
+units. [The Rust page](https://lillecarl.github.io/pydd/rust.html) has
+the detail.
+
 ## Extending a build
 
 pydd is a framework. A package that needs more than its lock file says
@@ -207,8 +219,9 @@ into a built root, and modes do not import each other.
 
 | layer | Nix | Python | holds |
 | --- | --- | --- | --- |
-| core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols |
+| core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols, the root wrapper `root.nix` |
 | ecosystem | `lib/python/` | `src/pydd/python/` | lock readers, selection, hints, the plan document, `graph.nix` (each node kind), build scripts |
+| ecosystem | `lib/rust/` | `src/pydd/rust/` | the Cargo planner over the unit graph, and the node builder `scripts/unit.py` |
 | modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `nix_cli` (`graph.nix` in `nix eval`, over `nix-eval.nix`), `out` (released Nix: host-made nodes and planned nodes) |
 
 A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
@@ -242,6 +255,9 @@ so a stuck build fails the run instead of holding it.
 unchanged, in four modes: fastapi-cli, typer, fastmcp, the MCP Python SDK
 and an example app of uv. `tests/live/README.md` lists what each one
 needed, and what each one changed in pydd.
+
+`nix run --file . test-rust` builds the Cargo projects of `tests/rust` in
+four modes, and compares the binaries and the roots.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock
