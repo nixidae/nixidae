@@ -62,6 +62,61 @@ let
         readelf -d "$(command -v ws-app)" | grep -q /pydd-link-arg-bins
       '';
     };
+    # Cross-compiled for aarch64: proc-macros and build scripts run on this
+    # machine, and the binary runs under qemu's user emulation
+    # (Lillecarl/pydd#21).
+    serde-app-aarch64 = {
+      src = ./serde-app;
+      arguments.targetPkgs = pkgs.pkgsCross.aarch64-multiplatform;
+      runs = false;
+      check = ''
+        readelf -h "$(command -v serde-app)" | grep -q AArch64
+        test "$(qemu-aarch64 "$(command -v serde-app)")" = '{"text":"hello from serde-app"}'
+      '';
+    };
+    # openssl and zstd of the target, through the target's pkg-config.
+    native-app-aarch64 = {
+      src = ./native-app;
+      arguments.targetPkgs = pkgs.pkgsCross.aarch64-multiplatform;
+      runs = false;
+      check = ''
+        binary=$(command -v native-app)
+        readelf -h "$binary" | grep -q AArch64
+        needed=$(readelf -d "$binary")
+        echo "$needed"
+        grep -q 'libssl.so' <<< "$needed"
+        grep -q 'libzstd.so' <<< "$needed"
+        test "$(qemu-aarch64 "$binary")" = 'hello from native-app sha256=ecd4 openssl=3'
+      '';
+    };
+    # The hints off, openssl-sys declared, and zstd-sys left to build the
+    # zstd it bundles: C that the `cc` crate compiles for the target, with
+    # TARGET_CC and TARGET_AR. A declared tool is taken as it is, so the
+    # program is the build machine's pkg-config.
+    native-declared-aarch64 =
+      let
+        cross = pkgs.pkgsCross.aarch64-multiplatform;
+      in
+      {
+        src = ./native-declared;
+        arguments = {
+          targetPkgs = cross;
+          nixpkgsHints = false;
+          buildTools.openssl-sys = [
+            cross.buildPackages.pkg-config
+            cross.openssl.dev
+            cross.openssl
+          ];
+        };
+        runs = false;
+        check = ''
+          binary=$(command -v native-declared)
+          needed=$(readelf -d "$binary")
+          grep -q 'libssl.so' <<< "$needed"
+          ! grep -q 'libzstd.so' <<< "$needed"
+          test "$(qemu-aarch64 "$binary")" = 'hello from native-declared sha256=3d5a openssl=3'
+        '';
+      };
     # A path dependency outside the project: `root` holds both.
     monorepo = {
       src = ./monorepo/tool;
@@ -83,8 +138,8 @@ builtins.mapAttrs (
       inherit (pkgs.stdenv.hostPlatform) system;
       builder = "${pkgs.bash}/bin/bash";
       # The project's own tests run too.
-      tests = root.tests;
-      PATH = "${root}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:${pkgs.binutils-unwrapped}/bin";
+      tests = if entry.runs or true then root.tests else null;
+      PATH = "${root}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:${pkgs.binutils-unwrapped}/bin:${pkgs.qemu-user}/bin";
       args = [
         "-c"
         ''

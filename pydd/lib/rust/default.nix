@@ -17,11 +17,18 @@ let
           "pydd.rust.cargo: ${toString project}/Cargo.toml is a virtual workspace, "
           + "so it names no package. Pass `name`."
         )),
-      rustc ? pkgs.rustc,
-      cargo ? pkgs.cargo,
-      # The linker, for binaries, proc-macros and build scripts.
-      cc ? pkgs.stdenv.cc,
-      target ? pkgs.stdenv.hostPlatform.rust.rustcTarget,
+      # The package set of the platform the binaries run on, such as
+      # `pkgs.pkgsCross.aarch64-multiplatform`. The compiler and every build
+      # script run on its `buildPackages`; the hints, the libraries and the
+      # linker of the binaries come from it.
+      targetPkgs ? pkgs,
+      rustc ? targetPkgs.buildPackages.rustc,
+      cargo ? targetPkgs.buildPackages.cargo,
+      # The linker of the target's units.
+      cc ? targetPkgs.stdenv.cc,
+      # The linker of build scripts and proc-macros, which run where they build.
+      hostCc ? targetPkgs.buildPackages.stdenv.cc,
+      target ? targetPkgs.stdenv.hostPlatform.rust.rustcTarget,
       # The program that `meta.mainProgram` names, or `null`.
       program ? if (lib.importTOML (project + "/Cargo.toml")) ? package then name else null,
       # What cargo builds, as its own flags say: `--package` for each of
@@ -76,15 +83,20 @@ let
         let
           parts = lib.splitString "." attribute;
         in
-        if lib.hasAttrByPath parts pkgs then
-          lib.getAttrFromPath parts pkgs
+        if lib.hasAttrByPath parts targetPkgs then
+          lib.getAttrFromPath parts targetPkgs
         else
           throw (
             "pydd.rust.cargo: [package.metadata.pydd.build-tools] of ${name} gives '${crate}' "
             + "the name '${attribute}', and nixpkgs holds no attribute of that name."
           );
       lock = lib.importTOML (project + "/Cargo.lock");
-      hinted = lib.optionalAttrs nixpkgsHints (import ./hints.nix { inherit lib pkgs; } lock.package);
+      hinted = lib.optionalAttrs nixpkgsHints (
+        import ./hints.nix {
+          inherit lib;
+          pkgs = targetPkgs;
+        } lock.package
+      );
       tools =
         lib.mapAttrs (_: hint: hint.tools) hinted
         // lib.mapAttrs (crate: map (attributeOf crate)) (declared.build-tools or { })
@@ -158,6 +170,10 @@ let
             cargo = "${cargo}";
             rustc = "${rustc}";
             cc = "${cc}";
+            host = targetPkgs.stdenv.buildPlatform.rust.rustcTarget;
+            host_cc = "${hostCc}";
+            prefix = cc.targetPrefix;
+            bintools = "${cc.bintools}";
             coreutils = "${pkgs.coreutils}";
             python = "${pkgs.python3}";
             script = "${../../src/pydd/rust/scripts/unit.py}";
@@ -194,6 +210,8 @@ let
             cargo
             rustc
             cc
+            hostCc
+            cc.bintools
             pkgs.coreutils
             pkgs.python3
           ];

@@ -51,15 +51,29 @@ class Menu:
     subdir: str
     #: Cargo's own flags for what to build: `--profile`, `--package`, features.
     arguments: list[str]
+    #: The platform that build scripts and proc-macros run on, and its linker.
+    host: str
+    host_cc: str
+    #: The prefix of the target's tools, as `aarch64-unknown-linux-gnu-`, and
+    #: the target's `ar`.
+    prefix: str
+    bintools: str
     #: `build` for the project's binaries, `test` for a graph that runs its tests.
     command: str = "build"
+
+    @property
+    def cross(self) -> bool:
+        return self.cc != self.host_cc
 
     @property
     def manifest(self) -> str:
         return posixpath.normpath(posixpath.join(self.project, self.subdir, "Cargo.toml"))
 
+    def toolchain(self) -> list[str]:
+        return [self.rustc, self.cc, self.coreutils, *((self.host_cc, self.bintools) if self.cross else ())]
+
     def tools(self) -> str:
-        return ":".join(f"{tool}/bin" for tool in (self.rustc, self.cc, self.coreutils))
+        return ":".join(f"{tool}/bin" for tool in self.toolchain())
 
     def inside(self, path: str) -> str:
         """`path` with the vendor directory resolved to the crate's own store path."""
@@ -280,6 +294,13 @@ class Graph:
                 "CXXFLAGS": includes,
                 "LIBRARY_PATH": ":".join(f"{tool}/lib" for tool in tools),
             }
+        if tools and menu.cross:
+            # The `pkg-config` crate refuses to cross-compile unless told, and
+            # nixpkgs names the target's pkg-config with the target's prefix.
+            env["PKG_CONFIG_ALLOW_CROSS"] = "1"
+            for tool in tools:
+                if os.path.exists(f"{tool}/bin/{menu.prefix}pkg-config"):
+                    env["TARGET_PKG_CONFIG"] = f"{tool}/bin/{menu.prefix}pkg-config"
         env |= (native or {}).get("env", {})
         return Derivation(
             name=name,
@@ -287,7 +308,7 @@ class Graph:
             builder=f"{menu.python}/bin/python3",
             args=["-I", menu.script],
             env=env,
-            srcs=sorted({menu.python, menu.script, menu.rustc, menu.cc, menu.coreutils, *tools, *spec.get("srcs", [])}),
+            srcs=sorted({menu.python, menu.script, *menu.toolchain(), *tools, *spec.get("srcs", [])}),
             drvs={node.path: ["out"] for node in [*(self.nodes[dep] for dep in inputs), *(extra or [])]},
         )
 
@@ -327,6 +348,8 @@ class Graph:
             flags += ["-C", f"extra-filename=-{metadata}"]
         if unit["platform"] is not None:
             flags += ["--target", unit["platform"]]
+            if self.menu.cross:
+                flags += ["-C", f"linker={self.menu.cc}/bin/{self.menu.prefix}cc"]
         if unit["pkg_id"] not in self.members:
             flags += ["--cap-lints", "warn"]
         if crate_type == "proc-macro":
@@ -428,16 +451,29 @@ class Graph:
         inputs = [index, *(dep["index"] for dep in unit["dependencies"] if self.is_binary(dep["index"]))]
         return self.planner.add(self.derivation(f"{self.name(index)}-run", spec, inputs))
 
+    def cross_env(self) -> dict[str, str]:
+        """The compilers of both platforms, as the `cc` crate reads them."""
+        menu = self.menu
+        return {
+            "TARGET_CC": f"{menu.cc}/bin/{menu.prefix}cc",
+            "TARGET_CXX": f"{menu.cc}/bin/{menu.prefix}c++",
+            "TARGET_AR": f"{menu.bintools}/bin/{menu.prefix}ar",
+            "HOST_CC": f"{menu.host_cc}/bin/cc",
+            "HOST_CXX": f"{menu.host_cc}/bin/c++",
+        }
+
     def run_spec(self, index: int) -> dict[str, Any]:
         unit = self.units[index]
         package = self.packages[unit["pkg_id"]]
         manifest_dir = self.manifest_dir(unit)
         program = next(dep["index"] for dep in unit["dependencies"] if self.units[dep["index"]]["mode"] != RUN)
         profile = unit["profile"]
-        target = unit["platform"] or self.menu.target
+        # A unit with no platform builds for the host: a build script of a
+        # proc-macro's dependency gets the host as its TARGET.
+        target = unit["platform"] or self.menu.host
         env = package_env(package, manifest_dir) | {
             "TARGET": target,
-            "HOST": self.menu.target,
+            "HOST": self.menu.host,
             # Cargo says `debug` for a profile that inherits `dev`, and the unit
             # graph does not say what a profile inherits.
             "PROFILE": "debug" if profile["name"] == "dev" or profile["opt_level"] == "0" else "release",
@@ -448,6 +484,7 @@ class Graph:
             "RUSTC": f"{self.menu.rustc}/bin/rustc",
             "RUSTDOC": f"{self.menu.rustc}/bin/rustdoc",
             "CARGO_ENCODED_RUSTFLAGS": "",
+            **(self.cross_env() if self.menu.cross else {}),
             "CARGO_CFG_FEATURE": ",".join(unit["features"]),
             **{f"CARGO_FEATURE_{feature.upper().replace('-', '_')}": "1" for feature in unit["features"]},
         }

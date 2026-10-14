@@ -29,8 +29,16 @@ let
         crateName = crate.name;
         inherit (crate) version;
       };
+      # **A native input runs where the build runs.** In a cross package
+      # set, `pkg-config` is spliced, and its plain value is built for the
+      # target: an aarch64 pkg-config that the sandbox cannot run.
+      # `__spliced.buildHost` is the one for this machine; a native set
+      # splices nothing.
+      buildSide = drv: drv.__spliced.buildHost or drv;
       inputs = builtins.filter (drv: lib.isDerivation drv && !(isHook drv)) (
-        attrs.nativeBuildInputs or [ ] ++ attrs.buildInputs or [ ] ++ attrs.propagatedBuildInputs or [ ]
+        map buildSide (attrs.nativeBuildInputs or [ ])
+        ++ attrs.buildInputs or [ ]
+        ++ attrs.propagatedBuildInputs or [ ]
       );
     in
     {
