@@ -8,14 +8,14 @@
 #            no flake.
 {
   easykubenix = {
-    repo = "Lillecarl/easykubenix";
+    repo = "nixidae/easykubenix";
     package = {
       flake = "default";
       root = "easykubenix.passthru.ekn";
     };
   };
   ghanix = {
-    repo = "Lillecarl/ghanix";
+    repo = "nixidae/ghanix";
     package = null;
   };
   havsorm = {
@@ -26,42 +26,42 @@
     };
   };
   huggorm = {
-    repo = "Lillecarl/huggorm";
+    repo = "nixidae/huggorm";
     package = {
       flake = "default";
       root = "huggorm.huggorm";
     };
   };
   nanopynix = {
-    repo = "Lillecarl/nanopynix";
+    repo = "nixidae/nanopynix";
     package = {
       flake = "default";
       root = "nanopynix.nanopynix";
     };
   };
   nixkube = {
-    repo = "Lillecarl/nixkube";
+    repo = "nixidae/nixkube";
     package = {
       flake = "default";
       root = "nixkube.nixkube-docs";
     };
   };
   pydd = {
-    repo = "Lillecarl/pydd";
+    repo = "nixidae/pydd";
     package = {
       flake = "default";
       root = "pydd.pydd-drv";
     };
   };
   pynixd = {
-    repo = "Lillecarl/pynixd";
+    repo = "nixidae/pynixd";
     package = {
       flake = "default";
       root = "pynixd.package";
     };
   };
   vivarium = {
-    repo = "Lillecarl/vivarium";
+    repo = "nixidae/vivarium";
     package = {
       flake = "umlKernel";
       root = "vivarium.umlKernel";

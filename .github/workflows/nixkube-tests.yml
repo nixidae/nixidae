@@ -203,7 +203,7 @@ jobs:
         draft: false
         files: nixkube/nix-csi-deployment.yaml
         prerelease: false
-        repository: Lillecarl/nixkube
+        repository: nixidae/nixkube
         tag_name: ${{ steps.exported.outputs.tag }}
         target_commitish: ${{ steps.exported.outputs.commit }}
         token: ${{ secrets.JOSH_EXPORT_TOKEN }}

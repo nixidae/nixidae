@@ -7,7 +7,7 @@ It writes a graph of derivations through the restricted store socket of a
 `builder-rpc-v0` build, and submits the root. `builtins.outputOf` on the
 planner builds the graph.
 
-[The site](https://lillecarl.github.io/pydd/) compares the modes with
+[The site](https://nixidae.github.io/pydd/) compares the modes with
 measurements, and holds the research notes.
 
 The motivating case is Python packaging. `uv2nix` and `pyproject.nix` carry a
@@ -82,7 +82,7 @@ writes only its root, so the host makes the rest:
 `graph.nix` reads a node that another planner writes, of kind `planned`,
 through `builtins.outputOf`. Every test project builds on stock Nix 2.35
 both ways, with the same environment paths as on `builder-rpc-v0`.
-[The modes page](https://lillecarl.github.io/pydd/modes.html) compares all
+[The modes page](https://nixidae.github.io/pydd/modes.html) compares all
 nine modes, and the level of restriction each one needs.
 
 **An sdist gets a planner of its own.** Its build backend is declared
@@ -119,7 +119,7 @@ build script's output when it builds. The lane uses only `pydd.core`, and
 builds in the `cli`, `huggorm`, `drv` and `recursive` modes. `out` cannot
 build it: there the host makes every node, and only cargo knows the
 units. A crate that links a system library gets it from nixpkgs'
-`defaultCrateOverrides`, or from `[package.metadata.pydd.build-tools]`. [The Rust page](https://lillecarl.github.io/pydd/rust.html) has
+`defaultCrateOverrides`, or from `[package.metadata.pydd.build-tools]`. [The Rust page](https://nixidae.github.io/pydd/rust.html) has
 the detail.
 
 ## npm projects
@@ -135,7 +135,7 @@ mode. In `out` the host makes each node from the lock, and the planner
 writes only the root. The planner also reads `pnpm-lock.yaml`, `bun.lock`
 and Yarn v1's `yarn.lock`, and places their packages as npm does. `out`
 reads npm's lock only. [The npm
-page](https://lillecarl.github.io/pydd/node.html) has the detail.
+page](https://nixidae.github.io/pydd/node.html) has the detail.
 
 ## Extending a build
 

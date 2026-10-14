@@ -22,10 +22,7 @@ with the same commit hashes that repository always had. Work happens here:
 a commit pushed straight to an exported repository does not come back, and
 the next export refuses to overwrite it.
 
-| directory | exported to |
-| --- | --- |
-| `easykubenix`, `ghanix`, `huggorm`, `nanopynix`, `nixkube`, `pydd`, `pynixd`, `vivarium` | `github.com/Lillecarl/<name>` |
-| `havsorm` | `github.com/nixidae/havsorm` |
+Each one goes to `github.com/nixidae/<directory>`.
 
 `nix/members.nix` is the list. `.github/workflows/josh-export.yml` runs the
 export, through `pkgs/josh-export`. Tests run only here. An exported

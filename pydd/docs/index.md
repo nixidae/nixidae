@@ -7,7 +7,7 @@ package, on Nix master and on released Nix. It plans Cargo projects too,
 with one derivation per unit of cargo's unit graph, and npm projects,
 with one derivation per package of `package-lock.json`.
 
-The [README](https://github.com/Lillecarl/pydd#readme) says how to use
+The [README](https://github.com/nixidae/pydd#readme) says how to use
 it. These pages hold what the work found.
 
 ```{toctree}
