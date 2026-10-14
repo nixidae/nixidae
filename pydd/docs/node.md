@@ -176,7 +176,8 @@ the Rust lane (`tool_env` of `pydd.core`).
 The root copies the project, places every node, and links each workspace
 member where the lock names it. It runs each script of `scripts`
 (`[ "build" ]`) with `npm run --if-present`, in the project and in each
-workspace member. The project builds in the build directory, and not in
+workspace member. With a pnpm, bun or Yarn lock it runs them in the
+project only, as those tools do. The project builds in the build directory, and not in
 `$out/lib/node_modules`: TypeScript, and api-extractor over it, skip
 every file under a `node_modules`, the project's own included.
 

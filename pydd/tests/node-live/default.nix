@@ -61,6 +61,58 @@ let
         grep -q Usage help
       '';
     };
+    # pnpm 10, with `onlyBuiltDependencies`. TypeScript, by `tsc --build`.
+    concurrently = {
+      src = pkgs.concurrently.src;
+      lock = "pnpm";
+      check = ''
+        test "$(concurrently --version)" = 9.2.1
+      '';
+    };
+    # pnpm 11, with `allowBuilds`. Bundled by tsdown.
+    bumpp = {
+      src = pkgs.bumpp.src;
+      lock = "pnpm";
+      check = ''
+        bumpp --version > version
+        grep -q 12.2.0 version
+      '';
+    };
+    # pnpm 10. Bundled by unbuild. It reads the tags of a git repository.
+    changelogen = {
+      src = pkgs.changelogen.src;
+      lock = "pnpm";
+      check = ''
+        git init -q .
+        git remote add origin https://github.com/unjs/changelogen.git
+        git -c user.name=pydd -c user.email=pydd@localhost commit -q --allow-empty -m "feat: start"
+        git tag v0.1.0
+        git -c user.name=pydd -c user.email=pydd@localhost commit -q --allow-empty -m "feat: add a greeting"
+        changelogen --from v0.1.0 --no-output > log 2>&1
+        grep -q "Add a greeting" log || { cat log; exit 1; }
+      '';
+    };
+    # Yarn v1. TypeScript, by tsc.
+    diff2html-cli = {
+      src = pkgs.diff2html-cli.src;
+      lock = "yarn";
+      arguments.program = "diff2html";
+      check = ''
+        printf -- '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n' > change.diff
+        diff2html -i file -o stdout -- change.diff > page.html
+        grep -q "new" page.html
+      '';
+    };
+    # Yarn v1. Compiled by babel.
+    gitmoji-cli = {
+      src = pkgs.gitmoji-cli.src;
+      lock = "yarn";
+      arguments.program = "gitmoji";
+      check = ''
+        gitmoji --help > help
+        grep -q gitmoji help
+      '';
+    };
   };
 in
 builtins.mapAttrs (
@@ -73,7 +125,7 @@ builtins.mapAttrs (
       name = "${name}-check";
       inherit (pkgs.stdenv.hostPlatform) system;
       builder = "${pkgs.bash}/bin/bash";
-      PATH = "${root}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin";
+      PATH = "${root}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:${pkgs.git}/bin";
       args = [
         "-c"
         ''
@@ -88,4 +140,5 @@ builtins.mapAttrs (
     inherit root;
     inherit (root) closure;
   }
-) projects
+  # `out` reads npm's lock on the host, and no other.
+) (pkgs.lib.filterAttrs (_: entry: pydd.protocol != "out" || !(entry ? lock)) projects)
