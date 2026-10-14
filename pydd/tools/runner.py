@@ -151,6 +151,9 @@ GROUPS = {
     "rust-live": {
         "rust-live": ["cli", "huggorm", "recursive"],
     },
+    "node": {
+        "node": ["cli", "huggorm", "drv", "recursive"],
+    },
 }
 RELEASED = {"out", "out-stdenv"}
 

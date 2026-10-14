@@ -62,6 +62,7 @@ let
       );
     python = callPackage ./python { pydd = self; };
     rust = callPackage ./rust { pydd = self; };
+    node = callPackage ./node { pydd = self; };
     evaluate = callPackage ./modes/evaluate.nix { pydd = self; };
   };
 in

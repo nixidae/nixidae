@@ -1,0 +1,186 @@
+"""The npm planner against the lock files of `tests/node`."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from pydd.core import Derivation, Fixed, Planner, fixed_output_path, nix32
+from pydd.node._npm import Graph, Lock, Menu, bin_links, fits, strongest
+
+PROJECTS = Path(__file__).parent / "node"
+STORE = "/nix/store/00000000000000000000000000000000"
+
+
+def lock(project: str, system: str = "x86_64-linux", omit: list[str] | None = None) -> Lock:
+    data = json.loads((PROJECTS / project / "package-lock.json").read_text())
+    return Lock.read(data, system, "glibc", ["dev"] if omit is None else omit)
+
+
+class KeepingWriter:
+    def __init__(self) -> None:
+        self.added: list[Derivation] = []
+
+    def add(self, drv: Derivation) -> str:
+        self.added.append(drv)
+        digest = hashlib.sha256(json.dumps(drv.to_json(), sort_keys=True).encode()).digest()
+        return f"/nix/store/{nix32(digest)[:32]}-{drv.name}.drv"
+
+    def submit(self, path: str, output: str) -> None:
+        pass
+
+
+def plan(project: str) -> tuple[KeepingWriter, dict[str, dict[str, Any]]]:
+    writer = KeepingWriter()
+    planner = Planner(writer, "x86_64-linux", None)
+    menu = Menu(
+        name=project,
+        project=f"{STORE}-{project}-source",
+        subdir=".",
+        nodejs=f"{STORE}-nodejs",
+        python=f"{STORE}-python3",
+        script=f"{STORE}-package.py",
+        cacert=f"{STORE}-cacert",
+        tools=[f"{STORE}-cc"],
+        native={},
+        omit=["dev"],
+        scripts=["build"],
+    )
+    Graph(planner, menu, lock(project)).root(menu.scripts)
+    return writer, {drv.name: json.loads(drv.env["PYDD_NPM"]) for drv in writer.added}
+
+
+def test_a_nested_package_shadows_the_top_one() -> None:
+    hello = lock("hello-npm")
+    assert hello.resolve("", "ansi-styles") == "node_modules/ansi-styles"
+    assert hello.resolve("node_modules/chalk", "ansi-styles") == "node_modules/chalk/node_modules/ansi-styles"
+    # supports-color is not nested under chalk, so chalk finds the top one.
+    assert hello.resolve("node_modules/chalk", "supports-color") == "node_modules/supports-color"
+
+
+def test_a_workspace_link_resolves_to_its_member() -> None:
+    workspace = lock("workspace")
+    assert workspace.resolve("packages/app", "@workspace/greet") == "packages/greet"
+    assert workspace.resolve("packages/greet", "ms") == "node_modules/ms"
+
+
+def test_the_platform_chooses_among_optional_packages() -> None:
+    x86 = lock("esbuild-app")
+    arm = lock("esbuild-app", system="aarch64-linux")
+    assert x86.present("node_modules/@esbuild/linux-x64")
+    assert not x86.present("node_modules/@esbuild/darwin-arm64")
+    assert arm.present("node_modules/@esbuild/linux-arm64")
+    assert not arm.present("node_modules/@esbuild/linux-x64")
+
+
+def test_omit_keeps_development_packages_out_of_the_result() -> None:
+    esbuild = lock("esbuild-app")
+    assert esbuild.present("node_modules/esbuild")
+    assert not esbuild.shipped("node_modules/esbuild")
+    assert esbuild.shipped("node_modules/ms")
+    assert lock("esbuild-app", omit=[]).shipped("node_modules/esbuild")
+
+
+@pytest.mark.parametrize(
+    ("wanted", "actual", "result"),
+    [
+        (None, "linux", True),
+        (["linux"], "linux", True),
+        (["darwin"], "linux", False),
+        (["!win32"], "linux", True),
+        (["!linux"], "linux", False),
+        (["!win32", "darwin"], "linux", False),
+    ],
+)
+def test_os_and_cpu_as_npm_reads_them(wanted: list[str] | None, actual: str, result: bool) -> None:
+    assert fits(wanted, actual) is result
+
+
+def test_the_strongest_hash_of_an_integrity() -> None:
+    assert strongest("sha1-abc= sha512-def==") == "sha512-def=="
+    assert strongest("sha1-abc=") == "sha1-abc="
+
+
+def test_a_fixed_output_has_the_path_nix_gives_it() -> None:
+    # nix eval: builtins.derivation { name = "ms-2.1.3.tgz"; outputHashMode = "flat"; outputHash = ...; }
+    sri = "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="
+    assert fixed_output_path("ms-2.1.3.tgz", sri) == "/nix/store/nyjhgv4dh970fs5d125nbn7sc3dzxjzx-ms-2.1.3.tgz"
+    empty = "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+    assert fixed_output_path("x", empty, "nar") == "/nix/store/d6q30mlzfljh7ha1b1m6fnifi34qr99p-x"
+
+
+def test_one_fetch_and_one_node_for_each_package() -> None:
+    writer, specs = plan("hello-npm")
+    packages = [path for path in lock("hello-npm").packages if path]
+    fetches = [drv for drv in writer.added if isinstance(drv.outputs["out"], Fixed)]
+    assert len(fetches) == len(packages)
+    assert len(writer.added) == 2 * len(packages) + 1
+    assert specs["hello-npm"]["action"] == "root"
+    assert "node_modules/chalk/node_modules/ansi-styles" in specs["hello-npm"]["tree"]
+
+
+def test_an_install_script_gets_what_it_can_require() -> None:
+    _, specs = plan("native-npm")
+    sqlite = specs["better-sqlite3-11.10.0"]
+    assert sqlite["scripts"]
+    assert "node_modules/prebuild-install" in sqlite["tree"]
+    assert "node_modules/bindings" in sqlite["tree"]
+    assert sqlite["links"]["node_modules/.bin/prebuild-install"] == "../prebuild-install/bin.js"
+    # A package with no script needs none of its dependencies.
+    assert specs["bindings-1.5.0"]["tree"] == {}
+
+
+def test_the_root_builds_with_development_packages_and_leaves_them_out() -> None:
+    _, specs = plan("esbuild-app")
+    root = specs["esbuild-app"]
+    assert "node_modules/esbuild" in root["tree"]
+    assert "node_modules/@esbuild/linux-x64" in root["tree"]
+    assert "node_modules/@esbuild/darwin-arm64" not in root["tree"]
+    assert "node_modules/esbuild" in root["omit"]
+    assert "node_modules/.bin/esbuild" in root["build_bins"]
+    assert "node_modules/.bin/esbuild" not in root["bins"]
+
+
+def test_the_programs_of_workspace_members() -> None:
+    _, specs = plan("workspace")
+    root = specs["workspace"]
+    assert root["programs"] == {"workspace-app": "packages/app/main.js"}
+    assert root["links"] == {
+        "node_modules/@workspace/greet": "../../packages/greet",
+        "node_modules/workspace-app": "../packages/app",
+    }
+    assert bin_links(lock("workspace"), ["node_modules/workspace-app"]) == {
+        "node_modules/.bin/workspace-app": "../../packages/app/main.js"
+    }
+
+
+def test_install_scripts_in_a_cycle_are_refused() -> None:
+    data = {
+        "lockfileVersion": 3,
+        "packages": {
+            "": {"dependencies": {"a": "1"}},
+            **{
+                f"node_modules/{name}": {
+                    "version": "1.0.0",
+                    "resolved": f"https://registry.example/{name}.tgz",
+                    "integrity": "sha512-AAAA",
+                    "hasInstallScript": True,
+                    "dependencies": {other: "1"},
+                }
+                for name, other in (("a", "b"), ("b", "a"))
+            },
+        },
+    }
+    menu = Menu("cycle", STORE, ".", STORE, STORE, STORE, STORE, [], {}, ["dev"], [])
+    graph = Graph(Planner(KeepingWriter(), "x86_64-linux", None), menu, Lock.read(data, "x86_64-linux", "glibc", []))
+    with pytest.raises(SystemExit, match="cycle"):
+        graph.root([])
+
+
+def test_a_lock_of_version_one_is_refused() -> None:
+    with pytest.raises(SystemExit, match="version 1"):
+        Lock.read({"lockfileVersion": 1, "dependencies": {}}, "x86_64-linux", "glibc", [])

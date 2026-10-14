@@ -406,6 +406,32 @@ rec {
       };
     };
 
+  # npm projects of `tests/node`, in each mode where a planner writes its own
+  # nodes.
+  # nix run --file . run -- node.cli.hello-npm
+  node =
+    lib.genAttrs [ "cli" "huggorm" "drv" ] (
+      writer:
+      import ./tests/node {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          inherit huggorm nix writer;
+          pyddDrv = pydd-drv;
+        };
+      }
+    )
+    // {
+      recursive = import ./tests/node {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "cli";
+          plannerProtocol = "recursive";
+        };
+      };
+    };
+
   # Real Cargo projects from GitHub, as they are: `tests/rust-live`.
   rust-live =
     lib.genAttrs [ "cli" "huggorm" ] (
@@ -456,5 +482,11 @@ rec {
   test-rust = mkRunner "pydd-test-rust" [
     "test"
     "rust"
+  ];
+
+  # The npm projects of `tests/node`.
+  test-node = mkRunner "pydd-test-node" [
+    "test"
+    "node"
   ];
 }
