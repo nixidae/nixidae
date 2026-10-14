@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vivarium": {
+      "command": "nix",
+      "args": ["shell", "--file", ".", "vivarium-eval", "--command", "vivarium-mcp"]
+    }
+  }
+}
