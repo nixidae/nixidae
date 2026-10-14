@@ -1,0 +1,378 @@
+# GENERATED FILE -- do not edit by hand.
+# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update
+defaults:
+  run:
+    working-directory: nanopynix
+jobs:
+  static-checks:
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',static-checks,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Run the gates (completion-spike, completions, format, grpclib-transports, libpynix, lint, lint-strict, nanopynix-helpers, pynix-isolated, pytest-agent, shell, test-support, types)
+      run: nix build --file . --no-link --print-build-logs --keep-going checks.completion-spike checks.completions checks.format checks.grpclib-transports checks.libpynix checks.lint checks.lint-strict checks.nanopynix-helpers checks.pynix-isolated checks.pytest-agent checks.shell checks.test-support checks.types
+      timeout-minutes: 20
+    timeout-minutes: 85
+  test-asan:
+    env:
+      CI_STEP: ciSteps.${{ matrix.version }}
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Build the ASAN CI step package (${{ matrix.version }})
+      run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
+      timeout-minutes: 60
+    - name: Enable Nix sandbox namespaces
+      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      timeout-minutes: 10
+    - name: Run ASAN-instrumented suite (${{ matrix.version }}, local backend)
+      run: ./result/bin/nanopynix-ci suite
+      timeout-minutes: 60
+    - name: Run the concurrency soak (ASAN, ${{ matrix.version }})
+      run: ./result/bin/nanopynix-ci soak
+      timeout-minutes: 15
+    - if: ${{ !cancelled() }}
+      name: Upload ASAN output (${{ matrix.version }})
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: asan-report-${{ matrix.version }}
+        path: ${{ github.workspace }}/asan-output-${{ matrix.version }}.log
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJson(needs.version-matrix.outputs.asan_versions) }}
+    timeout-minutes: 225
+  test-nogc:
+    env:
+      CI_STEP: ciSteps.${{ matrix.version }}
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Build the no-collector CI step package (${{ matrix.version }})
+      run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
+      timeout-minutes: 30
+    - name: Enable Nix sandbox namespaces
+      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      timeout-minutes: 10
+    - name: Run the suite without a collector (${{ matrix.version }}, local backend)
+      run: ./result/bin/nanopynix-ci suite
+      timeout-minutes: 30
+    - name: Run the concurrency soak (no collector, ${{ matrix.version }})
+      run: ./result/bin/nanopynix-ci soak
+      timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJson(needs.version-matrix.outputs.nogc_versions) }}
+    timeout-minutes: 150
+  test-regular:
+    env:
+      BACKEND: ${{ matrix.backend }}
+      CI_STEP: ciSteps.${{ matrix.version }}
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-regular,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Build the CI step package for Nix ${{ matrix.version }}
+      run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
+      timeout-minutes: 30
+    - name: Verify test runner closure after build
+      run: nix store verify --recursive --no-trust "$(readlink -f result)"
+      timeout-minutes: 15
+    - name: Enable Nix sandbox namespaces
+      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      timeout-minutes: 10
+    - name: Test nanopynix against Nix ${{ matrix.version }} (full suite, ${{ matrix.backend }} backend)
+      run: ./result/bin/nanopynix-ci suite
+      timeout-minutes: 30
+    - name: Run the concurrency soak (${{ matrix.version }}, ${{ matrix.backend }} backend)
+      run: ./result/bin/nanopynix-ci soak
+      timeout-minutes: 15
+    - if: ${{ !cancelled() }}
+      name: Upload test output
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: test-output-${{ matrix.backend }}-${{ matrix.version }}
+        path: ${{ github.workspace }}/test-gdb-output.log
+    - if: ${{ !cancelled() }}
+      name: Upload Boehm GC thread registration log
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: gc-thread-debug-${{ matrix.backend }}-${{ matrix.version }}
+        path: ${{ github.workspace }}/gc-thread-debug.log
+    - if: ${{ !cancelled() }}
+      name: Upload hang reports
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: hang-report-${{ matrix.backend }}-${{ matrix.version }}
+        path: ${{ github.workspace }}/hang-report.log
+    - if: ${{ !cancelled() }}
+      name: Upload coverage reports to Codecov
+      timeout-minutes: 10
+      uses: codecov/codecov-action@main
+      with:
+        files: ${{ github.workspace }}/coverage.xml
+        flags: ${{ matrix.backend }}-${{ matrix.version }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+    - if: ${{ !cancelled() }}
+      name: Upload test results to Codecov
+      timeout-minutes: 10
+      uses: codecov/codecov-action@main
+      with:
+        files: ${{ github.workspace }}/junit.xml
+        flags: ${{ matrix.backend }}-${{ matrix.version }}
+        report_type: test_results
+        token: ${{ secrets.CODECOV_TOKEN }}
+    - name: Verify test runner closure after tests
+      run: nix store verify --recursive --no-trust "$(readlink -f result)"
+      timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+        - daemon
+        - local
+        version: ${{ fromJson(needs.version-matrix.outputs.regular_versions) }}
+    timeout-minutes: 245
+  test-tsan:
+    env:
+      CI_STEP: ciSteps.${{ matrix.version }}
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Build the TSAN CI step package (${{ matrix.version }})
+      run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
+      timeout-minutes: 45
+    - name: Enable Nix sandbox namespaces
+      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      timeout-minutes: 10
+    - name: Run TSAN-instrumented concurrency soak (five seeds, local+daemon backends)
+      run: ./result/bin/nanopynix-ci soak-seeds
+      timeout-minutes: 25
+    - name: Run TSAN-instrumented concurrency tests (single pass, local+daemon backends)
+      run: ./result/bin/nanopynix-ci broad
+      timeout-minutes: 20
+    - if: ${{ !cancelled() }}
+      name: Upload TSAN output (${{ matrix.version }})
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: tsan-race-report-${{ matrix.version }}
+        path: |
+          ${{ github.workspace }}/tsan-output-${{ matrix.version }}.log
+          ${{ github.workspace }}/tsan-output-broad-${{ matrix.version }}.log
+          ${{ github.workspace }}/soak-${{ matrix.version }}-run*.json
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJson(needs.version-matrix.outputs.tsan_versions) }}
+    timeout-minutes: 180
+  test-ubsan:
+    env:
+      CI_STEP: ciSteps.${{ matrix.version }}
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan,')
+    needs:
+    - version-matrix
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Build the UBSAN CI step package (${{ matrix.version }})
+      run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
+      timeout-minutes: 60
+    - name: Enable Nix sandbox namespaces
+      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      timeout-minutes: 10
+    - name: Run UBSAN-instrumented suite (${{ matrix.version }}, local backend)
+      run: ./result/bin/nanopynix-ci suite
+      timeout-minutes: 30
+    - name: Run the concurrency soak (UBSAN, ${{ matrix.version }})
+      run: ./result/bin/nanopynix-ci soak
+      timeout-minutes: 15
+    - if: ${{ !cancelled() }}
+      name: Upload UBSAN output (${{ matrix.version }})
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: ubsan-report-${{ matrix.version }}
+        path: ${{ github.workspace }}/ubsan-output-${{ matrix.version }}.log
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJson(needs.version-matrix.outputs.ubsan_versions) }}
+    timeout-minutes: 195
+  version-matrix:
+    outputs:
+      asan_versions: ${{ steps.versions.outputs.asan_versions }}
+      nogc_versions: ${{ steps.versions.outputs.nogc_versions }}
+      regular_versions: ${{ steps.versions.outputs.regular_versions }}
+      tsan_versions: ${{ steps.versions.outputs.tsan_versions }}
+      ubsan_versions: ${{ steps.versions.outputs.ubsan_versions }}
+    runs-on: ubuntu-24.04
+    steps:
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+      with:
+        ref: ${{ github.ref_name }}
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - id: versions
+      name: Compute Nix version matrices
+      run: nix run --file . ciSteps.version-matrix
+      timeout-minutes: 20
+    timeout-minutes: 85
+name: 'nanopynix: On schedule'
+'on':
+  schedule:
+  - cron: 17 3 * * *
+  workflow_dispatch:
+    inputs:
+      jobs:
+        default: ''
+        description: Comma-separated job IDs to run; leave empty for the full matrix
+        required: false
+        type: string
