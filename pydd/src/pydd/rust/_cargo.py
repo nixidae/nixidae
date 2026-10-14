@@ -51,6 +51,8 @@ class Menu:
     subdir: str
     #: Cargo's own flags for what to build: `--profile`, `--package`, features.
     arguments: list[str]
+    #: `build` for the project's binaries, `test` for a graph that runs its tests.
+    command: str = "build"
 
     @property
     def manifest(self) -> str:
@@ -163,13 +165,18 @@ class Graph:
     def is_build_script(self, index: int) -> bool:
         return "custom-build" in self.units[index]["target"]["kind"]
 
+    def is_binary(self, index: int) -> bool:
+        """A binary that is built, as an integration test runs it, and never linked."""
+        unit = self.units[index]
+        return "bin" in unit["target"]["kind"] and unit["mode"] == "build"
+
     def linked(self, index: int) -> list[int]:
         """Every unit whose output `index` links: its dependencies, without build scripts, transitively."""
         seen: dict[int, None] = {}
         stack = [dep["index"] for dep in self.units[index]["dependencies"]]
         while stack:
             dep = stack.pop()
-            if dep in seen or self.is_build_script(dep):
+            if dep in seen or self.is_build_script(dep) or self.is_binary(dep):
                 continue
             seen[dep] = None
             stack += [d["index"] for d in self.units[dep]["dependencies"]]
@@ -198,6 +205,10 @@ class Graph:
         base = f"{package['name']}-{package['version']}"
         if self.is_build_script(index):
             return f"{base}-build-script" + ("-run" if unit["mode"] == RUN else "")
+        if unit["mode"] == "test":
+            return f"{base}-test-{unit['target']['name']}"
+        if unit["mode"] == "doctest":
+            return f"{base}-doctest"
         if "bin" in unit["target"]["kind"]:
             return unit["target"]["name"]
         return base
@@ -207,7 +218,13 @@ class Graph:
             for dep in self.units[index]["dependencies"]:
                 self.node(dep["index"])
             unit = self.units[index]
-            spec = self.run_spec(index) if unit["mode"] == RUN else self.compile_spec(index)
+            match unit["mode"]:
+                case "run-custom-build":
+                    spec = self.run_spec(index)
+                case "doctest":
+                    spec = self.doctest_spec(index)
+                case _:
+                    spec = self.compile_spec(index)
             crate = self.packages[unit["pkg_id"]]["name"]
             native = self.menu.native.get(crate, {"tools": [], "env": {}})
             self.nodes[index] = self.planner.add(self.derivation(self.name(index), spec, self.inputs(index), native))
@@ -221,7 +238,12 @@ class Graph:
         return sorted(set(direct) | set(self.linked(index)))
 
     def derivation(
-        self, name: str, spec: dict[str, Any], inputs: list[int], native: dict[str, Any] | None = None
+        self,
+        name: str,
+        spec: dict[str, Any],
+        inputs: list[int],
+        native: dict[str, Any] | None = None,
+        extra: list[Node] | None = None,
     ) -> Derivation:
         menu = self.menu
         tools: list[str] = (native or {}).get("tools", [])
@@ -244,7 +266,7 @@ class Graph:
             args=["-I", menu.script],
             env=env,
             srcs=sorted({menu.python, menu.script, menu.rustc, menu.cc, menu.coreutils, *tools, *spec.get("srcs", [])}),
-            drvs={self.nodes[dep].path: ["out"] for dep in inputs},
+            drvs={node.path: ["out"] for node in [*(self.nodes[dep] for dep in inputs), *(extra or [])]},
         )
 
     def manifest_dir(self, unit: dict[str, Any]) -> str:
@@ -265,13 +287,13 @@ class Graph:
         crate_name = target["name"].replace("-", "_")
         build_script = self.is_build_script(index)
         crate_type = target["crate_types"][0]
+        testing = unit["mode"] == "test"
         metadata = self.metadata(index)
         flags = [
             "--crate-name",
             crate_name,
             f"--edition={target['edition']}",
-            "--crate-type",
-            crate_type,
+            *(["--test"] if testing else ["--crate-type", crate_type]),
             *profile_flags(unit),
             *(arg for feature in unit["features"] for arg in ("--cfg", f'feature="{feature}"')),
             "-C",
@@ -279,7 +301,7 @@ class Graph:
         ]
         # A library's file name carries the metadata, as `--extern` names it.
         # A binary and a build script are written with `-o`, which ignores it.
-        if crate_type != "bin":
+        if crate_type != "bin" and not testing:
             flags += ["-C", f"extra-filename=-{metadata}"]
         if unit["platform"] is not None:
             flags += ["--target", unit["platform"]]
@@ -288,17 +310,9 @@ class Graph:
         if crate_type == "proc-macro":
             flags += ["-C", "prefer-dynamic", "--extern", "proc_macro"]
 
-        externs = []
-        for dep in unit["dependencies"]:
-            dep_unit = self.units[dep["index"]]
-            if dep_unit["mode"] == RUN or self.is_build_script(dep["index"]):
-                continue
-            dep_crate = dep_unit["target"]["name"].replace("-", "_")
-            suffix = ".so" if dep_unit["target"]["crate_types"][0] == "proc-macro" else ".rlib"
-            path = f"{self.nodes[dep['index']].output()}/lib/lib{dep_crate}-{self.metadata(dep['index'])}{suffix}"
-            externs.append({"name": dep["extern_crate_name"], "path": path})
+        externs = self.externs(index)
         run = self.build_script_run(index)
-        env = package_env(package, manifest_dir) | {"CARGO_CRATE_NAME": crate_name}
+        env = package_env(package, manifest_dir) | {"CARGO_CRATE_NAME": crate_name} | self.binaries(index)
         if "bin" in target["kind"]:
             env["CARGO_BIN_NAME"] = target["name"]
         if unit["pkg_id"] in self.members:
@@ -318,9 +332,72 @@ class Graph:
             ],
             "build_script": self.nodes[run].output() if run is not None else None,
             "env": env,
-            "output": "build-script" if build_script else ("bin" if crate_type == "bin" else "lib"),
+            "output": "build-script" if build_script else ("bin" if crate_type == "bin" or testing else "lib"),
             "file": target["name"],
         }
+
+    def externs(self, index: int) -> list[dict[str, str]]:
+        externs = []
+        for dep in self.units[index]["dependencies"]:
+            dep_unit = self.units[dep["index"]]
+            if self.is_build_script(dep["index"]) or self.is_binary(dep["index"]):
+                continue
+            dep_crate = dep_unit["target"]["name"].replace("-", "_")
+            suffix = ".so" if dep_unit["target"]["crate_types"][0] == "proc-macro" else ".rlib"
+            path = f"{self.nodes[dep['index']].output()}/lib/lib{dep_crate}-{self.metadata(dep['index'])}{suffix}"
+            externs.append({"name": dep["extern_crate_name"], "path": path})
+        return externs
+
+    def binaries(self, index: int) -> dict[str, str]:
+        """`CARGO_BIN_EXE_<name>` of each binary that an integration test runs."""
+        return {
+            f"CARGO_BIN_EXE_{self.units[dep['index']]['target']['name']}": (
+                f"{self.nodes[dep['index']].output()}/bin/{self.units[dep['index']]['target']['name']}"
+            )
+            for dep in self.units[index]["dependencies"]
+            if self.is_binary(dep["index"])
+        }
+
+    def doctest_spec(self, index: int) -> dict[str, Any]:
+        """The doctests of a library: rustdoc compiles each one, and runs it, in this node."""
+        unit = self.units[index]
+        target = unit["target"]
+        manifest_dir = self.manifest_dir(unit)
+        flags = [
+            "--crate-name",
+            target["name"].replace("-", "_"),
+            f"--edition={target['edition']}",
+            *(arg for feature in unit["features"] for arg in ("--cfg", f'feature="{feature}"')),
+        ]
+        if unit["platform"] is not None:
+            flags += ["--target", unit["platform"]]
+        run = self.build_script_run(index)
+        return {
+            "action": "doctest",
+            "src": self.menu.inside(target["src_path"]),
+            "srcs": [store_root(manifest_dir)],
+            "cwd": manifest_dir,
+            "flags": flags,
+            "externs": self.externs(index),
+            "search": [self.nodes[dep].output() + "/lib" for dep in self.linked(index)],
+            "link_from": [self.nodes[dep].output() for dep in self.linked(index)],
+            "build_script": self.nodes[run].output() if run is not None else None,
+            "env": package_env(self.packages[unit["pkg_id"]], manifest_dir),
+        }
+
+    def check(self, index: int) -> Node:
+        """A node that runs the test binary of `index`."""
+        unit = self.units[index]
+        manifest_dir = self.manifest_dir(unit)
+        spec = {
+            "action": "check",
+            "program": f"{self.nodes[index].output()}/bin/{unit['target']['name']}",
+            "cwd": manifest_dir,
+            "srcs": [store_root(manifest_dir)],
+            "env": package_env(self.packages[unit["pkg_id"]], manifest_dir) | self.binaries(index),
+        }
+        inputs = [index, *(dep["index"] for dep in unit["dependencies"] if self.is_binary(dep["index"]))]
+        return self.planner.add(self.derivation(f"{self.name(index)}-run", spec, inputs))
 
     def run_spec(self, index: int) -> dict[str, Any]:
         unit = self.units[index]
@@ -359,6 +436,21 @@ class Graph:
             "env": env,
         }
 
+    def tests(self) -> Node:
+        """A root that holds the log of every test of the graph: it builds when they pass."""
+        logs: dict[str, str] = {}
+        inputs: list[Node] = []
+        for index in self.roots:
+            node = self.node(index)
+            if self.units[index]["mode"] == "test":
+                node = self.check(index)
+            elif self.units[index]["mode"] != "doctest":
+                continue
+            logs[node.drv.name] = node.output()
+            inputs.append(node)
+        spec = {"action": "join", "bins": [], "logs": logs}
+        return self.planner.add(self.derivation(f"{self.menu.name}-tests", spec, [], extra=inputs))
+
     def root(self) -> Node:
         # A workspace's roots hold its libraries too, which install nothing.
         roots = [index for index in self.roots if "bin" in self.units[index]["target"]["crate_types"]]
@@ -373,7 +465,9 @@ def main() -> int:
     menu = Menu(**planner.menu)
     with tempfile.TemporaryDirectory() as home:
         args = [*menu.arguments, "--target", menu.target]
-        graph = cargo(menu, home, "build", *args, "--unit-graph", "-Z", "unstable-options")
+        command = ["test", "--no-run"] if menu.command == "test" else ["build"]
+        graph = cargo(menu, home, *command, *args, "--unit-graph", "-Z", "unstable-options")
         metadata = cargo(menu, home, "metadata", "--format-version", "1", "--filter-platform", menu.target)
-    planner.submit(Graph(planner, menu, graph, metadata).root())
+    built = Graph(planner, menu, graph, metadata)
+    planner.submit(built.tests() if menu.command == "test" else built.root())
     return 0

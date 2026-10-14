@@ -36,7 +36,8 @@ def unique(items):
     return list(dict.fromkeys(items))
 
 
-def compile_unit():
+def prepare():
+    """The flags, environment and link pairs of a unit, with its build script's output."""
     flags = list(unit["flags"])
     env = dict(os.environ) | unit["env"]
     link = []
@@ -55,7 +56,11 @@ def compile_unit():
         flags.append(f"-Ldependency={path}")
     for extern in unit["externs"]:
         flags += ["--extern", f"{extern['name']}={extern['path']}"]
+    return flags, env, link
 
+
+def compile_unit():
+    flags, env, link = prepare()
     match unit["output"]:
         case "lib":
             directory = f"{out}/lib"
@@ -71,6 +76,31 @@ def compile_unit():
     print(" ".join(command), file=sys.stderr)
     subprocess.run(command, env=env, check=True)
     write_json(f"{out}/link.json", link)
+
+
+def logged(command, env, cwd=None):
+    """Run a test, and keep what it printed as the output."""
+    os.makedirs(out)
+    print(" ".join(command), file=sys.stderr)
+    result = subprocess.run(command, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    sys.stderr.write(result.stdout)
+    with open(f"{out}/log", "w", encoding="utf-8") as log:
+        log.write(result.stdout)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
+def doctest_unit():
+    flags, env, link = prepare()
+    # rustdoc takes search paths, and a library records the libraries it
+    # links in its own metadata.
+    search = [arg for pair in link if pair[0] == "-L" for arg in pair]
+    command = ["rustdoc", "--test", unit["src"], *flags, *search, "--test-run-directory", unit["cwd"]]
+    logged(command, env)
+
+
+def check_unit():
+    logged([unit["program"]], dict(os.environ) | unit["env"], cwd=unit["cwd"])
 
 
 def rustc_flags(value):
@@ -151,8 +181,14 @@ match unit["action"]:
         compile_unit()
     case "run":
         run_unit()
+    case "doctest":
+        doctest_unit()
+    case "check":
+        check_unit()
     case "join":
         os.makedirs(f"{out}/bin")
         for directory in unit["bins"]:
             for name in sorted(os.listdir(directory)):
                 os.symlink(f"{directory}/{name}", f"{out}/bin/{name}")
+        for name, path in unit.get("logs", {}).items():
+            os.symlink(f"{path}/log", f"{out}/{name}.log")

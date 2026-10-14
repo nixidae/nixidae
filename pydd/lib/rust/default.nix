@@ -135,31 +135,37 @@ let
       ]
       ++ lib.optional noDefaultFeatures "--no-default-features"
       ++ lib.optional allFeatures "--all-features";
-      planned = pydd.mkPlanner {
-        inherit name;
-        plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.rust._cargo import main\nsys.exit(main())\n";
-        modules = [
-          ../../src/pydd/rust/__init__.py
-          ../../src/pydd/rust/_cargo.py
-        ];
-        menu = {
-          inherit
-            name
-            target
-            subdir
-            arguments
-            ;
-          project = "${source}";
-          vendor = "${vendor}";
-          cargo = "${cargo}";
-          rustc = "${rustc}";
-          cc = "${cc}";
-          coreutils = "${pkgs.coreutils}";
-          python = "${pkgs.python3}";
-          script = "${../../src/pydd/rust/scripts/unit.py}";
-          inherit native;
+      # `build` plans the binaries, and `test` a graph that runs the tests.
+      plannerFor =
+        command:
+        pydd.mkPlanner {
+          name = if command == "test" then "${name}-tests" else name;
+          plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.rust._cargo import main\nsys.exit(main())\n";
+          modules = [
+            ../../src/pydd/rust/__init__.py
+            ../../src/pydd/rust/_cargo.py
+          ];
+          menu = {
+            inherit
+              name
+              target
+              subdir
+              arguments
+              ;
+            project = "${source}";
+            vendor = "${vendor}";
+            cargo = "${cargo}";
+            rustc = "${rustc}";
+            cc = "${cc}";
+            coreutils = "${pkgs.coreutils}";
+            python = "${pkgs.python3}";
+            script = "${../../src/pydd/rust/scripts/unit.py}";
+            inherit native;
+          }
+          // lib.optionalAttrs (command == "test") { inherit command; };
         };
-      };
+      planned = plannerFor "build";
+      tested = plannerFor "test";
     in
     import ../core/root.nix {
       inherit pkgs name program;
@@ -171,6 +177,15 @@ let
         ]
         // {
           dynamic = planned.out;
+          # Every test of the project, from `cargo test`: a node compiles each
+          # test binary, and one more runs it. A crate's doctests are one node.
+          # It builds when every test passes, and holds their logs.
+          tests = import ../core/root.nix {
+            inherit pkgs;
+            name = "${name}-tests";
+            application = tested.out;
+            passthru.dynamic = tested.out;
+          };
           # What the planner and the nodes run on, for copying to a store.
           closure = pkgs.linkFarmFromDrvs "${name}-closure" [
             planned.closure
@@ -192,7 +207,8 @@ in
     Takes `project`, the directory that holds `Cargo.toml` and `Cargo.lock`.
     Returns an ordinary derivation of the project's binaries, with
     `override` over these arguments. Its `passthru` holds `planner`,
-    `dynamic` (the output that the planner submits) and `closure`.
+    `dynamic` (the output that the planner submits), `tests` (a derivation
+    that runs every test of the project) and `closure`.
   */
   cargo = lib.makeOverridable cargo;
 }

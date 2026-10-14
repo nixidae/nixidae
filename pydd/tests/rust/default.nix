@@ -80,6 +80,8 @@ builtins.mapAttrs (
       name = "${name}-check";
       inherit (pkgs.stdenv.hostPlatform) system;
       builder = "${pkgs.bash}/bin/bash";
+      # The project's own tests run too.
+      tests = root.tests;
       PATH = "${root}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin:${pkgs.binutils-unwrapped}/bin";
       args = [
         "-c"
