@@ -159,6 +159,32 @@ neither `pkg-config` nor OpenSSL.
 keyed by the full crate ID, with the `PATH` and the environment of each
 build script.
 
+## A development shell
+
+`root.shell` has cargo, rustc, clippy, rustfmt and rust-analyzer, and the
+tools and variables of every crate. They go through stdenv's setup hooks,
+as a nixpkgs build gets them, so a plain `cargo build` in the shell finds
+OpenSSL and zstd. `examples/cargo` shows it.
+
+## Cross-compilation
+
+`targetPkgs` names the package set the binaries run on, such as
+`pkgs.pkgsCross.aarch64-multiplatform`. rustc, cargo, build scripts and
+proc-macros run on its `buildPackages`; the libraries, the hints and the
+linker of the target's units come from it. A build script gets
+`TARGET_CC`, `TARGET_AR`, `HOST_CC` and the target's pkg-config, as the
+`cc` and `pkg-config` crates read them.
+
+**A hint's native input is the build machine's.** nixpkgs splices
+`pkg-config` in a cross package set, and the plain value is built for the
+target. This machine runs aarch64 binaries through binfmt, so such a
+pkg-config works in a shell, and fails in the sandbox with status 255.
+The hints take `__spliced.buildHost`.
+
+`tests/rust` builds three projects for aarch64, and runs each binary under
+`qemu-aarch64`. The rest is deferred, and Lillecarl/pydd#21 lists it:
+tests under cross, a declared tool's platform, and other targets.
+
 ## The modes
 
 Each project of `tests/rust` gives one binary and one root in four modes:
@@ -198,7 +224,7 @@ the user's daemon and prints the root. pydd has no such mode yet
 | need | issue |
 | --- | --- |
 | fetch only the crates that the graph uses | Lillecarl/pydd#20 |
-| cross-compilation | Lillecarl/pydd#21 |
+| cross: tests, declared tools, other targets | Lillecarl/pydd#21 |
 | run the planner on the host, as cargo-dyndrv can | Lillecarl/pydd#22 |
 
 **Every crate of the lock is fetched, also the ones that never build.**
