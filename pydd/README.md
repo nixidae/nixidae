@@ -122,6 +122,18 @@ units. A crate that links a system library gets it from nixpkgs'
 `defaultCrateOverrides`, or from `[package.metadata.pydd.build-tools]`. [The Rust page](https://lillecarl.github.io/pydd/rust.html) has
 the detail.
 
+## npm projects
+
+`pydd.node.npm { project = ./.; }` builds an npm project from its
+`package-lock.json`, with one node per package. The planner reads the lock
+in the build, chooses the packages for the platform, and writes a
+fixed-output fetch and a node for each one. A package with an install
+script runs it in its own node, node-gyp included. The root copies each
+node to the path that the lock gives it, so Node resolves every `require`
+as after `npm ci`, and runs `npm run build`. The lane builds in the `cli`,
+`huggorm`, `drv` and `recursive` modes. [The npm
+page](https://lillecarl.github.io/pydd/node.html) has the detail.
+
 ## Extending a build
 
 pydd is a framework. A package that needs more than its lock file says
@@ -224,6 +236,7 @@ into a built root, and modes do not import each other.
 | core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols, the root wrapper `root.nix` |
 | ecosystem | `lib/python/` | `src/pydd/python/` | lock readers, selection, hints, the plan document, `graph.nix` (each node kind), build scripts |
 | ecosystem | `lib/rust/` | `src/pydd/rust/` | the Cargo planner over the unit graph, and the node builder `scripts/unit.py` |
+| ecosystem | `lib/node/` | `src/pydd/node/` | the npm planner over `package-lock.json`, and the node builder `scripts/package.py` |
 | modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `nix_cli` (`graph.nix` in `nix eval`, over `nix-eval.nix`), `out` (released Nix: host-made nodes and planned nodes) |
 
 A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
@@ -261,6 +274,11 @@ needed, and what each one changed in pydd.
 `nix run --file . test-rust` builds the Cargo projects of `tests/rust` in
 four modes, and compares the binaries and the roots. `test-rust-live`
 builds ripgrep, fd, hyperfine and bat from GitHub, as they are, in three.
+
+`nix run --file . test-node` builds the npm projects of `tests/node` in
+four modes. `test-node-live` builds http-server, nodemon,
+npm-check-updates and json-server, at the releases that nixpkgs builds,
+in three.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock
