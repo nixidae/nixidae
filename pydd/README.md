@@ -132,7 +132,9 @@ script runs it in its own node, node-gyp included. The root copies each
 node to the path that the lock gives it, so Node resolves every `require`
 as after `npm ci`, and runs `npm run build`. The lane builds in every
 mode. In `out` the host makes each node from the lock, and the planner
-writes only the root. [The npm
+writes only the root. The planner also reads `pnpm-lock.yaml`, `bun.lock`
+and Yarn v1's `yarn.lock`, and places their packages as npm does. `out`
+reads npm's lock only. [The npm
 page](https://lillecarl.github.io/pydd/node.html) has the detail.
 
 ## Extending a build
@@ -238,7 +240,7 @@ into a built root, and modes do not import each other.
 | core | `lib/core/` | `src/pydd/core/` | `mkPlanner`, `candidate`, `Derivation`, placeholders, `Planner`, the writers, the `rpc` and `out` protocols, the root wrapper `root.nix` |
 | ecosystem | `lib/python/` | `src/pydd/python/` | lock readers, selection, hints, the plan document, `graph.nix` (each node kind), build scripts |
 | ecosystem | `lib/rust/` | `src/pydd/rust/` | the Cargo planner over the unit graph, and the node builder `scripts/unit.py` |
-| ecosystem | `lib/node/` | `src/pydd/node/` | the npm planner over `package-lock.json`, and the node builder `scripts/package.py` |
+| ecosystem | `lib/node/` | `src/pydd/node/` | the npm planner over `package-lock.json`, the readers of pnpm, bun and Yarn locks, and the node builder `scripts/package.py` |
 | modes | `lib/modes/` | `src/pydd/modes/` | `render` (Python renderer), `evaluate` (`graph.nix` in huggorm, and `mkEvaluated`), `nix_cli` (`graph.nix` in `nix eval`, over `nix-eval.nix`), `out` (released Nix: host-made nodes and planned nodes) |
 
 A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.

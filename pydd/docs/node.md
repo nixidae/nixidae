@@ -33,6 +33,55 @@ three things for the platform of the build:
 The host evaluation never reads the lock. Its cost does not grow with the
 number of packages.
 
+## Other locks: pnpm, bun and Yarn v1
+
+The planner also reads `pnpm-lock.yaml`, `bun.lock` and Yarn v1's
+`yarn.lock`. A reader in `pydd.node._readers` turns each of them into
+npm's map of install paths. The rest of the lane does not change: the
+same nodes, the same fetches, the same root. By default the planner reads
+the first lock of `package-lock.json`, `pnpm-lock.yaml`, `bun.lock` and
+`yarn.lock` that the project holds. `lockfile` chooses another.
+
+All three hash a package as npm does: the `integrity` of its tarball,
+which a fixed-output fetch takes as it is.
+
+| lock | install paths | programs | platforms | install scripts |
+| --- | --- | --- | --- | --- |
+| npm | in the lock | in the lock | in the lock | in the lock |
+| bun | in the lock | in the lock | in the lock | those that `trustedDependencies` names |
+| pnpm 9 to 11 | a graph; the reader places it | only "has programs" | in the lock | those that `allowBuilds` or `onlyBuiltDependencies` names |
+| Yarn v1 | a graph; the reader places it | not recorded | not recorded | not recorded |
+
+**The reader places a graph as npm does.** Each version goes to the top
+`node_modules`, unless another version of that name is visible from its
+dependent. Then it goes inside the dependent. For every project of
+`tests/node`, each tool's lock gives the layout of npm's lock
+(`tests/test_readers.py`).
+
+**A node reads what the lock omits.** When a lock does not name a
+package's programs, the node reads them from the package's own
+`package.json`, and makes the `.bin` links at build time.
+
+**Install scripts follow the tool.** pnpm 10 and bun run the scripts of
+the packages that the project allows, and no others. The reader does the
+same. pnpm 9 ran every script, so a pnpm 9 project names its scripts, as a
+Yarn project does. Yarn v1 runs every script, and its lock does not say which packages
+have one. So a Yarn project names them: `installScripts = [ "better-sqlite3" ];`,
+or `"pydd": { "installScripts": [...] }` in `package.json`. bun also has a
+built-in list of packages that it trusts. pydd does not copy that list.
+
+**Yarn v1 records no platform.** Every package of esbuild, for each
+platform, installs for the build. The result omits them as development
+dependencies, or keeps them all.
+
+**Yarn 2 and newer are refused.** Their `checksum` is the hash of Yarn's
+own zip of the package, not of the tarball. Nix cannot check a fetch
+against it. This is the problem of Go's `go.sum` (pydd#25).
+
+**`out` reads npm's lock only.** In `out` the host makes every node, in
+Nix. Nix reads no YAML, and the host would need each reader a second
+time.
+
 ## One node per package
 
 | entry | nodes | output |
@@ -196,4 +245,5 @@ the derivation.
 - A git dependency outside GitHub, GitLab and sourcehut, and one with a
   `prepare` script. The planner and the node refuse them by name.
 - `npm test` as `root.tests`.
-- bun and pnpm locks, which would read into the same graph.
+- Yarn 2 and newer, whose checksums Nix cannot check.
+- `out` for pnpm, bun and Yarn.
