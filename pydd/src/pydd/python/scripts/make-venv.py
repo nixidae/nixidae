@@ -15,6 +15,10 @@ small version of the same idea:
   installed it to the `bin/python` of this environment. Without that rewrite
   the script runs the interpreter of the store path, which does not see the
   environment. `pyproject.nix` calls this `write_bin`.
+- **Two members may provide one file**, as fastapi and fastapi-cli both
+  provide `bin/fastapi`. uv installs both, warns, and keeps whichever lands
+  last. This keeps one by a fixed rule, and warns: the member that requires
+  the other, by its `Requires-Dist`, and otherwise the earlier member.
 
 The environment gives:
     out        the output path
@@ -26,6 +30,7 @@ from __future__ import annotations
 
 import filecmp
 import os
+import re
 import shutil
 import sys
 import sysconfig
@@ -39,21 +44,94 @@ def site_packages_of(root: Path) -> Path:
     return Path(sysconfig.get_path("purelib", scheme=scheme, vars={"base": str(root), "platbase": str(root)}))
 
 
-def link_tree(source: Path, target: Path) -> None:
+def canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def distribution_of(member: Path) -> tuple[str, frozenset[str]]:
+    """The name of a member's distribution, and every name it requires.
+
+    Every `Requires-Dist` counts, under any marker or extra: the question is
+    which of two members is built on the other, not what this target installs.
+    """
+    name = ""
+    requires: set[str] = set()
+    for metadata in site_packages_of(member).glob("*.dist-info/METADATA"):
+        for line in metadata.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("Name:"):
+                name = canonical(line.split(":", 1)[1].strip())
+            elif line.startswith("Requires-Dist:"):
+                requires.add(canonical(re.split(r"[\s;<>=!~\[(]", line.split(":", 1)[1].strip())[0]))
+            elif not line:
+                break
+    return name, frozenset(requires)
+
+
+class Owners:
+    """Which member each clashing path of the environment came from."""
+
+    def __init__(self) -> None:
+        self.by_path: dict[Path, Path] = {}
+        self.distributions: dict[Path, tuple[str, frozenset[str]]] = {}
+
+    def distribution(self, member: Path) -> tuple[str, frozenset[str]]:
+        if member not in self.distributions:
+            self.distributions[member] = distribution_of(member)
+        return self.distributions[member]
+
+    def take(self, target: Path, member: Path) -> bool:
+        """Whether `member` wins `target` over the member that holds it now."""
+        holder = self.by_path.get(target)
+        if holder is None:
+            raise RuntimeError(f"{member} provides {target.name}, which the environment itself holds")
+        new_name, new_requires = self.distribution(member)
+        old_name, old_requires = self.distribution(holder)
+        wins = old_name in new_requires and new_name not in old_requires
+        kept = member if wins else holder
+        print(
+            f"warning: {new_name or member} and {old_name or holder} both provide {target.name}; keeping {kept}",
+            file=sys.stderr,
+        )
+        if wins:
+            self.by_path[target] = member
+        return wins
+
+
+def link_tree(source: Path, target: Path, member: Path, owners: Owners) -> None:
     """Symlink one entry of a member into the environment.
 
-    A collision is an error, because two packages that ship the same name give
-    an environment that depends on the order of the members. Two entries with
-    the same content are not a collision: a package set that ships one file
-    twice is common, and the result is the same either way.
+    Two entries with the same content are not a clash: a package set that
+    ships one file twice is common. Two files that differ go to one member, by
+    `Owners.take`. **Two directories merge**, as a namespace package needs,
+    and as the `__pycache__` of two single-module distributions do: the link
+    becomes a directory of links, and each entry is linked on its own.
     """
-    if target.exists() or target.is_symlink():
-        if target.is_file() and source.is_file() and filecmp.cmp(target, source, shallow=False):
+    if not (target.exists() or target.is_symlink()):
+        owners.by_path[target] = member
+        target.symlink_to(source)
+        return
+    if target.is_dir() and source.is_dir():
+        if target.is_symlink():
+            if target.resolve() == source.resolve():
+                return
+            held = Path(os.readlink(target))
+            holder = owners.by_path[target]
+            target.unlink()
+            target.mkdir()
+            for entry in sorted(held.iterdir()):
+                owners.by_path[target / entry.name] = holder
+                (target / entry.name).symlink_to(entry)
+        for entry in sorted(source.iterdir()):
+            link_tree(entry, target / entry.name, member, owners)
+        return
+    if target.is_file() and source.is_file():
+        if filecmp.cmp(target, source, shallow=False):
             return
-        raise RuntimeError(
-            f"two members provide '{target.name}' with different contents: {target.resolve()} and {source}"
-        )
-    target.symlink_to(source)
+        if owners.take(target, member):
+            target.unlink()
+            target.symlink_to(source)
+        return
+    raise RuntimeError(f"one member provides '{target.name}' as a file and another as a directory: {source}")
 
 
 def is_python_shebang(line: bytes) -> bool:
@@ -110,19 +188,24 @@ def main() -> int:
     binary.mkdir(parents=True, exist_ok=True)
 
     venv_python = os.fsencode(binary / "python")
+    owners = Owners()
 
     for member in members:
         member_site = site_packages_of(member)
         if member_site.is_dir():
             for entry in sorted(member_site.iterdir()):
-                link_tree(entry, site / entry.name)
+                link_tree(entry, site / entry.name, member, owners)
 
         member_bin = member / "bin"
         if member_bin.is_dir():
             for entry in sorted(member_bin.iterdir()):
                 target = binary / entry.name
                 if target.exists() or target.is_symlink():
-                    raise RuntimeError(f"two members provide the script '{entry.name}'")
+                    if not owners.take(target, member):
+                        continue
+                    target.unlink()
+                else:
+                    owners.by_path[target] = member
                 link_script(entry, target, venv_python)
 
     (out / "manifest").write_text(os.environ["installed"] + "\n", encoding="utf-8")
