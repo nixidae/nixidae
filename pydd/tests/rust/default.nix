@@ -46,6 +46,28 @@ let
         grep -q 'libzstd.so' <<< "$needed"
       '';
     };
+    # A virtual workspace: a member with a build script that writes OUT_DIR,
+    # a path dependency on it, a git dependency at a tag, and a feature that
+    # crosses the members.
+    workspace = {
+      src = ./workspace;
+      arguments = {
+        name = "workspace";
+        features = [ "ws-app/shout" ];
+        outputHashes."itoa-1.0.15" = "sha256-7be7w9eSbX6d6nb6zaTNvp8gt8pxYdAQLGaaKfaUUns=";
+      };
+      check = ''
+        test "$(ws-app)" = 'HELLO FROM THE WORKSPACE 42'
+      '';
+    };
+    # A path dependency outside the project: `root` holds both.
+    monorepo = {
+      src = ./monorepo/tool;
+      arguments.root = ./monorepo;
+      check = ''
+        test "$(mono-tool)" = 'hello from outside the project'
+      '';
+    };
   };
 in
 builtins.mapAttrs (

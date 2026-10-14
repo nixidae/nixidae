@@ -46,6 +46,15 @@ class Menu:
     target: str
     #: Tools and environment of a crate, by crate name (`lib/rust/hints.nix`).
     native: dict[str, Any]
+    #: The project's directory inside `project`, which may hold path
+    #: dependencies outside it.
+    subdir: str
+    #: Cargo's own flags for what to build: `--profile`, `--package`, features.
+    arguments: list[str]
+
+    @property
+    def manifest(self) -> str:
+        return posixpath.normpath(posixpath.join(self.project, self.subdir, "Cargo.toml"))
 
     def tools(self) -> str:
         return ":".join(f"{tool}/bin" for tool in (self.rustc, self.cc, self.coreutils))
@@ -60,11 +69,12 @@ class Menu:
 
 
 def cargo(menu: Menu, home: str, *args: str) -> Any:
+    # nixpkgs writes the source replacement of every registry and git
+    # source into the vendor directory, with the directory relative.
+    with open(posixpath.join(menu.vendor, ".cargo", "config.toml"), encoding="utf-8") as source:
+        replacement = source.read().replace('directory = "cargo-vendor-dir"', f'directory = "{menu.vendor}"')
     with open(posixpath.join(home, "config.toml"), "w", encoding="utf-8") as config:
-        config.write(
-            '[source.crates-io]\nreplace-with = "vendored-sources"\n'
-            f'[source.vendored-sources]\ndirectory = "{menu.vendor}"\n'
-        )
+        config.write(replacement)
     env = {
         **os.environ,
         "CARGO_HOME": home,
@@ -74,7 +84,7 @@ def cargo(menu: Menu, home: str, *args: str) -> Any:
         "PATH": f"{menu.cargo}/bin:{menu.tools()}",
     }
     result = subprocess.run(
-        [f"{menu.cargo}/bin/cargo", *args, "--offline", "--locked", "--manifest-path", f"{menu.project}/Cargo.toml"],
+        [f"{menu.cargo}/bin/cargo", *args, "--offline", "--locked", "--manifest-path", menu.manifest],
         env=env,
         stdout=subprocess.PIPE,
         text=True,
@@ -322,7 +332,9 @@ class Graph:
         env = package_env(package, manifest_dir) | {
             "TARGET": target,
             "HOST": self.menu.target,
-            "PROFILE": profile["name"] if profile["name"] in ("release", "debug") else "release",
+            # Cargo says `debug` for a profile that inherits `dev`, and the unit
+            # graph does not say what a profile inherits.
+            "PROFILE": "debug" if profile["name"] == "dev" or profile["opt_level"] == "0" else "release",
             "OPT_LEVEL": profile["opt_level"],
             "DEBUG": "true" if profile["debuginfo"] else "false",
             "NUM_JOBS": "1",
@@ -348,8 +360,11 @@ class Graph:
         }
 
     def root(self) -> Node:
-        bins = [self.node(index) for index in self.roots]
-        spec = {"action": "join", "bins": [node.output() + "/bin" for node in bins]}
+        # A workspace's roots hold its libraries too, which install nothing.
+        roots = [index for index in self.roots if "bin" in self.units[index]["target"]["crate_types"]]
+        for index in self.roots:
+            self.node(index)
+        spec = {"action": "join", "bins": [self.nodes[index].output() + "/bin" for index in roots]}
         return self.planner.add(self.derivation(self.menu.name, spec, list(self.roots)))
 
 
@@ -357,7 +372,7 @@ def main() -> int:
     planner = Planner.from_environ()
     menu = Menu(**planner.menu)
     with tempfile.TemporaryDirectory() as home:
-        args = ["--release", "--target", menu.target]
+        args = [*menu.arguments, "--target", menu.target]
         graph = cargo(menu, home, "build", *args, "--unit-graph", "-Z", "unstable-options")
         metadata = cargo(menu, home, "metadata", "--format-version", "1", "--filter-platform", menu.target)
     planner.submit(Graph(planner, menu, graph, metadata).root())

@@ -1,0 +1,11 @@
+[package]
+name = "ws-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+greeting = { path = "../greeting" }
+itoa = { git = "https://github.com/dtolnay/itoa", tag = "1.0.15" }
+
+[features]
+shout = ["greeting/shout"]

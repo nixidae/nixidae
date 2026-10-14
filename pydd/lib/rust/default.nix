@@ -4,16 +4,39 @@ let
 
   cargo =
     {
-      # The directory that holds `Cargo.toml` and `Cargo.lock`.
+      # The directory that holds `Cargo.toml` and `Cargo.lock`: a package, or
+      # the root of a workspace.
       project,
-      name ? (lib.importTOML (project + "/Cargo.toml")).package.name,
+      # A directory that holds `project` and every path dependency of it,
+      # when one lies outside `project`.
+      root ? project,
+      # The name of the root. A virtual workspace has no package to take it
+      # from.
+      name ?
+        (lib.importTOML (project + "/Cargo.toml")).package.name or (throw (
+          "pydd.rust.cargo: ${toString project}/Cargo.toml is a virtual workspace, "
+          + "so it names no package. Pass `name`."
+        )),
       rustc ? pkgs.rustc,
       cargo ? pkgs.cargo,
       # The linker, for binaries, proc-macros and build scripts.
       cc ? pkgs.stdenv.cc,
       target ? pkgs.stdenv.hostPlatform.rust.rustcTarget,
       # The program that `meta.mainProgram` names, or `null`.
-      program ? name,
+      program ? if (lib.importTOML (project + "/Cargo.toml")) ? package then name else null,
+      # What cargo builds, as its own flags say: `--package` for each of
+      # `packages` (none: the default members), `--features`,
+      # `--no-default-features`, `--all-features` and `--profile`.
+      packages ? [ ],
+      features ? [ ],
+      noDefaultFeatures ? false,
+      allFeatures ? false,
+      profile ? "release",
+      # For a git dependency, as `rustPlatform.importCargoLock` takes them:
+      # the hash of each git crate, as `{ "itoa-1.0.15" = "sha256-..."; }`,
+      # or `allowBuiltinFetchGit`, which fetches at evaluation.
+      outputHashes ? { },
+      allowBuiltinFetchGit ? false,
       # Take the tools and environment of each crate from nixpkgs'
       # `defaultCrateOverrides` (`./hints.nix`).
       nixpkgsHints ? true,
@@ -75,14 +98,43 @@ let
         env = env.${crate} or { };
       }) (tools // env);
 
-      source = lib.cleanSourceWith {
-        src = project;
-        filter = path: _: baseNameOf path != "target";
-        name = "${name}-source";
-      };
+      # A store path, such as a fetch, is taken as it is.
+      source =
+        if builtins.isPath root then
+          lib.cleanSourceWith {
+            src = root;
+            filter = path: _: baseNameOf path != "target";
+            name = "${name}-source";
+          }
+        else
+          root;
+      subdir =
+        if root == project then
+          "."
+        else if builtins.isPath root then
+          lib.path.removePrefix root project
+        else
+          lib.removePrefix "/" (lib.removePrefix (toString root) (toString project));
       # nixpkgs makes one fetch for each crate of the lock, and this
       # directory links to each one. A node then reads only its own crate.
-      vendor = pkgs.rustPlatform.importCargoLock { lockFile = project + "/Cargo.lock"; };
+      vendor = pkgs.rustPlatform.importCargoLock {
+        lockFile = project + "/Cargo.lock";
+        inherit outputHashes allowBuiltinFetchGit;
+      };
+      arguments = [
+        "--profile"
+        profile
+      ]
+      ++ lib.concatMap (package: [
+        "--package"
+        package
+      ]) packages
+      ++ lib.optionals (features != [ ]) [
+        "--features"
+        (lib.concatStringsSep "," features)
+      ]
+      ++ lib.optional noDefaultFeatures "--no-default-features"
+      ++ lib.optional allFeatures "--all-features";
       planned = pydd.mkPlanner {
         inherit name;
         plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.rust._cargo import main\nsys.exit(main())\n";
@@ -91,7 +143,12 @@ let
           ../../src/pydd/rust/_cargo.py
         ];
         menu = {
-          inherit name target;
+          inherit
+            name
+            target
+            subdir
+            arguments
+            ;
           project = "${source}";
           vendor = "${vendor}";
           cargo = "${cargo}";
