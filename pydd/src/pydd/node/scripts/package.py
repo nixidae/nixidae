@@ -35,7 +35,9 @@ def unpack(tarball: str, destination: Path) -> None:
         shutil.copytree(tarball, destination, symlinks=True)
         writable(destination)
         return
-    destination.mkdir(parents=True)
+    # exist_ok: place() already makes this directory as the parent of the
+    # packages the lock nests under this one. A file here still fails.
+    destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(tarball) as archive:
         members = []
         for member in archive.getmembers():
