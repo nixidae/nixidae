@@ -1,0 +1,22 @@
+# The checks of the root itself: every rendered `<source>-*.yml` is what its
+# source says, and calling a flake we do not own uses our pins. Each source's
+# own tests run in its `<source>-*.yml`.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@master
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
+        timeout-minutes: 15
+      - name: Root checks
+        run: nix build --file . checks.ciWorkflows checks.callFlake --no-link --print-build-logs
