@@ -100,5 +100,7 @@ rec {
     callFlake = pkgs.callPackage ./nix/examples/call-flake.nix {
       inherit sources pkgs callFlake;
     };
+
+    licenses = pkgs.callPackage ./nix/licenses.nix { inherit sources; };
   };
 }

@@ -26,7 +26,7 @@ Then read the `josh export` run. It runs `lock-subtrees --check` and `josh-expor
 ## Gates
 
 ```sh
-nix build --file . checks.ciWorkflows checks.callFlake
+nix build --file . checks.ciWorkflows checks.callFlake checks.licenses
 nix run --file . lock-subtrees -- --check
 nix run --file . josh-export -- HEAD --verify     # no push without --push
 ```
