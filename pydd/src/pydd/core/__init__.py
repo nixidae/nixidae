@@ -8,7 +8,14 @@ is made.
 from __future__ import annotations
 
 from ._derivation import Derivation, Fixed, Floating, InputAddressed, Method, Output
-from ._hash import downstream_placeholder, dynamic_placeholder, nix32, output_path_name, placeholder
+from ._hash import (
+    downstream_placeholder,
+    dynamic_placeholder,
+    fixed_output_path,
+    nix32,
+    output_path_name,
+    placeholder,
+)
 from ._planner import Node, Planner
 from ._tools import tool_env
 from ._writer import (
@@ -39,6 +46,7 @@ __all__ = [
     "Writer",
     "downstream_placeholder",
     "dynamic_placeholder",
+    "fixed_output_path",
     "huggorm_store_writer",
     "nix32",
     "output_path_name",

@@ -8,8 +8,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from ._derivation import Derivation, Floating
-from ._hash import downstream_placeholder
+from ._derivation import Derivation, Fixed, Floating
+from ._hash import downstream_placeholder, fixed_output_path, output_path_name
 from ._writer import Writer, writer_from_environ
 
 
@@ -21,10 +21,18 @@ class Node:
     drv: Derivation
 
     def output(self, name: str = "out") -> str:
-        """What another node writes for output ``name`` of this one."""
-        if not isinstance(self.drv.outputs.get(name), Floating):
-            raise ValueError(f"{self.drv.name}: output {name!r} is not floating")
-        return downstream_placeholder(self.path, name)
+        """What another node writes for output ``name`` of this one.
+
+        A floating output has a placeholder, and a fixed one its path.
+        """
+        match self.drv.outputs.get(name):
+            case Floating():
+                return downstream_placeholder(self.path, name)
+            case Fixed(hash_, method):
+                store = os.path.dirname(self.path)
+                return fixed_output_path(output_path_name(self.drv.name, name), hash_, method, store)
+            case _:
+                raise ValueError(f"{self.drv.name}: output {name!r} is neither floating nor fixed")
 
     def needs(self, *outputs: str) -> dict[str, list[str]]:
         """The ``drvs`` entry of a node that reads ``outputs`` of this one."""

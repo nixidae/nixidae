@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import posixpath
 
@@ -58,8 +59,26 @@ def dynamic_placeholder(drv_path: str, output: str = "out", inner: str = "out") 
     hash_part, _, name = base.partition("-")
     drv_name = name.removesuffix(".drv")
     upstream = f"nix-upstream-output:{hash_part}:{output_path_name(drv_name, inner)}"
-    folded = bytearray(20)
-    for index, byte in enumerate(hashlib.sha256(upstream.encode()).digest()):
-        folded[index % 20] ^= byte
-    clear = f"nix-computed-output:{nix32(bytes(folded))}:{output}"
+    clear = f"nix-computed-output:{nix32(_fold(hashlib.sha256(upstream.encode()).digest()))}:{output}"
     return "/" + nix32(hashlib.sha256(clear.encode()).digest())
+
+
+def _fold(digest: bytes, size: int = 20) -> bytes:
+    folded = bytearray(size)
+    for index, byte in enumerate(digest):
+        folded[index % size] ^= byte
+    return bytes(folded)
+
+
+def fixed_output_path(name: str, sri: str, method: str = "flat", store: str = "/nix/store") -> str:
+    """The path of a fixed output with no references: ``makeFixedOutputPath``."""
+    algorithm, _, encoded = sri.partition("-")
+    digest = base64.b64decode(encoded)
+    if method == "nar" and algorithm == "sha256":
+        kind, inner = "source", digest
+    else:
+        prefix = "r:" if method == "nar" else ""
+        kind = "output:out"
+        inner = hashlib.sha256(f"fixed:out:{prefix}{algorithm}:{digest.hex()}:".encode()).digest()
+    clear = f"{kind}:sha256:{inner.hex()}:{store}:{name}"
+    return f"{store}/{nix32(_fold(hashlib.sha256(clear.encode()).digest()))}-{name}"
