@@ -11,7 +11,7 @@
     repo = "Lillecarl/easykubenix";
     package = {
       flake = "default";
-      root = "easykubenix.ekn";
+      root = "easykubenix.passthru.ekn";
     };
   };
   ghanix = {
@@ -50,7 +50,7 @@
     repo = "Lillecarl/pydd";
     package = {
       flake = "default";
-      root = "pydd.pydd";
+      root = "pydd.pydd-drv";
     };
   };
   pynixd = {
