@@ -46,7 +46,13 @@ class Planner:
 
     @classmethod
     def from_environ(cls) -> Planner:
-        return cls(writer_from_environ(), os.environ["PYDD_SYSTEM"], json.loads(os.environ.get("PYDD_MENU", "null")))
+        # `mkPlanner` passes the menu as a file: an environment string over
+        # 128 KiB fails `execve`.
+        menu = os.environ.get("PYDD_MENU")
+        if menu is None and (path := os.environ.get("PYDD_MENUPath")):  # noqa: SIM112 - Nix names it
+            with open(path, encoding="utf-8") as handle:
+                menu = handle.read()
+        return cls(writer_from_environ(), os.environ["PYDD_SYSTEM"], json.loads(menu or "null"))
 
     def add(self, drv: Derivation) -> Node:
         node = Node(self.writer.add(drv), drv)

@@ -196,6 +196,13 @@ in
         derivation (
           removeAttrs attrs [ "allowImportFromDerivation" ]
           // {
+            # **Linux refuses an environment string over 128 KiB**, and the
+            # menu of a real lock file is larger: `execve` fails with
+            # "Argument list too long". So these go in as files.
+            passAsFile = builtins.filter (name: attrs ? ${name}) [
+              "PYDD_INPUTS"
+              "PYDD_MENU"
+            ];
             NIX_CONFIG = ''
               extra-experimental-features = nix-command ca-derivations dynamic-derivations
               allow-import-from-derivation = ${lib.boolToString attrs.allowImportFromDerivation}
