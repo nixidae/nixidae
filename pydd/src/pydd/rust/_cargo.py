@@ -44,6 +44,8 @@ class Menu:
     python: str
     script: str
     target: str
+    #: Tools and environment of a crate, by crate name (`lib/rust/hints.nix`).
+    native: dict[str, Any]
 
     def tools(self) -> str:
         return ":".join(f"{tool}/bin" for tool in (self.rustc, self.cc, self.coreutils))
@@ -196,7 +198,9 @@ class Graph:
                 self.node(dep["index"])
             unit = self.units[index]
             spec = self.run_spec(index) if unit["mode"] == RUN else self.compile_spec(index)
-            self.nodes[index] = self.planner.add(self.derivation(self.name(index), spec, self.inputs(index)))
+            crate = self.packages[unit["pkg_id"]]["name"]
+            native = self.menu.native.get(crate, {"tools": [], "env": {}})
+            self.nodes[index] = self.planner.add(self.derivation(self.name(index), spec, self.inputs(index), native))
         return self.nodes[index]
 
     def inputs(self, index: int) -> list[int]:
@@ -206,15 +210,30 @@ class Graph:
         direct = [dep["index"] for dep in unit["dependencies"]]
         return sorted(set(direct) | set(self.linked(index)))
 
-    def derivation(self, name: str, spec: dict[str, Any], inputs: list[int]) -> Derivation:
+    def derivation(
+        self, name: str, spec: dict[str, Any], inputs: list[int], native: dict[str, Any] | None = None
+    ) -> Derivation:
         menu = self.menu
+        tools: list[str] = (native or {}).get("tools", [])
+        env = {"PATH": menu.tools(), "PYDD_UNIT": json.dumps(spec, sort_keys=True)}
+        if tools:
+            # A build script finds a library through pkg-config, or compiles C
+            # with the `cc` crate, which reads `CFLAGS`.
+            includes = " ".join(f"-isystem {tool}/include" for tool in tools)
+            env |= {
+                "PATH": ":".join([*(f"{tool}/bin" for tool in tools), menu.tools()]),
+                "PKG_CONFIG_PATH": ":".join(f"{tool}/{d}/pkgconfig" for tool in tools for d in ("lib", "share")),
+                "CFLAGS": includes,
+                "CXXFLAGS": includes,
+            }
+        env |= (native or {}).get("env", {})
         return Derivation(
             name=name,
             system=self.planner.system,
             builder=f"{menu.python}/bin/python3",
             args=["-I", menu.script],
-            env={"PATH": menu.tools(), "PYDD_UNIT": json.dumps(spec, sort_keys=True)},
-            srcs=sorted({menu.python, menu.script, menu.rustc, menu.cc, menu.coreutils, *spec.get("srcs", [])}),
+            env=env,
+            srcs=sorted({menu.python, menu.script, menu.rustc, menu.cc, menu.coreutils, *tools, *spec.get("srcs", [])}),
             drvs={self.nodes[dep].path: ["out"] for dep in inputs},
         )
 

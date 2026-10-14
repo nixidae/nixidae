@@ -1,0 +1,11 @@
+[package]
+name = "native-declared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openssl = "0.10"
+zstd = "0.13"
+
+[package.metadata.pydd.build-tools]
+openssl-sys = ["pkg-config", "openssl.dev", "openssl"]
