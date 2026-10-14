@@ -214,9 +214,9 @@ def test_a_git_dependency_and_a_replaced_source() -> None:
         hashes={"isarray-2.0.5": sha},
         native={"ms": {"tools": [], "env": {}, "src": f"{STORE}-ms-patched"}},
     )
-    archive = next(drv for drv in writer.added if drv.name == "isarray-2.0.5-source")
+    archive = next(drv for drv in writer.added if drv.name == "isarray-63ea4ca-source")
     assert archive.outputs["out"] == Fixed(sha, "nar")
-    assert specs["isarray-2.0.5"]["tarball"].endswith("-isarray-2.0.5-source")
+    assert specs["isarray-2.0.5"]["tarball"].endswith("-isarray-63ea4ca-source")
     # A replaced source has no fetch.
     assert specs["ms-2.1.3"]["tarball"] == f"{STORE}-ms-patched"
     assert not any(drv.name == "ms-2.1.3.tgz" for drv in writer.added)

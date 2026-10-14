@@ -57,10 +57,23 @@ class Menu:
     libc: str = "glibc"
     #: The hash of each git dependency's unpacked archive, by `<name>-<version>`.
     hashes: dict[str, str] = field(default_factory=dict[str, str])
+    #: The derivation and output of each store path above that one builds, as
+    #: `[drv, output]`. A node names that derivation as its input, as a string
+    #: with that path names it in Nix, and names every other path as a source.
+    refs: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
 
     @property
     def directory(self) -> str:
         return posixpath.normpath(posixpath.join(self.project, self.subdir))
+
+
+def dump(value: Any) -> str:
+    """JSON as `builtins.toJSON` writes it, so the host makes the same node (`lib/node/graph.nix`)."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+#: What `builtins.derivation` adds to the environment of a floating output.
+FLOATING = {"outputHashMode": "recursive", "outputHashAlgo": "sha256"}
 
 
 def name_of(path: str, entry: dict[str, Any]) -> str:
@@ -93,9 +106,12 @@ def fits(wanted: list[str] | None, actual: str) -> bool:
     return not chosen or actual in chosen
 
 
+GIT = re.compile(r"^git\+(?:ssh|https?)://(?:git@)?([^/:]+)[/:](.+?)(?:\.git)?#([0-9a-f]+)$")
+
+
 def hosted_archive(resolved: str) -> str | None:
     """The archive of a commit that a git source on a known host names, as nixpkgs' prefetch-npm-deps finds it."""
-    match = re.match(r"^git\+(?:ssh|https?)://(?:git@)?([^/:]+)[/:](.+?)(?:\.git)?#([0-9a-f]+)$", resolved)
+    match = GIT.match(resolved)
     if match is None:
         return None
     host, project, commit = match.groups()
@@ -107,6 +123,15 @@ def hosted_archive(resolved: str) -> str | None:
         case "git.sr.ht":
             return f"https://git.sr.ht/{project}/archive/{commit}.tar.gz"
     return None
+
+
+def fetch_name(url: str) -> str:
+    """The name of a fetch, from its URL alone, so two paths of one URL give one node."""
+    match = GIT.match(url)
+    if match is not None:
+        _, project, commit = match.groups()
+        return f"{store_name(posixpath.basename(project))}-{commit[:7]}-source"
+    return store_name(posixpath.basename(url.split("?", 1)[0]))
 
 
 def bins_of(path: str, entry: dict[str, Any]) -> dict[str, str]:
@@ -222,11 +247,11 @@ class Lock:
     def nested(self, path: str) -> list[str]:
         """The packages that the lock installs inside `path`, which come from their own nodes."""
         prefix = f"{path}/node_modules/" if path else "node_modules/"
-        return [
+        return sorted(
             other
             for other, entry in self.packages.items()
             if other.startswith(prefix) and not entry.get("inBundle") and not entry.get("link")
-        ]
+        )
 
     def is_package(self, path: str) -> bool:
         """An entry that npm fetches, rather than a link, a workspace member or a bundled package."""
@@ -262,7 +287,21 @@ class Graph:
         self.lock = lock
         self.nodes: dict[str, Node] = {}
         self.fetches: dict[str, Node] = {}
+        #: The git source of each archive's URL.
+        self.git: dict[str, str] = {}
         self.planning: list[str] = []
+
+    def references(self, paths: set[str], inputs: list[Node]) -> tuple[list[str], dict[str, list[str]]]:
+        """The sources and the input derivations of a node that names `paths` and the outputs of `inputs`."""
+        drvs: dict[str, set[str]] = {node.path: {"out"} for node in inputs}
+        srcs = set()
+        for path in paths:
+            if path in self.menu.refs:
+                drv, output = self.menu.refs[path]
+                drvs.setdefault(drv, set()).add(output)
+            else:
+                srcs.add(path)
+        return sorted(srcs), {drv: sorted(outputs) for drv, outputs in drvs.items()}
 
     def derivation(
         self,
@@ -275,42 +314,51 @@ class Graph:
         menu = self.menu
         native = menu.native.get(package or "", {"tools": [], "env": {}}) if scripted else {"tools": [], "env": {}}
         tools = [*native["tools"], *(menu.tools if scripted else [])]
-        env = tool_env(tools, f"{menu.nodejs}/bin") | {"PYDD_NPM": json.dumps(spec, sort_keys=True)}
+        env = tool_env(tools, f"{menu.nodejs}/bin") | {"PYDD_NPM": dump(spec)} | FLOATING
         env |= native["env"]
+        srcs, drvs = self.references({menu.python, menu.script, menu.nodejs, *tools, *spec.get("srcs", [])}, inputs)
         return Derivation(
             name=name,
             system=self.planner.system,
             builder=f"{menu.python}/bin/python3",
             args=["-I", menu.script],
             env=env,
-            srcs=sorted({menu.python, menu.script, menu.nodejs, *tools, *spec.get("srcs", [])}),
-            drvs={node.path: ["out"] for node in inputs},
+            srcs=srcs,
+            drvs=drvs,
         )
+
+    def fixed(self, url: str, spec: dict[str, Any], output: Fixed) -> Node:
+        """A fixed-output node of `url`, once for each URL."""
+        if url not in self.fetches:
+            menu = self.menu
+            srcs, drvs = self.references({menu.python, menu.script, menu.cacert}, [])
+            drv = Derivation(
+                name=fetch_name(url if spec["action"] == "fetch" else self.git[url]),
+                system=self.planner.system,
+                builder=f"{menu.python}/bin/python3",
+                args=["-I", menu.script],
+                env={
+                    "PYDD_NPM": dump(spec),
+                    "SSL_CERT_FILE": f"{menu.cacert}/etc/ssl/certs/ca-bundle.crt",
+                    "outputHash": output.hash,
+                    "outputHashMode": "flat" if output.method == "flat" else "recursive",
+                },
+                srcs=srcs,
+                drvs=drvs,
+                outputs={"out": output},
+            )
+            self.fetches[url] = self.planner.add(drv)
+        return self.fetches[url]
 
     def fetch(self, path: str) -> Node:
         entry = self.lock.packages[path]
         url, integrity = entry["resolved"], entry.get("integrity")
-        if url not in self.fetches:
-            if integrity is None:
-                raise SystemExit(
-                    f"pydd.node.npm: {path} comes from {url}, and the lock holds no hash of it. "
-                    "npm-lockfile-fix writes the missing hashes into a lock."
-                )
-            spec = {"action": "fetch", "url": url}
-            drv = Derivation(
-                name=f"{store_name(name_of(path, entry))}-{entry.get('version', '0')}.tgz",
-                system=self.planner.system,
-                builder=f"{self.menu.python}/bin/python3",
-                args=["-I", self.menu.script],
-                env={
-                    "PYDD_NPM": json.dumps(spec, sort_keys=True),
-                    "SSL_CERT_FILE": f"{self.menu.cacert}/etc/ssl/certs/ca-bundle.crt",
-                },
-                srcs=[self.menu.python, self.menu.script, self.menu.cacert],
-                outputs={"out": Fixed(strongest(integrity))},
+        if integrity is None:
+            raise SystemExit(
+                f"pydd.node.npm: {path} comes from {url}, and the lock holds no hash of it. "
+                "npm-lockfile-fix writes the missing hashes into a lock."
             )
-            self.fetches[url] = self.planner.add(drv)
-        return self.fetches[url]
+        return self.fixed(url, {"action": "fetch", "url": url}, Fixed(strongest(integrity)))
 
     def archive(self, path: str) -> Node:
         """A fixed-output node that unpacks the archive of a git dependency's commit."""
@@ -329,22 +377,8 @@ class Graph:
                 f"pydd.node.npm: {path} comes from {resolved}. Give its hash as "
                 f'`outputHashes."{key}"`. `nix store prefetch-file --unpack {url}` prints it.'
             )
-        if url not in self.fetches:
-            spec = {"action": "archive", "url": url}
-            drv = Derivation(
-                name=f"{store_name(key)}-source",
-                system=self.planner.system,
-                builder=f"{self.menu.python}/bin/python3",
-                args=["-I", self.menu.script],
-                env={
-                    "PYDD_NPM": json.dumps(spec, sort_keys=True),
-                    "SSL_CERT_FILE": f"{self.menu.cacert}/etc/ssl/certs/ca-bundle.crt",
-                },
-                srcs=[self.menu.python, self.menu.script, self.menu.cacert],
-                outputs={"out": Fixed(self.menu.hashes[key], "nar")},
-            )
-            self.fetches[url] = self.planner.add(drv)
-        return self.fetches[url]
+        self.git[url] = resolved
+        return self.fixed(url, {"action": "archive", "url": url}, Fixed(self.menu.hashes[key], "nar"))
 
     def tarball(self, path: str) -> tuple[str, list[Node], list[str]]:
         """Where the package of `path` is, as a tarball or a directory, the node that
