@@ -154,6 +154,9 @@ GROUPS = {
     "node": {
         "node": ["cli", "huggorm", "drv", "recursive"],
     },
+    "node-live": {
+        "node-live": ["cli", "huggorm", "recursive"],
+    },
 }
 RELEASED = {"out", "out-stdenv"}
 

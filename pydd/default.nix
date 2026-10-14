@@ -432,6 +432,27 @@ rec {
       };
     };
 
+  # Real npm projects, at the releases that nixpkgs builds: `tests/node-live`.
+  node-live =
+    lib.genAttrs [ "cli" "huggorm" ] (
+      writer:
+      import ./tests/node-live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+      }
+    )
+    // {
+      recursive = import ./tests/node-live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "cli";
+          plannerProtocol = "recursive";
+        };
+      };
+    };
+
   # Real Cargo projects from GitHub, as they are: `tests/rust-live`.
   rust-live =
     lib.genAttrs [ "cli" "huggorm" ] (
@@ -470,6 +491,12 @@ rec {
   test-live = mkRunner "pydd-test-live" [
     "test"
     "live"
+  ];
+
+  # The real npm projects of `tests/node-live`.
+  test-node-live = mkRunner "pydd-test-node-live" [
+    "test"
+    "node-live"
   ];
 
   # The real Cargo projects of `tests/rust-live`.

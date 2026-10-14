@@ -214,6 +214,7 @@ command to run and what it prints.
 6. `examples/released`: `hello` on a released Nix, with no `builder-rpc-v0`.
 7. `examples/graph`: a planner in shell, with no Python, through `pydd-drv graph`.
 8. `examples/cargo`: a Cargo project, one node per unit of cargo's unit graph.
+9. `examples/npm`: an npm project, one node per package of its lock.
 
 An example is `examples.<name>.<writer>`:
 
