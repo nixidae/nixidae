@@ -1,0 +1,34 @@
+# GENERATED FILE -- do not edit by hand.
+# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update
+defaults:
+  run:
+    working-directory: easykubenix
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          trusted-users = root runner
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          substituters = https://cache.nixos.org?priority=1 https://lillecarl.cachix.org?priority=2
+    - name: Build checks
+      run: nix build --file ./checks.nix all --no-link --print-build-logs
+    - name: Validate against real kube-apiserver
+      run: nix run --file ./nix packages.validationScript
+    - name: Run tests
+      run: nix-shell --run 'python3 -m pytest -v --no-header'
+    - name: Lint
+      run: nix-shell --run 'ruff check --config ruff-strict.toml'
+    - name: Check Python formatting
+      run: nix-shell --run 'ruff format --check'
+    - name: Check types
+      run: nix-shell --run 'pyright ekn'
+name: 'easykubenix: tests'
+'on':
+  pull_request: null
+  push: null
