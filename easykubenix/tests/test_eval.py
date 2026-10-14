@@ -1,0 +1,1431 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from typing import Any, cast
+
+import anyio
+import pytest
+from huggorm.errors import NixError
+
+from ekn.apply import DEFAULT_BARRIER_PRIORITY, DEFAULT_FIELD_MANAGER
+from ekn.attrpath import EvaluationTargetError
+from ekn.eval import (
+    evaluate_file,
+    evaluate_gitops_manifests,
+    evaluate_kubeapply_config,
+    realise_attr,
+)
+from ekn.livestate import HASH_ANNOTATION
+from ekn.nix import evaluator
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+NIX_TEST_FILE = PROJECT_ROOT / "tests/test_eval.nix"
+TEMPLATES_NIX_TEST_FILE = PROJECT_ROOT / "tests/test_templates.nix"
+
+
+def without_hash(obj: Any) -> Any:
+    """One rendered object without its `ekn.dev/manifest-hash`.
+
+    Every object the render produces carries one, so an assertion about an
+    object's exact shape is an assertion about this. An `annotations` that
+    held nothing else goes too, which lets a test still say "this object
+    carries no annotations".
+    """
+    metadata = dict(obj["metadata"])
+    annotations = {k: v for k, v in metadata.get("annotations", {}).items() if k != HASH_ANNOTATION}
+    if annotations:
+        metadata["annotations"] = annotations
+    else:
+        metadata.pop("annotations", None)
+    return {**obj, "metadata": metadata}
+
+
+@pytest.fixture(scope="module")
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture
+def ekn_root() -> str:
+    return str(PROJECT_ROOT)
+
+
+class TestSimpleEval:
+    async def test_eval_literal(self) -> None:
+        async with evaluator() as eval_:
+            root = await eval_.expr('{ x = 1; y = { z = "hello"; }; }')
+            result = await root.to_python()
+        assert result == {"x": 1, "y": {"z": "hello"}}
+
+    async def test_eval_list(self) -> None:
+        async with evaluator() as eval_:
+            root = await eval_.expr("[ 1 2 3 ]")
+            result = await root.to_python()
+        assert result == [1, 2, 3]
+
+
+class TestRealiseAttr:
+    async def test_builds_and_returns_store_path(self, tmp_path: Path) -> None:
+        sources_path = PROJECT_ROOT / "nix/sources.nix"
+        f = tmp_path / "drv.nix"
+        f.write_text(f"""
+            let
+              sources = import {sources_path};
+              pkgs = import sources.nixpkgs {{ }};
+            in
+            {{ thing = pkgs.writeText "ekn-realise-test" "hello from ekn"; }}
+        """)
+
+        path = await realise_attr(f, None, "thing")
+
+        built = anyio.Path(path)
+        assert await built.is_file()
+        assert await built.read_text() == "hello from ekn"
+
+    async def test_rejects_empty_segment(self, tmp_path: Path) -> None:
+        f = tmp_path / "drv.nix"
+        # `foo` must exist. select_attr validates each component as it walks,
+        # so a missing first component would mask the empty one.
+        f.write_text("{ foo = { }; }")
+
+        with pytest.raises(EvaluationTargetError, match="empty component"):
+            await realise_attr(f, None, "foo..bar")
+
+    async def test_requires_file_or_flake(self) -> None:
+        with pytest.raises(ValueError, match="specify --file or --flake"):
+            await realise_attr(None, None, "thing")
+
+
+class TestEknModule:
+    async def test_adios_template_creates_a_resource(self) -> None:
+        result = await evaluate_file(TEMPLATES_NIX_TEST_FILE, "templates")
+        assert without_hash(result) == {
+            "apiVersion": "bitnami.com/v1alpha1",
+            "kind": "SealedSecret",
+            "metadata": {"name": "database", "namespace": "default"},
+            "spec": {
+                "encryptedData": {"password": "AgByEncrypted"},
+                "template": {"metadata": {"labels": {"app": "api"}}},
+            },
+        }
+
+    async def test_adios_template_checks_arguments(self) -> None:
+        with pytest.raises(NixError, match="encryptedData"):
+            await evaluate_file(TEMPLATES_NIX_TEST_FILE, "invalidTemplateArguments")
+
+    async def test_assert_cached_follows_cache_to(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "assertCachedFollowsCacheTo")
+        assert result == {
+            "unset": [],
+            "string": ["ssh-ng://nix@pynixd"],
+            "list": ["ssh-ng://nix@pynixd", "https://nixkube.cachix.org"],
+            "overridden": ["https://nixkube.cachix.org"],
+        }
+
+    async def test_ekn_routing_is_stripped_from_manifests(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "eknRouting")
+        assert isinstance(result, dict)
+
+        deployment = result["generatedByPath"]["default"]["Deployment"]["api"]
+        assert "ekn" not in deployment
+        target = result["deploymentUnits"]["apps"]
+        assert target["target"]["path"] == "clusters/home/apps"
+        assert target["objects"][0]["metadata"]["name"] == "api"
+
+    async def test_gitops_target_submodule_renders_into_its_target_only(self) -> None:
+        """A target's `modules` are a separate easykubenix instance whose
+        objects belong to that target and to nothing else.
+
+        The separation is the feature: bootstrap objects are what makes a
+        GitOps engine able to sync, so they cannot be synced by it. Leaking
+        them into `kubernetes.generated` would put them in the path of a
+        plain `ekn kubeapply` and of `ekn validate`, which is exactly the
+        lifecycle they need to stay out of.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "gitOpsSubmodule")
+        assert isinstance(result, dict)
+        targets = result["deploymentUnits"]
+
+        # A target with only submodule objects and no routed ones still has
+        # to appear -- that is the normal shape for a bootstrap target.
+        assert sorted(targets) == ["apps", "bootstrap"]
+
+        bootstrap = targets["bootstrap"]["objects"]
+        assert [obj["metadata"]["name"] for obj in bootstrap] == ["root"]
+        # Read through the `parent` module argument, so the nested instance
+        # can point a root Application at the branch the parent syncs.
+        assert bootstrap[0]["data"] == {"branch": "deploy"}
+
+        # ...and nowhere else. `routed` is the parent's own object, and the
+        # only one in `generated`.
+        assert [obj["metadata"]["name"] for obj in result["generated"]] == ["routed"]
+        assert [obj["metadata"]["name"] for obj in targets["apps"]["objects"]] == ["routed"]
+
+    async def test_gitops_target_exposes_only_serializable_fields(self) -> None:
+        """`target` must stay exactly `{path, fieldManager}`.
+
+        It is serialized to JSON for `ekn` (eval.py's `_GitOpsTargetRef` and
+        `_unpack_gitops_target` read those two), while the target submodule
+        itself also holds `modules` and `instance` -- module functions and a
+        whole evaluated option tree -- plus `labels`/`annotations`, whose
+        values may be functions. Passing the submodule through whole would
+        try to serialize all of that, so this asserts the key set rather than
+        just the values.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "gitOpsSubmodule")
+        assert isinstance(result, dict)
+
+        for name, entry in result["deploymentUnits"].items():
+            assert sorted(entry["target"]) == ["fieldManager", "path"], name
+
+        assert result["deploymentUnits"]["bootstrap"]["target"] == {
+            "path": "bootstrap",
+            "fieldManager": "ekn",
+        }
+        # The nested instance inherits the parent's environment. Both applies
+        # stamp `ekn.dev/environment`, and the unit label is what separates
+        # the two prune scopes -- so this has to match, or a
+        # `--target bootstrap --prune` would find none of its own objects.
+        assert result["nestedEnvironment"] == "easykubenix"
+
+    async def test_labels_annotations_are_coerced_by_default(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "labelsAnnotationsCoercion")
+        assert isinstance(result, list)
+        metadata = without_hash(result[0])["metadata"]
+        assert metadata["labels"] == {"enabled": "true", "replicas": "3"}
+        assert metadata["annotations"] == {"disabled": "false"}
+
+    async def test_labels_annotations_coercion_can_be_disabled(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "labelsAnnotationsCoercionDisabled")
+        assert isinstance(result, list)
+        assert result[0]["metadata"]["labels"] == {"enabled": "true"}
+
+    async def test_labels_annotations_coercion_disabled_rejects_bool(self) -> None:
+        # Top-level metadata.labels/annotations are the typed labelValueType
+        # option -- with coercion disabled, that's plain types.str, so the
+        # module system itself rejects the bool.
+        with pytest.raises(NixError, match="is not of type"):
+            await evaluate_file(NIX_TEST_FILE, "labelsAnnotationsCoercionDisabledThrows")
+
+    async def test_init_containers_preserve_order(self) -> None:
+        # A transformer runs after the option merge, so it can introduce a
+        # marker that no type ever sees. The pipeline still has to convert
+        # that one back into a list, in order.
+        result = await evaluate_file(NIX_TEST_FILE, "initContainersOrder")
+        assert isinstance(result, list)
+        names = [c["name"] for c in result[0]["spec"]["initContainers"]]
+        assert names == ["first", "second", "third"]
+
+    async def test_lone_named_list_resolves_without_a_conversion_pass(self) -> None:
+        # No generator and no transformer here, so nothing converts markers
+        # after the merge. The type has to do it on its own.
+        result = await evaluate_file(NIX_TEST_FILE, "loneNamedList")
+        assert isinstance(result, list)
+        assert result[0]["spec"]["containers"] == [{"name": "main", "image": "nginx"}]
+
+    async def test_named_list_override_across_modules(self) -> None:
+        # One module gives a plain rendered list, the shape a Helm chart
+        # produces. Another patches one entry by name and adds a second.
+        # The patched entry keeps its position, and the added entry gets a
+        # `name` from its key.
+        result = await evaluate_file(NIX_TEST_FILE, "namedListAcrossModules")
+        assert isinstance(result, list)
+        containers = result[0]["spec"]["containers"]
+        assert containers == [
+            {"name": "app", "image": "v2"},
+            {"name": "log", "image": "fluentd"},
+            {"name": "metrics", "image": "exporter"},
+        ]
+
+    async def test_named_list_survives_hoist_from_submodule(self) -> None:
+        # A module declares its own option with the recursive kube type and
+        # then lifts the result into kubernetes.objects, the way helm.nix and
+        # importyaml.nix do.
+        result = await evaluate_file(NIX_TEST_FILE, "hoistedFromSubmodule")
+        assert isinstance(result, list)
+        assert result[0]["spec"]["containers"] == [{"name": "main", "image": "api:1"}]
+
+    async def test_a_kluctl_script_may_name_the_manifest(self) -> None:
+        # `kluctl.preDeployScript = "... ${config.internal.manifestJSONFile}"`
+        # is what you write to push a manifest before deploying it, and it
+        # used to make the whole configuration unevaluatable: the kluctl
+        # deprecation notice read the option's *priority*, which forces its
+        # value, closing a loop back through `kubernetes.generated`. nixkube
+        # writes exactly this and could not be evaluated at all.
+        #
+        # The notice is `lib.warn` on `kluctl.projectDir` now, so it fires
+        # when somebody builds a kluctl project rather than when the module
+        # system looks at a definition.
+        result = await evaluate_file(NIX_TEST_FILE, "kluctlScriptReadsManifest")
+        assert isinstance(result, list)
+        assert result[0]["kind"] == "ConfigMap"
+
+    async def test_conditional_definitions_patch_without_creating(self) -> None:
+        # `kubernetes.objects` is a `conditionalAttrsOf` at the namespace, the
+        # Kind and the object name. A `lib.mkIfExists` definition at any of
+        # the three joins what is there and creates nothing that is not.
+        result = await evaluate_file(NIX_TEST_FILE, "conditionalObjects")
+        assert isinstance(result, list)
+        assert [(o["kind"], o["metadata"]["name"]) for o in result] == [
+            ("ConfigMap", "added"),
+            ("Deployment", "api"),
+            ("Deployment", "extra"),
+        ]
+        api = result[1]
+        # Both marker forms reached the object that exists.
+        assert api["spec"]["replicas"] == 3
+        assert api["metadata"]["annotations"]["patched"] == "true"
+
+    async def test_a_seed_reference_renders_as_a_plain_string(self) -> None:
+        # The reference reaches the manifest untouched, and as a string, so
+        # `stringData` stays `map[string]string` and the schema check passes.
+        # Nothing in Nix reads the variable.
+        result = await evaluate_file(NIX_TEST_FILE, "seededGenerated")
+        assert isinstance(result, list)
+        secret = next(o for o in result if o["kind"] == "Secret")
+        assert secret["stringData"] == {
+            "type": "git",
+            "url": "https://example.com/group/repo.git",
+            "username": "ci-token",
+            "password": "$ekn:env:ARGOCD_REPO_PASSWORD",
+        }
+
+    async def test_the_exportable_list_drops_a_seeded_object(self) -> None:
+        # `generated` is for ekn, which resolves the reference.
+        # `generatedExportable` is for anything handing objects to a
+        # different applier, which would apply the sentinel literally.
+        result = await evaluate_file(NIX_TEST_FILE, "seededExportable")
+        assert isinstance(result, list)
+        assert [(o["kind"], o["metadata"]["name"]) for o in result] == [("ConfigMap", "plain")]
+
+    async def test_a_special_arg_reaches_a_gitops_target_instance(self) -> None:
+        # A nested instance is the same configuration in a different mood, so
+        # a special argument the outer one was given reaches the inner one.
+        #
+        # This is the only way to pass something the module system must
+        # evaluate to learn a module's shape -- a constructor a module is
+        # written as a call to. `_module.args` cannot carry one: the shape
+        # lookup would require `config`, and evaluation stops with infinite
+        # recursion. So without forwarding, such a module cannot be written
+        # inside a bootstrap target at all, and nothing on the consumer's
+        # side can work around it.
+        result = await evaluate_file(NIX_TEST_FILE, "forwardedSpecialArgs")
+        assert isinstance(result, list)
+        assert result[0]["metadata"]["name"] == "from-a-special-arg"
+        assert result[0]["data"] == {"made": "yes"}
+
+    async def test_gitops_parent_is_not_shadowed_by_a_forwarded_arg(self) -> None:
+        # `parent` is gitops.nix's own, and it is passed after the forwarded
+        # ones, so a consumer passing `parent` at the top level cannot
+        # replace it by accident.
+        result = await evaluate_file(NIX_TEST_FILE, "parentStillWins")
+        assert isinstance(result, list)
+        assert result[0]["data"] == {"parentEnvironment": "easykubenix"}
+
+    async def test_the_built_manifest_outputs_drop_a_seeded_object(self) -> None:
+        # `nix build .#manifestYAMLDir` and friends exist to be handed to
+        # something else, and nothing but `ekn` resolves a reference -- so a
+        # `kubectl apply -f` of one must not write `$ekn:env:VARNAME` over a
+        # live credential.
+        public = await evaluate_file(NIX_TEST_FILE, "seededPublicManifest")
+        assert isinstance(public, dict)
+        assert [o["kind"] for o in public["items"]] == ["ConfigMap"]
+
+    async def test_the_internal_manifest_keeps_the_seeded_object(self) -> None:
+        # `ekn validate`, `ekn _applyManifest` and the cache push read
+        # this one, and all three go through the CLI, which substitutes
+        # first. A reference is a plain string, so the schema check passes.
+        internal = await evaluate_file(NIX_TEST_FILE, "seededInternalManifest")
+        assert isinstance(internal, dict)
+        kinds = [o["kind"] for o in internal["items"]]
+        assert "Secret" in kinds
+        secret = next(o for o in internal["items"] if o["kind"] == "Secret")
+        assert secret["stringData"]["password"].startswith("$ekn:env:")
+
+    async def test_routing_a_seeded_secret_to_gitops_is_refused(self) -> None:
+        # Loud rather than silent: a GitOps target is an explicit per-object
+        # opt-in, so a seeded object there is an author mistake. ArgoCD would
+        # apply `$ekn:env:...` over the real credential.
+        with pytest.raises(NixError, match=r"routed to a\s+GitOps target"):
+            await evaluate_file(NIX_TEST_FILE, "seededGitOpsThrows")
+
+    async def test_marking_an_object_with_no_reference_is_rejected(self) -> None:
+        # `envSeeded` is what makes a seeded object findable without walking
+        # it, so wrapping an object that needs nothing is a mistake rather
+        # than a harmless no-op.
+        with pytest.raises(NixError, match=r"holds no ekn\.envSeed reference"):
+            await evaluate_file(NIX_TEST_FILE, "envSeededWithoutReferenceThrows")
+
+    async def test_an_object_may_name_the_tf_units_it_ships(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "tofuUnitsAnnotationRenders")
+        assert isinstance(result, list)
+        named = [o["metadata"]["annotations"]["ekn.dev/tofu-units"] for o in result if o["kind"] == "ConfigMap"]
+        assert named == ["infra"]
+
+    @pytest.mark.parametrize(
+        ("attr", "named"),
+        [("tofuUnitsAnnotationUnknownThrows", "nope"), ("tofuUnitsAnnotationKubernetesUnitThrows", "apps")],
+    )
+    async def test_naming_a_unit_that_is_not_tf_is_refused(self, attr: str, named: str) -> None:
+        # `ekn kubeapply` checks the units this names, so a typo would be a
+        # unit checked nowhere.
+        with pytest.raises(NixError, match=rf"default/ConfigMap/runner -> {named}\n"):
+            await evaluate_file(NIX_TEST_FILE, attr)
+
+    async def test_the_seed_annotations_name_each_variable(self) -> None:
+        # The annotations are what every consumer reads, so they are the
+        # contract: one numbered key per variable, greppable against a live
+        # cluster with no re-render.
+        result = await evaluate_file(NIX_TEST_FILE, "seededGenerated")
+        assert isinstance(result, list)
+        secret = next(o for o in result if o["kind"] == "Secret")
+        assert secret["metadata"]["annotations"]["ekn.dev/env-0"] == "ARGOCD_REPO_PASSWORD"
+
+    async def test_a_manifest_renders_without_an_environment(self) -> None:
+        # `ekn.environment` has no default. Rendering must not read it:
+        # a manifest is a file, and a file prunes nothing.
+        result = await evaluate_file(NIX_TEST_FILE, "noEnvironmentRenders")
+        assert isinstance(result, list)
+        assert result[0]["kind"] == "ConfigMap"
+
+    async def test_a_deploy_without_an_environment_is_refused(self) -> None:
+        # The other half, and the reason there is no default. A default is a
+        # value every project shares until somebody changes it, and two
+        # projects sharing one on a cluster prune each other's objects --
+        # each sees objects under its own label that its own apply did not
+        # produce. Nothing inside one project can detect that, so the name
+        # has to be a decision, and this is where it gets asked for.
+        with pytest.raises(NixError, match=r"ekn\.environment"):
+            await evaluate_file(NIX_TEST_FILE, "noEnvironmentDeployThrows")
+
+    async def test_marker_in_crds_is_rejected(self) -> None:
+        # kubernetes.crds goes around the type for speed, so nothing there
+        # resolves a marker. Fail instead of writing `_type` into a manifest.
+        with pytest.raises(NixError, match=r"kubernetes\.crds"):
+            await evaluate_file(NIX_TEST_FILE, "crdMarkerThrows")
+
+    async def test_if_exists_marker_in_crds_is_rejected(self) -> None:
+        # `mkIfExists` leaks the same way. `conditionalAttrsOf` resolves it,
+        # and a CRD goes around that type too.
+        with pytest.raises(NixError, match=r"kubernetes\.crds"):
+            await evaluate_file(NIX_TEST_FILE, "crdIfExistsMarkerThrows")
+
+    async def test_generated_by_path(self, ekn_root: str) -> None:
+        nix = f"""
+        let
+          easy = import {ekn_root} {{
+            modules = [{{
+              kubernetes.objects.default.ConfigMap.test = {{ data.key = "hello"; }};
+            }}];
+          }};
+        in
+        easy.config.kubernetes.generatedByPath
+        """
+        async with evaluator() as eval_:
+            root = await eval_.expr(nix)
+            result = await root.to_python()
+        assert isinstance(result, dict)
+        assert "default" in result
+        assert "ConfigMap" in result["default"]
+        assert "test" in result["default"]["ConfigMap"]
+
+    async def test_manifest_yaml_list(self, ekn_root: str) -> None:
+        nix = f"""
+        let
+          easy = import {ekn_root} {{
+            modules = [{{
+              kubernetes.objects.default.ConfigMap.test = {{ data.key = "hello"; }};
+            }}];
+          }};
+        in
+        easy.config.internal.manifestYAMLList
+        """
+        async with evaluator() as eval_:
+            root = await eval_.expr(nix)
+            result = await root.to_python()
+        assert isinstance(result, str)
+        assert "ConfigMap" in result
+        assert "hello" in result
+
+
+class TestImportTimeTransformers:
+    """The set-level seam on the chart and importyaml paths.
+
+    `overrides` is per object and cannot express anything needing the whole
+    set. `kubernetes.transformers` sees the set but runs far too late: by then
+    the objects have been grouped into `kubernetes.objects` by
+    `metadata.namespace`, an object without one is in the `none` bucket, and
+    kubernetes.nix deliberately injects no namespace there. The release
+    namespace is gone.
+
+    easykubenix ships no transformer -- "which kinds are namespaced" needs API
+    scope data a project has and these modules do not. These tests are about
+    the seam, so the fixture's transformer names a kind directly.
+    """
+
+    @staticmethod
+    def _by_name(objects: object) -> dict[str, Any]:
+        assert isinstance(objects, list)
+        return {cast("dict[str, Any]", o)["metadata"]["name"]: o for o in objects}
+
+    async def test_without_a_transformer_a_namespaceless_object_gets_no_namespace(self) -> None:
+        """The control, and the bug it exists to make visible.
+
+        A chart or manifest may legitimately omit `metadata.namespace` --
+        `helm install --namespace` and `kubectl apply --namespace` both leave
+        the manifest alone and let the API server default it. easykubenix
+        reads the omission as cluster-scoped instead, so the object reaches
+        the cluster with no namespace at all.
+        """
+        buckets = await evaluate_file(NIX_TEST_FILE, "importWithoutTransformersBuckets")
+        assert buckets == ["explicit", "none"]
+
+        objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importWithoutTransformers"))
+        assert "namespace" not in objects["without-namespace"]["metadata"]
+
+    async def test_a_transformer_can_default_the_namespace(self) -> None:
+        # The job the seam exists for: the `none` bucket is gone entirely,
+        # because the transformer ran before the grouping read the namespace.
+        buckets = await evaluate_file(NIX_TEST_FILE, "importTransformersBuckets")
+        assert buckets == ["defaulted", "explicit"]
+        assert "none" not in buckets
+
+        objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importTransformers"))
+        assert objects["without-namespace"]["metadata"]["namespace"] == "defaulted"
+        # The object that already had one keeps it.
+        assert objects["with-namespace"]["metadata"]["namespace"] == "explicit"
+
+    async def test_a_transformer_sees_the_whole_set(self) -> None:
+        # The fixture stamps the list length. Two, not one -- so this is one
+        # call with every object, not a call per object like `overrides`.
+        objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importTransformers"))
+        assert objects["without-namespace"]["metadata"]["labels"]["count"] == "2"
+        assert objects["with-namespace"]["metadata"]["labels"]["count"] == "2"
+
+    async def test_map_replaces_the_removed_per_object_hook(self) -> None:
+        # `overrides` was a per-object hook, which is `map f` — a strictly
+        # weaker special case of this one. It is gone, and the fixture's first
+        # transformer is what it used to be, written as `map`.
+        #
+        # Both labels survive, so the `map` transformer ran and the next one
+        # saw its output.
+        objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importTransformers"))
+        labels = objects["with-namespace"]["metadata"]["labels"]
+        assert labels == {"stage": "mapped", "count": "2"}
+
+    async def test_a_marker_from_a_transformer_resolves(self) -> None:
+        """The opposite of the rule for `kubernetes.transformers`.
+
+        That seam runs past the type, so a marker it introduces reaches the
+        manifest as a literal `_type` field unless `needsMarkerPass` converts
+        it back. This seam is on the other side of that boundary: its output
+        still passes through `kubernetes.objects`, whose freeform type is
+        `kubeValueType`, and `namedListOf` resolves the marker when it merges.
+
+        Worth pinning because a reader who knows about `needsMarkerPass` would
+        reasonably expect the hazard here too.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "importTransformerMarker")
+        assert isinstance(result, list)
+        pod = cast("dict[str, Any]", result[0])
+        # A real list, and the `mkForce` applied against the parsed value.
+        assert pod["spec"]["containers"] == [{"name": "app", "image": "v2"}]
+        assert "_type" not in pod["spec"]
+
+    async def test_transformers_compose_in_order(self) -> None:
+        # The third transformer adds an object whose namespace it reads off
+        # the ServiceAccount -- which only has one because the second
+        # transformer put it there. So they run in order, each seeing the last
+        # one's output.
+        objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importTransformers"))
+        assert objects["added-by-transformer"]["metadata"]["namespace"] == "defaulted"
+        # An added object is grouped like any other, not appended raw.
+        buckets = await evaluate_file(NIX_TEST_FILE, "importTransformersBuckets")
+        assert "defaulted" in cast("list[Any]", buckets)
+
+
+class TestValidationServiceSubnet:
+    async def test_the_option_reaches_the_apiserver_flag(self) -> None:
+        """The option decided the certificate SANs and nothing else.
+
+        `--service-cluster-ip-range` was the literal `10.96.0.0/12`, so
+        `validation.serviceSubnet` could not make the harness accept an IPv6
+        Service whatever it was set to -- the option's own comment described a
+        behaviour the code did not have. An IPv6-only environment failed with
+
+            Invalid value: "IPv6": not configured on this cluster
+
+        and, since `ekn deploy` validates first, could not be deployed either.
+
+        The literal was wrong on its own terms too: `10.96.0.0/12` reaches
+        10.111.255.255 and so swallows `podSubnet`'s default of 10.97.0.0/16.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "serviceSubnetReachesTheApiserverFlag")
+        assert isinstance(result, dict)
+        # The whole value, so a fix that passed only the IPv4 half would fail.
+        assert result["inFlag"] is True
+        assert result["noHardcodedRange"] is True
+        # Both consumers read one option, so the flag and the SANs agree.
+        assert result["inKubeadmConfig"] == "10.99.0.0/16,fd00:99::/112"
+
+
+class TestRenamedOptionAliases:
+    """The old `gitOps.*` names, and what keeping them costs.
+
+    `easyOldGitOpsNames` existed before this class but nothing read it, so the
+    aliases had no assertion behind them at all.
+    """
+
+    async def test_the_old_names_still_route(self) -> None:
+        # `gitOps.deployBranch`, `gitOps.targets.<name>` and
+        # `ekn.gitOpsTarget` together, in one configuration that mentions no
+        # new name anywhere.
+        result = await evaluate_file(NIX_TEST_FILE, "oldGitOpsNamesStillWork")
+        assert isinstance(result, dict)
+        assert list(result) == ["apps"]
+        assert result["apps"]["target"]["path"] == "clusters/home/apps"
+        assert [obj["metadata"]["name"] for obj in result["apps"]["objects"]] == ["routed"]
+
+    async def test_a_deprecated_alias_stays_out_of_the_ekn_sidecar(self) -> None:
+        """An alias is a declared option, so it is serialized with the submodule.
+
+        `generatedWithEkn` publishes each object's `ekn`, so without a strip
+        `gitOpsTarget` rode along on every object. Worse, while the alias
+        warned on read, serializing it printed
+
+            trace: Obsolete option `gitOpsTarget' is used.
+
+        on every evaluation of a configuration that never wrote the old name.
+        `ekn kubeapply` hit the same thing through `kubernetes.rawFiles`.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "eknSidecarKeys")
+        assert isinstance(result, list)
+        assert result, "fixture rendered no objects, so this asserts nothing"
+        for keys in result:
+            assert keys == ["deploymentUnit", "novalidate"]
+
+
+class TestGitOpsTargetMetadata:
+    """A bootstrap target impersonating the controller that takes over.
+
+    Two independent mechanisms, deliberately kept apart: `fieldManager` is
+    apply-time only and decides who owns each *field*, while
+    `labels`/`annotations` are baked into the rendered manifests and decide
+    whether the GitOps engine considers the *object* its own at all.
+    """
+
+    @staticmethod
+    def _by_name(entry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        return {obj["metadata"]["name"]: obj for obj in entry["objects"]}
+
+    async def test_field_manager_is_apply_time_only(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+
+        assert result["bootstrap"]["target"]["fieldManager"] == "argocd-controller"
+        # An ordinary target keeps the default, so a normal apply stays
+        # honest about who wrote what.
+        assert result["apps"]["target"]["fieldManager"] == "ekn"
+
+        # Never in the manifests: it is a property of who applied an object,
+        # not of the object. `ekn commit` writes these to git.
+        for obj in result["bootstrap"]["objects"]:
+            assert "fieldManager" not in obj
+            assert "fieldManager" not in obj["metadata"]
+
+    async def test_metadata_covers_routed_and_submodule_objects_alike(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+        objects = self._by_name(result["bootstrap"])
+
+        # `routed` comes from the parent via `ekn.deploymentUnit`, `root` from
+        # the target's own `modules`. A target's metadata is about the target,
+        # so both sources get it.
+        assert sorted(objects) == ["argocd", "root", "routed", "widgets.example.com"]
+        for name in ("routed", "root"):
+            assert objects[name]["metadata"]["labels"]["ekn.dev/kind"] == "ConfigMap", name
+
+    async def test_target_labels_win_over_the_object_s_own(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+        root = self._by_name(result["bootstrap"])["root"]
+
+        # `root` declares `app.kubernetes.io/instance = from-chart`, the way a
+        # Helm chart sets it to its release name. That is exactly the key a
+        # GitOps engine may read to decide ownership, so losing this fight
+        # would defeat the stamp.
+        assert root["metadata"]["labels"]["app.kubernetes.io/instance"] == "argocd"
+
+    async def test_tracking_id_encodes_each_object_s_own_identity(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+        objects = self._by_name(result["bootstrap"])
+
+        def tracking(name: str) -> str | None:
+            return objects[name]["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id")
+
+        # A constant would be wrong on all but one object -- and wrong here
+        # fails silently, because ArgoCD reads a non-self-referencing id as
+        # naming something else and then never prunes the object.
+        assert tracking("root") == "argocd:/ConfigMap:argocd/root"
+        # Cluster-scoped (`none` namespace): no `metadata.namespace`, so it
+        # falls back to the Application's destination namespace, as ArgoCD
+        # itself does.
+        assert tracking("argocd") == "argocd:/Namespace:argocd/argocd"
+        # apiextensions.k8s.io is a real group, unlike the core group above.
+        assert objects["widgets.example.com"]["apiVersion"] == "apiextensions.k8s.io/v1"
+
+    async def test_crds_are_declined_rather_than_stamped(self) -> None:
+        """A function returning `null` leaves that one object alone.
+
+        ArgoCD's repo-server skips CRDs when it stamps rendered manifests
+        (`!kube.IsCRD(target)`), and `Normalize` skips them again on the live
+        side. A tracking annotation ArgoCD's desired state never contains but
+        the live object does is a diff on every sync, forever -- on exactly
+        the objects a bootstrap target is most likely applying.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+        crd = self._by_name(result["bootstrap"])["widgets.example.com"]
+
+        assert "argocd.argoproj.io/tracking-id" not in crd["metadata"].get("annotations", {})
+        # Declining one value must not suppress the others, and must not
+        # leave an empty `annotations: {}` behind either.
+        assert "annotations" not in without_hash(crd)["metadata"]
+        assert crd["metadata"]["labels"]["ekn.dev/kind"] == "CustomResourceDefinition"
+
+    async def test_a_target_declaring_no_metadata_stamps_only_the_unit_label(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+
+        # The control for everything above: being in a target is not what
+        # stamps an object, declaring the metadata is. The one exception is
+        # the unit label, which every unit declares by default.
+        bare = without_hash(self._by_name(result["apps"])["unstamped"])
+        assert sorted(bare["metadata"]) == ["labels", "name", "namespace"]
+        assert bare["metadata"]["labels"] == {"ekn.dev/deployment-unit": "apps"}
+        # No empty `annotations: {}` either, which would show up as a spurious
+        # field in every committed manifest.
+        assert "annotations" not in bare["metadata"]
+
+    async def test_every_unit_records_its_name_on_its_objects(self) -> None:
+        """The mark has to be in the rendered manifest, not stamped at apply time.
+
+        `ekn` writes `ekn.dev/environment` in `with_environment_label`,
+        so only objects `ekn` itself applies carry it. On a GitOps cluster
+        nearly every object arrives through ArgoCD instead, which applies the
+        committed YAML -- measured on a live cluster, such an object had no
+        labels at all. A label Nix renders reaches the cluster whatever
+        applies it.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+
+        for unit in ("apps", "bootstrap"):
+            for obj in result[unit]["objects"]:
+                labels = obj["metadata"]["labels"]
+                assert labels["ekn.dev/deployment-unit"] == unit, (unit, obj["metadata"]["name"])
+
+        # Both sources, since a unit's objects come from two places: `routed`
+        # arrives from the parent via `ekn.deploymentUnit`, `root` from the
+        # unit's own `modules`.
+        bootstrap = self._by_name(result["bootstrap"])
+        assert bootstrap["routed"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "bootstrap"
+        assert bootstrap["root"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "bootstrap"
+
+    async def test_a_unit_can_rename_the_label_value(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadata")
+        assert isinstance(result, dict)
+        renamed = self._by_name(result["renamed"])["renamed-unit"]
+
+        # `mkForce` over the default. The value is free; the label is not.
+        assert renamed["metadata"]["labels"]["ekn.dev/deployment-unit"] == "renamed-scope"
+
+    async def test_a_unit_declining_the_label_is_rejected(self) -> None:
+        """The label scopes pruning in both directions, so it cannot be opted out of.
+
+        A whole-instance `--prune` excludes the hand-applied units *by label
+        value*, which is what makes it leave a bootstrap unit's objects alone.
+        Those objects exist nowhere but in the unit, so nothing else marks
+        them as anyone's. A unit that declines the label hands them to that
+        prune, because `notin` matches an unlabelled object.
+        """
+        with pytest.raises(NixError, match=r"ekn\.dev/deployment-unit"):
+            await evaluate_file(NIX_TEST_FILE, "declinedUnitLabelThrows")
+
+    async def test_generated_carries_the_unit_label_too(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "deploymentUnitMetadataGenerated")
+        assert isinstance(result, list)
+        by_name = {cast("dict[str, Any]", o)["metadata"]["name"]: o for o in result}
+
+        # A routed object is in `generated` *and* in its unit, and both applies
+        # write as the same field manager. So the stamp has to be the same on
+        # both sides, or each apply removes the label the other wrote. See
+        # `stampRouted` in kubernetes.nix.
+        assert by_name["routed"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "bootstrap"
+        assert by_name["unstamped"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "apps"
+
+        # The whole unit stamp comes along, not just the one label.
+        assert by_name["routed"]["metadata"]["labels"]["app.kubernetes.io/instance"] == "argocd"
+
+        # A unit that renamed the value is stamped with the renamed one.
+        assert by_name["renamed-unit"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "renamed-scope"
+
+    async def test_a_nested_instance_may_route_to_a_name_it_does_not_declare(self) -> None:
+        """`deployment.units.<name>.modules` documents that its routing is ignored.
+
+        Unit names belong to one instance. A nested instance's units are a
+        different set, so the parent takes every object it renders whatever
+        that object routes to -- and a bootstrap instance routing to the
+        parent's unit name is the shape people write. Rejecting it would force
+        a nested instance to declare a unit purely so a name it never uses
+        resolves.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "nestedRoutingIgnored")
+        assert isinstance(result, dict)
+
+        # The nested instance's own render leaves the object alone: its
+        # `bootstrap` names nothing here.
+        nested = result["nestedGenerated"]
+        assert [obj["metadata"]["name"] for obj in nested] == ["root"]
+        assert "labels" not in nested[0]["metadata"]
+
+        # The parent stamps it, with the unit it actually belongs to. That is
+        # where the label has to come from, and it still does.
+        objects = result["deploymentUnits"]["bootstrap"]["objects"]
+        assert objects[0]["metadata"]["labels"] == {
+            "app.kubernetes.io/instance": "argocd",
+            "ekn.dev/deployment-unit": "bootstrap",
+        }
+
+    async def test_dependencies_resolve_to_a_transitive_closure(self) -> None:
+        """Every unit whose objects go into one `--target` apply.
+
+        `bootstrap` names `secrets` and `argocd`; it reaches `certs` only
+        through them. A consumer wants the whole set, not one hop of it.
+        """
+        result = await evaluate_file(NIX_TEST_FILE, "unitDependencies")
+        assert isinstance(result, dict)
+
+        assert result["certs"] == []
+        assert result["secrets"] == ["certs"]
+        assert result["argocd"] == ["certs"]
+
+        # `certs` is reached twice, through `secrets` and through `argocd`,
+        # and appears once. Deepest first, so a reader sees what has to exist
+        # before what needs it -- the apply itself is ordered by
+        # `ekn.resourcePriority`, not by this.
+        assert result["bootstrap"] == ["certs", "secrets", "argocd"]
+
+    async def test_a_dependency_cycle_is_rejected(self) -> None:
+        # The chain, not just the name. "a depends on itself" is true of
+        # every unit in a cycle and tells nobody which edge to remove.
+        with pytest.raises(NixError, match=r"a -> b -> a"):
+            await evaluate_file(NIX_TEST_FILE, "unitDependencyCycleThrows")
+
+    async def test_a_dependency_on_an_undeclared_unit_is_rejected(self) -> None:
+        with pytest.raises(NixError, match=r'unknown unit "nope"'):
+            await evaluate_file(NIX_TEST_FILE, "unknownUnitDependencyThrows")
+
+    async def test_a_unit_name_that_cannot_be_a_label_value_is_rejected(self) -> None:
+        # A leading underscore is legal in a label value's middle and not at
+        # its ends. Caught here, it names the unit; caught at the API server,
+        # it names the label, once per object.
+        with pytest.raises(NixError, match=r"ekn\.dev/deployment-unit"):
+            await evaluate_file(NIX_TEST_FILE, "badUnitNameThrows")
+
+
+class TestTheInstanceFieldManager:
+    """`deployment.fieldManager`, which names the manager for the whole
+    instance rather than for one unit at a time.
+
+    The case it exists for: a whole-instance apply is a single group, so it
+    applied everything as `ekn` even where every unit declared a successor.
+    Server-side apply only drops a field when its *owning* manager stops
+    declaring it, so a field written as `ekn` and later removed from the
+    configuration is orphaned for ever -- the successor re-applying as its own
+    name does not remove it. `ekn reclaim` is the repair; this is what stops
+    it happening.
+    """
+
+    @staticmethod
+    def _probe(tmp_path: Path, body: str) -> Path:
+        probe = tmp_path / "field-manager.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                ekn.environment = "easykubenix";
+                deployment.deployBranch = "deploy";
+                {body}
+                kubernetes.objects.app.ConfigMap.owned = {{
+                  ekn.deploymentUnit = "routed";
+                  data.key = "value";
+                }};
+              }}];
+            }}
+        """)
+        return probe
+
+    async def test_the_default_is_ekn(self, tmp_path: Path) -> None:
+        """The value `apply.DEFAULT_FIELD_MANAGER` carries, reached through the
+        module system rather than asserted twice in Python."""
+        probe = self._probe(tmp_path, "deployment.units.routed = { };")
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert [group.field_manager for group in cfg.groups] == ["ekn"]
+
+    async def test_it_names_the_manager_of_a_whole_instance_apply(self, tmp_path: Path) -> None:
+        probe = self._probe(
+            tmp_path,
+            'deployment.fieldManager = "argocd-controller"; deployment.units.routed = { };',
+        )
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert [group.field_manager for group in cfg.groups] == ["argocd-controller"]
+
+    async def test_a_unit_inherits_it(self, tmp_path: Path) -> None:
+        """A unit that names no manager of its own takes the instance's. The
+        per-unit option existed first, so this is the direction that was
+        missing: setting one value must not leave the units on `ekn`."""
+        probe = self._probe(
+            tmp_path,
+            'deployment.fieldManager = "argocd-controller"; deployment.units.routed = { };',
+        )
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert cfg.unit_field_managers["routed"] == "argocd-controller"
+
+    async def test_a_unit_can_still_name_its_own(self, tmp_path: Path) -> None:
+        """The narrower value wins. Without this the instance-wide option
+        would silently overwrite a unit that had already been handed over."""
+        probe = self._probe(
+            tmp_path,
+            'deployment.fieldManager = "argocd-controller"; deployment.units.routed.fieldManager = "flux";',
+        )
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert cfg.unit_field_managers["routed"] == "flux"
+
+
+class TestGitOpsTargetSubmoduleEndToEnd:
+    """The two CLI paths a bootstrap target is actually used through, against
+    a real evaluation rather than a hand-built shape.
+
+    Both are unchanged Python: the join happens in `kubernetes.deploymentUnits`,
+    so `ekn commit` and `ekn kubeapply --target` see submodule objects through
+    the same fields they already read. These tests are what says so.
+    """
+
+    @staticmethod
+    def _raw_file(tmp_path: Path) -> Path:
+        # Stands in for ArgoCD's own `install.yaml`, which is the reason
+        # `kubernetes.rawFiles` exists and the canonical thing a bootstrap
+        # unit points at. Deliberately carries no labels of its own.
+        raw = tmp_path / "install.yaml"
+        raw.write_text(
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: raw\n  namespace: argocd\ndata:\n  from: file\n"
+        )
+        return raw
+
+    @classmethod
+    def _probe(cls, tmp_path: Path) -> Path:
+        probe = tmp_path / "bootstrap.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                # No default for this -- see easykubenix/ekn.nix.
+                ekn.environment = "easykubenix";
+                deployment.deployBranch = "deploy";
+                deployment.units.bootstrap = {{
+                  path = "bootstrap";
+                  fieldManager = "argocd-controller";
+                  labels."app.kubernetes.io/instance" = "argocd";
+                  modules = [{{
+                    kubernetes.objects.argocd.ConfigMap.root.data.key = "value";
+                    kubernetes.rawFiles = [{{ path = {cls._raw_file(tmp_path)}; }}];
+                  }}];
+                }};
+              }}];
+            }}
+        """)
+        return probe
+
+    async def test_commit_renders_submodule_objects_into_the_target_path(self, tmp_path: Path) -> None:
+        from ekn.gitops import branches, file_groups
+
+        result = await evaluate_gitops_manifests(self._probe(tmp_path), None, None, None)
+
+        assert branches(result) == ("deploy", None)
+        rendered = dict(file_groups(result))
+        assert "bootstrap/argocd/ConfigMap/root.yaml" in rendered
+        manifest = rendered["bootstrap/argocd/ConfigMap/root.yaml"]
+        assert "key: value" in manifest
+        # The target's labels are baked in, so the committed YAML and what a
+        # `--target bootstrap` apply sends are the same object. Whether a
+        # GitOps engine adopts it is decided by what is in git.
+        assert "app.kubernetes.io/instance: argocd" in manifest
+        # ...and `fieldManager` is not, because it says who applied an object
+        # rather than anything about the object.
+        assert "fieldManager" not in manifest
+
+    async def test_kubeapply_target_applies_submodule_objects(self, tmp_path: Path) -> None:
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, "bootstrap")
+
+        assert [obj["metadata"]["name"] for obj in cfg.objects] == ["root", "raw"]
+        # The instance's environment, shared with a whole-instance apply. The
+        # unit label below is what keeps the two prune scopes apart.
+        assert cfg.environment == "easykubenix"
+        # Applied as the controller that takes over, so SSA hands the fields
+        # across instead of leaving `ekn` owning them permanently.
+        assert cfg.field_manager == "argocd-controller"
+        # Both labels reach the CLI: the one this unit declares, and the unit
+        # label every unit declares by default. `ekn kubeapply --target` and
+        # `ekn commit` read the same `deploymentUnits` objects, so what the
+        # committed YAML carries is what an apply carries.
+        assert cfg.objects[0]["metadata"]["labels"] == {
+            "app.kubernetes.io/instance": "argocd",
+            "ekn.dev/deployment-unit": "bootstrap",
+        }
+
+    async def test_the_prune_exclusion_set_names_only_the_hand_applied_unit(self, tmp_path: Path) -> None:
+        """The discriminator a whole-instance `--prune` is scoped by.
+
+        A unit with `modules` renders a nested instance, so its objects never
+        reach `kubernetes.generated` and a whole-instance apply never has them
+        in its desired set -- it must not delete them. A routing-only unit's
+        objects *do* reach it, so they stay in scope and a component removed
+        from the configuration is deleted, which is the point of the whole
+        change.
+        """
+        probe = tmp_path / "two-units.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                ekn.environment = "easykubenix";
+                deployment.deployBranch = "deploy";
+                deployment.units.bootstrap.modules = [{{
+                  kubernetes.objects.argocd.ConfigMap.root.data.key = "value";
+                }}];
+                deployment.units.routed = {{ }};
+                kubernetes.objects.app.ConfigMap.owned = {{
+                  ekn.deploymentUnit = "routed";
+                  data.key = "value";
+                }};
+              }}];
+            }}
+        """)
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert cfg.hand_applied_units == ["bootstrap"]
+        assert cfg.declared_units == ["bootstrap", "routed"]
+        # And the routed object is in the whole-instance apply, so it is in the
+        # desired set that prune compares against.
+        assert [obj["metadata"]["name"] for obj in cfg.objects] == ["owned"]
+
+    async def test_a_raw_file_in_a_unit_carries_the_unit_label(self, tmp_path: Path) -> None:
+        """Nix never parses a raw file, so `ekn` adds the label at load time.
+
+        Without it the object reaches the cluster with the environment label
+        and no unit label, and the next whole-instance `--prune` deletes it --
+        `notin` matches an object carrying no unit label at all. For a
+        bootstrap unit the raw file is typically ArgoCD's own `install.yaml`.
+        """
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, "bootstrap")
+
+        raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
+        assert raw["metadata"]["labels"] == {"ekn.dev/deployment-unit": "bootstrap"}
+        # The unit's own `labels` are not stamped: a raw file is byte-identical
+        # by design, and only the label that decides deletion is added.
+        assert "app.kubernetes.io/instance" not in raw["metadata"]["labels"]
+        assert raw["data"] == {"from": "file"}
+
+    async def test_a_routed_raw_file_carries_the_unit_label_without_a_target(self, tmp_path: Path) -> None:
+        """The same stamp on the whole-instance path, and for the same reason.
+
+        Both applies write as the same field manager, so a stamp on only the
+        `--target` path would make the label flip with whichever apply ran
+        last -- and a flip to absent is a delete.
+        """
+        probe = tmp_path / "routed-raw.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                ekn.environment = "easykubenix";
+                deployment.deployBranch = "deploy";
+                deployment.units.bootstrap.path = "bootstrap";
+                kubernetes.rawFiles = [{{
+                  path = {self._raw_file(tmp_path)};
+                  deploymentUnit = "bootstrap";
+                }}];
+              }}];
+            }}
+        """)
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
+        assert raw["metadata"]["labels"] == {"ekn.dev/deployment-unit": "bootstrap"}
+
+    async def test_an_unrouted_raw_file_gets_no_unit_label(self, tmp_path: Path) -> None:
+        # The control. A raw file belonging to no unit is the whole
+        # instance's, and the whole-instance prune scope is exactly "carries
+        # no unit label" -- so adding one here would orphan it instead.
+        probe = tmp_path / "plain-raw.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                ekn.environment = "easykubenix";
+                kubernetes.rawFiles = [{{ path = {self._raw_file(tmp_path)}; }}];
+              }}];
+            }}
+        """)
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
+        assert "labels" not in raw["metadata"]
+
+    @staticmethod
+    def _dependency_probe(tmp_path: Path) -> Path:
+        probe = tmp_path / "dependencies.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                ekn.environment = "easykubenix";
+                deployment.deployBranch = "deploy";
+                deployment.units.secrets = {{
+                  path = "secrets";
+                  modules = [{{
+                    kubernetes.objects.argocd.Secret.repo.stringData.url = "x";
+                  }}];
+                }};
+                deployment.units.bootstrap = {{
+                  path = "bootstrap";
+                  fieldManager = "argocd-controller";
+                  dependencies = [ "secrets" ];
+                  modules = [{{
+                    kubernetes.objects.argocd.ConfigMap.root.data.key = "value";
+                  }}];
+                }};
+              }}];
+            }}
+        """)
+        return probe
+
+    async def test_a_target_apply_brings_its_dependencies_along(self, tmp_path: Path) -> None:
+        """`--target bootstrap` applies the secrets unit too, as its own group.
+
+        Grouped rather than concatenated because `fieldManager` is per unit.
+        Applying the secrets unit as `argocd-controller` would put two
+        managers on the same fields the moment anyone runs
+        `ekn kubeapply --target secrets`.
+        """
+        cfg = await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, "bootstrap")
+
+        # The dependency first, the named unit last.
+        assert [group.unit for group in cfg.groups] == ["secrets", "bootstrap"]
+        assert [group.field_manager for group in cfg.groups] == ["ekn", "argocd-controller"]
+        assert [[obj["metadata"]["name"] for obj in group.objects] for group in cfg.groups] == [["repo"], ["root"]]
+
+        # Each unit's objects carry their own unit label, so each keeps its
+        # own prune scope no matter which apply brought them.
+        by_name = {obj["metadata"]["name"]: obj for obj in cfg.objects}
+        assert by_name["repo"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "secrets"
+        assert by_name["root"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "bootstrap"
+
+        # `field_manager` still answers for the unit the user named.
+        assert cfg.field_manager == "argocd-controller"
+
+    async def test_a_whole_instance_apply_is_one_group(self, tmp_path: Path) -> None:
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, None)
+
+        assert [group.unit for group in cfg.groups] == [None]
+        assert cfg.groups[0].field_manager == DEFAULT_FIELD_MANAGER
+
+    async def test_field_manager_defaults_without_a_target(self, tmp_path: Path) -> None:
+        # No `--target`: the objects come from `kubernetes.generated`, which
+        # belongs to no target and so has nobody to name a manager.
+        probe = tmp_path / "plain.nix"
+        probe.write_text(f"""
+            import {PROJECT_ROOT} {{
+              modules = [{{
+                # A kubeapply config carries the prune scope, so it has to
+                # name one -- this test is about the field manager.
+                ekn.environment = "easykubenix";
+                kubernetes.objects.default.ConfigMap.plain.data.key = "value";
+              }}];
+            }}
+        """)
+
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+
+        assert cfg.field_manager == DEFAULT_FIELD_MANAGER
+
+
+class TestAssertionsAndWarnings:
+    """`assertions` and `warnings` are collected from every module, but a plain
+    `lib.evalModules` has nothing playing the part NixOS' top-level.nix plays,
+    so unless a rendered output forces them they are gathered and discarded.
+    `kubernetes.nix` routes its outputs through `lib.asserts.checkAssertWarn`
+    to close that; these are the tests that it stays closed.
+    """
+
+    @staticmethod
+    def _probe(tmp_path: Path, module_body: str) -> Path:
+        probe = tmp_path / "probe.nix"
+        probe.write_text(f"""
+            (import {PROJECT_ROOT} {{
+              modules = [{{
+                {module_body}
+                kubernetes.objects.default.ConfigMap.test.data.key = "hello";
+              }}];
+            }}).config
+        """)
+        return probe
+
+    async def test_warning_reaches_stderr(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """The regression this guards is silence, not a wrong value.
+
+        A Nix evaluation warning reaches this side only as a log event, and
+        the worker filters events by level *before* they hit the session bus
+        -- so at the old default verbosity of "error" every `config.warnings`
+        entry and every `mkRenamedOptionModule` deprecation notice was
+        discarded inside Nix. Manifests came out perfectly correct and the
+        user was told nothing, while `nix build` on the same config printed
+        the warning.
+        """
+        probe = self._probe(tmp_path, 'warnings = [ "deliberate probe warning" ];')
+
+        result = await evaluate_file(probe, "kubernetes.generated")
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "deliberate probe warning" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("attr", ["kubernetes.generated", "kubernetes.generatedWithEkn"])
+    async def test_failing_assertion_aborts(self, tmp_path: Path, attr: str) -> None:
+        """Both rendered outputs, not just `generated`. `generatedWithEkn` is
+        the same objects with their `ekn` routing still attached, so reading it
+        must not be a way around a config's own assertions.
+        """
+        probe = self._probe(
+            tmp_path,
+            'assertions = [{ assertion = false; message = "deliberate probe failure"; }];',
+        )
+
+        with pytest.raises(NixError, match="deliberate probe failure"):
+            await evaluate_file(probe, attr)
+
+    async def test_a_nested_instances_assertions_still_fire(self, tmp_path: Path) -> None:
+        """A GitOps target's `modules` are their own instance with their own
+        `assertions`. Nothing plumbs them up to the parent -- the nested
+        `kubernetes.nix` runs its own checker when its `generated` is forced,
+        and forcing the parent's `deploymentUnits` is what forces that.
+        """
+        probe = tmp_path / "nested.nix"
+        probe.write_text(f"""
+            (import {PROJECT_ROOT} {{
+              modules = [{{
+                deployment.deployBranch = "deploy";
+                deployment.units.bootstrap.modules = [{{
+                  assertions = [{{ assertion = false; message = "deliberate nested failure"; }}];
+                  kubernetes.objects.argocd.ConfigMap.root.data.key = "value";
+                }}];
+              }}];
+            }}).config
+        """)
+
+        with pytest.raises(NixError, match="deliberate nested failure"):
+            await evaluate_file(probe, "kubernetes.deploymentUnits")
+
+    async def test_a_service_asking_for_an_undeclared_family_is_rejected(self) -> None:
+        # The API server admits a Service's families against the families its
+        # service CIDR carries and nothing else; the eval-time refusal names
+        # the Service instead of leaving the denial to admission.
+        with pytest.raises(NixError, match=r"default/Service/v6 declares spec\.ipFamilies \[ IPv6 \]"):
+            await evaluate_file(NIX_TEST_FILE, "iPv6ServiceOnIPv4ClusterThrows")
+
+    async def test_require_dual_stack_on_a_single_stack_cluster_is_rejected(self) -> None:
+        with pytest.raises(NixError, match=r"default/Service/dual declares spec\.ipFamilyPolicy RequireDualStack"):
+            await evaluate_file(NIX_TEST_FILE, "dualStackServiceOnSingleStackThrows")
+
+    async def test_a_duplicate_ip_family_is_rejected(self) -> None:
+        with pytest.raises(NixError, match="lists a family twice"):
+            await evaluate_file(NIX_TEST_FILE, "duplicateIPFamilyThrows")
+
+    async def test_a_pinned_cluster_ip_outside_the_cidr_is_rejected(self) -> None:
+        # The admission denial this pre-flights is "provided IP is not in the
+        # valid range"; 10.97.x is podSubnet's near-miss for serviceCidr's
+        # 10.96.0.0/16.
+        with pytest.raises(NixError, match=r"default/Service/dns pins spec clusterIP 10\.97\.0\.10"):
+            await evaluate_file(NIX_TEST_FILE, "pinnedIPv4OutsideCidrThrows")
+
+    async def test_a_pinned_cluster_ip_inside_the_cidr_renders(self) -> None:
+        assert len(await evaluate_file(NIX_TEST_FILE, "pinnedIPv4InsideCidrRenders")) > 0
+
+    async def test_a_headless_service_pins_nothing_and_is_not_checked(self) -> None:
+        assert len(await evaluate_file(NIX_TEST_FILE, "headlessServiceRenders")) > 0
+
+    async def test_a_family_without_its_cidr_is_rejected(self) -> None:
+        with pytest.raises(NixError, match="describe different stacks"):
+            await evaluate_file(NIX_TEST_FILE, "dualFamiliesWithoutIPv6CidrThrows")
+
+
+class TestClusterInfo:
+    """`kubernetes.clusterInfo.ipFamilies` says what the API server's service
+    CIDR serves. It decides Service admission and, through it, what the
+    validation harness puts in `--service-cluster-ip-range`.
+    """
+
+    async def test_it_defaults_to_a_single_stack_ipv4_cluster(self) -> None:
+        assert await evaluate_file(NIX_TEST_FILE, "clusterInfoIPFamilies") == ["IPv4"]
+        assert await evaluate_file(NIX_TEST_FILE, "clusterInfoServiceSubnet") == "10.96.0.0/16"
+
+    async def test_a_dual_stack_cluster_serves_its_services_and_the_harness(self) -> None:
+        assert len(await evaluate_file(NIX_TEST_FILE, "dualStackClusterRenders")) > 0
+        assert await evaluate_file(NIX_TEST_FILE, "dualStackClusterServiceSubnet") == "10.96.0.0/16,fd00:96::/112"
+
+
+class TestValidationConfig:
+    async def test_validation_config_builds(self) -> None:
+        from ekn.eval import evaluate_validation_config
+
+        flake = str(PROJECT_ROOT / "docs/examples/example-flake")
+        cfg = await evaluate_validation_config(flake, "myapp")
+        c = cfg.config
+        assert c.kubernetes.package.version
+        assert c.kubernetes.package.out_path.startswith("/nix/store/")
+        assert c.validation.etcd_package.out_path.startswith("/nix/store/")
+        assert c.validation.openapi_spec.startswith("/nix/store/")
+        assert isinstance(c.ekn.resource_priority, dict)
+        # Helm's InstallOrder in tens, so PriorityClass leads at 10 and CRDs
+        # sort before the custom resources they establish.
+        assert c.ekn.resource_priority["PriorityClass"] == 10
+        assert c.ekn.resource_priority["CustomResourceDefinition"] < c.ekn.resource_priority["Deployment"]
+
+        # The one relationship that spans Nix and Python. An unlisted kind --
+        # every custom resource -- sorts at DEFAULT_BARRIER_PRIORITY, which
+        # must land above every ordinary kind and below the three that
+        # intercept later requests. Get it wrong and CR writes queue behind a
+        # webhook or aggregated APIService whose backend this same apply has
+        # not finished bringing up. The numbers live in easykubenix/ekn.nix
+        # and the fallback in ekn/apply.py; nothing but this holds them
+        # together.
+        intercepting = ["APIService", "MutatingWebhookConfiguration", "ValidatingWebhookConfiguration"]
+        ordinary = [priority for kind, priority in c.ekn.resource_priority.items() if kind not in intercepting]
+        assert max(ordinary) < DEFAULT_BARRIER_PRIORITY
+        assert all(c.ekn.resource_priority[kind] > DEFAULT_BARRIER_PRIORITY for kind in intercepting)
+        assert c.ekn.environment
+        assert c.internal.manifest_json_file.out_path.startswith("/nix/store/")
+
+
+class TestModuleSystemShape:
+    """What `default.nix` hands a tool that reads any module system.
+
+    `nixos/lib/eval-config.nix` returns `config`, `options`, `pkgs` and `lib`
+    beside each other, so a tool that reads a module system looks for them by
+    those names rather than knowing this project. `pynix search` does: its
+    `_search_target` module tries `options`, then `pkgs` and
+    `_module.args.pkgs`, then `lib`.
+
+    **Nothing inside this repository reads any of the three.** They exist for
+    a reader outside it, so a refactor of the returned attrset can drop them
+    and every gate here still passes -- the failure shows up as `pynix search
+    --file ./cluster.nix` answering "holds neither an options tree nor a
+    package set". This test is the only thing that says otherwise.
+
+    `passthru` carries its own copies of `pkgs`, `lib` and the raw evaluation,
+    and consumers read those paths. Both names are asserted, because dropping
+    either breaks somebody.
+    """
+
+    async def test_the_names_a_generic_tool_looks_for(self, ekn_root: str) -> None:
+        nix = f"""
+        let
+          easy = import {ekn_root} {{ modules = [{{ }}]; }};
+        in
+        {{
+          top = builtins.attrNames easy;
+          passthru = builtins.attrNames easy.passthru;
+        }}
+        """
+        async with evaluator() as eval_:
+            names = cast("dict[str, Any]", await (await eval_.expr(nix)).to_python())
+
+        for name in ("config", "options", "pkgs", "lib"):
+            assert name in names["top"], f"pynix search resolves {name!r} against the target"
+        for name in ("pkgs", "lib", "eval"):
+            assert name in names["passthru"], f"a consumer reads passthru.{name}"
+
+    async def test_options_and_config_describe_the_same_tree(self, ekn_root: str) -> None:
+        """`options` has to be this evaluation's, not some other one's."""
+        nix = f"""
+        let
+          easy = import {ekn_root} {{
+            modules = [{{ kubernetes.resources.default.ConfigMap.demo.data.hello = "world"; }}];
+          }};
+        in
+        {{
+          declared = easy.options.kubernetes.resources.description or null;
+          value = easy.config.kubernetes.resources.default.ConfigMap.demo.data.hello;
+          libIsNixpkgs = easy.lib ? mkOption;
+          pkgsIsPackageSet = easy.pkgs ? stdenv && easy.pkgs ? path;
+        }}
+        """
+        async with evaluator() as eval_:
+            result = cast("dict[str, Any]", await (await eval_.expr(nix)).to_python())
+
+        assert result["value"] == "world"
+        assert result["declared"], "the options tree carries its descriptions"
+        assert result["libIsNixpkgs"]
+        # `pynix search` reads the binary index from `${pkgs.path}/programs.sqlite`,
+        # so `path` is not incidental here.
+        assert result["pkgsIsPackageSet"]
+
+
+class TestTheManifestHash:
+    """The render stamps `ekn.dev/manifest-hash` in Nix, and `ekn` only reads it."""
+
+    async def test_the_canonical_bytes_do_not_move(self) -> None:
+        """A change to the canonicalisation changes every hash, and every
+        cluster then takes a full apply once. The digest of these exact bytes
+        pins it."""
+        rendered = cast("dict[str, Any]", await evaluate_file(NIX_TEST_FILE, "manifestHashShapes"))
+        body = b'{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"a"}}'
+
+        assert rendered["properties"]["plainHash"] == f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+    @pytest.mark.parametrize("prop", ["ignoresItsOwnAnnotation", "keepsOtherAnnotations", "restampIsIdempotent"])
+    async def test_a_property_of_the_hash(self, prop: str) -> None:
+        rendered = cast("dict[str, Any]", await evaluate_file(NIX_TEST_FILE, "manifestHashShapes"))
+
+        assert rendered["properties"][prop] is True
+
+    async def test_a_credential_is_never_stamped(self) -> None:
+        """A digest published in the manifest is a brute-force oracle for the
+        one field a SOPS or seeded object keeps out of git."""
+        from ekn.livestate import desired_hash
+
+        rendered = cast("dict[str, Any]", await evaluate_file(NIX_TEST_FILE, "manifestHashShapes"))
+        unstamped = {obj["metadata"]["name"] for obj in rendered["generated"] if desired_hash(obj) is None}
+
+        assert unstamped == {"encrypted", "seeded"}
+
+    async def test_both_outputs_carry_the_same_hash(self) -> None:
+        """`kubernetes.generated` and `kubernetes.deploymentUnits` are two
+        outputs built from the same objects. Both applies write as the same
+        field manager, so an object stamped in only one of them has its
+        annotation rewritten by whichever apply ran last."""
+        from ekn.livestate import desired_hash
+
+        rendered = cast("dict[str, Any]", await evaluate_file(NIX_TEST_FILE, "manifestHashShapes"))
+        by_name = {obj["metadata"]["name"]: desired_hash(obj) for obj in rendered["generated"]}
+
+        for obj in rendered["unit"]:
+            assert desired_hash(obj) == by_name[obj["metadata"]["name"]]

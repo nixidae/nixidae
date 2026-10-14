@@ -1,0 +1,327 @@
+{
+  config,
+  pkgs,
+  lib,
+  ekn,
+  eknPackage,
+  ...
+}:
+let
+  cfg = config.validation;
+  debugpipe = if (!cfg.debug) then "&>/dev/null" else "";
+
+  # The apply inputs, written out as files because `ekn _applyManifest` is
+  # handed already-evaluated data rather than re-entering Nix from inside a
+  # store-path script -- see its docstring in ekn/src/ekn/cli.py.
+  resourcePriorityFile = pkgs.writeText "resource-priority.json" (
+    builtins.toJSON config.ekn.resourcePriority
+  );
+  novalidateKeysFile = pkgs.writeText "novalidate-keys.json" (
+    builtins.toJSON config.kubernetes.novalidateKeys
+  );
+in
+{
+  _class = "kubernetes";
+
+  imports = [
+    (lib.mkRemovedOptionModule [ "validation" "kubeconformPackage" ]
+      "kubeconform is gone: the harness checks schemas with `ekn _schemaCheck`, the same check as validation.schemaCheck."
+    )
+  ];
+
+  options.validation = {
+    debug = lib.mkEnableOption "validation debugging";
+    etcdPackage = lib.mkPackageOption pkgs "etcd" { };
+    kubeadmConfig = lib.mkOption {
+      type = ekn.lib.kubeValueType;
+    };
+    podSubnet = lib.mkOption {
+      type = lib.types.str;
+      default = "10.97.0.0/16";
+    };
+    serviceSubnet = lib.mkOption {
+      type = lib.types.str;
+      # Comma-separated CIDRs, one per family the service CIDR serves --
+      # kube-apiserver only accepts `RequireDualStack' Services when
+      # `--service-cluster-ip-range` lists both. The default derives from
+      # `kubernetes.clusterInfo.serviceCidr`, so the harness's range and the
+      # manifests it validates read the same declaration of the cluster's
+      # service range: a Service the cluster cannot serve -- a family it
+      # does not carry, or a pinned cluster IP outside the range -- is an
+      # eval-time error (kubernetes.nix's Service assertions), not a harness
+      # surprise. Before `kubernetes.clusterInfo' existed the default here
+      # was unconditionally dual-stack, because a single-family default
+      # failed validation for any manifest containing a dual-stack Service
+      # (e.g. via a Kyverno mutate policy that sets
+      # ipFamilyPolicy=RequireDualStack cluster-wide) even though the real
+      # target cluster supported it fine.
+      #
+      # This reaches the API server two ways, and for a while it only reached
+      # one. `kubeadmConfig.networking.serviceSubnet` below decides the
+      # certificate SANs; `--service-cluster-ip-range` in the script decides
+      # what the API server will actually allocate and accept. That flag was a
+      # literal `10.96.0.0/12`, so this option and the comment above it
+      # described a behaviour the harness did not have: an IPv6 Service failed
+      # with "IPv6 is not configured on this cluster" whatever this said.
+      #
+      # The literal was also wrong on its own terms. `10.96.0.0/12` reaches
+      # 10.111.255.255 and so swallows `podSubnet`'s own default of
+      # 10.97.0.0/16. The `/16` here does not.
+      default = lib.concatStringsSep "," (
+        lib.filter (cidr: cidr != null) [
+          config.kubernetes.clusterInfo.serviceCidr.ipv4
+          config.kubernetes.clusterInfo.serviceCidr.ipv6
+        ]
+      );
+    };
+    script = lib.mkOption {
+      type = lib.types.package;
+      internal = true;
+    };
+    openapiSpec = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.kubernetes.package.src}/api/openapi-spec/v3";
+      defaultText = lib.literalExpression ''"''${config.kubernetes.package.src}/api/openapi-spec/v3"'';
+      description = ''
+        A directory of Kubernetes OpenAPI v3 group-version documents, in the
+        layout of the Kubernetes source tree's `api/openapi-spec/v3`.
+        `validation.schemaCheck` and `ekn schemacheck --offline` read the
+        built-in kinds' schemas from it.
+      '';
+    };
+    schemaCheck = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        A build that checks every rendered object against its JSON schema:
+        built-in kinds from `validation.openapiSpec`, custom resources from
+        the CRDs in the same render, with the CRDs' CEL rules. Rendered
+        ValidatingAdmissionPolicies and their bindings are evaluated against
+        the objects they match. No network and no API server, so it runs in
+        the build sandbox. It fails on any violation, and lists the objects
+        whose kind it has no schema for.
+      '';
+    };
+  };
+  config.validation =
+    let
+      # Which family the harness speaks, and it is not a free choice.
+      # kube-apiserver refuses to start when its advertise address is of a
+      # different family from the first `--service-cluster-ip-range` entry:
+      #
+      #   service IP family "fd00:96::/108" must match public address
+      #   family "37.27.129.237"
+      #
+      # -- that address being the build host's own external IPv4, which
+      # kube-apiserver auto-detects when given none. `serviceSubnet` derives
+      # from `kubernetes.clusterInfo.serviceCidr`, so a hardcoded IPv4
+      # loopback here disagreed with it by construction the moment an
+      # environment declared itself IPv6-only. Declaring the truth about the
+      # cluster was what broke the harness.
+      #
+      # `serviceSubnet` lists IPv4 first, so IPv6 is primary exactly when
+      # there is no IPv4 CIDR. Dual-stack keeps IPv4, matching that order.
+      primaryIsIPv6 = config.kubernetes.clusterInfo.serviceCidr.ipv4 == null;
+
+      # Loopback of the primary family. Measured: a Nix build sandbox's
+      # network namespace has `::1` up and bindable, the same as 127.0.0.1.
+      bindAddress = if primaryIsIPv6 then "::1" else "127.0.0.1";
+
+      # The same address inside a `host:port` join, where an IPv6 literal
+      # needs brackets or everything after the first colon reads as the port.
+      bindHost = if primaryIsIPv6 then "[${bindAddress}]" else bindAddress;
+
+      # Documentation space of the primary family: RFC 5737 for IPv4, RFC
+      # 3849 for IPv6. Both are reserved and unroutable, and 2001:db8::/32
+      # sits inside 2000::/3, so it satisfies the global-unicast demand the
+      # comment below describes.
+      advertiseAddress = if primaryIsIPv6 then "2001:db8::10" else "192.0.2.10";
+
+      # Two documents in one file, the way kubeadm splits them by kind. The
+      # InitConfiguration pins the API server's advertise address, which
+      # kubeadm would otherwise default from the default route -- and a build
+      # sandbox has no default route (loopback-only network namespace), so
+      # kubeadm falls back to 0.0.0.0 and refuses its own fallback. The
+      # address must NOT be loopback either: for a loopback advertise address
+      # kubeadm demands a *global unicast* IP on the lo interface, which a
+      # sandbox namespace cannot have. Nothing binds it -- it exists only as
+      # a certificate SAN; the apiserver binds `bindAddress` below and clients
+      # reach it through controlPlaneEndpoint, which is the same address. See
+      # `advertiseAddress` above for the documentation space each family uses.
+      cfgFile = pkgs.writeText "kubeadm-config.yaml" (
+        builtins.concatStringsSep "\n---\n" [
+          (builtins.toJSON {
+            apiVersion = cfg.kubeadmConfig.apiVersion;
+            kind = "InitConfiguration";
+            localAPIEndpoint.advertiseAddress = advertiseAddress;
+          })
+          (builtins.toJSON cfg.kubeadmConfig)
+        ]
+      );
+    in
+    {
+      # Set kubeadmConfig sane defaults
+      kubeadmConfig = lib.mapAttrsRecursive (n: v: lib.mkDefault v) {
+        apiVersion = "kubeadm.k8s.io/v1beta4";
+        kind = "ClusterConfiguration";
+        kubernetesVersion = "v${config.kubernetes.package.version}";
+        controlPlaneEndpoint = "${bindHost}:$KUBERNETES_PORT";
+        certificatesDir = "$CERT_DIR";
+        networking = {
+          podSubnet = cfg.podSubnet;
+          serviceSubnet = cfg.serviceSubnet;
+        };
+      };
+
+      schemaCheck =
+        pkgs.runCommand "ekn-schemacheck" { }
+          # bash
+          ''
+            ${lib.getExe' eknPackage "ekn"} _schemaCheck ${config.internal.manifestJSONFile} \
+              --spec-dir ${cfg.openapiSpec}
+            touch $out
+          '';
+
+      script =
+        pkgs.writeScriptBin "kubeval" # fish
+          ''
+            #! ${lib.getExe pkgs.fishMinimal}
+            set --prepend PATH ${cfg.etcdPackage}/bin
+            set --prepend PATH ${config.kubernetes.package}/bin
+            set --prepend PATH ${pkgs.retry}/bin
+            set TMPDIR (mktemp --directory --suffix=eknvalidation)
+            ${if cfg.debug then "echo TMPDIR: $TMPDIR" else ""}
+            set --export CERT_DIR $TMPDIR/pki
+            set KUBEADM_CONFIG $TMPDIR/kubeadm-config.json
+            set --export KUBECONFIG $TMPDIR/admin.conf
+
+            function cleanup --on-event fish_exit
+              kill -9 $ETCD_PID 2>/dev/null || true
+              kill -9 $APISERVER_PID 2>/dev/null || true
+              ${if cfg.debug then "" else "rm -rf $TMPDIR"}
+            end
+
+            function get_free_port
+                ${lib.getExe pkgs.python3Minimal} -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
+            end
+
+            set --export BIND_ADDRESS ${bindAddress}
+            set --export KUBERNETES_PORT $(get_free_port)
+            set ETCD_CLIENT_PORT $(get_free_port)
+            set ETCD_PEER_PORT $(get_free_port)
+
+            ${lib.getExe pkgs.envsubst} -i ${cfgFile} > $KUBEADM_CONFIG
+
+            echo initializing with kubeadm
+            kubeadm init phase certs all --config=$KUBEADM_CONFIG ${debugpipe} || exit 1
+            kubeadm init phase kubeconfig admin --config=$KUBEADM_CONFIG --kubeconfig-dir=$TMPDIR ${debugpipe} || exit 1
+
+            echo "kubeadm initialized; starting etcd"
+
+            set command etcd --data-dir=$TMPDIR/etcd-data \
+              --name=default \
+              --listen-client-urls=https://127.0.0.1:$ETCD_CLIENT_PORT \
+              --advertise-client-urls=https://127.0.0.1:$ETCD_CLIENT_PORT \
+              --listen-peer-urls=https://127.0.0.1:$ETCD_PEER_PORT \
+              --initial-advertise-peer-urls=https://127.0.0.1:$ETCD_PEER_PORT \
+              --initial-cluster=default=https://127.0.0.1:$ETCD_PEER_PORT \
+              --client-cert-auth=true \
+              --trusted-ca-file=$CERT_DIR/etcd/ca.crt \
+              --cert-file=$CERT_DIR/etcd/server.crt \
+              --key-file=$CERT_DIR/etcd/server.key \
+              --peer-client-cert-auth=true \
+              --peer-trusted-ca-file=$CERT_DIR/etcd/ca.crt \
+              --peer-cert-file=$CERT_DIR/etcd/peer.crt \
+              --peer-key-file=$CERT_DIR/etcd/peer.key \
+              --log-level=error
+            ${if cfg.debug then "echo $command" else ""}
+            $command ${debugpipe} &
+            set ETCD_PID $last_pid
+
+            # Times of 30, not 10: the whole gate runs inside a Nix build
+            # sandbox (checks.nix's validation-e2e), where a loaded CI runner
+            # boots the apiserver slower than an interactive `nix run` does.
+            # Budget is 30 seconds of 0-1s jitter, not 10.
+            retry \
+              --times=30 \
+              --delay=0 \
+              --jitter=1 \
+              -- \
+                etcdctl \
+                  --endpoints=https://127.0.0.1:$ETCD_CLIENT_PORT \
+                  --cacert=$CERT_DIR/etcd/ca.crt \
+                  --cert=$CERT_DIR/etcd/healthcheck-client.crt \
+                  --key=$CERT_DIR/etcd/healthcheck-client.key \
+                  endpoint health ${debugpipe} || exit 1
+
+            echo "etcd is ready; starting kube-apiserver"
+
+            # --advertise-address is `advertiseAddress`, not $BIND_ADDRESS.
+            # kube-apiserver 1.37.0 refuses a loopback advertise address:
+            #
+            #   cannot use public IP 127.0.0.1 with endpoint reconciler:
+            #   Invalid value: "127.0.0.1": may not be in the loopback range
+            #
+            # That is the same global-unicast demand kubeadm already makes,
+            # and `advertiseAddress` is the address that answers it. The
+            # apiserver still binds loopback; this one reaches only the
+            # `kubernetes` service endpoint, which nothing here calls.
+            set command kube-apiserver \
+              --watch-cache=false \
+              --anonymous-auth=false \
+              --etcd-cafile=$CERT_DIR/etcd/ca.crt \
+              --etcd-certfile=$CERT_DIR/apiserver-etcd-client.crt \
+              --etcd-keyfile=$CERT_DIR/apiserver-etcd-client.key \
+              --etcd-servers=https://127.0.0.1:$ETCD_CLIENT_PORT \
+              --service-cluster-ip-range=${cfg.serviceSubnet} \
+              --bind-address=$BIND_ADDRESS \
+              --advertise-address=${advertiseAddress} \
+              --secure-port=$KUBERNETES_PORT \
+              --allow-privileged=true \
+              --client-ca-file=$CERT_DIR/ca.crt \
+              --kubelet-client-certificate=$CERT_DIR/apiserver-kubelet-client.crt \
+              --kubelet-client-key=$CERT_DIR/apiserver-kubelet-client.key \
+              --service-account-issuer=https://kubernetes.default.svc.cluster.local \
+              --service-account-key-file=$CERT_DIR/sa.pub \
+              --service-account-signing-key-file=$CERT_DIR/sa.key \
+              --tls-cert-file=$CERT_DIR/apiserver.crt \
+              --tls-private-key-file=$CERT_DIR/apiserver.key
+            ${if cfg.debug then "echo $command" else ""}
+            $command ${debugpipe} &
+            set APISERVER_PID $last_pid
+
+            retry \
+              --times=30 \
+              --delay=0 \
+              --jitter=1 \
+              -- \
+                kubectl \
+                  get \
+                  --raw \
+                  /healthz >/dev/null ${debugpipe} || exit 1
+
+            echo "kube-apiserver ready; applying manifest(s)"
+
+            # Applies through the same `apply_and_prune` as `ekn kubeapply`
+            # (the bootstrap path) and `ekn validate`, rather than shelling
+            # out to `kluctl deploy` as this used to. A conformance gate that
+            # proves a deploy path nothing else uses proves the wrong thing:
+            # barrier ordering, CRD-establish waits and SOPS handling are all
+            # ekn's, and they are what runs against a real cluster.
+            ${lib.getExe' eknPackage "ekn"} _applyManifest ${config.internal.manifestJSONFile} \
+              --environment ${config.ekn.environment} \
+              --resource-priority-file ${resourcePriorityFile} \
+              --novalidate-keys-file ${novalidateKeysFile} || begin
+              echo "ekn apply failed"
+              exit 1
+            end
+            echo "checking schemas"
+            ${lib.getExe' eknPackage "ekn"} _schemaCheck ${config.internal.manifestJSONFile} \
+              --spec-dir ${cfg.openapiSpec} || begin
+              echo "schema check failed"
+              exit 1
+            end
+            echo "Your manifests are as valid as they can be against Kubernetes ${config.kubernetes.package.version}"
+          '';
+    };
+}

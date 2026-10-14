@@ -1,0 +1,1556 @@
+let
+  sources = import ../nix/sources.nix;
+  pkgs = import sources.nixpkgs { };
+  # `mkNamedList`/`mkNumberedList` live in easykubenix's own `lib.extend`
+  # overlay, not plain nixpkgs `lib` -- extend the same way
+  # `easykubenix/pkgs/default.nix` does for the real module evaluation.
+  lib = pkgs.lib.extend (import ../easykubenix/lib);
+  kubeValueType = import ../easykubenix/lib/kubeValueType.nix { inherit lib; };
+
+  # Evaluate `kubeValueType` at the root of a tiny module tree, so `merge`
+  # sees the same shape (`loc`, multiple defs across modules) it will see
+  # for real once wired into kubernetes.nix's `spec`/`data`/etc.
+  evalValue =
+    modules:
+    (lib.evalModules {
+      modules = [
+        {
+          options.value = lib.mkOption {
+            type = kubeValueType;
+            default = null;
+          };
+        }
+      ]
+      ++ modules;
+    }).config.value;
+
+  # A plain rendered list (e.g. straight from a Helm chart, never
+  # pre-converted) merged against a LATER module's explicit
+  # `lib.mkNamedList` override of one entry -- this is the only case the
+  # "merging conversion" should ever kick in for.
+  namedListOverrideViaMkNamedList = evalValue [
+    {
+      value.template.spec.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+        {
+          name = "sidecar";
+          image = "s1";
+        }
+      ];
+    }
+    {
+      value.template.spec.containers = lib.mkNamedList {
+        app.image = lib.mkForce "v2";
+      };
+    }
+  ];
+
+  # A plain, ordinary list with NO mkNamedList/mkNumberedList involved
+  # anywhere must never be silently reinterpreted -- even though every
+  # element has a unique `name`, this must behave exactly like plain
+  # `listOf`: a single list definition, untouched.
+  plainListOfNamedThingsNeverAutoConverted = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+  ];
+
+  # An ordinary, UNMARKED attrset must be REJECTED for a field that's
+  # given a real list elsewhere -- Kubernetes fields have one fixed shape,
+  # so silently reinterpreting an unmarked attrs mistake as "the attrs
+  # form of a list" would hide a real bug.
+  unmarkedAttrsRejectedAgainstListThrows = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    {
+      value.containers = {
+        name = "oops";
+        image = "v2";
+      };
+    }
+  ];
+
+  # `ownerReferences`-style lists: two elements can legitimately share a
+  # `name` across different `kind`s. Since nothing here uses
+  # mkNamedList/mkNumberedList, this must stay a plain list untouched --
+  # no risk of `listToAttrs`-style silent dedup, because no by-name
+  # merging is ever attempted without an explicit marker.
+  ownerReferencesWithDuplicateNamesPreserved = evalValue [
+    {
+      value.metadata.ownerReferences = [
+        {
+          kind = "ConfigMap";
+          name = "prod";
+          uid = "a";
+        }
+        {
+          kind = "Deployment";
+          name = "prod";
+          uid = "b";
+        }
+      ];
+    }
+  ];
+
+  initContainersOverrideViaMkNumberedList = evalValue [
+    {
+      value.initContainers = [
+        {
+          name = "migrate";
+          image = "m1";
+        }
+        {
+          name = "wait-for-db";
+          image = "w1";
+        }
+      ];
+    }
+    {
+      value.initContainers = lib.mkNumberedList {
+        "0".image = lib.mkForce "m2";
+      };
+    }
+  ];
+
+  plainListPassthrough = evalValue [
+    {
+      value.args = [
+        "--foo"
+        "--bar"
+      ];
+    }
+  ];
+
+  nestedAttrsMergeAcrossModules = evalValue [
+    { value.spec.foo = "a"; }
+    { value.spec.bar = "b"; }
+  ];
+
+  scalarsPassthrough = evalValue [
+    {
+      value = {
+        aBool = true;
+        anInt = 3;
+        aFloat = 1.5;
+        aString = "hello";
+        aNull = null;
+      };
+    }
+  ];
+
+  multiDefPlainListConcatenates = evalValue [
+    { value.args = [ "--foo" ]; }
+    { value.args = [ "--bar" ]; }
+  ];
+
+  # A marked attrset with no plain list at the same path must still become a
+  # real list. `types.oneOf` is a left fold of `either`, so an `attrsOf` branch
+  # that accepts any attrset would take this definition first and keep the
+  # `_type` marker in the output. The type guards against that.
+  loneMkNamedListBecomesList = evalValue [
+    { value.containers = lib.mkNamedList { main.image = "v1"; }; }
+  ];
+
+  loneMkNumberedListBecomesList = evalValue [
+    {
+      value.initContainers = lib.mkNumberedList {
+        "1".image = "second";
+        "0".image = "first";
+      };
+    }
+  ];
+
+  # An entry that only the marker introduces must still get its `name`. The key
+  # is the only source of the name.
+  nameInjectedForNewEntry = evalValue [
+    {
+      value.containers = [
+        {
+          name = "main";
+          image = "base";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { sidecar.image = "s"; }; }
+  ];
+
+  # The key wins over a `name` inside the value.
+  keyWinsOverInnerName = evalValue [
+    {
+      value.containers = [
+        {
+          name = "a";
+          image = "A";
+        }
+      ];
+    }
+    {
+      value.containers = lib.mkNamedList {
+        b = {
+          name = "DIFFERENT";
+          image = "B";
+        };
+      };
+    }
+  ];
+
+  # A patch of one entry must not reorder the list. The plain list definitions
+  # give the order. An alphabetical sort would put "alpha" first.
+  orderPreservedUnderNamedOverride = evalValue [
+    {
+      value.containers = [
+        { name = "zeta"; }
+        { name = "alpha"; }
+      ];
+    }
+    { value.containers = lib.mkNamedList { zeta.image = "1"; }; }
+  ];
+
+  # A name that only the marker introduces goes after the plain list entries.
+  newNamesAppendAfterPlainEntries = evalValue [
+    {
+      value.containers = [
+        { name = "zeta"; }
+        { name = "alpha"; }
+      ];
+    }
+    { value.containers = lib.mkNamedList { beta.image = "b"; }; }
+  ];
+
+  mkMergeOfTwoMarkedLists = evalValue [
+    {
+      value.containers = lib.mkMerge [
+        (lib.mkNamedList { a.image = "x"; })
+        (lib.mkNamedList { b.image = "y"; })
+      ];
+    }
+  ];
+
+  mkMergeOfPlainListAndMarked = evalValue [
+    {
+      value.containers = lib.mkMerge [
+        [
+          {
+            name = "a";
+            image = "x";
+          }
+        ]
+        (lib.mkNamedList { b.image = "y"; })
+      ];
+    }
+  ];
+
+  # `mkForce` on the whole marked definition drops the plain list. Only the
+  # marked definition is left, and it must still become a real list.
+  mkForceWholeMarkedList = evalValue [
+    {
+      value.containers = [
+        {
+          name = "a";
+          image = "x";
+        }
+      ];
+    }
+    { value.containers = lib.mkForce (lib.mkNamedList { b.image = "y"; }); }
+  ];
+
+  mkIfFalseMarkedListIsDropped = evalValue [
+    {
+      value.containers = [
+        {
+          name = "a";
+          image = "x";
+        }
+      ];
+    }
+    { value.containers = lib.mkIf false (lib.mkNamedList { a.image = "y"; }); }
+  ];
+
+  mkIfTrueMarkedListApplies = evalValue [
+    {
+      value.containers = [
+        {
+          name = "a";
+          image = "x";
+        }
+      ];
+    }
+    { value.containers = lib.mkIf true (lib.mkNamedList { a.image = lib.mkForce "y"; }); }
+  ];
+
+  # `mkBefore` and `mkAfter` work on a plain list. Nothing here uses a marker.
+  mkOrderOnPlainLists = evalValue [
+    { value.containers = lib.mkAfter [ { name = "zzz"; } ]; }
+    { value.containers = lib.mkBefore [ { name = "aaa"; } ]; }
+    { value.containers = [ { name = "mmm"; } ]; }
+  ];
+
+  # An index override reaches a list of scalars, such as `args` or `command`.
+  numberedOverrideOfScalarList = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkNumberedList { "1" = lib.mkForce "--B"; }; }
+  ];
+
+  # An index above the end of the list adds a new entry at the end.
+  numberedSparseIndexAppends = evalValue [
+    { value.containers = [ { name = "a"; } ]; }
+    {
+      value.containers = lib.mkNumberedList {
+        "5" = {
+          name = "f";
+        };
+      };
+    }
+  ];
+
+  # A marked list inside a marked list entry.
+  nestedNamedListOverride = evalValue [
+    {
+      value.containers = [
+        {
+          name = "a";
+          env = [
+            {
+              name = "V";
+              value = "1";
+            }
+          ];
+        }
+      ];
+    }
+    {
+      value.containers = lib.mkNamedList {
+        a.env = lib.mkNamedList { V.value = lib.mkForce "2"; };
+      };
+    }
+  ];
+
+  # A chart's `args`: bare strings, no `name` to address and no index that
+  # survives the next chart version. The key is the start of the element, and
+  # the replacement takes its place. No `mkForce`, because the marker replaces
+  # an element rather than defining one.
+  replaceOverrideOfScalarList = evalValue [
+    {
+      value.args = [
+        "--metrics-addr=0.0.0.0:8443"
+        "--enable-leader-election"
+        "--health-probe-addr=:8081"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--metrics-addr=" = "--metrics-addr=:8443"; }; }
+  ];
+
+  # A whole element is a prefix of itself, so an exact key needs no separate
+  # match mode.
+  replaceWithAnExactKey = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--b" = "--B"; }; }
+  ];
+
+  # Two modules patch two elements of one list. Both apply, and each one keeps
+  # its own position.
+  replaceFromTwoModules = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--b=1"
+        "--c=1"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--a=" = "--a=2"; }; }
+    { value.args = lib.mkReplaceList { "--c=" = "--c=2"; }; }
+  ];
+
+  # The real call site: a container addressed by name, and its `args` patched
+  # by content. See `nestedNamedListOverride` for the same shape with two
+  # named lists.
+  replaceNestedInANamedList = evalValue [
+    {
+      value.containers = [
+        {
+          name = "manager";
+          args = [
+            "--metrics-addr=0.0.0.0:8443"
+            "--leader-elect"
+          ];
+        }
+      ];
+    }
+    {
+      value.containers = lib.mkNamedList {
+        manager.args = lib.mkReplaceList { "--metrics-addr=" = "--metrics-addr=:8443"; };
+      };
+    }
+  ];
+
+  # The general form. A toleration has no `name` and no stable index, and its
+  # elements are objects, so neither of the other markers reaches it and
+  # `mkReplaceList` cannot match by content.
+  replaceWhereMatchesAnObject = evalValue [
+    {
+      value.tolerations = [
+        {
+          key = "node-role.kubernetes.io/control-plane";
+          operator = "Exists";
+          effect = "NoSchedule";
+        }
+        {
+          key = "dedicated";
+          operator = "Exists";
+        }
+      ];
+    }
+    {
+      # One field of several. The rest of the element must survive, and no
+      # `mkForce` is needed to change a field the element already sets: the
+      # element joins the merge as a default.
+      value.tolerations = lib.mkReplaceWhere {
+        control-plane = {
+          where = toleration: (toleration.key or null) == "node-role.kubernetes.io/control-plane";
+          value.effect = "NoExecute";
+        };
+      };
+    }
+  ];
+
+  # `mkForce` on the body drops the element and takes its place whole. That is
+  # the wholesale form, and it is also how a field is lost by accident, so it
+  # is pinned here rather than left to be rediscovered.
+  replaceWhereMkForceReplacesWholesale = evalValue [
+    {
+      value.tolerations = [
+        {
+          key = "cp";
+          operator = "Exists";
+          effect = "NoSchedule";
+        }
+      ];
+    }
+    {
+      value.tolerations = lib.mkReplaceWhere {
+        cp = {
+          where = toleration: (toleration.key or null) == "cp";
+          value = lib.mkForce { effect = "NoExecute"; };
+        };
+      };
+    }
+  ];
+
+  # A body may add a field the element does not have, the same as any other
+  # definition of an object.
+  replaceWhereAddsAField = evalValue [
+    {
+      value.tolerations = [
+        {
+          key = "cp";
+          operator = "Exists";
+        }
+      ];
+    }
+    {
+      value.tolerations = lib.mkReplaceWhere {
+        cp = {
+          where = toleration: (toleration.key or null) == "cp";
+          value.tolerationSeconds = 30;
+        };
+      };
+    }
+  ];
+
+  # Not object-only. A predicate reads a string too, which is what makes
+  # `mkReplaceList` a special case of this rather than a separate mechanism.
+  replaceWhereMatchesAString = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        ends-in-two = {
+          where = element: lib.hasSuffix "=2" element;
+          value = "--beta=3";
+        };
+      };
+    }
+  ];
+
+  # Both forms on one field, with distinct labels. They share one marker and
+  # one merge, so this is an ordinary attribute-set merge.
+  replaceWhereAndReplaceListCompose = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--alpha=" = "--alpha=9"; }; }
+    {
+      value.args = lib.mkReplaceWhere {
+        beta = {
+          where = element: lib.hasPrefix "--beta=" element;
+          value = "--beta=9";
+        };
+      };
+    }
+  ];
+
+  # A property belongs on `value`, and the module system discharges it there
+  # exactly as it does for a named-list entry.
+  replaceWhereValueTakesMkForce = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        alpha = {
+          where = element: lib.hasPrefix "--alpha=" element;
+          value = "--alpha=2";
+        };
+      };
+    }
+    {
+      # No `where': the label is already addressed by the module above, and
+      # two predicates for one label cannot be merged.
+      value.args = lib.mkReplaceWhere {
+        alpha.value = lib.mkForce "--alpha=3";
+      };
+    }
+  ];
+
+  # Two definitions of one replacement that agree merge in silence, the way
+  # two agreeing definitions of anything else do. The guard on a rewrite of
+  # this branch: it is the case that breaks if the element ever enters the
+  # merge at an ordinary priority.
+  replaceSameKeySameValueMerges = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=1"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--alpha=" = "--alpha=2"; }; }
+    { value.args = lib.mkReplaceList { "--alpha=" = "--alpha=2"; }; }
+  ];
+
+  # `mkMerge` is the list form of the marker. The module system expands it
+  # into one definition per element before this type sees them, so several
+  # replacement sets compose without the marker taking a list of its own.
+  replaceMarkersComposeWithMkMerge = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--b=1"
+        "--c=1"
+      ];
+    }
+    {
+      value.args = lib.mkMerge [
+        (lib.mkReplaceList { "--a=" = "--a=2"; })
+        (lib.mkReplaceList { "--c=" = "--c=2"; })
+      ];
+    }
+  ];
+
+  # One module, holding both the list and the patch of it. `mkMerge` makes
+  # them two definitions, which is exactly what the merge branch expects.
+  replaceMergedWithItsOwnList = evalValue [
+    {
+      value.args = lib.mkMerge [
+        [
+          "--a=1"
+          "--b=1"
+        ]
+        (lib.mkReplaceList { "--b=" = "--b=2"; })
+      ];
+    }
+  ];
+
+  # `mkIf` inside `mkMerge` still resolves before the merge, so a switched-off
+  # member contributes nothing and does not have to match.
+  replaceInsideMkMergeCanBeSwitchedOff = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--b=1"
+      ];
+    }
+    {
+      value.args = lib.mkMerge [
+        (lib.mkReplaceList { "--a=" = "--a=2"; })
+        (lib.mkIf false (lib.mkReplaceList { "--gone=" = "--gone=1"; }))
+      ];
+    }
+  ];
+
+  # `mkIf false` drops the whole marker before the merge sees it, so a
+  # conditional patch that is switched off is not a key that matches nothing.
+  replaceSwitchedOffLeavesTheList = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkIf false (lib.mkReplaceList { "--nothing" = "--x"; }); }
+  ];
+
+  # A whole value that is only `null`. `types.nullOr` is still a legacy type,
+  # so this type carries its own null branch instead. See kubeValueType.nix.
+  topLevelNull = evalValue [ { value = null; } ];
+
+  # One evaluation that keeps the option, so the test can read `valueMeta`.
+  # The v2 merge protocol publishes it, and a consumer that walks the option
+  # tree needs it to survive the recursion down to a list entry.
+  metadataEvaluation = lib.evalModules {
+    modules = [
+      {
+        options.value = lib.mkOption {
+          type = kubeValueType;
+          default = null;
+        };
+        config.value = {
+          containers = [
+            {
+              name = "app";
+              image = "v1";
+            }
+            {
+              name = "sidecar";
+              image = "s1";
+            }
+          ];
+          args = [
+            "--first"
+            "--second"
+          ];
+          spec.enabled = true;
+        };
+      }
+      {
+        value = {
+          containers = lib.mkNamedList { app.image = lib.mkForce "v2"; };
+          args = lib.mkNumberedList { "1" = lib.mkForce "--changed"; };
+        };
+      }
+    ];
+  };
+
+  # An object's fields go through `conditionalAttrsOf`, so `lib.mkIfExists`
+  # works below the object as well as above it. `replicas` is there, so the
+  # marker patches it. `paused` is not, so the marker creates nothing.
+  conditionalFieldInsideObject = evalValue [
+    { value.spec.replicas = 1; }
+    {
+      value.spec = lib.mkIfExists {
+        replicas = lib.mkForce 3;
+        paused = lib.mkIfExists true;
+      };
+    }
+  ];
+
+  # ---------------------------------------------------------------------
+  # Priorities on a whole list definition.
+  #
+  # The module system resolves these before this type runs. `mergeDefinitions`
+  # calls `filterOverrides` on the definitions and only then calls
+  # `namedListOf.merge`, so a priority decides which definitions this type ever
+  # sees. Nothing here is this type's own behaviour; that is the point. A
+  # Kubernetes list must obey the same rules as any other option.
+  # ---------------------------------------------------------------------
+
+  # The plain case, which is what a reader reaches for first. Every existing
+  # test forces a *marked* definition instead.
+  mkForcePlainListOverPlain = evalValue [
+    { value.args = [ "--a" ]; }
+    { value.args = lib.mkForce [ "--b" ]; }
+  ];
+
+  mkDefaultPlainListLoses = evalValue [
+    { value.args = lib.mkDefault [ "--fallback" ]; }
+    { value.args = [ "--chosen" ]; }
+  ];
+
+  mkDefaultPlainListAloneApplies = evalValue [
+    { value.args = lib.mkDefault [ "--fallback" ]; }
+  ];
+
+  # `mkForce []` is how a module empties a list. It has to survive as a real
+  # empty list rather than becoming an absent field.
+  mkForceEmptiesList = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkForce [ ]; }
+  ];
+
+  # Two definitions at the same priority concatenate. They do not conflict.
+  # This surprises people: `mkForce` reads as "the last word", and it is only
+  # "beats every lower priority". `listOf` then concatenates the survivors.
+  twoMkForcesConcatenate = evalValue [
+    { value.args = [ "--dropped" ]; }
+    { value.args = lib.mkForce [ "--a" ]; }
+    { value.args = lib.mkForce [ "--b" ]; }
+  ];
+
+  # An explicit numeric priority. Lower wins, as everywhere else.
+  mkOverridePriorityOrder = evalValue [
+    { value.args = lib.mkOverride 70 [ "--loser" ]; }
+    { value.args = lib.mkOverride 60 [ "--winner" ]; }
+  ];
+
+  # The precedence rule that ties the whole file together: a priority on a
+  # definition resolves BEFORE this type looks for a marker. `filterOverrides`
+  # drops the ordinary `mkNamedList` definition, so `anyNamed` is false and the
+  # plain list branch runs. The patch is discarded without a word.
+  #
+  # A module that forces a list therefore also silences every named patch of
+  # it. That is `mkForce`'s meaning and not a defect, but it is invisible.
+  mkForceDiscardsLaterNamedPatch = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    {
+      value.containers = lib.mkForce [
+        {
+          name = "replacement";
+          image = "v9";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { app.image = "never-applied"; }; }
+  ];
+
+  # ---------------------------------------------------------------------
+  # The differential block: an unmarked list must behave exactly like
+  # `types.listOf`.
+  #
+  # `types.raw` as the element type, because `raw.merge` is `mergeOneOption`
+  # and `listOf` hands each element exactly one definition. The control is
+  # therefore identity on plain data, while still running `dischargeProperties`
+  # and `filterOverrides` for each element -- which is what makes the
+  # element-level cases below meaningful.
+  #
+  # Each binding gives both types the same definitions. The test asserts the
+  # two agree, so a divergence prints as a diff rather than as a bare
+  # "expected X".
+  # ---------------------------------------------------------------------
+  evalBoth =
+    definitions:
+    let
+      evaluate =
+        type:
+        (lib.evalModules {
+          modules = [
+            {
+              options.value = lib.mkOption {
+                inherit type;
+                default = [ ];
+              };
+            }
+          ]
+          ++ map (definition: { value = definition; }) definitions;
+        }).config.value;
+    in
+    {
+      kube = evaluate kubeValueType;
+      control = evaluate (lib.types.listOf lib.types.raw);
+    };
+
+  sameAsListOf = {
+    concatenates = evalBoth [
+      [ "--a" ]
+      [ "--b" ]
+    ];
+    forced = evalBoth [
+      [ "--a" ]
+      (lib.mkForce [ "--b" ])
+    ];
+    defaulted = evalBoth [
+      (lib.mkDefault [ "--fallback" ])
+      [ "--chosen" ]
+    ];
+    ordered = evalBoth [
+      (lib.mkAfter [ "--last" ])
+      (lib.mkBefore [ "--first" ])
+      [ "--middle" ]
+      (lib.mkOrder 400 [ "--late" ])
+    ];
+    oneDefinitionSwitchedOff = evalBoth [
+      [ "--kept" ]
+      (lib.mkIf false [ "--dropped" ])
+    ];
+    everyDefinitionSwitchedOff = evalBoth [
+      (lib.mkIf false [ "--dropped" ])
+    ];
+    emptyDefinition = evalBoth [
+      [ ]
+      [ "--a" ]
+    ];
+    # A property on one ELEMENT rather than on the definition. `listOf` merges
+    # each element on its own, so `dischargeProperties` runs there too.
+    elementSwitchedOff = evalBoth [
+      [
+        "--kept"
+        (lib.mkIf false "--dropped")
+      ]
+    ];
+    elementForced = evalBoth [
+      [ (lib.mkForce "--forced") ]
+    ];
+  };
+
+  # ---------------------------------------------------------------------
+  # Priorities INSIDE an entry of a marked list.
+  #
+  # A marked list merges its entries through `types.attrsOf elemType`, so an
+  # entry gets the full module merge that any other option value gets. These
+  # pin that, because "the override mechanism reaches inside a list element" is
+  # the whole reason the markers exist.
+  # ---------------------------------------------------------------------
+
+  # A field the plain list already sets beats a `mkDefault` in the patch.
+  namedEntryMkDefaultLoses = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "from-chart";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { app.image = lib.mkDefault "from-patch"; }; }
+  ];
+
+  # ...and a `mkDefault` for a field the plain list does NOT set still lands.
+  namedEntryMkDefaultFillsAGap = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "from-chart";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { app.imagePullPolicy = lib.mkDefault "IfNotPresent"; }; }
+  ];
+
+  # `mkMerge` inside an entry, the way it works anywhere else.
+  namedEntryMkMerge = evalValue [
+    { value.containers = [ { name = "app"; } ]; }
+    {
+      value.containers = lib.mkNamedList {
+        app = lib.mkMerge [
+          { image = "v1"; }
+          { imagePullPolicy = "Always"; }
+        ];
+      };
+    }
+  ];
+
+  # `mkIf false` on a whole entry that the plain list also defines. The patch
+  # is discharged to nothing, and the plain definition is untouched -- so this
+  # is a no-op rather than a deletion. A module cannot remove an entry by
+  # switching its own patch off.
+  namedEntrySwitchedOffLeavesThePlainEntry = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { app = lib.mkIf false { image = "v2"; }; }; }
+  ];
+
+  # `mkIf false` on an entry only the marker introduces. No definition survives
+  # for that key, so `attrsOf` drops it and the entry never reaches the list.
+  namedEntrySwitchedOffIsNotAdded = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { sidecar = lib.mkIf false { image = "s1"; }; }; }
+  ];
+
+  namedEntrySwitchedOnIsAdded = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { sidecar = lib.mkIf true { image = "s1"; }; }; }
+  ];
+
+  # The invariant that keeps `valueMeta` usable: one metadata entry per element
+  # of the value, after every drop and append above has happened.
+  metadataTracksTheValueEvaluation = lib.evalModules {
+    modules = [
+      {
+        options.value = lib.mkOption {
+          type = kubeValueType;
+          default = null;
+        };
+        config.value.containers = [
+          {
+            name = "app";
+            image = "v1";
+          }
+          {
+            name = "sidecar";
+            image = "s1";
+          }
+        ];
+      }
+      {
+        value.containers = lib.mkNamedList {
+          app.image = lib.mkForce "v2";
+          dropped = lib.mkIf false { image = "d"; };
+          added.image = "a";
+        };
+      }
+    ];
+  };
+
+  # The same invariant on the replace branch. A replacement keeps the length
+  # of the list, and the replaced element takes the metadata of the definition
+  # that replaced it -- that is the file a reader has to open to change it.
+  replaceMetadataEvaluation = lib.evalModules {
+    modules = [
+      {
+        options.value = lib.mkOption {
+          type = kubeValueType;
+          default = null;
+        };
+        config.value.args = [
+          "--a=1"
+          "--b=1"
+        ];
+      }
+      { value.args = lib.mkReplaceList { "--b=" = "--b=2"; }; }
+    ];
+  };
+
+  numberedEntryMkDefaultLoses = evalValue [
+    {
+      value.initContainers = [
+        {
+          name = "migrate";
+          image = "m1";
+        }
+      ];
+    }
+    { value.initContainers = lib.mkNumberedList { "0".image = lib.mkDefault "m2"; }; }
+  ];
+
+  # An index the plain list does not reach, switched off. Nothing is appended.
+  numberedEntrySwitchedOffIsNotAdded = evalValue [
+    { value.initContainers = [ { name = "migrate"; } ]; }
+    { value.initContainers = lib.mkNumberedList { "3" = lib.mkIf false { name = "late"; }; }; }
+  ];
+
+  # ---------------------------------------------------------------------
+  # Which branch of `oneOf` takes a definition.
+  #
+  # Everything above tests how definitions merge. This tests where they land
+  # first, which is a separate mechanism and the one that decides whether a
+  # value keeps its Nix type on the way to JSON. `types.oneOf` is a left fold
+  # of `either`, and `either` takes the first branch whose `check` accepts
+  # every definition -- so the order in `baseType` is load-bearing, and a
+  # branch whose check is too wide silently swallows a value meant for a later
+  # one.
+  # ---------------------------------------------------------------------
+
+  # Each scalar keeps its own Nix type. An int that arrives as a float, or a
+  # bool that arrives as a string, is a manifest the API server rejects.
+  scalarBranches = evalValue [
+    {
+      value = {
+        anInt = 3;
+        aFloat = 3.0;
+        aString = "3";
+        aTrue = true;
+        aFalse = false;
+      };
+    }
+  ];
+
+  # `types.path` is a branch of its own, and nothing exercised it. A path
+  # renders as its store path, not as an attribute set.
+  pathBranch = evalValue [ { value.file = ./test_kube_value_type.nix; } ];
+
+  # `types.str` must come before `types.path` in the branch list, because
+  # `path.check` accepts any string beginning with "/". Manifests are full of
+  # absolute-path-looking strings, and every one of them would merge as a
+  # path -- copying a file into the store, or failing because none exists --
+  # if the two were ever swapped by a later reordering.
+  absolutePathStringsStayStrings = evalValue [
+    {
+      value = {
+        mountPath = "/var/lib/grafana";
+        command = "/bin/sh";
+        notAPath = "/nix/store/0000000000000000000000000000000-nothing-here";
+      };
+    }
+  ];
+
+  # An empty attribute set is an object, and an empty list is a list. Both are
+  # legal Kubernetes values, and `{}` and `[]` are not interchangeable there.
+  # `namedListOf` comes before `objectType`, so an empty list has to fail
+  # `objectType` rather than be taken by it.
+  emptyObjectStaysAnObject = evalValue [ { value.spec = { }; } ];
+  emptyListStaysAList = evalValue [ { value.args = [ ]; } ];
+
+  # A marked attribute set nested inside an object, rather than at the option
+  # root. `objectType`'s `addCheck` is what stops the object branch taking it:
+  # its own check is only `isAttrs`, so without the guard the marker would
+  # merge as an ordinary object and keep `_type` in the rendered manifest.
+  markedListInsideAnObject = evalValue [
+    { value.spec.template.containers = lib.mkNamedList { a.image = "x"; }; }
+  ];
+
+  # The following bindings must throw. Each one is exposed as a thunk, so the
+  # test can assert on the error without an eager evaluation above.
+
+  # Two definitions of one field inside an entry, at the same priority. This is
+  # why every other test in this file writes `mkForce`: without one, a patch of
+  # a field the plain list already sets is a conflict, not an override.
+  namedEntryConflictThrows = evalValue [
+    {
+      value.containers = [
+        {
+          name = "app";
+          image = "v1";
+        }
+      ];
+    }
+    { value.containers = lib.mkNamedList { app.image = "v2"; }; }
+  ];
+
+  numberedEntryConflictThrows = evalValue [
+    {
+      value.initContainers = [
+        {
+          name = "migrate";
+          image = "m1";
+        }
+      ];
+    }
+    { value.initContainers = lib.mkNumberedList { "0".image = "m2"; }; }
+  ];
+
+  # No branch of `oneOf` accepts both an int and a string, so one field cannot
+  # be defined as both. This is the same rejection `unmarkedAttrsRejectedAgainstList`
+  # relies on, at the scalar level: a Kubernetes field has one fixed type.
+  intAndStringThrows = evalValue [
+    { value.replicas = 3; }
+    { value.replicas = "3"; }
+  ];
+
+  # A function matches no branch at all. Without a rejection it would reach
+  # `builtins.toJSON` and fail there instead, naming neither the option nor
+  # the module that wrote it.
+  aFunctionThrows = evalValue [ { value.callback = (x: x); } ];
+
+  # A numbered list takes its order from its index keys, exactly as a named
+  # list takes its order from its name keys. An order property on an entry
+  # therefore does nothing, so it is refused rather than discharged in
+  # silence. `mkOrderOnNamedEntryThrows` is the same rule on the other branch.
+  mkOrderOnNumberedEntryThrows = evalValue [
+    { value.initContainers = [ { name = "migrate"; } ]; }
+    { value.initContainers = lib.mkNumberedList { "0" = lib.mkBefore { image = "m2"; }; }; }
+  ];
+
+  # `null` and a value cannot both be definitions of one field. This is
+  # `types.nullOr`'s own rule; `oneOf` enforces it here, because no single
+  # branch accepts both.
+  mixedNullAndValueThrows = evalValue [
+    { value = null; }
+    { value.present = true; }
+  ];
+
+  # One field cannot use both markers. Earlier the named branch won in silence
+  # and left a literal `true` in the list.
+  mixedNamedAndNumberedThrows = evalValue [
+    { value.containers = [ { name = "a"; } ]; }
+    { value.containers = lib.mkNamedList { a.x = "1"; }; }
+    { value.containers = lib.mkNumberedList { "0".y = "2"; }; }
+  ];
+
+  # A named list takes its order from the keys. `mkBefore` on an entry has no
+  # effect, so the type refuses it instead of dropping it in silence.
+  mkOrderOnNamedEntryThrows = evalValue [
+    { value.containers = [ { name = "mid"; } ]; }
+    { value.containers = lib.mkNamedList { early = lib.mkBefore { image = "e"; }; }; }
+  ];
+
+  # The property the marker exists for. An index is not the identity of a
+  # flag, so `mkNumberedList` cannot tell a list that grew an entry from a
+  # list that did not. A key that matches nothing stops the build.
+  replaceKeyMatchesNothingThrows = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--gone=" = "--gone=1"; }; }
+  ];
+
+  # The error names the closest element, so a mistyped or moved flag reads as
+  # one line instead of a scan of the list. Here the chart renders
+  # `--metrics-addr=` and the key says `--metrics-bind-address=`.
+  replaceNoMatchNamesTheClosestElement = evalValue [
+    {
+      value.args = [
+        "--leader-elect"
+        "--metrics-addr=0.0.0.0:8443"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--metrics-bind-address=" = "--x"; }; }
+  ];
+
+  # Nothing shares more than the leading dashes, so there is no closest
+  # element to name. Two characters is the floor: every long option starts
+  # with `--`, and a suggestion built on that alone names a neighbour at
+  # random.
+  replaceNoMatchWithNothingSimilar = evalValue [
+    {
+      value.args = [
+        "--alpha"
+        "--beta"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--zulu" = "--x"; }; }
+  ];
+
+  # A key that matches two elements is refused as well. The same reasoning:
+  # the marker must not be able to patch an element nobody named.
+  replaceKeyMatchesTwoThrows = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--a=2"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--a=" = "--a=3"; }; }
+  ];
+
+  # Two keys that both resolve to one element. One element takes one
+  # replacement, so this is an error and not a race between the two keys.
+  replaceTwoKeysOnOneElementThrows = evalValue [
+    {
+      value.args = [
+        "--metrics-addr=0.0.0.0:8443"
+        "--leader-elect"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceList {
+        "--metrics" = "--metrics-addr=:1";
+        "--metrics-addr=" = "--metrics-addr=:2";
+      };
+    }
+  ];
+
+  # The marker patches a list that another module defines. Alone, it has
+  # nothing to replace in. `mkForce` gives the same error, because it drops
+  # the plain definition before this type sees it -- and the marker needs no
+  # `mkForce`.
+  replaceWithNoListThrows = evalValue [
+    { value.args = lib.mkReplaceList { "--a" = "--A"; }; }
+  ];
+
+  replaceUnderMkForceThrows = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkForce (lib.mkReplaceList { "--a" = "--A"; }); }
+  ];
+
+  # Matching by content reads a string. A list of objects belongs to
+  # `mkNamedList`, and the error says so rather than reporting no match.
+  replaceOnAListOfObjectsThrows = evalValue [
+    { value.containers = [ { name = "a"; } ]; }
+    { value.containers = lib.mkReplaceList { "a" = "b"; }; }
+  ];
+
+  # One field cannot use two markers, whichever two. `mixedNamedAndNumberedThrows`
+  # is the same rule on the other pair.
+  mixedNumberedAndReplaceThrows = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkNumberedList { "0" = lib.mkForce "--A"; }; }
+    { value.args = lib.mkReplaceList { "--b" = "--B"; }; }
+  ];
+
+  # A replacement takes the position of the element it replaces, so an order
+  # property on an entry does nothing. Refuse it, as both other branches do.
+  mkOrderOnReplaceEntryThrows = evalValue [
+    {
+      value.args = [
+        "--a"
+        "--b"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--a" = lib.mkBefore "--A"; }; }
+  ];
+
+  # The conflict below reaches an `mkMerge` too. Composing with `mkMerge`
+  # does not buy a way to write one element twice.
+  replaceMkMergeSameKeyThrows = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--b=1"
+      ];
+    }
+    {
+      value.args = lib.mkMerge [
+        (lib.mkReplaceList { "--a=" = "--a=2"; })
+        (lib.mkReplaceList { "--a=" = "--a=3"; })
+      ];
+    }
+  ];
+
+  # Two modules that replace the same element with different values conflict
+  # with the module system's own message, because the entries merge as an
+  # attribute set. `mkForce` on one of them resolves it.
+  replaceConflictingValuesThrows = evalValue [
+    {
+      value.args = [
+        "--a=1"
+        "--b=1"
+      ];
+    }
+    { value.args = lib.mkReplaceList { "--a=" = "--a=2"; }; }
+    { value.args = lib.mkReplaceList { "--a=" = "--a=3"; }; }
+  ];
+
+  # Two predicates for one label. Nothing compares two functions, so neither
+  # can win and a silent pick is the worst answer.
+  replaceWhereTwicePredicatedThrows = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        it = {
+          where = element: lib.hasPrefix "--alpha=" element;
+          value = "--alpha=2";
+        };
+      };
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        it = {
+          where = element: lib.hasPrefix "--beta=" element;
+          value = "--beta=3";
+        };
+      };
+    }
+  ];
+
+  # One definition addresses the label with a predicate, the other writes it
+  # as a plain mkReplaceList key. The plain key means "match by the start of
+  # this name", so taking the predicate would change what it asked for.
+  replaceWhereMixedWithAPlainKeyThrows = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        "--alpha=" = {
+          where = element: lib.hasPrefix "--beta=" element;
+          value = "--beta=3";
+        };
+      };
+    }
+    { value.args = lib.mkReplaceList { "--alpha=" = "--alpha=2"; }; }
+  ];
+
+  # A value-only entry overrides a label another definition predicates. With
+  # no such definition there is nothing to match.
+  replaceWhereValueOnlyAloneThrows = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    { value.args = lib.mkReplaceWhere { alpha.value = "--alpha=2"; }; }
+  ];
+
+  # `mkReplaceList` still refuses a list of objects and now names the third
+  # exit. A predicate is what reads an object.
+  replaceListOnObjectsNamesMkReplaceWhere = evalValue [
+    { value.tolerations = [ { key = "a"; } ]; }
+    { value.tolerations = lib.mkReplaceList { "a" = "b"; }; }
+  ];
+
+  # A predicate that matches nothing says so, and offers no closest element:
+  # there is no prefix to compare.
+  replaceWhereMatchesNothingThrows = evalValue [
+    {
+      value.args = [
+        "--alpha=1"
+        "--beta=2"
+      ];
+    }
+    {
+      value.args = lib.mkReplaceWhere {
+        gamma = {
+          where = element: lib.hasPrefix "--gamma=" element;
+          value = "--gamma=1";
+        };
+      };
+    }
+  ];
+
+  mkReplaceWhereRejectsNonAttrsInput = lib.mkReplaceWhere [ { value = "x"; } ];
+  mkReplaceWhereRejectsANonFunctionWhere = lib.mkReplaceWhere {
+    a = {
+      where = "not-a-function";
+      value = "x";
+    };
+  };
+  # `mkIf` on the pair replaces it with a marker carrying no `value`.
+  mkReplaceWhereRejectsAPropertyOnThePair = lib.mkReplaceWhere {
+    a = lib.mkIf true {
+      where = element: element == "x";
+      value = "y";
+    };
+  };
+
+  mkReplaceListRejectsNonAttrsInput = lib.mkReplaceList [ "--a" ];
+  mkReplaceListRejectsTheEmptyKey = lib.mkReplaceList { "" = "--a"; };
+
+  mkNamedListRejectsNonAttrsInput = lib.mkNamedList [ { name = "a"; } ];
+  mkNamedListRejectsNonAttrsValues = lib.mkNamedList { a = "not-an-attrset"; };
+  mkNumberedListRejectsNonIntKeys = lib.mkNumberedList {
+    notanumber = {
+      image = "x";
+    };
+  };
+
+  # A value carried whole: one definition unwraps to its content, and nothing
+  # of the marker survives into the output.
+  untypedCarriesTheValueWhole = evalValue [
+    {
+      value = lib.mkUntyped {
+        panels = [ { id = 1; } ];
+        nested.deep = "x";
+      };
+    }
+  ];
+
+  # The guard on `objectType`. Without it the attribute map accepts the
+  # marker -- its own check is only `isAttrs` -- merges it as a plain object,
+  # and `_type` and `content` reach the rendered manifest. Found by a
+  # differing leaf count rather than by reading the code.
+  untypedNestedInsideAnObject = evalValue [
+    {
+      value.metadata.name = "cm";
+      value.data.dashboard = lib.mkUntyped {
+        _type = "not-a-marker";
+        content = "a field genuinely called content";
+      };
+    }
+  ];
+
+  # Two definitions are an error, not a merge: nothing looks inside, so
+  # nothing can merge them. This is the difference from `types.anything`,
+  # which deep-merges the second silently.
+  untypedTwiceThrows = evalValue [
+    { value = lib.mkUntyped { a = 1; }; }
+    { value = lib.mkUntyped { a = 2; }; }
+  ];
+in
+{
+  usesV2Merge = kubeValueType.merge ? v2 && kubeValueType.check.isV2MergeCoherent;
+  exposesObjectMetadata = metadataEvaluation.options.value.valueMeta.attrs ? spec;
+  exposesNamedListMetadata =
+    lib.length metadataEvaluation.options.value.valueMeta.attrs.containers.list == 2;
+  exposesNumberedListMetadata =
+    lib.length metadataEvaluation.options.value.valueMeta.attrs.args.list == 2;
+  inherit topLevelNull;
+  inherit conditionalFieldInsideObject;
+  inherit
+    replaceOverrideOfScalarList
+    replaceWithAnExactKey
+    replaceFromTwoModules
+    replaceNestedInANamedList
+    replaceSwitchedOffLeavesTheList
+    replaceMarkersComposeWithMkMerge
+    replaceMergedWithItsOwnList
+    replaceInsideMkMergeCanBeSwitchedOff
+    replaceSameKeySameValueMerges
+    replaceWhereMatchesAnObject
+    replaceWhereMkForceReplacesWholesale
+    replaceWhereAddsAField
+    replaceWhereMatchesAString
+    replaceWhereAndReplaceListCompose
+    replaceWhereValueTakesMkForce
+    ;
+  inherit namedListOverrideViaMkNamedList;
+  inherit plainListOfNamedThingsNeverAutoConverted;
+  inherit ownerReferencesWithDuplicateNamesPreserved;
+  inherit initContainersOverrideViaMkNumberedList;
+  inherit plainListPassthrough;
+  inherit nestedAttrsMergeAcrossModules;
+  inherit scalarsPassthrough;
+  inherit multiDefPlainListConcatenates;
+  inherit loneMkNamedListBecomesList;
+  inherit loneMkNumberedListBecomesList;
+  inherit nameInjectedForNewEntry;
+  inherit keyWinsOverInnerName;
+  inherit orderPreservedUnderNamedOverride;
+  inherit newNamesAppendAfterPlainEntries;
+  inherit mkMergeOfTwoMarkedLists;
+  inherit mkMergeOfPlainListAndMarked;
+  inherit mkForceWholeMarkedList;
+  inherit mkIfFalseMarkedListIsDropped;
+  inherit mkIfTrueMarkedListApplies;
+  inherit mkOrderOnPlainLists;
+  inherit numberedOverrideOfScalarList;
+  inherit numberedSparseIndexAppends;
+  inherit nestedNamedListOverride;
+
+  inherit
+    mkForcePlainListOverPlain
+    mkDefaultPlainListLoses
+    mkDefaultPlainListAloneApplies
+    mkForceEmptiesList
+    twoMkForcesConcatenate
+    mkOverridePriorityOrder
+    mkForceDiscardsLaterNamedPatch
+    sameAsListOf
+    namedEntryMkDefaultLoses
+    namedEntryMkDefaultFillsAGap
+    namedEntryMkMerge
+    namedEntrySwitchedOffLeavesThePlainEntry
+    namedEntrySwitchedOffIsNotAdded
+    namedEntrySwitchedOnIsAdded
+    numberedEntryMkDefaultLoses
+    numberedEntrySwitchedOffIsNotAdded
+    scalarBranches
+    absolutePathStringsStayStrings
+    emptyObjectStaysAnObject
+    emptyListStaysAList
+    markedListInsideAnObject
+    ;
+
+  # The store path the option resolved to, as a string the test can compare
+  # against the file's own name.
+  pathBranch = builtins.baseNameOf pathBranch.file;
+
+  # One metadata entry per element of the value, after a force, a drop and an
+  # append have all happened to the same list.
+  metadataTracksTheValue = {
+    value = metadataTracksTheValueEvaluation.config.value.containers;
+    metaLength = lib.length metadataTracksTheValueEvaluation.options.value.valueMeta.attrs.containers.list;
+  };
+
+  # The same, on the replace branch.
+  replaceMetadataTracksTheValue = {
+    value = replaceMetadataEvaluation.config.value.args;
+    metaLength = lib.length replaceMetadataEvaluation.options.value.valueMeta.attrs.args.list;
+  };
+
+  # Forcing these must throw -- each is exposed as a thunk so the test can
+  # assert on the error without eagerly evaluating it above.
+  namedEntryConflictThrows = namedEntryConflictThrows;
+  numberedEntryConflictThrows = numberedEntryConflictThrows;
+  mkOrderOnNumberedEntryThrows = mkOrderOnNumberedEntryThrows;
+  intAndStringThrows = intAndStringThrows;
+  aFunctionThrows = aFunctionThrows;
+  unmarkedAttrsRejectedAgainstListThrows = unmarkedAttrsRejectedAgainstListThrows;
+  mixedNullAndValueThrows = mixedNullAndValueThrows;
+  mixedNamedAndNumberedThrows = mixedNamedAndNumberedThrows;
+  mkOrderOnNamedEntryThrows = mkOrderOnNamedEntryThrows;
+  mkNamedListRejectsNonAttrsInput = mkNamedListRejectsNonAttrsInput;
+  mkNamedListRejectsNonAttrsValues = mkNamedListRejectsNonAttrsValues;
+  mkNumberedListRejectsNonIntKeys = mkNumberedListRejectsNonIntKeys;
+  untypedTwiceThrows = untypedTwiceThrows;
+  replaceKeyMatchesNothingThrows = replaceKeyMatchesNothingThrows;
+  replaceNoMatchNamesTheClosestElement = replaceNoMatchNamesTheClosestElement;
+  replaceWhereTwicePredicatedThrows = replaceWhereTwicePredicatedThrows;
+  replaceWhereMixedWithAPlainKeyThrows = replaceWhereMixedWithAPlainKeyThrows;
+  replaceWhereValueOnlyAloneThrows = replaceWhereValueOnlyAloneThrows;
+  replaceListOnObjectsNamesMkReplaceWhere = replaceListOnObjectsNamesMkReplaceWhere;
+  replaceWhereMatchesNothingThrows = replaceWhereMatchesNothingThrows;
+  mkReplaceWhereRejectsNonAttrsInput = mkReplaceWhereRejectsNonAttrsInput;
+  mkReplaceWhereRejectsANonFunctionWhere = mkReplaceWhereRejectsANonFunctionWhere;
+  mkReplaceWhereRejectsAPropertyOnThePair = mkReplaceWhereRejectsAPropertyOnThePair;
+  replaceNoMatchWithNothingSimilar = replaceNoMatchWithNothingSimilar;
+  replaceKeyMatchesTwoThrows = replaceKeyMatchesTwoThrows;
+  replaceTwoKeysOnOneElementThrows = replaceTwoKeysOnOneElementThrows;
+  replaceWithNoListThrows = replaceWithNoListThrows;
+  replaceUnderMkForceThrows = replaceUnderMkForceThrows;
+  replaceOnAListOfObjectsThrows = replaceOnAListOfObjectsThrows;
+  replaceConflictingValuesThrows = replaceConflictingValuesThrows;
+  replaceMkMergeSameKeyThrows = replaceMkMergeSameKeyThrows;
+  mixedNumberedAndReplaceThrows = mixedNumberedAndReplaceThrows;
+  mkOrderOnReplaceEntryThrows = mkOrderOnReplaceEntryThrows;
+  mkReplaceListRejectsNonAttrsInput = mkReplaceListRejectsNonAttrsInput;
+  mkReplaceListRejectsTheEmptyKey = mkReplaceListRejectsTheEmptyKey;
+
+  inherit untypedCarriesTheValueWhole untypedNestedInsideAnObject;
+}

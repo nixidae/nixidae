@@ -1,0 +1,139 @@
+{
+  pkgs,
+  lib,
+  easykubenix,
+}:
+let
+  ekn = easykubenix {
+    inherit pkgs;
+    modules = [
+      {
+        kubernetes.objects = {
+          default.Deployment.namedlist-demo = {
+            spec.selector.matchLabels.app = "namedlist-demo";
+            spec.template.metadata.labels.app = "namedlist-demo";
+            spec.template.spec = {
+              # `mkNamedList` gives an explicit named list. The attribute name
+              # becomes the `name` of the container. `pkgs.lib` here is the
+              # extended lib, which holds easykubenix' own helpers.
+              containers = pkgs.lib.mkNamedList {
+                main = {
+                  image = "nginx:alpine";
+                  ports = [ { containerPort = 80; } ];
+                  # A plain list of bare strings, as a chart renders it. The
+                  # module below patches one of these by content.
+                  args = [
+                    "--metrics-addr=0.0.0.0:8443"
+                    "--enable-leader-election"
+                  ];
+                  env = pkgs.lib.mkNamedList {
+                    FOO.value = "bar";
+                    MODE.value = "test";
+                  };
+                };
+                sidecar = {
+                  image = "fluentd:latest";
+                };
+              };
+
+              # Objects with no `name` and no stable index. The module below
+              # picks one of the three with a predicate.
+              tolerations = [
+                {
+                  key = "dedicated";
+                  operator = "Exists";
+                }
+                {
+                  key = "node-role.kubernetes.io/control-plane";
+                  operator = "Exists";
+                  effect = "NoSchedule";
+                }
+                {
+                  key = "node.kubernetes.io/unreachable";
+                  operator = "Exists";
+                  tolerationSeconds = 30;
+                }
+              ];
+
+              # A plain list keeps its order. Use `mkNumberedList` to override
+              # one entry of it by index.
+              initContainers = [
+                {
+                  name = "init-step1";
+                  image = "busybox";
+                  command = [
+                    "echo"
+                    "step1"
+                  ];
+                }
+                {
+                  name = "init-step2";
+                  image = "busybox";
+                  command = [
+                    "echo"
+                    "step2"
+                  ];
+                }
+              ];
+            };
+          };
+
+          # A control case: plain containers with no marker at all.
+          default.Deployment.plain-containers = {
+            spec.selector.matchLabels.app = "plain";
+            spec.template.metadata.labels.app = "plain";
+            spec.template.spec.containers = [
+              {
+                name = "c1";
+                image = "nginx:alpine";
+              }
+              {
+                name = "c2";
+                image = "alpine:latest";
+                command = [
+                  "sleep"
+                  "infinity"
+                ];
+              }
+            ];
+          };
+        };
+      }
+      # A second module, the way a patch of a rendered chart is written: it
+      # names the container, and addresses one of its `args` by the start of
+      # the flag. An index would move with the next chart version, and a bare
+      # string has no `name` to address. A key that matches no element is an
+      # error, so the patch cannot stop applying in silence.
+      {
+        kubernetes.objects.default.Deployment.namedlist-demo.spec.template.spec.containers =
+          pkgs.lib.mkNamedList
+            {
+              main.args = pkgs.lib.mkReplaceList {
+                "--metrics-addr=" = "--metrics-addr=:8443";
+              };
+            };
+
+        # `mkReplaceWhere` for a list a prefix cannot read. The predicate runs
+        # against each toleration and must pick exactly one. The body names
+        # one field, so `key` and `operator` survive and the other two
+        # tolerations are untouched.
+        kubernetes.objects.default.Deployment.namedlist-demo.spec.template.spec.tolerations =
+          pkgs.lib.mkReplaceWhere
+            {
+              control-plane = {
+                where = toleration: (toleration.key or null) == "node-role.kubernetes.io/control-plane";
+                value.effect = "NoExecute";
+              };
+            };
+      }
+    ];
+  };
+in
+{
+  manifestJSON = ekn.manifestJSON;
+  check = import ../verify.nix {
+    inherit pkgs lib;
+    name = "namedlists";
+    manifestJSON = ekn.manifestJSON;
+  };
+}

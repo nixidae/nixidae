@@ -1,0 +1,482 @@
+{
+  config,
+  lib,
+  ...
+}:
+let
+  removedCachePackage = lib.mkRemovedOptionModule [ "ekn" "cachePackage" ] ''
+    The cache push no longer follows a derivation's closure. It reads the
+    store paths the rendered manifest names, which is the same set
+    `ekn.assertCached` asks about, so the two cannot disagree.
+
+    That removes the reason this option existed. It named paths whose Nix
+    string context a module had stripped, because a closure cannot see them
+    -- `ekn deploy` then reported a successful push having moved nothing a
+    node needs. Reading the text finds them with no help.
+
+    Delete the definition. If the paths it named are not in the manifest at
+    all, put them there; if they are in the manifest but not on this
+    machine, set `nixkube.discardStringContext = false`, which is the option
+    for keeping the context that realises them.
+  '';
+
+  # Helm's `InstallOrder` verbatim, from pkg/release/v1/util/kind_sorter.go --
+  # the de-facto order the entire ecosystem's charts are written against, which
+  # is why it is the default rather than something designed here.
+  #
+  # Kept as an ordered list and numbered below rather than written out as an
+  # attrset of literal numbers: the hand-transcribed attrset this replaced had
+  # silently shifted everything from `IngressClass` onward by one slot (a gap
+  # at 165), which no reader would catch and no test would fail on.
+  helmInstallOrder = [
+    "PriorityClass"
+    "Namespace"
+    "NetworkPolicy"
+    "ResourceQuota"
+    "LimitRange"
+    "PodSecurityPolicy"
+    "PodDisruptionBudget"
+    "ServiceAccount"
+    "Secret"
+    "SecretList"
+    "ConfigMap"
+    "StorageClass"
+    "PersistentVolume"
+    "PersistentVolumeClaim"
+    "CustomResourceDefinition"
+    "ClusterRole"
+    "ClusterRoleList"
+    "ClusterRoleBinding"
+    "ClusterRoleBindingList"
+    "Role"
+    "RoleList"
+    "RoleBinding"
+    "RoleBindingList"
+    "Service"
+    "DaemonSet"
+    "Pod"
+    "ReplicationController"
+    "ReplicaSet"
+    "Deployment"
+    "HorizontalPodAutoscaler"
+    "StatefulSet"
+    "Job"
+    "CronJob"
+    "IngressClass"
+    "Ingress"
+    "APIService"
+    "MutatingWebhookConfiguration"
+    "ValidatingWebhookConfiguration"
+  ];
+
+  resourcePriorityDefaults =
+    lib.listToAttrs (lib.imap1 (index: kind: lib.nameValuePair kind (index * 10)) helmInstallOrder)
+    # These three keep their place in the list above -- it stays a verbatim
+    # transcription -- and are renumbered here, so the deviation from Helm is
+    # three visible lines rather than an edit to the data.
+    #
+    # Their cost is paid by the requests that come after them, not by creating
+    # them: an admission webhook configuration makes the API server call its
+    # backing Service on every matching write, and an aggregated APIService
+    # hands that group's discovery to one, so a backend that is not serving
+    # fails discovery outright rather than merely stalling a write. During a
+    # bootstrap that backend was applied seconds earlier and is not ready, so
+    # all three have to land after everything they can intercept -- including
+    # custom resources, which are unlisted and so sort at 1000 (see
+    # DEFAULT_BARRIER_PRIORITY in ekn/src/ekn/apply.py; tests/test_eval.py
+    # asserts the two sides agree).
+    // {
+      APIService = 1010;
+      MutatingWebhookConfiguration = 1020;
+      ValidatingWebhookConfiguration = 1030;
+    };
+in
+{
+  _class = "kubernetes";
+
+  imports = [
+    (lib.mkRemovedOptionModule [ "ekn" "discriminator" ] ''
+      `ekn.discriminator' is now `ekn.environment', and the label it stamps
+      is now `ekn.dev/environment'. Rename the definition; the value can stay
+      the same.
+
+      The prune scope is now two labels, not one. `ekn' stamps
+      `ekn.dev/environment' at apply time, and every deployment unit renders
+      `ekn.dev/deployment-unit'. A whole-instance prune selects objects
+      carrying this environment and *no* unit label; `--target <name>' selects
+      this environment and that unit. So a per-unit discriminator is gone
+      too -- `deployment.units.<name>.discriminator' no longer exists, and a
+      nested instance inherits `ekn.environment' from its parent.
+
+      **A project that already deployed has live objects wearing the old
+      label.** `--prune' finds objects by label alone, so nothing recognises
+      them any more: they are orphaned, not deleted, and nothing reports it.
+      Relabel them once before the next prune:
+
+        kubectl label <kinds> -A -l ekn.dev/discriminator=<value> \
+          ekn.dev/environment=<value>
+    '')
+    removedCachePackage
+  ];
+
+  options.ekn = {
+    environment = lib.mkOption {
+      type = lib.types.str;
+      description = ''
+        Value of the `ekn.dev/environment` label stamped on every object
+        `ekn` applies, and half of the selector it lists objects back by
+        when pruning.
+
+        The other half is `ekn.dev/deployment-unit`, which every deployment
+        unit renders onto its own objects. Together they give two prune
+        scopes:
+
+        - `ekn kubeapply --prune` deletes objects carrying this environment
+          and *no* unit label, which the current apply did not produce.
+        - `ekn kubeapply --target <name> --prune` deletes objects carrying
+          this environment and that unit's label, which the current apply
+          did not produce.
+
+        The environment label is stamped by `ekn` at apply time rather than
+        rendered. That is what confines pruning to objects `ekn` itself
+        applied: an object a GitOps engine synced from the committed YAML
+        never carries it, so `ekn` and that engine cannot end up deleting
+        each other's work.
+
+        Required, with no default, and that is deliberate.
+
+        A default is a value every project shares until somebody thinks to
+        change it. Two easykubenix projects that both took it and both
+        deploy to one cluster do not conflict quietly: each apply prunes
+        the other's objects, because from where it stands they are objects
+        carrying its own label that its own apply did not produce. The
+        scope is per kind, not the whole cluster, but a kind both projects
+        use is the normal case.
+
+        Nothing can detect that from inside one project, so the name has to
+        be a decision somebody made. Only a deploy needs it: rendering a
+        manifest never reads this, so a configuration that only builds
+        `manifestJSONFile` does not have to answer.
+
+        **Changing the value of a project that already deployed is not
+        free.** Live objects carry the label they were applied with, and
+        `--prune` finds objects by that label alone. Pick a different word
+        and the next prune no longer recognises anything the previous one
+        would have: those objects are not deleted, they are orphaned, and
+        nothing reports it.
+      '';
+      example = "acme-production";
+    };
+
+    clusterUid = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.strMatching "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      );
+      default = null;
+      description = ''
+        The cluster this configuration is allowed to reach: the `uid` of the
+        `kube-system` Namespace. `ekn kubeapply`, `ekn reclaim`,
+        `ekn clusterdiff` and `ekn secrets` refuse to act against any other.
+
+        **The ambient kubeconfig is not a neutral default.** It is usually a
+        valid, reachable, credentialed cluster that happens to be the wrong
+        one, and there is no error to notice: the apply succeeds until
+        something unrelated collides. This option is what removes the
+        default rather than guarding it.
+
+        Kubernetes has no cluster ID resource. `kube-system` is created once
+        at bootstrap and never re-created, its `uid` is server-generated and
+        never reused, and reading it needs no permission an apply does not
+        already have.
+
+        Left `null`, every one of those commands refuses and prints the line
+        to paste here. Passing `--i-dont-know-which-cluster-this-is` runs
+        anyway; it is deliberately hard to type and reads badly in a
+        reviewed file, which is the point.
+
+        **A rebuilt cluster is a different cluster.** It gets a new `uid` and
+        this value has to change with it. That is the correct answer, not an
+        inconvenience: nothing else would have told you.
+      '';
+      example = "3b2a1f0e-9d8c-4b7a-8e6f-5d4c3b2a1f0e";
+    };
+
+    resourcePriority = lib.mkOption {
+      type = lib.types.attrsOf lib.types.int;
+      description = ''
+        Apply order by object kind, lowest number first. Objects sharing a
+        number apply together as one barrier, which is fully applied (and,
+        for CustomResourceDefinitions, waited on to become Established)
+        before the next barrier starts.
+
+        Defaults to Helm's `InstallOrder`, numbered in steps of ten so kinds
+        can be slotted between two neighbours without renumbering the rest.
+
+        A kind absent from this set applies at 1000, which is every custom
+        resource. That gives four bands to number against:
+
+        - `10`-`380`  Helm's order as-is
+        - `381`-`999` late, but still before custom resources
+        - `1000`      custom resources and anything else unlisted
+        - `1001`+     after custom resources
+
+        `APIService` and the two admission webhook configurations sit in that
+        last band, which is the one place this deviates from Helm. Helm sorts
+        unknown kinds after its whole list, leaving all three ahead of every
+        custom resource they intercept; during a bootstrap their backing
+        workload was applied seconds earlier and is not serving yet, so each
+        intercepted request costs a full timeout or fails discovery outright.
+
+        Definitions merge per key, so setting one kind keeps the defaults for
+        every other. Replacing the set wholesale takes `lib.mkForce`.
+      '';
+      default = resourcePriorityDefaults;
+    };
+
+    cacheTo = lib.mkOption {
+      type = lib.types.nullOr (lib.types.either lib.types.str (lib.types.listOf lib.types.str));
+      default = null;
+      description = ''
+        Destination Nix store URI (e.g. "ssh-ng://user@host:2222"), or a
+        list of them, that `ekn deploy` and `ekn kubeapply` push to before
+        they act. `null` disables the cache push entirely.
+
+        **This is the only knob.** What gets pushed is not a choice: it is
+        every store path the rendered manifest names, found in the
+        manifest's *text*. That is the same set `ekn.assertCached` asks
+        about, so the push and the assertion cannot disagree about what an
+        apply names.
+
+        The text, and not a closure, because Nix string context is what a
+        module can take away. nixkube's `discardStringContext` strips it
+        from every resource annotated `nixkube/discard`. Measured on
+        nixkube's own instance:
+
+          store paths named as text in manifest.json   4
+          paths in its closure                         1   (itself)
+
+        The four are the node and pynixd environments -- exactly the paths a
+        node needs to boot.
+
+        A stripped path is also not realised on the deploying machine, and
+        `ekn` refuses the push rather than moving a smaller set. Set
+        `nixkube.discardStringContext = false` to keep the context that
+        realises them.
+
+        The destination substitutes what it can reach itself, so a path both
+        ends can fetch from a public cache never crosses this link.
+
+        **A list is allowed because one destination cannot always be
+        enough.** A store path is only useful where whatever mounts it can
+        reach it, and a single destination cannot serve a path whose
+        *consumer is that destination*. On nixlab2 `cacheTo` is pynixd, and
+        pynixd's own environment is mounted over CSI on a node -- so pushing
+        that leg here can never bootstrap it, and it needs a substituter
+        that does not depend on pynixd.
+
+        Every destination is pushed to, in order. A failure in any of them
+        fails the push, subject to `--cache-allow-failure`: a path that
+        reached only some of the stores that need it is the case this
+        option exists to avoid.
+
+        A plain string stays valid and means what it always did. This option
+        does not decide *which* destinations an instance needs -- that is a
+        property of where its paths are consumed.
+      '';
+      example = "ssh-ng://nix@cache.example.com:2222";
+    };
+
+    cacheTimeoutSec = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = 600;
+      description = ''
+        Seconds `ekn deploy` gives the push to `ekn.cacheTo` before it gives
+        up. `null` waits forever.
+
+        There is a default because forever is what it used to do. ssh has no
+        connect timeout of its own here, so a host that drops packets rather
+        than refusing them leaves the push in `SYN-SENT` until the kernel
+        exhausts its SYN retries, with no output the whole time -- which
+        reads as a slow validate or a hung process rather than as a cache
+        nobody can reach. Issue #20 has the measurement.
+
+        `--cache-allow-failure` does not help with that on its own: it
+        decides what to do once the push returns, and the point here is that
+        it does not return. The two work together -- this bounds the wait,
+        and that flag decides whether the deploy continues afterwards.
+
+        This bounds the whole push, not the connect, because that is the
+        part a store URI gives us any control over. So it has to be larger
+        than a real push of the manifest's store paths over the slowest
+        link you deploy across, and the default is generous for that reason
+        rather than tuned.
+      '';
+      example = 120;
+    };
+
+    cacheAcceptNewHostKeys = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Accept the host key of an `ssh://`/`ssh-ng://` destination in
+        `ekn.cacheTo` the first time `ekn` meets it, instead of failing the
+        push. `ekn` does this by adding
+        `-o StrictHostKeyChecking=accept-new` to `NIX_SSHOPTS`, which is what
+        Nix passes to OpenSSH.
+
+        **A key that changed is still refused.** `accept-new` trusts a host
+        the first time only, so this gives up first-contact trust and keeps
+        the protection that matters for a host you already deploy to.
+
+        The default is `true` because the alternative is not a safer deploy.
+        `ekn deploy` cannot prompt, so an unknown key stops the deploy with
+        an error that names the connection and not the key, and the operator
+        answers it by running
+        `ssh -o StrictHostKeyChecking=accept-new nix@host` by hand --
+        the same decision, made under time pressure and with less
+        information. Issue #18.
+
+        Set this to `false` where the host keys are distributed ahead of
+        time, for example by NixOS `programs.ssh.knownHosts`. A push to an
+        unknown host then fails, and `ekn` names the host key as the cause.
+
+        Your own `NIX_SSHOPTS` wins: `ekn` adds nothing when that variable
+        already sets `StrictHostKeyChecking`.
+      '';
+    };
+
+    assertCached = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = if config.ekn.cacheTo == null then [ ] else lib.toList config.ekn.cacheTo;
+      description = ''
+        Substituters to ask, **before applying anything**, whether they can
+        serve every store path this apply names. A path on none of them
+        refuses the apply.
+
+        **Defaults to `ekn.cacheTo`**, the destinations this same run has
+        just pushed to. So the check asks whether the push arrived, and no
+        second list exists to drift from the first. `cacheTo = null` leaves
+        this empty and turns the check off, which is right for an instance
+        with no CSI-backed store: there is nothing to assert and it should
+        not pay for the check.
+
+        **The list has to be the caches the nodes carry**, not the ones the
+        deploying machine happens to have configured -- those are usually
+        more, and a path only the deployer can fetch passes a check and then
+        fails to mount. `cacheTo` is already that list, curated by whoever
+        knows where the paths are consumed, so this follows it rather than
+        asking for the same knowledge twice. Set this option directly where
+        the two differ.
+
+        **What it is for.** A CSI-mounted store path can only be
+        substituted -- a node cannot build it, because the volume names an
+        output path. So a path on no substituter is a mount that fails on a
+        node, minutes later and well away from the apply that caused it.
+        Asserting first turns that into a refusal with the path named.
+
+        `ekn` never consults the local store, only these substituters, so a
+        path this machine happens to have built does not pass.
+
+        `ekn` walks the whole closure rather than the named paths, which is
+        the shape that actually bites -- a present top path whose closure
+        member is absent.
+
+        A path is *missing* when every substituter said so, and the check is
+        *broken* when one could not answer at all. `ekn` refuses either way
+        and says which, because a cache that is down and a path that was
+        never pushed need different fixes.
+
+        Any store URI works -- `https`, `ssh-ng`, `s3`, `file` -- because
+        the query goes through nanopynix rather than a scheme-specific
+        fetcher. See issue #37.
+
+        **The default answers "did the push arrive", and that is a weaker
+        question than "can a cold node get this".** A destination that is
+        itself a workload in the cluster -- pynixd on nixlab2 -- serves a
+        path exactly as long as that workload runs. The check unions its
+        substituters, so one of them holding the path is enough to pass, and
+        a path held only by pynixd passes while pynixd is up.
+
+        Drop that destination from this list to ask the harder question. A
+        list of only the caches that do not depend on the cluster reports a
+        pynixd-only path as missing, which is the outage this guard exists
+        for rather than a false positive.
+
+        This is the guard, not the fix. It does not push anything; see
+        `ekn.cacheTo`.
+      '';
+      example = [ "https://nixkube.cachix.org" ];
+    };
+
+    preApplyCommand = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = ''
+        Program `ekn kubeapply` runs before it touches the cluster, and
+        before the `ekn.cacheTo` push. A non-zero exit aborts the apply.
+
+        **It runs before the push on purpose.** The case it exists for is a
+        path the push cannot place: a store the cluster reads but this
+        machine cannot write through `ekn.cacheTo`, or a cache that has to
+        hold a path before the workload serving `ekn.cacheTo` restarts. A
+        hook that ran afterwards could not repair what the push depends on.
+
+        `ekn` passes the JSON manifest of the objects this apply will send as
+        the first argument, and in `EKN_MANIFEST`. It is the objects
+        themselves, so a `--target` slice is the slice and a seeded Secret
+        carries its resolved value. `EKN_ENVIRONMENT` holds
+        `ekn.environment`, and `EKN_TARGET` the `--target` name or the empty
+        string for a whole-instance apply.
+
+        **A non-zero exit always aborts, and there is no flag to soften
+        that.** The hook decides what it tolerates; `ekn` tells it what the
+        deploy tolerates and lets the script logic deal with it:
+
+          EKN_CACHE_PUSH           1 unless `--no-cache-push`
+          EKN_CACHE_ALLOW_FAILURE  1 with `--cache-allow-failure`
+
+        Both are `1` or `0`, so `[ "$EKN_CACHE_ALLOW_FAILURE" = 1 ]` needs no
+        case handling. A hook that wants to be advisory reads them and exits
+        0 itself.
+
+        Every store path the apply names is in that manifest as text, so a
+        hook that has to seed a cache can read them out of it rather than
+        being told them:
+
+          grep -o '/nix/store/[a-z0-9]\{32\}-[^"]*' "$1" | sort -u
+
+        `types.path`, and Nix string context is kept, so `ekn` builds the
+        program before it runs it. `ekn` then executes that path directly.
+
+        **Wrap a package in `lib.getExe`.** `pkgs.writeScriptBin` and its
+        relatives build a *directory* with the script under `bin/`, and
+        `ekn` executes the path it is given.
+
+        This is the pre half of issue #5. `kluctl.preDeployScript` is the
+        same hook in the namespace it predates.
+      '';
+      example = lib.literalExpression ''
+        lib.getExe (
+          pkgs.writeScriptBin "seed-the-cache" '''
+            #!''${pkgs.runtimeShell}
+            set -euo pipefail
+            grep -o '/nix/store/[a-z0-9]\{32\}-[^"]*' "$1" | sort -u \
+              | ''${pkgs.cachix}/bin/cachix push nixkube
+          '''
+        )
+      '';
+    };
+
+  };
+
+  # An option's `default` is used only when it has no definitions at all, so a
+  # config setting one kind of `resourcePriority` would otherwise drop the
+  # other 38 -- `attrsOf` merges *definitions* per key, and a default is not a
+  # definition. Defining it here at `mkDefault` priority makes each key its own
+  # definition, so a user's key wins and every other key survives.
+  #
+  # The `default` above is then never the value that gets used; it stays
+  # because it is what the generated option docs render, and because both come
+  # from the same binding they cannot drift.
+  config.ekn.resourcePriority = lib.mapAttrs (_: lib.mkDefault) resourcePriorityDefaults;
+}

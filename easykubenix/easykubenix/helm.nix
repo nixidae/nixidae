@@ -1,0 +1,215 @@
+# helm defines a kubenix module with options for using helm charts with kubenix
+# Based on hall/kubenix
+{
+  config,
+  lib,
+  pkgs,
+  ekn,
+  ...
+}:
+with lib;
+let
+  cfg = config.helm;
+  globalConfig = config;
+in
+{
+  _class = "kubernetes";
+
+  options.helm = {
+    package = lib.mkPackageOption pkgs "kubernetes-helm" { };
+    releases = mkOption {
+      description = ''
+        Attribute set of helm releases.
+
+        A thin wrapper over `ekn.lib.importHelm`, which is the primitive and
+        takes the same arguments. Use the function directly when building
+        objects from a plain function rather than from a module -- it returns a
+        config fragment you place with `lib.mkMerge`, with no option to declare
+        and read back.
+      '';
+      type = types.attrsOf (
+        types.submodule (
+          { name, ... }:
+          {
+            options = {
+              name = mkOption {
+                description = "Helm release name";
+                type = types.str;
+                default = name;
+              };
+              chart = mkOption {
+                description = "Helm chart to use";
+                type = types.either types.package types.path;
+              };
+              namespace = mkOption {
+                description = ''
+                  Namespace to install the helm chart to.
+
+                  This is `.Release.Namespace` and `--namespace`, and it also
+                  creates the Namespace object. It does NOT put a namespace on
+                  an object whose template omits one -- see
+                  `ekn.lib.importHelm`.
+                '';
+                type = types.nullOr types.str;
+                default = null;
+              };
+              values = mkOption {
+                description = "Values to pass to chart";
+                type = ekn.lib.kubeValueType;
+                default = { };
+              };
+              kubeVersion = mkOption {
+                description = "Kubernetes version to build chart for";
+                type = types.str;
+                default = globalConfig.kubernetes.package.version;
+              };
+              transformers = mkOption {
+                description = ''
+                  Functions from this release's whole object list to a new one,
+                  applied in order. Passed straight through to
+                  `ekn.lib.importHelm` and on to `ekn.lib.importYaml`, where
+                  the semantics are documented -- they run before the CRD split
+                  and before the objects are grouped by namespace, they see
+                  CRDs, and a marker is safe in one.
+
+                  This replaced a per-object `overrides` option. `map f`
+                  expresses that, so the two hooks bought nothing but an
+                  ordering rule to remember.
+                '';
+                type = lib.types.listOf (types.functionTo (lib.types.listOf lib.types.attrs));
+                default = [ ];
+                example = lib.literalExpression ''
+                  [ (objects: map (object: object // { metadata = object.metadata // { namespace = "app"; }; }) objects) ]
+                '';
+              };
+              crdSplit = mkOption {
+                description = ''
+                  Route CustomResourceDefinitions to `kubernetes.crds` instead
+                  of `kubernetes.resources`. See `ekn.lib.importYaml` for the
+                  measured cost of turning it off, and for the pipeline stages
+                  a split CRD skips.
+                '';
+                type = types.bool;
+                default = true;
+              };
+              includeCRDs = mkOption {
+                description = ''
+                  Whether to include CRDs.
+
+                  Warning: Always including CRDs here is dangerous and can break CRs in your cluster as CRDs may be updated unintentionally.
+                  An interactive `helm install` NEVER updates CRDs, only installs them when they are not existing.
+                  See https://github.com/helm/community/blob/aa8e13054d91ee69857b13149a9652be09133a61/hips/hip-0011.md
+
+                  Only set this to true if you know what you are doing and are manually checking the included CRDs for breaking changes whenever updating the Helm chart.
+                '';
+                type = types.bool;
+                default = false;
+              };
+              noHooks = mkOption {
+                description = ''
+                  Wether to include Helm hooks.
+
+                  Without this all hooks run immediately on apply since we are bypassing the Helm CLI.
+                  However, some charts only have minor validation hooks (e.g., upgrade version skew validation) and are safe to ignore.
+                '';
+                type = types.bool;
+                default = false;
+              };
+
+              apiVersions = mkOption {
+                description = ''
+                  API versions to tell Helm the target cluster has
+                  (`--api-versions`), for a chart that gates templates on
+                  `.Capabilities.APIVersions.Has`.
+
+                  `helm template` normally fills that list from the live
+                  cluster. Rendering here runs against no cluster, so the list
+                  is empty and every such check answers "absent" -- however
+                  many CRDs the real cluster has.
+
+                  The quiet failure is the one to watch for. A chart that calls
+                  `fail` stops the render with a readable message (cilium does
+                  this). A chart that wraps the template in
+                  `if .Capabilities.APIVersions.Has` instead emits nothing: the
+                  render succeeds, the apply succeeds, every Application reports
+                  Healthy, and the object is simply absent. Measured on a real
+                  cluster: ArgoCD gates all seven of its ServiceMonitor
+                  templates this way and offers no override value, so the
+                  component deploying everything else was the one thing nothing
+                  scraped. Six further charts that same repository pins carry
+                  the same gate -- argo-workflows, oauth2-proxy, reloader,
+                  openebs, aws-ebs-csi -- so it is a class rather than one
+                  chart's quirk, and the right place to set this is wherever
+                  every chart is rendered rather than on each one that bites.
+
+                  Nothing downstream can catch it. A render missing a gated
+                  object and a render that correctly had none are byte-identical
+                  -- there is no artefact to compare, no object to be absent
+                  from a diff, nothing for validation to reject. That is why it
+                  has to be answered here, where the question is asked. The
+                  chart is not wrong: its `if` exists so it does not emit a
+                  ServiceMonitor into a cluster that would reject one. It
+                  answered accurately about the cluster `helm template` was
+                  pointed at, which was no cluster.
+
+                  Helm matches these strings literally, and charts disagree on
+                  which spelling they test -- ArgoCD asks for
+                  `monitoring.coreos.com/v1`, external-secrets for
+                  `monitoring.coreos.com/v1/ServiceMonitor`. One form leaves the
+                  other chart rendering nothing, so pass both.
+                '';
+                type = types.listOf types.str;
+                default = [ ];
+                example = lib.literalExpression ''
+                  [
+                    "monitoring.coreos.com/v1"
+                    "monitoring.coreos.com/v1/ServiceMonitor"
+                  ]
+                '';
+              };
+            };
+          }
+        )
+      );
+      default = { };
+    };
+  };
+
+  # One fragment per release. Every downstream concern -- transformers, the CRD
+  # split, namespace grouping, apiMappings from CRDs -- lives in the primitive,
+  # so this module and importyaml.nix cannot drift apart. They used to carry
+  # byte-identical `apiMappings` blocks.
+  #
+  # The option paths below are written out rather than `mkMerge`-ing the
+  # fragments whole. See the same note in importyaml.nix: making the set of
+  # defined options depend on `cfg` recurses, and this module reaches it faster
+  # because `kubeVersion` defaults from `config.kubernetes.package.version`.
+  config =
+    let
+      fragments = lib.mapAttrsToList (
+        _name: release:
+        ekn.lib.importHelm {
+          # The configurable Helm binary. The primitive defaults to the package
+          # set's, so passing it here is what keeps `helm.package` working.
+          helmPackage = cfg.package;
+          inherit (release)
+            chart
+            name
+            namespace
+            values
+            kubeVersion
+            includeCRDs
+            noHooks
+            apiVersions
+            transformers
+            crdSplit
+            ;
+        }
+      ) cfg.releases;
+    in
+    {
+      kubernetes.resources = lib.mkMerge (map (fragment: fragment.kubernetes.resources) fragments);
+      kubernetes.crds = lib.concatMap (fragment: fragment.kubernetes.crds) fragments;
+      kubernetes.apiMappings = lib.mkMerge (map (fragment: fragment.kubernetes.apiMappings) fragments);
+    };
+}

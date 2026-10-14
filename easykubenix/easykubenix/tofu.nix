@@ -1,0 +1,483 @@
+{
+  config,
+  pkgs,
+  lib,
+  eknPackage,
+  ...
+}:
+let
+  cfg = config.tofu;
+
+  # OpenTofu's core schema, keyed on its version alone. opentofu-schema holds
+  # it only as Go code, so a Go program exports it; ekn does the rest.
+  coreSchema = pkgs.runCommand "tofu-core-schema-${cfg.package.version}" { } ''
+    ${lib.getExe (pkgs.callPackage ../tools/tofuschema/package.nix { })} ${cfg.package.version} > "$out"
+  '';
+
+  # All that `providerSchemas` and `jsonSchema` read, so neither rebuilds
+  # when a resource changes.
+  requiredProviders = dropNulls {
+    terraform.required_providers = cfg.terraform.required_providers or { };
+  };
+
+  # Same guard the Kubernetes side puts on every fully-rendered output: force
+  # `config.assertions` and `config.warnings` before handing anything back, so
+  # a failed assertion surfaces as its own message rather than as whatever
+  # downstream error the bad value happens to cause.
+  checked = lib.asserts.checkAssertWarn config.assertions config.warnings;
+
+  # A JSON value, recursively. Deliberately not `ekn.lib.kubeValueType`: that
+  # one also accepts an attrset keyed by `name` wherever a list of named
+  # things would go, which is a Kubernetes shape and means nothing here.
+  #
+  # `lib.types.anything` would merge these too, but it merges an attrset by
+  # recursing into every key looking for mkIf/mkMerge markers, and a provider
+  # block is deep. This is the same recursive type nixpkgs' `formats.json`
+  # builds, declared here because the module wants no file-format machinery
+  # around it.
+  valueType =
+    with lib.types;
+    let
+      inner = nullOr (oneOf [
+        bool
+        int
+        float
+        str
+        path
+        (attrsOf inner)
+        (listOf inner)
+      ]);
+    in
+    inner;
+
+  block =
+    description:
+    lib.mkOption {
+      type = lib.types.attrsOf valueType;
+      default = { };
+      inherit description;
+    };
+
+  listBlock =
+    description:
+    lib.mkOption {
+      type = lib.types.listOf valueType;
+      default = [ ];
+      inherit description;
+    };
+
+  # OpenTofu reads `null` as a set value, not as an absent one, and a provider
+  # that receives an explicit null for an optional argument behaves differently
+  # from one that receives nothing. The module system produces nulls freely --
+  # every `nullOr` option that nobody set -- so they are dropped here rather
+  # than left for each author to remember.
+  #
+  # An empty attrset is kept. `resource.aws_s3_bucket.x = { }` is a real
+  # resource with every argument defaulted.
+  dropNulls =
+    value:
+    if lib.isAttrs value && !(lib.isDerivation value) then
+      lib.mapAttrs (_: dropNulls) (lib.filterAttrs (_: v: v != null) value)
+    else if lib.isList value then
+      map dropNulls (lib.filter (v: v != null) value)
+    else
+      value;
+  # One provider's `required_providers` entry, from whichever of the two kinds
+  # of provider derivation it is.
+  #
+  # `lib/tofuRegistry.nix` carries `passthru.providerConfig` deliberately, so a
+  # registry provider needs no interpretation. nixpkgs' `terraform-providers`
+  # predates any of this and carries `passthru.provider-source-address`
+  # instead -- spelled `registry.terraform.io/...`, which is the one form that
+  # does not resolve against the plugin tree.
+  #
+  # That is not nixpkgs being wrong: it is the provider's canonical address,
+  # and `withPlugins` rewrites its own directory tree from it. Rewriting it
+  # the same way here is what lets a nixpkgs provider be declared correctly
+  # without the author hand-writing a form that differs from the one printed
+  # on the derivation.
+  #
+  # A provider with neither is skipped rather than guessed at.
+  providerRequirement =
+    plugin:
+    let
+      address = plugin.passthru.provider-source-address or null;
+      source = lib.replaceStrings [ "registry.terraform.io/" ] [ "registry.opentofu.org/" ] address;
+    in
+    if plugin ? passthru.providerConfig then
+      [
+        {
+          name = plugin.passthru.providerName;
+          value = plugin.passthru.providerConfig;
+        }
+      ]
+    else if lib.isString address then
+      [
+        {
+          name = lib.last (lib.splitString "/" address);
+          value = {
+            inherit source;
+            inherit (plugin) version;
+          };
+        }
+      ]
+    else
+      [ ];
+
+  # A `required_providers` source that names the Terraform registry by host.
+  #
+  # `withPlugins` lays its tree out under `registry.opentofu.org` -- nixpkgs
+  # rewrites the path segment -- so OpenTofu finds a bare `hashicorp/random`
+  # and an explicit `registry.opentofu.org/...` in the store, and does not
+  # find `registry.terraform.io/...` there at all. It then does what it does
+  # for any provider it cannot find locally: queries the registry over the
+  # network.
+  #
+  # Which means the failure depends on whether the machine has network.
+  # Measured with a dead proxy, the bare and opentofu.org forms initialise
+  # from the store and the terraform.io form dies with "Failed to query
+  # available provider packages". On a machine with network it would instead
+  # succeed -- fetching an unpinned provider from the internet, with no
+  # evidence in the output that anything differed.
+  #
+  # That is the whole reason this is an assertion and not a note. A pin that
+  # quietly stops pinning looks exactly like one that works.
+  terraformRegistrySources = lib.concatLists (
+    lib.mapAttrsToList (
+      name: declared:
+      let
+        source = declared.source or null;
+      in
+      lib.optional (
+        lib.isString source && lib.hasPrefix "registry.terraform.io/" source
+      ) "${name}: ${source}"
+    ) (cfg.terraform.required_providers or { })
+  );
+in
+{
+  _class = "tf";
+
+  options.tofu = {
+    package = lib.mkPackageOption pkgs "opentofu" { };
+
+    providers = lib.mkOption {
+      type = lib.types.functionTo (lib.types.listOf lib.types.package);
+      default = _plugins: [ ];
+      description = ''
+        Providers this configuration needs, selected from
+        `tofu.package.plugins`, in the shape `opentofu.withPlugins` takes.
+
+        Pinning providers with Nix rather than with a lockfile is the point.
+        `wrappedPackage` below resolves every plugin from the store, so
+        `tofu init` needs no network and cannot drift between two runs of the
+        same evaluation. nixpkgs tests exactly this -- see
+        `opentofu_plugins_test` in its opentofu package, which runs `tofu init`
+        with the proxy pointed at a dead port.
+
+        A provider still has to be declared to OpenTofu as well, in
+        `tofu.terraform.required_providers`. This option only decides which
+        binaries exist. Name it there without a registry host --
+        `hashicorp/random`, not `registry.terraform.io/hashicorp/random`; an
+        assertion explains why.
+
+        Nothing is fetched at evaluation. `plugins` is nixpkgs'
+        `terraform-providers`, built from a `providers.json` checked into
+        nixpkgs that pins every provider by revision and hash, so the nixpkgs
+        pin is what pins the provider set -- one knob, moved as a reviewed
+        whole.
+
+        That also means you get the version nixpkgs carries. For a provider
+        nixpkgs does not package, or a version it does not have, build one:
+        the argument is ignored, so anything that is a package will do.
+
+            tofu.providers = plugins: [
+              plugins.hashicorp_random
+              (pkgs.terraform-providers.mkProvider {
+                owner = "example";
+                repo = "terraform-provider-example";
+                rev = "v1.2.3";
+                hash = "...";
+                vendorHash = "...";
+                homepage = "https://registry.terraform.io/providers/example/example";
+              })
+            ];
+
+        It lands in `providers.json` with its version like any other, so a
+        hand-pinned provider is as visible in review as a packaged one.
+      '';
+      example = lib.literalExpression "plugins: [ plugins.hashicorp_random ]";
+    };
+
+    wrappedPackage = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        `tofu.package` with `tofu.providers` wrapped in, which is the binary
+        anything applying this configuration must run. Calling plain
+        `tofu.package` instead leaves `tofu init` reaching for the registry.
+      '';
+    };
+
+    terraform = block ''
+      The `terraform` block: `required_version`, `required_providers`, and the
+      `backend` this configuration keeps its state in.
+
+      There is no default backend. OpenTofu falls back to a local state file
+      beside the working directory, which is almost never what a deployment
+      unit wants -- see `design/opentofu.md` on one state file per unit.
+    '';
+
+    provider = block ''
+      Provider configuration, keyed by provider name. A list of attrsets
+      instead of one attrset configures several aliases of the same provider.
+
+      Do not put credentials here. This attrset is rendered into
+      `/nix/store`, which is world-readable.
+    '';
+
+    resource = block ''
+      Resources, keyed by type and then by name:
+      `tofu.resource.aws_instance.web = { ... }`.
+    '';
+
+    data = block ''
+      Data sources, keyed by type and then by name. Same shape as `resource`.
+    '';
+
+    module = block ''
+      OpenTofu modules, keyed by name. Unrelated to the Nix module system:
+      this is OpenTofu's own `source`-and-inputs mechanism.
+    '';
+
+    output = block ''
+      Outputs, keyed by name. `tofu output -json` is what reads these back.
+    '';
+
+    variable = block ''
+      Input variables, keyed by name. Mostly redundant here -- Nix already
+      computes what a variable would -- except for a value that must not
+      reach `/nix/store`, which a variable takes at apply time instead.
+    '';
+
+    locals = block ''
+      File-scoped values, keyed by name. Nix computes these better; the option
+      exists because a rendered OpenTofu module may still want them.
+    '';
+
+    check = block ''
+      Check blocks, keyed by name.
+    '';
+
+    ephemeral = block ''
+      Ephemeral resources, keyed by type and then by name. These are never
+      written to state.
+    '';
+
+    import = listBlock ''
+      Import blocks -- each an attrset with `to` and `id`.
+    '';
+
+    moved = listBlock ''
+      Moved blocks -- each an attrset with `from` and `to`.
+    '';
+
+    removed = listBlock ''
+      Removed blocks -- each an attrset with `from` and a `lifecycle`.
+    '';
+
+    generated = lib.mkOption {
+      type = lib.types.anything;
+      readOnly = true;
+      description = ''
+        The complete OpenTofu configuration as one attrset, nulls dropped and
+        empty blocks omitted. This is `config.tf.json`'s content.
+      '';
+    };
+
+    resolvedProviders = lib.mkOption {
+      type = lib.types.anything;
+      readOnly = true;
+      description = ''
+        Every provider `tofu.providers` selected, with the version and store
+        path Nix resolved it to.
+
+        This exists because `.terraform.lock.hcl` does not. The lock's hashes
+        verify a property the store already guarantees, so dropping it loses
+        no integrity -- but it did carry one thing worth keeping: notice that
+        a provider moved. `config.tf.json` records only the
+        `required_providers` *constraints*, so a 5.31 to 5.40 bump can pass
+        through a reviewed diff invisibly, the whole change being a store path
+        nobody wrote down.
+
+        Rendered beside `config.tf.json` as `providers.json` and committed
+        with it, so the bump shows up in review rather than at apply time.
+      '';
+    };
+
+    configFile = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        A directory holding `config.tf.json` and `providers.json`. A directory
+        and not a file, because `tofu` takes a working directory rather than a
+        config path.
+      '';
+    };
+
+    providerSchemas = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        `tofu providers schema -json` for the providers `tofu.providers`
+        selected, run in the build sandbox. It reads only
+        `required_providers`, so a change to a resource does not rebuild it.
+      '';
+    };
+
+    jsonSchema = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        A JSON Schema for this unit's `config.tf.json`: opentofu-schema's
+        core schema for `tofu.package`'s version, the one the OpenTofu
+        language server reads, with `providerSchemas` merged over it.
+        `ekn.tofuschema` writes it for HCL's JSON syntax, so a `''${...}`
+        template is accepted wherever an expression is.
+      '';
+    };
+
+    schemaCheck = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        A build that checks `config.tf.json` against `jsonSchema`. No
+        network, no backend and no credentials, so it runs in the build
+        sandbox. It fails on any violation.
+      '';
+    };
+  };
+
+  config.assertions = [
+    {
+      assertion = terraformRegistrySources == [ ];
+      message = ''
+        These `tofu.terraform.required_providers` entries name the Terraform
+        registry by host:
+
+        ${lib.concatMapStringsSep "\n" (entry: "  ${entry}") terraformRegistrySources}
+
+        `tofu.providers` pins each provider to a store path, and the tree it
+        builds lives under `registry.opentofu.org`. OpenTofu does not look for
+        a `registry.terraform.io/...` source there, so it falls back to
+        querying the registry over the network -- which fails where there is
+        none, and silently fetches an unpinned provider where there is.
+
+        Drop the host: `hashicorp/random`, not
+        `registry.terraform.io/hashicorp/random`. `registry.opentofu.org/...`
+        also resolves from the store if you want it spelled out.
+      '';
+    }
+  ];
+
+  # `required_providers` for every selected provider that knows its own
+  # source, unless the configuration says otherwise.
+  #
+  # Declaring the binary and the requirement separately is how a configuration
+  # ends up asking for a version it did not pin -- and the failure is the
+  # quiet kind, because OpenTofu resolves the requirement it was given and
+  # fetches from the network whatever the store happens to hold. `mkDefault`,
+  # so naming one by hand still wins.
+  config.tofu.terraform.required_providers = lib.mkDefault (
+    lib.listToAttrs (lib.concatMap providerRequirement (cfg.providers cfg.package.plugins))
+  );
+
+  config.tofu = {
+    wrappedPackage = cfg.package.withPlugins cfg.providers;
+
+    resolvedProviders = map (plugin: {
+      inherit (plugin) version;
+      name = plugin.pname or plugin.name;
+      path = "${plugin}";
+    }) (cfg.providers cfg.package.plugins);
+
+    generated = checked (
+      lib.filterAttrs (_: value: value != { } && value != [ ]) (dropNulls {
+        inherit (cfg)
+          terraform
+          provider
+          resource
+          data
+          module
+          output
+          variable
+          locals
+          check
+          ephemeral
+          import
+          moved
+          removed
+          ;
+      })
+    );
+
+    # Pretty-printed, and that is not cosmetic: `ekn commit` writes this file
+    # to a branch so a person can read the diff. `builtins.toJSON` emits one
+    # line, and a one-line diff of a whole infrastructure change says only that
+    # it changed.
+    #
+    # `jq` rather than a Nix printer, because Nix has none. `--sort-keys` on
+    # top of the alphabetical order `builtins.toJSON` already produces, so the
+    # order is jq's own rule rather than a coincidence of how Nix serializes.
+    configFile =
+      pkgs.runCommand "tofu-config"
+        {
+          nativeBuildInputs = [ pkgs.jq ];
+          value = cfg.generated;
+          providers = cfg.resolvedProviders;
+          __structuredAttrs = true;
+          preferLocalBuild = true;
+        }
+        ''
+          mkdir -p "$out"
+          jq --sort-keys .value "$NIX_ATTRS_JSON_FILE" > "$out/config.tf.json"
+          jq --sort-keys .providers "$NIX_ATTRS_JSON_FILE" > "$out/providers.json"
+        '';
+
+    providerSchemas =
+      pkgs.runCommand "tofu-provider-schemas"
+        {
+          nativeBuildInputs = [ pkgs.jq ];
+          value = requiredProviders;
+          __structuredAttrs = true;
+        }
+        ''
+          export HOME="$TMPDIR/home" CHECKPOINT_DISABLE=1 TF_IN_AUTOMATION=1
+          mkdir -p "$HOME" work
+          cd work
+          jq .value "$NIX_ATTRS_JSON_FILE" > config.tf.json
+          ${cfg.wrappedPackage}/bin/tofu init -backend=false -input=false >&2
+          ${cfg.wrappedPackage}/bin/tofu providers schema -json > "$out"
+        '';
+
+    jsonSchema =
+      pkgs.runCommand "tofu-json-schema"
+        {
+          nativeBuildInputs = [ pkgs.jq ];
+          value = requiredProviders;
+          __structuredAttrs = true;
+        }
+        ''
+          jq .value "$NIX_ATTRS_JSON_FILE" > config.tf.json
+          ${lib.getExe' eknPackage "ekn"} _tofuJsonSchema \
+            --core ${coreSchema} \
+            --providers ${cfg.providerSchemas} \
+            --config-file config.tf.json > "$out"
+        '';
+
+    schemaCheck = pkgs.runCommand "tofu-schemacheck" { } ''
+      ${lib.getExe' eknPackage "ekn"} _tofuSchemaCheck ${cfg.configFile}/config.tf.json \
+        --schema ${cfg.jsonSchema}
+      touch "$out"
+    '';
+  };
+}

@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ekn"
+version = "0.1.0"
+description = "easykubenix CLI"
+# `3.13`, which is what this program really needs, and `ruff.toml` targets it. The floor said `3.10` while the source
+# already used `typing.override` and `type X = ...`, both of which are 3.12.
+requires-python = ">=3.13"
+authors = [{ name = "easykubenix contributors" }]
+dependencies = [
+  # Nix, in-process (easykubenix#52).
+  "huggorm",
+  "pydantic",
+  # `ekn.fod` finds a fixed-output hash in Nix source by its syntax tree.
+  "tree-sitter",
+  "tree-sitter-nix",
+  "pygit2",
+  "pyyaml",
+  # `argcomplete`, and not `clypi`. The parser is `argparse`, from the standard
+  # library, so this dependency answers a Tab press and nothing else.
+  #
+  # nanopynix drove every candidate on a pty in bash, zsh and fish, and kept
+  # this one: the shell sends it the raw command line and the cursor offset
+  # rather than a list of words, so a value holding `:` or `=` survives.
+  # `--flake .#app` and `--attr=kube` are those shapes, and they are what `ekn`
+  # is typed with. clypi published no way to reach its completion script at
+  # all, and resolved the shell through `$SHELL`.
+  "argcomplete",
+  "kr8s",
+  # `ekn schemacheck`: jsonschema-rs validates, httpx fetches yannh's schemas.
+  # easykubenix/pkgs overlays jsonschema-rs to a newer release than nixpkgs.
+  "jsonschema-rs",
+  "httpx",
+  # `ekn schema-check` evaluates CRDs' x-kubernetes-validations with it.
+  "cel-python",
+  "anyio",
+  "structlog",
+  "rich",
+  "pydantic-core",
+]
+
+# `EKN_PROFILE=pyinstrument` only. Optional because a release `ekn` should not
+# carry a profiler, and `eval.py` imports it inside the toggle rather than at
+# module scope, so its absence costs a message rather than a traceback. The
+# dev environment enables this extra; see `eknDevEnv` in ../default.nix.
+[project.optional-dependencies]
+profile = [
+  "pyinstrument",
+]
+test = [
+  "pytest",
+]
+
+[project.scripts]
+ekn = "ekn.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ekn"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+# `../tests`, and not `../../tests`. The latter is what this file carried
+# while it lived one level deeper in the nanopynix checkout, and it resolved
+# to a sibling of that repository root -- a path that has never existed. The
+# suite that exercises these modules is easykubenix's own `tests/`.
+#
+# No `venvPath`/`venv` either. `direnv exec . pyright ekn` runs inside the
+# nix shell, whose interpreter already has the whole dependency closure; a
+# `.venv` directory is never created here and pointing at a missing one only
+# made pyright resolve nothing.
+include = ["src", "../tests"]
+extraPaths = ["src"]

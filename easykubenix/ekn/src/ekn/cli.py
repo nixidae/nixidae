@@ -1,0 +1,2579 @@
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import os
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path as _Path
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, TextIO, cast
+
+import anyio
+import anyio.to_thread
+import httpx
+import kr8s.asyncio
+import pygit2
+import rich.traceback
+import structlog
+from anyio import Path
+from huggorm.errors import NixError
+from huggorm.jsonprimop import JsonValue
+from pydantic import TypeAdapter, ValidationError
+
+from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck
+from ekn._cli import Command, build_parser, complete, dispatch, opt, pos
+from ekn.apply import (
+    DEFAULT_DELIVERY_MANAGERS,
+    DEFAULT_ENVIRONMENT_LABEL,
+    DEFAULT_FIELD_MANAGER,
+    apply_and_prune,
+    prune_generation,
+)
+from ekn.clusterdiff import cluster_diff
+from ekn.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS
+from ekn.directapply import converge_direct, report_failures
+from ekn.eval import (
+    ApplyGroup,
+    GitOpsManifestsResult,
+    KubeApplyConfigResult,
+    UnrealisedPathsError,
+    evaluate_cache_config,
+    evaluate_file,
+    evaluate_flake,
+    evaluate_flake_ekn,
+    evaluate_generated_with_spec,
+    evaluate_gitops_manifests,
+    evaluate_kubeapply_config,
+    evaluate_schemacheck_config,
+    evaluate_tofu_units,
+    evaluate_validation_config,
+    evaluate_validation_file,
+    evaluate_with_fod_update,
+    push_closure_to_store,
+    python_profile,
+    realise_attr,
+    ssh_failure_hint,
+    timed_stage,
+    verbose_session,
+)
+from ekn.git import (
+    ConcurrentDeployError,
+    PreparedCommits,
+    commit_manifests,
+    diff_manifests,
+    finalize_branches,
+    prepare_deploy_and_source_commits,
+    rollback_branches,
+    try_jj_status,
+)
+from ekn.gitops import (
+    GitOpsTargetError,
+    branches as gitops_branches,
+    file_groups as gitops_file_groups,
+    flatten_manifests,
+)
+from ekn.nixyaml import from_go_like_yaml_stream, from_yaml11_stream, from_yaml_stream, to_yaml
+from ekn.reclaim import reclaim
+from ekn.schemacheck import Catalog, GroupVersionKind, Report, add_rendered_crds, check
+from ekn.schemapolicy import PolicyResult, check_policies
+from ekn.schemasource import load_installed, load_server, load_spec_dir, load_yannh
+from ekn.sops import ensure_age_identities, maybe_decrypt
+from ekn.tofu import (
+    TofuError,
+    dependents as tofu_dependents,
+    file_groups as tofu_file_groups,
+    kubeconfig_from_output as tofu_kubeconfig,
+    orphaned_state as tofu_orphaned_state,
+    output as tofu_output,
+    run_chain,
+)
+from ekn.tofuschema import build_schema as build_tofu_schema, check as tofu_schema_check, shipped_units
+from ekn.validation import EphemeralControlPlane, load_manifest_objects, prepare_validation_objects
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+
+    from ekn.eval import SchemaCheckConfig, TofuUnit
+
+_log = structlog.get_logger()
+
+#: What `ekn deploy --verbosity` accepts: the eight names Nix knows, so
+#: argparse rejects anything else and the shell offers them on Tab.
+type LogLevel = Literal["error", "warn", "notice", "info", "talkative", "chatty", "debug", "vomit"]
+
+
+def _report_nix_error(exc: NixError) -> NoReturn:
+    """Log a Nix eval/build failure and exit(1) -- shared by every Command
+    that evaluates Nix and can't do anything useful once it fails."""
+    _log.error(str(exc))
+    raise SystemExit(1) from exc
+
+
+def _report_validation_error(context: str, exc: ValidationError) -> NoReturn:
+    """Log a pydantic ValidationError against `context` (e.g. "GitOps
+    config") and exit(1) -- shared by every Command whose evaluate_* result
+    is validated into a pydantic model."""
+    _log.error(f"invalid {context}: {exc}")
+    raise SystemExit(1) from exc
+
+
+def _report_server_error(action: str, exc: kr8s.ServerError) -> NoReturn:
+    """Log a kr8s.ServerError with its response body and exit(1).
+
+    The exception message is the API server's `message` field, for a 5xx as
+    well as a 4xx. The body around it carries `reason`, `details` and
+    `code`, which name the failing field on a rejected apply.
+    """
+    body = exc.response.text if exc.response is not None else None
+    _log.error("%s failed\n%s\nresponse body: %s", action, exc, body)
+    raise SystemExit(1) from exc
+
+
+def _parse_flake(flake_ref: str) -> tuple[str, str | None]:
+    if "#" in flake_ref:
+        uri, _, customer = flake_ref.partition("#")
+    else:
+        uri, customer = flake_ref, None
+    if not uri or uri == ".":
+        uri = str(_Path.cwd())
+    return uri, customer
+
+
+async def _evaluate(
+    file: _Path | None,
+    flake: str | None,
+    attr: str | None,
+) -> object:
+    try:
+        if flake is not None:
+            uri, customer = _parse_flake(flake)
+            if customer:
+                return await evaluate_flake_ekn(uri, customer)
+            return await evaluate_flake(uri, attr)
+        if file is not None:
+            return await evaluate_file(file, attr)
+        raise ValueError("specify --file or --flake")
+    except NixError as exc:
+        _report_nix_error(exc)
+
+
+async def _evaluate_gitops(
+    file: _Path | None,
+    flake: str | None,
+    attr: str | None,
+) -> GitOpsManifestsResult:
+    """Like `_evaluate`, but only forces kubernetes.deploymentUnits -- the
+    only field Diff/Commit/Deploy read via `gitops.file_groups`."""
+    try:
+        uri, customer = _parse_flake(flake) if flake is not None else (None, None)
+        return await evaluate_gitops_manifests(file, uri, customer, attr)
+    except NixError as exc:
+        _report_nix_error(exc)
+    except ValidationError as exc:
+        _report_validation_error("GitOps config", exc)
+
+
+class NixCommand(Command):
+    """A command that reads a Nix entry point: a file, or a flake reference.
+
+    **Declared once, and inherited.** `Command.__init_subclass__` walks the MRO,
+    so a subclass gets these without redeclaring them. Under clypi each command
+    parsed only what its own class body declared, so the same lines stood in
+    front of every command in this file, `inherited=True` and all.
+    """
+
+    file: _Path | None = opt(None, short="f", help="Nix file to evaluate.")
+    flake: str | None = opt(
+        None, help="Flake reference (e.g. '.#myconfig'). Evaluates outputs.eknConfig.<system>.<attr>."
+    )
+
+
+class AttrCommand(NixCommand):
+    """A Nix command that also takes a path inside the evaluated result.
+
+    Separate from `NixCommand` for one command: `pushcache` has an `--attr` of
+    its own, which the caller must give and which names what to build. A
+    subclass cannot narrow an inherited `str | None` to `str`.
+    """
+
+    attr: str | None = opt(None, short="A", help="Dot-separated attribute path within the evaluation result.")
+
+
+class FencedCommand(AttrCommand):
+    """An `AttrCommand` that reaches a real cluster, and checks which one.
+
+    Declared here rather than on `AttrCommand` because most subclasses of
+    that never open an API at all -- `eval`, `render`, `diff`, `commit`,
+    `rollback` -- and an option they cannot act on is an option somebody
+    will try.
+
+    `_fence` goes immediately after the `kr8s.asyncio.api(...)` that a
+    subclass builds, and above the first thing that writes. In `kubeapply`
+    that means above `ensure_age_identities`, which creates a Namespace and a
+    Secret, and above `_hold_the_engine`, which scales workloads down: both
+    run before any manifest is applied.
+    """
+
+    i_dont_know_which_cluster_this_is: bool = opt(
+        False,
+        help="Run although ekn.clusterUid is unset. It does not override a mismatch: a configuration "
+        "that names a different cluster is a disagreement, not a missing answer.",
+    )
+
+    async def _fence(self, api: kr8s.asyncio.Api, cfg: KubeApplyConfigResult) -> str | None:
+        return await clusterfence.require(
+            api,
+            cfg.cluster_uid,
+            environment=cfg.environment,
+            override=self.i_dont_know_which_cluster_this_is,
+        )
+
+
+class Eval(AttrCommand):
+    """Evaluate Nix and dump JSON."""
+
+    update_fod: bool = opt(
+        False,
+        help="On a fixed-output hash mismatch, patch --source-file's plain-string hash literal with Nix's reported hash and retry.",
+    )
+    source_file: _Path | None = opt(
+        None,
+        help="Nix file containing the fixed-output hash literal to patch (required with --update-fod).",
+    )
+
+    async def run(self) -> None:
+        if self.update_fod:
+            if self.source_file is None:
+                _log.error("--update-fod requires --source-file")
+                raise SystemExit(1)
+            uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+            try:
+                result = await evaluate_with_fod_update(
+                    self.file,
+                    uri,
+                    customer,
+                    self.attr,
+                    source_file=self.source_file,
+                )
+            except NixError as exc:
+                _report_nix_error(exc)
+        else:
+            result = await _evaluate(self.file, self.flake, self.attr)
+        json.dump(result, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+
+
+class Render(AttrCommand):
+    """Render Kubernetes manifests as YAML on stdout."""
+
+    validate: bool = opt(
+        False,
+        help="Check every object against its JSON schema before writing any: built-in kinds from "
+        "validation.openapiSpec, custom resources from the rendered CRDs. No cluster and no network; "
+        "the same check as validation.schemaCheck. A violation writes nothing and exits 1.",
+    )
+
+    async def run(self) -> None:
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            manifests, spec_dir = await evaluate_generated_with_spec(
+                self.file, uri, customer, self.attr, with_spec=self.validate
+            )
+        except NixError as exc:
+            _report_nix_error(exc)
+        if not isinstance(manifests, list):
+            _log.error("expected a list result, got %s", type(manifests).__name__)
+            raise SystemExit(1)
+        if spec_dir is not None:
+            # stderr: stdout is the YAML.
+            await _check_schemas(
+                cast("list[dict[str, Any]]", manifests),
+                lambda catalog: _load_spec(catalog, spec_dir),
+                stream=sys.stderr,
+            )
+        for _, content in flatten_manifests(manifests):
+            sys.stdout.write("---\n")
+            sys.stdout.write(content)
+
+
+class Diff(AttrCommand):
+    """Diff GitOps-routed manifests against the deploy branch."""
+
+    async def run(self) -> None:
+        # `ekn diff` moves no ref, so it does not assert fetchability.
+        deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(self.file, self.flake, self.attr)
+        try:
+            diff_output = diff_manifests(".", deploy_branch, files)
+        except Exception as exc:
+            _log.error("diff failed: %s", exc)
+            raise SystemExit(1) from exc
+        if diff_output is not None:
+            sys.stdout.write(diff_output)
+        else:
+            _log.info("no differences")
+        await try_jj_status(".")
+
+
+async def _resolve_gitops(
+    file: _Path | None,
+    flake: str | None,
+    attr: str | None,
+) -> tuple[str, str | None, list[tuple[str, str]], list[str]]:
+    """Evaluate GitOps manifests and return `(deploy_branch, source_branch,
+    files, assert_cached)` -- one branch pair per easykubenix instance, see
+    `gitops.branches`.
+
+    `assert_cached` rides along rather than being evaluated again: the
+    substituters have to come from the render being deployed, and this is
+    the function that already has it. See `_assert_committed_fetchable`.
+    """
+    result = await _evaluate_gitops(file, flake, attr)
+    try:
+        files = gitops_file_groups(result)
+        # Each `tf` unit's `config.tf.json`, beside the manifests and on the
+        # same branch. Committed so the infrastructure change is reviewable as
+        # a diff, the same way the rendered objects are.
+        files += tofu_file_groups(result.config.git_ops.tofu_units)
+    except (GitOpsTargetError, TofuError, TypeError) as exc:
+        _log.error("GitOps routing failed: %s", exc)
+        raise SystemExit(1) from exc
+    if not files:
+        # Checked here rather than inside either renderer: a `tf`-only
+        # instance routes no Kubernetes object and still has something to
+        # commit, so neither half can answer this on its own.
+        _log.error("nothing to commit: no routed Kubernetes objects and no tf units")
+        raise SystemExit(1)
+    deploy_branch, source_branch = gitops_branches(result)
+    return deploy_branch, source_branch, files, result.config.ekn.assert_cached
+
+
+async def _assert_committed_fetchable(files: list[tuple[str, str]], substituters: list[str]) -> None:
+    """Refuse to move a branch naming a store path no node can fetch.
+
+    **The render being deployed, not the one CI built.** CI proves its own
+    render is fetchable; nothing proved this one was, and the two differ the
+    moment a pin moves. Reached by hand on nixlab2 one minute before a
+    deploy that would have taken pynixd down. Issue #19.
+
+    Over the committed text, so it asks about exactly what a GitOps engine
+    will read from the branch -- including a `tf` unit's rendered
+    configuration, and excluding a seeded object `ekn commit` withholds.
+
+    The substituters come from the render (`ekn.assertCached`), never from
+    this machine: a workstation holding the path in its own store would pass
+    a check the cluster still fails. Empty is off, which is right for an
+    instance with no CSI-backed store.
+    """
+    if not substituters:
+        return
+    paths: set[str] = set()
+    for _path, content in files:
+        paths |= storecheck.store_paths_in_text(content)
+    if not paths:
+        return
+    with timed_stage("commit: assert every committed store path is fetchable"):
+        try:
+            await storecheck.assert_fetchable(paths, substituters=substituters)
+        except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
+            raise SystemExit(str(exc)) from exc
+
+
+def _default_commit_message(attr: str | None) -> str:
+    try:
+        repo = pygit2.Repository(".")
+        head_sha = str(repo.head.target)[:7]
+    except Exception:
+        head_sha = "unknown"
+    return f"ekn: render manifests from {attr or 'root'} @ {head_sha}"
+
+
+async def _finalize_commit(  # noqa: PLR0913 -- tracked complexity/arg-count debt, see TODO.md
+    deploy_branch: str,
+    source_branch: str | None,
+    files: list[tuple[str, str]],
+    message: str,
+    prepared: PreparedCommits | None,
+    *,
+    push: bool,
+    remote: str,
+) -> None:
+    """Write the rendered manifests to `deploy_branch` (and, if
+    `source_branch` is set, the paired source snapshot too), then push if
+    requested.
+
+    If `prepared` is given (built earlier via
+    `prepare_deploy_and_source_commits`, e.g. before `Deploy` runs Validate),
+    only the finalize (ref-move) step happens here. Otherwise prepare and
+    finalize happen back-to-back -- `Commit` invoked directly has no
+    intervening verification step to prepare ahead of.
+    """
+    if source_branch is None:
+        try:
+            commit_id = commit_manifests(".", deploy_branch, files, message)
+        except Exception as exc:
+            _log.error("commit failed: %s", exc)
+            raise SystemExit(1) from exc
+        _log.info("committed to %s @ %s", deploy_branch, commit_id)
+    else:
+        try:
+            if prepared is None:
+                prepared = prepare_deploy_and_source_commits(
+                    ".",
+                    deploy_branch,
+                    source_branch,
+                    files,
+                    message,
+                )
+            finalize_branches(".", deploy_branch, source_branch, prepared)
+        except ConcurrentDeployError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        except Exception as exc:
+            _log.error("commit failed: %s", exc)
+            raise SystemExit(1) from exc
+        _log.info(
+            "committed to %s @ %s (source %s @ %s)",
+            deploy_branch,
+            prepared.deploy_oid,
+            source_branch,
+            prepared.source_oid,
+        )
+    if push:
+        await _git_push(remote, deploy_branch, source_branch)
+
+
+class CachePushCommand(AttrCommand):
+    """A command that puts store paths on `ekn.cacheTo` before it acts.
+
+    `ekn deploy` and `ekn kubeapply` need exactly the same thing for exactly
+    the same reason, so they declare it once here: a CSI-mounted store path
+    can only be substituted -- the volume names an output path, so a node
+    cannot build it -- and a path that was never pushed is a pod that fails
+    to start. `deploy` needs it before the branch moves, because an engine
+    may sync the instant it does; `kubeapply` needs it before the apply,
+    because there is no engine in front of it at all.
+
+    **Declared once and inherited**, the same way `NixCommand` declares
+    `--file`. Two copies of a flag drift: one grows a default the other
+    lacks, and the help text stops agreeing with the behaviour.
+    """
+
+    cache_push: bool = opt(
+        True,
+        negatable=True,
+        help="Push the store paths the manifests name to ekn.cacheTo first. A no-op when ekn.cacheTo is null. "
+        "On by default: a CSI-mounted store path that was never pushed is a pod that fails to start.",
+    )
+    cache_allow_failure: bool = opt(
+        False,
+        help="Log a warning and continue if the cache push fails, instead of aborting. Off by default -- "
+        "CSI-mounted pods fail to start if referenced store paths were never pushed, so a failed push "
+        "should normally block. Covers the push only: ekn.preApplyCommand still aborts on a non-zero "
+        "exit, and reads this as EKN_CACHE_ALLOW_FAILURE to decide for itself.",
+    )
+
+    async def push_cache(self) -> None:
+        """Run the push this command's flags ask for, timed and labelled."""
+        if not self.cache_push:
+            _log.info("--no-cache-push: not pushing to ekn.cacheTo")
+            return
+        with timed_stage(f"{self.cli_name or type(self).__name__.lower()}: cache-push (total, incl. network copy)"):
+            await _push_ekn_cache(self.file, self.flake, self.attr, allow_failure=self.cache_allow_failure)
+
+
+class Commit(AttrCommand):
+    """Render manifests and write them to the GitOps deploy (and paired
+    source) branch."""
+
+    message: str | None = opt(None, short="m", help="Commit message.")
+    push: bool = opt(
+        False,
+        help="git push the committed GitOps branch(es) to their remote afterwards -- "
+        "commits are only ever made locally, and ArgoCD/Flux read from the remote.",
+    )
+    remote: str = opt("origin", help="Remote to push GitOps branch(es) to (with --push).")
+
+    async def run(self) -> None:
+        deploy_branch, source_branch, files, assert_cached = await _resolve_gitops(self.file, self.flake, self.attr)
+        message = self.message or _default_commit_message(self.attr)
+        await _assert_committed_fetchable(files, assert_cached)
+        await _finalize_commit(
+            deploy_branch,
+            source_branch,
+            files,
+            message,
+            None,
+            push=self.push,
+            remote=self.remote,
+        )
+        await try_jj_status(".")
+
+
+async def _git_push(remote: str, deploy_branch: str, source_branch: str | None) -> None:
+    branches = [deploy_branch] if source_branch is None else [deploy_branch, source_branch]
+    _log.info(f"pushing {', '.join(branches)} to {remote}")
+    # --atomic (a no-op with a single ref) keeps deploy_branch/source_branch
+    # from ever updating independently on the remote when both are pushed.
+    # `stdout=None, stderr=None`: git's progress belongs on this terminal, and
+    # `anyio.run_process` pipes both unless told otherwise.
+    completed = await anyio.run_process(
+        ["git", "push", "--atomic", remote, *branches],
+        stdout=None,
+        stderr=None,
+        check=False,
+    )
+    rc = completed.returncode
+    if rc != 0:
+        _log.error(f"git push --atomic {remote} {' '.join(branches)} failed (rc={rc})")
+        raise SystemExit(1)
+
+
+async def _push_cache(  # noqa: PLR0913 -- tracked complexity/arg-count debt, see TODO.md
+    attr: str, file: _Path | None, flake: str | None, to: str, *, substitute_on_destination: bool, check_sigs: bool
+) -> None:
+    try:
+        path = await realise_attr(file, flake, attr)
+        await push_closure_to_store(
+            [path],
+            to,
+            substitute_on_destination=substitute_on_destination,
+            check_sigs=check_sigs,
+        )
+    except NixError as exc:
+        _report_nix_error(exc)
+    _log.info(f"pushed {path} to {to}")
+
+
+async def _push_ekn_cache(file: _Path | None, flake: str | None, attr: str | None, *, allow_failure: bool) -> None:
+    """`Deploy`'s automatic pre-git-push cache push, sourced entirely from
+    `ekn.cacheTo` -- a list of destination URIs, and no other knob.
+
+    Must run and (by default) succeed *before* the git commit/push that
+    triggers GitOps sync: CSI-mounted store paths referenced in the
+    manifests about to be applied need to already be substitutable, or
+    those pods fail to start the moment ArgoCD/Flux syncs.
+    """
+    try:
+        uri, customer = _parse_flake(flake) if flake is not None else (None, None)
+        cfg = await evaluate_cache_config(file, uri, customer, attr)
+    except NixError as exc:
+        _report_nix_error(exc)
+    except ValidationError as exc:
+        _report_validation_error("cache config", exc)
+
+    if not cfg.cache_to:
+        _log.info("ekn.cacheTo is null -- skipping the cache push")
+        return
+    if not cfg.cache_paths:
+        _log.info("the manifests name no store paths -- skipping the cache push")
+        return
+    _log.info(f"the manifests name {len(cfg.cache_paths)} store path(s)")
+
+    # Every destination, because a path that reached only some of the stores
+    # that need it is the case `ekn.cacheTo` accepts a list to avoid.
+    for cache_to in cfg.cache_to:
+        await _push_one_cache(
+            cfg.cache_paths,
+            cache_to,
+            timeout_sec=cfg.cache_timeout_sec,
+            allow_failure=allow_failure,
+            accept_new_host_keys=cfg.cache_accept_new_host_keys,
+        )
+
+
+async def _run_pre_apply(
+    cfg: KubeApplyConfigResult,
+    *,
+    target: str | None,
+    cache_push: bool = True,
+    cache_allow_failure: bool = False,
+) -> None:
+    """Run `ekn.preApplyCommand`, and stop the apply if it fails.
+
+    **The manifest is the objects this apply sends, not the whole instance.**
+    A `--target` slice is the slice and a seeded Secret carries its resolved
+    value, so a hook reading store paths out of it sees what is about to be
+    applied rather than what the configuration describes. Issue #5.
+
+    **A non-zero exit always aborts.** A hook that pushes a closure and
+    fails, ignored, leaves a cluster pointed at store paths nothing it can
+    reach holds -- which is the bug this hook is usually written to avoid.
+    So there is no `--pre-apply-allow-failure`: the hook decides what it
+    tolerates, and `ekn` tells it what the deploy tolerates through
+    `EKN_CACHE_ALLOW_FAILURE` and `EKN_CACHE_PUSH`. A hook that wants to be
+    advisory exits 0 itself.
+    """
+    command = cfg.pre_apply_command
+    if command is None:
+        return
+
+    with tempfile.TemporaryDirectory(prefix="ekn-preapply-") as tmp:
+        manifest = _Path(tmp) / "manifest.json"
+        manifest.write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": cfg.objects}, indent=2))
+        env = {
+            **os.environ,
+            "EKN_MANIFEST": str(manifest),
+            "EKN_ENVIRONMENT": cfg.environment,
+            "EKN_TARGET": target or "",
+            # What the deploy around it tolerates, so the script can match
+            # it. `1`/`0` rather than `true`/`false`: `[ "$X" = 1 ]` in a
+            # POSIX shell needs no case handling.
+            "EKN_CACHE_PUSH": "1" if cache_push else "0",
+            "EKN_CACHE_ALLOW_FAILURE": "1" if cache_allow_failure else "0",
+        }
+        _log.info(f"running ekn.preApplyCommand: {command}")
+        with timed_stage("kubeapply: preApplyCommand"):
+            # The hook's own output goes to this terminal; see `_git_push`.
+            completed = await anyio.run_process(
+                [command, str(manifest)],
+                stdout=None,
+                stderr=None,
+                env=env,
+                check=False,
+            )
+            rc = completed.returncode
+    if rc != 0:
+        _log.error(f"ekn.preApplyCommand exited {rc} -- nothing has been applied")
+        raise SystemExit(1)
+
+
+def _with_ssh_hint(message: str, hint: str | None) -> str:
+    return message if hint is None else f"{message}\n{hint}"
+
+
+async def _push_one_cache(
+    cache_paths: list[str],
+    cache_to: str,
+    *,
+    timeout_sec: float | None,
+    allow_failure: bool,
+    accept_new_host_keys: bool = True,
+) -> None:
+    """One destination of `ekn.cacheTo`. See `_push_ekn_cache`."""
+    if timeout_sec is not None:
+        _log.info(f"pushing {len(cache_paths)} path(s) to {cache_to} (up to {timeout_sec:g}s)")
+
+    try:
+        await push_closure_to_store(
+            cache_paths,
+            cache_to,
+            timeout_sec=timeout_sec,
+            accept_new_host_keys=accept_new_host_keys,
+        )
+    except UnrealisedPathsError as exc:
+        # Not covered by `--cache-allow-failure`. That flag decides what to
+        # do about a destination this machine could not reach; this is a
+        # configuration that cannot push what the apply needs, and
+        # continuing would put the failure on a node an hour later.
+        _log.error(str(exc))
+        raise SystemExit(1) from exc
+    except NixError as exc:
+        # Before the report, not after: `_report_nix_error` exits, and Nix's
+        # own `failed to start SSH connection to '<host>'` is the message
+        # this exists to explain. Issue #18.
+        detail = _with_ssh_hint(str(exc), await ssh_failure_hint(cache_to))
+        if allow_failure:
+            _log.warning(f"cache push to {cache_to} failed, continuing anyway (--cache-allow-failure)\n{detail}")
+            return
+        _log.error(detail)
+        raise SystemExit(1) from exc
+    except TimeoutError:
+        # A timeout is a failure of the push like any other, so
+        # `--cache-allow-failure` covers it too. Said with the setting's
+        # name, because the reason a deploy stopped here is a number
+        # somebody chose and can change.
+        reason = _with_ssh_hint(
+            f"cache push to {cache_to} did not finish within "
+            f"ekn.cacheTimeoutSec ({timeout_sec:g}s). The host may be "
+            f"routed but not listening, which ssh waits out in silence.",
+            await ssh_failure_hint(cache_to),
+        )
+        if allow_failure:
+            _log.warning(f"{reason} Continuing anyway (--cache-allow-failure).")
+            return
+        _log.error(reason)
+        raise SystemExit(1) from None
+    _log.info(f"pushed {len(cache_paths)} path(s) to {cache_to}")
+
+
+class Validate(AttrCommand):
+    """Boot real etcd+kube-apiserver, apply manifests, and check their schemas."""
+
+    async def run(self) -> None:
+        if self.file is not None:
+            cfg = await evaluate_validation_file(self.file, self.attr)
+        else:
+            uri, customer = _parse_flake(str(self.flake))
+            if customer is None:
+                _log.error("--flake must include a customer attr (e.g. '.#myapp')")
+                raise SystemExit(1)
+            cfg = await evaluate_validation_config(uri, customer)
+        c = cfg.config
+
+        manifest_path = c.internal.manifest_json_file.out_path
+        novalidate_keys = {(k["kind"], k["namespace"], k["name"]) for k in c.novalidate_keys}
+
+        async with EphemeralControlPlane(
+            k8s_bin=c.kubernetes.package.out_path + "/bin",
+            etcd_bin=c.validation.etcd_package.out_path + "/bin",
+            service_subnet=c.validation.service_subnet,
+            kubeadm_config=c.validation.kubeadm_config,
+        ) as plane:
+            _log.info("applying manifests")
+            objects = await prepare_validation_objects(manifest_path, novalidate_keys)
+            kr8s_api = await kr8s.asyncio.api(kubeconfig=plane.kubeconfig)
+            try:
+                await apply_and_prune(
+                    objects,
+                    api=kr8s_api,
+                    environment=c.ekn.environment,
+                    resource_priority=c.ekn.resource_priority,
+                )
+            except kr8s.ServerError as exc:
+                _report_server_error("apply", exc)
+            except Exception as exc:
+                _log.error("apply failed\n%s", exc)
+                raise SystemExit(1) from exc
+
+            spec_dir = c.validation.openapi_spec
+            await _check_schemas(
+                await load_manifest_objects(manifest_path), lambda catalog: _load_spec(catalog, spec_dir)
+            )
+
+            _log.info("Your manifests are as valid as they can be against Kubernetes %s", c.kubernetes.package.version)
+
+
+def _report_schemas(
+    report: Report,
+    policies: PolicyResult,
+    catalog: Catalog,
+    *,
+    seconds: dict[str, float],
+    stream: TextIO = sys.stdout,
+) -> None:
+    """Print *report* and *policies*, violations to *stream*, then exit 1 if
+    either holds one."""
+    for gvk, origin in sorted(catalog.overridden.items()):
+        _log.debug("a rendered CRD replaces the schema", kind=str(gvk), replaced=origin.value)
+    if catalog.overridden:
+        _log.info("rendered CRDs replace other sources' schemas", kinds=len(catalog.overridden))
+    for ref in sorted(set(report.unknown)):
+        _log.warning("no schema for this kind; not checked", object=str(ref))
+    stream.writelines(f"{violation}\n" for violation in report.violations)
+    stream.writelines(f"{violation}\n" for violation in policies.violations)
+    for violation in policies.warnings:
+        _log.warning("admission policy warns", violation=str(violation))
+    checked = {origin.value: count for origin, count in report.checked.items()}
+    if report.cel.evaluated or report.cel.skipped:
+        _log.info("CEL rules", evaluated=report.cel.evaluated, skipped=dict(report.cel.skipped.most_common()))
+    if policies.admitted or policies.skipped or policies.undecided:
+        _log.info(
+            "admission policies",
+            objects=policies.admitted,
+            evaluated=policies.evaluated,
+            skipped=dict(policies.skipped.most_common()),
+            undecided=dict(policies.undecided.most_common()),
+        )
+    violations = len(report.violations) + len(policies.violations)
+    if violations:
+        _log.error("schema check failed", violations=violations, checked=checked, seconds=seconds)
+        raise SystemExit(1)
+    _log.info("schema check passed", checked=checked, unchecked=len(report.unknown), seconds=seconds)
+
+
+async def _check_schemas(
+    objects: list[dict[str, Any]],
+    load: Callable[[Catalog], Awaitable[None]],
+    *,
+    stream: TextIO = sys.stdout,
+) -> None:
+    """Check *objects* against the rendered CRDs plus what *load* adds, and report.
+
+    Timed always, not behind EKN_TIMING: it runs before every apply, so its
+    cost is a number an operator should see. `load` is reading and converting
+    schemas; `check` includes compiling each kind's validator on first use.
+    """
+    started = time.monotonic()
+    catalog = Catalog()
+    add_rendered_crds(catalog, objects)
+    await load(catalog)
+    loaded = time.monotonic()
+    report = check(objects, catalog)
+    checked = time.monotonic()
+    policies = check_policies(objects, catalog)
+    seconds = {
+        "load": round(loaded - started, 3),
+        "check": round(checked - loaded, 3),
+        "policies": round(time.monotonic() - checked, 3),
+    }
+    _report_schemas(report, policies, catalog, seconds=seconds, stream=stream)
+
+
+async def _load_spec(catalog: Catalog, spec_dir: str) -> None:
+    files = await load_spec_dir(catalog, spec_dir)
+    _log.info("read the pinned OpenAPI spec", group_versions=files)
+
+
+async def _check_schemas_live(api: kr8s.asyncio.Api, cluster: str, objects: list[dict[str, Any]]) -> None:
+    """Check *objects* against the cluster's own OpenAPI v3 and the rendered CRDs."""
+
+    async def load(catalog: Catalog) -> None:
+        await _load_server(catalog, api, cluster)
+
+    await _check_schemas(objects, load)
+
+
+async def _load_server(catalog: Catalog, api: kr8s.asyncio.Api, cluster: str) -> None:
+    files = await load_server(catalog, api, cluster)
+    _log.info("read the cluster's OpenAPI v3", group_versions=files, cluster=cluster)
+    installed = await load_installed(catalog, api)
+    _log.info("read the cluster's admission policies and namespaces", objects=installed)
+
+
+class SchemaCheck(FencedCommand):
+    """Check every rendered object against its JSON schema, with no API server.
+
+    Built-in kinds come from the cluster's own OpenAPI v3, and from
+    yannh/kubernetes-json-schema when the cluster cannot be reached. Both are
+    cached per cluster under $XDG_CACHE_HOME/ekn/schemas. A CRD in the render
+    replaces the cluster's schema for its kinds: it is what the apply installs.
+    CRDs' CEL rules and rendered ValidatingAdmissionPolicies are evaluated too.
+    """
+
+    offline: bool = opt(
+        False,
+        help="Read the built-in kinds from validation.openapiSpec, the pinned Kubernetes source tree, "
+        "and reach no cluster and no network. The same check as validation.schemaCheck.",
+    )
+
+    async def run(self) -> None:
+        uri, customer = _parse_flake(str(self.flake)) if self.flake is not None else (None, None)
+        try:
+            cfg = await evaluate_schemacheck_config(self.file, uri, customer, self.attr, live=not self.offline)
+        except NixError as exc:
+            _report_nix_error(exc)
+        objects = await load_manifest_objects(cfg.manifest_json_file)
+
+        async def load(catalog: Catalog) -> None:
+            if self.offline:
+                await _load_spec(catalog, cfg.openapi_spec)
+            elif cfg.environment is not None:
+                await self._load_live(catalog, objects, cfg, cfg.environment)
+
+        await _check_schemas(objects, load)
+
+    async def _load_live(
+        self,
+        catalog: Catalog,
+        objects: list[dict[str, Any]],
+        cfg: SchemaCheckConfig,
+        environment: str,
+    ) -> None:
+        declared, kubernetes_version = cfg.cluster_uid, cfg.kubernetes_version
+        try:
+            api = await kr8s.asyncio.api()
+            uid = await clusterfence.require(
+                api, declared, environment=environment, override=self.i_dont_know_which_cluster_this_is
+            )
+            await _load_server(catalog, api, uid or declared or "unidentified")
+        except (httpx.TransportError, OSError, ValueError) as exc:
+            # A cluster that cannot be reached is the case yannh exists for.
+            # One that answers with the wrong uid already raised SystemExit.
+            _log.warning("cannot reach the cluster; using yannh/kubernetes-json-schema", error=str(exc))
+            found = await load_yannh(
+                catalog,
+                {GroupVersionKind.of(obj) for obj in objects},
+                kubernetes_version,
+                declared or "unidentified",
+            )
+            _log.info("read yannh's schemas", kinds=found, kubernetes=kubernetes_version)
+            # After yannh, which outranks it: the pinned spec fills only what
+            # yannh lacks -- CustomResourceDefinition itself, and the ObjectMeta
+            # a custom resource's metadata is checked against.
+            await _load_spec(catalog, cfg.openapi_spec)
+
+
+class SchemaCheckManifest(Command):
+    """Check an already-rendered manifest against the schemas in a spec directory.
+
+    Internal: the body of easykubenix's `validation.schemaCheck` build. Use
+    `ekn schemacheck --offline` for the same check from a source tree.
+    """
+
+    cli_name = "_schemaCheck"
+
+    manifest_file: _Path = pos(help="JSON file holding the already-evaluated manifest list.")
+    spec_dir: _Path = opt(required=True, help="Directory of Kubernetes OpenAPI v3 group-version documents.")
+
+    async def run(self) -> None:
+        objects = await load_manifest_objects(str(self.manifest_file))
+        spec_dir = str(self.spec_dir)
+        await _check_schemas(objects, lambda catalog: _load_spec(catalog, spec_dir))
+
+
+async def _check_tofu_schema(name: str, config_file: str, schema_file: str, *, stream: TextIO = sys.stdout) -> bool:
+    """Check one `config.tf.json` against its unit's JSON Schema, and report."""
+    started = time.monotonic()
+    config = json.loads(await Path(config_file).read_text())
+    schema = json.loads(await Path(schema_file).read_text())
+    violations = tofu_schema_check(config, schema)
+    seconds = round(time.monotonic() - started, 3)
+    stream.writelines(f"{name}: {violation}\n" for violation in violations)
+    if violations:
+        _log.error("tofu schema check failed", unit=name, violations=len(violations), seconds=seconds)
+        return False
+    _log.info("tofu schema check passed", unit=name, seconds=seconds)
+    return True
+
+
+async def _check_tofu_units(units: list[TofuUnit]) -> None:
+    results = [
+        await _check_tofu_schema(unit.name, f"{unit.config_file}/config.tf.json", unit.json_schema) for unit in units
+    ]
+    if not all(results):
+        raise SystemExit(1)
+
+
+class TofuJsonSchema(Command):
+    """Write a unit's JSON Schema from the core and provider schemas.
+
+    Internal: the body of easykubenix's `tofu.jsonSchema` build.
+    """
+
+    cli_name = "_tofuJsonSchema"
+
+    core: _Path = opt(required=True, help="`ekn-tofuschema`'s export of OpenTofu's core schema.")
+    providers: _Path = opt(required=True, help="`tofu providers schema -json`.")
+    config_file: _Path = opt(required=True, help="A config.tf.json, read for `terraform.required_providers`.")
+
+    async def run(self) -> None:
+        core, dump, config = [
+            json.loads(await Path(path).read_text()) for path in (self.core, self.providers, self.config_file)
+        ]
+        required = config.get("terraform", {}).get("required_providers", {})
+        try:
+            schema = build_tofu_schema(core, dump, required)
+        except ValueError as exc:
+            _log.error("cannot build the tofu schema", error=str(exc))
+            raise SystemExit(1) from exc
+        json.dump(schema, sys.stdout)
+
+
+class TofuSchemaCheckFile(Command):
+    """Check a rendered config.tf.json against a unit's JSON Schema.
+
+    Internal: the body of easykubenix's `tofu.schemaCheck` build.
+    """
+
+    cli_name = "_tofuSchemaCheck"
+
+    config_file: _Path = pos(help="The rendered config.tf.json.")
+    schema: _Path = opt(required=True, help="The unit's `tofu.jsonSchema`.")
+
+    async def run(self) -> None:
+        if not await _check_tofu_schema("config.tf.json", str(self.config_file), str(self.schema)):
+            raise SystemExit(1)
+
+
+class Deploy(CachePushCommand, Commit):
+    """Verify, push the pre-deploy cache, commit, and push -- the whole
+    release in one command.
+
+    Chains Validate (unless --no-verify) -> cache push (`ekn.cacheTo`, read
+    straight from Nix config -- see `evaluate_cache_config`; a no-op if
+    `ekn.cacheTo` is unset) -> Commit
+    (render + write GitOps branches, git-pushed with --push).
+
+    The cache push runs *before* the git commit/push deliberately: ArgoCD/
+    Flux may sync the instant the branch updates, and CSI-mounted store
+    paths referenced in the manifests need to already be substitutable at
+    that point, not eventually -- a failed cache push aborts the deploy by
+    default (see --cache-allow-failure).
+    """
+
+    # `--file`, `--flake`, `--attr`, `--message`, `--push` and `--remote` are
+    # not here, and that is the point: `Command.__init_subclass__` walks the
+    # MRO, so `deploy` parses every option `commit` declares. clypi parsed only
+    # what the class body itself declared, so all six stood here as well.
+    no_verify: bool = opt(
+        False,
+        help="Skip the temporary API server and the schema check.",
+    )
+    verbosity: LogLevel = opt(
+        "error",
+        short="v",
+        help="Nix log verbosity for every eval/build during this deploy "
+        "(error, warn, notice, info, talkative, chatty, debug, vomit). `nix run "
+        "--print-build-logs` only covers building the ekn CLI package itself, not what "
+        "it does at runtime -- this is the runtime equivalent.",
+    )
+    print_build_logs: bool = opt(
+        False,
+        help="Stream build/eval log lines from the evaluator to stderr as they "
+        "happen, for visibility into what's taking long during Validate/cache-push/Commit.",
+    )
+
+    async def _check_tofu_units(self) -> None:
+        """Check every tf unit's config.tf.json, as `ekn tofu` does before it runs."""
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            units = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("tofu units", exc)
+        await _check_tofu_units(units)
+
+    async def run(self) -> None:
+        with verbose_session(self.verbosity, print_build_logs=self.print_build_logs):
+            deploy_branch, source_branch, files, assert_cached = await _resolve_gitops(self.file, self.flake, self.attr)
+            message = self.message or _default_commit_message(self.attr)
+
+            # Prepared *before* Validate/cache-push run (not just before the
+            # git push) -- pygit2 only ever builds loose objects here, no
+            # ref is moved until `_finalize_commit`'s `finalize_branches`
+            # call below, so a failed Validate/cache-push leaves no trace.
+            prepared: PreparedCommits | None = None
+            if source_branch is not None:
+                with timed_stage("deploy: prepare commits"):
+                    prepared = prepare_deploy_and_source_commits(
+                        ".",
+                        deploy_branch,
+                        source_branch,
+                        files,
+                        message,
+                    )
+
+            if not self.no_verify:
+                with timed_stage("deploy: validate (total)"):
+                    await Validate.run(cast("Validate", self))
+                with timed_stage("deploy: tofu schema check"):
+                    await self._check_tofu_units()
+            await self.push_cache()
+            # After the push, so a path this run just published counts, and
+            # before the branch moves, because an engine may sync the instant
+            # it does.
+            await _assert_committed_fetchable(files, assert_cached)
+            with timed_stage("deploy: commit (total, incl. git push)"):
+                await _finalize_commit(
+                    deploy_branch,
+                    source_branch,
+                    files,
+                    message,
+                    prepared,
+                    push=self.push,
+                    remote=self.remote,
+                )
+        await try_jj_status(".")
+
+
+class Rollback(AttrCommand):
+    """Roll back the GitOps deploy (and paired source) branch to an older
+    commit -- forward-only, replays the old tree as a *new* commit, never
+    resets or force-pushes anything.
+
+    Deliberately supports skipping Nix evaluation entirely via
+    `--deploy-branch`/`--source-branch`: an incident is often *why* Nix
+    eval is currently broken, so rollback can't depend on it working.
+    `--file`/`--flake` is the routine convenience for a one-step-back
+    during normal testing, when Nix eval is healthy.
+
+    A `tf` unit's `config.tf.json` rides along, because this replays the whole
+    tree -- but rolling the file back is not rolling the infrastructure back.
+    Nothing applies what is on the branch, and `ekn tofu` reads the Nix
+    evaluation rather than the committed tree, so it would still plan against
+    the current source. Roll the source back and run `ekn tofu apply`.
+    """
+
+    deploy_branch: str | None = opt(
+        None,
+        help="Deploy branch to roll back, bypassing Nix evaluation entirely. Mutually exclusive with --file/--flake.",
+    )
+    source_branch: str | None = opt(
+        None,
+        help="Paired source branch to roll back alongside --deploy-branch (optional).",
+    )
+    to: str | None = opt(None, help="Roll back to this specific commit-ish instead of walking --steps-back.")
+    steps_back: int = opt(1, help="Number of deploy-branch first-parent steps to roll back, when --to is not given.")
+    push: bool = opt(False, help="git push the rolled-back branch(es) to their remote afterwards.")
+    remote: str = opt("origin", help="Remote to push to (with --push).")
+    verify: bool = opt(
+        False,
+        help="Run Validate against the restored tree before finalizing -- requires --file/--flake. "
+        "Off by default: an incident rollback should be fast, and the restored tree was already "
+        "validated when it was first deployed.",
+    )
+
+    async def run(self) -> None:
+        has_nix_entrypoint = self.file is not None or self.flake is not None
+        if self.deploy_branch is not None:
+            if has_nix_entrypoint:
+                _log.error("--deploy-branch is mutually exclusive with --file/--flake")
+                raise SystemExit(1)
+            deploy_branch, source_branch = self.deploy_branch, self.source_branch
+        elif has_nix_entrypoint:
+            result = await _evaluate_gitops(self.file, self.flake, self.attr)
+            deploy_branch, source_branch = gitops_branches(result)
+        else:
+            _log.error("specify --deploy-branch, or --file/--flake to read branches from Nix")
+            raise SystemExit(1)
+
+        if self.verify and not has_nix_entrypoint:
+            _log.error("--verify requires --file/--flake")
+            raise SystemExit(1)
+
+        try:
+            prepared = rollback_branches(
+                ".",
+                deploy_branch,
+                source_branch,
+                steps_back=self.steps_back,
+                to=self.to,
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            # pygit2.Repository.revparse_single (called by rollback_branches
+            # for --to) raises KeyError, not ValueError/TypeError, for a
+            # revision spec it can't resolve.
+            _log.error("rollback failed: %s", exc)
+            raise SystemExit(1) from exc
+
+        if self.verify:
+            await Validate.run(cast("Validate", self))
+
+        try:
+            finalize_branches(".", deploy_branch, source_branch, prepared)
+        except ConcurrentDeployError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        _log.info("rolled back %s @ %s", deploy_branch, prepared.deploy_oid)
+
+        if self.push:
+            await _git_push(self.remote, deploy_branch, source_branch)
+        await try_jj_status(".")
+
+
+@dataclass(frozen=True)
+class _ConvergeOptions:
+    """The `--converge` knobs, passed as one object.
+
+    Grouped so `_apply_groups` does not grow four more parameters for a mode
+    that either is on or is not.
+    """
+
+    enabled: bool = False
+    concurrency: int = DEFAULT_CONCURRENCY
+    settle_seconds: float = DEFAULT_SETTLE_SECONDS
+    allow_recreate: bool = False
+
+
+async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` takes, for the same apply
+    group: ApplyGroup,
+    objects: list[dict[str, Any]],
+    *,
+    api: kr8s.asyncio.Api,
+    cfg: KubeApplyConfigResult,
+    options: _ConvergeOptions,
+    prune: bool,
+    protect: set[tuple[str, str, str]],
+    unit_managers: Mapping[str, str] | None,
+    cache: fastcache.ApplyCache | None = None,
+) -> None:
+    """One group, converged rather than applied in barriers.
+
+    Exits non-zero on any object that did not converge. A converging run that
+    ended with failures and exited 0 would be worse than the aborting apply
+    it replaces: the failures are *reported*, so the run looks like it said
+    something, and a `&&` chain carries on regardless.
+
+    **The prune runs only after everything converged**, and that ordering is
+    the whole safety of it. Pruning deletes what this generation does not
+    contain, and an object that failed to apply is indistinguishable from one
+    the configuration dropped if you only look at the cluster.
+    """
+    report, desired = await converge_direct(
+        objects,
+        api=api,
+        environment=cfg.environment,
+        resource_priority=cfg.resource_priority,
+        field_manager=group.field_manager,
+        concurrency=options.concurrency,
+        settle_seconds=options.settle_seconds,
+        allow_recreate=options.allow_recreate,
+        unit_managers=unit_managers,
+        cache=cache,
+    )
+    report_failures(report)
+    if not report.ok:
+        scope = "instance" if group.unit is None else f"unit {group.unit}"
+        raise SystemExit(
+            f"{len(report.failures)} object(s) did not converge in this {scope}"
+            + (". Nothing was pruned: a failed apply and a removed object look the same to a prune." if prune else "")
+        )
+    if prune:
+        await prune_generation(
+            api,
+            desired=desired,
+            environment=cfg.environment,
+            unit=group.unit,
+            hand_applied=cfg.hand_applied_units or (),
+            declared_units=cfg.declared_units,
+            prune_kinds=cfg.api_mappings,
+            protect=protect,
+            delivery_managers={*DEFAULT_DELIVERY_MANAGERS, group.field_manager},
+        )
+
+
+def _object_identity(spec: dict[str, Any]) -> tuple[str, str, str]:
+    """A manifest keyed the way `apply` keys a live object.
+
+    `(namespace or "none", kind, name)`. A key in any other shape matches
+    nothing, silently -- which for `protect` means protecting nothing.
+    """
+    metadata = spec.get("metadata")
+    namespace = metadata.get("namespace") if isinstance(metadata, dict) else None
+    name = metadata.get("name") if isinstance(metadata, dict) else None
+    return (
+        str(namespace) if isinstance(namespace, str) else "none",
+        str(spec.get("kind")),
+        str(name) if isinstance(name, str) else "",
+    )
+
+
+@contextlib.asynccontextmanager
+async def _engine_paused(
+    workloads: list[enginepause.Workload],
+    *,
+    api: kr8s.asyncio.Api,
+) -> AsyncIterator[set[tuple[str, str, str]]]:
+    """Stop the engine for the body, and start it again whatever happens.
+
+    Yields the object keys the body must neither apply nor prune. See
+    `enginepause.without_pause_targets` for why both.
+
+    **The resume is in a `finally`, and an exception during it is chained
+    rather than swallowed.** The apply failing and the engine staying down
+    are different problems with different urgencies, and a run that reports
+    only the first leaves a cluster with no reconciler and nobody watching.
+    """
+    paused = await enginepause.pause(workloads, api=api)
+    try:
+        yield enginepause.object_keys(workloads)
+    finally:
+        failed = await enginepause.resume(paused, api=api)
+        if failed:
+            _log.error(enginepause.resume_reminder(paused))
+            listed = "\n".join(f"  {entry}" for entry in failed)
+            msg = f"the GitOps engine was not fully resumed:\n{listed}"
+            raise EngineNotResumedError(msg)
+
+
+async def _hold_the_engine(
+    cfg: KubeApplyConfigResult,
+    *,
+    api: kr8s.asyncio.Api,
+    stack: contextlib.AsyncExitStack,
+) -> set[tuple[str, str, str]]:
+    """Pause the engine for the rest of the command, and say what it holds.
+
+    Refuses when the configuration names no engine. An apply that believes
+    the engine is stopped while it is running is the state `--pause-engine`
+    exists to avoid, so the empty case must not look like success.
+    """
+    if not cfg.engine_pause:
+        raise SystemExit(
+            "--pause-engine, but this configuration names no engine to pause.\n"
+            "Set deployment.engine.pause to the workloads holding cluster-wide write "
+            "permission -- for a stock ArgoCD that is the application controller alone.\n"
+            "Refusing rather than pausing nothing, because an apply that believes the "
+            "engine is stopped while it is running is the state this flag exists to avoid."
+        )
+    workloads = [enginepause.Workload(namespace=w.namespace, name=w.name, kind=w.kind) for w in cfg.engine_pause]
+    return await stack.enter_async_context(_engine_paused(workloads, api=api))
+
+
+class EngineNotResumedError(RuntimeError):
+    """The apply finished and the engine is still scaled to zero.
+
+    Its own type because it must not read as an apply failure: the apply may
+    well have succeeded, and what needs attention is the cluster having no
+    reconciler.
+    """
+
+
+async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn kubeapply` exposes as a flag
+    cfg: KubeApplyConfigResult,
+    *,
+    api: kr8s.asyncio.Api,
+    target: str | None,
+    prune: bool,
+    cluster: str | None = None,
+    converge: _ConvergeOptions | None = None,
+    held_by_engine_pause: set[tuple[str, str, str]] | None = None,
+    assume_unchanged: bool = False,
+) -> None:
+    """Decrypt and seed-resolve every group, then apply them in order.
+
+    Two passes, deliberately. A missing seed variable has to abort the whole
+    run rather than leave a cluster half bootstrapped, and with `--target`
+    pulling a dependency's objects in, "half" now means a dependency applied
+    and the unit that needs it not. A seed already in the cluster with its
+    variable unset is applied with the value the cluster already holds, so its
+    other fields still reconcile -- see `seeds.resolve`.
+
+    Split out of `KubeApply.run` to keep that method under the complexity
+    limit.
+    """
+    if prune and target is None and cfg.hand_applied_units is None:
+        raise SystemExit(
+            "refusing a whole-instance --prune: this configuration does not offer "
+            "deployment.handAppliedUnits, so the units that must not be pruned are unknown.\n"
+            "That list is what keeps the prune away from a bootstrap unit's objects -- "
+            "ArgoCD, the CNI -- which carry the environment label but are never in a "
+            "whole-instance apply's desired set.\n"
+            "Update easykubenix, or apply a single unit with --target <name> --prune."
+        )
+
+    prepared: list[tuple[ApplyGroup, seeds.SeedPlan]] = []
+    try:
+        for group in cfg.groups:
+            decrypted = [await maybe_decrypt(obj) for obj in group.objects]
+            prepared.append((group, await seeds.resolve(decrypted, api=api)))
+    except seeds.MissingVariablesError as exc:
+        raise SystemExit(str(exc)) from exc
+    for _group, plan in prepared:
+        seeds.report(plan.actions)
+
+    held = held_by_engine_pause or set()
+    # Only while the engine is stopped. A whole-instance apply otherwise
+    # writes everything as its own manager, which keeps conflict detection
+    # for a run that happens again -- and a full deploy standing in for a
+    # paused engine is not one of those. See `apply.field_manager_for`.
+    unit_managers = cfg.unit_field_managers if held_by_engine_pause is not None else None
+
+    # After seed resolution and before the first apply. A seed rewrites an
+    # object's data, so checking earlier would assert paths this run is not
+    # the one sending -- and checking later would be checking after the
+    # damage.
+    if cfg.assert_cached:
+        sending = [spec for _group, plan in prepared for spec in plan.objects if _object_identity(spec) not in held]
+        try:
+            await storecheck.assert_fetchable(storecheck.store_paths_in(sending), substituters=cfg.assert_cached)
+        except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
+            raise SystemExit(str(exc)) from exc
+
+    cache = await _open_apply_cache(
+        api,
+        environment=cfg.environment,
+        kinds=_kinds_of(prepared),
+        # The fence already read it. `None` here is a caller that has none --
+        # no fenced command -- and `open_cache` reads it itself.
+        cluster=cluster,
+        assume_unchanged=assume_unchanged,
+        never_record=_uncacheable(cfg),
+        engine_managers=_engine_managers(cfg),
+    )
+    try:
+        await _apply_prepared(
+            prepared,
+            cfg=cfg,
+            api=api,
+            target=target,
+            prune=prune,
+            converge=converge,
+            held=held,
+            unit_managers=unit_managers,
+            cache=cache,
+        )
+    finally:
+        if cache is not None:
+            cache.save()
+            _report_cache(cache, assume_unchanged=assume_unchanged)
+
+
+def _report_cache(cache: fastcache.ApplyCache, *, assume_unchanged: bool) -> None:
+    """What the cache did, in one line, for both apply commands.
+
+    `assume_unchanged` is on it because without it `skipped=0` has two
+    readings and the operator cannot tell them apart: everything changed, or
+    the flag was never passed. Reported after a full apply of 1235 objects
+    took an apiserver to 4 GB and the `skipped=0` in the log said nothing
+    about why.
+
+    The sweep's own size goes here rather than in `livestate`, which logs it
+    at DEBUG -- and `main` fixes the level at INFO, so nothing reads that.
+    This line is where somebody looks for it anyway.
+
+    `cold` is how many of the skips were decided by the rendered hash rather
+    than by a record of this machine's own. It is most of them on a first run
+    and zero on a settled one, which is the difference between "the cache
+    worked" and "the cache was empty and the annotation carried it".
+    """
+    swept = {"swept": len(cache.live), "kinds": cache.swept_kinds, "cold": cache.cold} if cache.live is not None else {}
+    _log.info(
+        "apply cache",
+        skipped=cache.skipped,
+        recorded=cache.recorded,
+        assume_unchanged=assume_unchanged,
+        **swept,
+        path=str(cache.path),
+    )
+
+
+async def _open_apply_cache(  # noqa: PLR0913 -- one cache, and each argument is a different thing it must not get wrong
+    api: kr8s.asyncio.Api,
+    *,
+    environment: str,
+    kinds: set[tuple[str, str]],
+    cluster: str | None = None,
+    assume_unchanged: bool = False,
+    never_record: set[tuple[str, str, str]] | None = None,
+    engine_managers: set[str] | None = None,
+) -> fastcache.ApplyCache | None:
+    """The record of what this machine applied, and what the cluster holds now.
+
+    The sweep runs only under `--assume-unchanged`, because it is the only
+    thing that reads it: an ordinary apply sends every object regardless and
+    would pay one LIST per kind for an answer it never asks for.
+    """
+    cache = await fastcache.open_cache(
+        api,
+        environment=environment,
+        cluster=cluster,
+        assume_unchanged=assume_unchanged,
+        never_record=never_record or set(),
+        engine_managers=engine_managers or set(),
+    )
+    if cache is None or not assume_unchanged:
+        return cache
+    cache.swept_kinds = len(kinds)
+    cache.live = await livestate.sweep(
+        api,
+        kinds,
+        # Everything `ekn` applies carries it, so an object without it is not
+        # one this cache has an entry for. It narrows the sweep to this
+        # environment on a cluster that holds several.
+        selector=f"{DEFAULT_ENVIRONMENT_LABEL}={environment}",
+    )
+    if not cache.primed():
+        _log.info(
+            "--assume-unchanged: nothing recorded for this environment yet, so this run applies "
+            "everything and records where each object landed. Later runs skip what nothing has written.",
+            cache=str(cache.path),
+        )
+    return cache
+
+
+def _kinds_of(prepared: list[tuple[ApplyGroup, seeds.SeedPlan]]) -> set[tuple[str, str]]:
+    """Every `(kind, apiVersion)` this run could skip an object of.
+
+    The sweep's scope, and deliberately not `kubernetes.apiMappings`: a prune
+    scans every kind the configuration knows, because a removed object is one
+    this run does not mention. A skip is only ever about an object this run
+    does mention.
+    """
+    return {
+        (str(spec.get("kind")), str(spec.get("apiVersion", "v1"))) for _group, plan in prepared for spec in plan.objects
+    }
+
+
+def _engine_managers(cfg: KubeApplyConfigResult) -> set[str]:
+    """Who else is expected to own fields on this configuration's objects.
+
+    Not a new option: `deployment.units.<name>.fieldManager` already names
+    "the controller that takes the objects over afterwards", which is exactly
+    the question, and a unit that names none inherits `deployment.fieldManager`.
+
+    The two constants are not optional. `kube-controller-manager` owns fields
+    on a Deployment and `kube-apiserver` on a CustomResourceDefinition, on
+    every real cluster and by design -- and CRDs are where a cold run's whole
+    cost lives, so leaving them out would make the one case this exists for
+    unskippable.
+
+    It only ever loosens `livestate.skippable`, which is why it can be derived
+    rather than declared: too narrow costs speed, never correctness.
+    """
+    return {*cfg.unit_field_managers.values(), "kube-controller-manager", "kube-apiserver"}
+
+
+def _uncacheable_objects(objects: Iterable[dict[str, Any]]) -> set[tuple[str, str, str]]:
+    """Objects `fastcache` must never write a digest for.
+
+    A SOPS-encrypted object and a seeded one both carry a value that is not in
+    git, and the rest of the manifest is. So a digest of what was sent is a
+    brute-force oracle for that one field, and the cheap answer is to send
+    these every time -- there are tens of them, not hundreds.
+
+    **The manifest as rendered, before decryption and before seed
+    resolution.** Both steps remove the marker that says which object this is
+    about, so the same set computed one step later is empty and says nothing.
+    """
+    return {_object_identity(obj) for obj in objects if isinstance(obj.get("sops"), dict) or seeds.is_seeded(obj)}
+
+
+def _uncacheable(cfg: KubeApplyConfigResult) -> set[tuple[str, str, str]]:
+    """`_uncacheable_objects` over every group's rendered manifest."""
+    return _uncacheable_objects(obj for group in cfg.groups for obj in group.objects)
+
+
+async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, handed on whole
+    prepared: list[tuple[ApplyGroup, seeds.SeedPlan]],
+    *,
+    cfg: KubeApplyConfigResult,
+    api: kr8s.asyncio.Api,
+    target: str | None,
+    prune: bool,
+    converge: _ConvergeOptions | None,
+    held: set[tuple[str, str, str]],
+    unit_managers: Mapping[str, str] | None,
+    cache: fastcache.ApplyCache | None,
+) -> None:
+    """Apply each prepared group, in order.
+
+    Split from `_apply_groups` so the cache is saved in one `finally` around
+    the whole loop, rather than per group.
+    """
+    for group, plan in prepared:
+        # Both halves, and neither is safe alone. Applying a paused workload
+        # re-applies its replica count and wakes the engine mid-apply;
+        # skipping it without protecting it makes it absent from the desired
+        # set, which a prune answers with a delete. See
+        # `enginepause.without_pause_targets`.
+        objects = [spec for spec in plan.objects if _object_identity(spec) not in held]
+        protected = plan.protected | held
+        if converge is not None and converge.enabled:
+            await _converge_group(
+                group,
+                objects,
+                api=api,
+                cfg=cfg,
+                options=converge,
+                prune=prune and group.unit == target,
+                protect=protected,
+                unit_managers=unit_managers,
+                cache=cache,
+            )
+            continue
+        await apply_and_prune(
+            objects,
+            api=api,
+            environment=cfg.environment,
+            unit=group.unit,
+            field_manager=group.field_manager,
+            resource_priority=cfg.resource_priority,
+            hand_applied=cfg.hand_applied_units or (),
+            declared_units=cfg.declared_units,
+            # Every kind the configuration knows, so a prune finds the objects
+            # of a component removed from it. Without this the scan covers
+            # only kinds this apply still touches, which is precisely the set
+            # a removal empties.
+            prune_kinds=cfg.api_mappings,
+            # Only the unit the user named. A dependency's objects are
+            # applied, not pruned: a `--prune` that deletes in a scope nobody
+            # asked about is a surprise, and `ekn kubeapply --target
+            # <dependency> --prune` is right there when you want it.
+            prune=prune and group.unit == target,
+            # A seed whose variable is unset is not ours to delete, and nor is
+            # a workload this run has scaled to zero. See `SeedPlan.protected`
+            # and `enginepause`.
+            protect=protected,
+            cache=cache,
+        )
+
+
+# Both bases, because this command is both things and each says a different
+# one: it pushes `ekn.cacheTo` before it acts, and it reaches a real cluster.
+# `Command.__init_subclass__` walks `__mro__`, so options from both are
+# collected; both derive from `AttrCommand`, so the linearisation is ordinary.
+class KubeApply(CachePushCommand, FencedCommand):
+    """Apply Kubernetes objects directly against the current kubeconfig
+    context: server-side apply in barrier order, with optional pruning.
+
+    General-purpose primitive backing both one-time direct bootstraps
+    (`--target bootstrap` -- gets a GitOps engine running before it can
+    sync itself) and `ekn validate`'s ephemeral-apiserver conformance runs
+    (which apply the full `kubernetes.generated` set). Decrypts any object
+    carrying a `sops:` metadata block (see ekn.sops) before applying it --
+    SOPS-encrypted objects flow untouched through `ekn commit`'s GitOps
+    path, but a direct apply has no ArgoCD+kustomize+ksops step to do that
+    decryption for it. Also ensures every `kubernetes.sopsAgeIdentities`
+    entry exists as a Secret first (generating a fresh age keypair the
+    first time one is missing) -- any easykubenix consumer that needs a
+    SOPS-decrypting workload bootstrapped (e.g. argocd.nix's ksops
+    support) declares it there instead of a bespoke bootstrap script.
+    """
+
+    cli_name = "kubeapply"
+
+    target: str | None = opt(
+        None,
+        help="Apply only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
+    )
+    prune: bool = opt(
+        False,
+        help="Delete previously-applied objects no longer present in this apply. Scoped by label: ekn.dev/environment plus this target's ekn.dev/deployment-unit with --target, otherwise ekn.dev/environment excluding the hand-applied units (deployment.handAppliedUnits). Never deletes an object owned by a controller.",
+    )
+    converge: bool = opt(
+        False,
+        help="Apply from one queue, N objects at a time, retrying what the cluster has not caught up with, "
+        "instead of applying in strict barriers and stopping at the first failure. "
+        "Ends non-zero and names every object that did not converge.",
+    )
+    concurrency: int = opt(
+        DEFAULT_CONCURRENCY,
+        help=f"How many objects --converge applies at once. Default {DEFAULT_CONCURRENCY}.",
+    )
+    settle_seconds: float = opt(
+        DEFAULT_SETTLE_SECONDS,
+        help="How long --converge keeps retrying with no object making progress before it gives up. "
+        f"Default {DEFAULT_SETTLE_SECONDS:.0f}.",
+    )
+    allow_recreate: bool = opt(
+        False,
+        help="Let --converge delete and re-create an object whose immutable field changed (a completed Job's "
+        "spec.template, a Service's clusterIP). Off by default: a recreate is a delete, and for some kinds "
+        "that is data loss. Never recreates a PersistentVolumeClaim, Secret, Namespace or CRD.",
+    )
+    assume_unchanged: bool = opt(
+        False,
+        help="Do not send an object whose bytes and field manager are what this machine last applied to "
+        "this cluster AND whose resourceVersion is still the one that apply returned. The first half is a "
+        "local record (see ekn.fastcache); the second is one metadata LIST per kind, which is what makes a "
+        "kubectl edit, a GitOps engine syncing another commit or a delete visible. Recording happens on "
+        "every apply; this flag turns on the sweep and the skipping. The first run after it records "
+        "applies everything. Never skips a SOPS-encrypted or seeded object.",
+    )
+    pause_engine: bool = opt(
+        False,
+        help="Scale the GitOps engine's reconciler to zero for the duration of this apply and restore it "
+        "afterwards, so the apply and the engine are not two writers of the same objects. Names come from "
+        "deployment.engine.pause. The engine's own workloads are neither applied nor pruned while it is down.",
+    )
+    confirm_context: str | None = opt(
+        None,
+        help="Removed. Declare ekn.clusterUid instead, which checks the cluster rather than the "
+        "operator's local name for one. Still accepted so that a caller passing it gets that "
+        "sentence rather than 'unrecognized arguments'.",
+    )
+    skip_schema_check: bool = opt(
+        False,
+        help="Apply without first checking every object against the cluster's OpenAPI schemas and the "
+        "rendered CRDs, and the config.tf.json of every tf unit an object names in its "
+        "ekn.dev/tofu-units annotation. See ekn schema-check.",
+    )
+    kubeconfig_from_tofu: str | None = opt(
+        None,
+        help="Take the kubeconfig from a tf unit's OpenTofu output, as UNIT:OUTPUT. "
+        "For a single operator bootstrapping a cluster a tf unit just built. It makes this "
+        "apply depend on infra-state credentials and backend reachability, so a shared "
+        "environment should use an ordinary kubeconfig instead.",
+    )
+
+    async def _check_shipped_tofu_units(
+        self, objects: list[dict[str, Any]], uri: str | None, customer: str | None
+    ) -> None:
+        """Check each tf unit an object being applied names in `ekn.dev/tofu-units`.
+
+        Something in the cluster runs those units, so this apply is the last
+        point where a broken config.tf.json can be refused before it does.
+        """
+        names = shipped_units(objects)
+        if not names:
+            return
+        try:
+            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, frozenset(names))
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("tofu units", exc)
+        except ValueError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        await _check_tofu_units(units)
+
+    async def _kubeconfig(
+        self,
+        stack: contextlib.AsyncExitStack,
+        uri: str | None,
+        customer: str | None,
+    ) -> str | None:
+        """The kubeconfig this apply uses, or None for the ambient one.
+
+        With `--kubeconfig-from-tofu UNIT:OUTPUT`, the credential comes out of
+        a `tf` unit's OpenTofu output and lands in a temporary file *stack*
+        removes afterwards. That is the whole tofu-to-Kubernetes bridge: a `tf`
+        unit builds the cluster, a Kubernetes unit has to reach it, and the two
+        cannot be one apply -- so the credential travels at apply time and
+        never through Nix.
+
+        It is the single-operator and bootstrap path, not the production one.
+        Reading a tofu output means reading that unit's state, which means its
+        backend and its credentials -- so this couples deploying an application
+        to owning the infrastructure state. Wherever those are different people,
+        an ordinary kubeconfig is the right answer and this flag is the wrong
+        one.
+        """
+        if self.kubeconfig_from_tofu is None:
+            return None
+        unit_name, _, output_name = self.kubeconfig_from_tofu.partition(":")
+        if not unit_name or not output_name:
+            _log.error("--kubeconfig-from-tofu takes UNIT:OUTPUT")
+            raise SystemExit(1)
+        try:
+            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, unit_name)
+            return await stack.enter_async_context(tofu_kubeconfig(units[-1], output_name))
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("tofu units", exc)
+        except TofuError as exc:
+            # Its own message, because the raw one reads "tofu output -raw
+            # kubeconfig exited 1" in the middle of a Kubernetes deploy. The
+            # usual cause is the tf unit's backend -- unreachable, or
+            # credentials this operator does not have -- and nothing about
+            # `kubeapply` suggests a backend was involved at all.
+            _log.error(
+                f"{exc}\n"
+                f"Reading output {output_name!r} needs unit {unit_name!r}'s state, so it needs that "
+                "unit's backend and its credentials. Use an ordinary kubeconfig "
+                "(KUBECONFIG, or kubectl's current context) if this apply should not depend on them."
+            )
+            raise SystemExit(1) from exc
+        except ValueError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+
+    async def run(self) -> None:
+        # Declared and refused, rather than deleted. A caller who scripted it
+        # would otherwise get argparse's "unrecognized arguments", which is
+        # loud and non-zero but says nothing about the replacement. The same
+        # courtesy `lib.mkRemovedOptionModule` gives a removed Nix option.
+        if self.confirm_context is not None:
+            raise SystemExit(
+                "--confirm-context has been removed. Declare ekn.clusterUid instead.\n\n"
+                "It compared the operator's current kubectl context against a name, which could "
+                "not see two things that matter: a kubeconfig supplied by --kubeconfig-from-tofu, "
+                "and a KUBECONFIG that was never set for `ekn` at all. The second is how an "
+                "environment reached the wrong cluster while every kubectl in the same session "
+                "was pointed correctly.\n"
+                "ekn.clusterUid asks the cluster which one it is, so neither gets past it."
+            )
+
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("kubeapply config", exc)
+
+        if not self.skip_schema_check:
+            # Before the push and the fence: it needs no cluster, so a unit
+            # that would fail inside the cluster stops the apply before
+            # anything is touched.
+            await self._check_shipped_tofu_units(cfg.objects, uri, customer)
+
+        # Before the push, not only before the apply. The hook exists for a
+        # path `ekn.cacheTo` cannot place, so it has to be able to repair
+        # what the push depends on. Issue #5.
+        await _run_pre_apply(
+            cfg,
+            target=self.target,
+            cache_push=self.cache_push,
+            cache_allow_failure=self.cache_allow_failure,
+        )
+
+        # Before the apply, and before the assertion that follows it. The two
+        # answer different halves and neither replaces the other: the push
+        # puts paths on `ekn.cacheTo`, the assertion asks whether a *node*
+        # can fetch them. A leg whose only substituter is the workload it is
+        # needed to start -- pynixd's own environment -- passes the push and
+        # fails the assertion, which is the right way round.
+        await self.push_cache()
+
+        # `AsyncExitStack` rather than two code paths: the kubeconfig is a
+        # temporary file that must outlive the apply and not outlive the
+        # command, and without one the whole body would be written twice.
+        async with contextlib.AsyncExitStack() as stack:
+            kubeconfig = await self._kubeconfig(stack, uri, customer)
+            api = await kr8s.asyncio.api(kubeconfig=kubeconfig)
+            # Above `ensure_age_identities`, which creates a Namespace and a
+            # Secret, and above `_hold_the_engine`, which scales workloads
+            # down. Both write before a single manifest is applied, so a
+            # fence below them is a fence after the damage.
+            cluster = await self._fence(api, cfg)
+            # Below the fence, which picks the cache, and above the first write.
+            if not self.skip_schema_check:
+                await _check_schemas_live(api, cluster or "unidentified", cfg.objects)
+            if cfg.sops_age_identities:
+                await ensure_age_identities(cfg.sops_age_identities, api=api)
+            held = await _hold_the_engine(cfg, api=api, stack=stack) if self.pause_engine else set()
+            try:
+                await _apply_groups(
+                    cfg,
+                    api=api,
+                    target=self.target,
+                    prune=self.prune,
+                    cluster=cluster,
+                    held_by_engine_pause=held,
+                    converge=_ConvergeOptions(
+                        enabled=self.converge,
+                        concurrency=self.concurrency,
+                        settle_seconds=self.settle_seconds,
+                        allow_recreate=self.allow_recreate,
+                    ),
+                    assume_unchanged=self.assume_unchanged,
+                )
+            except kr8s.ServerError as exc:
+                _report_server_error("apply", exc)
+
+
+class _TofuCommand(AttrCommand):
+    """The shared half of every `ekn tofu` subcommand: name a unit, resolve
+    its chain, run one `tofu` command over each link."""
+
+    # `required`, and not merely un-defaulted. Every option in this framework
+    # is declared with `argparse.SUPPRESS` and filled from its declaration
+    # afterwards, so an option with no default silently becomes `None` rather
+    # than being refused -- and `None` is what `evaluate_tofu_units` reads as
+    # "every tf unit". Without this, `ekn tofu apply` with no `--target`
+    # applies the whole instance.
+    target: str = opt(
+        required=True,
+        help='The `class = "tf"` deployment unit to act on. Its dependencies run first, deepest first.',
+    )
+
+    skip_schema_check: bool = opt(
+        False,
+        help="Do not check each unit's config.tf.json against its tofu.jsonSchema before running tofu.",
+    )
+
+    #: What `tofu` is asked to do, and the flags that go with it. A subclass
+    #: sets this and nothing else.
+    tofu_args: ClassVar[tuple[str, ...]] = ()
+
+    async def _units(self) -> list[TofuUnit]:
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, self.target)
+            await self._warn_orphans(uri, customer)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("tofu units", exc)
+        except ValueError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        if not self.skip_schema_check:
+            # Every unit before the first `tofu init`: a backend such as
+            # `kubernetes` needs its cluster to answer before init succeeds,
+            # and this needs nothing.
+            await _check_tofu_units(units)
+        return units
+
+    async def _warn_orphans(self, uri: str | None, customer: str | None) -> None:
+        """Say when state exists for a unit the evaluation no longer declares.
+
+        A `tf` unit deleted from the Nix configuration leaves its real
+        infrastructure running with nothing able to name it -- see
+        `tofu.orphaned_state`. Every `ekn tofu` run is a cheap place to notice.
+        """
+        every = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+        scan = await tofu_orphaned_state(every)
+        if scan.orphans:
+            _log.warning(
+                f"state exists for {', '.join(scan.orphans)}, which no tf unit declares any more.\n"
+                "Deleting a unit does not destroy what it built. Restore the unit, "
+                "`ekn tofu destroy --target <name>`, then delete it."
+            )
+        else:
+            # Said on a clean run too, and that is the point. Silence here
+            # would read as "no orphaned state", which is more than this can
+            # know: it never sees a remote backend. Naming what was checked
+            # puts the limit where somebody would otherwise infer coverage.
+            _log.info(
+                f"checked {scan.checked} local working "
+                f"{'directory' if scan.checked == 1 else 'directories'}, none orphaned "
+                "(remote backends not inspected)"
+            )
+
+    async def run(self) -> None:
+        units = await self._units()
+        try:
+            await run_chain(units, type(self).tofu_args)
+        except TofuError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+
+
+class TofuPlan(_TofuCommand):
+    """Show what `ekn tofu apply` would change, and change nothing."""
+
+    cli_name = "plan"
+    tofu_args = ("plan",)
+
+
+class TofuApply(_TofuCommand):
+    """Apply this unit's OpenTofu configuration, and its dependencies' first.
+
+    Each unit in the chain is its own `tofu init` and `tofu apply`, with its
+    own state. That is not a limitation being worked around -- OpenTofu has no
+    equivalent of `ekn.resourcePriority`, so there is no single plan a chain of
+    units could be merged into.
+
+    A failure stops the chain. The units after it are the ones that needed this
+    one.
+    """
+
+    cli_name = "apply"
+
+    auto_approve: bool = opt(
+        False,
+        help="Skip tofu's interactive confirmation. Without it, tofu prompts as usual.",
+    )
+
+    async def run(self) -> None:
+        units = await self._units()
+        args = ["apply", *(["-auto-approve"] if self.auto_approve else [])]
+        try:
+            await run_chain(units, args)
+        except TofuError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+
+
+class TofuDestroy(_TofuCommand):
+    """Destroy what this unit's OpenTofu configuration created.
+
+    Only the named unit, never its dependencies: a dependency is something
+    this unit needed built first, so destroying it from here would take out
+    whatever else still needs it.
+
+    For the same reason this refuses when another unit depends on the *named*
+    one, and says which. `apply` cannot run against a half-built dependency
+    because it walks the closure first; without this, `destroy` had no
+    equivalent protection in the other direction, and destroying something
+    still in use either failed confusingly inside the provider or succeeded
+    and left a dependent pointing at nothing.
+
+    So a teardown is still one command per unit, but the tool answers the
+    ordering rather than leaving you to derive it.
+    """
+
+    cli_name = "destroy"
+
+    auto_approve: bool = opt(
+        False,
+        help="Skip tofu's interactive confirmation. Without it, tofu prompts as usual.",
+    )
+
+    async def run(self) -> None:
+        # Every unit, not this one's chain: the question here is who depends on
+        # the named unit, and that cannot be answered from its own closure.
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            every = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("tofu units", exc)
+
+        named = next((unit for unit in every if unit.name == self.target), None)
+        if named is None:
+            known = ", ".join(sorted(unit.name for unit in every)) or "none"
+            _log.error(f'no deployment unit named "{self.target}" with class "tf". Declared: {known}')
+            raise SystemExit(1)
+
+        blocking = tofu_dependents(every, self.target)
+        if blocking:
+            verb = "depends" if len(blocking) == 1 else "depend"
+            _log.error(
+                f"{', '.join(blocking)} {verb} on {self.target}; destroy {'that' if len(blocking) == 1 else 'those'} first.\n"
+                "This command never cascades -- destroying a dependency from here would take out "
+                "whatever still needs it, which is why it refuses instead of deciding for you."
+            )
+            raise SystemExit(1)
+
+        args = ["destroy", *(["-auto-approve"] if self.auto_approve else [])]
+        try:
+            await run_chain([named], args)
+        except TofuError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+
+
+class TofuOutput(_TofuCommand):
+    """Print one of a tf unit's OpenTofu outputs on stdout.
+
+    The supported way to reach what a unit built. Without it a unit's outputs
+    are unreachable except by running the wrapped `tofu` by hand inside
+    `.ekn/`, which is a private working directory rather than an interface --
+    and after a migration there is no conventional kubeconfig path left either,
+    because the old tree that had one is gone.
+
+    It also unblocks verification. A rendered configuration proves nothing
+    about a cluster; querying the live one is the only check that counts, and
+    that needs a kubeconfig.
+
+    Raw and unadorned, so a redirect is the whole idiom:
+
+        export KUBECONFIG=$(mktemp)
+        ekn tofu output --target infra kubeconfig > "$KUBECONFIG"
+
+    Sensitive outputs print. A kubeconfig is marked sensitive and is the main
+    reason to want this, so refusing them would refuse the use case. Naming one
+    output explicitly is the consent; nothing here prints an output nobody
+    asked for, and the value never reaches the log.
+    """
+
+    cli_name = "output"
+
+    name: str = pos(help="Which of the unit's OpenTofu outputs to print.")
+
+    async def run(self) -> None:
+        units = await self._units()
+        try:
+            value = await tofu_output(units[-1], self.name)
+        except TofuError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        # Verbatim, with no trailing newline added: `tofu output -raw` adds
+        # none, and a caller redirecting into a file wants the bytes the
+        # output holds rather than the bytes plus one.
+        sys.stdout.write(value)
+
+
+class Tofu(AttrCommand):
+    """Run OpenTofu over a `class = "tf"` deployment unit.
+
+    Separate from `ekn kubeapply` on purpose. A Kubernetes apply is idempotent
+    and stateless; `tofu` carries a backend, a lock and a plan/apply split, and
+    `--prune` means nothing to it. See design/opentofu.md.
+    """
+
+    subcommands = (TofuPlan, TofuApply, TofuOutput, TofuDestroy)
+
+    async def run(self) -> None:
+        self.print_help()
+
+
+class Secrets(FencedCommand):
+    """List the bootstrap credentials this configuration expects.
+
+    Read-only, and answers the question before a cluster exists: which
+    environment variables does `ekn kubeapply` want, where does each value
+    land, and is it already in the cluster.
+
+    That last column needs a reachable cluster; without one this still lists
+    what is expected, so a new cluster can be brought up against a checklist
+    rather than against a failed apply. The failure this exists for is a
+    bootstrap that completes cleanly and then cannot sync, because nothing in
+    the apply said a credential was expected.
+    """
+
+    target: str | None = opt(
+        None,
+        help="Only this GitOps target's objects. Omit for the full kubernetes.generated set.",
+    )
+
+    async def run(self) -> None:
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("kubeapply config", exc)
+
+        rows = seeds.describe(cfg.objects)
+        if not rows:
+            _log.info("no bootstrap credentials are expected")
+            return
+
+        api: kr8s.asyncio.Api | None = None
+        try:
+            api = await kr8s.asyncio.api()
+        except Exception:
+            # Any failure to reach a cluster means the same thing here, and
+            # it is not an error: the point of this command is to answer
+            # before a cluster exists.
+            _log.info("no cluster reachable; reporting what is expected only")
+            _log.debug("cluster unreachable", exc_info=True)
+        else:
+            # Only when one was reached. This command answers before a cluster
+            # exists, which is the shape above; a cluster that *is* reachable
+            # and is the wrong one gives a wrong checklist, so that refuses.
+            await self._fence(api, cfg)
+
+        # A table, not one structured log line per seed. The columns are
+        # wide -- a variable name and a namespace/kind/name -- so at five or
+        # ten seeds the log form stops being readable, and reading it is the
+        # whole job of this command.
+        print(seeds.table(await seeds.inspect(rows, api=api)))
+
+
+class ClusterDiff(FencedCommand):
+    """Diff Kubernetes objects against the live cluster.
+
+    Unlike `ekn diff` (which compares against the previous GitOps commit),
+    this compares against the cluster's actual current state -- for each
+    object, a server-side-apply dry run shows what `ekn kubeapply`/
+    `ekn validate` would really change right now, including drift from
+    manual kubectl edits or other controllers. Read-only: nothing is
+    applied, pruned, or waited on.
+    """
+
+    cli_name = "clusterdiff"
+
+    target: str | None = opt(
+        None,
+        help="Diff only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
+    )
+
+    async def run(self) -> None:
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("kubeapply config", exc)
+        objects = [await maybe_decrypt(obj) for obj in cfg.objects]
+        api = await kr8s.asyncio.api()
+        await self._fence(api, cfg)
+        try:
+            diff_output = await cluster_diff(objects, api=api)
+        except kr8s.ServerError as exc:
+            _report_server_error("clusterdiff", exc)
+        if diff_output:
+            sys.stdout.write(diff_output)
+        else:
+            _log.info("no differences")
+
+
+class Reclaim(FencedCommand):
+    """Move server-side-apply ownership onto this instance's field manager.
+
+    **A one-time repair, for objects that crossed a field-manager change.**
+    Server-side apply removes a field only when its *owning* manager stops
+    declaring it. So a field written under an old manager and not declared by
+    the new one stays on the object for ever: the new manager cannot drop
+    what it does not own, and `--force-conflicts` is no help, because two
+    different fields are not a conflict.
+
+    The visible form is an object the API server refuses outright. A probe
+    whose handler type changed keeps both handlers, and every apply after it
+    fails with `may not specify more than 1 handler type`.
+
+    This renames the old manager's Apply records to the new one, so the new
+    manager owns what the old one did and its next apply drops what it no
+    longer declares. Records are renamed and never deleted: nothing removes
+    an unowned field, so deleting them would leave the bug in place.
+
+    `Update` records are left alone -- `kube-controller-manager`'s `status`
+    is one, and server-side apply does not consult them for removal anyway.
+
+    Set `deployment.fieldManager` so the transition does not happen again,
+    then run this once.
+    """
+
+    cli_name = "reclaim"
+
+    target: str | None = opt(
+        None,
+        help="Reclaim only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
+    )
+    field_manager_from: list[str] = opt(
+        help=f"Manager to take ownership from, repeatable. Empty means {DEFAULT_FIELD_MANAGER!r}, which is what a whole-instance apply wrote before deployment.fieldManager existed.",
+    )
+    dry_run: bool = opt(
+        False,
+        help="Report which objects would change and write nothing.",
+    )
+
+    async def run(self) -> None:
+        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
+        try:
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+        except NixError as exc:
+            _report_nix_error(exc)
+        except ValidationError as exc:
+            _report_validation_error("kubeapply config", exc)
+        # The manager this apply would write as, which is the one ownership
+        # has to end up on. `field_manager` is the last group's -- the named
+        # target's, or the instance's for a whole-instance run.
+        new = cfg.field_manager
+        old = self.field_manager_from or [DEFAULT_FIELD_MANAGER]
+        if new in set(old):
+            raise SystemExit(f"refusing to reclaim {new!r} onto itself; --field-manager-from names the *old* manager")
+        api = await kr8s.asyncio.api()
+        await self._fence(api, cfg)
+        try:
+            changed = await reclaim(cfg.objects, api, old=old, new=new, dry_run=self.dry_run)
+        except kr8s.ServerError as exc:
+            _report_server_error("reclaim", exc)
+        _log.info("reclaim complete", objects=len(cfg.objects), changed=changed, new=new, dry_run=self.dry_run)
+
+
+class PushCache(NixCommand):
+    """Build a Nix attribute and copy its realised closure to a remote store.
+
+    Manual/ad-hoc escape hatch (or for CI) for pushing an arbitrary
+    attribute's closure -- for the routine per-deploy case, `ekn deploy`
+    already does this automatically from `ekn.cacheTo`, no flags needed
+    (see `Deploy`).
+    """
+
+    cli_name = "pushcache"
+
+    attr: str = opt(
+        required=True, help="Dot-separated attribute path to build and push, e.g. 'kubenix.config.kluctl.projectDir'."
+    )
+    to: str = opt(required=True, help="Destination store URI, e.g. ssh-ng://nix@host:2222")
+    substitute_on_destination: bool = opt(
+        True,
+        negatable=True,
+        help="Let the destination substitute from its own configured caches instead of streaming everything.",
+    )
+    check_sigs: bool = opt(
+        False,
+        help="Verify signatures when copying (off by default, matching kluctl's existing preDeployScript).",
+    )
+
+    async def run(self) -> None:
+        await _push_cache(
+            self.attr,
+            self.file,
+            self.flake,
+            self.to,
+            substitute_on_destination=self.substitute_on_destination,
+            check_sigs=self.check_sigs,
+        )
+
+
+class AssertCached(Command):
+    """Refuse a manifest naming a store path no substituter serves.
+
+    A nixkube node fetches what a manifest names; it can never build it. A
+    path on no substituter is a mount that fails on the node, well away from
+    whatever forgot to push it, and it surfaces as
+    `MountVolume.SetUp failed ... Failed to build store path`.
+
+    **It walks the whole closure, not the paths the manifest names.** The
+    shape that bites is a top path present on one cache with a member only
+    on another, or present with a member absent entirely. Checking the roots
+    alone passes both.
+
+    **Name the caches the nodes carry, not the ones this machine has.** The
+    machine running the check is not the machine that fetches: CI's
+    `nix.conf` names more caches than a node does, so reading the local
+    settings asks a superset and passes a path no node can get. That is the
+    failure this exists to catch, and it fails open.
+
+    For the same reason, do not name a substituter that only exists inside
+    the cluster. A path served by pynixd alone is not fetchable by the node
+    that has to mount pynixd's own store before pynixd runs.
+    """
+
+    manifests: list[_Path] = pos(help="Manifest files to scan. JSON or YAML; the text is read for store paths.")
+    substituter: list[str] = opt(
+        help="Substituter to ask, repeatable. These are the caches a node carries.",
+    )
+
+    async def run(self) -> None:
+        paths: set[str] = set()
+        for manifest in self.manifests:
+            paths |= storecheck.store_paths_in_text(await Path(str(manifest)).read_text())
+        # No explicit "--substituter is required" check. `assert_fetchable`
+        # already refuses paths with nothing to ask, and passes a manifest
+        # naming no store path at all -- which needs no cache configured and
+        # would fail a check made before the paths were read.
+        _log.info("checking store paths", roots=len(paths), substituters=len(self.substituter))
+        try:
+            await storecheck.assert_fetchable(paths, substituters=self.substituter)
+        except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
+            raise SystemExit(str(exc)) from exc
+
+
+class SplitManifest(Command):
+    """Split a JSON manifest list into a namespace/kind/name.yaml directory tree.
+
+    Internal: used by easykubenix's `manifestYAMLDir` derivation so the whole
+    GitOps tree renders as a single build instead of one derivation per
+    object. Not intended for interactive use.
+    """
+
+    json_file: _Path = pos(help="JSON file holding the manifest list.")
+    out_dir: _Path = pos(help="Directory to write the namespace/kind/name.yaml tree into.")
+
+    async def run(self) -> None:
+        data: JsonValue = json.loads(await Path(str(self.json_file)).read_text())
+        if not isinstance(data, list):
+            _log.error("expected a JSON list, got %s", type(data).__name__)
+            raise SystemExit(1)
+        out_dir = Path(str(self.out_dir))
+        for rel_path, content in flatten_manifests(data):
+            dest = out_dir / rel_path
+            await dest.parent.mkdir(parents=True, exist_ok=True)
+            await dest.write_text(content)
+
+
+class ApplyManifest(Command):
+    """Apply an already-evaluated manifest JSON file against $KUBECONFIG.
+
+    Internal: the apply step of easykubenix's `validation.script`, which
+    boots a throwaway etcd+kube-apiserver in Nix and needs manifests on it
+    before it can check their schemas. That step used to
+    shell out to `kluctl deploy`, which meant the gate proved a deploy path
+    nothing else in the project uses; this runs the same `apply_and_prune`
+    that `ekn kubeapply` (bootstrap) and `ekn validate` do.
+
+    Takes its inputs as files rather than re-evaluating Nix, because the
+    caller is a derivation-built script that already has them -- there is no
+    source tree to point `-f` at from inside the store. Not intended for
+    interactive use; use `ekn kubeapply` for that.
+    """
+
+    cli_name = "_applyManifest"
+
+    manifest_file: _Path = pos(help="JSON file holding the already-evaluated manifest list.")
+    environment: str = opt(required=True, help="Value for the ekn.dev/environment label (ekn.environment).")
+    unit: str | None = opt(
+        None,
+        help="Deployment unit this manifest is. Scopes pruning to objects carrying that ekn.dev/deployment-unit label; omitted, pruning covers this environment except the --hand-applied units.",
+    )
+    hand_applied: list[str] = opt(
+        help="Units a whole-instance prune must not touch: the ones whose objects never reach kubernetes.generated. Repeatable. Ignored with --unit.",
+    )
+    resource_priority_file: _Path | None = opt(
+        None,
+        help="JSON file holding ekn.resourcePriority ({kind: int}). Omitted means no barrier ordering.",
+    )
+    novalidate_keys_file: _Path | None = opt(
+        None,
+        help="JSON file holding kubernetes.novalidateKeys ({kind, namespace, name} objects) to skip.",
+    )
+    assume_unchanged: bool = opt(
+        False,
+        help="As ekn kubeapply --assume-unchanged, including never recording a SOPS-encrypted or "
+        "seeded object. Without it this command opens no cache at all, so it records nothing either: "
+        "ekn validate runs it against a fresh API server every time, and each of those would leave a "
+        "cache file named after a cluster that no longer exists.",
+    )
+
+    async def run(self) -> None:
+        resource_priority: dict[str, int] = {}
+        if self.resource_priority_file is not None:
+            loaded = json.loads(await Path(str(self.resource_priority_file)).read_text())
+            if not isinstance(loaded, dict):
+                _log.error("resource priority file must hold a JSON object")
+                raise SystemExit(1)
+            resource_priority = cast("dict[str, int]", loaded)
+
+        novalidate_keys: set[tuple[str, str, str]] = set()
+        if self.novalidate_keys_file is not None:
+            loaded_keys = json.loads(await Path(str(self.novalidate_keys_file)).read_text())
+            if not isinstance(loaded_keys, list):
+                _log.error("novalidate keys file must hold a JSON list")
+                raise SystemExit(1)
+            novalidate_keys = {
+                (k["kind"], k["namespace"], k["name"]) for k in cast("list[dict[str, str]]", loaded_keys)
+            }
+
+        objects = await prepare_validation_objects(str(self.manifest_file), novalidate_keys)
+        api = await kr8s.asyncio.api()
+        cache = (
+            await _open_apply_cache(
+                api,
+                environment=self.environment,
+                kinds={(str(spec.get("kind")), str(spec.get("apiVersion", "v1"))) for spec in objects},
+                assume_unchanged=True,
+                # From the file, not from `objects`: these are the objects
+                # this cache must never hold a digest of, and the `sops:`
+                # block that says so is gone by the time `objects` exists.
+                never_record=_uncacheable_objects(await load_manifest_objects(str(self.manifest_file))),
+            )
+            if self.assume_unchanged
+            else None
+        )
+        try:
+            await apply_and_prune(
+                objects,
+                api=api,
+                environment=self.environment,
+                unit=self.unit,
+                hand_applied=self.hand_applied,
+                resource_priority=resource_priority,
+                cache=cache,
+            )
+        except kr8s.ServerError as exc:
+            _report_server_error("apply", exc)
+        finally:
+            if cache is not None:
+                cache.save()
+                _report_cache(cache, assume_unchanged=self.assume_unchanged)
+
+
+_json_value_adapter: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
+_json_value_list_adapter: TypeAdapter[list[JsonValue]] = TypeAdapter(list[JsonValue])
+
+_YAML_STREAM_PARSERS: dict[str, Callable[[str], list[JsonValue]]] = {
+    "golike": from_go_like_yaml_stream,
+    "yaml11": from_yaml11_stream,
+    "yaml12": from_yaml_stream,
+}
+
+
+class YamlToJson(Command):
+    """Parse a YAML document stream on stdin and dump it as a JSON array on stdout.
+
+    Internal: the IFD-derivation fallback importyaml.nix shells out to when
+    the fromYAML11Stream/fromYAMLStream primops aren't registered (plain
+    `nix build`/`nix eval`, not under ekn). Reuses the exact same
+    `ekn.nixyaml` YAML-parsing code the in-process primop path uses, so both paths agree on YAML 1.1 vs 1.2 scalar semantics (e.g. a
+    volume's `defaultMode: 0644` as octal) -- unlike the `yq`-based approach
+    this replaced. Not intended for interactive use.
+    """
+
+    cli_name = "_yamlToJson"
+
+    yaml_version: Literal["golike", "yaml11", "yaml12"] = opt(
+        "yaml12",
+        help="Dialect to parse the input stream with; golike is go-yaml v2.",
+    )
+
+    async def run(self) -> None:
+        source = sys.stdin.read()
+        try:
+            docs = _YAML_STREAM_PARSERS[self.yaml_version](source)
+        except ValueError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        sys.stdout.buffer.write(_json_value_list_adapter.dump_json(docs))
+
+
+class JsonToYaml(Command):
+    """Parse a JSON value on stdin and dump it as YAML on stdout.
+
+    Internal: the reverse of `_yamlToJson`, reusing `ekn.nixyaml.to_yaml`
+    (root lists render as a `---`-separated document stream) so a
+    derivation-fallback path stays byte-for-byte consistent with the
+    in-process `toYAML` primop. Not intended for interactive use.
+    """
+
+    cli_name = "_jsonToYAML"
+
+    async def run(self) -> None:
+        data = sys.stdin.buffer.read()
+        try:
+            value = _json_value_adapter.validate_json(data)
+        except ValidationError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
+        sys.stdout.write(to_yaml(value))
+
+
+class Ekn(AttrCommand):
+    """easykubenix CLI — evaluate Nix and manage GitOps release branches."""
+
+    # **One tuple, and the order is the order `ekn --help` prints.** It used
+    # to be a union annotation, because clypi read the type of a `subcommand`
+    # field to find what it could mount.
+    subcommands = (
+        Deploy,
+        Eval,
+        Render,
+        Diff,
+        Commit,
+        Rollback,
+        Validate,
+        SchemaCheck,
+        KubeApply,
+        Tofu,
+        Secrets,
+        ClusterDiff,
+        Reclaim,
+        PushCache,
+        AssertCached,
+        SplitManifest,
+        ApplyManifest,
+        SchemaCheckManifest,
+        TofuJsonSchema,
+        TofuSchemaCheckFile,
+        YamlToJson,
+        JsonToYaml,
+    )
+
+    async def run(self) -> None:
+        """Evaluate the named entry point, the way `ekn eval` does.
+
+        The root takes `--file`/`--flake` itself, so `ekn -f app.nix -A web` is
+        a whole command. A caller who names neither has asked for the help.
+        """
+        if self.file is None and self.flake is None:
+            self.print_help()
+        result = await _evaluate(self.file, self.flake, self.attr)
+        json.dump(result, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+
+
+def parse(argv: Sequence[str]) -> Command:
+    """The command that *argv* names, built and ready to run.
+
+    What `main` does, without running anything. A test drives the real parser
+    through this rather than a double, so a change to a declaration is a change
+    the test sees.
+    """
+    parser = build_parser(Ekn)
+    return dispatch(parser, parser.parse_args(list(argv)))
+
+
+def main() -> None:
+    # **The parse comes first, and the set-up after it.** A shell completion
+    # and `--help` both end inside this function, and neither needs a logger or
+    # a traceback handler.
+    parser = build_parser(Ekn)
+    complete(parser)
+    command = dispatch(parser, parser.parse_args())
+    rich.traceback.install(show_locals=True)
+    structlog.configure(
+        processors=[
+            structlog.dev.ConsoleRenderer(),
+        ],
+        # stderr, not structlog's default stdout. `ekn tofu output` writes one
+        # value to stdout for a caller to redirect, and `prepare` logs two
+        # lines on the way there -- left on stdout those land in the file.
+        # Progress belongs on stderr for every command here anyway; this is
+        # the one that could not work without it.
+        logger_factory=structlog.PrintLoggerFactory(sys.stderr),
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        cache_logger_on_first_use=True,
+    )
+    # `backend="asyncio"`, named rather than left to the default: `kr8s` and
+    # `pygit2` both bring an asyncio-only dependency, so trio is not a choice
+    # this program has, and saying so here stops a default change moving it.
+    anyio.run(_run_profiled, command, backend="asyncio")
+
+
+async def _run_profiled(command: Command) -> None:
+    """Run the command with the profiler started inside the event loop.
+
+    **Inside the coroutine, not around `anyio.run`.** pyinstrument records
+    which async context it started in. Started outside, every coroutine is
+    out-of-context and the whole wait lands in the loop's selector rather
+    than in the frame that issued it. Measured over ten 0.2s sleeps:
+
+      started outside   2.00s in selectors, 0.00s in the awaiting function
+      started inside    0.00s in selectors, 2.00s in the awaiting function
+
+    True whether the awaits are sequential or fanned out, so it is the
+    context and not the concurrency. `tests/test_profile.py` holds both arms.
+
+    Coverage is unchanged: `command.run()` is the whole command, and it is
+    what the profiler now wraps. cProfile is a global trace hook and does not
+    care either way; it loses only the loop's own set-up.
+    """
+    with python_profile():
+        await command.run()
