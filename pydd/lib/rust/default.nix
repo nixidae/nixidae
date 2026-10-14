@@ -44,8 +44,9 @@ let
       # `{ openssl-sys = [ pkgs.pkg-config pkgs.openssl.dev pkgs.openssl ]; }`.
       # It replaces the hints of that crate. Each entry reaches the build
       # script and the compile of the crate: `bin` on `PATH`,
-      # `lib/pkgconfig` and `share/pkgconfig` on `PKG_CONFIG_PATH`, and
-      # `include` as `-isystem` in `CFLAGS` and `CXXFLAGS`. A node runs no
+      # `lib/pkgconfig` and `share/pkgconfig` on `PKG_CONFIG_PATH`, `lib` on
+      # `LIBRARY_PATH`, and `include` as `-isystem` in `CFLAGS` and
+      # `CXXFLAGS`. A node runs no
       # setup hook, so name each output that the build reads.
       buildTools ? { },
       # More of a crate, by crate name, as

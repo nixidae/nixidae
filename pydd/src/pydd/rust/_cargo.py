@@ -269,13 +269,16 @@ class Graph:
         env = {"PATH": menu.tools(), "PYDD_UNIT": json.dumps(spec, sort_keys=True)}
         if tools:
             # A build script finds a library through pkg-config, or compiles C
-            # with the `cc` crate, which reads `CFLAGS`.
+            # with the `cc` crate, which reads `CFLAGS`. gcc reads
+            # `LIBRARY_PATH` for `-l`: libz-sys probes for zlib with `-lz`, and
+            # builds its own copy when the probe fails.
             includes = " ".join(f"-isystem {tool}/include" for tool in tools)
             env |= {
                 "PATH": ":".join([*(f"{tool}/bin" for tool in tools), menu.tools()]),
                 "PKG_CONFIG_PATH": ":".join(f"{tool}/{d}/pkgconfig" for tool in tools for d in ("lib", "share")),
                 "CFLAGS": includes,
                 "CXXFLAGS": includes,
+                "LIBRARY_PATH": ":".join(f"{tool}/lib" for tool in tools),
             }
         env |= (native or {}).get("env", {})
         return Derivation(
