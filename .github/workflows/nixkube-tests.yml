@@ -1,0 +1,314 @@
+# GENERATED FILE -- do not edit by hand.
+# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update
+concurrency:
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+defaults:
+  run:
+    working-directory: nixkube
+env:
+  CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+  REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REPO_USERNAME: ${{ github.actor }}
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Build and push environments
+      run: |
+        unlink nix-envs || true
+        nix build --show-trace --print-build-logs --file . push --out-link nix-envs
+        ./nix-envs/bin/push
+    - name: Build amd64 nix image
+      run: |
+        unlink nix-nix || true
+        nix build --show-trace --print-build-logs --file . nixImage.pushArch.x86_64-linux --out-link nix-nix
+    - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
+      name: Push amd64 nix image
+      run: ./nix-nix/bin/push-nix-x86_64-linux
+    timeout-minutes: 45
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Build and push environments
+      run: |
+        unlink nix-envs || true
+        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . push --out-link nix-envs
+        ./nix-envs/bin/push
+    - name: Build arm64 nix image
+      run: |
+        unlink nix-nix || true
+        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . nixImage.pushArch.aarch64-linux --out-link nix-nix
+    - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
+      name: Push arm64 nix image
+      run: ./nix-nix/bin/push-nix-aarch64-linux
+    timeout-minutes: 90
+  build-manifests:
+    needs:
+    - build-amd64
+    - build-arm64
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Assert both architectures' closures are fetchable
+      run: |
+        nix build --show-trace --file . kubenixApply.manifestJSONFile --out-link manifest
+        nix run --file . assert-cached -- manifest
+    - name: Build the index and scratch publishers
+      run: |
+        unlink nix-manifest || true
+        unlink nix-scratches || true
+        nix build --show-trace --file . nixImage.pushManifest --out-link nix-manifest
+        nix build --show-trace --file . scratchImage.push --out-link nix-scratches
+    - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
+      name: Create nix multi-arch manifest
+      run: ./nix-manifest/bin/push-nix-manifest
+    - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
+      name: Push scratch image
+      run: ./nix-scratches/bin/push
+    - if: env.CACHIX_AUTH_TOKEN != ''
+      name: Push nocache variant store paths
+      run: nix run --file . push-ci2
+    - if: env.CACHIX_AUTH_TOKEN != ''
+      name: Push test workload store paths
+      run: nix run --file . push-citest
+    timeout-minutes: 30
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Run type checker
+      run: nix develop --file shell.nix --command pyright pkgs/nixkube/src
+    - name: Run the checks
+      run: nix build --show-trace --file ./checks.nix all
+    - name: Check that every CI attribute builds natively
+      run: |
+        nix run --file . arch-audit -- \
+          push \
+          push-ci2 \
+          push-citest \
+          kubenixApply.manifestJSONFile \
+          kubenixApply.manifestYAMLFile \
+          kubenixCI1.deploymentScript \
+          kubenixCI2.deploymentScript \
+          kubenixCITest.deploymentScript \
+          nixImage.pushArch.x86_64-linux \
+          nixImage.pushManifest \
+          scratchImage.push
+    - name: Check formatting
+      run: |
+        nix run --file . treefmt
+        git diff --exit-code -- .
+    timeout-minutes: 30
+  release:
+    if: startsWith(github.ref, 'refs/tags/nixkube/v')
+    needs:
+    - check
+    - build-manifests
+    - test-qemu-ci
+    - test-qemu-ci-cache
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Render deployment manifest
+      run: |
+        nix build --show-trace --file . kubenixApply.manifestYAMLFile
+        cp result nix-csi-deployment.yaml
+    - name: Assert the release manifest is deployable
+      run: nix run --file . assert-cached -- nix-csi-deployment.yaml
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        draft: false
+        files: nixkube/nix-csi-deployment.yaml
+        prerelease: false
+    timeout-minutes: 30
+  test-qemu:
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: Run the node test as a virtual machine
+      run: nix run --file . umlTest.driver -- --out ./uml-out
+    - if: ${{ !cancelled() }}
+      name: Keep the run's evidence
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: umlTest
+        path: nixkube/uml-out
+    timeout-minutes: 60
+  test-qemu-ci:
+    needs: build-manifests
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: Deploy and test without the pynixd cache, on a guest
+      run: nix run --file . ciTest.driver -- --out ./out
+    - if: ${{ !cancelled() }}
+      name: Keep the run's evidence
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: ciTest
+        path: nixkube/out
+    timeout-minutes: 60
+  test-qemu-ci-cache:
+    needs: build-manifests
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: Deploy and test with the pynixd cache, on a guest
+      run: nix run --file . ciTestCache.driver -- --out ./out
+    - if: ${{ !cancelled() }}
+      name: Keep the run's evidence
+      timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: ciTestCache
+        path: nixkube/out
+    timeout-minutes: 60
+name: 'nixkube: tests'
+'on':
+  pull_request: null
+  push:
+    branches:
+    - '*'
+    tags:
+    - nixkube/v*
+  workflow_dispatch: null
+permissions:
+  actions: write
+  contents: write
+  packages: write
