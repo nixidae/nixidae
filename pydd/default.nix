@@ -406,6 +406,27 @@ rec {
       };
     };
 
+  # Real Cargo projects from GitHub, as they are: `tests/rust-live`.
+  rust-live =
+    lib.genAttrs [ "cli" "huggorm" ] (
+      writer:
+      import ./tests/rust-live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+      }
+    )
+    // {
+      recursive = import ./tests/rust-live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "cli";
+          plannerProtocol = "recursive";
+        };
+      };
+    };
+
   # Run every check of a test set in each mode, and compare the environments
   # and the roots. A check needs a Nix that this machine's daemon may not be,
   # so it builds in the private store of a lane, and no `checks` attribute
@@ -423,6 +444,12 @@ rec {
   test-live = mkRunner "pydd-test-live" [
     "test"
     "live"
+  ];
+
+  # The real Cargo projects of `tests/rust-live`.
+  test-rust-live = mkRunner "pydd-test-rust-live" [
+    "test"
+    "rust-live"
   ];
 
   # The Cargo projects of `tests/rust`.
