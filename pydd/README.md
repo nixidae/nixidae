@@ -250,7 +250,7 @@ A planner's `PYTHONPATH` holds the core, its ecosystem and its one mode.
 | `tools/pydd-drv` | the C++ writer for a planner in any language (#1) |
 | `examples/` | the tour |
 | `docs/` | the research notes of the ddrn lab |
-| `tests/`, `nix/` | the test suite, and the umbrella pins |
+| `tests/`, `nix/` | the test suite, and the way to nixidae's pins |
 
 ## Tests
 

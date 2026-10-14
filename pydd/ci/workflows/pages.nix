@@ -1,19 +1,24 @@
-# The CI workflow, as a value. `.github/workflows/ci.yml` is rendered from
-# this file: edit this one, then run `nix run --file . ci-workflow-update`.
-# `checks.ciWorkflow` fails when the two differ. pynixd's ci/workflows has
-# the reasons for each choice below.
-{ lib, ghalib, nixVersion }:
+# The Pages workflow, as a value. `.github/workflows/pages.yml` is rendered
+# from this file: edit this one, then run `nix run --file . ci-workflow-update`.
+# `checks.ciWorkflow` fails when the two differ.
+#
+# It is the one workflow of pydd's own repository, which josh exports from
+# nixidae (nixidae/nixidae#4). Tests run in nixidae.
+{
+  lib,
+  ghalib,
+  nixVersion,
+}:
 let
   mainOnly = "github.ref == 'refs/heads/main'";
-  umbrellaRev = "\${{ needs.umbrella-rev.outputs.rev }}";
 
   bootstrap = {
     checkout.enable = true;
     nix.install = {
       enable = true;
       version = nixVersion;
-      # `flakes` gives `builtins.fetchTree`, which nix/sources.nix fetches the
-      # umbrella with.
+      # `flakes` gives `builtins.fetchTree`, which nix/sources.nix fetches
+      # nixidae with.
       experimentalFeatures = [
         "nix-command"
         "flakes"
@@ -36,45 +41,20 @@ let
   };
 in
 ghalib.evalWorkflow {
-  name = "CI";
+  name = "Pages";
 
   on = {
-    push.branches = [ "**" ];
-    pull_request = null;
+    push.branches = [ "main" ];
+    workflow_dispatch = null;
   };
 
-  # The umbrella fetches each source over git, not api.github.com, whose
-  # anonymous limit the runners share (nanopynix#301).
-  env.UMBRELLA_GIT = "1";
-
   jobs = {
-    # The umbrella that locks this commit, for every job of the run.
-    umbrella-rev = {
-      runs-on = "ubuntu-24.04";
-      timeout-minutes = 5;
-      outputs.rev = "\${{ steps.resolve.outputs.rev }}";
-      ghanix.checkout = {
-        enable = true;
-        fetchDepth = 100;
-      };
-      ghanix.freeDiskSpace.enable = false;
-      steps = [
-        {
-          id = "resolve";
-          name = "Resolve the umbrella revision";
-          run = "ci/walkback.sh https://github.com/nixidae/nixidae pydd | sed 's/^/rev=/' >> \"$GITHUB_OUTPUT\"";
-        }
-      ];
-    };
-
     # Sphinx renders docs/, and docs/_generated holds the measurements that
     # `nix run --file . measure-modes` wrote. A runner cannot run a
     # `builder-rpc-v0` planner in a private store, so the site never
     # measures.
     docs-build = {
       "if" = mainOnly;
-      needs = "umbrella-rev";
-      env.UMBRELLA_REV = umbrellaRev;
       runs-on = "ubuntu-24.04";
       timeout-minutes = 20;
       ghanix = bootstrap;

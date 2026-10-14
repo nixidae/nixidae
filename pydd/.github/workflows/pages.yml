@@ -1,13 +1,8 @@
 # GENERATED FILE -- do not edit by hand.
-# Edit ci/workflows/ci.nix, then run: nix run --file . ci-workflow-update
-env:
-  UMBRELLA_GIT: '1'
+# Edit ci/workflows/pages.nix, then run: nix run --file . ci-workflow-update
 jobs:
   docs-build:
-    env:
-      UMBRELLA_REV: ${{ needs.umbrella-rev.outputs.rev }}
     if: github.ref == 'refs/heads/main'
-    needs: umbrella-rev
     runs-on: ubuntu-24.04
     steps:
     - timeout-minutes: 10
@@ -53,22 +48,9 @@ jobs:
     - id: deployment
       name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
-  umbrella-rev:
-    outputs:
-      rev: ${{ steps.resolve.outputs.rev }}
-    runs-on: ubuntu-24.04
-    steps:
-    - timeout-minutes: 10
-      uses: actions/checkout@main
-      with:
-        fetch-depth: 100
-    - id: resolve
-      name: Resolve the umbrella revision
-      run: ci/walkback.sh https://github.com/nixidae/nixidae pydd | sed 's/^/rev=/' >> "$GITHUB_OUTPUT"
-    timeout-minutes: 5
-name: CI
+name: Pages
 'on':
-  pull_request: null
   push:
     branches:
-    - '**'
+    - main
+  workflow_dispatch: null

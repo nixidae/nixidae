@@ -132,16 +132,16 @@ rec {
   # content-addressed planner. `tools/measure-modes.py` sets it.
   measure = lib.mapAttrs (_: lib.mapAttrs (_: project: project.out.planner.planner)) projects;
 
-  # The workflow as a value, from ci/workflows/ci.nix, and as the file GitHub
+  # The workflow as a value, from ci/workflows/pages.nix, and as the file GitHub
   # reads. `ghalib.toYamlScript` writes a multi-line `run:` as a literal
   # block and quotes `'on'`; pynixd's default.nix gives the reasons.
   ghalib = import sources.ghanix { inherit lib; };
-  ciWorkflow = import ./ci/workflows/ci.nix {
+  ciWorkflow = import ./ci/workflows/pages.nix {
     inherit lib ghalib;
     nixVersion = pkgs.nix.version;
   };
   ciWorkflowFile =
-    pkgs.runCommand "ci.yml"
+    pkgs.runCommand "pages.yml"
       {
         nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyyaml ])) ];
         value = builtins.toJSON ciWorkflow;
@@ -150,12 +150,12 @@ rec {
       ''
         {
           echo "# GENERATED FILE -- do not edit by hand."
-          echo "# Edit ci/workflows/ci.nix, then run: nix run --file . ci-workflow-update"
+          echo "# Edit ci/workflows/pages.nix, then run: nix run --file . ci-workflow-update"
           python3 ${ghalib.toYamlScript} "$valuePath"
         } > $out
       '';
   ci-workflow-update = pkgs.writeShellScriptBin "ci-workflow-update" ''
-    cp --no-preserve=mode ${ciWorkflowFile} .github/workflows/ci.yml
+    cp --no-preserve=mode ${ciWorkflowFile} .github/workflows/pages.yml
   '';
 
   # The site that GitHub Pages serves: docs/, with Sphinx.
@@ -226,7 +226,7 @@ rec {
         "hints of pyyaml lack ${pkgs.libyaml.out}: ${toString names}";
       pkgs.runCommand "hints" { } "echo ${toString names} > $out";
 
-    # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
+    # Does .github/workflows/pages.yml still say what ci/workflows/pages.nix says?
     # Parsed, so key order and quoting cannot fail it.
     ciWorkflow =
       pkgs.runCommand "ci-workflow-check"
@@ -237,10 +237,10 @@ rec {
           ];
         }
         ''
-          yq --output-format=json '.' ${./.github/workflows/ci.yml} | jq --sort-keys . > committed.json
+          yq --output-format=json '.' ${./.github/workflows/pages.yml} | jq --sort-keys . > committed.json
           jq --sort-keys . < ${pkgs.writeText "ci-rendered.json" (builtins.toJSON ciWorkflow)} > rendered.json
           if ! diff --unified committed.json rendered.json; then
-            echo ".github/workflows/ci.yml and ci/workflows/ci.nix disagree." >&2
+            echo ".github/workflows/pages.yml and ci/workflows/pages.nix disagree." >&2
             echo "Run: nix run --file . ci-workflow-update" >&2
             exit 1
           fi
