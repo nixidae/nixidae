@@ -1,15 +1,31 @@
 # Default-deny. Nothing is tracked unless it is whitelisted below, so a draft,
 # a scratch file or a sibling checkout can never reach the index by accident.
-# Keep this list in step with the umbrella's own committed files.
+#
+# kr8s, containerd and flake-compatish are not on the list: a checkout of one
+# of them sits here, ignored, and takes the place of its pin.
 /*
 !/.gitignore
 !/.envrc
+!/.github/
 !/LICENSE
 !/README.md
 !/default.nix
+!/flake.nix
+!/flake.lock
 !/shell.nix
 !/nix/
 !/pkgs/
+
+# The sources. josh exports each one to its own repository.
+!/easykubenix/
+!/ghanix/
+!/havsorm/
+!/huggorm/
+!/nanopynix/
+!/nixkube/
+!/pydd/
+!/pynixd/
+!/vivarium/
 
 # Only the committed settings live under .claude; everything else there is
 # agent state.
