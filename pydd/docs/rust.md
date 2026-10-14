@@ -52,6 +52,64 @@ the target, the mode, the platform, the features, the profile and the
 metadata of each dependency. It holds no path of the host, so every mode
 gives the same file names.
 
+## Projects and sources
+
+`project` is a package or the root of a workspace (Lillecarl/pydd#18).
+A virtual workspace names no package, so the call passes `name`. Every
+other choice is cargo's own flag, and the planner passes it to the unit
+graph:
+
+| argument | cargo flag |
+| --- | --- |
+| `packages` | `--package`, once for each |
+| `features` | `--features` |
+| `noDefaultFeatures`, `allFeatures` | `--no-default-features`, `--all-features` |
+| `profile` (`"release"`) | `--profile` |
+
+**A path dependency inside the project needs nothing.** One outside it
+needs `root`, a directory that holds both: `tests/rust/monorepo` builds
+`tool` with `shared` beside it.
+
+**A git dependency needs its hash**, as `importCargoLock` takes it:
+`outputHashes."itoa-1.0.15" = "sha256-...";`, or
+`allowBuiltinFetchGit = true`. nixpkgs writes cargo's source replacement
+for each git source into the vendor directory, and the planner uses that
+file.
+
+The root joins the binaries of every root unit. A workspace's libraries
+build too, as with `cargo build`, and install nothing.
+
+## Tests
+
+`root.tests` runs every test of the project, as `cargo test` does. It is
+a second planner, over `cargo test --no-run`:
+
+| unit | nodes |
+| --- | --- |
+| a test binary (`--test`) | one compiles it, one runs it |
+| an integration test | the same, with `CARGO_BIN_EXE_<name>` of each binary it runs |
+| the doctests of a library | one runs `rustdoc --test` |
+
+Each node that runs a test keeps its output as `log`, and the root links
+every log. So the root builds only when every test passes, and a failed
+test names its own node. A unit that the tests' graph shares with the
+build's graph is the same node. `tests/rust/workspace` has one test of
+each kind.
+
+## Real projects
+
+`tests/rust-live` builds ripgrep, fd, hyperfine and bat from GitHub, as
+they are, in three modes: `nix run --file . test-rust-live`. Its README
+lists what each one needed. Two changes came from them:
+
+- **LTO by the role of the unit.** The unit graph gives each unit the
+  profile's `lto`. Cargo runs LTO only where it links a binary, and the
+  libraries that binary links keep their bitcode. A build script and a
+  proc-macro get none. The planner does the same.
+- **`LIBRARY_PATH` for each tool.** libz-sys probes for zlib by linking
+  with `-lz`, and builds its own copy when that fails. gcc reads
+  `LIBRARY_PATH` for `-l`.
+
 ## Native libraries
 
 A crate that links a system library, such as openssl-sys, needs that
@@ -74,8 +132,8 @@ than the copy it bundles.
 
 **A tool reaches the build script and the compile of its crate, and no
 other node.** `bin` goes on `PATH`, `lib/pkgconfig` and `share/pkgconfig`
-on `PKG_CONFIG_PATH`, and `include` into `CFLAGS` and `CXXFLAGS` as
-`-isystem`. The library is linked where the build script says, and the
+on `PKG_CONFIG_PATH`, `lib` on `LIBRARY_PATH`, and `include` into
+`CFLAGS` and `CXXFLAGS` as `-isystem`. The library is linked where the build script says, and the
 linker wrapper of nixpkgs writes the RUNPATH.
 
 `tests/rust/native-app` builds openssl and zstd with no declaration.
@@ -118,11 +176,14 @@ pydd's lane is a Python planner over `pydd.core`, so it runs in every
 mode that the core has, recursive-nix included. A node builds with a
 Python script and `rustc`, and keeps the output of a build script as JSON.
 
+cargo-dyndrv also runs outside a build: it writes the derivations through
+the user's daemon and prints the root. pydd has no such mode yet
+(Lillecarl/pydd#22).
+
 ## What is missing
 
 | need | issue |
 | --- | --- |
-| workspaces, path and git sources, profiles, features | Lillecarl/pydd#18 |
 | `CARGO`, `links` metadata, more build-script keys | Lillecarl/pydd#19 |
 | fetch only the crates that the graph uses | Lillecarl/pydd#20 |
 | cross-compilation | Lillecarl/pydd#21 |

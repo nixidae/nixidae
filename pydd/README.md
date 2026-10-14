@@ -258,7 +258,8 @@ and an example app of uv. `tests/live/README.md` lists what each one
 needed, and what each one changed in pydd.
 
 `nix run --file . test-rust` builds the Cargo projects of `tests/rust` in
-four modes, and compares the binaries and the roots.
+four modes, and compares the binaries and the roots. `test-rust-live`
+builds ripgrep, fd, hyperfine and bat from GitHub, as they are, in three.
 
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock
