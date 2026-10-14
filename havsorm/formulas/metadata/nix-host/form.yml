@@ -1,0 +1,29 @@
+nix_host:
+  $type: group
+
+  version:
+    $type: text
+    $placeholder: the Nix havsorm links
+    $help: The Nix release to install, such as 2.34.6. Empty installs the Nix havsorm links.
+    $optional: true
+
+  experimental_features:
+    $type: text
+    $default: nix-command flakes
+
+  profile:
+    $type: group
+    $help: A store path for a profile, such as a buildEnv a builder made. Empty manages no profile.
+
+    name:
+      $type: text
+      $default: /nix/var/nix/profiles/salt
+
+    path:
+      $type: text
+      $optional: true
+
+  keep_free:
+    $type: text
+    $default: 10G
+    $help: Collect garbage when the store's file system has less free than this.
