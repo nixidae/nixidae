@@ -125,9 +125,30 @@ def package_env(package: dict[str, Any], manifest_dir: str) -> dict[str, str]:
     }
 
 
+#: Crate types that rustc links into a final artefact, where LTO runs.
+LINKED = {"bin", "cdylib", "staticlib", "dylib"}
+
+
+def lto_flags(unit: dict[str, Any]) -> list[str]:
+    """What cargo passes for the profile's `lto`, by the role of the unit.
+
+    The artefact that links runs LTO, and every library it links keeps its
+    bitcode for it. Cargo runs no LTO for a build script or a proc-macro.
+    """
+    lto = unit["profile"]["lto"]
+    kinds = set(unit["target"]["kind"])
+    if lto == "false" or kinds & {"custom-build", "proc-macro"}:
+        return ["-C", "embed-bitcode=no"]
+    if lto == "off":
+        return ["-C", "embed-bitcode=no", "-C", "lto=off"]
+    if set(unit["target"]["crate_types"]) & LINKED or unit["mode"] == "test":
+        return ["-C", "lto" if lto in ("true", "fat") else f"lto={lto}"]
+    return []
+
+
 def profile_flags(unit: dict[str, Any]) -> list[str]:
     profile = unit["profile"]
-    flags = ["-C", "embed-bitcode=no"]
+    flags = lto_flags(unit)
     if profile["opt_level"] != "0":
         flags += ["-C", f"opt-level={profile['opt_level']}"]
     if profile["debuginfo"]:
@@ -136,8 +157,6 @@ def profile_flags(unit: dict[str, Any]) -> list[str]:
     flags += ["-C", f"overflow-checks={'on' if profile['overflow_checks'] else 'off'}"]
     if profile.get("codegen_units"):
         flags += ["-C", f"codegen-units={profile['codegen_units']}"]
-    if profile["lto"] not in ("false", "off"):
-        raise NotImplementedError(f"{unit['pkg_id']}: profile lto = {profile['lto']!r}")
     # A build script and a proc-macro run inside cargo's own process model,
     # which unwinds.
     kinds = set(unit["target"]["kind"])
