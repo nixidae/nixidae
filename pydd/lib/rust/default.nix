@@ -61,6 +61,10 @@ let
       # hints of the crate, and wins per variable.
       overrides ? { },
     }:
+    assert lib.assertMsg (builtins.pathExists (project + "/Cargo.lock")) (
+      "pydd.rust.cargo: ${toString project} holds no Cargo.lock. The planner builds what "
+      + "the lock pins, offline. Run `cargo generate-lockfile` there, and commit the file."
+    );
     assert lib.assertMsg (pydd.protocol != "out") (
       "pydd.rust.cargo: plannerProtocol = \"out\" needs the host to make every node, "
       + "and only cargo, in a build, knows the units. Use \"rpc\" or \"recursive\"."
@@ -197,6 +201,21 @@ let
           # Every test of the project, from `cargo test`: a node compiles each
           # test binary, and one more runs it. A crate's doctests are one node.
           # It builds when every test passes, and holds their logs.
+          # A development shell for the project: cargo, rustc, clippy,
+          # rustfmt and rust-analyzer, and the tools and variables of every
+          # crate, through stdenv's setup hooks as a nixpkgs build gets them.
+          shell = pkgs.mkShell {
+            name = "${name}-shell";
+            nativeBuildInputs = [
+              cargo
+              rustc
+              pkgs.clippy
+              pkgs.rustfmt
+              pkgs.rust-analyzer
+            ];
+            buildInputs = lib.unique (lib.concatLists (builtins.attrValues tools));
+            env = lib.foldl' (a: b: a // b) { } (builtins.attrValues env);
+          };
           tests = import ../core/root.nix {
             inherit pkgs;
             name = "${name}-tests";
