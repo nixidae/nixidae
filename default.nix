@@ -69,7 +69,30 @@ rec {
 
   ghanix = import sources.ghanix { inherit (pkgs) lib; };
 
+  # The test workflows of every source, rendered for this repository.
+  # nix/ci.nix says how.
+  ci = import ./nix/ci.nix {
+    inherit (pkgs) lib;
+    inherit pkgs ghanix;
+    sets = {
+      inherit
+        easykubenix
+        havsorm
+        huggorm
+        nanopynix
+        nixkube
+        pydd
+        pynixd
+        vivarium
+        ;
+    };
+  };
+  ci-workflow-update = ci.update;
+
   checks = {
+    # That every committed `<source>-*.yml` is what its source renders.
+    ciWorkflows = ci.check;
+
     # That calling a flake we do not own uses our inputs and not its lock.
     # nix/examples/call-flake.nix is the worked example as well as the gate.
     callFlake = pkgs.callPackage ./nix/examples/call-flake.nix {
