@@ -233,8 +233,10 @@ needs `builder-rpc-v0` or a release, so it builds in the private store of
 modes, in two groups: the plain modes, and the modes whose source nodes
 are stdenv's. It fails when two modes of a group give different store
 paths for one environment, or for the root around it.
-`tools/test-set.py` runs the projects in parallel, `PYDD_JOBS` at a time
-(half the cores by default), and the modes of one project in order.
+`tools/runner.py` runs the projects in parallel, `--jobs` at a time
+(half the cores by default), and the modes of one project in order. Each
+evaluation and each build has a timeout (`--eval-timeout`, `--build-timeout`),
+so a stuck build fails the run instead of holding it.
 
 `nix run --file . test-live` builds real projects from GitHub, pinned and
 unchanged, in four modes: fastapi-cli, typer, fastmcp, the MCP Python SDK

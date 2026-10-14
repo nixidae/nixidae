@@ -91,88 +91,40 @@ rec {
     )
   ) (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./examples));
 
-  # Build an example's output in a private store with a given Nix, because
-  # the daemon of this machine may be neither Nix master nor a release. The
+  # Build in a private store with a given Nix, because the daemon of this
+  # machine may be neither Nix master nor a release: `tools/runner.py`. The
   # store keeps /nix/store as its store directory, so the cache substitutes
   # into it.
-  mkRun =
-    {
-      name,
-      nix,
-      store,
-      features,
-    }:
+  mkRunner =
+    name: arguments:
     pkgs.writeShellApplication {
       inherit name;
-      runtimeInputs = [
-        nix
-        pkgs.jq
-      ];
+      runtimeInputs = [ nix ];
       text = ''
-        attr=''${1:?usage: ${name} <example attribute> [out|environment|root ...] [nix build flags]}
-        shift
-        targets=()
-        while (( $# > 0 )) && [[ $1 != -* ]]; do
-          targets+=("$attr.$1")
-          shift
-        done
-        (( ''${#targets[@]} > 0 )) || targets=("$attr.out")
-        store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${store}}
-        export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations recursive-nix
-        use-cgroups = false"
-
-        # What the planner runs on may be built here and nowhere else, such
-        # as a huggorm lane, so copy it in rather than build it again.
-        # **The host's daemon is the slow path** (Lillecarl/pynixd#30: 9 s
-        # against 2 s for one evaluation), so an evaluation in the chroot
-        # store asks first whether the closure is already there.
-        closure=$(nix eval --store "$store" --file . "$attr.closure" --raw)
-        if ! nix path-info --store "$store" "$closure" > /dev/null 2>&1; then
-          closure=$(nix build --file . "$attr.closure" --no-link --print-out-paths)
-          nix copy --to "$store" --no-check-sigs "$closure"
-        fi
-
-        # One evaluation for every target. `nix build` prints the paths in
-        # the order of its installables, and each target has one output.
-        mapfile -t outs < <(nix build --store "$store" --file . "''${targets[@]}" \
-          --system-features "${features}" --no-link --print-out-paths -L "$@")
-        if (( ''${#outs[@]} != ''${#targets[@]} )); then
-          echo "${name}: ''${#targets[@]} targets gave ''${#outs[@]} paths: ''${outs[*]}" >&2
-          exit 1
-        fi
-        # `PYDD_PRINT_PATH=1` prints the output paths alone, one for each
-        # target, for a caller to compare.
-        if [[ ''${PYDD_PRINT_PATH:-} == 1 ]]; then
-          printf '%s\n' "''${outs[@]}"
-          exit 0
-        fi
-        for out in "''${outs[@]}"; do
-          echo "$out" >&2
-          if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
-            nix store cat --store "$store" "$out"
-          else
-            nix store ls --store "$store" "$out"
-          fi
-        done
+        export PYDD_NIX_MASTER=${lib.getExe nix}
+        export PYDD_NIX_RELEASED=${lib.getExe nixReleased}
+        export PYDD_NIX_RELEASED_VERSION=${nixReleased.version}
+        exec ${
+          pkgs.python3.withPackages (ps: [ ps.anyio ])
+        }/bin/python3 ${./tools/runner.py} ${lib.escapeShellArgs arguments} "$@"
       '';
     };
 
+  # Nix master, with `builder-rpc-v0`.
   # nix run --file . run -- examples.hello.cli
-  run = mkRun {
-    name = "pydd-run";
-    inherit nix;
-    store = "store";
-    features = "builder-rpc-v0";
-  };
+  run = mkRunner "pydd-run" [
+    "run"
+    "--lane"
+    "master"
+  ];
 
   # A stock release, which has no `builder-rpc-v0`.
   # nix run --file . run-released -- examples.released.huggorm
-  run-released = mkRun {
-    name = "pydd-run-released";
-    nix = nixReleased;
-    store = "store-${nixReleased.version}";
-    features = "";
-  };
+  run-released = mkRunner "pydd-run-released" [
+    "run"
+    "--lane"
+    "released"
+  ];
 
   # The planner of each project's environment. With PYDD_MEASURE set and
   # `--impure`, every planner carries it (`mkPlanner`), so Nix runs each one
@@ -241,12 +193,11 @@ rec {
 
   # A stock release, with recursive-nix: a planner gets a daemon socket.
   # nix run --file . run-recursive -- examples.graph.recursive
-  run-recursive = mkRun {
-    name = "pydd-run-recursive";
-    nix = nixReleased;
-    store = "store-${nixReleased.version}";
-    features = "recursive-nix";
-  };
+  run-recursive = mkRunner "pydd-run-recursive" [
+    "run"
+    "--lane"
+    "recursive"
+  ];
 
   checks = {
     # nixpkgs in the planner and stdenv as data give one `.drv` for every
@@ -429,32 +380,21 @@ rec {
     };
 
   # Run every check of a test set in each mode, and compare the environments
-  # and the roots: `tools/test-set.py`. A check needs a Nix that this
-  # machine's daemon may not be, so it builds in the private store of `run`,
-  # `run-released` or `run-recursive`, and no `checks` attribute can hold it.
-  mkTestSet =
-    { name, set }:
-    pkgs.writeShellApplication {
-      inherit name;
-      runtimeInputs = [ nix ];
-      text = ''
-        export PYDD_RUN=${lib.getExe run}
-        export PYDD_RUN_RELEASED=${lib.getExe run-released}
-        export PYDD_RUN_RECURSIVE=${lib.getExe run-recursive}
-        exec ${pkgs.python3.withPackages (ps: [ ps.anyio ])}/bin/python3 ${./tools/test-set.py} ${set} "$@"
-      '';
-    };
-
-  test-projects = mkTestSet {
-    name = "pydd-test-projects";
-    set = "projects";
-  };
+  # and the roots. A check needs a Nix that this machine's daemon may not be,
+  # so it builds in the private store of a lane, and no `checks` attribute
+  # can hold it.
+  #
+  #     nix run --file . test-projects -- [--jobs N] [name ...]
+  test-projects = mkRunner "pydd-test-projects" [
+    "test"
+    "projects"
+  ];
 
   # The live projects of `tests/live`, in one mode of each level of
   # restriction: `builder-rpc-v0` through `nix` and through huggorm,
   # recursive-nix, and a release with no socket.
-  test-live = mkTestSet {
-    name = "pydd-test-live";
-    set = "live";
-  };
+  test-live = mkRunner "pydd-test-live" [
+    "test"
+    "live"
+  ];
 }
