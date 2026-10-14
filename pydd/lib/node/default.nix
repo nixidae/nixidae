@@ -59,10 +59,6 @@ let
       "pydd.node.npm: ${toString project} holds no package-lock.json. The planner builds what "
       + "the lock pins. Run `npm install --package-lock-only` there, and commit the file."
     );
-    assert lib.assertMsg (pydd.protocol != "out") (
-      "pydd.node.npm: plannerProtocol = \"out\" needs the host to make every node, and "
-      + "this lane writes them in the planner. Use \"rpc\" or \"recursive\"."
-    );
     let
       # `"pydd"` of `package.json`:
       #
@@ -121,29 +117,62 @@ let
         pkgs.stdenv.cc
         pkgs.python3
       ];
+      # Each package that a node reads, with the derivation that builds it. A
+      # node names that derivation as its input, as a string in Nix would.
+      built = [
+        nodejs
+        pkgs.python3
+        pkgs.cacert
+      ]
+      ++ scriptTools
+      ++ lib.concatLists (builtins.attrValues tools)
+      ++ builtins.filter lib.isDerivation (builtins.attrValues sources);
+      refs = builtins.listToAttrs (
+        map (drv: {
+          name = builtins.unsafeDiscardStringContext "${drv}";
+          value = [
+            (builtins.unsafeDiscardOutputDependency drv.drvPath)
+            (drv.outputName or "out")
+          ];
+        }) built
+      );
+      menu = {
+        inherit
+          name
+          subdir
+          omit
+          scripts
+          native
+          refs
+          ;
+        project = "${source}";
+        nodejs = "${nodejs}";
+        python = "${pkgs.python3}";
+        script = "${../../src/pydd/node/scripts/package.py}";
+        cacert = "${pkgs.cacert}";
+        tools = map toString scriptTools;
+        libc = if pkgs.stdenv.hostPlatform.isMusl then "musl" else "glibc";
+        hashes = outputHashes;
+      };
+      # On released Nix the host makes each node, and the planner writes only
+      # the root (`./graph.nix`). Each node's `.drv` is an input of the
+      # planner, and nothing builds it until the root names it.
+      hostNodes = import ./graph.nix {
+        inherit lib menu;
+        inherit (pkgs.stdenv.hostPlatform) system;
+        lock = lib.importJSON (project + "/package-lock.json");
+      };
       planned = pydd.mkPlanner {
-        inherit name;
+        inherit name menu;
         plan = pkgs.writeText "plan.py" "import sys\nfrom pydd.node._npm import main\nsys.exit(main())\n";
         modules = [
           ../../src/pydd/node/__init__.py
           ../../src/pydd/node/_npm.py
         ];
-        menu = {
-          inherit
-            name
-            subdir
-            omit
-            scripts
-            native
-            ;
-          project = "${source}";
-          nodejs = "${nodejs}";
-          python = "${pkgs.python3}";
-          script = "${../../src/pydd/node/scripts/package.py}";
-          cacert = "${pkgs.cacert}";
-          tools = map toString scriptTools;
-          libc = if pkgs.stdenv.hostPlatform.isMusl then "musl" else "glibc";
-          hashes = outputHashes;
+        env = lib.optionalAttrs (pydd.protocol == "out") {
+          PYDD_HOST_NODES = toString (
+            map (node: builtins.unsafeDiscardOutputDependency node.drvPath) (builtins.attrValues hostNodes)
+          );
         };
       };
     in

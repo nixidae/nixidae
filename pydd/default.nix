@@ -406,8 +406,7 @@ rec {
       };
     };
 
-  # npm projects of `tests/node`, in each mode where a planner writes its own
-  # nodes.
+  # npm projects of `tests/node`, in each mode.
   # nix run --file . run -- node.cli.hello-npm
   node =
     lib.genAttrs [ "cli" "huggorm" "drv" ] (
@@ -430,6 +429,17 @@ rec {
           plannerProtocol = "recursive";
         };
       };
+      # Released Nix with no socket: the host makes every node
+      # (`lib/node/graph.nix`), and the planner writes the root.
+      out = import ./tests/node {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "huggorm";
+          plannerProtocol = "out";
+        };
+      };
     };
 
   # Real npm projects, at the releases that nixpkgs builds: `tests/node-live`.
@@ -449,6 +459,17 @@ rec {
           nix = nixReleased;
           writer = "cli";
           plannerProtocol = "recursive";
+        };
+      };
+      # Released Nix with no socket: the host makes every node
+      # (`lib/node/graph.nix`), and the planner writes the root.
+      out = import ./tests/node-live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "huggorm";
+          plannerProtocol = "out";
         };
       };
     };
