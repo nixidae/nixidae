@@ -59,6 +59,48 @@ let
         test "$(git-dep)" = 'hello from git-dep array=true ms=patched'
       '';
     };
+    # hello-npm from pnpm's lock: a graph of versions, which the reader
+    # places as npm does. The lock does not name semver's program, so the
+    # root reads it from the package.
+    pnpm-hello = {
+      src = ./pnpm-hello;
+      lock = "pnpm";
+      check = ''
+        test "$(hello-npm)" = 'hello from hello-npm semver=7 styles=6/4'
+        modules=$(dirname "$(readlink -f "$(command -v hello-npm)")")/../node_modules
+        test "$(readlink "$modules/.bin/semver")" = ../semver/bin/semver.js
+      '';
+    };
+    # The npm workspace with pnpm: a member links to the other member.
+    pnpm-workspace = {
+      src = ./pnpm-workspace;
+      lock = "pnpm";
+      arguments.program = "workspace-app";
+      check = ''
+        test "$(workspace-app)" = 'hello from workspace-app hour=3600000'
+      '';
+    };
+    # better-sqlite3 from bun's lock. bun runs the install script of a
+    # package that `trustedDependencies` names.
+    bun-native = {
+      src = ./bun-native;
+      lock = "bun";
+      check = ''
+        test "$(native-npm)" = 'hello from native-npm sqlite=3 answer=42'
+      '';
+    };
+    # esbuild from Yarn v1's lock, which names no platform: every package of
+    # esbuild installs for the build, and the result omits all of them.
+    yarn-esbuild = {
+      src = ./yarn-esbuild;
+      lock = "yarn";
+      check = ''
+        test "$(esbuild-app)" = 'hello from esbuild-app day=86400000'
+        modules=$(dirname "$(readlink -f "$(command -v esbuild-app)")")/../node_modules
+        test ! -e "$modules/esbuild"
+        test ! -e "$modules/@esbuild"
+      '';
+    };
   };
 in
 builtins.mapAttrs (
@@ -85,4 +127,5 @@ builtins.mapAttrs (
     inherit root;
     inherit (root) closure;
   }
-) projects
+  # `out` reads npm's lock on the host, and no other.
+) (pkgs.lib.filterAttrs (_: entry: pydd.protocol != "out" || !(entry ? lock)) projects)

@@ -72,6 +72,7 @@ runCommand "pydd-tests"
       (huggorm.pythonModule.withPackages (ps: [
         ps.pytest
         ps.packaging
+        ps.pyyaml
         huggorm
       ]))
       nixVersions.git
