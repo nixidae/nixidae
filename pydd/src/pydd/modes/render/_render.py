@@ -109,7 +109,11 @@ class Graph:
     def __init__(self, document: dict[str, Any], add: Callable[[Derivation], str], store_dir: str) -> None:
         self.doc: dict[str, Any] = lift(document, store_dir)
         self.add = add
-        self.tool: dict[str, Text] = {name: built["out"] for name, built in self.doc["tools"].items()}
+        # A tool is one output, or a list of them, such as `manylinux`.
+        self.tool: dict[str, Any] = {
+            name: [one["out"] for one in built] if isinstance(built, list) else built["out"]
+            for name, built in self.doc["tools"].items()
+        }
         self.script: dict[str, Text] = self.doc["scripts"]
         self.nodes: dict[str, dict[str, Any]] = {node["name"].text: node for node in self.doc["nodes"]}
         self.paths: dict[str, str] = {}
@@ -158,7 +162,7 @@ class Graph:
             "PATH": cat(self.base_path, ":", tool["patchelf"], "/bin"),
             "autoPatchelf": cat(tool["autoPatchelf"], "/bin/auto-patchelf"),
             "NIX_BINTOOLS": cat(tool["bintools"]),
-            "patchelfLibs": cat(tool["gccLib"], "/lib"),
+            "patchelfLibs": join(" ", (cat(library, "/lib") for library in tool["manylinux"])),
         }
 
     def build_tools_of(self, node: dict[str, Any]) -> dict[str, Text]:

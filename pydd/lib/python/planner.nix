@@ -438,7 +438,11 @@ let
     # hook calls.
     autoPatchelf = pkgs.auto-patchelf;
     bintools = pkgs.stdenv.cc.bintools;
-    gccLib = pkgs.stdenv.cc.cc.lib;
+    # **The libraries a manylinux wheel may assume a system has**, PEP 599:
+    # libgcc_s and libstdc++, but also zlib, X11, GL, glib and expat. pillow
+    # needs `libz.so.1`. A list, so each directory stays apart, and a RUNPATH
+    # names only the library that a binary uses.
+    manylinux = map pkgs.lib.getLib pkgs.pythonManylinuxPackages.manylinux2014;
   };
 
   scripts = {
@@ -520,7 +524,7 @@ let
         ;
       fromNixpkgs = nixpkgsRows;
       artifacts = map row entries;
-      tools = builtins.mapAttrs (_: built) tools;
+      tools = builtins.mapAttrs (_: tool: if builtins.isList tool then map built tool else built tool) tools;
       inherit scripts;
       # The planner reads the `pyproject.toml` of each tree below, and resolves
       # the backend that the tree asks for against the same lock file.

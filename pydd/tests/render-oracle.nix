@@ -73,7 +73,7 @@ let
     "patchelf"
     "autoPatchelf"
     "bintools"
-    "gccLib"
+    "manylinux"
     "patch"
   ] tool;
 
@@ -106,8 +106,11 @@ let
     };
   tool =
     name:
-    if name == "gccLib" then
-      built (package "gcc").lib
+    if name == "manylinux" then
+      [
+        (built (package "gcc").lib)
+        (built (package "zlib").out)
+      ]
     else if name == "patchelf" then
       { out = source "tool-patchelf"; }
     else

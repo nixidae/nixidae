@@ -37,7 +37,9 @@ let
   # Both call `EnsurePath`, which a `builder-rpc-v0` socket refuses, so the
   # planner attaches the context before this file sees a value
   # (`pydd.modes.evaluate._document.document_value`).
-  tool = builtins.mapAttrs (_: built: built.out) tools;
+  tool = builtins.mapAttrs (
+    _: built: if builtins.isList built then map (one: one.out) built else built.out
+  ) tools;
   script = scripts;
 
   # **This is what makes a pre-instantiated fetch a real dependency.**
@@ -98,9 +100,10 @@ let
     PATH = "${basePath}:${tool.patchelf}/bin";
     autoPatchelf = "${tool.autoPatchelf}/bin/auto-patchelf";
     NIX_BINTOOLS = "${tool.bintools}";
-    # `libgcc_s` and `libstdc++` live here, and a manylinux binary needs both.
-    # `auto-patchelf` adds the libc of this system on its own, from `orig-libc`.
-    patchelfLibs = "${tool.gccLib}/lib";
+    # What a manylinux binary may assume the system has (`manylinux` of
+    # `planner.nix`). `auto-patchelf` adds the libc of this system on its own,
+    # from `orig-libc`.
+    patchelfLibs = builtins.concatStringsSep " " (map (library: "${library}/lib") tool.manylinux);
   };
 
   # **What one package needs to build, and what no other node gets.** A source
