@@ -1,0 +1,1743 @@
+"""Nix telling Python what it is doing.
+
+The other direction, like `test_primop.py`, and without a call. A
+record is raised inside the work - on the evaluation thread, in the
+middle of an evaluation - and reaches a queue rather than a callback.
+
+The queue is the design. A callback there would take the GIL once per
+log line and run arbitrary Python inside the evaluator; `push` takes a
+mutex and returns. So these tests drain, they never wait.
+
+Two things every gate here has to keep in mind, both measured against
+`logging.hh` and recorded in huggorm#32:
+
+- `nix::verbosity` rises to the widest level any live subscription
+  asks for and falls back when one ends, so a subscription level can
+  WIDEN as well as narrow, and the tap is the only filter
+  (huggorm#89 step 4, huggorm#96). It is not pinned - this said so
+  until huggorm#95 measured what a pin costs the daemon;
+- an ACTIVITY is not filtered at all. `Activity::Activity` calls
+  `startActivity` with no test, so a start arrives whatever its level
+  says.
+"""
+
+import os
+import pathlib
+import subprocess
+import sys
+import threading
+from collections.abc import Iterator
+from typing import Any
+
+import anyio
+import pytest
+from conftest import SHORT_TTL, Server
+from nixversion import EVALUATING_FILE, WORKER_OP
+
+URI = "dummy://"
+
+# builtins.trace goes through printError, which is lvlError - 0, and
+# under every verbosity there is. So it is the one message a test can
+# rely on arriving.
+TRACE = 'builtins.trace "%s" 1'
+
+# builtins.warn takes the OTHER path: logWarning, so logEI rather than
+# log, and lvlWarn.
+WARN = 'builtins.warn "%s" 1'
+
+
+@pytest.fixture
+def state() -> Any:
+    from huggorm_bindings import EvalState, Store
+
+    return EvalState(Store(URI))
+
+
+@pytest.fixture
+def subscribed(state: Any) -> Iterator[tuple[Any, Any]]:
+    """A state and a queue, and the thread left clean afterwards.
+
+    The subscription belongs to the THREAD, so a test that left one
+    behind would be recording into the next test's queue. That is not
+    hypothetical: pytest runs these in one thread."""
+    stream = state.subscribe_logs()
+    yield state, stream
+    state.unsubscribe_logs()
+
+
+def texts(stream: Any) -> list[str]:
+    return [r.text() for r in stream.drain()]
+
+
+def test_a_trace_arrives_as_a_message(subscribed: tuple[Any, Any]) -> None:
+    """The whole thing, in three lines.
+
+    `builtins.trace` calls `printError` (`primops.cc:1282`), which is
+    `printMsg(lvlError, ...)`. So the record is a "msg" at level 0,
+    and the text is Nix's own - the binding renders nothing."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "hello")
+
+    records = stream.drain()
+    assert [r.action() for r in records] == ["msg"]
+    assert records[0].level() == 0
+    assert "trace: hello" in records[0].text()
+    # A message belongs to no activity, and 0 is how Nix spells that.
+    assert records[0].id() == 0
+
+
+def test_a_warning_takes_the_other_path(subscribed: tuple[Any, Any]) -> None:
+    """`logEI`, not `log`, and it arrives rendered, with its parts.
+
+    `builtins.warn` builds an `ErrorInfo` and calls `logWarning`
+    (`primops.cc:1324`), so this drives the second of the five
+    virtuals. `text` is what `JSONLogger` would have written, and
+    `info` is the record a failed call's `NixError.info` holds.
+
+    Perturbation: drop `.info` from `LogTap::logEI` and this fails."""
+    state, stream = subscribed
+    state.eval_expr(WARN % "careful")
+
+    records = stream.drain()
+    assert [r.action() for r in records] == ["msg"]
+    assert records[0].level() == 1, "lvlWarn"
+    assert "careful" in records[0].text()
+    info = records[0].info()
+    assert info is not None, "logEI raised the record, and its parts are gone"
+    assert info.level() == 1
+    assert info.msg() == "careful"
+
+
+def test_a_warning_in_no_encoding_reads_as_bytes(
+        subscribed: tuple[Any, Any], tmp_path: pathlib.Path) -> None:
+    """`logEI` carries the same bytes the error would.
+
+    `builtins.warn` of bytes read from a file logs them through
+    `logWarning`, so the record's info holds what `throw` would
+    have raised with.
+    """
+    blob = tmp_path / "blob"
+    blob.write_bytes(b"\xff\xfe")
+    state, stream = subscribed
+    state.eval_expr(f'builtins.warn (builtins.readFile "{blob}") 1')
+    records = stream.drain()
+    assert [r.action() for r in records] == ["msg"]
+    info = records[0].info()
+    assert info is not None
+    with pytest.raises(UnicodeDecodeError):
+        info.msg()
+    assert info.msg_bytes() == b"\xff\xfe"
+
+
+def test_a_plain_message_carries_no_error_info(
+        subscribed: tuple[Any, Any]) -> None:
+    """`log`, not `logEI`: a trace is text, and has no parts."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "plain")
+
+    records = stream.drain()
+    assert records, "the trace did not arrive"
+    assert all(r.info() is None for r in records)
+
+
+def test_the_level_refuses_what_it_did_not_ask_for(state: Any) -> None:
+    """A subscription narrows, and since huggorm#89 it can widen too.
+
+    Level 0 is lvlError, which the trace is. The warning is lvlWarn,
+    which is 1, so it does not arrive. Both were RAISED - the TAP is
+    what refuses one now, and `dropped` does not move for it, because
+    that counter is the BOUND's rather than the filter's.
+
+    The queue used to do this refusing. It carried a `level_` beside
+    the thread's, which was one fact stated twice."""
+    stream = state.subscribe_logs(level=0)
+    try:
+        state.eval_expr(TRACE % "kept")
+        state.eval_expr(WARN % "refused")
+        seen = " ".join(texts(stream))
+    finally:
+        state.unsubscribe_logs()
+    assert "kept" in seen
+    assert "refused" not in seen
+
+
+def test_a_message_the_caller_logs_arrives_as_nix_s_own(
+        subscribed: tuple[Any, Any]) -> None:
+    """`log_message` is `nix::logger->log`, so the record is a "msg"
+    at the level given, and the level filters it as it does Nix's."""
+    from huggorm_bindings import log_message
+
+    _, stream = subscribed
+    log_message(3, "from python")
+    log_message(7, "too verbose")
+    records = stream.drain()
+    assert [(r.action(), r.level(), r.text()) for r in records] == [
+        ("msg", 3, "from python")]
+
+
+def test_a_logged_level_outside_nix_s_range_is_refused() -> None:
+    from huggorm_bindings import log_message
+
+    with pytest.raises(ValueError, match="level must be from 0"):
+        log_message(8, "nowhere")
+
+
+def test_nothing_is_recorded_without_a_subscription(state: Any) -> None:
+    """A tap that is always installed must cost nothing when unused.
+
+    The tap goes under `nix::logger` at import, whether or not anybody
+    subscribes. If it recorded anyway, the work between the
+    `unsubscribe_logs` and the second `subscribe_logs` would show up
+    here."""
+    state.subscribe_logs()
+    state.unsubscribe_logs()
+
+    state.eval_expr(TRACE % "unheard")
+
+    stream = state.subscribe_logs()
+    try:
+        assert stream.drain() == []
+    finally:
+        state.unsubscribe_logs()
+
+
+def test_a_drain_empties_the_queue(subscribed: tuple[Any, Any]) -> None:
+    """Drained records are gone, so a reader never sees one twice."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "once")
+
+    assert len(stream.drain()) == 1
+    assert stream.drain() == []
+
+
+def test_a_full_queue_drops_a_message_and_counts_it(state: Any) -> None:
+    """The bound, and the number that says it was reached.
+
+    A dropped log line is usually the right answer and a silent one is
+    not: a reader that cannot tell "nothing happened" from "I could
+    not keep up" is looking at this repo's named failure mode.
+    `dropped` is what makes those two different answers."""
+    stream = state.subscribe_logs(capacity=2)
+    try:
+        for i in range(5):
+            state.eval_expr(TRACE % f"line{i}")
+        records = stream.drain()
+        dropped = stream.dropped()
+    finally:
+        state.unsubscribe_logs()
+
+    assert len(records) == 2, "the bound held"
+    assert dropped == 3, "and said how much it refused"
+    # The EARLIEST survive. A full queue refuses the incoming record
+    # rather than evicting one, because evicting means scanning for
+    # the oldest DROPPABLE record - a stop may not be evicted - and
+    # that scan is paid on the evaluation thread.
+    assert "line0" in records[0].text()
+
+
+def test_the_drop_count_is_cumulative(state: Any) -> None:
+    """It counts over the queue's life, not since the last drain.
+
+    A reader that misses a drain still sees the number grow, which is
+    what lets it notice at all."""
+    stream = state.subscribe_logs(capacity=1)
+    try:
+        state.eval_expr(TRACE % "a")
+        state.eval_expr(TRACE % "b")
+        stream.drain()
+        first = stream.dropped()
+        state.eval_expr(TRACE % "c")
+        state.eval_expr(TRACE % "d")
+        second = stream.dropped()
+    finally:
+        state.unsubscribe_logs()
+
+    assert first == 1
+    assert second == 2, "cumulative, not reset by the drain"
+
+
+def test_a_second_subscription_replaces_the_first(state: Any) -> None:
+    """One thread, one queue.
+
+    Two live subscriptions on one thread would each get an arbitrary
+    half of the records, which is worse for both readers than one of
+    them getting none. So subscribing again closes what was there."""
+    first = state.subscribe_logs()
+    second = state.subscribe_logs()
+    try:
+        state.eval_expr(TRACE % "after")
+        assert first.drain() == [], "the replaced queue stopped filling"
+        assert len(second.drain()) == 1
+    finally:
+        state.unsubscribe_logs()
+
+
+def test_a_subscription_belongs_to_the_thread_not_the_state(state: Any) -> None:
+    """The tap routes by THREAD, and here that is a decision.
+
+    Two states on one thread share a subscription: the second
+    `subscribe_logs` closes the first's queue even though a different
+    object asked. This was written as a LIMITATION, and it is not one
+    any more - Carl's rule is one state per thread, so the situation
+    it describes is a caller doing something the design forbids.
+
+    What that changes is who owns the problem. The async layer gives
+    every state its own thread, so a library user cannot reach this;
+    a caller holding the sync binding directly can, and is on their
+    own - which is exactly the line drawn in `EvalState`'s docstring.
+    So this stays, and it documents the SYNC surface rather than
+    reporting a gap in the design (huggorm#85 gap 2)."""
+    from huggorm_bindings import EvalState, Store
+
+    other = EvalState(Store(URI))
+    mine = state.subscribe_logs()
+    theirs = other.subscribe_logs()
+    try:
+        state.eval_expr(TRACE % "whose")
+        assert mine.drain() == []
+        assert len(theirs.drain()) == 1, "the thread's queue, not the state's"
+    finally:
+        other.unsubscribe_logs()
+
+
+def test_close_stops_a_queue_filling(subscribed: tuple[Any, Any]) -> None:
+    """A reader that goes away must not leave the evaluator recording.
+
+    `close` is that, from the queue's side. The subscription on the
+    thread is a separate fact and `unsubscribe_logs` is what clears
+    it, which is why this is still callable afterwards."""
+    state, stream = subscribed
+    stream.close()
+
+    state.eval_expr(TRACE % "ignored")
+    assert stream.drain() == []
+
+
+def test_a_record_carries_its_fields_as_a_list(subscribed: tuple[Any, Any]) -> None:
+    """`fields` is a list of `LogField`, not a list of strings.
+
+    A field is an integer OR a string - upstream's own hand-rolled
+    variant (`logging.hh:76`) - and a progress result is made of
+    numbers. Flattening one to its rendering would lose the difference
+    between the number 42 and the string "42"."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "plain")
+
+    record = stream.drain()[0]
+    assert record.fields() == [], "a message carries none"
+    assert isinstance(record.fields(), list)
+
+
+def test_a_message_in_no_encoding_fails_text_and_reads_as_bytes(
+        tmp_path: pathlib.Path) -> None:
+    """A log carries bytes, and `text` is only one decoder.
+
+    `builtins.trace` of bytes Nix read from a file evaluates fine:
+    the record holds what `printError` was given. Reading it as text
+    fails - strict UTF-8, byte 0xff - and `text_bytes` answers the
+    bytes, prefix and all. nanopynix#312.
+    """
+    from huggorm_bindings import EvalState, Store
+
+    blob = tmp_path / "blob"
+    blob.write_bytes(b"\xff\xfe")
+    state = EvalState(Store("dummy://"))
+    stream = state.subscribe_logs()
+    try:
+        state.eval_expr(f'builtins.trace (builtins.readFile "{blob}") 1')
+        records = stream.drain()
+    finally:
+        state.unsubscribe_logs()
+    assert [r.action() for r in records] == ["msg"]
+    with pytest.raises(UnicodeDecodeError):
+        records[0].text()
+    assert records[0].text_bytes() == b"trace: \xff\xfe"
+
+
+def test_a_field_in_no_encoding_fails_text_and_reads_as_bytes() -> None:
+    """The build-log-line shape, without a builder.
+
+    A `resBuildLogLine` carries the line in its first field, and a
+    builder prints whatever bytes it likes. The gate's sandbox cannot
+    run one, so the field is built from parts - the seam the round
+    trip already goes through - holding bytes no decoder accepts.
+    """
+    from huggorm_bindings import LogField
+
+    kind: Any = LogField
+    field = kind._from_parts(False, 0, b"\xff\xfe")
+    with pytest.raises(UnicodeDecodeError):
+        field.text()
+    assert field.text_bytes() == b"\xff\xfe"
+
+
+@pytest.mark.live
+def test_an_activity_arrives_as_a_start_and_a_stop(
+        tmp_path: pathlib.Path) -> None:
+    """The tree, not the stream.
+
+    Interpolating a path copies it into the store, and `fetchToStore`
+    raises an activity around that (`fetch-to-store.cc:74`). So one
+    eval produces a start and the stop that closes it.
+
+    Live: it writes to the ambient store, and a build sandbox has
+    none. `dummy://` cannot answer it either, so this state is opened
+    against "auto" rather than the fixture's."""
+    from huggorm_bindings import EvalState, Store
+
+    (tmp_path / "f").write_text("hi\n")
+    real = EvalState(Store("auto"))
+    stream = real.subscribe_logs()
+    try:
+        real.eval_expr(f'"${{{tmp_path}}}"')
+        records = stream.drain()
+    finally:
+        real.unsubscribe_logs()
+
+    actions = [r.action() for r in records]
+    assert "start" in actions, actions
+    assert "stop" in actions, actions
+    starts = [r for r in records if r.action() == "start"]
+    stops = {r.id() for r in records if r.action() == "stop"}
+    assert starts[0].id() in stops, "the start this stop closes"
+    assert starts[0].id() != 0, "an activity has an id"
+
+
+@pytest.mark.live
+def test_a_stop_is_never_dropped(tmp_path: pathlib.Path) -> None:
+    """The asymmetry the bound exists to respect.
+
+    A dropped message costs a reader one line. A dropped stop costs it
+    a node in the activity tree that nothing later closes - so the
+    reader's progress display keeps a task that finished long ago,
+    forever. Capacity 1 is not a reason to do that.
+
+    Perturbation: make `push` treat "stop" as droppable and this
+    fails while every other gate here still passes."""
+    from huggorm_bindings import EvalState, Store
+
+    (tmp_path / "f").write_text("hi\n")
+    real = EvalState(Store("auto"))
+    stream = real.subscribe_logs(capacity=1)
+    try:
+        real.eval_expr(f'"${{{tmp_path}}}"')
+        records = stream.drain()
+    finally:
+        real.unsubscribe_logs()
+
+    starts = [r.id() for r in records if r.action() == "start"]
+    stops = [r.id() for r in records if r.action() == "stop"]
+    assert starts, "an activity was raised"
+    assert sorted(starts) == sorted(stops), \
+        "every start past the bound still got its stop"
+
+
+@pytest.fixture
+def process_sink() -> Iterator[Any]:
+    """A process-wide subscription, and the process left clean.
+
+    The same hazard the `subscribed` fixture guards, one scope wider:
+    a leaked process-wide subscription would record every later
+    test's orphan records, and there is no thread to leave it behind
+    on."""
+    from huggorm_bindings import subscribe_process_logs, unsubscribe_process_logs
+
+    stream = subscribe_process_logs()
+    try:
+        yield stream
+    finally:
+        unsubscribe_process_logs()
+
+
+def test_an_unclaimed_record_reaches_the_process_sink(
+        state: Any, process_sink: Any) -> None:
+    """The gap huggorm#85 named, closed.
+
+    This thread subscribed to NOTHING, so before the sink existed the
+    record reached nobody. `route` falls back now.
+
+    A `builtins.trace` rather than a fetcher, deliberately: the
+    fallback branch is the fact under test and a record raised on
+    this thread with no queue exercises it exactly. Manufacturing a
+    foreign thread would test the same branch through more
+    machinery."""
+    state.eval_expr(TRACE % "unclaimed")
+    assert any("unclaimed" in t for t in texts(process_sink))
+
+
+def test_a_subscribed_thread_claims_its_own_records(
+        state: Any, process_sink: Any) -> None:
+    """A FALLBACK, not a broadcast, and this is the direction that
+    says so.
+
+    The thread has a queue, so the record goes there and the process
+    sink never sees it. Broadcasting to both was the alternative: a
+    caller holding both subscriptions would then see every evaluation
+    record twice, with nothing on a record to deduplicate by.
+
+    So "everything in this process" is NOT what the process sink
+    answers - it answers what nobody claimed. Fan-out over one
+    subscription is the shape that answers the other question, and it
+    is huggorm#85's third gap.
+
+    Both halves, because either alone passes for the wrong reason: a
+    `route` that dropped the record entirely would pass the second
+    assertion, and a broadcast would pass the first."""
+    stream = state.subscribe_logs()
+    try:
+        state.eval_expr(TRACE % "claimed")
+        mine = texts(stream)
+    finally:
+        state.unsubscribe_logs()
+
+    assert any("claimed" in t for t in mine), "the thread's queue got it"
+    assert not any("claimed" in t for t in texts(process_sink)), \
+        "and the process sink did not"
+
+
+def test_a_second_process_subscription_replaces_the_first(
+        state: Any) -> None:
+    """REPLACES, like `subscribe_logs`, and closes what it replaced.
+
+    Refusing was the other answer and is wrong at this layer: an
+    in-process caller that drops its `LogStream` without
+    unsubscribing would wedge the sink for the life of the process,
+    with nothing left to take it back. The rpc refuses instead, where
+    a stream ending is what releases it.
+
+    The first queue is filled BEFORE it is replaced, which is what
+    makes `close` load-bearing here. Without those records, "the
+    first drains empty" is true of any queue that merely stopped
+    being the current one, and the gate would pass with the `close`
+    removed."""
+    from huggorm_bindings import subscribe_process_logs, unsubscribe_process_logs
+
+    first = subscribe_process_logs()
+    state.eval_expr(TRACE % "before")
+    second = subscribe_process_logs()
+    try:
+        state.eval_expr(TRACE % "after")
+        assert any("after" in t for t in texts(second))
+        assert texts(first) == [], \
+            "closed, so what it held went too - not merely superseded"
+    finally:
+        unsubscribe_process_logs()
+
+
+def test_unsubscribing_stops_the_process_sink(state: Any) -> None:
+    """And the tap costs nothing again afterwards.
+
+    The mirror of `test_nothing_is_recorded_without_a_subscription`,
+    one scope wider: the fallback branch must find nothing to push
+    to, not push to a closed queue and quietly succeed."""
+    from huggorm_bindings import subscribe_process_logs, unsubscribe_process_logs
+
+    subscribe_process_logs()
+    unsubscribe_process_logs()
+    state.eval_expr(TRACE % "unheard")
+
+    stream = subscribe_process_logs()
+    try:
+        assert stream.drain() == []
+    finally:
+        unsubscribe_process_logs()
+
+
+def test_the_process_sink_has_the_same_rpc_answer(state: Any) -> None:
+    """Derived, and that is the whole claim.
+
+    `subscribe_process_logs` is a FREE function returning a proxy,
+    which is the same shape as `EvalState.subscribe_logs` - and the
+    codegen reached the same answer with no emitter change: every
+    proxy gets its service, so the handle crosses and `drain` reads
+    through it. Its inverse crosses for the same reason
+    `unsubscribe_logs` does: it answers nothing.
+
+    Asserted on the emitted surface rather than on the absence, so a
+    function that lost its rpc for some OTHER reason would not pass
+    this."""
+    from huggorm_generated._policy import FREE, METHODS
+
+    assert "subscribe_process_logs" in FREE
+    assert "drain" in {m.name for m in METHODS["LogStream"]}
+    assert "unsubscribe_process_logs" in FREE
+
+
+def test_a_log_stream_crosses_as_a_handle() -> None:
+    """A log stream crosses the wire, and says so.
+
+    `LogStream` is a PROXY - it crosses as a handle - and every proxy
+    gets a service, however cheap its methods are. So a remote
+    `subscribe_logs` answers an id that `drain`, `dropped` and
+    `close` all read through.
+
+    Not a stream-only surface, although a log stream wants
+    server-streaming more than a handle to poll: handles are the
+    representation and streaming is the transport. `Session/Logs` is
+    the streaming rpc beside the handle. The tests at the end of this
+    file hold the streaming half; the drain test below holds the
+    handle half."""
+    from huggorm_generated._classes import CLASSES
+    from huggorm_generated._policy import METHODS
+
+    assert "LogStream" in METHODS, "a service, so methods"
+    assert "LogStream" in CLASSES
+    assert "drain" in {m.name for m in METHODS["LogStream"]}
+    names = [m.name for m in METHODS["EvalState"]]
+    assert "subscribe_logs" in names, names
+    assert "unsubscribe_logs" in names, names
+
+
+async def test_a_remote_handle_drains(client: Any) -> None:
+    """The handle half: `subscribe_logs` answers an id, and `drain`,
+    `dropped` and `close` all read through it.
+
+    The handle is a reader of the state's fan-out, and each `drain`
+    pulls the shared queue."""
+    state = await client.acquire(
+        "EvalState", await client.acquire("Store", "dummy://"))
+    stream = await state.subscribe_logs()
+    try:
+        await state.eval_expr(TRACE % "through a handle")
+        records: list[Any] = []
+        with anyio.fail_after(20):
+            while not any("through a handle" in r.text() for r in records):
+                records += await stream.drain()
+                await anyio.sleep(0.05)
+        assert await stream.dropped() == 0
+    finally:
+        await stream.close()
+        await state.unsubscribe_logs()
+
+
+async def test_a_remote_subscribe_silences_no_stream(client: Any) -> None:
+    """A handle subscription joins the fan-out, as a stream does.
+
+    The binding REPLACES a thread's subscription. Called straight
+    through, a remote `subscribe_logs` would leave an open
+    `Session/Logs` stream on the same state connected and silent, and
+    a remote `unsubscribe_logs` would end it (huggorm#85). Both rpcs
+    go through the state's fan-out instead, so the stream hears every
+    record before, between and after them."""
+    state = await client.acquire(
+        "EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state)
+    try:
+        handle = await state.subscribe_logs()
+        await state.eval_expr(TRACE % "SHARED")
+        seen, _ = await batch(stream)
+        assert any("SHARED" in r.text() for r in seen), seen
+        assert any("SHARED" in r.text() for r in await handle.drain())
+
+        await state.unsubscribe_logs()
+        await state.eval_expr(TRACE % "AFTER")
+        seen, _ = await batch(stream)
+        assert any("AFTER" in r.text() for r in seen), seen
+        assert await handle.drain() == [], "the handle left the fan-out"
+    finally:
+        await stream.aclose()
+
+
+async def test_the_loop_drains_while_the_evaluator_works() -> None:
+    """The destination, in one test: logs arrive OFF the eval thread.
+
+    An `AsyncEvalState` runs its evaluation on its own affine thread.
+    The queue is pool-threaded and holds its own mutex, so a drain
+    runs on whatever thread asks - here the event loop's, while the
+    evaluation is still in flight on another.
+
+    That is the whole reason `LogStream` is a class rather than a
+    `drain_logs()` on `EvalState`. A method there would route to the
+    state's own thread and queue BEHIND the evaluation it reports on,
+    so the records would arrive only once the work they describe had
+    finished.
+
+    The eval here is small, so this does not prove the drain
+    OVERLAPPED it - it proves the drain does not need the eval
+    thread, which is the part a wrong design would fail.
+
+    `subscribe_logs` hands back an `AsyncLogStream`, awaited like
+    every other async handle. That is the agreement: a proxy crosses
+    as a handle however cheap its methods are, and the pool policy
+    runs the drain wherever the caller asks - still off the eval
+    thread, which is the part a wrong design would fail."""
+    from huggorm_generated import AsyncEvalState, AsyncStore
+
+    state = AsyncEvalState(AsyncStore(URI))
+    stream = await state.subscribe_logs()
+    try:
+        await state.eval_expr(TRACE % "from the loop")
+        seen = " ".join(r.text() for r in await stream.drain())
+    finally:
+        await state.unsubscribe_logs()
+        await state.aclose()
+
+    assert "from the loop" in seen
+
+
+# -- the stream that crosses ----------------------------------------------
+#
+# Everything above holds the queue in one process. What follows holds
+# the rpc over it: the one thing in this schema that travels the other
+# way, unsolicited, and the only server-streaming method here.
+#
+# It is HAND-WRITTEN, beside Session, and huggorm#32 says why: every
+# other rpc is the wire form of a declared method, and this is the wire
+# form of no method at all. The generator stays unaware of it.
+
+
+async def batch(stream: Any, timeout: float = 20) -> tuple[list[Any], int]:
+    """The next batch, or a failure that names the wait.
+
+    A bare `anext` would hang until pytest's own timeout and report
+    nothing about which stream stopped."""
+    with anyio.fail_after(timeout):
+        return await anext(stream)  # type: ignore[no-any-return]
+
+
+async def opened(client: Any, state: Any, **kw: Any) -> Any:
+    """A stream past its empty first batch.
+
+    That batch is the subscription saying it is installed, and waiting
+    for it is what makes the next line safe: an evaluation started
+    before the subscribe lands raises its records into no queue."""
+    stream = client.logs(state, **kw)
+    records, dropped = await batch(stream)
+    assert records == [], "the first batch says 'subscribed', nothing more"
+    assert dropped == 0
+    return stream
+
+
+async def test_a_trace_reaches_a_remote_client(client: Any) -> None:
+    """The point of the task, in one test.
+
+    Nix raises a record on the evaluation thread inside a server
+    process, and a client in another process reads it while holding
+    nothing but a handle."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state)
+    try:
+        await state.eval_expr(TRACE % "over the wire")
+        records, dropped = await batch(stream)
+        assert any("over the wire" in r.text() for r in records), records
+        assert dropped == 0
+    finally:
+        await stream.aclose()
+
+
+async def test_a_record_arrives_as_a_real_local_object(client: Any) -> None:
+    """A LogRecord crosses as a VALUE, so the far side gets the class.
+
+    Not a dict and not a handle. `LogRecord` is a wire value, so the
+    codec rebuilds it from its declared parts - the same round trip
+    `test_store` gates for every other one - and `fields` comes back as
+    a list rather than as a shape this layer invented."""
+    from huggorm_bindings import LogRecord
+
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state)
+    try:
+        await state.eval_expr(TRACE % "typed")
+        records, _ = await batch(stream)
+    finally:
+        await stream.aclose()
+
+    record = next(r for r in records if "typed" in r.text())
+    assert isinstance(record, LogRecord)
+    assert record.action() == "msg"
+    assert isinstance(record.fields(), list)
+
+
+async def test_a_message_in_no_encoding_crosses_as_bytes(
+        client: Any, tmp_path: pathlib.Path) -> None:
+    """The gate on the wire change: the part reads `text_bytes`.
+
+    A part that read `text` would fail the encoding on the first line
+    no decoder accepts, and the stream would die there. The record
+    crosses, and the bytes arrive as Nix raised them.
+    """
+    blob = tmp_path / "blob"
+    blob.write_bytes(b"\xff\xfe")
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state)
+    try:
+        await state.eval_expr(f'builtins.trace (builtins.readFile "{blob}") 1')
+        records, dropped = await batch(stream)
+    finally:
+        await stream.aclose()
+
+    assert any(r.text_bytes() == b"trace: \xff\xfe" for r in records
+               if r.action() == "msg"), records
+    assert dropped == 0
+
+
+async def test_the_level_narrows_over_the_wire_too(client: Any) -> None:
+    """Level 0 is a subscription, not an absence.
+
+    lvlError is 0, so "errors only" and "no level given" are different
+    requests. This is the gate on that: a zero that arrived as unset
+    would take the default of 3 and let the warning through."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state, level=0)
+    try:
+        await state.eval_expr(TRACE % "kept")
+        await state.eval_expr(WARN % "refused")
+        records, _ = await batch(stream)
+        seen = " ".join(r.text() for r in records)
+    finally:
+        await stream.aclose()
+
+    assert "kept" in seen
+    assert "refused" not in seen
+
+
+async def test_a_drop_crosses_rather_than_vanishing(client: Any) -> None:
+    """The bound is remote too, and it still says when it was reached.
+
+    A client that cannot tell a quiet evaluation from a lost one is
+    looking at this repo's named failure mode over a socket instead of
+    in a process. `dropped` rides with every batch, cumulative, so it
+    survives a batch the reader skipped.
+
+    ONE expression, and that is the whole reason this reads the way it
+    does. The server drains every 50ms while the test runs, so five
+    sequential `eval_expr` round trips race the poll: a tick landing
+    between two of them empties a capacity-1 queue, the next record is
+    kept rather than refused, and `dropped` comes back short. Nested
+    traces push five records microseconds apart, so no tick fits
+    between them and the count is exact rather than likely.
+
+    The OUTERMOST trace prints first, so "the earliest survives" is
+    still what the bound says.
+
+    It counts MESSAGES, not records. A `"finalized"` marker rides the
+    same stream and is never dropped (huggorm#89), so the batch holds
+    the surviving message and the marker for the call that raised
+    it."""
+    nest = "1"
+    for i in reversed(range(5)):
+        nest = f'builtins.trace "line{i}" ({nest})'
+
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state, capacity=1)
+    try:
+        await state.eval_expr(nest)
+        records, dropped = await batch(stream)
+    finally:
+        await stream.aclose()
+
+    msgs = [r for r in records if r.action() == "msg"]
+    assert len(msgs) == 1, "the bound held over the wire"
+    assert "line0" in msgs[0].text(), records
+    assert dropped == 4, records
+
+
+async def test_two_readers_on_one_state_both_see_it(client: Any) -> None:
+    """Fan-out, where the server used to refuse.
+
+    A second stream on one state was FAILED_PRECONDITION until now,
+    because a second `subscribe_logs` REPLACES the first in the C++ -
+    so accepting would have left the older stream connected and
+    empty. The subscription is now opened once and the fan-out is in
+    the server, so both readers see the same record.
+
+    Carl named the reader that made the refusal wrong: a CLI wants a
+    global listener printing as things happen, while a client watches
+    one evaluation. Neither should silence the other (huggorm#85).
+
+    Drop the fan-out and this fails at the second `opened`, with the
+    refusal it used to assert."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    first = await opened(client, state)
+    second = await opened(client, state)
+    try:
+        await state.eval_expr(TRACE % "BOTH-OF-US")
+        one, _ = await batch(first)
+        two, _ = await batch(second)
+    finally:
+        await first.aclose()
+        await second.aclose()
+
+    assert any("BOTH-OF-US" in r.text() for r in one), one
+    assert any("BOTH-OF-US" in r.text() for r in two), two
+
+
+async def test_one_reader_leaving_does_not_stop_the_other(
+        client: Any) -> None:
+    """The refcount, from the side that matters.
+
+    The subscription lives while ANY reader holds it. A `leave` that
+    unsubscribed whenever a reader went away - rather than when the
+    last one did - would leave this second stream connected and
+    silent, which is the failure the old refusal existed to
+    prevent."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    first = await opened(client, state)
+    second = await opened(client, state)
+    await first.aclose()
+    try:
+        await state.eval_expr(TRACE % "STILL-HERE")
+        records, _ = await batch(second)
+    finally:
+        await second.aclose()
+
+    assert any("STILL-HERE" in r.text() for r in records), records
+
+
+async def test_the_last_reader_out_unsubscribes(client: Any) -> None:
+    """The other half of the refcount, and it needs the process sink.
+
+    An unsubscribe is invisible from the wire on its own: leave the
+    subscription installed and the next reader simply replaces it.
+    What IS visible is where the records go afterwards. `route` reaches
+    the process sink ONLY when the raising thread has no queue, so a
+    state whose reader left must fall through to it.
+
+    Drop the `_drop` await from `Fanout._close` and this times out:
+    the state's own queue would still be installed, claiming the
+    record that this stream is waiting for."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    mine = await opened(client, state)
+    await mine.aclose()
+
+    process = await opened_process(client)
+    try:
+        # The server learns of the close through a stream reset, so
+        # its `finally` runs a moment after `aclose()` returns. The
+        # same retry `test_a_closed_stream_gives_the_state_back` needs,
+        # for the same reason.
+        with anyio.fail_after(20):
+            while True:
+                await state.eval_expr(TRACE % "FELL-THROUGH")
+                records, _ = await batch(process)
+                if any("FELL-THROUGH" in r.text() for r in records):
+                    break
+                await anyio.sleep(0.05)
+    finally:
+        await process.aclose()
+
+
+async def opened_process(client: Any, **kw: Any) -> Any:
+    """A process-wide stream past its empty first batch. As `opened`."""
+    stream = client.process_logs(**kw)
+    records, dropped = await batch(stream)
+    assert records == [], "the first batch says 'subscribed', nothing more"
+    assert dropped == 0
+    return stream
+
+
+async def test_an_unclaimed_record_reaches_a_remote_client(
+        client: Any) -> None:
+    """The gap huggorm#85 named, over the wire.
+
+    The state is acquired and NEVER given a `logs` stream, so its
+    thread subscribes to nothing and the records fall through to the
+    process sink - which this reads from another process.
+
+    A `builtins.trace` rather than a build, and it tests the same
+    branch: `route`'s fallback fires for any record on a thread with
+    no queue. A build would add a store, a derivation and minutes to
+    a gate whose subject is one `if`."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened_process(client)
+    try:
+        await state.eval_expr(TRACE % "remote-unclaimed")
+        records, _ = await batch(stream)
+        assert any("remote-unclaimed" in r.text() for r in records), records
+    finally:
+        await stream.aclose()
+
+
+async def test_a_state_stream_takes_its_records_back(client: Any) -> None:
+    """Both streams at once, and they do not overlap.
+
+    The fallback from the other side: with a `logs` stream open on
+    the state, its thread CLAIMS the record and the process stream
+    never sees it. A caller that wants everything reads both, and
+    neither repeats the other.
+
+    Written as one test rather than two because the fact IS the
+    relationship. Asserting only that the state stream got it would
+    pass under a broadcast, and asserting only that the process
+    stream did not would pass if the record vanished."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    process = await opened_process(client)
+    mine = await opened(client, state)
+    try:
+        await state.eval_expr(TRACE % "remote-claimed")
+        records, _ = await batch(mine)
+        assert any("remote-claimed" in r.text() for r in records), records
+        # The process stream is polled once. It cannot be waited on:
+        # a batch that never comes is what this asserts, so the test
+        # would hang rather than fail.
+        with pytest.raises(TimeoutError):
+            await batch(process, timeout=0.5)
+    finally:
+        await mine.aclose()
+        await process.aclose()
+
+
+async def test_two_process_readers_both_see_it(client: Any) -> None:
+    """The same fan-out, over the one sink that has nothing to key by.
+
+    This is the reader Carl named - a CLI printing everything as it
+    happens - and it must not cost the next connection its own view.
+    One subscription in the binding, two readers in the server."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    first = await opened_process(client)
+    second = await opened_process(client)
+    try:
+        await state.eval_expr(TRACE % "SEEN-TWICE")
+        one, _ = await batch(first)
+        two, _ = await batch(second)
+    finally:
+        await first.aclose()
+        await second.aclose()
+
+    assert any("SEEN-TWICE" in r.text() for r in one), one
+    assert any("SEEN-TWICE" in r.text() for r in two), two
+
+
+async def test_a_closed_process_stream_lets_the_next_one_in(
+        client: Any) -> None:
+    """The gate on `join` AFTER a teardown.
+
+    There is no flag any more - `Fanout` counts readers - so what
+    this now gates is the other side of that count: the last reader
+    out tears the subscription down, and the next `join` has to build
+    a fresh one rather than hand back the closed queue. Make `join`
+    reuse a `_sub` it did not check and this fails, because the
+    stream would read a queue nothing fills.
+
+    The retry is the same one `test_a_closed_stream_gives_the_state_back`
+    needs, for the same reason - the server learns of the close
+    through a stream reset, so its `finally` runs a moment after
+    `aclose()` returns here. Written without it first, and it failed
+    with the FAILED_PRECONDITION the flag is supposed to have
+    cleared: a real race, not a wrong refusal."""
+    first = await opened_process(client)
+    await first.aclose()
+
+    with anyio.fail_after(20):
+        while True:
+            try:
+                second = await opened_process(client)
+            except Exception:
+                await anyio.sleep(0.05)
+            else:
+                break
+    await second.aclose()
+
+
+async def test_a_closed_stream_gives_the_state_back(client: Any) -> None:
+    """Closing one reader lets the next one in.
+
+    This gated the registry entry being RELEASED, back when a second
+    reader was refused. Nothing refuses now, so what it gates is that
+    a state whose stream ended can be read again at all - the
+    `Fanout` for it survives the teardown and opens a new
+    subscription on the next `join`. Drop the fan-out from the map on
+    empty and this is the shape that shows it.
+
+    It does NOT gate the ORDER of that cleanup. `Fanout.leave`
+    discards the reader before it takes the lock, on the argument
+    that a cancelled task cannot await - the same argument the
+    handler used to make about its `pop`, and two perturbations in
+    huggorm#32 refuted it there. A defence nothing tests is worth
+    saying out loud."""
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    first = await opened(client, state)
+    await first.aclose()
+
+    # The server learns of the close through a stream reset, so the
+    # `finally` runs a moment after aclose() returns here. Retrying is
+    # the honest wait: a fixed sleep would be a guess about a machine.
+    with anyio.fail_after(20):
+        while True:
+            try:
+                second = await opened(client, state)
+            except Exception:
+                await anyio.sleep(0.05)
+            else:
+                break
+    await second.aclose()
+
+
+async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
+    """A stream that lost its connection SAYS so.
+
+    Transports never report death, so the sweeper is what notices a
+    silent connection and releases what it held (huggorm#2). A log
+    stream outlives one poll of that, and a stream that simply stopped
+    would be indistinguishable from a quiet evaluation - this repo's
+    named failure mode, spelled as an absence of messages.
+
+    So the server refuses every call on a swept connection, and the
+    reader's next poll raises. A poll is a call, and a call keeps the
+    connection alive, so the test stops pinging AND stops reading for
+    one sweep: a client that is suspended does both.
+
+    It uses the short-TTL server, so it costs one sweep of wall time
+    rather than the default lease."""
+    from huggorm import remote
+
+    async with remote.connect(ttl_server.path) as c:
+        state = await c.acquire("EvalState", await c.acquire("Store", "dummy://"))
+        stream = await opened(c, state)
+        # Nothing keeps the connection alive now, so the next sweep takes
+        # it - and the handle with it.
+        c.stop_pinging()
+        await anyio.sleep(SHORT_TTL * 1.5 + 1.0)
+        with pytest.raises(remote.ConnectionExpired, match="swept"):
+            await batch(stream)
+
+
+# ---- the tap replaced the logger, and did not tee it ---------------
+#
+# `install_log_tap` teed until now, so a subscriber got the record
+# TWICE: once in its queue, once on descriptor 2 from the logger nix
+# installed at static init. huggorm#14 wants this protocol to run
+# over stdin/stdout, and a library that writes the transport is not
+# usable there.
+#
+# Two arms, and each one breaks the other's fix:
+#
+# - restore the tee and the subscribed arm fails, because stderr
+#   carries the trace as well as the queue;
+# - drop `LogTap::fallback` and the unsubscribed arm fails, because
+#   nothing writes stderr at all.
+
+
+def test_a_message_reaches_stderr_with_no_subscriber(
+    state: Any, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The fallback exists, and nix's own gate is the only one.
+
+    `builtins.trace` is `printError`, so lvlError (`primops.cc:1282`),
+    and `builtins.warn` is lvlWarn. Both are under the default
+    `nix::verbosity` of lvlInfo, so `SimpleLogger::log` writes them
+    (`logging.cc:118`). A caller that never subscribed sees what it
+    saw before the tap existed."""
+    state.eval_expr(TRACE % "UNCLAIMED-TRACE")
+    state.eval_expr(WARN % "UNCLAIMED-WARN")
+
+    out, err = capfd.readouterr()
+    assert "UNCLAIMED-TRACE" in err
+    assert "UNCLAIMED-WARN" in err
+    assert out == "", "descriptor 1 belongs to the protocol"
+
+
+def test_a_subscriber_takes_the_message_off_stderr(
+    subscribed: tuple[Any, Any], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The tee is gone, which is the whole change.
+
+    A subscription CLAIMS the record, so nothing forwards it. This is
+    the property the stdio transport needs: a client that reads the
+    protocol on descriptor 1 and the log on its own stream gets
+    neither on descriptor 2."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "CLAIMED-TRACE")
+
+    records = stream.drain()
+    assert any("CLAIMED-TRACE" in r.text() for r in records), records
+
+    out, err = capfd.readouterr()
+    assert err == "", err
+    assert out == ""
+
+
+# ---- the call a record was raised inside ---------------------------
+#
+# huggorm#89 step 3. A record carries the CALL, and a "finalized"
+# record says that call raised its last one. An id alone would let a
+# reader group records and never let it know a group was closed.
+#
+# The number is allocated per call by `_runtime.py` and no caller is
+# told which one it got. So these gates check the RELATION - every
+# record of one call carries one number, and the marker carries that
+# same number - rather than any particular value.
+
+
+async def test_a_record_carries_the_call_it_was_raised_inside() -> None:
+    """The stamp, and the marker that closes it.
+
+    An `AsyncEvalState` hops to its own affine thread through
+    `BaseRunner.call`, which is where the id is set. So the records
+    that evaluation raises carry it, and the marker arrives behind
+    them on the same queue.
+
+    Perturbation: delete `r.request = thread_request()` from `route`
+    and every record here carries 0, so the first assert fails."""
+    from huggorm_generated import AsyncEvalState, AsyncStore
+
+    state = AsyncEvalState(AsyncStore(URI))
+    stream = await state.subscribe_logs()
+    try:
+        await state.eval_expr(TRACE % "inside a call")
+        records = await stream.drain()
+    finally:
+        await state.unsubscribe_logs()
+        await state.aclose()
+
+    traces = [r for r in records if "inside a call" in r.text()]
+    assert traces, [r.action() for r in records]
+    assert traces[0].request() != 0, "the record names its call"
+
+    finals = [r for r in records if r.action() == "finalized"]
+    assert finals, [r.action() for r in records]
+    assert traces[0].request() in {r.request() for r in finals}, \
+        "the call that raised it also said it had finished"
+
+
+async def test_two_calls_get_two_numbers() -> None:
+    """One number per call, not one per subscription.
+
+    The allocator answers a fresh number every time, so two
+    evaluations on one state are two groups. A reader that merged
+    them would have no way back."""
+    from huggorm_generated import AsyncEvalState, AsyncStore
+
+    state = AsyncEvalState(AsyncStore(URI))
+    stream = await state.subscribe_logs()
+    try:
+        await state.eval_expr(TRACE % "first")
+        await state.eval_expr(TRACE % "second")
+        records = await stream.drain()
+    finally:
+        await state.unsubscribe_logs()
+        await state.aclose()
+
+    first = [r.request() for r in records if "first" in r.text()]
+    second = [r.request() for r in records if "second" in r.text()]
+    assert first and second, [r.text() for r in records]
+    assert first[0] != second[0], "two calls, two numbers"
+
+
+def test_a_record_outside_a_wrapped_call_carries_zero(
+    subscribed: tuple[Any, Any]
+) -> None:
+    """Zero is an answer, and it is reachable.
+
+    The sync binding is called straight from this thread, so no
+    `begin_request` ever runs and nothing names a call. huggorm#89
+    first wrote that this could not be driven from Python, which was
+    wrong: the async wrapper is the only thing that sets the id, and
+    the sync one is right here.
+
+    That matters because 0 is what a record raised by a fetcher or a
+    build thread carries too, and this is what says 0 means "no
+    wrapped call" rather than "the stamp is broken"."""
+    state, stream = subscribed
+    state.eval_expr(TRACE % "no call named this")
+
+    traces = [r for r in stream.drain() if "no call named this" in r.text()]
+    assert traces, "the trace arrived"
+    assert traces[0].request() == 0
+
+
+async def test_the_marker_survives_a_queue_full_of_messages() -> None:
+    """A CONTROL event, and the bound may not refuse it.
+
+    A lost marker is not a lost log line. It parks a reader that is
+    waiting for a call to end until that wait's own bound expires, and
+    leaves it unable to say whether the call finished or the record
+    vanished.
+
+    The guarantee is inherited rather than written: `LogQueue::push`
+    and `Share.offer` both name what to DROP, so an action neither
+    of them lists is kept. Perturbation: add "finalized" to either
+    droppable set and this fails."""
+    from huggorm_generated import AsyncEvalState, AsyncStore
+
+    state = AsyncEvalState(AsyncStore(URI))
+    stream = await state.subscribe_logs(capacity=1)
+    try:
+        for i in range(20):
+            await state.eval_expr(TRACE % f"overflow-{i}")
+        records = await stream.drain()
+        dropped = await stream.dropped()
+    finally:
+        await state.unsubscribe_logs()
+        await state.aclose()
+
+    assert dropped > 0, "the bound refused something, or this proves nothing"
+    finals = [r for r in records if r.action() == "finalized"]
+    # At least one per eval. `subscribe_logs` is a wrapped call too,
+    # and the queue exists by the time its own marker is pushed, so it
+    # adds one more - which is why this counts down and not equal.
+    assert len(finals) >= 20, \
+        f"every call said it finished, got {len(finals)}"
+
+
+# ---- the level is the thread's, and it can widen --------------------
+#
+# huggorm#89 step 4. `nix::verbosity` rises to the widest level any
+# live subscription asks for, so nix's own macro produces what a
+# caller wants, and `effective_verbosity` decides who KEEPS it - per
+# THREAD, so one caller asking for more does not flood every other
+# logger in the process. huggorm#96 is the other half: the global
+# comes back down when the asking ends.
+#
+# It is NOT pinned wide open at import, which this said until
+# huggorm#95 measured what a pin costs the daemon.
+#
+# Before this, `subscribe_logs(level=...)` could only NARROW: the
+# global filtered first at lvlInfo, so asking for 4 got nothing that
+# asking for 3 did not. That is the sentence these gates replace.
+#
+# THE WORKLOAD IS A FILE, and that was measured rather than guessed.
+# A first draft used `builtins.trace` at level 6 and failed: a trace
+# is lvlError, and a trivial `eval_expr` raises nothing under lvlInfo
+# at all. `.scratchpad/probe_levels.py` asked nix instead, and
+# `evaluating file '...'` is lvlTALKATIVE - 4, not the 6 that draft
+# assumed.
+
+TALKATIVE = 4
+
+# nix's own default (`logging.cc:150`), and the floor everything
+# here returns to.
+LOG_INFO = 3
+
+
+def evaluated(tmp_path: pathlib.Path) -> str:
+    """An expression whose evaluation nix narrates below lvlInfo."""
+    (tmp_path / "default.nix").write_text("1 + 1\n")
+    return str(tmp_path)
+
+
+def test_a_subscription_can_ask_for_more_than_the_default(
+    state: Any, tmp_path: pathlib.Path
+) -> None:
+    """The whole point, and the thing the old design could not do.
+
+    `evaluating file` is lvlTalkative, which is ABOVE the lvlInfo
+    default. Under the old design nix's macro rejected it before any
+    logger ran, so no subscription could ask for it.
+
+    Perturbation: drop the `nix::verbosity` pin from
+    `install_log_tap` and this fails - the macro rejects the record
+    before the tap sees it."""
+    where = evaluated(tmp_path)
+    stream = state.subscribe_logs(level=TALKATIVE)
+    try:
+        state.eval_file(where)
+        deep = [r for r in stream.drain()
+                if r.action() == "msg" and r.level() == TALKATIVE]
+    finally:
+        state.unsubscribe_logs()
+
+    assert deep, "nothing at lvlTalkative arrived, so the pin did nothing"
+    assert EVALUATING_FILE in deep[0].text(), deep[0].text()
+
+
+def test_the_same_work_at_the_default_says_nothing(
+    state: Any, tmp_path: pathlib.Path
+) -> None:
+    """Pinning the global must not widen what a plain caller sees.
+
+    The SAME evaluation as above, at the default level. The pin moved
+    the gate; it did not remove it.
+
+    Perturbation: drop the `effective_verbosity` test from
+    `LogTap::log` and this fails, because every record nix raises now
+    reaches the queue."""
+    where = evaluated(tmp_path)
+    stream = state.subscribe_logs()
+    try:
+        state.eval_file(where)
+        records = stream.drain()
+    finally:
+        state.unsubscribe_logs()
+
+    loud = [r for r in records
+            if r.action() == "msg" and r.level() > 3]
+    assert not loud, [(r.level(), r.text()) for r in loud]
+
+
+def test_unsubscribing_puts_the_level_back(
+    state: Any, tmp_path: pathlib.Path
+) -> None:
+    """A level belongs to a subscription, not to the thread forever.
+
+    This is why the level is per thread rather than the global
+    huggorm#89 refused to raise. Both subscriptions run on this one
+    test thread, so what it checks is that the loud one RESTORES
+    rather than leaves its number behind."""
+    where = evaluated(tmp_path)
+    state.subscribe_logs(level=TALKATIVE)
+    try:
+        state.eval_file(where)
+    finally:
+        state.unsubscribe_logs()
+
+    state.forget_file(where)
+    quiet = state.subscribe_logs()
+    try:
+        state.eval_file(where)
+        after = [r for r in quiet.drain()
+                 if r.action() == "msg" and r.level() > 3]
+    finally:
+        state.unsubscribe_logs()
+
+    assert not after, f"the loud subscription left its level behind: {after}"
+
+
+def test_an_unsubscribed_caller_still_sees_only_the_default(
+    state: Any, tmp_path: pathlib.Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A raised global must not turn stderr into a firehose.
+
+    `LogTap::fallback` is a `SimpleLogger`, and `SimpleLogger::log`
+    gates on `nix::verbosity` - which is the ceiling pinned at import,
+    not this thread's level. So every override has to apply the
+    thread level BEFORE forwarding, or a console user who subscribed
+    to nothing gets every line the noisiest subscriber wanted.
+
+    Perturbation: remove the `effective_verbosity` test from
+    `LogTap::log` and this fails with `evaluating file` on stderr."""
+    where = evaluated(tmp_path)
+    state.eval_file(where)
+    state.eval_expr(TRACE % "UNSUBSCRIBED-MARKER")
+
+    out, err = capfd.readouterr()
+    assert "UNSUBSCRIBED-MARKER" in err, "the fallback still forwards"
+    assert out == "", "descriptor 1 belongs to the protocol"
+    assert EVALUATING_FILE not in err, err
+
+
+def test_nothing_asks_nix_for_everything(state: Any,
+                                         tmp_path: pathlib.Path) -> None:
+    """`daemon_verbosity` is what the DAEMON is told to produce.
+
+    `RemoteStore::setOptions` sends it over the worker protocol and
+    `daemon.cc:239` assigns it to the daemon's own. At lvlVomit it
+    asks every daemon connection this process opens to narrate
+    everything down the socket, whether or not anybody subscribed.
+
+    `dummy://` opens no daemon connection, so the suite cannot see
+    it. This gate is the substitute: nothing may leave the daemon
+    level at vomit.
+
+    It is ORDER-INDEPENDENT (huggorm#96): a test that asks for 7
+    and then unsubscribes gives the level back. What fails it is a
+    test that asks for 7 and STAYS subscribed, which makes the cost
+    visible at the moment somebody takes it.
+
+    Perturbation: start `VerbosityDemand::reconcile`'s `widest` at
+    `nix::lvlVomit` and this fails."""
+    from huggorm_bindings import daemon_verbosity
+
+    where = evaluated(tmp_path)
+    stream = state.subscribe_logs()
+    try:
+        state.eval_file(where)
+        stream.drain()
+    finally:
+        state.unsubscribe_logs()
+
+    assert daemon_verbosity() < 7, (
+        "every new daemon connection is told to narrate at vomit")
+
+
+def test_a_subscription_raises_the_gate_it_needs(state: Any) -> None:
+    """Asking for more than the default has to reach the daemon.
+
+    The daemon narrates at the level its handshake sent, so a
+    subscriber at talkative gets the daemon's talkative lines only if
+    the daemon level rises with it.
+
+    Perturbation: drop the `verbosity_demand().add` call from
+    `ThreadLevel::set` and this fails."""
+    from huggorm_bindings import daemon_verbosity
+
+    state.subscribe_logs(level=TALKATIVE)
+    try:
+        assert daemon_verbosity() >= TALKATIVE
+    finally:
+        state.unsubscribe_logs()
+
+
+DEBUG = 6
+CHATTY = 5
+
+
+def test_the_ceiling_is_pinned_at_import(state: Any) -> None:
+    """`nix::verbosity` is written once, at import, and never again.
+
+    `printMsg` reads it on every thread, so a later write races with
+    every one of them (huggorm#102). No subscription moves it, however
+    wide it asks.
+
+    Perturbation: write `nix::verbosity` in `VerbosityDemand::reconcile`
+    and this fails."""
+    from huggorm_bindings import (
+        process_verbosity,
+        subscribe_process_logs,
+        unsubscribe_process_logs,
+    )
+
+    assert process_verbosity() == CHATTY
+    subscribe_process_logs(level=7)
+    try:
+        state.subscribe_logs(level=7)
+        assert process_verbosity() == CHATTY
+        state.unsubscribe_logs()
+    finally:
+        unsubscribe_process_logs()
+    assert process_verbosity() == CHATTY
+
+
+def test_a_subscription_above_the_ceiling_gets_nothing_above_it(
+    state: Any, tmp_path: pathlib.Path
+) -> None:
+    """Nix produces nothing above the pin, so nothing above it arrives.
+
+    `findFile` resolves a search path element once per state and says
+    so with `debug()` (`eval.cc:3285`), so a fresh element is a debug
+    record Nix raises every time the pin lets it.
+
+    Perturbation: make `log_ceiling` default to `nix::lvlVomit` and
+    the record arrives at 6."""
+    stream = state.subscribe_logs(level=7)
+    try:
+        state.eval_expr(
+            f'builtins.findFile [ {{ prefix = "hg"; path = "{tmp_path}"; }} ] "hg"')
+        records = stream.drain()
+    finally:
+        state.unsubscribe_logs()
+
+    above = [(r.level(), r.text()) for r in records
+             if r.action() == "msg" and r.level() > CHATTY]
+    assert not above, above
+
+
+CEILING_PROBE = """
+from huggorm_bindings import process_verbosity, daemon_verbosity
+print(process_verbosity(), daemon_verbosity())
+"""
+
+
+@pytest.mark.parametrize(("value", "pinned"),
+                         [("", CHATTY), ("debug", DEBUG), ("DEBUG", DEBUG),
+                          ("2", 2)])
+def test_huggorm_log_ceiling_picks_the_pin(value: str, pinned: int) -> None:
+    """The daemon still starts at lvlInfo, whatever the pin is.
+
+    Perturbation: store `nix::lvlVomit` into `remoteVerbosity` in
+    `install_log_tap` and the second number is 7."""
+    out = subprocess.run([sys.executable, "-c", CEILING_PROBE],
+                         capture_output=True, text=True, check=False,
+                         env={**os.environ, "HUGGORM_LOG_CEILING": value})
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == [str(pinned), str(LOG_INFO)]
+
+
+@pytest.mark.parametrize("value", ["loud", "8", "-1"])
+def test_a_ceiling_that_names_no_level_refuses_the_import(value: str) -> None:
+    """Keeping the default would ignore the caller with nothing said."""
+    out = subprocess.run([sys.executable, "-c", CEILING_PROBE],
+                         capture_output=True, text=True, check=False,
+                         env={**os.environ, "HUGGORM_LOG_CEILING": value})
+    assert out.returncode != 0
+    assert f"HUGGORM_LOG_CEILING is '{value}'" in out.stderr, out.stderr
+
+
+def test_the_gate_goes_back_down_when_a_subscription_ends(
+        state: Any) -> None:
+    """The other half of the gate above, and it was missing.
+
+    huggorm#95 measured the cost of never lowering the daemon level:
+    a process that subscribed once went on printing the daemon's
+    debug lines on an unsubscribed caller's stderr for the rest of
+    its life.
+
+    Perturbation: drop the `verbosity_demand().drop` call from
+    `ThreadLevel::release` and this fails, along with the gate
+    below.
+
+    lvlInfo is the floor, and Carl's choice (huggorm#102)."""
+    from huggorm_bindings import daemon_verbosity
+
+    state.subscribe_logs(level=TALKATIVE)
+    assert daemon_verbosity() >= TALKATIVE, "the gate went up"
+    state.unsubscribe_logs()
+
+    assert daemon_verbosity() == LOG_INFO, \
+        "nothing asks for more than the default any more"
+
+
+def test_the_gate_stays_up_for_a_subscription_that_is_still_live(
+        state: Any) -> None:
+    """Lowering has to stop at what someone else still needs.
+
+    The whole reason `VerbosityDemand` counts per level instead of
+    holding one number. A subscription ending must not silence a
+    subscription that did not end - that is a SILENT SKIP, and it is
+    what makes the naive fix (lower to lvlInfo) worse than the defect
+    it fixes.
+
+    Two live demands here, one process-wide and one per-thread, so no
+    second thread is needed to state the rule.
+
+    Perturbation: make `drop` set the floor directly instead of
+    reconciling, and this fails while the test above still passes.
+    That is the naive fix, and the pair is what tells them apart."""
+    from huggorm_bindings import daemon_verbosity, subscribe_process_logs, unsubscribe_process_logs
+
+    subscribe_process_logs(level=DEBUG)
+    try:
+        state.subscribe_logs(level=TALKATIVE)
+        state.unsubscribe_logs()
+        assert daemon_verbosity() >= DEBUG, \
+            "the process-wide subscription still needs it"
+    finally:
+        unsubscribe_process_logs()
+
+    assert daemon_verbosity() == LOG_INFO, "and now nobody does"
+
+
+def test_a_thread_level_needs_no_queue(state: Any,
+                                       tmp_path: pathlib.Path,
+                                       process_sink: Any) -> None:
+    """The shape nanopynix reads: one process queue, a level per call.
+
+    This thread subscribes to nothing, so its records fall back to the
+    process queue. Its own level still decides what they are worth.
+
+    Perturbation: drop the `thread_level().set` call from
+    `set_thread_verbosity` and this fails - the default keeps nothing
+    above lvlInfo."""
+    from huggorm_bindings import (
+        clear_thread_verbosity,
+        daemon_verbosity,
+        set_thread_verbosity,
+        thread_verbosity,
+    )
+
+    where = evaluated(tmp_path)
+    set_thread_verbosity(TALKATIVE)
+    try:
+        assert thread_verbosity() == TALKATIVE
+        assert daemon_verbosity() >= TALKATIVE, "the gate went up"
+        state.eval_file(where)
+    finally:
+        clear_thread_verbosity()
+
+    deep = [r for r in process_sink.drain()
+            if r.action() == "msg" and r.level() == TALKATIVE]
+    assert any(EVALUATING_FILE in r.text() for r in deep), deep
+    assert thread_verbosity() == LOG_INFO, "back to the default"
+    assert daemon_verbosity() == LOG_INFO, "and the gate back down"
+
+
+def test_a_thread_with_no_level_follows_the_default() -> None:
+    """A thread nix starts never sets a level, so it reads this one.
+
+    Read LIVE, not copied when the thread starts: the thread below
+    exists before the default moves."""
+    from huggorm_bindings import (
+        daemon_verbosity,
+        default_verbosity,
+        set_default_verbosity,
+        thread_verbosity,
+    )
+
+    moved = threading.Event()
+    seen: list[int] = []
+
+    def other() -> None:
+        moved.wait()
+        seen.append(thread_verbosity())
+
+    worker = threading.Thread(target=other)
+    worker.start()
+    set_default_verbosity(DEBUG)
+    try:
+        assert default_verbosity() == DEBUG
+        assert daemon_verbosity() >= DEBUG, "the gate went up"
+        moved.set()
+        worker.join()
+    finally:
+        set_default_verbosity(LOG_INFO)
+
+    assert seen == [DEBUG]
+    assert daemon_verbosity() == LOG_INFO
+
+
+@pytest.mark.parametrize("level", [-1, 8])
+def test_a_level_nix_does_not_have_is_refused(level: int) -> None:
+    from huggorm_bindings import set_default_verbosity, set_thread_verbosity
+
+    with pytest.raises(ValueError, match="from 0"):
+        set_thread_verbosity(level)
+    with pytest.raises(ValueError, match="from 0"):
+        set_default_verbosity(level)
+
+
+def test_the_current_request_is_the_one_begun() -> None:
+    from huggorm_bindings import begin_request, current_request, end_request
+
+    assert current_request() == 0
+    previous = begin_request(41)
+    try:
+        assert current_request() == 41
+    finally:
+        end_request(previous)
+    assert current_request() == 0
+
+
+def test_a_daemon_told_to_narrate_is_told_to_stop(
+        private_daemon: str,
+        capfd: pytest.CaptureFixture[str]) -> None:
+    """The defect huggorm#95 found, as a gate.
+
+    The chain, and no gate above it can stand in for this one:
+    a subscription raises `nix::verbosity`; `setOptions` sends that
+    to the daemon; the daemon narrates every worker op back as
+    STDERR_NEXT; and the client calls `printError` on the text
+    (`worker-protocol-connection.cc:75`), which ERASES the level. The
+    line arrives as lvlError, passes every gate this binding has, and
+    lands on stderr.
+
+    So the only place to stop it is before it is produced, which
+    means lowering the global - and the only way to see that is a
+    real daemon. `dummy://` opens no connection and reaches none of
+    this, which is exactly how the pin regression got as far as it
+    did. The daemon is the test's own: the machine's may be a proxy
+    that drops the narration, and then the check below passes with
+    nothing to see (huggorm#160).
+
+    `capfd`, not `capsys`: the write is a C++ `writeToStderr` on
+    descriptor 2, and `capsys` only replaces Python's objects.
+
+    Perturbation: make `set_process_demand` skip its drop, and this
+    fails with roughly one line per worker op below - the defect's
+    own text."""
+    from huggorm_bindings import Store, subscribe_process_logs, unsubscribe_process_logs
+
+    subscribe_process_logs(level=7)
+    unsubscribe_process_logs()
+
+    # AFTER the cycle, because `setOptions` runs once at handshake.
+    # A connection opened while the level was up keeps it, and that
+    # is the one thing lowering cannot reach (huggorm#96).
+    store = Store(private_daemon)
+    # Every worker op narrates, so the path need not exist.
+    held = store.parse_store_path("/nix/store/" + "a" * 32 + "-absent")
+    for _ in range(8):
+        store.is_valid_path(held)
+
+    err = capfd.readouterr().err
+    assert WORKER_OP not in err, err
+
+    # The control. A connection opened while the level is up keeps it,
+    # so this one narrates. Without it a Nix that rewords the line
+    # passes the assertion above and tests nothing (huggorm#160).
+    loud = subscribe_process_logs(level=7)
+    try:
+        Store(private_daemon).is_valid_path(held)
+        narrated = [r.text() for r in loud.drain()]
+    finally:
+        unsubscribe_process_logs()
+    assert any(WORKER_OP in text for text in narrated), narrated

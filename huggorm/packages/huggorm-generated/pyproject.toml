@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "huggorm-generated"
+version = "0.1.0"
+description = "The emitted API surface: async wrappers, protocols, RPC client"
+requires-python = ">=3.11"
+dependencies = ["huggorm-bindings", "anyio>=4"]
+
+# The generator writes `huggorm_generated/` before `setup()` is
+# called (see setup.py), so an ordinary find collects a real package.
+[tool.setuptools.packages.find]
+include = ["huggorm_generated*"]
+
+# Everything the generator writes that is NOT a Python module, and
+# every one of them in ONE place. `setup()` takes a `package_data`
+# argument too, and this table overrides it rather than merging - so a
+# file listed only there ships from neither. That is how py.typed went
+# missing.
+[tool.setuptools.package-data]
+huggorm_generated = ["manifest.json", "py.typed"]

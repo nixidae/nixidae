@@ -1,0 +1,222 @@
+"""Declarations -> `huggorm/__init__.py`, the library's front door.
+
+The second of the two front doors, and the one that had a reason to
+wait. `cppgen/pyinit.py` writes the bindings' own; this writes the
+one a caller actually types `import huggorm` for (huggorm#64).
+
+Forty-odd `from huggorm_bindings import Hash as Hash` lines that had
+to follow every declaration in the repo, and a test that said so
+after the fact. The test stays and becomes a cross-check; the lines
+are derived.
+
+## What is derived, and from what
+
+- Everything `huggorm_bindings` exports, which `Model.exports`
+  already derives. Read from there rather than computed again.
+- Everything `huggorm_generated` exports, which `emitter.package_exports`
+  already derives from the model. Read from there for the same
+  reason.
+- The UNION aliases. They live in `_unions` because a union has no
+  home in a compiled package - the alias is Python and the module
+  binding its arms is an extension - and a caller annotating their
+  own function with `DerivedPath` is the whole point of it having a
+  name.
+
+## What is NOT derived, and why that is right
+
+The hand-written layer's own surface: `connect`, `NixClient`,
+`ConnectionExpired`, `serve`, `errors`, `set_pool_size`. No
+declaration names any of them, because they are not bindings - they
+are the library this repo writes over the bindings. `LOCAL` below is
+a short list, and it changes when that layer's API changes rather
+than when a declaration does. That was the whole complaint: the
+maintenance burden was tracking DECLARATIONS, and there were
+thirty-odd of those.
+
+## Where it lands
+
+The build's copy only, and the tree keeps none. That is Carl's call,
+and it costs the dev loop `nix run test` had: with no `__init__.py`
+in `packages/huggorm/huggorm/`, that directory is a namespace portion
+and Python's finder prefers the store's regular package - so the
+whole of `huggorm/` comes from the store, not just this file.
+Measured, not assumed. `nix run test` writes the file into the tree
+before it runs pytest, which is the same thing both `setup.py` files
+already do with their own output.
+"""
+
+import ast
+
+from huggorm_gen import ir
+from huggorm_gen.pygen.fmt import format_paths
+
+# The names this package offers that no declaration knows about.
+#
+# Its own layer: a client, a server, the exception module and the
+# pool-size knob. Listed rather than derived because there is nothing
+# to derive them FROM - they are hand-written Python, and a module
+# that grew an `__all__` for this to read would be the same list in
+# another file.
+#
+# Keyed by the module each comes from, the way the emitted imports
+# are grouped. A relative name is relative to `huggorm` itself.
+LOCAL: dict[str, list[str]] = {
+    "huggorm_generated._runtime": ["set_pool_size"],
+    ".remote": ["ConnectionExpired", "NixClient", "connect"],
+    ".server": ["serve"],
+    ".session": [
+        "AsyncSession",
+        "AsyncSessionLike",
+        "AsyncRemoteSession",
+        "AsyncRemoteSessionLike",
+        "CapturedLogs",
+        "LogBatch",
+    ],
+    ".devshell": [
+        "BuildEnvironment",
+        "IGNORE_VARS",
+        "SAVED_VARS",
+        "Var",
+        "aget_build_environment",
+        "aprint_dev_env",
+        "awrite_dev_shell_derivation",
+        "get_build_environment",
+        "print_dev_env",
+        "write_dev_shell_derivation",
+    ],
+    ".watch": ["Watcher"],
+    ".notify": ["Notifier"],
+    ".warm": ["Warmer"],
+    ".signature": ["signature_of"],
+}
+
+# Imported as a MODULE rather than for the names in it. `huggorm.errors`
+# is how a caller writes `except huggorm.errors.BadStorePath`, and the
+# classes in it are the emitted hierarchy rather than a list this could
+# carry.
+LOCAL_MODULES: list[str] = ["errors"]
+
+# Where the union aliases live. Not `huggorm_generated` itself: the
+# package re-exports classes and functions, and an alias is neither.
+UNIONS_MODULE = "huggorm_generated._unions"
+
+BINDINGS = "huggorm_bindings"
+GENERATED = "huggorm_generated"
+
+DOC = '''
+Nix, from Python.
+
+    import huggorm
+
+    store = huggorm.Store("auto")
+    path = store.add_to_store("hello", b"hello\\n")
+    for dep in store.compute_fs_closure([path]):
+        print(dep)
+
+Three packages build this library and one imports it. `huggorm` is
+the front door; `huggorm_bindings` (compiled), `huggorm_generated`
+(emitted at build time) and this one are how it is made, which is not
+something a caller should have to learn before the first import.
+
+## The two surfaces
+
+The same store, spelled two ways.
+
+- **Sync** - `Store`, `StorePath`, `PathInfo`. The bindings
+  themselves. Every call blocks the calling thread.
+- **Async** - `AsyncStore` and friends. The same calls, awaited. An
+  object built here runs in this process, with the blocking part on
+  a thread, so an event loop keeps running. `async with connect() as
+  client:` hands out the same classes, running on another process's
+  store. A CONTEXT MANAGER, because the client pings in the
+  background and the scope is what stops the loop (huggorm#35).
+
+So code written against `AsyncStore` runs in either place.
+
+## What is NOT here
+
+Nothing, now. The `Mock*` classes were the last exception and they are
+gone (huggorm#60). Every name the two packages behind this one export
+reaches this front door - and it is derived from them now rather than
+listed by hand, so a new binding arrives here without anyone
+noticing (huggorm#64).
+'''
+
+
+def exports(bindings: list[str], generated: list[str],
+            unions: list[str]) -> dict[str, list[str]]:
+    """Every name the front door offers, by the module it comes from.
+
+    The three derived groups, then the hand-written layer's own. Each
+    argument is a list somebody else already derived - this joins
+    them, and states no name of its own beyond `LOCAL`.
+    """
+    out: dict[str, list[str]] = {
+        BINDINGS: sorted(bindings),
+        GENERATED: sorted(generated),
+        UNIONS_MODULE: sorted(unions),
+    }
+    for module, names in LOCAL.items():
+        out.setdefault(module, []).extend(names)
+    # A name in both packages reaches the caller once, from the one
+    # that DEFINES it. `collect_garbage` is bound in the bindings and
+    # wrapped in the generated package under the same name, and two
+    # imports of one name is the later one silently winning.
+    seen: set[str] = set()
+    for module in list(out):
+        keep = [n for n in sorted(set(out[module])) if n not in seen]
+        seen |= set(keep)
+        if keep:
+            out[module] = keep
+        else:
+            del out[module]
+    return out
+
+
+def module(bindings: list[str], generated: list[str],
+           unions: list[str]) -> str:
+    """The front door, as source.
+
+    `X as X` on every import, unlike the bindings' front door. There
+    is an `__all__` here too and it says the same thing - but this
+    package is hand-written apart from this file, so a typechecker
+    reads the real module rather than a stub, and the redundant
+    spelling is what the hand-written version used. Keeping it means
+    the emitted file is the file that was there, minus the
+    maintenance.
+    """
+    by_module = exports(bindings, generated, unions)
+    body: list[ast.stmt] = [ast.Expr(value=ast.Constant(value=DOC))]
+    for name in LOCAL_MODULES:
+        body.append(ast.ImportFrom(
+            module=None, names=[ast.alias(name=name, asname=name)], level=1))
+    for module_name, names in by_module.items():
+        level = 1 if module_name.startswith(".") else 0
+        body.append(ast.ImportFrom(
+            module=module_name.lstrip("."),
+            names=[ast.alias(name=n, asname=n) for n in names],
+            level=level))
+    everything = sorted({n for names in by_module.values() for n in names}
+                        | set(LOCAL_MODULES))
+    body.append(ast.Assign(
+        targets=[ast.Name(id="__all__")],
+        value=ast.List(elts=[ast.Constant(value=n) for n in everything])))
+    out = ast.Module(body=body, type_ignores=[])
+    ast.fix_missing_locations(out)
+    return ast.unparse(out)
+
+
+def emit(out_dir: str, model: ir.Model) -> str:
+    """Write `__init__.py` into the package directory, and say where."""
+    import pathlib
+
+    from huggorm_gen.pygen.emitter import package_exports
+
+    bindings = [n for names in model.exports.values() for n in names]
+    generated = package_exports(model)
+    unions = sorted(model.unions)
+
+    target = pathlib.Path(out_dir) / "__init__.py"
+    target.write_text(module(bindings, generated, unions) + "\n")
+    format_paths(target)
+    return str(target)

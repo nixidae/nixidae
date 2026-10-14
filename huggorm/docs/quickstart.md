@@ -1,0 +1,163 @@
+# Quickstart
+
+Nix, from Python. One import.
+
+    import huggorm
+
+    store = huggorm.Store("auto")
+
+`"auto"` is whatever the ambient configuration says, usually the
+daemon. `"dummy://"` is in-memory and needs nothing on disk.
+`"/tmp/mystore"` is a chroot store, which needs no daemon and no
+`/nix/var` - it is what this repo's own tests run against.
+
+## A store path is a name, not a location
+
+    path = store.add_to_store("hello", b"hello\n")
+    path                       # StorePath(base_name='1q8...-hello')
+    store.print_store_path(path)   # /nix/store/1q8...-hello
+    store.real_path(path)          # where the bytes REALLY are
+
+The three are different questions. A `StorePath` is `<hash>-<name>`
+and nothing else - no directory, no store, no machine - which is why
+printing one needs the store. `real_path` differs again: a chroot
+store keeps `/nix/store` as its store directory while the files live
+under `<root>/nix/store`.
+
+Going the other way, from a file to the object that holds it:
+
+    where = store.to_store_path("/nix/store/1q8...-python/bin/python3")
+    where.path()        # StorePath('1q8...-python')
+    where.sub_path()    # '/bin/python3'
+
+    store.follow_links_to_store_path("./result")   # resolves the link first
+
+## What the store knows
+
+    info = store.query_path_info(path)
+    info.nar_size()            # bytes, of the NAR
+    info.deriver()             # the .drv that built it, or None
+    info.references()          # [StorePath, ...] - what it points at
+    info.sigs()                # [Signature, ...] - who vouched for it
+
+`None` is a real answer in two places: a path that was ADDED has no
+deriver, and one that was BUILT has no content address.
+
+Nothing here is a string you take apart. A hash is an algorithm and a
+digest; a content address is a method and a hash; a signature is a key
+name and some bytes. Each is its own value, and printing one is a
+separate act:
+
+    h = info.nar_hash()
+    h.algorithm()              # 'sha256'
+    h.digest()                 # 32 raw bytes
+    str(h)                     # 'sha256:1abc...' - what nix prints
+    h.base16(), h.sri()        # the other two spellings
+
+    ca = info.ca()             # None when the path was BUILT
+    ca.method()                # 'nar', 'flat', 'text' or 'git'
+    ca.hash().algorithm()      # 'sha256' - a field, not a prefix
+    str(ca)                    # 'fixed:r:sha256:...'
+
+A `Hash` is the one of these a caller can build, because it is the one
+a caller can have: `Hash('sha256', digest)` from a lock file or a
+narinfo. It refuses a digest of the wrong length.
+
+## Content-addressed outputs
+
+A derivation whose output is content-addressed does not know its own
+output path until it has been built, so the store keeps a mapping.
+
+    key = DrvOutput(Hash('sha256', drv_hash_bytes), 'out')
+    store.query_realisation(key)   # a Realisation, or None
+
+None means two things and nothing here separates them: the store never
+realised that output, or `ca-derivations` is off - in which case every
+id answers None, because there is no mapping to consult.
+
+## The graph
+
+One edge is a fact; the closure is what you can copy, sign or delete
+as a unit.
+
+    store.query_referrers(path)          # what points AT it
+    store.compute_fs_closure([path])     # everything reachable, transitively
+    store.compute_fs_closure([path], flip_direction=True)
+                                         # what would break if it went away
+
+Store paths compare and hash, so these read the way you would write
+them:
+
+    closure = set(store.compute_fs_closure([a, b]))
+    assert a in closure
+
+## Async
+
+The same calls, awaited, with the blocking part moved onto a thread so
+your event loop keeps running.
+
+    import anyio
+    import huggorm
+
+    async def main():
+        store = huggorm.AsyncStore("auto")
+        path = await store.add_to_store("hello", b"hello\n")
+        print(await store.print_store_path(path))
+        await store.aclose()
+
+    anyio.run(main)
+
+`aclose()` shuts the runner's thread down. Every async object has one.
+
+Four blocking calls run at once by default. If your application wants
+more, say so before the first call:
+
+    huggorm.set_pool_size(16)
+
+## Remote
+
+The same protocol, in another process on this machine. The server
+listens on a Unix socket, and only its own uid may connect.
+
+    server:  await huggorm.serve("/run/user/1000/huggorm.sock")
+
+    client:  async with huggorm.connect("/run/user/1000/huggorm.sock") as client:
+                 store = await client.acquire("Store", "auto")
+                 path = await store.add_to_store("hello", b"hello\n")
+
+`store` here is an `RPCStore`, and the in-process one is an
+`AsyncStore`. Both satisfy `huggorm.StoreLike`, so code written
+against the protocol runs either way:
+
+    async def total_size(store: huggorm.StoreLike, path) -> int:
+        info = await store.query_path_info(path)
+        return info.nar_size()
+
+Values come back as real local objects - a `PathInfo` is a copy of
+what the store said, not a handle - so reading its fields costs no
+round trip. A `Store` is a proxy: it is a connection, and identity
+matters.
+
+If the server sweeps your connection for being silent, the next call
+raises `huggorm.ConnectionExpired` rather than failing later as an
+unknown handle. Recovery is a fresh `connect()` and re-acquiring what
+you held.
+
+## Errors
+
+    try:
+        store.query_path_info(huggorm.StorePath("0" * 32 + "-nope"))
+    except huggorm.errors.InvalidPath:
+        ...
+
+They are libstore's own, with libstore's own messages, and they keep
+their class across the wire. `InvalidPath` means the store does not
+have that path; `BadStorePath` means the string is not a store path at
+all. The colour libstore writes into a message is kept as a separate
+field rather than printed at you.
+
+## Where to look next
+
+`README.md` is contributor-facing: how the four layers are built, what
+the build refuses, and how to add a binding. The
+[issues](https://github.com/Lillecarl/huggorm/issues) hold one design decision each.

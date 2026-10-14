@@ -1,0 +1,302 @@
+# huggorm
+
+Nix, bound to Python through nanobind, with the bindings THEMSELVES
+generated from a declaration, and everything above them generated from
+the same declaration.
+
+One file decides four surfaces: the C++ binding, the type stub, the
+wire policy, and the async class, which runs in process or on a
+server.
+Adding a type means editing one declaration and nothing else. That is
+the whole premise, and it is what a reviewer should push on.
+
+A declaration is read twice: imported, so Python resolves any
+`NIX_VERSION` branch, and parsed, for the C++ in its bodies and the
+order of its methods. No body ever runs - `def` defines, it does not
+call - so a declaration can name a C++ type this machine has never
+compiled, and no surface above the bindings waits on a compiler.
+
+This file is how to DRIVE the repo. `docs/quickstart.md` is how to USE
+the library. The [issues](https://github.com/Lillecarl/huggorm/issues) are what the design is and why: each
+one is a decision with the alternatives it rejected, and #106 is the
+board they grew from.
+
+## Commands
+
+Everything runs through `nix`, from the repo root. No devshell needed,
+though `nix develop --file . shell` gives one.
+
+    nix build --file . huggorm --no-link     # THE gate: builds all four
+                                              # layers, lints, typechecks,
+                                              # runs the hermetic suite
+    nix run  --file . check                   # lint + typecheck the whole
+                                              # tree, ~1s, no rebuild
+    nix run  --file . test                    # the WHOLE suite, live tests
+                                              # included, outside the sandbox
+    nix run  --file . test -- -m live         # only the tests that need a
+                                              # real store
+    nix run  --file . test -- -k closure -x   # any pytest arguments
+
+The build gate is the one that matters. It runs `pytest -m "not live"`
+inside the sandbox, so a test that touches the machine's real store
+must carry `@pytest.mark.live` or it fails there loudly.
+
+`nix run --file . test` puts the working tree's `huggorm/` ahead of
+the installed copy, so an edit to the hand-written layer is testable
+without a rebuild. `huggorm_bindings` and `huggorm_generated` always
+come from the store: one is compiled and the other is generated, so
+neither exists in the tree.
+
+### Reading what the build produced
+
+    nix run --file . show                # where everything landed
+    nix run --file . show -- surface     # every emitted Python module
+
+`surface` ends with `_policy.py`, the tables both ends of the wire
+read. They are generated, so the only honest way to review the wire is
+to read what actually came out.
+
+The emitted C++ is not in the tree either. It is written into the
+build's copy of `huggorm-bindings`, so to read it:
+
+    nix build --no-link --print-out-paths --file . bindings-src
+
+### Reading a dependency's source
+
+    nix build --no-link --print-out-paths --file . pkgs.nix.src
+
+Nix's own headers are in `pkgs.nix.dev`. The repo's rule is to anchor
+on upstream source rather than guess, and several declarations carry a
+comment about an upstream behaviour that was read rather than assumed.
+
+## Layout
+
+    packages/
+      huggorm-dsl/        the LANGUAGE: what a declaration may say
+      huggorm-decl/       the DECLARATIONS, and the C++ helpers they name
+      huggorm-gen/        the EMITTERS: two backends over one reader
+      huggorm-bindings/   LEAF: the nanobind extensions
+      huggorm-generated/  LEAF: the emitted API surface
+      huggorm/            the hand-written layer: server, client, codec
+    examples/             runnable demos - not shipped in the package
+    docs/                 user-facing; quickstart.md is the front door
+
+Three things are easy to confuse and are kept apart. The LANGUAGE is
+`declare.py`. A DECLARATION is a document written in it. An EMITTER
+turns one into an output. Neither leaf holds hand-written source:
+each is setuptools running a generator over what the other three say.
+
+### huggorm-dsl
+
+    src/huggorm_dsl/
+      declare.py      the vocabulary a declaration is written in
+      read.py         ast.parse -> Module, Class, Method
+
+No declaration and no emitter, which is what lets huggorm-decl and
+huggorm-gen depend on it without depending on each other. `read.py`
+is here rather than with the emitters because parsing is a fact about
+the language: two backends parse the same way or they are not reading
+the same language.
+
+### huggorm-decl
+
+    src/huggorm_decl/
+      __init__.py     which declarations exist, and which own a module
+      decl/<name>.py  one Nix class, named after its header
+      decl/README.md  why they sit in their own directory
+      cpp/<name>.hpp  C++ this repo writes, for what a declaration CALLS
+      cpp/README.md   the rule for what belongs in there
+
+The two things a person maintains: the declarations, and the helpers
+they name. `include_dir()` is how the bindings build compiles against
+`cpp/`, the way nanobind exposes its own headers.
+
+`__init__.py` names the declarations that own a module. That list is
+here rather than with an emitter because which declarations exist is
+a fact about this set of documents, not about a backend reading them.
+
+### huggorm-gen
+
+    src/huggorm_gen/
+      cppgen/         -> huggorm_bindings: C++, stubs, enums, errors
+      pygen/          -> huggorm_generated: async classes, protocols, wire tables
+      payload/        -> neither: hand-written Python that SHIPS
+
+One package, not two, because both backends read one IR from one
+reader. pygen reflected on the compiled extension for enums, errors
+and free functions until 065; a package boundary would have made that
+seam permanent.
+
+One Nix header, one declaration, named after it:
+`nix/store/store-api.hh` is `decl/store.py`, and
+`nix/store/path-info.hh` is `decl/pathinfo.py`. The exception is
+`decl/words.py`, because a vocabulary has no C++ and no extension to
+live in - see below.
+
+`decl/store.py` is the biggest and the most current - read it first,
+for what a proxy looks like. `decl/pathinfo.py` is the wire-value to
+read: it binds `nix::ValidPathInfo` and carries the `_from_parts` that
+rebuilds one. `decl/hash.py` is the shortest one that shows the whole
+idea - two facts on the wire, three renderings marked `@local` that
+never leave this side. `decl/path.py` is the smallest complete one,
+and the place to start if `store.py` is too much at once.
+
+`decl/words.py` is the odd one out and is not a binding at all: the
+StrEnums whose members ARE the strings a Nix parser takes. Nothing
+about them compiles.
+
+Every `*.py` in `decl/` is in exactly one of the three lists, and
+`corpus()` refuses the build when it is not. A file nobody lists used
+to emit nothing and say nothing (#78).
+
+### huggorm-bindings
+
+    huggorm_bindings/
+      __init__.py     what the package exports, and in which order
+    setup.py          runs cppgen, then one Extension per declared module
+
+`__init__.py` is the only hand-written file, and it carries no marker
+the generator reads: `_errors_module` and `_async_twins` both moved to
+where the fact is decided (065). `setup.py` runs the emitter at import
+- before setuptools is told the sources exist - and compiles what it
+wrote: one `.cpp` per declared module, plus `errors.py` and the enum
+modules. The C++ helpers a declaration NAMES are not here either; they
+are `huggorm_decl/cpp/`, with the declarations that name them.
+
+One pkg-config line names the libraries, not a table per module.
+There is one library set - nix-store and nix-expr - so a table would
+say the same word nine times (#60).
+
+### huggorm-generated
+
+    huggorm_generated/  emitted; not in the tree
+    setup.py            runs pygen, then packages what it wrote
+
+No hand-written source, like the other leaf. The emitter it runs is
+`huggorm_gen/pygen`, over the typed model:
+
+    ir.py                 the typed model every stage reads (#29)
+    contracts.py          the rules the build refuses to break
+    pygen/spell.py        how one module writes a type, and its imports
+    pygen/emitter.py      the model -> Python, via ast.unparse
+    pygen/fmt.py          ruff sorts and lays out what the emitters wrote
+    pygen/generate.py     the driver
+    pygen/smoke_test.py   the gates that hold the surfaces to each other
+    payload/wiretypes.py  the wire facts both the build and the codec state
+    payload/callspec.py   `Wire`, `Arg` and `Call`: each call and type, resolved
+    payload/runtime.py    copied into the package as _runtime.py
+
+Read `ir.py` first: it is where a type is resolved to what it IS.
+Then `contracts.py` - each function is a rule the build refuses to
+break, and each names the failure it prevents.
+
+Nothing here imports the compiled package at all. The model comes
+from `huggorm_gen.cppgen.generate.declared_model`.
+
+So the two leaves are siblings, not a chain: a change to the Python
+surface does not wait on a C++ compiler. `setup.py` asserts it, by
+checking `huggorm_bindings` is absent from `sys.modules` once
+generation has run - the package IS importable there, because the
+wrappers need it at run time, so what is checked is that nothing
+reached for it.
+
+### huggorm
+
+    huggorm/
+      codec.py      the msgpack codec both sides share. Knows shapes, no types.
+      protocol.py   the Unix socket frames, the build identity, faults
+      server.py     the emitted call specs -> dispatch, handles, sessions
+      remote.py     the client
+      lifecycle.py  connections, leases, detach and reclaim
+      tests/        the suite, hermetic unless marked live
+
+`codec.py` is the sharpest single file: it names no concrete type at
+all. Every type it acts on is a `Wire` the build emitted into `_policy`.
+
+## How a change flows
+
+Adding a store call is the common case, and it touches two files:
+
+1. `packages/huggorm-decl/src/huggorm_decl/decl/store.py` - the method, with a
+   Python-style annotation and a docstring.
+2. a test in `huggorm/tests/test_store.py`, and one in
+   `test_remote.py` if it crosses the wire.
+
+`huggorm_decl/cpp/store.hpp` is the third file, and only when the declaration
+cannot say it: something a whole module needs, such as a startup hook
+or an exception translator. A DECISION - how to render a hash, which
+of two constructors a value takes - goes in the declaration itself, as
+a `Cxx(...)` in the method's body. Every build prints how many of each
+class's methods were derived and how many carry a body.
+
+Nothing else is edited. The reader builds the typed model (`ir.py`)
+from the declaration, and every surface is emitted from the model. If
+the codegen cannot express something, that is the finding - and the
+fix belongs in the declaration or the emitter, not in a hand-written
+wrapper.
+
+## What the build refuses
+
+Worth knowing before reading the generator, because most of it exists
+to make one of these fail early:
+
+- a parameter whose type cannot be resolved (it would be `Any`)
+- a wire-value with no `_wire_fields`, no round-trip helpers, or a
+  proxy inside one
+- a hand-written `_from_parts` that never names one of its own wire
+  fields, and - in the suite - a wire value whose round trip is not
+  exercised with each part holding two different values
+- a default the surface cannot WRITE, or a mutable one
+- a method returning a container of wrapped types, or an optional one
+- a base and a subclass whose shared method signatures differ
+- an emitted module that imports something it does not use
+- the three Python surfaces disagreeing on any signature
+
+Each has an issue naming the bug it prevents.
+
+The C++ compiler is a gate too, and it is the one the emitter leans
+on. An emitter that spells a type wrong does not write a bad binding
+that imports; it fails to compile.
+
+## Conventions
+
+- **Tests are perturbation-verified.** A gate that has not been seen
+  to FAIL is not known to hold. The habit is: break the thing on
+  purpose, watch the named test fail, put it back. Most closed issues
+  record which perturbation was run.
+- **Hermetic by default.** A test that needs the machine's real store
+  carries `@pytest.mark.live`. The build sandbox has no daemon and no
+  writable store, so an unmarked one fails there.
+- **Prose follows ASD-STE100.** Short sentences, active voice, one
+  idea each. Comments say WHY, and name the alternative that was
+  rejected.
+- **One concern per commit.** If the subject needs "and", it is two.
+
+## The mock is gone
+
+`fake-library/` was a C++ stand-in this repo grew before real Nix was
+linked. It is deleted (#60). Every binding here names libstore
+or libexpr.
+
+libstore is `Store` (`nix::Store`), `StorePath`, `PathInfo`
+(`nix::ValidPathInfo`), `StoreLocation`, `Hash`, `Signature`,
+`ContentAddress`, `DrvOutput`, `Realisation`, `MissingPaths` and the
+`DerivedPath` union. libexpr is `EvalState` and `Value`.
+
+The one piece of C++ this repo writes for itself is
+`huggorm_decl/cpp/eval.hpp`. A `nix::Value` lives in the collector's heap and
+Python's heap is not scanned, so a wrapper needs a ROOT; and a value
+is not self-describing, because an attribute name is a `Symbol` only
+the producing state can render. `huggorm::Bridge` holds both. The
+census prints its line count on every build, so the number a
+declaration could not derive is one nobody has to go looking for.
+
+## Where to start reading
+
+For the DESIGN: #106, then the newest [issues](https://github.com/Lillecarl/huggorm/issues) - they are the
+current thinking, and the older ones record how it got there.
+
+For the CODE: `packages/huggorm-decl/src/huggorm_decl/decl/path.py`, then
+`nbemit.py` beside it, then `huggorm/huggorm/codec.py`.
+
+For the OUTPUT: `nix run --file . show -- surface`.

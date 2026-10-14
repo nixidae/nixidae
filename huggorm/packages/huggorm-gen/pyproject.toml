@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "huggorm-gen"
+version = "0.1.0"
+description = "The emitters: one declaration set, two backends"
+requires-python = ">=3.14"
+dependencies = ["huggorm-dsl", "huggorm-decl"]
+
+# pygen runs the `ruff` binary, which a build puts on PATH.
+
+[project.scripts]
+huggorm-cppgen = "huggorm_gen.cppgen.generate:main"
+huggorm-pygen = "huggorm_gen.pygen.generate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+huggorm_gen = ["py.typed", "cppgen/*.hpp"]
+
+# The generator's own suite: it reads declarations and emits, and needs
+# no compiled binding. `generator-tests` in default.nix runs it per Nix.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"

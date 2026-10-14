@@ -1,0 +1,61 @@
+# Nix
+result
+result-*
+.direnv/
+
+# Agents
+.scratchpad
+# jj workspaces, which an agent opens to try a shape without putting
+# it in the main tree. `jj workspace add` checks real files out here,
+# and the main workspace would otherwise snapshot every one of them.
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+*.so
+
+# What the two leaves emit into themselves.
+#
+# Both setup.py files run a generator before setuptools is told the
+# sources exist, so a local `pip install .` leaves its output in the
+# tree. Everything below is written, never hand-edited - and an
+# untracked generated file that the build quietly depends on is a bug
+# this repo has already had once.
+# EVERY file, with no exception left. `__init__.py` was the one
+# hand-written thing in here and it is emitted now (huggorm#64), so
+# the directory is empty in the checkout and `generate.main` makes it.
+packages/huggorm-bindings/huggorm_bindings/*
+packages/huggorm-generated/huggorm_generated/
+# The library's front door, and the ONLY generated file in an
+# otherwise hand-written package. `setup.py` writes it into the
+# build's copy; `nix run test` writes it into the tree, because with
+# no `__init__.py` here Python prefers the store's regular package
+# and the dev loop would lose every other file in the directory too.
+packages/huggorm/huggorm/__init__.py
+packages/huggorm-generated/huggorm_bindings-stubs/
+
+# generated C++
+*.c
+
+# Meson
+builddir/
+build/
+subprojects/
+
+# Editors
+.vscode/
+.idea/
+*~
+.DS_Store
+
+# Pytest / tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
