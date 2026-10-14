@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from pydd.core import Derivation, Fixed, Planner, fixed_output_path, nix32
-from pydd.node._npm import Graph, Lock, Menu, bin_links, fits, strongest
+from pydd.node._npm import Graph, Lock, Menu, bin_links, fits, hosted_archive, strongest
 
 PROJECTS = Path(__file__).parent / "node"
 STORE = "/nix/store/00000000000000000000000000000000"
@@ -34,22 +34,23 @@ class KeepingWriter:
         pass
 
 
-def plan(project: str) -> tuple[KeepingWriter, dict[str, dict[str, Any]]]:
+def plan(project: str, **changes: Any) -> tuple[KeepingWriter, dict[str, dict[str, Any]]]:
     writer = KeepingWriter()
     planner = Planner(writer, "x86_64-linux", None)
-    menu = Menu(
-        name=project,
-        project=f"{STORE}-{project}-source",
-        subdir=".",
-        nodejs=f"{STORE}-nodejs",
-        python=f"{STORE}-python3",
-        script=f"{STORE}-package.py",
-        cacert=f"{STORE}-cacert",
-        tools=[f"{STORE}-cc"],
-        native={},
-        omit=["dev"],
-        scripts=["build"],
-    )
+    fields: dict[str, Any] = {
+        "name": project,
+        "project": f"{STORE}-{project}-source",
+        "subdir": ".",
+        "nodejs": f"{STORE}-nodejs",
+        "python": f"{STORE}-python3",
+        "script": f"{STORE}-package.py",
+        "cacert": f"{STORE}-cacert",
+        "tools": [f"{STORE}-cc"],
+        "native": {},
+        "omit": ["dev"],
+        "scripts": ["build"],
+    }
+    menu = Menu(**(fields | changes))
     Graph(planner, menu, lock(project)).root(menu.scripts)
     return writer, {drv.name: json.loads(drv.env["PYDD_NPM"]) for drv in writer.added}
 
@@ -184,3 +185,43 @@ def test_install_scripts_in_a_cycle_are_refused() -> None:
 def test_a_lock_of_version_one_is_refused() -> None:
     with pytest.raises(SystemExit, match="version 1"):
         Lock.read({"lockfileVersion": 1, "dependencies": {}}, "x86_64-linux", "glibc", [])
+
+
+@pytest.mark.parametrize(
+    ("resolved", "url"),
+    [
+        (
+            "git+ssh://git@github.com/juliangruber/isarray.git#63ea4ca0a0d6b0574d6a470ebd26880c3026db4a",
+            "https://codeload.github.com/juliangruber/isarray/tar.gz/63ea4ca0a0d6b0574d6a470ebd26880c3026db4a",
+        ),
+        (
+            "git+https://gitlab.com/owner/project.git#0123abc",
+            "https://gitlab.com/owner/project/repository/archive.tar.gz?ref=0123abc",
+        ),
+        ("git+https://git.sr.ht/~owner/project#0123abc", "https://git.sr.ht/~owner/project/archive/0123abc.tar.gz"),
+        ("git+https://example.com/project.git#0123abc", None),
+        ("git+ssh://git@github.com/owner/project.git", None),
+    ],
+)
+def test_a_hosted_git_source_as_an_archive(resolved: str, url: str | None) -> None:
+    assert hosted_archive(resolved) == url
+
+
+def test_a_git_dependency_and_a_replaced_source() -> None:
+    sha = "sha256-pGqpNBCt0CJ97Rvkg7XRNtCvByBNWTKXVle0zj4byZg="
+    writer, specs = plan(
+        "git-dep",
+        hashes={"isarray-2.0.5": sha},
+        native={"ms": {"tools": [], "env": {}, "src": f"{STORE}-ms-patched"}},
+    )
+    archive = next(drv for drv in writer.added if drv.name == "isarray-2.0.5-source")
+    assert archive.outputs["out"] == Fixed(sha, "nar")
+    assert specs["isarray-2.0.5"]["tarball"].endswith("-isarray-2.0.5-source")
+    # A replaced source has no fetch.
+    assert specs["ms-2.1.3"]["tarball"] == f"{STORE}-ms-patched"
+    assert not any(drv.name == "ms-2.1.3.tgz" for drv in writer.added)
+
+
+def test_a_git_dependency_needs_its_hash() -> None:
+    with pytest.raises(SystemExit, match=r"isarray-2\.0\.5"):
+        plan("git-dep")

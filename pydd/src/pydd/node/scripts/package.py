@@ -27,7 +27,14 @@ def fetch(spec: dict[str, Any], out: Path) -> None:
 
 
 def unpack(tarball: str, destination: Path) -> None:
-    """Unpack a package as npm does: without its first directory, whatever its name."""
+    """Unpack a package as npm does: without its first directory, whatever its name.
+
+    A directory, such as a replaced source, is copied.
+    """
+    if Path(tarball).is_dir():
+        shutil.copytree(tarball, destination, symlinks=True)
+        writable(destination)
+        return
     destination.mkdir(parents=True)
     with tarfile.open(tarball) as archive:
         members = []
@@ -153,10 +160,22 @@ def run_lifecycle(top: Path, where: Path, tree: Path, nodejs: str, name: str, ve
         )
 
 
+def refuse_prepare(package: Path, name: str) -> None:
+    """npm builds a git dependency with its `prepare` script and its development dependencies, which the lock omits."""
+    scripts = json.loads((package / "package.json").read_text()).get("scripts", {})
+    if "prepare" in scripts:
+        raise SystemExit(
+            f"pydd: {name} comes from git and has a prepare script, which needs packages that "
+            "the lock does not name. Give the built package as `overrides.<name>.src`."
+        )
+
+
 def package(spec: dict[str, Any], top: Path, out: Path) -> None:
     nodejs = spec["nodejs"]
     if not spec["scripts"]:
         unpack(spec["tarball"], out)
+        if spec["git"]:
+            refuse_prepare(out, spec["name"])
         programs(out, spec["bins"])
         return
     tree = top / "tree"
@@ -164,6 +183,8 @@ def package(spec: dict[str, Any], top: Path, out: Path) -> None:
     place(tree, spec["tree"], {})
     where = tree / spec["path"]
     unpack(spec["tarball"], where)
+    if spec["git"]:
+        refuse_prepare(where, spec["name"])
     place(tree, {}, spec["links"])
     run_lifecycle(top, where, tree, nodejs, spec["name"], spec["version"])
     for nested in spec["nested"]:
@@ -222,6 +243,9 @@ def main() -> None:
     match spec["action"]:
         case "fetch":
             fetch(spec, out)
+        case "archive":
+            fetch(spec, top / "archive")
+            unpack(str(top / "archive"), out)
         case "package":
             package(spec, top, out)
         case "root":

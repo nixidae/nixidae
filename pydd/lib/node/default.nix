@@ -44,9 +44,16 @@ let
       # `LIBRARY_PATH`, `include` in `CFLAGS` and `CXXFLAGS`. Name each output
       # that the build reads, because a node runs no setup hook.
       buildTools ? { },
-      # More of a package, by package name, as
-      # `{ sharp.env.SHARP_FORCE_GLOBAL_LIBVIPS = "1"; }`.
+      # More of a package, by package name: `env`, as
+      # `{ sharp.env.SHARP_FORCE_GLOBAL_LIBVIPS = "1"; }`, and `src`, a
+      # tarball or a directory that replaces the package wherever the lock
+      # installs it, as a patched or prebuilt copy.
       overrides ? { },
+      # The hash of each git dependency, as `{ "isarray-2.0.5" = "sha256-..."; }`:
+      # the archive of the commit, unpacked, as `fetchFromGitHub` takes it.
+      # `nix store prefetch-file --unpack <url>` prints it, and the planner's
+      # error names the URL.
+      outputHashes ? { },
     }:
     assert lib.assertMsg (builtins.pathExists (project + "/package-lock.json")) (
       "pydd.node.npm: ${toString project} holds no package-lock.json. The planner builds what "
@@ -80,10 +87,17 @@ let
         (lib.mapAttrs (_: override: override.env or { }) (declared.overrides or { }))
         (lib.mapAttrs (_: override: override.env or { }) overrides)
       ];
-      native = lib.mapAttrs (package: _: {
-        tools = map toString (tools.${package} or [ ]);
-        env = env.${package} or { };
-      }) (tools // env);
+      sources = lib.mapAttrs (_: override: override.src) (
+        lib.filterAttrs (_: override: override ? src) overrides
+      );
+      native = lib.mapAttrs (
+        package: _:
+        {
+          tools = map toString (tools.${package} or [ ]);
+          env = env.${package} or { };
+        }
+        // lib.optionalAttrs (sources ? ${package}) { src = "${sources.${package}}"; }
+      ) (tools // env // sources);
 
       source =
         if builtins.isPath root then
@@ -129,6 +143,7 @@ let
           cacert = "${pkgs.cacert}";
           tools = map toString scriptTools;
           libc = if pkgs.stdenv.hostPlatform.isMusl then "musl" else "glibc";
+          hashes = outputHashes;
         };
       };
     in

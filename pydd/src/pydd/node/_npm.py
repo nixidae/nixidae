@@ -55,6 +55,8 @@ class Menu:
     #: project and in each workspace member that defines them.
     scripts: list[str]
     libc: str = "glibc"
+    #: The hash of each git dependency's unpacked archive, by `<name>-<version>`.
+    hashes: dict[str, str] = field(default_factory=dict[str, str])
 
     @property
     def directory(self) -> str:
@@ -89,6 +91,22 @@ def fits(wanted: list[str] | None, actual: str) -> bool:
         return False
     chosen = [item for item in wanted if not item.startswith("!")]
     return not chosen or actual in chosen
+
+
+def hosted_archive(resolved: str) -> str | None:
+    """The archive of a commit that a git source on a known host names, as nixpkgs' prefetch-npm-deps finds it."""
+    match = re.match(r"^git\+(?:ssh|https?)://(?:git@)?([^/:]+)[/:](.+?)(?:\.git)?#([0-9a-f]+)$", resolved)
+    if match is None:
+        return None
+    host, project, commit = match.groups()
+    match host:
+        case "github.com":
+            return f"https://codeload.github.com/{project}/tar.gz/{commit}"
+        case "gitlab.com":
+            return f"https://gitlab.com/{project}/repository/archive.tar.gz?ref={commit}"
+        case "git.sr.ht":
+            return f"https://git.sr.ht/{project}/archive/{commit}.tar.gz"
+    return None
 
 
 def bins_of(path: str, entry: dict[str, Any]) -> dict[str, str]:
@@ -274,7 +292,10 @@ class Graph:
         url, integrity = entry["resolved"], entry.get("integrity")
         if url not in self.fetches:
             if integrity is None:
-                raise SystemExit(f"pydd.node.npm: {path} comes from {url}, and the lock holds no hash of it.")
+                raise SystemExit(
+                    f"pydd.node.npm: {path} comes from {url}, and the lock holds no hash of it. "
+                    "npm-lockfile-fix writes the missing hashes into a lock."
+                )
             spec = {"action": "fetch", "url": url}
             drv = Derivation(
                 name=f"{store_name(name_of(path, entry))}-{entry.get('version', '0')}.tgz",
@@ -291,16 +312,59 @@ class Graph:
             self.fetches[url] = self.planner.add(drv)
         return self.fetches[url]
 
+    def archive(self, path: str) -> Node:
+        """A fixed-output node that unpacks the archive of a git dependency's commit."""
+        entry = self.lock.packages[path]
+        resolved: str = entry["resolved"]
+        url = hosted_archive(resolved)
+        if url is None:
+            raise SystemExit(
+                f"pydd.node.npm: {path} comes from {resolved}. pydd fetches a git dependency "
+                "from GitHub, GitLab or sourcehut, by its commit. Give the package as "
+                "`overrides.<name>.src`."
+            )
+        key = f"{name_of(path, entry)}-{entry.get('version', '0')}"
+        if key not in self.menu.hashes:
+            raise SystemExit(
+                f"pydd.node.npm: {path} comes from {resolved}. Give its hash as "
+                f'`outputHashes."{key}"`. `nix store prefetch-file --unpack {url}` prints it.'
+            )
+        if url not in self.fetches:
+            spec = {"action": "archive", "url": url}
+            drv = Derivation(
+                name=f"{store_name(key)}-source",
+                system=self.planner.system,
+                builder=f"{self.menu.python}/bin/python3",
+                args=["-I", self.menu.script],
+                env={
+                    "PYDD_NPM": json.dumps(spec, sort_keys=True),
+                    "SSL_CERT_FILE": f"{self.menu.cacert}/etc/ssl/certs/ca-bundle.crt",
+                },
+                srcs=[self.menu.python, self.menu.script, self.menu.cacert],
+                outputs={"out": Fixed(self.menu.hashes[key], "nar")},
+            )
+            self.fetches[url] = self.planner.add(drv)
+        return self.fetches[url]
+
     def tarball(self, path: str) -> tuple[str, list[Node], list[str]]:
-        """Where the tarball of `path` is, the node that fetches it, and the store path that holds it."""
-        resolved: str = self.lock.packages[path]["resolved"]
+        """Where the package of `path` is, as a tarball or a directory, the node that
+        fetches it, and the store path that holds it.
+        """
+        entry = self.lock.packages[path]
+        replaced = self.menu.native.get(name_of(path, entry), {}).get("src")
+        if replaced is not None:
+            return replaced, [], [replaced]
+        resolved: str = entry["resolved"]
         if re.match(r"^https?://", resolved):
             node = self.fetch(path)
             return node.output(), [node], []
-        if "://" in resolved or resolved.startswith("git+"):
+        if resolved.startswith(("git+", "git:")):
+            node = self.archive(path)
+            return node.output(), [node], []
+        if "://" in resolved:
             raise SystemExit(
-                f"pydd.node.npm: {path} comes from {resolved}. pydd fetches packages "
-                "from a registry and from the project's own files, and no other source."
+                f"pydd.node.npm: {path} comes from {resolved}. pydd fetches packages from a "
+                "registry, from GitHub, GitLab or sourcehut, and from the project's own files."
             )
         local = posixpath.normpath(posixpath.join(self.menu.directory, resolved.removeprefix("file:")))
         return local, [], [self.menu.project]
@@ -338,6 +402,7 @@ class Graph:
             "version": entry.get("version", "0"),
             "bins": bins_of(path, entry),
             "scripts": scripted,
+            "git": entry.get("resolved", "").startswith(("git+", "git:")) and tarball not in srcs,
             "tree": tree,
             "links": links,
             "nested": [nested for nested in self.lock.nested(path) if nested in tree],

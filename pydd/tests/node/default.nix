@@ -43,6 +43,22 @@ let
         test "$(workspace-app)" = 'hello from workspace-app hour=3600000'
       '';
     };
+    # isarray from a commit on GitHub, which needs its hash, and ms from a
+    # directory that the call gives in place of the registry's tarball.
+    git-dep = {
+      src = ./git-dep;
+      arguments = {
+        outputHashes."isarray-2.0.5" = "sha256-pGqpNBCt0CJ97Rvkg7XRNtCvByBNWTKXVle0zj4byZg=";
+        overrides.ms.src = pkgs.runCommand "ms-patched" { } ''
+          mkdir $out
+          echo '{"name": "ms", "version": "2.1.3"}' > $out/package.json
+          echo 'module.exports = () => "patched";' > $out/index.js
+        '';
+      };
+      check = ''
+        test "$(git-dep)" = 'hello from git-dep array=true ms=patched'
+      '';
+    };
   };
 in
 builtins.mapAttrs (
