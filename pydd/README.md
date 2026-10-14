@@ -201,6 +201,7 @@ command to run and what it prints.
 5. `examples/poetry`: the same environment from a `poetry.lock`.
 6. `examples/released`: `hello` on a released Nix, with no `builder-rpc-v0`.
 7. `examples/graph`: a planner in shell, with no Python, through `pydd-drv graph`.
+8. `examples/cargo`: a Cargo project, one node per unit of cargo's unit graph.
 
 An example is `examples.<name>.<writer>`:
 
