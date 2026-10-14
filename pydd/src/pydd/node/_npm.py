@@ -331,12 +331,16 @@ class Graph:
         inputs: list[Node],
         package: str | None = None,
         scripted: bool = False,
+        as_file: bool = False,
     ) -> Derivation:
         menu = self.menu
         native = menu.native.get(package or "", {"tools": [], "env": {}}) if scripted else {"tools": [], "env": {}}
         tools = [*native["tools"], *(menu.tools if scripted else [])]
         env = tool_env(tools, f"{menu.nodejs}/bin") | {"PYDD_NPM": dump(spec)} | FLOATING
         env |= native["env"]
+        if as_file:
+            # One variable holds at most 128 KiB, and the root's spec names every package.
+            env["passAsFile"] = "PYDD_NPM"
         srcs, drvs = self.references({menu.python, menu.script, menu.nodejs, *tools, *spec.get("srcs", [])}, inputs)
         return Derivation(
             name=name,
@@ -511,7 +515,9 @@ class Graph:
             spec["build_probes"] = build_probes
             spec["probes"] = bin_probes(lock, [path for path in [*tree, *links] if path in shipped or path in links])
         inputs = [self.nodes[path] for path in tree]
-        return self.planner.add(self.derivation(self.menu.name, spec, inputs, lock.packages[""].get("name"), True))
+        return self.planner.add(
+            self.derivation(self.menu.name, spec, inputs, lock.packages[""].get("name"), True, as_file=True)
+        )
 
 
 def main() -> int:

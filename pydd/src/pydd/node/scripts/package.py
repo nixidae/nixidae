@@ -261,7 +261,10 @@ def root(spec: dict[str, Any], top: Path, out: Path) -> None:
 
 
 def main() -> None:
-    spec = json.loads(os.environ["PYDD_NPM"])
+    if "PYDD_NPMPath" in os.environ:
+        spec = json.loads(Path(os.environ["PYDD_NPMPath"]).read_text())  # noqa: SIM112 - passAsFile names it
+    else:
+        spec = json.loads(os.environ["PYDD_NPM"])
     out = Path(os.environ["out"])  # noqa: SIM112 - Nix names it `out`
     top = Path(os.environ.get("NIX_BUILD_TOP", os.getcwd()))
     match spec["action"]:
