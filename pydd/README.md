@@ -233,6 +233,11 @@ modes, in two groups: the plain modes, and the modes whose source nodes
 are stdenv's. It fails when two modes of a group give different store
 paths for one environment.
 
+`nix run --file . test-live` builds real projects from GitHub, pinned and
+unchanged, in four modes: fastapi-cli, typer, fastmcp, the MCP Python SDK
+and an example app of uv. `tests/live/README.md` lists what each one
+needed, and what each one changed in pydd.
+
 The suite holds pydd's JSON and placeholders to what Nix's own
 `derivation` makes. `tests/python` holds the Python planner to the lock
 files that uv wrote.

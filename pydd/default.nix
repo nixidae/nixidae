@@ -236,7 +236,9 @@ rec {
         compared = import ./tests/stdenv-oracle.nix { nixpkgs = pkgs.path; };
         differ = lib.filterAttrs (_: node: !node.same) compared;
       in
-      assert lib.assertMsg (differ == { }) "stdenv as data differs from mkDerivation: ${builtins.toJSON differ}";
+      assert lib.assertMsg (
+        differ == { }
+      ) "stdenv as data differs from mkDerivation: ${builtins.toJSON differ}";
       pkgs.runCommand "stdenv-as-data" { } "echo ${toString (builtins.attrNames compared)} > $out";
 
     # Does .github/workflows/ci.yml still say what ci/workflows/ci.nix says?
@@ -362,56 +364,103 @@ rec {
       );
     };
 
+  # Real uv projects from GitHub, as they are: `tests/live`.
+  live =
+    lib.genAttrs [ "cli" "huggorm" ] (
+      writer:
+      import ./tests/live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib { inherit huggorm nix writer; };
+      }
+    )
+    // {
+      out = import ./tests/live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "huggorm";
+          plannerProtocol = "out";
+        };
+      };
+      recursive = import ./tests/live {
+        inherit pkgs;
+        pydd = pkgs.callPackage ./lib {
+          huggorm = huggormReleased;
+          nix = nixReleased;
+          writer = "cli";
+          plannerProtocol = "recursive";
+        };
+      };
+    };
+
   # Run every check of `projects` in each mode, and compare the environments.
   # Every mode must give the same content-addressed path. A check needs a
   # Nix that this machine's daemon may not be, so it builds in the private
   # store of `run` or `run-released`, and no `checks` attribute can hold it.
-  test-projects = pkgs.writeShellApplication {
-    name = "pydd-test-projects";
-    runtimeInputs = [
-      run
-      run-released
-      run-recursive
-      nix
-    ];
-    text = ''
-      log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/projects}
-      mkdir -p "$log"
-      if (( $# > 0 )); then
-        names=("$@")
-      else
-        read -ra names <<< "$(nix eval --raw --file . projects.cli --apply 'p: toString (builtins.attrNames p)')"
-      fi
-      read -ra released <<< "$(nix eval --raw --file . projects.out --apply 'p: toString (builtins.attrNames p)')"
-      failed=0
-      # One group of modes for each way to build a source node: every mode of
-      # a group must give one environment. stdenv strips and patches what it
-      # builds, so the stdenv modes are a group of their own.
-      compare() {
-        local name=$1 group=$2
-        shift 2
-        local modes=("$@") paths=() mode runner
-        for mode in "''${modes[@]}"; do
-          runner=pydd-run
-          [[ $mode == out* ]] && runner=pydd-run-released
-          [[ $mode == recursive* ]] && runner=pydd-run-recursive
-          if "$runner" "projects.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
-            echo "pass  $name ($mode)"
-            paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "projects.$mode.$name" environment 2>> "$log/$name-$mode.log")")
-          else
-            echo "FAIL  $name ($mode)  ($log/$name-$mode.log)"
-            failed=1
-          fi
-        done
-        if (( ''${#paths[@]} == ''${#modes[@]} )); then
-          if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
-            echo "same  $name  ''${paths[0]#*=}  ($group: ''${modes[*]})"
-          else
-            echo "DIFFER  $name  ($group)  ''${paths[*]}"
-            failed=1
-          fi
+  # Build each project of `set` in each mode of a group, and fail when two
+  # modes of a group give different environments. `loop` names the groups.
+  mkTestSet =
+    {
+      name,
+      set,
+      loop,
+    }:
+    pkgs.writeShellApplication {
+      inherit name;
+      runtimeInputs = [
+        run
+        run-released
+        run-recursive
+        nix
+      ];
+      text = ''
+        log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${set}}
+        mkdir -p "$log"
+        if (( $# > 0 )); then
+          names=("$@")
+        else
+          read -ra names <<< "$(nix eval --raw --file . ${set}.cli --apply 'p: toString (builtins.attrNames p)')"
         fi
-      }
+        read -ra released <<< "$(nix eval --raw --file . ${set}.out --apply 'p: toString (builtins.attrNames p)')"
+        failed=0
+        # One group of modes for each way to build a source node: every mode of
+        # a group must give one environment. stdenv strips and patches what it
+        # builds, so the stdenv modes are a group of their own.
+        compare() {
+          local name=$1 group=$2
+          shift 2
+          local modes=("$@") paths=() mode runner
+          for mode in "''${modes[@]}"; do
+            runner=pydd-run
+            [[ $mode == out* ]] && runner=pydd-run-released
+            [[ $mode == recursive* ]] && runner=pydd-run-recursive
+            if "$runner" "${set}.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
+              echo "pass  $name ($mode)"
+              paths+=("$mode=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" environment 2>> "$log/$name-$mode.log")")
+            else
+              echo "FAIL  $name ($mode)  ($log/$name-$mode.log)"
+              failed=1
+            fi
+          done
+          if (( ''${#paths[@]} == ''${#modes[@]} )); then
+            if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
+              echo "same  $name  ''${paths[0]#*=}  ($group: ''${modes[*]})"
+            else
+              echo "DIFFER  $name  ($group)  ''${paths[*]}"
+              failed=1
+            fi
+          fi
+        }
+        ${loop}
+        exit "$failed"
+      '';
+    };
+
+  test-projects = mkTestSet {
+    name = "pydd-test-projects";
+    set = "projects";
+    loop = ''
       for name in "''${names[@]}"; do
         plain=(cli huggorm drv recursive recursive-eval)
         stdenv=(recursive-nixpkgs stdenv)
@@ -422,7 +471,23 @@ rec {
         compare "$name" plain "''${plain[@]}"
         compare "$name" stdenv "''${stdenv[@]}"
       done
-      exit "$failed"
+    '';
+  };
+
+  # The live projects of `tests/live`, in one mode of each level of
+  # restriction: `builder-rpc-v0` through `nix` and through huggorm,
+  # recursive-nix, and a release with no socket.
+  test-live = mkTestSet {
+    name = "pydd-test-live";
+    set = "live";
+    loop = ''
+      for name in "''${names[@]}"; do
+        modes=(cli huggorm recursive)
+        if [[ " ''${released[*]} " == *" $name "* ]]; then
+          modes+=(out)
+        fi
+        compare "$name" live "''${modes[@]}"
+      done
     '';
   };
 }
