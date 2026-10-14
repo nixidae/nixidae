@@ -1,0 +1,75 @@
+# Run the environment of `projects/native-app`, inside the store that holds it.
+#
+# **This is the `buildTools` argument against two packages of PyPI.**
+# `tests/sealed.nix` covers the same argument over a fixture of this
+# repository, and it needs no network. This file needs one, and it adds what a
+# fixture cannot: the backend is the `setuptools` that each project declares,
+# and the source is the archive that the index serves.
+#
+# `./check-uv.nix` gives the reason that this runs as a derivation and not from
+# a shell: a store path is absolute, and a chroot store puts the store under a
+# prefix.
+{
+  pkgs,
+  pydd,
+  project ? ./native-app,
+  venvName ? "native-app",
+  # **This file names no build tool, and the project names both.**
+  # `projects/native-app/pyproject.toml` holds `[tool.pydd.build-tools]`, and
+  # `uv.nix` reads it. So this argument is empty, and a caller who overrides
+  # one package still can: `uv.nix` merges the two, and the argument wins for
+  # the package that it names.
+  #
+  # `psutil` holds C code and links nothing outside the interpreter. `cffi`
+  # reads `ffi.h` and links `libffi`, so it needs the two outputs of that
+  # package as well: a node runs no `stdenv`, so no setup hook follows `.dev`.
+  #
+  # `pkg-config` is in that table because `cffi` asks it first. The build
+  # succeeds with no `pkg-config` at all, because `cffi` falls back to
+  # `CPPFLAGS` and `LDFLAGS`, and `docs/PACKAGING-FACTS.md` records that
+  # measurement.
+  buildTools ? { },
+  # What runs in the environment, and fails the check by exiting non-zero.
+  script ? ./scripts/check-native.py,
+  builders ? { },
+}:
+
+let
+  planner = pydd.python.uv {
+    inherit
+      project
+      venvName
+      buildTools
+      builders
+      ;
+  };
+  venv = planner.dynamic;
+in
+(derivation {
+  name = "${venvName}-check";
+  system = pkgs.stdenv.hostPlatform.system;
+  builder = "${pkgs.bash}/bin/bash";
+
+  args = [
+    "-c"
+    ''
+      set -eu
+
+      # The report is the output, so read it back to stderr when the check
+      # refuses. `./check-uv.nix` gives the whole reason, and the `return 1`
+      # line below with it.
+      report() {
+        "${venv}/bin/python" ${script} || return 1
+      }
+
+      if ! report > "$out" 2>&1; then
+        while IFS= read -r line; do printf '%s\n' "$line" >&2; done < "$out"
+        exit 1
+      fi
+    ''
+  ];
+})
+// {
+  # The environment, for `test-projects` to compare across writers.
+  inherit planner;
+}

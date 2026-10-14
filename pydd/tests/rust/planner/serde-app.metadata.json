@@ -1,0 +1,662 @@
+{
+ "packages": [
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Fast integer primitive to string conversion",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/itoa-1.0.18/Cargo.toml",
+   "name": "itoa",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/itoa",
+   "rust_version": "1.68",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "itoa"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test"
+    },
+    {
+     "kind": [
+      "bench"
+     ],
+     "name": "bench"
+    }
+   ],
+   "version": "1.0.18"
+  },
+  {
+   "authors": [
+    "Andrew Gallant <jamslam@gmail.com>",
+    "bluss"
+   ],
+   "description": "Provides extremely fast (uses SIMD on x86_64, aarch64 and wasm32) routines for\n1, 2 or 3 byte search and single substring search.\n",
+   "homepage": "https://github.com/BurntSushi/memchr",
+   "id": "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3",
+   "license": "Unlicense OR MIT",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/memchr-2.8.3/Cargo.toml",
+   "name": "memchr",
+   "readme": "README.md",
+   "repository": "https://github.com/BurntSushi/memchr",
+   "rust_version": "1.61",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "memchr"
+    }
+   ],
+   "version": "2.8.3"
+  },
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>",
+    "Alex Crichton <alex@alexcrichton.com>"
+   ],
+   "description": "A substitute implementation of the compiler's `proc_macro` API to decouple token-based libraries from the procedural macro use case.",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/proc-macro2-1.0.107/Cargo.toml",
+   "name": "proc-macro2",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/proc-macro2",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "proc_macro2"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "comments"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "features"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "marker"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_fmt"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_size"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.107"
+  },
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Quasi-quoting macro quote!(...)",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/quote-1.0.47/Cargo.toml",
+   "name": "quote",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/quote",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "quote"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "compiletest"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.47"
+  },
+  {
+   "authors": [
+    "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "A generic serialization/deserialization framework",
+   "homepage": "https://serde.rs",
+   "id": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/serde-1.0.229/Cargo.toml",
+   "name": "serde",
+   "readme": "crates-io.md",
+   "repository": "https://github.com/serde-rs/serde",
+   "rust_version": "1.56",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "serde"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.229"
+  },
+  {
+   "authors": [],
+   "description": null,
+   "homepage": null,
+   "id": "path+file:///nix/store/00000000000000000000000000000000-serde-app-source#0.1.0",
+   "license": null,
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/00000000000000000000000000000000-serde-app-source/Cargo.toml",
+   "name": "serde-app",
+   "readme": null,
+   "repository": null,
+   "rust_version": null,
+   "targets": [
+    {
+     "kind": [
+      "bin"
+     ],
+     "name": "serde-app"
+    }
+   ],
+   "version": "0.1.0"
+  },
+  {
+   "authors": [
+    "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Serde traits only, with no support for derive -- use the `serde` crate instead",
+   "homepage": "https://serde.rs",
+   "id": "registry+https://github.com/rust-lang/crates.io-index#serde_core@1.0.229",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/serde_core-1.0.229/Cargo.toml",
+   "name": "serde_core",
+   "readme": "README.md",
+   "repository": "https://github.com/serde-rs/serde",
+   "rust_version": "1.56",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "serde_core"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.229"
+  },
+  {
+   "authors": [
+    "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]",
+   "homepage": "https://serde.rs",
+   "id": "registry+https://github.com/rust-lang/crates.io-index#serde_derive@1.0.229",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/serde_derive-1.0.229/Cargo.toml",
+   "name": "serde_derive",
+   "readme": "crates-io.md",
+   "repository": "https://github.com/serde-rs/serde",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "proc-macro"
+     ],
+     "name": "serde_derive"
+    }
+   ],
+   "version": "1.0.229"
+  },
+  {
+   "authors": [],
+   "description": "A JSON serialization file format",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/serde_json-1.0.154/Cargo.toml",
+   "name": "serde_json",
+   "readme": "README.md",
+   "repository": "https://github.com/serde-rs/json",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "serde_json"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "compiletest"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "debug"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "lexical"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "map"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "regression"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "stream"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.154"
+  },
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Parser for Rust source code",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
+   "license": "MIT OR Apache-2.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/syn-3.0.9/Cargo.toml",
+   "name": "syn",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/syn",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "syn"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "regression"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_attribute"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_derive_input"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_expr"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_generics"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_grouping"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_ident"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_item"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_lit"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_meta"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_parse_buffer"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_parse_quote"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_parse_stream"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_pat"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_path"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_precedence"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_punctuated"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_receiver"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_round_trip"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_shebang"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_size"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_stmt"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_token_trees"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_ty"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_unparenthesize"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test_visibility"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "zzz_stable"
+    },
+    {
+     "kind": [
+      "bench"
+     ],
+     "name": "file"
+    },
+    {
+     "kind": [
+      "bench"
+     ],
+     "name": "rust"
+    }
+   ],
+   "version": "3.0.9"
+  },
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "Determine whether characters have the XID_Start or XID_Continue properties according to Unicode Standard Annex #31",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
+   "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/unicode-ident-1.0.27/Cargo.toml",
+   "name": "unicode-ident",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/unicode-ident",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "unicode_ident"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "compare"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "static_size"
+    },
+    {
+     "kind": [
+      "bench"
+     ],
+     "name": "xid"
+    }
+   ],
+   "version": "1.0.27"
+  },
+  {
+   "authors": [
+    "David Tolnay <dtolnay@gmail.com>"
+   ],
+   "description": "A double-to-string conversion algorithm based on Schubfach and xjb",
+   "homepage": null,
+   "id": "registry+https://github.com/rust-lang/crates.io-index#zmij@1.0.23",
+   "license": "MIT",
+   "license_file": null,
+   "links": null,
+   "manifest_path": "/nix/store/mg68fms25jzwrjng1idrw992p3v98skj-cargo-vendor-dir/zmij-1.0.23/Cargo.toml",
+   "name": "zmij",
+   "readme": "README.md",
+   "repository": "https://github.com/dtolnay/zmij",
+   "rust_version": "1.71",
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "name": "zmij"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "exhaustive"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "ryu_comparison"
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "name": "test"
+    },
+    {
+     "kind": [
+      "bench"
+     ],
+     "name": "bench"
+    },
+    {
+     "kind": [
+      "custom-build"
+     ],
+     "name": "build-script-build"
+    }
+   ],
+   "version": "1.0.23"
+  }
+ ],
+ "workspace_members": [
+  "path+file:///nix/store/00000000000000000000000000000000-serde-app-source#0.1.0"
+ ]
+}

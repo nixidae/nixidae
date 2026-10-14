@@ -1,0 +1,14 @@
+{
+  "name": "native-npm",
+  "version": "0.1.0",
+  "description": "better-sqlite3, which node-gyp compiles from the SQLite source it bundles.",
+  "bin": {
+    "native-npm": "index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0"
+  },
+  "trustedDependencies": [
+    "better-sqlite3"
+  ]
+}

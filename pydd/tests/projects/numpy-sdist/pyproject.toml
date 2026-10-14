@@ -1,0 +1,23 @@
+[project]
+name = "numpy-sdist"
+version = "0.1.0"
+description = "numpy built from its sdist, with BLAS chosen through config_settings"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.3",
+]
+
+[dependency-groups]
+build = [
+    "installer>=1.0.1",
+    "meson-python>=0.15",
+    "cython>=3.0.6",
+    "packaging",
+]
+
+[tool.uv]
+no-binary-package = ["numpy"]
+
+[tool.pydd.overrides.numpy]
+config-settings = { setup-args = ["-Dblas=blas", "-Dlapack=lapack", "-Dallow-noblas=false"] }

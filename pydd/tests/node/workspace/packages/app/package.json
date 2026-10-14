@@ -1,0 +1,10 @@
+{
+  "name": "workspace-app",
+  "version": "0.1.0",
+  "bin": {
+    "workspace-app": "main.js"
+  },
+  "dependencies": {
+    "@workspace/greet": "^0.1.0"
+  }
+}

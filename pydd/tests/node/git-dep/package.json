@@ -1,0 +1,12 @@
+{
+  "name": "git-dep",
+  "version": "0.1.0",
+  "description": "A dependency from a commit on GitHub, and one whose source the call replaces.",
+  "bin": {
+    "git-dep": "index.js"
+  },
+  "dependencies": {
+    "isarray": "github:juliangruber/isarray#v2.0.5",
+    "ms": "^2.1.3"
+  }
+}
