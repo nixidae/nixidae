@@ -232,7 +232,9 @@ needs `builder-rpc-v0` or a release, so it builds in the private store of
 `run`, `run-released` or `run-recursive`. It builds each project in nine
 modes, in two groups: the plain modes, and the modes whose source nodes
 are stdenv's. It fails when two modes of a group give different store
-paths for one environment.
+paths for one environment, or for the root around it.
+`tools/test-set.py` runs the projects in parallel, `PYDD_JOBS` at a time
+(half the cores by default), and the modes of one project in order.
 
 `nix run --file . test-live` builds real projects from GitHub, pinned and
 unchanged, in four modes: fastapi-cli, typer, fastmcp, the MCP Python SDK

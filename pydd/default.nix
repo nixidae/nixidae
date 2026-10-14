@@ -109,31 +109,51 @@ rec {
         pkgs.jq
       ];
       text = ''
-        attr=''${1:?usage: ${name} <example attribute> [out|check] [nix build flags]}
-        target=''${2:-out}
-        shift $(( $# < 2 ? $# : 2 ))
+        attr=''${1:?usage: ${name} <example attribute> [out|environment|root ...] [nix build flags]}
+        shift
+        targets=()
+        while (( $# > 0 )) && [[ $1 != -* ]]; do
+          targets+=("$attr.$1")
+          shift
+        done
+        (( ''${#targets[@]} > 0 )) || targets=("$attr.out")
         store=''${PYDD_STORE:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${store}}
         export NIX_CONFIG="extra-experimental-features = nix-command ca-derivations dynamic-derivations recursive-nix
         use-cgroups = false"
 
         # What the planner runs on may be built here and nowhere else, such
         # as a huggorm lane, so copy it in rather than build it again.
-        closure=$(nix build --file . "$attr.closure" --no-link --print-out-paths)
-        nix copy --to "$store" --no-check-sigs "$closure"
+        # **The host's daemon is the slow path** (Lillecarl/pynixd#30: 9 s
+        # against 2 s for one evaluation), so an evaluation in the chroot
+        # store asks first whether the closure is already there.
+        closure=$(nix eval --store "$store" --file . "$attr.closure" --raw)
+        if ! nix path-info --store "$store" "$closure" > /dev/null 2>&1; then
+          closure=$(nix build --file . "$attr.closure" --no-link --print-out-paths)
+          nix copy --to "$store" --no-check-sigs "$closure"
+        fi
 
-        out=$(nix build --store "$store" --file . "$attr.$target" \
+        # One evaluation for every target. `nix build` prints the paths in
+        # the order of its installables, and each target has one output.
+        mapfile -t outs < <(nix build --store "$store" --file . "''${targets[@]}" \
           --system-features "${features}" --no-link --print-out-paths -L "$@")
-        # `PYDD_PRINT_PATH=1` prints the output path alone, for a caller to compare.
+        if (( ''${#outs[@]} != ''${#targets[@]} )); then
+          echo "${name}: ''${#targets[@]} targets gave ''${#outs[@]} paths: ''${outs[*]}" >&2
+          exit 1
+        fi
+        # `PYDD_PRINT_PATH=1` prints the output paths alone, one for each
+        # target, for a caller to compare.
         if [[ ''${PYDD_PRINT_PATH:-} == 1 ]]; then
-          echo "$out"
+          printf '%s\n' "''${outs[@]}"
           exit 0
         fi
-        echo "$out" >&2
-        if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
-          nix store cat --store "$store" "$out"
-        else
-          nix store ls --store "$store" "$out"
-        fi
+        for out in "''${outs[@]}"; do
+          echo "$out" >&2
+          if [[ $(nix store ls --store "$store" --json "$out" | jq -r .type) == regular ]]; then
+            nix store cat --store "$store" "$out"
+          else
+            nix store ls --store "$store" "$out"
+          fi
+        done
       '';
     };
 
@@ -408,87 +428,26 @@ rec {
       };
     };
 
-  # Run every check of `projects` in each mode, and compare the environments.
-  # Every mode must give the same content-addressed path. A check needs a
-  # Nix that this machine's daemon may not be, so it builds in the private
-  # store of `run` or `run-released`, and no `checks` attribute can hold it.
-  # Build each project of `set` in each mode of a group, and fail when two
-  # modes of a group give different environments. `loop` names the groups.
+  # Run every check of a test set in each mode, and compare the environments
+  # and the roots: `tools/test-set.py`. A check needs a Nix that this
+  # machine's daemon may not be, so it builds in the private store of `run`,
+  # `run-released` or `run-recursive`, and no `checks` attribute can hold it.
   mkTestSet =
-    {
-      name,
-      set,
-      loop,
-    }:
+    { name, set }:
     pkgs.writeShellApplication {
       inherit name;
-      runtimeInputs = [
-        run
-        run-released
-        run-recursive
-        nix
-      ];
+      runtimeInputs = [ nix ];
       text = ''
-        log=''${PYDD_LOG:-''${XDG_CACHE_HOME:-$HOME/.cache}/pydd/${set}}
-        mkdir -p "$log"
-        if (( $# > 0 )); then
-          names=("$@")
-        else
-          read -ra names <<< "$(nix eval --raw --file . ${set}.cli --apply 'p: toString (builtins.attrNames p)')"
-        fi
-        read -ra released <<< "$(nix eval --raw --file . ${set}.out --apply 'p: toString (builtins.attrNames p)')"
-        failed=0
-        # One group of modes for each way to build a source node: every mode of
-        # a group must give one environment, and one root around it. stdenv
-        # strips and patches what it builds, so the stdenv modes are a group of
-        # their own.
-        compare() {
-          local name=$1 group=$2
-          shift 2
-          local modes=("$@") paths=() mode runner environment root
-          for mode in "''${modes[@]}"; do
-            runner=pydd-run
-            [[ $mode == out* ]] && runner=pydd-run-released
-            [[ $mode == recursive* ]] && runner=pydd-run-recursive
-            if "$runner" "${set}.$mode.$name" > "$log/$name-$mode.log" 2>&1; then
-              echo "pass  $name ($mode)"
-              environment=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" environment 2>> "$log/$name-$mode.log")
-              root=$(PYDD_PRINT_PATH=1 "$runner" "${set}.$mode.$name" root 2>> "$log/$name-$mode.log")
-              paths+=("$mode=$environment $root")
-            else
-              echo "FAIL  $name ($mode)  ($log/$name-$mode.log)"
-              failed=1
-            fi
-          done
-          if (( ''${#paths[@]} == ''${#modes[@]} )); then
-            if [[ $(printf '%s\n' "''${paths[@]#*=}" | sort -u | wc -l) == 1 ]]; then
-              echo "same  $name  ''${paths[0]#*=}  ($group: ''${modes[*]})"
-            else
-              echo "DIFFER  $name  ($group)  ''${paths[*]}"
-              failed=1
-            fi
-          fi
-        }
-        ${loop}
-        exit "$failed"
+        export PYDD_RUN=${lib.getExe run}
+        export PYDD_RUN_RELEASED=${lib.getExe run-released}
+        export PYDD_RUN_RECURSIVE=${lib.getExe run-recursive}
+        exec ${pkgs.python3.withPackages (ps: [ ps.anyio ])}/bin/python3 ${./tools/test-set.py} ${set} "$@"
       '';
     };
 
   test-projects = mkTestSet {
     name = "pydd-test-projects";
     set = "projects";
-    loop = ''
-      for name in "''${names[@]}"; do
-        plain=(cli huggorm drv recursive recursive-eval)
-        stdenv=(recursive-nixpkgs stdenv)
-        if [[ " ''${released[*]} " == *" $name "* ]]; then
-          plain+=(out)
-          stdenv+=(out-stdenv)
-        fi
-        compare "$name" plain "''${plain[@]}"
-        compare "$name" stdenv "''${stdenv[@]}"
-      done
-    '';
   };
 
   # The live projects of `tests/live`, in one mode of each level of
@@ -497,14 +456,5 @@ rec {
   test-live = mkTestSet {
     name = "pydd-test-live";
     set = "live";
-    loop = ''
-      for name in "''${names[@]}"; do
-        modes=(cli huggorm recursive)
-        if [[ " ''${released[*]} " == *" $name "* ]]; then
-          modes+=(out)
-        fi
-        compare "$name" live "''${modes[@]}"
-      done
-    '';
   };
 }
