@@ -63,12 +63,15 @@ and, from a node override (`graph.nix` at `overridesOf`), any of `patches`,
 
 from __future__ import annotations
 
+import ast
 import importlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tokenize
 import tomllib
 from pathlib import Path
 from typing import Protocol, cast
@@ -191,16 +194,38 @@ def patch_pth(text: str, build_dir: str, root: str) -> tuple[str, bool]:
     return "\n".join(lines) + "\n", patched
 
 
-def redirect(out: Path, build_dir: str, root: str) -> int:
-    """Rewrite every recorded build path under `out`. Return how many changed.
+def patch_finder(text: str, build_dir: str, root: str) -> tuple[str, bool]:
+    """Redirect each string literal of an import finder that names the build directory.
 
-    **A `.py` file that names the build directory is not handled here.** The
-    backends that write one, setuptools among them, put the path inside a
-    string literal of a generated import finder. `pyproject.nix` rewrites that
-    literal as a concrete syntax tree, with `libcst`, so that it changes the
-    literal and nothing else. This example uses `flit_core`, which writes the
-    `.pth` form only, so it raises rather than pretend to handle the other one.
+    **setuptools writes a `.py` finder**, with the path inside a string
+    literal of a dict. `pyproject.nix` rewrites it with `libcst`; this uses
+    the tokenizer of the standard library, which gives the same guarantee: a
+    string token whose value starts with the build directory becomes
+    `os.path.expandvars` of the root, and nothing else changes.
     """
+    lines = text.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    spans: list[tuple[int, int, str]] = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type != tokenize.STRING:
+            continue
+        try:
+            value = ast.literal_eval(token.string)
+        except (ValueError, SyntaxError):
+            continue
+        if isinstance(value, str) and value.startswith(build_dir):
+            start = offsets[token.start[0] - 1] + token.start[1]
+            end = offsets[token.end[0] - 1] + token.end[1]
+            spans.append((start, end, f"__import__('os').path.expandvars({root + value[len(build_dir) :]!r})"))
+    for start, end, replacement in reversed(spans):
+        text = text[:start] + replacement + text[end:]
+    return text, bool(spans)
+
+
+def redirect(out: Path, build_dir: str, root: str) -> int:
+    """Rewrite every recorded build path under `out`. Return how many changed."""
     changed = 0
     for path in sorted(out.rglob("*")):
         if not path.is_file():
@@ -212,12 +237,13 @@ def redirect(out: Path, build_dir: str, root: str) -> int:
                 path.write_text(new_text, encoding="utf-8")
                 changed += 1
                 print(f"editable: redirected {path.name}", file=sys.stderr)
-        elif path.suffix == ".py" and build_dir in path.read_text(encoding="utf-8", errors="ignore"):
-            raise RuntimeError(
-                f"{path} names the build directory. This backend writes an import "
-                "finder, and that form needs the syntax tree rewrite that "
-                "pyproject.nix does with libcst."
-            )
+        elif path.suffix == ".py" and build_dir in (text := path.read_text(encoding="utf-8", errors="ignore")):
+            new_text, patched = patch_finder(text, build_dir, root)
+            if not patched:
+                raise RuntimeError(f"{path} names the build directory outside a string literal")
+            path.write_text(new_text, encoding="utf-8")
+            changed += 1
+            print(f"editable: redirected {path.name}", file=sys.stderr)
     return changed
 
 
@@ -229,7 +255,8 @@ def writable_copy(source: Path) -> Path:
     """
     build_dir = Path.cwd() / "project"
     shutil.copytree(source, build_dir)
-    for path in build_dir.rglob("*"):
+    # The top too: pdm-backend writes `.pdm-build` there.
+    for path in [build_dir, *build_dir.rglob("*")]:
         path.chmod(path.stat().st_mode | 0o200)
     return build_dir
 
@@ -295,10 +322,16 @@ def build_editable(project: Path, out: Path, backend_name: str, installer_path: 
     # the path to rewrite is the one the backend ran in.
     changed = redirect(out, str(project), root)
     if changed == 0:
-        raise RuntimeError(
-            f"nothing under {out} named the build directory {project}. "
-            "The install is not editable, so the environment would read the store copy."
-        )
+        # A project with no code, such as a metapackage of fastmcp, has
+        # nothing to redirect. Code that the wheel copied is the error.
+        code = [path for path in out.rglob("*.py") if ".dist-info" not in path.parts]
+        if code:
+            raise RuntimeError(
+                f"nothing under {out} named the build directory {project}, and the wheel holds {code[0]}. "
+                "The install is not editable, so the environment would read the store copy."
+            )
+        print("editable: the project installs no code, so nothing redirects", file=sys.stderr)
+        return
 
     print(f"editable: {root} is the tree that this install reads", file=sys.stderr)
 
