@@ -45,7 +45,7 @@ rec {
 
   # NixOS integration tests on User-Mode Linux, so a guest is a process and a
   # test is a derivation that passes or fails.
-  vivarium = import sources.vivarium { inherit pkgs; };
+  vivarium = import sources.vivarium { inherit pkgs sources; };
 
   # huggorm and the two built on it take a package set of their own, with no
   # config: their flakes build the same one, and a plain `import nixpkgs { }`
