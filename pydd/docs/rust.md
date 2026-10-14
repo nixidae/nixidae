@@ -42,10 +42,23 @@ One more node joins the binaries of the roots, under the project's name.
 
 **A node reads its build script's output when it builds.** No evaluation,
 and no planner, knows what a build script prints. The run node writes
-`cargo:rustc-cfg`, `rustc-env`, the link flags and the `links` metadata
-to `flags.json`. The library node reads that file, and passes the flags
-to `rustc`. Link flags go on to every unit that links the library, through
-`link.json`.
+what the script printed to `flags.json`, and each node of the package
+reads that file. The keys reach the units that cargo gives them to:
+
+| key | reaches |
+| --- | --- |
+| `rustc-cfg`, `rustc-env` | every unit of the package |
+| `rustc-link-search` | the package, and every unit that links it, through `link.json` |
+| `rustc-link-lib` | the package's library, or every target when it has none |
+| `rustc-link-arg` | the package's binaries, tests, examples, benches and cdylib |
+| `rustc-link-arg-bins`, `-bin=NAME`, `-tests`, `-examples`, `-benches`, `-cdylib` | those targets of the package |
+| `metadata`, with `links` | the build scripts of the packages that depend on it, as `DEP_<LINKS>_<KEY>` |
+
+A build script also gets `CARGO`, `RUSTC`, `TARGET`, `HOST`, `PROFILE`,
+`OPT_LEVEL`, `DEBUG`, the `CARGO_CFG_*` of the target and the
+`CARGO_FEATURE_*` of the unit, as from cargo. `rustc-check-cfg` is
+dropped: rustc then checks no cfg names, and a check warns and fails
+nothing.
 
 **`-C metadata` comes from what cargo decided.** It hashes the package ID,
 the target, the mode, the platform, the features, the profile and the
@@ -184,9 +197,9 @@ the user's daemon and prints the root. pydd has no such mode yet
 
 | need | issue |
 | --- | --- |
-| `CARGO`, `links` metadata, more build-script keys | Lillecarl/pydd#19 |
 | fetch only the crates that the graph uses | Lillecarl/pydd#20 |
 | cross-compilation | Lillecarl/pydd#21 |
+| run the planner on the host, as cargo-dyndrv can | Lillecarl/pydd#22 |
 
 **Every crate of the lock is fetched, also the ones that never build.**
 `importCargoLock` makes a fetch for each crate of `Cargo.lock`, so a Linux
