@@ -64,8 +64,8 @@ jobs:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
         useDaemon: false
-    - name: Run the gates (completion-spike, completions, format, grpclib-transports, libpynix, lint, lint-strict, nanopynix-helpers, pynix-isolated, pytest-agent, shell, test-support, types)
-      run: nix build --file . --no-link --print-build-logs --keep-going checks.completion-spike checks.completions checks.format checks.grpclib-transports checks.libpynix checks.lint checks.lint-strict checks.nanopynix-helpers checks.pynix-isolated checks.pytest-agent checks.shell checks.test-support checks.types
+    - name: Run the gates (completion-spike, completions, format, grpclib-transports, libpynix, lint, lint-strict, manpages, nanopynix-helpers, pynix-isolated, pytest-agent, shell, test-support, types)
+      run: nix build --file . --no-link --print-build-logs --keep-going checks.completion-spike checks.completions checks.format checks.grpclib-transports checks.libpynix checks.lint checks.lint-strict checks.manpages checks.nanopynix-helpers checks.pynix-isolated checks.pytest-agent checks.shell checks.test-support checks.types
       timeout-minutes: 20
     timeout-minutes: 85
   test-asan-git:
