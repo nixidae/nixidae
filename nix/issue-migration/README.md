@@ -12,6 +12,8 @@ those repositories. An old URL redirects, through the web and the REST API.
 | `migrate.py` | the transfer (`--apply`) and the label, type and sub-issue repair (`--fixup`) |
 | `snapshot.py` | writes every issue with body and comments as they are now |
 | `commit_refs.py` | writes `commit-refs.jsonl` |
+| `rewrite_open.py` | rewrites old references in open issues to `#M` (applied 2026-10-19, 225 edits) |
+| `rewrite-open.log` | each edited body or comment as it was before that rewrite |
 
 What the transfer did, measured:
 
