@@ -5,29 +5,15 @@ ICMP payload (+ 8 ICMP + 20 IP) pass with DF set and 1373 come back as
 "Frag needed, mtu = 1400" from west.
 
 Policy-based: there is no tunnel device, so the limit is what is left of
-the internet's 1500 once ESP is added. Linux works it out in
-xfrm_state_mtu(): for a tunnel-mode AEAD SA,
-
-    ((mtu - header_len - icv) & ~(align - 1)) - 2
-
-with header_len = 20 (outer IPv4) + 8 (ESP header) + 8 (GCM IV), icv =
-16, align = 4 (GCM's block size of 1, rounded up to ESP's 4) and 2 for
-the pad-length and next-header bytes. For 1500 that is 1446.
+the internet's 1500 once ESP is added: 1446 (`esp_inner_mtu`).
 """
 
 import re
 
-from lab import lab
+from lab import esp_inner_mtu, lab
 from vivarium_runner import Machine, Machines
 
 ICMP_IP = 28
-
-
-def esp_inner_mtu(outer: int) -> int:
-    header_len = 20 + 8 + 8
-    icv = 16
-    align = 4
-    return ((outer - header_len - icv) & ~(align - 1)) - 2
 
 
 async def probe(vm: Machine, address: str, size: int) -> tuple[int, str]:

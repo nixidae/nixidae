@@ -18,6 +18,21 @@ CONVERGE = 60.0
 """Seconds for IKE, BGP or DPD to settle after boot or a change."""
 
 
+def esp_inner_mtu(outer: int) -> int:
+    """The largest inner packet a tunnel-mode AES-GCM SA carries in *outer* bytes.
+
+    Linux's xfrm_state_mtu(): ((mtu - header_len - icv) & ~(align - 1)) - 2,
+    with header_len = 20 (outer IPv4) + 8 (ESP header) + 8 (GCM IV), icv = 16,
+    align = 4 (GCM's block size of 1, rounded up to ESP's 4) and 2 for the
+    pad-length and next-header bytes. 1500 gives 1446, the maximum MTU AWS
+    publishes for Site-to-Site VPN.
+    """
+    header_len = 20 + 8 + 8
+    icv = 16
+    align = 4
+    return ((outer - header_len - icv) & ~(align - 1)) - 2
+
+
 def lab(vms: Machines) -> dict[str, Any]:
     return vms.settings["lab"]
 

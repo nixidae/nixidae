@@ -5,15 +5,20 @@
   ping without DF as ESP without it.
 - The sender caches what the gateway told it: after one refused probe
   alice's kernel holds mtu 1446 towards bob, carol's 1400 towards dave.
-- A packet without DF that does not fit is encrypted first and then
-  fragmented: one ESP packet in two outer IP fragments, which the far
-  gateway must reassemble before it can decrypt.
+- Where a packet without DF that does not fit is fragmented depends on
+  the kind of tunnel. Policy-based, with no tunnel device: encrypted
+  first, then fragmented, one ESP packet in two outer IP fragments that
+  the far gateway must reassemble before it can decrypt. Route-based:
+  the XFRM interface's MTU fragments the inner packet, and each fragment
+  is its own ESP packet. AWS recommends the second.
 """
 
 import re
 
-from lab import captured_during, lab, ping, route_mtu
-from vivarium_runner import Machines
+import anyio
+
+from lab import capture, captured_during, esp_inner_mtu, lab, ping, route_mtu
+from vivarium_runner import Machine, Machines
 
 
 async def test(vms: Machines) -> None:
@@ -31,7 +36,7 @@ async def test(vms: Machines) -> None:
             raise AssertionError(f"ping -M {df}: outer ESP header should be {want}:\n{out}")
     print("[test] DF copied: ping -M do leaves west as ESP with DF, ping -M dont as ESP without it")
 
-    for sender, target, expected in ((alice, bob, 1446), (carol, dave, cfg["tunnelMtu"])):
+    for sender, target, expected in ((alice, bob, esp_inner_mtu(1500)), (carol, dave, cfg["tunnelMtu"])):
         await sender.succeed("ip route flush cache")
         await sender.execute(ping(target, count=1, extra="-M do -s 1472"))
         cached = await route_mtu(sender, target)
@@ -57,4 +62,33 @@ async def test(vms: Machines) -> None:
     first_is_fragment = bool(headers) and "flags [+]" in headers[0] and "offset 0," in headers[0]
     if rc not in (0, 124) or len(headers) != 2 or not first_is_fragment or sum(lengths) - 20 != 1556:
         raise AssertionError(f"expected one 1556-byte ESP packet in two outer fragments:\n{out}")
-    print(f"[test] without DF, 1500 bytes through the 1446 path: encrypted first, then fragmented: outer {lengths[0]} + {lengths[1]} = 1556 ESP")
+    print(f"[test] policy-based, 1500 bytes without DF: encrypted first, then fragmented: outer {lengths[0]} + {lengths[1]} = 1556 ESP")
+
+    # Not a count of ESP packets on the internet: BGP keepalives cross the
+    # same tunnels as 128-byte ESP packets. The proof is at both ends: the
+    # inner packet arrives on east's XFRM interfaces as IP fragments, and
+    # no outer fragment crosses the internet.
+    carol_address = cfg["hosts"]["carol"]["address"]
+    endpoints = " or ".join(f"dst {t['eastAddress']}" for t in cfg["tunnels"].values())
+    seen: dict[str, tuple[int, str]] = {}
+
+    async def watch(name: str, vm: Machine, interface: str, expression: str, count: int) -> None:
+        seen[name] = await capture(vm, interface, expression, count, 10, "-v")
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(watch, "inner", vms.east, "any", f"src {carol_address} and ip[6:2] & 0x3fff != 0", 2)
+        tg.start_soon(watch, "outer", west, "internet", f"src {cfg['westAddress']} and ({endpoints}) and ip[6:2] & 0x3fff != 0", 1)
+        await anyio.sleep(2)
+        await carol.succeed("ip route flush cache")
+        await carol.succeed(ping(dave, count=1, extra="-M dont -s 1472"))
+    rc, inner = seen["inner"]
+    interfaces = set(re.findall(r"\b(ipsec\d) In\b", inner))
+    if rc != 0 or not interfaces:
+        raise AssertionError(f"the inner packet did not reach east's XFRM interfaces as two fragments:\n{inner}")
+    if seen["outer"][0] != 124:
+        raise AssertionError(f"an outer IP fragment crossed the internet:\n{seen['outer'][1]}")
+    lengths = re.findall(r"length (\d+)\)", inner)
+    print(
+        f"[test] route-based, 1500 bytes without DF: fragmented to the {cfg['tunnelMtu']} MTU first, "
+        f"inner fragments of {' and '.join(lengths)} on {', '.join(sorted(interfaces))}, no outer fragment"
+    )
