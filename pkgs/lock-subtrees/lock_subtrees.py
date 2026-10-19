@@ -11,9 +11,15 @@ locks name the commit under them, and land as a commit of their own that
 changes nothing else. A source at that commit then builds against siblings
 with the same code as its own.
 
-    lock-subtrees            lock to HEAD, and commit the locks with jj
-    lock-subtrees --check    exit 1 unless every lock names a commit that
-                             only lock files have changed since
+    lock-subtrees              lock to the commit under the working copy,
+                               and commit the locks with jj
+    lock-subtrees --check      exit 1 unless every lock names a commit that
+                               only lock files have changed since
+    lock-subtrees --check REV  the same, for REV
+
+In a jj workspace, default or not, the commit under the working copy is
+`@-`, and REV is a revset. In a git checkout without jj, such as CI's, they
+are HEAD and a git revision. nixidae/nixidae#18.
 
 A source is a member in `nix/members.nix` with a `flake.nix`.
 """
@@ -24,6 +30,8 @@ import argparse
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
@@ -34,15 +42,79 @@ LOCK: Final = "flake.lock"
 type Lock = dict[str, Any]
 
 
-def git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
+class Vcs(StrEnum):
+    JJ = "jj"
+    GIT = "git"
+
+
+@dataclass(frozen=True)
+class Workspace:
+    vcs: Vcs
+    root: Path
+    # The git repository that holds the commits. A secondary jj workspace has
+    # no `.git`; its commits are in the repository `jj git root` names.
+    git_dir: Path
+
+
+def run(*args: str, cwd: Path | None = None) -> str:
+    done = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if done.returncode != 0:
+        raise SystemExit(f"lock-subtrees: {' '.join(args)} failed with exit {done.returncode}:\n{done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def jj(ws: Workspace, *args: str) -> str:
+    # jj reads and prints paths relative to the current directory, not to -R.
+    return run("jj", "--no-pager", "--color=never", "-R", str(ws.root), *args, cwd=ws.root)
+
+
+def git(ws: Workspace, *args: str) -> str:
+    return run("git", "--git-dir", str(ws.git_dir), *args)
+
+
+def workspace(start: Path) -> Workspace:
+    """The jj workspace or git checkout that holds `start`. The nearest marker wins."""
+    start = start.resolve()
+    for directory in (start, *start.parents):
+        if (directory / ".jj").is_dir():
+            root = Path(run("jj", "--no-pager", "-R", str(directory), "root"))
+            return Workspace(Vcs.JJ, root, Path(run("jj", "--no-pager", "-R", str(root), "git", "root")))
+        if (directory / ".git").exists():
+            root = Path(run("git", "-C", str(directory), "rev-parse", "--show-toplevel"))
+            return Workspace(Vcs.GIT, root, Path(run("git", "-C", str(root), "rev-parse", "--absolute-git-dir")))
+    raise SystemExit(f"lock-subtrees: {start} is in no jj workspace and no git checkout: no .jj or .git above it")
+
+
+def one_commit(revset: str, out: str) -> str:
+    commits = out.splitlines()
+    if len(commits) != 1:
+        raise SystemExit(f"lock-subtrees: {revset} is {len(commits)} commits; the locks name exactly one")
+    return commits[0]
+
+
+def resolve(ws: Workspace, rev: str) -> str:
+    """The commit id of `rev`: a revset in a jj workspace, a git revision in a git checkout."""
+    if ws.vcs is Vcs.JJ:
+        return one_commit(rev, jj(ws, "log", "--no-graph", "-r", rev, "-T", 'commit_id ++ "\\n"'))
+    return git(ws, "rev-parse", "--verify", f"{rev}^{{commit}}")
+
+
+def head(ws: Workspace) -> str:
+    """The commit under the working copy."""
+    return resolve(ws, "@-" if ws.vcs is Vcs.JJ else "HEAD")
+
+
+def uncommitted(ws: Workspace) -> list[str]:
+    """Changes the working copy holds over `head`, other than locks."""
+    if ws.vcs is Vcs.JJ:
+        changed = jj(ws, "diff", "-r", "@", "--name-only").splitlines()
+    else:
+        changed = run("git", "-C", str(ws.root), "status", "--porcelain").splitlines()
+    return [line for line in changed if not line.endswith("/" + LOCK)]
 
 
 def nix_json(expr: str) -> Any:
-    out = subprocess.run(
-        ["nix", "eval", "--impure", "--json", "--expr", expr], check=True, capture_output=True, text=True
-    ).stdout
-    return json.loads(out)
+    return json.loads(run("nix", "eval", "--impure", "--json", "--expr", expr))
 
 
 def sources(root: Path) -> list[str]:
@@ -59,12 +131,12 @@ def declared(root: Path, name: str) -> dict[str, Any]:
     return nix_json(expr)
 
 
-def fetched(root: Path, rev: str) -> dict[str, Any]:
+def fetched(ws: Workspace, rev: str) -> dict[str, Any]:
     """
     The narHash and lastModified of nixidae at `rev`, from the local
     repository. A `github:` fetch of the same revision gives the same narHash.
     """
-    expr = f'builtins.fetchTree {{ type = "git"; url = "file://{root}"; rev = "{rev}"; }}'
+    expr = f'builtins.fetchTree {{ type = "git"; url = "file://{ws.git_dir}"; rev = "{rev}"; }}'
     return nix_json(f"{{ inherit ({expr}) narHash lastModified; }}")
 
 
@@ -104,18 +176,21 @@ def wanted(root: Path, name: str, rev: str, meta: dict[str, Any]) -> str:
     return render(subtree_lock(root_lock, declared(root, name), rev, meta))
 
 
-def write(root: Path) -> int:
-    pending = [line for line in git(root, "status", "--porcelain").splitlines() if not line.endswith("/" + LOCK)]
+def write(ws: Workspace) -> int:
+    if ws.vcs is not Vcs.JJ:
+        print(f"lock-subtrees: {ws.root} is a git checkout without jj, and the locks are committed with jj", file=sys.stderr)
+        return 1
+    pending = uncommitted(ws)
     if pending:
-        print("lock-subtrees: commit the work first; the locks name HEAD, and these are not in it:", file=sys.stderr)
+        print("lock-subtrees: commit the work first; the locks name @-, and these are in @:", file=sys.stderr)
         print("\n".join(pending), file=sys.stderr)
         return 1
-    rev = git(root, "rev-parse", "HEAD")
-    meta = fetched(root, rev)
+    rev = head(ws)
+    meta = fetched(ws, rev)
     written = []
-    for name in sources(root):
-        path = root / name / LOCK
-        text = wanted(root, name, rev, meta)
+    for name in sources(ws.root):
+        path = ws.root / name / LOCK
+        text = wanted(ws.root, name, rev, meta)
         if not path.exists() or path.read_text() != text:
             path.write_text(text)
             written.append(f"{name}/{LOCK}")
@@ -123,27 +198,27 @@ def write(root: Path) -> int:
         print(f"lock-subtrees: every lock already names {rev[:12]}")
         return 0
     message = f"Lock the sources at nixidae {rev[:12]}\n\nWritten by lock-subtrees."
-    subprocess.run(["jj", "--no-pager", "-R", str(root), "commit", "-m", message, *written], check=True)
+    jj(ws, "commit", "-m", message, *written)
     print(f"lock-subtrees: committed {len(written)} locks at {rev[:12]}")
     return 0
 
 
-def check(root: Path, head: str) -> int:
+def check(ws: Workspace, at: str) -> int:
     failed = 0
-    for name in sources(root):
-        path = root / name / LOCK
+    for name in sources(ws.root):
+        path = ws.root / name / LOCK
         if not path.exists():
             print(f"{name}: no {LOCK}")
             failed = 1
             continue
         lock = json.loads(path.read_text())
         rev = lock["nodes"][REPO]["locked"]["rev"]
-        changed = git(root, "diff", "--name-only", rev, head).splitlines()
+        changed = git(ws, "diff", "--name-only", rev, at).splitlines()
         stale = [p for p in changed if not (p.endswith("/" + LOCK) and p.count("/") == 1)]
         if stale:
             print(f"{name}: locked at {rev[:12]}, and {len(stale)} files changed since, such as {stale[0]}")
             failed = 1
-        elif path.read_text() != wanted(root, name, rev, fetched(root, rev)):
+        elif path.read_text() != wanted(ws.root, name, rev, fetched(ws, rev)):
             print(f"{name}: {LOCK} is not what lock-subtrees writes for {rev[:12]}")
             failed = 1
         else:
@@ -155,13 +230,15 @@ def check(root: Path, head: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", metavar="REV", nargs="?", const="HEAD", help="check the locks at REV (HEAD)")
+    parser.add_argument(
+        "--check", metavar="REV", nargs="?", const="", help="check the locks at REV (the commit under the working copy)"
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args()
-    root = Path(git(args.root, "rev-parse", "--show-toplevel"))
-    if args.check:
-        return check(root, git(root, "rev-parse", args.check))
-    return write(root)
+    ws = workspace(args.root)
+    if args.check is not None:
+        return check(ws, resolve(ws, args.check) if args.check else head(ws))
+    return write(ws)
 
 
 if __name__ == "__main__":
