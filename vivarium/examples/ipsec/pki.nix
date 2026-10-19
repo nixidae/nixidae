@@ -4,9 +4,13 @@
 # and wrong for anything else.
 #
 #   ca          the trust anchor every gateway loads
+#   ca.crl      revokes serial 03, valid for ten years
+#   stale.crl   the same revocation, but its nextUpdate passed in 2021
 #   west, east  the two gateways; IKE identity = the SAN
 #   revoked     a second certificate for west's identity, revoked for key
 #               compromise: the stolen-key case
+#   renewed     west's identity with a new key: the planned rotation
+#   expired     west's identity, valid only during 2020
 #   rogue-ca    a CA nobody trusts
 #   rogue       west's identity again, signed by rogue-ca: the impostor case
 { runCommand, strongswan }:
@@ -26,12 +30,14 @@ runCommand "ipsec-lab-pki" { nativeBuildInputs = [ strongswan ]; } ''
       --dn "C=SE, O=vivarium, CN=$2" --outform pem > "$1.pem"
   }
 
-  # issue NAME CA SERIAL FQDN
+  past="--dateform %Y-%m-%d --not-before 2020-01-01 --not-after 2021-01-01"
+
+  # issue NAME CA SERIAL FQDN [VALIDITY]
   issue() {
     key "$1"
     pki --pub --in "$1.key" --type ecdsa \
       | pki --issue --cacert "$2.pem" --cakey "$2.key" --serial "$3" \
-          --lifetime 730 --dn "C=SE, O=vivarium, CN=$4" --san "$4" \
+          ''${5:---lifetime 730} --dn "C=SE, O=vivarium, CN=$4" --san "$4" \
           --flag serverAuth --flag ikeIntermediate --outform pem > "$1.pem"
   }
 
@@ -39,23 +45,33 @@ runCommand "ipsec-lab-pki" { nativeBuildInputs = [ strongswan ]; } ''
   issue west ca 01 west.vpn.test
   issue east ca 02 east.vpn.test
   issue revoked ca 03 west.vpn.test
+  issue renewed ca 04 west.vpn.test
+  issue expired ca 05 west.vpn.test "$past"
 
   ca rogue-ca "rogue CA"
   issue rogue rogue-ca 01 west.vpn.test
 
   pki --signcrl --cacert ca.pem --cakey ca.key --lifetime 3650 \
     --reason key-compromise --serial 03 --outform pem > ca.crl
+  pki --signcrl --cacert ca.pem --cakey ca.key \
+    --dateform %Y-%m-%d --this-update 2020-01-01 --next-update 2021-01-01 \
+    --reason key-compromise --serial 03 --outform pem > stale.crl
 
   # The build fails here, not in a guest, if the chain is not what the
   # test assumes.
-  pki --verify --in west.pem --cacert ca.pem
-  pki --verify --in east.pem --cacert ca.pem
-  if pki --verify --in rogue.pem --cacert ca.pem; then
-    echo "rogue.pem verifies against the lab CA" >&2
-    exit 1
-  fi
-  pki --print --type crl --in ca.crl | grep -q "03.*key compromise" || {
-    pki --print --type crl --in ca.crl >&2
-    exit 1
-  }
+  for good in west east renewed; do
+    pki --verify --in $good.pem --cacert ca.pem
+  done
+  for bad in rogue expired; do
+    if pki --verify --in $bad.pem --cacert ca.pem; then
+      echo "$bad.pem verifies against the lab CA" >&2
+      exit 1
+    fi
+  done
+  for crl in ca stale; do
+    pki --print --type crl --in $crl.crl | grep -q "03.*key compromise" || {
+      pki --print --type crl --in $crl.crl >&2
+      exit 1
+    }
+  done
 ''

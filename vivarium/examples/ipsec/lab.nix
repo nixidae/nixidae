@@ -401,11 +401,39 @@ let
           file = "${side}.key";
         }
       ])
+      (spares side)
       (xfrmInterfaces side)
       (bgp side)
       (firewall side)
     ];
   };
+
+  # Outside /etc/swanctl, so charon does not load them: the lifecycle
+  # phase swaps them in.
+  spares =
+    side:
+    let
+      files = {
+        west = [
+          "renewed.pem"
+          "renewed.key"
+          "expired.pem"
+          "expired.key"
+        ];
+        east = [ "stale.crl" ];
+      };
+    in
+    {
+      environment.etc = lib.listToAttrs (
+        map (
+          file:
+          lib.nameValuePair "ipsec-lab/${file}" {
+            source = "${pki}/${file}";
+            mode = "0400";
+          }
+        ) files.${side}
+      );
+    };
 
   # Three ways to be west without west's key, each a connection of its
   # own and none started at boot.

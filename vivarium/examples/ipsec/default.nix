@@ -84,5 +84,10 @@ mkTest {
       after = [ "failover" ];
       description = "mallory as west: revoked key, rogue CA, weak proposal, spoofed plaintext; all refused";
     };
+    lifecycle = {
+      script = ./phases/lifecycle.py;
+      after = [ "impostor" ];
+      description = "west's certificate renewed under load; an expired certificate and a stale CRL each take the tunnel down";
+    };
   };
 }

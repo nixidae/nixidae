@@ -56,6 +56,7 @@ The phases run in this order. Each phase prints what it measured.
 | `rekey` | CHILD_SA and IKE_SA rekey under a ping every 100 ms. All SPIs change, the new CHILD_SA uses PFS, and BGP stays up. | 60 of 60 pings, ECP_384 |
 | `failover` | Tunnel 1 is cut on the wire, with its interfaces still up. BGP moves traffic to tunnel 2, and DPD takes down tunnel 1's IKE_SA. When the path returns, tunnel 1 and ECMP come back without help. | Route moved in 2.5–3.9 s |
 | `impostor` | mallory tries a revoked certificate, a rogue CA, a weak proposal, and plaintext from bob's address. east and west refuse all four. The real IKE_SA does not change. | `AUTH_FAILED`, `AUTH_FAILED`, `NO_PROPOSAL_CHOSEN`, `XfrmInTmplMismatch` 3 |
+| `lifecycle` | west loads a renewed certificate and key and reauthenticates under load. Then west loads an expired certificate, and after that east loads a stale CRL. east refuses each reauthentication, but the old IKE_SA keeps traffic flowing until the tunnel is terminated. | 59 or 60 of 60 pings across the renewal |
 
 ## Findings
 
@@ -66,6 +67,9 @@ These came out of building the lab. Each is a comment in the code.
 3. **MSS clamping to the route MTU does not fix a narrower hop farther away.** The gateway only knows its own interface. If the path drops large packets without ICMP, clamp to a fixed value below the real path MTU.
 4. **UDP gets through by fragmentation or not at all.** An application that sets DF loses the first datagram silently. It must handle `EMSGSIZE` and send smaller.
 5. **`unique = never` is needed when several tunnels share one pair of identities.** With the default, INITIAL_CONTACT on one tunnel removes the IKE_SA of the other.
+6. **An expired certificate does not take the tunnel down when it expires.** A refused reauthentication leaves the old IKE_SA in place, and `swanctl --rekey --reauth` still reports success. The outage comes later, at the next reboot, DPD timeout or terminate. Monitor the expiry date, not the tunnel state.
+7. **A stale CRL is as bad as an expired certificate.** With `revocation = strict`, a CRL past its nextUpdate refuses every peer: `RULE_CRL_VALIDATION is STALE, but requires at least GOOD`. `pki --signcrl` gives a CRL 15 days by default, so somebody must re-sign it on time.
+8. **Renewal is make-before-break.** Load the new certificate and key with `swanctl --load-creds`, then reauthenticate. In 22 tries, 3 reauthentications lost one ping each, and a rekey never lost one.
 
 ## Run it
 
