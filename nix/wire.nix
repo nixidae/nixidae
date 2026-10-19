@@ -23,8 +23,15 @@
   overrides ? { },
 }:
 let
+  # A jj workspace that is not colocated has `.jj` and no `.git`. Nix cannot
+  # read what jj tracks there, and the plain path would take ignored files too.
   tree =
-    if builtins.pathExists ../.git then (builtins.fetchGit { url = toString ../.; }).outPath else ../.;
+    if builtins.pathExists ../.git then
+      (builtins.fetchGit { url = toString ../.; }).outPath
+    else if builtins.pathExists ../.jj then
+      throw "nix/wire.nix: ${toString ../.} is a jj workspace without .git, so Nix cannot read what jj tracks in it. Run `jj git colocation enable` there (jj >= 0.46). nixidae/nixidae#18"
+    else
+      ../.;
 
   members = builtins.mapAttrs (
     name: _:
