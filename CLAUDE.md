@@ -12,6 +12,7 @@ One repository, nine sources (`nix/members.nix`). josh exports each source to it
 - A source's test workflows are `ciTestWorkflows` in its `default.nix`. Edit those, then `nix run --file . ci-workflow-update`. Never edit `.github/workflows/<source>-*.yml` by hand.
 - A sibling import passes `sources`: `import sources.<name> { inherit pkgs sources; }`. Without it the sibling reads its own `nix/sources.nix` from its store copy and fetches the nixidae commit its lock names: a second, older set of sources.
 - jj: a new file reaches a build only after a jj command has snapshotted it (it is then intent-to-add in git's index, which `fetchGit` reads).
+- jj workspaces: add one with `jj workspace add --colocate` (jj >= 0.46), so it gets a git worktree that `fetchGit` reads. A workspace without `.git` refuses to evaluate; `jj git colocation enable` converts it.
 
 ## Landing
 
@@ -22,14 +23,13 @@ jj bookmark set main -r @-
 jj git push --bookmark main
 ```
 
-Then read the `josh export` run. It runs `lock-subtrees --check` and `josh-export --verify --push`.
+Then read the `josh export` run. It runs `lock-subtrees --check` and `josh-export --verify --push`. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
 
 ## Gates
 
 ```sh
 nix build --file . checks.ciWorkflows checks.callFlake checks.licenses
 nix run --file . lock-subtrees -- --check
-nix run --file . josh-export -- HEAD --verify     # no push without --push
 ```
 
 Each source keeps its own gates; its own `CLAUDE.md` or `AGENTS.md` names them.
