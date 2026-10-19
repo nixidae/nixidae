@@ -322,6 +322,39 @@ let
     IP6_NF_NAT = yes;
   };
 
+  # IPsec as strongSwan and libreswan drive it: the XFRM netlink API, ESP
+  # for both families, and the two route-based tunnel devices, XFRM
+  # interfaces and VTI. The IKE daemon does its own crypto in userspace;
+  # these are the ciphers the kernel needs for ESP itself.
+  ipsecConfig = with lib.kernel; {
+    XFRM_USER = yes;
+    XFRM_INTERFACE = yes;
+    XFRM_STATISTICS = yes;
+    INET_ESP = yes;
+    INET6_ESP = yes;
+    NET_IPVTI = yes;
+
+    CRYPTO_AES = yes;
+    CRYPTO_GCM = yes;
+    CRYPTO_CTR = yes;
+    CRYPTO_CBC = yes;
+    CRYPTO_SEQIV = yes;
+    CRYPTO_ECHAINIV = yes;
+    CRYPTO_AUTHENC = yes;
+    CRYPTO_HMAC = yes;
+    CRYPTO_SHA256 = yes;
+    CRYPTO_SHA512 = yes;
+    CRYPTO_CHACHA20POLY1305 = yes;
+
+    # nftables' `meta secpath` and `ipsec in`, and a log statement to
+    # show what a rule dropped. NFT_LOG alone loads the rule as ENOENT:
+    # the statement needs a logger backend, and NF_LOG_SYSLOG is it.
+    NFT_XFRM = yes;
+    NFT_LOG = yes;
+    NF_LOG_SYSLOG = yes;
+    NETFILTER_XT_MATCH_POLICY = yes;
+  };
+
   smpConfig = lib.optionalAttrs smp (
     with lib.kernel;
     {
@@ -355,7 +388,7 @@ in
     "SUBARCH=x86_64"
     "CC=${lib.getExe stdenv.cc}"
   ];
-  structuredExtraConfig = baseConfig // containerConfig // smpConfig;
+  structuredExtraConfig = baseConfig // containerConfig // ipsecConfig // smpConfig;
   extraMeta.platforms = lib.platforms.linux;
 }).overrideAttrs
   (
