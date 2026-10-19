@@ -1,0 +1,40 @@
+name: Question
+description: Ask how something works, or how to do something
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome and are asked in the open on purpose — the answer
+        usually helps the next person with the same problem.
+
+        Worth checking first: the project's documentation, and whether
+        [SUPPORT.md](https://github.com/nixidae/.github/blob/main/SUPPORT.md)
+        already points you somewhere.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What have you tried?
+      description: >
+        Commands you ran, docs you read, and where you got stuck. If a command
+        gave unexpected output, paste it — a question with output attached is
+        often really a bug report, and it saves a round trip to find that out.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release, tag, or flake revision, if relevant to the question.
+    validations:
+      required: false

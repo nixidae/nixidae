@@ -1,0 +1,82 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this.
+
+        If this is a **security** problem, close this form and follow
+        [SECURITY.md](https://github.com/nixidae/.github/blob/main/SECURITY.md)
+        instead — please do not describe it in a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, and what the result was.
+      placeholder: |
+        I ran `pynix build .#foo` against a flake with a broken output and it
+        hung instead of reporting the evaluation error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest flake, script or sequence of commands that shows the
+        problem. This is the single most useful part of the report — a bug that
+        reproduces gets fixed far faster than one that has to be guessed at.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: >
+        The full error or log output, not a paraphrase. Re-run with the
+        project's verbose or debug flag if it has one.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release, tag, or flake revision you are running.
+      placeholder: "v0.1.0, or github:nixidae/nanopynix/abc1234"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and Nix version. `nix --version` and `uname -a` cover it.
+      placeholder: |
+        NixOS 25.11, nix 2.31.2, x86_64-linux
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been reported.
+          required: true
+        - label: I am running a current version, or have said above why I am not.
+          required: true
