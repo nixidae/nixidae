@@ -23,8 +23,8 @@ let
   # `gmtime_r` for `lastModified`. 2.36 changes the line it replaces.
   gmtime234 = patch "nix-2.34-gmtime-not-thread-safe";
   gmtime236 = patch "nix-2.36-gmtime-not-thread-safe";
-  # Upstream 5c4f498d3, in 2.35: an interrupted thunk can be forced again
-  # (huggorm#97). It applies after `baseEnvSize`.
+  # Upstream 5c4f498d3, in 2.35 and backported to 2.34.9: an interrupted
+  # thunk can be forced again (huggorm#97). It applies after `baseEnvSize`.
   interruptedThunk234 = patch "nix-2.34-interrupted-thunk-recovers";
   # One temporary roots file per LocalStore, not per process.
   tempRoots = patch "nix-temp-roots-per-store";
@@ -60,7 +60,11 @@ in
       emptyBindings
       baseEnvSize
       gmtime234
-      interruptedThunk234
+    ]
+    ++ pkgs.lib.optional (pkgs.lib.versionOlder
+      pkgs.nixVersions.nixComponents_2_34.version "2.34.9"
+    ) interruptedThunk234
+    ++ [
       tempRoots
       remoteVerbosity
       countCalls234
