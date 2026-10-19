@@ -157,6 +157,7 @@ in
     ./guest.nix
     ./image.nix
     ./image-guest.nix
+    ./nftables.nix
     ./qemu.nix
     ./store.nix
   ];
