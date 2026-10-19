@@ -87,7 +87,7 @@ mkTest {
     lifecycle = {
       script = ./phases/lifecycle.py;
       after = [ "impostor" ];
-      description = "west's certificate renewed under load; an expired certificate and a stale CRL each take the tunnel down";
+      description = "west's certificate renewed under load; an expired certificate and a stale CRL are refused at reauthentication, and the outage waits for the next terminate";
     };
   };
 }

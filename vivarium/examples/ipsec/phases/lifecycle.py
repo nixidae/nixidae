@@ -19,6 +19,8 @@ Measured: 3 reauthentications of 22 lost one ping each, with no XFRM
 error counter moving; a rekey lost none in any try.
 """
 
+import re
+
 import anyio
 
 from lab import epoch, established, eventually, journal_since, lab, loss, ping, until
@@ -91,7 +93,7 @@ async def test(vms: Machines) -> None:
     if ike_spis(after) == ike_spis(before):
         raise AssertionError("the reauthentication kept the old IKE_SA")
     certs = await west.succeed("swanctl --list-certs --type x509 --subject 'C=SE, O=vivarium, CN=west.vpn.test'")
-    if "serial:    04" not in certs or "has private key" not in certs:
+    if not re.search(r"serial:\s+04\b", certs) or "has private key" not in certs:
         raise AssertionError(f"west is not on the renewed certificate:\n{certs}")
     print(f"[test] renew: west on serial 04 with a new key, new IKE_SA, {received}/{sent} pings")
 

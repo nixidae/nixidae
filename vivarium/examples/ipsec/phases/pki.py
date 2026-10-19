@@ -5,6 +5,8 @@ fails a chain with no revocation information at all, so a gateway
 without it would refuse west and east as surely as mallory.
 """
 
+import re
+
 from lab import lab
 from vivarium_runner import Machines
 
@@ -19,6 +21,6 @@ async def test(vms: Machines) -> None:
             if needle not in certs:
                 raise AssertionError(f"{side}: {needle!r} not in swanctl --list-certs:\n{certs}")
         crl = await vm.succeed("swanctl --list-certs --type x509crl")
-        if "key compromise" not in crl or "03" not in crl:
+        if not re.search(r"\b03\b.*key compromise", crl):
             raise AssertionError(f"{side}: the CRL does not revoke serial 03:\n{crl}")
         print(f"[test] {side}: own certificate and key, the lab CA, a CRL revoking serial 03")

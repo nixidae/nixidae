@@ -2,8 +2,9 @@
 
 east drops every packet to and from its tunnel 1 endpoint, as a failed
 path would. The interfaces stay up, so nothing local notices: west's
-BGP hold timer (3 s) withdraws the route, and its DPD (2 s delay, three
-retransmits, about 4.6 s) declares the IKE_SA dead and restarts it.
+BGP hold timer (3 s) withdraws the route, and its DPD (up to 2 s idle,
+then three retransmits, dead about 5.4 s after the first request)
+declares the IKE_SA dead and restarts it.
 While the path is down west keeps trying; when it is back, tunnel 1
 comes up by itself, BGP returns and the route is ECMP again.
 
@@ -61,6 +62,10 @@ async def test(vms: Machines) -> None:
         print(f"[test] tunnel 1 cut: BGP to {first} down, {prefix} only via ipsec2 after {anyio.current_time() - cut_at:.1f}s")
 
     sent, received = loss(outcome["ping"])
+    # Measured: 22 of 150 lost, 2.2 s at one ping per 100 ms, under the
+    # 3 s hold timer.
+    if sent - received > 40:
+        raise AssertionError(f"{sent - received} of {sent} pings lost: the route took more than 4 s to move")
     print(f"[test] carol -> dave across the failure: {received}/{sent} answered ({sent - received} lost)")
     await carol.succeed(ping(dave))
 

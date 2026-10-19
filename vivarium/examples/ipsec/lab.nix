@@ -105,14 +105,20 @@ let
   ikeProposals = [ "aes256gcm16-prfsha384-ecp384" ];
   espProposals = [ "aes256gcm16-ecp384" ];
 
-  # Fast enough for a test to watch a peer die: a request is retried at
-  # 1s, 1.2s and 1.44s and the peer declared dead about 4.6s after the
-  # first. The defaults (4s, base 1.8, 5 tries) take 165s.
+  # Fast enough for a test to watch a peer die: a request waits 1s,
+  # 1.2s, 1.44s and 1.728s (timeout * base^n), so the peer is declared
+  # dead about 5.4s after the first try. The defaults (4s, base 1.8, 5
+  # tries) take 165s.
+  #
+  # make_before_break: a reauthentication builds the new IKE_SA before it
+  # deletes the old one. With `no` a refused reauthentication takes the
+  # tunnel down at once, and the lifecycle phase measures the other case.
   strongswanConf = ''
     charon {
       retransmit_timeout = 1.0
       retransmit_base = 1.2
       retransmit_tries = 3
+      make_before_break = yes
     }
     charon-systemd {
       journal {
@@ -160,6 +166,8 @@ let
       # tunnel's IKE_SA as a stale duplicate.
       unique = "never";
       keyingtries = 0;
+      # strongSwan's default, set so the README does not depend on it.
+      rekey_time = "4h";
       dpd_delay = "2s";
       mobike = false;
       send_cert = "always";
