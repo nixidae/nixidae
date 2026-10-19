@@ -46,12 +46,17 @@ mkTest {
       after = [ "pki" ];
       description = "two XFRM tunnels, eBGP over each, carol reaches dave over both, the bogus prefix filtered";
     };
-    mtu = {
-      script = ./phases/mtu.py;
+    netmap = {
+      script = ./phases/netmap.py;
       after = [
         "policy"
         "route"
       ];
+      description = "erin and frank share 10.50.0.10; prefix NAT joins them over a policy CHILD_SA and over BGP";
+    };
+    mtu = {
+      script = ./phases/mtu.py;
+      after = [ "netmap" ];
       description = "path MTU discovery through each kind of tunnel, to the byte";
     };
     pmtud = {

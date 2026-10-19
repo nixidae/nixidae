@@ -8,6 +8,9 @@
 #                  Site-to-Site VPN: east is the AWS end (ASN 64512, two
 #                  outside addresses, .1 inside each /30), west the
 #                  customer gateway (.2).
+#   netmap         erin 10.50.0.10 <-west==east-> frank 10.50.0.10, the
+#                  same subnet on both sides, joined by 1:1 prefix NAT
+#                  over a second policy CHILD_SA and over the BGP tunnels.
 #
 # Both gateways authenticate with ECDSA certificates and check the peer's
 # against a CRL with `revocation = strict`. east takes any outside address
@@ -22,6 +25,7 @@
 }:
 let
   bare = cidr: lib.head (lib.splitString "/" cidr);
+  otherSide = side: if side == "west" then "east" else "west";
 
   topology = {
     west = {
@@ -78,7 +82,35 @@ let
     };
     tunnelMtu = 1400;
 
+    # The same /24 behind both gateways, on purpose. Each gateway maps it
+    # 1:1 to a range of its own per path, so the far side only ever sees
+    # the mapped addresses.
+    netmap = {
+      inside = "10.50.0.0/24";
+      gateway = "10.50.0.1/24";
+      west = {
+        policy = "100.64.1.0/24";
+        routed = "100.64.11.0/24";
+      };
+      east = {
+        policy = "100.64.2.0/24";
+        routed = "100.64.12.0/24";
+      };
+    };
+
     hosts = {
+      erin = {
+        gateway = "west";
+        segment = "nat";
+        address = "10.50.0.10/24";
+        via = "10.50.0.1";
+      };
+      frank = {
+        gateway = "east";
+        segment = "nat";
+        address = "10.50.0.10/24";
+        via = "10.50.0.1";
+      };
       alice = {
         gateway = "west";
         address = "10.1.0.10/24";
@@ -232,6 +264,12 @@ let
           local_ts = [ topology.policy.${side} ];
           remote_ts = [ topology.policy.${other} ];
         };
+        # A second CHILD_SA under the same IKE_SA, between the mapped
+        # ranges. The real 10.50.0.0/24 is in no selector.
+        children.netmap = childFor side {
+          local_ts = [ topology.netmap.${side}.policy ];
+          remote_ts = [ topology.netmap.${other}.policy ];
+        };
       };
     }
     // lib.mapAttrs' (
@@ -283,17 +321,28 @@ let
       other = if side == "west" then "east" else "west";
       me = topology.${side};
       neighbors = lib.mapAttrsToList (_: tunnel: tunnel.${other}) topology.tunnels;
-      announced = [ topology.routed.${side} ] ++ lib.optional (side == "east") topology.routed.bogus;
+      mapped = topology.netmap.${side}.routed;
+      announced = [
+        topology.routed.${side}
+        mapped
+      ]
+      ++ lib.optional (side == "east") topology.routed.bogus;
     in
     {
       services.frr = {
         bgpd.enable = true;
+        # `network` announces only what the RIB holds. The mapped range is
+        # no real subnet, so a blackhole route stands in for it; DNAT in
+        # prerouting rewrites traffic for it before the route is looked up.
         config = ''
           frr defaults traditional
           log syslog informational
           ${lib.optionalString (side == "east") "ip route ${topology.routed.bogus} blackhole"}
+          ip route ${mapped} blackhole
           ip prefix-list ${lib.toUpper other}-IN seq 10 permit ${topology.routed.${other}}
+          ip prefix-list ${lib.toUpper other}-IN seq 15 permit ${topology.netmap.${other}.routed}
           ip prefix-list ${lib.toUpper side}-OUT seq 10 permit ${topology.routed.${side}}
+          ip prefix-list ${lib.toUpper side}-OUT seq 15 permit ${mapped}
           ${lib.optionalString (
             side == "east"
           ) "ip prefix-list ${lib.toUpper side}-OUT seq 20 permit ${topology.routed.bogus}"}
@@ -334,6 +383,9 @@ let
     side:
     let
       other = if side == "west" then "east" else "west";
+      inherit (topology.netmap) inside;
+      near = topology.netmap.${side};
+      far = topology.netmap.${other};
     in
     {
       networking.nftables = {
@@ -360,7 +412,28 @@ let
                 meta secpath exists accept
               iifname "lan" oifname "ipsec*" ip saddr ${topology.routed.${side}} ip daddr ${topology.routed.${other}} accept
               iifname "ipsec*" oifname "lan" ip saddr ${topology.routed.${other}} ip daddr ${topology.routed.${side}} accept
+              # The forward hook sees the inside address: after DNAT, before SNAT.
+              iifname "nat" oifname "internet" ip saddr ${inside} ip daddr ${far.policy} accept
+              iifname "nat" oifname "ipsec*" ip saddr ${inside} ip daddr ${far.routed} accept
+              iifname "internet" oifname "nat" ip saddr ${far.policy} ip daddr ${inside} \
+                meta secpath exists accept
+              iifname "ipsec*" oifname "nat" ip saddr ${far.routed} ip daddr ${inside} accept
               counter log prefix "lab forward drop: " level info drop
+            }
+          }
+
+          # 1:1 prefix NAT: 10.50.0.N is near.policy .N towards the far
+          # policy range and near.routed .N towards the far routed range.
+          table ip netmap {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+              ip daddr ${near.policy} dnat ip prefix to ${inside}
+              ip daddr ${near.routed} dnat ip prefix to ${inside}
+            }
+            chain postrouting {
+              type nat hook postrouting priority srcnat;
+              ip saddr ${inside} ip daddr ${far.policy} snat ip prefix to ${near.policy}
+              ip saddr ${inside} ip daddr ${far.routed} snat ip prefix to ${near.routed}
             }
           }
         '';
@@ -377,14 +450,32 @@ let
         segment = "${side}-lan";
         addresses = topology.${side}.lan;
       };
+      nat = {
+        segment = "${side}-nat";
+        addresses = [ topology.netmap.gateway ];
+      };
     };
+    # charon routes a CHILD_SA's remote selector in table 220 only when
+    # the gateway holds an address in the local one. Measured: no route
+    # for the far policy-mapped range, so it went to the default route,
+    # vec0, and the forward chain dropped it.
+    networking.interfaces.internet.ipv4.routes = [
+      {
+        address = bare topology.netmap.${otherSide side}.policy;
+        prefixLength = 24;
+        via = if side == "west" then topology.policy.eastAddress else bare (lib.head topology.west.internet);
+      }
+    ];
     boot.kernel.sysctl = {
       "net.ipv4.ip_forward" = 1;
       # Loose: with two tunnels a reply can come back on the other one.
       "net.ipv4.conf.all.rp_filter" = 2;
       "net.ipv4.conf.default.rp_filter" = 2;
     };
-    environment.systemPackages = [ pkgs.strongswan ];
+    environment.systemPackages = [
+      pkgs.strongswan
+      pkgs.conntrack-tools
+    ];
     services.strongswan-swanctl = {
       enable = true;
       strongswan.extraConfig = strongswanConf;
@@ -521,7 +612,7 @@ let
 
   host = name: host: {
     vivarium.interfaces.lan = {
-      segment = "${host.gateway}-lan";
+      segment = "${host.gateway}-${host.segment or "lan"}";
       addresses = [ host.address ];
     };
     # Everything lab-side through the gateway; vec0 keeps the default.
@@ -529,6 +620,11 @@ let
       {
         address = "10.0.0.0";
         prefixLength = 8;
+        via = host.via;
+      }
+      {
+        address = "100.64.0.0";
+        prefixLength = 10;
         via = host.via;
       }
     ];
@@ -548,6 +644,7 @@ let
       tunnels
       routed
       tunnelMtu
+      netmap
       ;
     ids = {
       west = topology.west.id;
