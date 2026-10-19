@@ -823,6 +823,10 @@ let
     # BGP unnumbered, EVPN L2 and symmetric L3 on a CLOS of FRR guests (#23).
     frr-clos = import ./examples/frr-clos { inherit mkTest lib pkgs; };
 
+    # strongSwan site-to-site with certificates: policy- and route-based
+    # tunnels, eBGP over them, MTU, rekey, failover and impostors.
+    ipsec = import ./examples/ipsec { inherit mkTest lib pkgs; };
+
     /*
       One run, both kinds of guest: a UML guest and a QEMU guest on one
       segment. UML for what is single-threaded and wants to cost the host
