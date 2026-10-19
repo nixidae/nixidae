@@ -66,23 +66,30 @@ async def test(vms: Machines) -> None:
 
     results: dict[str, tuple[int, str]] = {}
 
-    async def watch(name: str, vm: Machine, interface: str, expression: str, count: int) -> None:
-        results[name] = await capture(vm, interface, expression, count, 12)
+    async def watch(name: str, vm: Machine, interface: str, expression: str, count: int, flags: str = "") -> None:
+        results[name] = await capture(vm, interface, expression, count, 12, flags)
 
+    # Outbound only. Measured: tcpdump on west's internet interface shows
+    # bob's decrypted replies as inbound plaintext, 3 of 3 in every try, and
+    # an inbound capture missed some ESP, 4 of 6 in one try. Neither is a leak.
     async with anyio.create_task_group() as tg:
-        tg.start_soon(watch, "esp", west, "internet", f"esp and host {cfg['policy']['eastAddress']}", 6)
-        tg.start_soon(watch, "plain", west, "internet", "icmp", 1)
+        tg.start_soon(watch, "esp", west, "internet", f"esp and dst {cfg['policy']['eastAddress']}", 3, "-Q out")
+        tg.start_soon(watch, "esp-east", east, "internet", f"esp and dst {cfg['westAddress']}", 3, "-Q out")
+        tg.start_soon(watch, "plain", west, "internet", "icmp", 1, "-Q out")
+        tg.start_soon(watch, "plain-east", east, "internet", "icmp", 1, "-Q out")
         tg.start_soon(watch, "bob", bob, "lan", f"icmp and src {alice_address}", 3)
         await anyio.sleep(2)
         out = await alice.succeed(ping(bob_address))
         print(f"[test] alice -> bob: {out.strip().splitlines()[-2]}")
 
-    rc, out = results["esp"]
-    if rc != 0 or out.count(" ESP(") < 6:
-        raise AssertionError(f"no ESP between the gateways while alice pinged bob:\n{out}")
-    rc, out = results["plain"]
-    if rc != 124:
-        raise AssertionError(f"ICMP crossed the internet in the clear:\n{out}")
+    for side in ("esp", "esp-east"):
+        rc, out = results[side]
+        if rc != 0 or out.count(" ESP(") < 3:
+            raise AssertionError(f"{side}: no ESP between the gateways while alice pinged bob:\n{out}")
+    for side in ("plain", "plain-east"):
+        rc, out = results[side]
+        if rc != 124:
+            raise AssertionError(f"{side}: ICMP left for the internet in the clear:\n{out}")
     rc, out = results["bob"]
     if rc != 0:
         raise AssertionError(f"bob did not see alice's own address:\n{out}")
