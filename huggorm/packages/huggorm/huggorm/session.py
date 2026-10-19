@@ -211,7 +211,7 @@ class AsyncSession:
             # Shielded: a cancelled consumer is the usual way out of
             # this loop, and anyio re-delivers the cancel at each await
             # here, which would skip the unsubscribe and leak the
-            # thread's verbosity (huggorm#95).
+            # thread's verbosity (nixidae/nixidae#632).
             with anyio.CancelScope(shield=True):
                 await reader.close()
 
@@ -318,7 +318,7 @@ class AsyncSession:
             # position holds rootFS, and rootFS mounts the Store, so the
             # Store and its daemon connections outlive the evaluator
             # until a collection finalizes that block - in a small
-            # process, possibly never (huggorm#128). nixpkgs raises one
+            # process, possibly never (nixidae/nixidae#696). nixpkgs raises one
             # on every `import nixpkgs { }`. Measured: 10 ms after a
             # nixpkgs evaluation.
             await collect_garbage()

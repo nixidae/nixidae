@@ -116,7 +116,7 @@ def error_headers() -> list[str]:
     A catch and the include that makes its type nameable are one
     fact, and this is the emitter learning it rather than
     `cpp/errors.hpp` carrying it on the emitted files' behalf
-    (huggorm#90)."""
+    (nixidae/nixidae#627)."""
     return declared_model().errors.headers
 
 
@@ -168,7 +168,7 @@ def census_written(mod: Module, bound: Sequence[ir.ClassModel],
                    text: str) -> None:
     """Every method the reader kept is a name the emitter wrote.
 
-    The SECOND of the two seams huggorm#81 names. The reader's
+    The SECOND of the two seams nixidae/nixidae#618 names. The reader's
     contents check (`read._contents`) asks whether the reader kept
     what the declaration wrote; this asks whether the emitter wrote
     what the reader kept.
@@ -210,7 +210,7 @@ def census_written(mod: Module, bound: Sequence[ir.ClassModel],
         raise TypeError(
             f"{mod.name}.py: the reader kept {', '.join(bad)} and the "
             f"emitted C++ binds no such name. An emitter dropped it, and "
-            f"a drop reads as an absence - see huggorm#81.")
+            f"a drop reads as an absence - see nixidae/nixidae#618.")
 
 
 def emit_module(mod: Module, dotted: str, out: str,
@@ -343,7 +343,7 @@ def census_markers(have: Any) -> None:
 
     `@abstract` is why this exists. It has a table entry, three
     emitter branches and a test assertion, and no declaration
-    has carried it since the mock went (huggorm#60). The test
+    has carried it since the mock went (nixidae/nixidae#597). The test
     says so in a comment, where a person finds it only by reading the
     branch that never fires - so the build says it now.
 
@@ -353,7 +353,7 @@ def census_markers(have: Any) -> None:
     that no longer name themselves.
 
     Printed rather than raised. A marker waiting for its user is a
-    real state - `@abstract` is waiting for the split huggorm#61
+    real state - `@abstract` is waiting for the split nixidae/nixidae#598
     describes - and failing the build would only get it deleted."""
     used: set[str] = set()
     names = [*have.module_names, *have.vocabularies]
@@ -411,7 +411,7 @@ def census_gc_slots(have: Any) -> None:
     """Every helper that stores a Python object, and whether anything
     declared over it says how to traverse one.
 
-    huggorm#93 is why. A bound class that holds an `nb::object` and
+    nixidae/nixidae#630 is why. A bound class that holds an `nb::object` and
     carries no `@gc_slots` leaks itself the moment that object closes
     over it - which is the NORMAL way to write the one case this repo
     has, because a primop builds its result with `state.make_int`.
@@ -454,7 +454,7 @@ def census_gc_slots(have: Any) -> None:
             continue
         print(f"  {f.name}: stores a Python object and NO declaration "
               f"over it carries @gc_slots - such a class leaks itself "
-              f"whenever that object closes over it (huggorm#93)")
+              f"whenever that object closes over it (nixidae/nixidae#630)")
         for line in members:
             print(f"    {line}")
 
@@ -462,13 +462,13 @@ def census_gc_slots(have: Any) -> None:
 def main(out_dir: str) -> int:
     out = pathlib.Path(out_dir).resolve()
     # The package directory is EMPTY in the checkout - every file in
-    # it is written here, `__init__.py` included (huggorm#64) - so an
+    # it is written here, `__init__.py` included (nixidae/nixidae#601) - so an
     # empty directory is not something git can carry.
     out.mkdir(parents=True, exist_ok=True)
     have = corpus()
     # Read everything first, so a build reports every refusal it can
     # see rather than the first one. Emission below then runs against
-    # a corpus known to be sound (huggorm#61).
+    # a corpus known to be sound (nixidae/nixidae#598).
     have.read_all()
     declared_model()
     chain = error_chain()

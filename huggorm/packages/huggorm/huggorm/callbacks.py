@@ -1,12 +1,12 @@
 """
-EXPERIMENTAL: the server calling objects a client keeps (huggorm#153).
+EXPERIMENTAL: the server calling objects a client keeps (nixidae/nixidae#738).
 
 A class marked `@calls_back` crosses from a client as the client's id
 for its object. The server holds a PROXY in its place: an object whose
 `@virtual` methods are coroutines that send a CALLBACK frame and await
 the client's REPLY or REFUSE. It is an `Async<X>` object like any async
 program's, so the runtime's `adapt` gives it to Nix the same way, and a
-hook may call back into the state that reads it (huggorm#155).
+hook may call back into the state that reads it (nixidae/nixidae#740).
 
 Off unless the server runs with `--experimental-callbacks` and the
 client connects with `experimental_callbacks=True`. Accepted, by

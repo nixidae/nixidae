@@ -1,4 +1,4 @@
-"""NARs as byte streams Python reads and writes (huggorm#149).
+"""NARs as byte streams Python reads and writes (nixidae/nixidae#732).
 
 `Source` and `Sink` are what `Store.nar_from_path` and
 `Store.add_to_store_nar` take, and what a Python store's NAR hooks get.
@@ -92,7 +92,7 @@ def many_files(tmp_path: pathlib.Path) -> tuple[Any, Any, bytes]:
 
 def test_python_sees_a_nar_in_large_pieces(tmp_path: pathlib.Path) -> None:
     """Nix moves a NAR a few bytes at a time: 6515 pieces each way for
-    this one. Each would be a call into Python (huggorm#155)."""
+    this one. Each would be a call into Python (nixidae/nixidae#740)."""
     store, path, nar = many_files(tmp_path)
     out = Collect()
     store.nar_from_path(path, out)

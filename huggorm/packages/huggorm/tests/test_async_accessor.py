@@ -1,4 +1,4 @@
-"""File trees an async program serves to Nix (huggorm#155).
+"""File trees an async program serves to Nix (nixidae/nixidae#740).
 
 An object with the `AsyncSourceAccessor` methods stands in for a
 `SourceAccessor`. Nix calls a stub on the worker thread, and the hook
@@ -76,7 +76,7 @@ async def test_an_evaluator_reads_an_async_tree() -> None:
 
 async def test_pure_evaluation_reads_a_mounted_tree() -> None:
     """Pure mode guards the server's own files, not a mounted tree
-    (huggorm#153)."""
+    (nixidae/nixidae#738)."""
     state = AsyncEvalState(AsyncStore(DUMMY), {"pure-eval": "true"})
     with anyio.fail_after(30):
         path = await state.mount(Memory(SOURCE))

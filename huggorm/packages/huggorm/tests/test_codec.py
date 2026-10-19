@@ -1,5 +1,5 @@
 """
-The msgpack value codec (huggorm#142).
+The msgpack value codec (nixidae/nixidae#714).
 
 Every value goes through `pack` and `unpack`, so a shape msgpack
 cannot carry fails here rather than on a socket.
@@ -115,7 +115,7 @@ def test_a_tree_crosses() -> None:
     })
     raw = unpack(pack(codec.encode_tree(node, lambda cls, obj: names[id(obj)])))
     # A container decodes as its handle beside its contents, so a
-    # caller can hand it back (huggorm#147).
+    # caller can hand it back (nixidae/nixidae#721).
     back = codec.decode_tree(raw, lambda cls, hid: (cls, hid),
                              lambda cls, hid, contents: (hid, contents))
     assert back == ("h2", {"a": "x", "b": ("h3", [1, True, 0.5]),

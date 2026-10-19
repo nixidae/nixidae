@@ -71,7 +71,7 @@ class ConnectionExpired(RuntimeError):
     it - the leases were released when the sweeper ran - so the client
     stops rather than re-binding: a fresh bind would hand back a
     live-looking client whose every handle fails, which is the late,
-    confusing failure this replaces (huggorm#49).
+    confusing failure this replaces (nixidae/nixidae#586).
 
     Recovery is `bind()` plus re-acquiring, and that is the caller's
     decision because only the caller knows what it was holding."""
@@ -87,7 +87,7 @@ def handle_of(obj: Any) -> str:
     """The handle `obj` holds on a server.
 
     One class holds either backend, so the location is checked here
-    (huggorm#26): the server could not reach an in-process object, and
+    (nixidae/nixidae#563): the server could not reach an in-process object, and
     an AttributeError would not say why. A lease already given back is
     a ValueError."""
     backend = getattr(obj, "_backend", None)
@@ -117,7 +117,7 @@ class NixClient:
     def __init__(self, path: str | os.PathLike[str], *,
                  experimental_callbacks: bool = False) -> None:
         self.path = os.fspath(path)
-        # EXPERIMENTAL (huggorm#153): whether this client may hand the
+        # EXPERIMENTAL (nixidae/nixidae#738): whether this client may hand the
         # server an object it calls back. Each one is kept, by its id,
         # until the client closes: the server may call it at any time.
         self.experimental_callbacks = experimental_callbacks
@@ -129,7 +129,7 @@ class NixClient:
         self.codec = Codec()
         # Rebuilds a declared error from its parts, so a remote failure
         # has the same shape as an in-process one: an InternalError
-        # whose __cause__ is the real error (huggorm#36).
+        # whose __cause__ is the real error (nixidae/nixidae#573).
         self.faults = Faults(self.codec)
         self.channel: Channel | None = None
         self.token: str | None = None
@@ -147,7 +147,7 @@ class NixClient:
         # handles have lost their last one. A finalizer runs on
         # whichever thread dropped the reference - possibly during
         # interpreter shutdown - and cannot await, so it only takes the
-        # lock and appends; the flush sends the frame (huggorm#28).
+        # lock and appends; the flush sends the frame (nixidae/nixidae#565).
         self._refs: dict[str, int] = {}
         self._dropped: list[str] = []
         self._ref_lock = threading.Lock()
@@ -176,7 +176,7 @@ class NixClient:
 
     def view(self, cls_name: str, handle_id: str, contents: Any) -> Any:
         """A realized list or attribute set: the proxy for its handle,
-        with what the walk carried readable locally (huggorm#147).
+        with what the walk carried readable locally (nixidae/nixidae#721).
         Tracked as `proxy` tracks, so dropping it releases the
         handle."""
         mixin = views.AttrsView if isinstance(contents, dict) else views.ListView
@@ -337,7 +337,7 @@ class NixClient:
         A client reads answers and PINGS, each in a task, and anyio
         starts a task only inside a task group - so the client has to
         own one. That is what makes `async with` mandatory rather than
-        decorative (huggorm#35).
+        decorative (nixidae/nixidae#572).
 
         The group is entered here and exited in `__aexit__`, which
         anyio requires to be the SAME task. That rules out a client
@@ -436,7 +436,7 @@ class NixClient:
                     # Swept. Say so once, loudly, and stop - the next
                     # call raises ConnectionExpired rather than
                     # failing later as "unknown handle" on something
-                    # unrelated (huggorm#49).
+                    # unrelated (nixidae/nixidae#586).
                     self._expired = True
                     logger.warning(
                         "connection %r was swept by the server; its handles "
@@ -519,7 +519,7 @@ class NixClient:
         so the reader keeps reading. An async method (`AsyncSourceAccessor`)
         is awaited, and may call the server meanwhile. A sync one, such
         as a binding object, runs on the loop and blocks it while it
-        runs (huggorm#155)."""
+        runs (nixidae/nixidae#740)."""
         with anyio.CancelScope() as scope:
             self._answering[n] = scope
             try:
@@ -605,14 +605,14 @@ class NixClient:
         `force` forces each node the walk visits, inside the same
         bounds. It does not enter a derivation, and a node whose force
         throws comes back as a proxy whose first read raises that
-        error, so the rest of the tree still arrives (huggorm#147)."""
+        error, so the rest of the tree still arrives (nixidae/nixidae#721)."""
         raw = await self._ask(Op.CONTROL, Control.REALIZE,
                               [handle_of(obj), depth, budget, force])
         return self.codec.decode_tree(raw, self.proxy, self.view)
 
     async def value(self, state: Any, data: Any) -> Any:
         """A value `state` makes from Python data, in one round trip
-        (huggorm#147).
+        (nixidae/nixidae#721).
 
         Data is None, bool, int, float, str, a list or tuple, a mapping
         with str keys, or a value handle - a realized view included - at
@@ -669,7 +669,7 @@ class NixClient:
         MANY readers per state. A second subscription would replace
         the first on that state's thread, so the server opens ONE and
         fans it out - each reader gets its own view, its own capacity
-        and its own level (huggorm#85).
+        and its own level (nixidae/nixidae#622).
 
         The FIRST batch is always empty, and it means the subscription
         is installed. A caller opens this to watch work it is about to
@@ -688,7 +688,7 @@ class NixClient:
         because the tap routes by THREAD and an EvalState owns one;
         this takes what a fetcher thread, a file-transfer thread or a
         build raised, and none of those belongs to a state
-        (huggorm#85). A build's log is the one this exists for.
+        (nixidae/nixidae#622). A build's log is the one this exists for.
 
         MANY readers over ONE sink: every connection that asks reads
         the same subscription through its own view.
@@ -797,7 +797,7 @@ async def connect(path: str | os.PathLike[str],
     A context manager, because a client runs a reader and a ping loop,
     each a task, and anyio starts a task only inside a task group - so
     something has to hold the scope open, and the client is the only
-    thing with the right lifetime (huggorm#35). The loops cannot
+    thing with the right lifetime (nixidae/nixidae#572). The loops cannot
     outlive the client and cannot be forgotten."""
     async with NixClient(
             path, experimental_callbacks=experimental_callbacks) as client:

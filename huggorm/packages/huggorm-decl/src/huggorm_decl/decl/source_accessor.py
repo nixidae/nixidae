@@ -1,7 +1,7 @@
 """
 nix::SourceAccessor: `huggorm_decl/cpp/source_accessor.hpp`.
 
-A file tree Nix reads (huggorm#152). A subclass answers four hooks, and
+A file tree Nix reads (nixidae/nixidae#737). A subclass answers four hooks, and
 Nix reads through them wherever it takes an accessor:
 
     class Memory(SourceAccessor):
@@ -23,7 +23,7 @@ reaches the one below.
 
 In process, or EXPERIMENTALLY from a remote client that enables
 callbacks: the server then calls the client's accessor back over the
-connection for every read (huggorm#153).
+connection for every read (nixidae/nixidae#738).
 """
 
 from huggorm_decl.decl.words import FileType
@@ -128,7 +128,7 @@ def filesystem_accessor(root: Path) -> SourceAccessor:
     `Store.add_accessor_to_store`, or to `EvalState.mount` over a
     connection with experimental callbacks to evaluate this machine's
     files on a server."""
-    # huggorm#153
+    # nixidae/nixidae#738
     Cxx("""
 return std::make_shared<huggorm::SourceAccessor>(
     nix::makeFSSourceAccessor(std::filesystem::absolute(root)).get_ptr());

@@ -1,7 +1,7 @@
 #pragma once
 /**
  * Byte streams Python reads and writes: `nix::Source` and `nix::Sink`,
- * each with a hook a Python subclass overrides (huggorm#149).
+ * each with a hook a Python subclass overrides (nixidae/nixidae#732).
  *
  * One class serves both directions. A Python subclass is a stream Nix
  * reads or writes, as `Store.nar_from_path` takes. A wrapper over a
@@ -120,7 +120,7 @@ public:
 /**
  * `below` behind a 32 KiB buffer, for a call that hands it to Nix. Nix
  * writes a NAR in pieces of a few bytes, and each piece is a call into
- * Python: 6515 for a 45 KB NAR of 100 files (huggorm#155). The call that
+ * Python: 6515 for a 45 KB NAR of 100 files (nixidae/nixidae#740). The call that
  * makes one flushes it, because a destructor cannot report a failed write.
  */
 class SinkBuffer : public nix::BufferedSink

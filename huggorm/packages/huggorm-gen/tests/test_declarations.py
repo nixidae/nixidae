@@ -8,7 +8,7 @@ have, and does not have to invent one there.
 
 A version branch is that case. `read.py` imports every declaration so
 Python resolves `if NIX_VERSION >= ...`, and the errors emitter parsed
-the file a second time and saw neither arm (huggorm#73). No declaration
+the file a second time and saw neither arm (nixidae/nixidae#610). No declaration
 in this repo branches today, so nothing real can hold the fix.
 """
 
@@ -229,7 +229,7 @@ def test_a_declaration_that_does_not_branch_reads_the_same_either_way(
 # Python's own and the reader keeps it (`Method.prop`); no emitter
 # honours it. Written here because no declaration in the corpus uses
 # it, which is how the emitter path behind it went unread from the day
-# it was written until it was deleted (huggorm#75).
+# it was written until it was deleted (nixidae/nixidae#612).
 ATTRIBUTE = '''"""One bound class whose accessor is a @property."""
 
 from huggorm_dsl.declare import Cxx, Str, binding, header
@@ -412,7 +412,7 @@ def test_a_produced_class_nothing_returns_fails_the_build(
     assert model.producers["PathInfo"] == (
         "LayeredStore.query_path_info", "Store.query_path_info")
     # A dict's value is made too: on 2.35 this is the only call that
-    # makes an UnkeyedRealisation (huggorm#129).
+    # makes an UnkeyedRealisation (nixidae/nixidae#698).
     built = next(m for m in model.classes["BuildSuccess"].bound
                  if m.name == "built_outputs")
     returns = built.returns
@@ -450,14 +450,14 @@ def test_an_undeclarable_dunder_is_refused_rather_than_dropped(
     that are not `__`-prefixed and skip the rest, so a declared dunder
     would reach no binding, no stub line and no rpc, with no
     diagnostic anywhere - and a skip is indistinguishable from an
-    absence, which is this repo's named failure mode (huggorm#88).
+    absence, which is this repo's named failure mode (nixidae/nixidae#625).
 
     `__call__` IS taught, so the refusal names `__len__` alone, at
     its line."""
     from huggorm_dsl.read import DeclarationError, read
 
     path = _declaration(tmp_path, CALLABLE)
-    with pytest.raises(DeclarationError, match="huggorm#88") as caught:
+    with pytest.raises(DeclarationError, match="nixidae/nixidae#625") as caught:
         read(path)
     assert ":15:" in str(caught.value)
     assert "Callable.__len__" in str(caught.value)
@@ -486,10 +486,10 @@ def test_a_bound_base_is_refused_rather_than_dropped(
         tmp_path: pathlib.Path) -> None:
     """No emitter carries a class hierarchy, so a base would be
     dropped in silence; the reader refuses it at its line
-    (huggorm#60)."""
+    (nixidae/nixidae#597)."""
     from huggorm_dsl.read import DeclarationError, read
 
-    with pytest.raises(DeclarationError, match="huggorm#60") as caught:
+    with pytest.raises(DeclarationError, match="nixidae/nixidae#597") as caught:
         read(_declaration(tmp_path, DERIVED))
     assert "Leaf" in str(caught.value)
 
@@ -539,7 +539,7 @@ def test_a_taught_dunder_reads_as_a_method(tmp_path: pathlib.Path) -> None:
 
 # One declaration with an `async def` in each of the three places it
 # can sit: a method, a decorated free function, and an undecorated
-# helper. The answers differ, which is the point (huggorm#88).
+# helper. The answers differ, which is the point (nixidae/nixidae#625).
 #
 # ONE async at a time, and the three tests below each turn on the one
 # they are about. Written with all three async first, and that gate
@@ -669,7 +669,7 @@ def test_a_name_the_reader_puts_nowhere_is_refused(
         tmp_path: pathlib.Path, inner: str, outer: str, refusal: str) -> None:
     """The import holds every name the build has. A name the reader
     keeps nothing for reads as one nobody wrote, so it is refused
-    (huggorm#123). The class attribute was dropped in silence: the
+    (nixidae/nixidae#689). The class attribute was dropped in silence: the
     class loop reads only `def`s."""
     from huggorm_dsl.read import DeclarationError, read
 
@@ -680,7 +680,7 @@ def test_a_name_the_reader_puts_nowhere_is_refused(
 
 # One value carrying both 64-bit widths. Written here because the
 # corpus has each width but never both on one class, and the fact
-# under test is the DIFFERENCE between them (huggorm#79).
+# under test is the DIFFERENCE between them (nixidae/nixidae#616).
 WIDTHS = '''"""One value that carries both 64-bit widths."""
 
 from huggorm_dsl.declare import (
@@ -799,7 +799,7 @@ def test_a_container_of_a_width_is_refused_rather_than_guessed(
 
     module = read(_declaration(tmp_path, HELD))
     # Refused where the wire spelling is rendered, which is the model.
-    with pytest.raises(TypeError, match="huggorm#79"):
+    with pytest.raises(TypeError, match="nixidae/nixidae#616"):
         ir.ClassModel.of(module.classes[0], "pkg", "mod",
                          ir.Resolver.of(module))
 
@@ -842,10 +842,10 @@ def test_the_model_refuses_an_accessor_declared_as_an_attribute(
     The refusal replaced an `_accessor` function that emitted exactly
     that, and that no declaration had ever reached - which is why its
     two-row table of optional return spellings was never seen to be
-    wrong (huggorm#75).
+    wrong (nixidae/nixidae#612).
 
     The model refuses it, so no surface is built from it first
-    (huggorm#115)."""
+    (nixidae/nixidae#676)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
@@ -900,7 +900,7 @@ def test_the_model_refuses_an_arm_it_cannot_check(
 
     Refused only at emission, it reached the stubs and the Python
     surfaces first, built from a model the binding later rejected
-    (huggorm#115)."""
+    (nixidae/nixidae#676)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
@@ -964,7 +964,7 @@ def test_the_model_refuses_a_spelling_of_no_vocabulary(
         tmp_path: pathlib.Path) -> None:
     """`@spells` must name an enum-backed vocabulary the declaration
     sees, and the model checks it before any surface is built
-    (huggorm#115)."""
+    (nixidae/nixidae#676)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
@@ -1000,7 +1000,7 @@ class Signed:
 def test_the_model_refuses_a_value_that_cannot_round_trip(
         tmp_path: pathlib.Path, text: str, extra: str, refusal: str) -> None:
     """A `text=` that names no accessor, and a constructor that does not
-    take every wire field, are refused by the model (huggorm#115)."""
+    take every wire field, are refused by the model (nixidae/nixidae#676)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
@@ -1084,7 +1084,7 @@ def test_a_declaration_in_no_list_fails_the_build(
     `decl/gc.py` was written, was well-formed, imported, parsed and
     emitted nothing at all: `nix build bindings-src` succeeded and
     wrote no `gc.cpp`, because the name was not in `NANOBIND`
-    (huggorm#74). The failure looked exactly like a declaration with
+    (nixidae/nixidae#611). The failure looked exactly like a declaration with
     no classes in it.
 
     Third silent drop in three tasks, after a version-branched class
@@ -1220,7 +1220,7 @@ def test_a_declaration_imports_only_from_the_allowed_modules(
         tmp_path: pathlib.Path, line: str) -> None:
     """A declaration describes C++ and computes nothing, so it imports
     only the vocabulary, the other declarations, `typing` and `enum`
-    (huggorm#123)."""
+    (nixidae/nixidae#689)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match="imports only from"):
@@ -1251,7 +1251,7 @@ def test_a_definition_under_no_branch_must_be_kept(
         tmp_path: pathlib.Path) -> None:
     """A `def` outside any `if` that the import did not keep is not a
     dead arm. It is a definition the reader would drop in silence
-    (huggorm#140)."""
+    (nixidae/nixidae#712)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match=r"lost: .* the import kept "
@@ -1261,7 +1261,7 @@ def test_a_definition_under_no_branch_must_be_kept(
 
 def test_a_declaration_is_one_guarded_module() -> None:
     """The reader and an importing declaration reach the same module,
-    so a declared class is one class (huggorm#140), and the import
+    so a declared class is one class (nixidae/nixidae#712), and the import
     guard ran on it whichever came first."""
     import importlib
 
@@ -1282,7 +1282,7 @@ def test_a_declaration_that_will_not_import_is_refused(
     with no `NIX_VERSION` branch in it, which is all of them: the
     same nodes survive either way, so nothing said a word - and
     nothing said it about the files importing from it either
-    (huggorm#82).
+    (nixidae/nixidae#619).
 
     The cause is carried because it is one line to fix and impossible
     to guess at. `@instant` over `@property` sets an attribute on a
@@ -1374,7 +1374,7 @@ def test_a_marker_over_a_descriptor_says_which_order_to_write(
     the attribute and stops, so a reader has to work out on their own
     that the two decorators can simply be swapped.
 
-    huggorm#76 asked for the answer to be in a REFUSAL rather than
+    nixidae/nixidae#613 asked for the answer to be in a REFUSAL rather than
     in a comment, and this is it. The answer was MEASURED both ways
     rather than reasoned about - see the second assertion, which is
     the one that says the advice is true.
@@ -1396,7 +1396,7 @@ def test_a_marker_over_a_descriptor_says_which_order_to_write(
     said = str(caught.value)
     assert "@property OUTERMOST" in said, said
     assert "@instant" in said, "it names the marker it read, not a list"
-    assert "huggorm#76" in said, "and where the path ends"
+    assert "nixidae/nixidae#613" in said, "and where the path ends"
 
     # THE ADVICE IS TRUE, measured rather than asserted. Written the
     # way the refusal says, the file imports AND both facts survive:
@@ -1424,7 +1424,7 @@ def test_a_marker_over_a_descriptor_says_which_order_to_write(
     # 3.14.7: only a property refuses an attribute, so a marker over
     # a `@staticmethod` IMPORTS and reaches `_method`'s own refusal -
     # which already names the real problem. Those two arms were text
-    # that could never run (huggorm#75), and this is what says so.
+    # that could never run (nixidae/nixidae#612), and this is what says so.
     static = tmp_path / "static"
     static.mkdir()
     marked = STATIC.replace("    @staticmethod",
@@ -1450,8 +1450,8 @@ def test_an_accessor_declared_static_is_refused(
 
     Reachable only since `_live` learnt to look through a descriptor.
     Before that a `@staticmethod` carried no `__code__`, named no live
-    line, and was dropped whole in silence (huggorm#75). The behaviour
-    changed there and no gate held it; this is that gate (huggorm#76)."""
+    line, and was dropped whole in silence (nixidae/nixidae#612). The behaviour
+    changed there and no gate held it; this is that gate (nixidae/nixidae#613)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match="@staticmethod"):
@@ -1468,7 +1468,7 @@ def test_an_accessor_declared_static_is_refused(
 
 # A bound class with one accessor behind a version branch. The corpus
 # has no branch at all, so the losing arm is written here or it is
-# never read (huggorm#81).
+# never read (nixidae/nixidae#618).
 BRANCHED_ACCESSOR = '''"""One bound class whose accessor is behind a version."""
 
 from huggorm_dsl.declare import NIX_VERSION, Cxx, Str, binding, header
@@ -1522,7 +1522,7 @@ def test_a_branch_arm_that_lost_is_not_a_missing_definition(
     Written here because the corpus has no branch: `read.py` imports
     every declaration for exactly this reason and no declaration in
     this repo uses it, which is how the errors emitter came to see
-    neither arm and say nothing (huggorm#73)."""
+    neither arm and say nothing (nixidae/nixidae#610)."""
     have = _one_file_corpus(tmp_path, BRANCHED_ACCESSOR)
     mod = have.module("digest.py")
     kept = {m.name for m in mod.classes[0].methods}
@@ -1550,7 +1550,7 @@ class Digest:
 
 
 def test_a_body_with_a_version_test_is_refused(tmp_path: pathlib.Path) -> None:
-    """A body is one call for every Nix (huggorm#134). A call whose
+    """A body is one call for every Nix (nixidae/nixidae#706). A call whose
     shape differs goes in a helper that detects the shape, so the
     reader refuses an `if` in a body instead of choosing an arm."""
     from huggorm_dsl.read import DeclarationError
@@ -1647,7 +1647,7 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
     `nix::BadStorePathName` and their kind. Until 2026-09-05 the three
     headers that declare them sat in `cpp/errors.hpp`, which every
     emitted file includes - a fact about generated code, written into
-    a file a person maintains (huggorm#90).
+    a file a person maintains (nixidae/nixidae#627).
 
     `decl/errors.py` now says `header = "nix/..."` beside each `cxx`,
     and the emitter writes the include beside the chain.
@@ -1803,7 +1803,7 @@ def test_a_body_brings_its_own_standard_header() -> None:
     `eval.py`'s bodies throw `std::invalid_argument` 54 times, and
     the emitted `eval.cpp` includes `<stdexcept>` because of that -
     not because a hand-written header carries one on its behalf.
-    That was the arrangement huggorm#90 found: `eval.hpp` held a
+    That was the arrangement nixidae/nixidae#627 found: `eval.hpp` held a
     `<stdexcept>` it never used, a fact about generated code living
     in a file a person maintains.
 
@@ -2050,7 +2050,7 @@ def test_a_decorator_that_is_not_a_bare_name_is_refused(
         tmp_path: pathlib.Path, decorator: str) -> None:
     """The reader matches markers by name in the AST. An attribute form
     still works through the import, so every AST check would skip it
-    (huggorm#140)."""
+    (nixidae/nixidae#712)."""
     from huggorm_dsl.read import DeclarationError, read
 
     source = (
@@ -2087,7 +2087,7 @@ class Store:
 def test_an_optional_container_return_is_refused(
         tmp_path: pathlib.Path, returns: str) -> None:
     """Nothing converts the payload of an optional, so nanobind would
-    hand Python a set where the declaration says list (huggorm#139)."""
+    hand Python a set where the declaration says list (nixidae/nixidae#711)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
@@ -2122,8 +2122,8 @@ class Store:
 def test_an_absent_container_parameter_is_an_empty_one(
         tmp_path: pathlib.Path, param: str, held: str) -> None:
     """nanobind's container casters refuse None, so the binding takes
-    an optional and opens it to an empty container (huggorm#104,
-    huggorm#139)."""
+    an optional and opens it to an empty container (nixidae/nixidae#641,
+    nixidae/nixidae#711)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
@@ -2178,14 +2178,14 @@ def _set_param(tmp_path: pathlib.Path, param: str) -> str:
 def test_an_absent_list_over_a_set_converts_what_it_opens(
         tmp_path: pathlib.Path) -> None:
     """The binding opens the optional to a vector, and `as_set` takes
-    that vector (huggorm#139)."""
+    that vector (nixidae/nixidae#711)."""
     emitted = _set_param(tmp_path, "list[StorePath] | None = None")
     assert "as_set<nix::StorePathSet>(paths)" in emitted, emitted
 
 
 def test_an_optional_list_over_a_set_is_refused(
         tmp_path: pathlib.Path) -> None:
-    """`as_set` converts a vector, not an optional one (huggorm#139)."""
+    """`as_set` converts a vector, not an optional one (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=r"'paths' is a .* has no conversion"):
         _set_param(tmp_path, "list[StorePath] | None")
 
@@ -2251,7 +2251,7 @@ def _vocabulary(tmp_path: pathlib.Path, declared: str) -> str:
 def test_a_vocabulary_converts_with_no_body(tmp_path: pathlib.Path) -> None:
     """Bound by pointer, each of these took or answered the C++ enum,
     which no Python value converts to: a call that raises
-    (huggorm#139)."""
+    (nixidae/nixidae#711)."""
     emitted = _vocabulary(tmp_path, SCALAR_WORDS)
     for line in ("const auto algo = nix::parseHashAlgo(algo_);",
                  "algo = nix::parseHashAlgo(*algo_);",
@@ -2289,7 +2289,7 @@ def test_a_vocabulary_crosses_with_the_string_caster(
 def test_a_vocabulary_nothing_converts_is_refused(
         tmp_path: pathlib.Path, declared: str, what: str) -> None:
     """A container of them has no conversion line, and a free function
-    with no body is bound by name (huggorm#139)."""
+    with no body is bound by name (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=f"{re.escape(what)} .* nothing "
                                         f"converts here"):
         _vocabulary(tmp_path, declared)
@@ -2324,7 +2324,7 @@ class Store:
 def test_a_container_of_handles_is_refused(
         tmp_path: pathlib.Path, method: str, what: str) -> None:
     """`via` unwraps one handle and the return wraps one. A container
-    of them has neither (huggorm#139)."""
+    of them has neither (nixidae/nixidae#711)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
@@ -2336,7 +2336,7 @@ def test_a_container_of_handles_is_refused(
 
 def test_a_container_of_errors_names_the_errors_module() -> None:
     """A body answering errors looks each class up by module, so a
-    list of them needs the module as much as one does (huggorm#139)."""
+    list of them needs the module as much as one does (nixidae/nixidae#711)."""
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
@@ -2381,7 +2381,7 @@ def _bytes(tmp_path: pathlib.Path, declared: str) -> str:
 def test_bytes_convert_with_no_body(tmp_path: pathlib.Path) -> None:
     """Bound by pointer, a string crossed as `str` where the
     declaration says `bytes`, and a `bytes` argument did not convert
-    to one (huggorm#139)."""
+    to one (nixidae/nixidae#711)."""
     emitted = _bytes(tmp_path, '''
     def read(self) -> Bytes:
         """Read."""
@@ -2408,6 +2408,6 @@ def test_bytes_convert_with_no_body(tmp_path: pathlib.Path) -> None:
      '    """Put."""\n', "put: bound by name")])
 def test_a_bytes_shape_nothing_converts_is_refused(
         tmp_path: pathlib.Path, declared: str, what: str) -> None:
-    """Refused, not bound as the C++ spells it (huggorm#139)."""
+    """Refused, not bound as the C++ spells it (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=re.escape(what)):
         _bytes(tmp_path, declared)

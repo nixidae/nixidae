@@ -178,7 +178,7 @@ def value(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
     if other is not None and other.decl.kind is DeclKind.ERROR:
         # A live Python EXCEPTION, handed over rather than raised. A
         # BuildResult's failure arm is a nix::BuildError, and reading
-        # a failed result is not an exception (huggorm#71) - so what
+        # a failed result is not an exception (nixidae/nixidae#608) - so what
         # crosses is the object.
         #
         # `nb::object` whether or not the declaration wrote `| None`,

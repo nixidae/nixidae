@@ -1,5 +1,5 @@
 """
-The real nix::Store (huggorm#15).
+The real nix::Store (nixidae/nixidae#552).
 
 Abstract in C++ and chosen by a URI, so the binding is built through
 openStore rather than a constructor. "dummy://" is in-memory and needs
@@ -232,7 +232,7 @@ def chroot(tmp_path: pathlib.Path) -> Store:
 
     It needs no daemon and no /nix/var, so it runs in a build sandbox
     - which is what moved store-writing tests back INSIDE the build
-    rather than out of it (huggorm#37)."""
+    rather than out of it (nixidae/nixidae#574)."""
     return Store(str(tmp_path))
 
 
@@ -429,13 +429,13 @@ def test_a_store_answers_for_a_path_it_holds(
     # None: an added path gets no registration time stamped on it.
     # Upstream keeps a time_t and spells "unknown" as 0, which is
     # also a real Unix time - so the binding reads that as None and
-    # the two answers stop sharing a spelling (huggorm#56). The live
+    # the two answers stop sharing a spelling (nixidae/nixidae#593). The live
     # test below is where a real time shows up.
     assert info.registration_time() is None
 
     # The store directory this object belongs to. On the wire because
     # nix::UnkeyedValidPathInfo cannot be built without one, and a
-    # PathInfo has to rebuild on the far side (huggorm#56).
+    # PathInfo has to rebuild on the far side (nixidae/nixidae#593).
     #
     # `/nix/store`, NOT the chroot. A chroot store keeps the LOGICAL
     # store directory - the prefix baked into every path it holds -
@@ -593,7 +593,7 @@ def test_a_path_no_cache_has_is_not_substitutable(chroot: Store) -> None:
 
     Marked `live` for exactly that: a build sandbox has no network,
     and a test that reaches three caches is not one the hermetic half
-    can run (huggorm#37).
+    can run (nixidae/nixidae#574).
 
     What it pins is the distinction worth having: a path this store
     already HOLDS is still not substitutable, because the question was
@@ -616,7 +616,7 @@ def test_a_path_is_kept_from_the_collector_while_the_store_is_open(
 
     This does not prove the root holds against a collector - that
     needs a GC run and a second process, which is the `live` half
-    (huggorm#37). What it does prove is that the calls reach libstore
+    (nixidae/nixidae#574). What it does prove is that the calls reach libstore
     and that neither disturbs the store, which is what a caller
     reading the docstring would expect.
 
@@ -914,7 +914,7 @@ def test_a_store_hands_back_every_path_it_holds(chroot: Store) -> None:
     printed and parsed back, and the order is the set's own.
 
     Until a store could be WRITTEN to, this needed the live system
-    (huggorm#37). It does not any more."""
+    (nixidae/nixidae#574). It does not any more."""
     names = ["alpha", "beta", "gamma"]
     for name in names:
         chroot.add_to_store(name, name.encode(), CA.TEXT, HashAlgorithm.SHA256)
@@ -1058,7 +1058,7 @@ def test_a_built_path_names_what_built_it(ambient_store: Store) -> None:
     # None, not 0, when the store does not know. Upstream keeps a
     # time_t and spells "unknown" as 0 - which is also a real Unix
     # time - so the binding answers None and the test says which it
-    # expects (huggorm#56).
+    # expects (nixidae/nixidae#593).
     stamped = info.registration_time()
     assert stamped is not None and stamped > 0, "a real store stamps a time"
 
@@ -1069,7 +1069,7 @@ def test_a_built_path_names_what_built_it(ambient_store: Store) -> None:
     # Input-addressed: named after the derivation that made it, not
     # after its own bytes, so there is nothing to address by. None
     # rather than "", which is the distinction the wire can now carry
-    # (huggorm#48).
+    # (nixidae/nixidae#585).
     assert info.ca() is None
 
     # The field that makes a store path a graph. A Python installation
@@ -1177,7 +1177,7 @@ async def test_an_optional_path_is_twinned_too(tmp_path: pathlib.Path) -> None:
 
     The twin was looked up by the return's whole spelling, so only a
     bare `pathlib.Path` matched and every `| None` accessor handed
-    back a plain pathlib.Path (huggorm#118)."""
+    back a plain pathlib.Path (nixidae/nixidae#684)."""
     import anyio
 
     from huggorm_generated import AsyncStore
@@ -1409,7 +1409,7 @@ def test_building_what_is_already_there_does_nothing(chroot: Store) -> None:
     is not nothing: it proves the union crosses, the call reaches
     libstore, and the no-op really is one.
 
-    Building a derivation belongs to the `live` half (huggorm#37),
+    Building a derivation belongs to the `live` half (nixidae/nixidae#574),
     because it needs a real builder."""
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
     before = set(chroot.query_all_valid_paths())
@@ -1467,7 +1467,7 @@ def test_a_map_return_is_a_dict(chroot: Store) -> None:
     other, which is worse than testing less.
 
     The non-empty map of DECLARED values needs a real .drv and
-    belongs to the `live` half (huggorm#37). The non-empty half of the
+    belongs to the `live` half (nixidae/nixidae#574). The non-empty half of the
     MECHANISM is covered already: `gc_stats` is the same `std::map`
     crossing, with int values."""
     held = chroot.add_to_store("notadrv", b"x", CA.NAR, HashAlgorithm.SHA256)
@@ -1528,7 +1528,7 @@ def test_a_build_mode_reaches_libstore_as_the_enum(chroot: Store) -> None:
     observably different here, and one is enough - a binding that
     dropped the mode would make `repair` a no-op too.
 
-    Checking a real derivation is the `live` half (huggorm#37),
+    Checking a real derivation is the `live` half (nixidae/nixidae#574),
     because it needs a builder to run twice."""
     held = chroot.add_to_store("moded", b"x", CA.NAR, HashAlgorithm.SHA256)
     before = set(chroot.query_all_valid_paths())
@@ -1622,7 +1622,7 @@ def test_a_union_nested_past_the_limit_is_refused_by_name() -> None:
 def test_a_unit_arm_of_a_union_crosses_as_itself(arm: Any) -> None:
     """An arm with no fields still names itself on the wire: a union
     crosses as its arm index and the arm's parts, and a unit arm's
-    parts are empty (huggorm#55)."""
+    parts are empty (nixidae/nixidae#592)."""
     from conftest import across
 
     from huggorm_generated._callspec import Wire, WireKind
@@ -1802,7 +1802,7 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
                      # that rounded to seconds would be caught here.
                      # Microseconds all the way through is what makes
                      # this exact, and 7 of them is under any coarser
-                     # unit (huggorm#71).
+                     # unit (nixidae/nixidae#608).
                      datetime.timedelta(seconds=1, microseconds=250),
                      datetime.timedelta(microseconds=7)),
             [_failed_result()._parts()]),
@@ -1990,7 +1990,7 @@ def test_every_wire_value_survives_its_own_round_trip(
     compiles and zero-initialises it in silence.
 
     So the round trip stops being true by construction and has to be
-    proven. This is where (huggorm#56).
+    proven. This is where (nixidae/nixidae#593).
 
     TWO cases per type, not one, and the second is the one that
     works. A single sample proves nothing about a part that happens to
@@ -2042,7 +2042,7 @@ def test_every_wire_value_survives_its_own_round_trip(
         assert type(built)._from_parts(*cases[0]) == built, (
             f"{name} rebuilt unequal to the original")
         # Equal values hash equal, and a list or dict part must not make
-        # the hash raise (huggorm#138: `Input` and `InputDrvNode` did).
+        # the hash raise (nixidae/nixidae#710: `Input` and `InputDrvNode` did).
         assert hash(type(built)._from_parts(*cases[0])) == hash(built), (
             f"{name} rebuilt with a different hash")
 
@@ -2067,7 +2067,7 @@ def test_a_duration_crosses_as_whole_microseconds() -> None:
     surface needs no code of ours; the wire carries an int and the
     codec rebuilds the timedelta. Both are microseconds, which is the
     finest unit a timedelta holds - so nothing rounds, in either
-    direction (huggorm#71).
+    direction (nixidae/nixidae#608).
 
     The round-trip gate above proves the C++ boundary and cannot see
     this one: it never builds a message. This one reads the field.
@@ -2121,7 +2121,7 @@ def test_a_real_store_object_survives_its_own_round_trip(
     parts tuple, so for every state a chroot store cannot produce -
     a deriver, a registration time, a signature - it proves the PARSE
     and not the render. Nothing had ever rendered those off an object
-    a store actually made (huggorm#56).
+    a store actually made (nixidae/nixidae#593).
 
     This does. `sys.prefix` is a path something BUILT, so the store's
     own answer carries what an added path does not, and the round trip
@@ -2171,7 +2171,7 @@ def test_gc_options_take_every_default_from_upstream() -> None:
     It reads back as None too. That number is a SENTINEL meaning "do
     not stop" rather than a size, so None is what it means on both
     sides - and it is also the only spelling that crosses the wire
-    (huggorm#79)."""
+    (nixidae/nixidae#616)."""
     options = GCOptions()
     assert options.action() == GCAction.DELETE_DEAD
     assert options.ignore_liveness() is False
@@ -2405,7 +2405,7 @@ def test_asking_a_real_store_what_is_dead_deletes_nothing(
     by the run's own temp root until the interpreter exits - and the
     only call that would free bytes is one a test must never make
     against a developer's store. So the deleting arm is unproven on
-    purpose, and huggorm#37 holds the question of what a live test
+    purpose, and nixidae/nixidae#574 holds the question of what a live test
     gets to assume.
 
     The answer may legitimately be EMPTY, on a machine collected a
@@ -2444,7 +2444,7 @@ def test_the_default_max_freed_crosses_the_wire() -> None:
 
     `nar_size` never reached this. A real NAR size stays under 2**63,
     so the width has been academic until now. The width question
-    itself is not answered here; huggorm#79 holds it."""
+    itself is not answered here; nixidae/nixidae#616 holds it."""
     from conftest import across, crossed, part
 
     from huggorm_generated._callspec import Wire, WireKind
@@ -2467,7 +2467,7 @@ def test_the_default_max_freed_crosses_the_wire() -> None:
 def test_a_limit_above_the_signed_range_crosses_as_itself() -> None:
     """The top half of a uint64_t survives a message.
 
-    This is the whole of huggorm#79, and it fails without it:
+    This is the whole of nixidae/nixidae#616, and it fails without it:
 
         ValueError: Value out of range: 9223372036854775809
 

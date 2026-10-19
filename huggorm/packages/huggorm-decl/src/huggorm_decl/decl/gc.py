@@ -14,7 +14,7 @@ caller BUILDS one and hands it down. That is a class rather than four
 keyword parameters on the method, because a struct that names a
 concept Python has no word for is a class - and flattening it would
 make this repo restate four defaults that upstream already states
-(huggorm#74).
+(nixidae/nixidae#611).
 """
 
 from huggorm_decl.decl.path import StorePath
@@ -190,7 +190,7 @@ if (max_freed)
         "unknown" as 0."""
         # Read back as the number, the default `GCOptions()` could not
         # cross a signed wire field: `ValueError: Value out of range:
-        # 18446744073709551615`. huggorm#79 holds the width question.
+        # 18446744073709551615`. nixidae/nixidae#616 holds the width question.
         Cxx("""
 if (self.maxFreed == std::numeric_limits<std::uint64_t>::max())
     return std::nullopt;

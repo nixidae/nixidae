@@ -17,8 +17,8 @@ call - so a declaration can name a C++ type this machine has never
 compiled, and no surface above the bindings waits on a compiler.
 
 This file is how to DRIVE the repo. `docs/quickstart.md` is how to USE
-the library. The [issues](https://github.com/nixidae/huggorm/issues) are what the design is and why: each
-one is a decision with the alternatives it rejected, and #106 is the
+the library. The [issues](https://github.com/nixidae/nixidae/issues?q=label%3A%22source%3A%20huggorm%22) are what the design is and why: each
+one is a decision with the alternatives it rejected, and nixidae/nixidae#643 is the
 board they grew from.
 
 ## Commands
@@ -293,7 +293,7 @@ declaration could not derive is one nobody has to go looking for.
 
 ## Where to start reading
 
-For the DESIGN: #106, then the newest [issues](https://github.com/nixidae/huggorm/issues) - they are the
+For the DESIGN: nixidae/nixidae#643, then the newest [issues](https://github.com/nixidae/nixidae/issues?q=label%3A%22source%3A%20huggorm%22) - they are the
 current thinking, and the older ones record how it got there.
 
 For the CODE: `packages/huggorm-decl/src/huggorm_decl/decl/path.py`, then

@@ -42,13 +42,13 @@ def collection(model: ir.Model) -> list[str]:
     adopts one, the server puts one handle, the client builds one
     proxy. None walks a container, so `dict[str, Value]` builds and
     then hands back bare sync objects. A collection of remote objects
-    is a value TREE, which is protocol (huggorm#30)."""
+    is a value TREE, which is protocol (nixidae/nixidae#567)."""
     wrapped = {n for n, c in model.classes.items() if c.wrapped}
     return [
         f"{c.name}.{m.name} returns {m.return_spelling}, a collection "
         f"holding {m.returns.name}. Nothing attaches a runner to the "
         f"elements of a container. Return the container's owner and let "
-        f"the caller walk it, or realize it as a value tree (huggorm#30)."
+        f"the caller walk it, or realize it as a value tree (nixidae/nixidae#567)."
         for c in model.classes.values() for m in c.methods
         if m.returns is not None and m.returns.name in wrapped
         and m.returns.required.origin
@@ -62,7 +62,7 @@ def affine_from_pool(model: ir.Model) -> list[str]:
     object's methods run on any pool thread, so it would be born on a
     thread nothing owns. Every pool class is checked, so a chain is
     covered too: any path from pool to affine has one such edge
-    (huggorm#8)."""
+    (nixidae/nixidae#545)."""
     return [
         f"{c.name}.{m.name} returns {m.return_spelling}, which is affine, "
         f"from a pool class: it would live on a thread nothing owns. "
@@ -139,7 +139,7 @@ def _field(model: ir.Model, owner: str, f: ir.FieldModel) -> list[str]:
     if f.type.leaf.kind in (ir.Kind.PROXY, ir.Kind.CLIENT):
         # A wire-value is rebuilt on the far side by _from_parts, which
         # needs a local object for every part, and a proxy has none
-        # there (huggorm#31).
+        # there (nixidae/nixidae#568).
         return [f"{where}: {f.type.leaf.name} is a proxy, so _from_parts has "
                 f"nothing to rebuild it from on the far side. A wire-value "
                 f"copies all the way down. Carry the proxy as a method "

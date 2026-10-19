@@ -61,9 +61,9 @@ class Warm(Evaluator):
     file by its mtime and size. A file that changed, and a file cached
     with no stamp, make it forget the whole cache. Not only the file: an
     importer does not notice its import changing, and the cache holds no
-    edge between the two (huggorm#83). A failed evaluation stamps
+    edge between the two (nixidae/nixidae#620). A failed evaluation stamps
     nothing, so what it cached is forgotten next time, and a fixed file
-    is read again rather than answering with the old error (huggorm#87).
+    is read again rather than answering with the old error (nixidae/nixidae#624).
     """
 
     def __init__(self, store: str) -> None:
@@ -199,7 +199,7 @@ def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
         # Nix starts the collector with a 384 MiB heap, so it would not
         # collect for hundreds of evaluations and the process would grow
         # to that size. A collection after each evaluation takes 0.5 ms
-        # and keeps the process flat (havsorm#2).
+        # and keeps the process flat (nixidae/nixidae#752).
         if huggorm_bindings.boehm_gc():
             huggorm_bindings.collect_garbage()
 

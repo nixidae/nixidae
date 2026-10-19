@@ -9,13 +9,13 @@ log line and run arbitrary Python inside the evaluator; `push` takes a
 mutex and returns. So these tests drain, they never wait.
 
 Two things every gate here has to keep in mind, both measured against
-`logging.hh` and recorded in huggorm#32:
+`logging.hh` and recorded in nixidae/nixidae#569:
 
 - `nix::verbosity` rises to the widest level any live subscription
   asks for and falls back when one ends, so a subscription level can
   WIDEN as well as narrow, and the tap is the only filter
-  (huggorm#89 step 4, huggorm#96). It is not pinned - this said so
-  until huggorm#95 measured what a pin costs the daemon;
+  (nixidae/nixidae#626 step 4, nixidae/nixidae#633). It is not pinned - this said so
+  until nixidae/nixidae#632 measured what a pin costs the daemon;
 - an ACTIVITY is not filtered at all. `Activity::Activity` calls
   `startActivity` with no test, so a start arrives whatever its level
   says.
@@ -141,7 +141,7 @@ def test_a_plain_message_carries_no_error_info(
 
 
 def test_the_level_refuses_what_it_did_not_ask_for(state: Any) -> None:
-    """A subscription narrows, and since huggorm#89 it can widen too.
+    """A subscription narrows, and since nixidae/nixidae#626 it can widen too.
 
     Level 0 is lvlError, which the trace is. The warning is lvlWarn,
     which is 1, so it does not arrive. Both were RAISED - the TAP is
@@ -286,7 +286,7 @@ def test_a_subscription_belongs_to_the_thread_not_the_state(state: Any) -> None:
     a caller holding the sync binding directly can, and is on their
     own - which is exactly the line drawn in `EvalState`'s docstring.
     So this stays, and it documents the SYNC surface rather than
-    reporting a gap in the design (huggorm#85 gap 2)."""
+    reporting a gap in the design (nixidae/nixidae#622 gap 2)."""
     from huggorm_bindings import EvalState, Store
 
     other = EvalState(Store(URI))
@@ -335,7 +335,7 @@ def test_a_message_in_no_encoding_fails_text_and_reads_as_bytes(
     `builtins.trace` of bytes Nix read from a file evaluates fine:
     the record holds what `printError` was given. Reading it as text
     fails - strict UTF-8, byte 0xff - and `text_bytes` answers the
-    bytes, prefix and all. nanopynix#312.
+    bytes, prefix and all. nixidae/nixidae#664.
     """
     from huggorm_bindings import EvalState, Store
 
@@ -451,7 +451,7 @@ def process_sink() -> Iterator[Any]:
 
 def test_an_unclaimed_record_reaches_the_process_sink(
         state: Any, process_sink: Any) -> None:
-    """The gap huggorm#85 named, closed.
+    """The gap nixidae/nixidae#622 named, closed.
 
     This thread subscribed to NOTHING, so before the sink existed the
     record reached nobody. `route` falls back now.
@@ -478,7 +478,7 @@ def test_a_subscribed_thread_claims_its_own_records(
     So "everything in this process" is NOT what the process sink
     answers - it answers what nobody claimed. Fan-out over one
     subscription is the shape that answers the other question, and it
-    is huggorm#85's third gap.
+    is nixidae/nixidae#622's third gap.
 
     Both halves, because either alone passes for the wrong reason: a
     `route` that dropped the record entirely would pass the second
@@ -616,7 +616,7 @@ async def test_a_remote_subscribe_silences_no_stream(client: Any) -> None:
     The binding REPLACES a thread's subscription. Called straight
     through, a remote `subscribe_logs` would leave an open
     `Session/Logs` stream on the same state connected and silent, and
-    a remote `unsubscribe_logs` would end it (huggorm#85). Both rpcs
+    a remote `unsubscribe_logs` would end it (nixidae/nixidae#622). Both rpcs
     go through the state's fan-out instead, so the stream hears every
     record before, between and after them."""
     state = await client.acquire(
@@ -681,7 +681,7 @@ async def test_the_loop_drains_while_the_evaluator_works() -> None:
 # the rpc over it: the one thing in this schema that travels the other
 # way, unsolicited, and the only server-streaming method here.
 #
-# It is HAND-WRITTEN, beside Session, and huggorm#32 says why: every
+# It is HAND-WRITTEN, beside Session, and nixidae/nixidae#569 says why: every
 # other rpc is the wire form of a declared method, and this is the wire
 # form of no method at all. The generator stays unaware of it.
 
@@ -811,7 +811,7 @@ async def test_a_drop_crosses_rather_than_vanishing(client: Any) -> None:
     still what the bound says.
 
     It counts MESSAGES, not records. A `"finalized"` marker rides the
-    same stream and is never dropped (huggorm#89), so the batch holds
+    same stream and is never dropped (nixidae/nixidae#626), so the batch holds
     the surviving message and the marker for the call that raised
     it."""
     nest = "1"
@@ -843,7 +843,7 @@ async def test_two_readers_on_one_state_both_see_it(client: Any) -> None:
 
     Carl named the reader that made the refusal wrong: a CLI wants a
     global listener printing as things happen, while a client watches
-    one evaluation. Neither should silence the other (huggorm#85).
+    one evaluation. Neither should silence the other (nixidae/nixidae#622).
 
     Drop the fan-out and this fails at the second `opened`, with the
     refusal it used to assert."""
@@ -928,7 +928,7 @@ async def opened_process(client: Any, **kw: Any) -> Any:
 
 async def test_an_unclaimed_record_reaches_a_remote_client(
         client: Any) -> None:
-    """The gap huggorm#85 named, over the wire.
+    """The gap nixidae/nixidae#622 named, over the wire.
 
     The state is acquired and NEVER given a `logs` stream, so its
     thread subscribes to nothing and the records fall through to the
@@ -1043,7 +1043,7 @@ async def test_a_closed_stream_gives_the_state_back(client: Any) -> None:
     discards the reader before it takes the lock, on the argument
     that a cancelled task cannot await - the same argument the
     handler used to make about its `pop`, and two perturbations in
-    huggorm#32 refuted it there. A defence nothing tests is worth
+    nixidae/nixidae#569 refuted it there. A defence nothing tests is worth
     saying out loud."""
     state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
     first = await opened(client, state)
@@ -1067,7 +1067,7 @@ async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
     """A stream that lost its connection SAYS so.
 
     Transports never report death, so the sweeper is what notices a
-    silent connection and releases what it held (huggorm#2). A log
+    silent connection and releases what it held (nixidae/nixidae#539). A log
     stream outlives one poll of that, and a stream that simply stopped
     would be indistinguishable from a quiet evaluation - this repo's
     named failure mode, spelled as an absence of messages.
@@ -1096,7 +1096,7 @@ async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
 #
 # `install_log_tap` teed until now, so a subscriber got the record
 # TWICE: once in its queue, once on descriptor 2 from the logger nix
-# installed at static init. huggorm#14 wants this protocol to run
+# installed at static init. nixidae/nixidae#551 wants this protocol to run
 # over stdin/stdout, and a library that writes the transport is not
 # usable there.
 #
@@ -1149,7 +1149,7 @@ def test_a_subscriber_takes_the_message_off_stderr(
 
 # ---- the call a record was raised inside ---------------------------
 #
-# huggorm#89 step 3. A record carries the CALL, and a "finalized"
+# nixidae/nixidae#626 step 3. A record carries the CALL, and a "finalized"
 # record says that call raised its last one. An id alone would let a
 # reader group records and never let it know a group was closed.
 #
@@ -1220,7 +1220,7 @@ def test_a_record_outside_a_wrapped_call_carries_zero(
     """Zero is an answer, and it is reachable.
 
     The sync binding is called straight from this thread, so no
-    `begin_request` ever runs and nothing names a call. huggorm#89
+    `begin_request` ever runs and nothing names a call. nixidae/nixidae#626
     first wrote that this could not be driven from Python, which was
     wrong: the async wrapper is the only thing that sets the id, and
     the sync one is right here.
@@ -1272,15 +1272,15 @@ async def test_the_marker_survives_a_queue_full_of_messages() -> None:
 
 # ---- the level is the thread's, and it can widen --------------------
 #
-# huggorm#89 step 4. `nix::verbosity` rises to the widest level any
+# nixidae/nixidae#626 step 4. `nix::verbosity` rises to the widest level any
 # live subscription asks for, so nix's own macro produces what a
 # caller wants, and `effective_verbosity` decides who KEEPS it - per
 # THREAD, so one caller asking for more does not flood every other
-# logger in the process. huggorm#96 is the other half: the global
+# logger in the process. nixidae/nixidae#633 is the other half: the global
 # comes back down when the asking ends.
 #
 # It is NOT pinned wide open at import, which this said until
-# huggorm#95 measured what a pin costs the daemon.
+# nixidae/nixidae#632 measured what a pin costs the daemon.
 #
 # Before this, `subscribe_logs(level=...)` could only NARROW: the
 # global filtered first at lvlInfo, so asking for 4 got nothing that
@@ -1361,7 +1361,7 @@ def test_unsubscribing_puts_the_level_back(
     """A level belongs to a subscription, not to the thread forever.
 
     This is why the level is per thread rather than the global
-    huggorm#89 refused to raise. Both subscriptions run on this one
+    nixidae/nixidae#626 refused to raise. Both subscriptions run on this one
     test thread, so what it checks is that the loud one RESTORES
     rather than leaves its number behind."""
     where = evaluated(tmp_path)
@@ -1419,7 +1419,7 @@ def test_nothing_asks_nix_for_everything(state: Any,
     it. This gate is the substitute: nothing may leave the daemon
     level at vomit.
 
-    It is ORDER-INDEPENDENT (huggorm#96): a test that asks for 7
+    It is ORDER-INDEPENDENT (nixidae/nixidae#633): a test that asks for 7
     and then unsubscribes gives the level back. What fails it is a
     test that asks for 7 and STAYS subscribed, which makes the cost
     visible at the moment somebody takes it.
@@ -1466,7 +1466,7 @@ def test_the_ceiling_is_pinned_at_import(state: Any) -> None:
     """`nix::verbosity` is written once, at import, and never again.
 
     `printMsg` reads it on every thread, so a later write races with
-    every one of them (huggorm#102). No subscription moves it, however
+    every one of them (nixidae/nixidae#639). No subscription moves it, however
     wide it asks.
 
     Perturbation: write `nix::verbosity` in `VerbosityDemand::reconcile`
@@ -1547,7 +1547,7 @@ def test_the_gate_goes_back_down_when_a_subscription_ends(
         state: Any) -> None:
     """The other half of the gate above, and it was missing.
 
-    huggorm#95 measured the cost of never lowering the daemon level:
+    nixidae/nixidae#632 measured the cost of never lowering the daemon level:
     a process that subscribed once went on printing the daemon's
     debug lines on an unsubscribed caller's stderr for the rest of
     its life.
@@ -1556,7 +1556,7 @@ def test_the_gate_goes_back_down_when_a_subscription_ends(
     `ThreadLevel::release` and this fails, along with the gate
     below.
 
-    lvlInfo is the floor, and Carl's choice (huggorm#102)."""
+    lvlInfo is the floor, and Carl's choice (nixidae/nixidae#639)."""
     from huggorm_bindings import daemon_verbosity
 
     state.subscribe_logs(level=TALKATIVE)
@@ -1690,7 +1690,7 @@ def test_the_current_request_is_the_one_begun() -> None:
 def test_a_daemon_told_to_narrate_is_told_to_stop(
         private_daemon: str,
         capfd: pytest.CaptureFixture[str]) -> None:
-    """The defect huggorm#95 found, as a gate.
+    """The defect nixidae/nixidae#632 found, as a gate.
 
     The chain, and no gate above it can stand in for this one:
     a subscription raises `nix::verbosity`; `setOptions` sends that
@@ -1706,7 +1706,7 @@ def test_a_daemon_told_to_narrate_is_told_to_stop(
     this, which is exactly how the pin regression got as far as it
     did. The daemon is the test's own: the machine's may be a proxy
     that drops the narration, and then the check below passes with
-    nothing to see (huggorm#160).
+    nothing to see (nixidae/nixidae#748).
 
     `capfd`, not `capsys`: the write is a C++ `writeToStderr` on
     descriptor 2, and `capsys` only replaces Python's objects.
@@ -1721,7 +1721,7 @@ def test_a_daemon_told_to_narrate_is_told_to_stop(
 
     # AFTER the cycle, because `setOptions` runs once at handshake.
     # A connection opened while the level was up keeps it, and that
-    # is the one thing lowering cannot reach (huggorm#96).
+    # is the one thing lowering cannot reach (nixidae/nixidae#633).
     store = Store(private_daemon)
     # Every worker op narrates, so the path need not exist.
     held = store.parse_store_path("/nix/store/" + "a" * 32 + "-absent")
@@ -1733,7 +1733,7 @@ def test_a_daemon_told_to_narrate_is_told_to_stop(
 
     # The control. A connection opened while the level is up keeps it,
     # so this one narrates. Without it a Nix that rewords the line
-    # passes the assertion above and tests nothing (huggorm#160).
+    # passes the assertion above and tests nothing (nixidae/nixidae#748).
     loud = subscribe_process_logs(level=7)
     try:
         Store(private_daemon).is_valid_path(held)

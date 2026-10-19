@@ -157,7 +157,7 @@ class Codec:
         """`value` as msgpack-native data. `proxy_id` names a handle
         for a proxy, and is called for nothing else. `client_id` names
         an object the client keeps, and only a client that enables
-        callbacks passes one (huggorm#153)."""
+        callbacks passes one (nixidae/nixidae#738)."""
         if w is None or value is None:
             if w is not None and not (w.optional or w.kind in _CONTAINER):
                 raise TypeError(f"a {w.name or w.kind} is not optional")
@@ -187,7 +187,7 @@ class Codec:
                 if client_id is None:
                     raise TypeError(
                         f"a {w.name} crosses only from a client that enables "
-                        f"experimental callbacks (huggorm#153)")
+                        f"experimental callbacks (nixidae/nixidae#738)")
                 return client_id(w.name, value)
             case _:
                 assert_never(w.kind)
@@ -244,7 +244,7 @@ class Codec:
                 if client_obj is None:
                     raise TypeError(
                         f"a client sent a {w.name}, and this server does not "
-                        f"enable experimental callbacks (huggorm#153): start "
+                        f"enable experimental callbacks (nixidae/nixidae#738): start "
                         f"it with --experimental-callbacks")
                 return client_obj(w.name, raw)
             case _:

@@ -2,7 +2,7 @@
 
 The second of the two front doors, and the one that had a reason to
 wait. `cppgen/pyinit.py` writes the bindings' own; this writes the
-one a caller actually types `import huggorm` for (huggorm#64).
+one a caller actually types `import huggorm` for (nixidae/nixidae#601).
 
 Forty-odd `from huggorm_bindings import Hash as Hash` lines that had
 to follow every declaration in the repo, and a test that said so
@@ -129,17 +129,17 @@ The same store, spelled two ways.
   a thread, so an event loop keeps running. `async with connect() as
   client:` hands out the same classes, running on another process's
   store. A CONTEXT MANAGER, because the client pings in the
-  background and the scope is what stops the loop (huggorm#35).
+  background and the scope is what stops the loop (nixidae/nixidae#572).
 
 So code written against `AsyncStore` runs in either place.
 
 ## What is NOT here
 
 Nothing, now. The `Mock*` classes were the last exception and they are
-gone (huggorm#60). Every name the two packages behind this one export
+gone (nixidae/nixidae#597). Every name the two packages behind this one export
 reaches this front door - and it is derived from them now rather than
 listed by hand, so a new binding arrives here without anyone
-noticing (huggorm#64).
+noticing (nixidae/nixidae#601).
 '''
 
 

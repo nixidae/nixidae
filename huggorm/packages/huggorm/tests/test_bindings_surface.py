@@ -50,7 +50,7 @@ def test_wrapping_and_wire_policy_are_separate_axes() -> None:
     is wrapped when it needs a home thread (affine) or its methods can
     block. StorePath and PathInfo are pool and declare
     `_blocking = False`, so they cross every layer as themselves - no
-    await in front of a substring read (huggorm#25)."""
+    await in front of a substring read (nixidae/nixidae#562)."""
     import huggorm_generated as flg
     from huggorm_gen.cppgen.generate import declared_model
 
@@ -108,7 +108,7 @@ def test_stubs(out: pathlib.Path) -> None:
     failures = []
     checked = 0
     # Every stub's classes, because a base may be declared in another
-    # module: `LayeredStore(Store)` (huggorm#149). Names are unique.
+    # module: `LayeredStore(Store)` (nixidae/nixidae#732). Names are unique.
     everywhere: dict[str, ast.ClassDef] = {
         node.name: node
         for pyi in stub_dir.glob("*.pyi")
@@ -331,7 +331,7 @@ def _same(spelling: str) -> str:
     one, because the only duration parameters are `_from_parts`'s and
     an `_`-prefixed name reaches no stub. A collapse of the input
     spelling was written here, passed, and was removed when taking it
-    out changed nothing (huggorm#71)."""
+    out changed nothing (nixidae/nixidae#608)."""
     from huggorm_gen.payload._wiretypes import python_spelling
 
     out = re.sub(r"huggorm_bindings\.\w+\.", "", spelling)

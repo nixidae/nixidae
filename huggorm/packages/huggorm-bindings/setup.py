@@ -25,9 +25,9 @@ PACKAGE = os.path.join(HERE, "huggorm_bindings")
 #
 # HUGGORM_BINDINGS_EMITTED names a tree the emitter already wrote. The
 # emitter needs Python 3.14, so a wheel for 3.10 to 3.13 compiles the
-# tree a 3.14 run wrote (huggorm#107). The Nix build compiles its
+# tree a 3.14 run wrote (nixidae/nixidae#658). The Nix build compiles its
 # lane's `bindings-src` the same way, so the emitter runs once per lane
-# (huggorm#145). Its module list is the `.cpp`
+# (nixidae/nixidae#717). Its module list is the `.cpp`
 # files in it, one per module, which is what the emitter writes. The
 # imports stay inside the branch: the generator cannot import there.
 EMITTED = os.environ.get("HUGGORM_BINDINGS_EMITTED")
@@ -57,7 +57,7 @@ def pkg_config(*packages: str) -> dict[str, list[str]]:
     Nix ships nix-store.pc, nix-expr.pc and friends, which carry
     -std=c++23, a Requires chain into nix-util and nlohmann_json, and
     a private link line nobody should be reconstructing by hand
-    (huggorm#15)."""
+    (nixidae/nixidae#552)."""
     def run(flag: str) -> list[str]:
         out = subprocess.run(["pkg-config", flag, *packages],
                              capture_output=True, text=True, check=True)
@@ -85,12 +85,12 @@ def pkg_config(*packages: str) -> dict[str, list[str]]:
 # sits above nix-expr, so nix-expr's chain does not bring it; the
 # chain does bring nix-fetchers. pkg-config resolves the Requires
 # chain, so nix-util and nlohmann_json arrive without being named
-# (huggorm#15).
+# (nixidae/nixidae#552).
 #
 # One line for both, not one per module. There used to be a LIBRARY
 # table saying which of the two libraries each module linked, because
 # some of them linked a mock. There is one library now, so the table
-# said the same word nine times (huggorm#60).
+# said the same word nine times (nixidae/nixidae#597).
 _nix = pkg_config("nix-store", "nix-expr", "nix-flake", "nix-cmd")
 # ...plus huggorm-decl, for the headers a DECLARATION names. They
 # live with the declarations because that is where the hand-written
@@ -99,7 +99,7 @@ _nix = pkg_config("nix-store", "nix-expr", "nix-flake", "nix-cmd")
 #
 # ...and this directory, for the records headers the emitter writes:
 # `huggorm_bindings/path_records.hpp`, which `cpp/logging.hpp`
-# includes as well as the units do (huggorm#103).
+# includes as well as the units do (nixidae/nixidae#640).
 _nix["include_dirs"] = [DECL_INCLUDE, HERE] + _nix["include_dirs"]
 
 # Every module in the package, through nanobind.

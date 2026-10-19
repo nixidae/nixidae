@@ -1,4 +1,4 @@
-"""File trees Python serves to Nix (huggorm#152).
+"""File trees Python serves to Nix (nixidae/nixidae#737).
 
 A `SourceAccessor` subclass answers four hooks, and Nix reads the tree
 through them: `add_accessor_to_store` dumps it as a NAR, and
@@ -188,7 +188,7 @@ SOURCE: dict[str, Any] = {
 @pytest.mark.parametrize("pure", [False, True])
 def test_the_evaluator_reads_a_mounted_tree(pure: bool) -> None:
     """Path arithmetic and pure evaluation both reach the mount
-    (huggorm#153)."""
+    (nixidae/nixidae#738)."""
     from huggorm_bindings import EvalState
 
     store = dummy()

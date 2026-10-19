@@ -1781,7 +1781,7 @@ let
         };
       };
 
-    # The same questions under CRI-O. nixkube#74.
+    # The same questions under CRI-O. nixidae/nixidae#534.
     crio = mkTest {
       name = "crio";
       phases.test = {

@@ -32,7 +32,7 @@ class Stays:
 @dataclass(frozen=True, slots=True)
 class Items:
     """A list. `obj` is the node itself, which crosses as a handle
-    beside its items, so a caller can hand it back (huggorm#147)."""
+    beside its items, so a caller can hand it back (nixidae/nixidae#721)."""
 
     cls: str
     obj: Any

@@ -1,4 +1,4 @@
-"""The typed model every generator stage reads (huggorm#29).
+"""The typed model every generator stage reads (nixidae/nixidae#566).
 
 The reader hands back structured types: `read.Type` knows its origin,
 its arguments and its leaf. This module keeps that structure and adds
@@ -122,7 +122,7 @@ class TypeRef:
     kind: Kind
     name: str
     # The wire scalar a leaf's C++ width needs: "uint" for a uint64_t.
-    # Python has one int; only the crossing has two (huggorm#79).
+    # Python has one int; only the crossing has two (nixidae/nixidae#616).
     width: str = ""
     # How nanobind spells it by value, and the caster that needs.
     # Empty on a hand-built shape.
@@ -150,7 +150,7 @@ class TypeRef:
     def inner(self) -> TypeRef:
         """What this node wraps. Every walk that follows one argument
         comes through here, so a new `Origin` fails type-check here
-        rather than being skipped (huggorm#139)."""
+        rather than being skipped (nixidae/nixidae#711)."""
         match self.origin:
             case None:
                 raise TypeError(f"'{self.spelling}' wraps nothing")
@@ -229,7 +229,7 @@ NOT_DATA = (
     "registering one would make the evaluator call BACK over the "
     "socket, on its own evaluation thread, once per invocation - "
     "a distributed call in a hot loop. In-process only, by "
-    "decision rather than omission (huggorm#33).")
+    "decision rather than omission (nixidae/nixidae#570).")
 
 
 def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
@@ -254,7 +254,7 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
             # One lease per element, and nothing grants leases in bulk.
             return (f"{t.spelling}: a container of proxies would grant one "
                     f"lease per element, and nothing grants leases in bulk "
-                    f"(huggorm#31)")
+                    f"(nixidae/nixidae#568)")
         t = element
     if t.kind == Kind.OPAQUE:
         return NOT_DATA
@@ -321,14 +321,14 @@ def crossable(t: Type | None, where: str) -> None:
 
     A leaf carries its width to the schema and the codec. A container
     of one does not: the width reaches the reader on the container,
-    and naming the container `uint` would be wrong (huggorm#79)."""
+    and naming the container `uint` would be wrong (nixidae/nixidae#616)."""
     held = t.required if t is not None else None
     if held is not None and held.origin and held.leaf.cxx is not None \
             and held.leaf.cxx.width:
         raise TypeError(
             f"{where}: '{held.python}' holds a {held.leaf.cxx.spelling}, and "
             f"a container of a width has no wire spelling yet. See "
-            f"huggorm#79.")
+            f"nixidae/nixidae#616.")
 
 
 def _clean(text: str) -> str:
@@ -376,7 +376,7 @@ class ParamModel:
         declared = p.type
         # A container that defaults to None is the container: an absent
         # one IS an empty one, so every surface spells it `list[X]` or
-        # `dict[str, X]` (huggorm#104).
+        # `dict[str, X]` (nixidae/nixidae#641).
         if cxx.absent(p):
             declared = declared.required
         if not p.has_default:
@@ -479,7 +479,7 @@ def _unconverted(m: Method, where: str, resolver: Resolver, *,
     of them has no such line, and a bound name is called with what
     nanobind casts: the C++ type, not the declared one. The failure
     would be a compiler error or a call that raises, far from the
-    declaration (huggorm#139)."""
+    declaration (nixidae/nixidae#711)."""
     if m.cxx_body is not None:
         return
     for t, what in [*((p.type, f"parameter {p.name!r}") for p in m.params),
@@ -511,13 +511,13 @@ def _attribute(owner: Class, m: Method) -> TypeError:
       `_parts` does.
 
     So a binding that honoured the word alone would disagree with its
-    own stub and drop the value off the wire (huggorm#76)."""
+    own stub and drop the value off the wire (nixidae/nixidae#613)."""
     return TypeError(
         f"{owner.name}.{m.name}: @property makes this accessor an "
         f"ATTRIBUTE, and every reader of this class calls it - the "
         f"emitted `_parts`, the stub and the wire all spell "
         f"`obj.{m.name}()`. Drop the @property and declare a plain "
-        f"accessor, or teach all four (huggorm#76).")
+        f"accessor, or teach all four (nixidae/nixidae#613).")
 
 
 def _tagged(owner: Class, m: Method) -> Tagged | None:
@@ -1489,10 +1489,10 @@ class Model:
         """The async form of each `@blocks` method on a value: a free
         coroutine, `input_fingerprint(input, store)`.
 
-        A value has no wrapper (huggorm#17), so its methods run on the
+        A value has no wrapper (nixidae/nixidae#554), so its methods run on the
         caller's thread. That is right for a read and wrong for a call
         that waits, so a method that blocks gets the pool hop a free
-        function gets (huggorm#25)."""
+        function gets (nixidae/nixidae#562)."""
         out = []
         for c in self.classes.values():
             for m in c.methods:

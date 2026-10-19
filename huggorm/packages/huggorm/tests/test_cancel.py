@@ -3,7 +3,7 @@
 `cancel_request` marks a request cancelled, and the hook
 `begin_request` installs makes Nix's next `checkInterrupt` on that
 thread raise `Interrupted`. The async runtime calls it when the
-awaiting task is cancelled (huggorm#97).
+awaiting task is cancelled (nixidae/nixidae#634).
 
 The slow work is a Python primop that sleeps, reached once per list
 element, so how long the uncancelled work takes is a number here and
@@ -11,7 +11,7 @@ not a property of the machine. `builtins.toJSON` calls
 `checkInterrupt` once per element (`value-to-json.cc`).
 
 A pure evaluation stops too: `nix-call-function-checks-interrupt.patch`
-calls `checkInterrupt` once per function call (huggorm#158).
+calls `checkInterrupt` once per function call (nixidae/nixidae#744).
 """
 
 import threading
@@ -234,7 +234,7 @@ REMOTE_SLOW = ("builtins.stringLength (builtins.toJSON "
 
 
 async def test_a_dropped_remote_call_stops_its_work(client: Any) -> None:
-    """The rule Carl chose for huggorm#98: a client that drops a call
+    """The rule Carl chose for nixidae/nixidae#635: a client that drops a call
     stops the Nix work under it on the server, so the state's thread
     is free for the next call.
 

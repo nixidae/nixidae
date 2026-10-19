@@ -1,5 +1,5 @@
 """
-The real nix::Store (huggorm#15).
+The real nix::Store (nixidae/nixidae#552).
 
 Abstract in C++, and its implementation is chosen by a URI, so the
 binding is constructed through openStore rather than a constructor.
@@ -512,7 +512,7 @@ return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
     # still carries a std::string; what changes above it is that this
     # answer names a file on the store's machine, so it is a path a
     # caller there can open. Over RPC that is the server's machine,
-    # which a same-uid Unix socket makes the caller's (huggorm#148).
+    # which a same-uid Unix socket makes the caller's (nixidae/nixidae#722).
     @needs("nix/store/local-fs-store.hh")
     def real_path(self, path: StorePath) -> Path:
         """Where this store object's files really are.
@@ -529,7 +529,7 @@ return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
 
         The answer is for the machine the store runs on. In process
         that is here; over RPC it is the server's."""
-        # huggorm#40
+        # nixidae/nixidae#577
         Cxx("""
 auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
 if (fs == nullptr)
@@ -598,7 +598,7 @@ if (local == nullptr)
 return local->config->getBuildDir().string();
         """)
     # Nothing about PathInfo is here any more, and that is the whole
-    # of huggorm#56. It binds nix::ValidPathInfo, in `decl/pathinfo.py`
+    # of nixidae/nixidae#593. It binds nix::ValidPathInfo, in `decl/pathinfo.py`
     # beside the header it comes from, and this file IMPORTS it. What
     # is left is the call.
     #
@@ -752,7 +752,7 @@ if (!found)
 return nix::Realisation{*found, id};
         """)
     # The first method taking a UNION, and the reason the union
-    # mechanism exists (huggorm#59). A target is a path to fetch or
+    # mechanism exists (nixidae/nixidae#596). A target is a path to fetch or
     # outputs to build, and upstream says so with a std::variant.
     #
     # READ-ONLY, which is why this is the first consumer rather than
@@ -812,7 +812,7 @@ return nix::Realisation{*found, id};
 
     # `query_missing` says what building these WOULD do; this does it.
     # The pair is upstream's own, and it is why the union exists
-    # (huggorm#59): both take the same list, and only one of them
+    # (nixidae/nixidae#596): both take the same list, and only one of them
     # changes the store.
     @needs("huggorm_decl/cpp/build.hpp")
     def build_paths(self, targets: list[DerivedPath],
@@ -1343,7 +1343,7 @@ def open_store(uri: Str = "auto") -> Store:
     # This was three lines in `cpp/libstore.hpp` because a factory
     # had to be a NAMED C++ symbol. It does not any more, so the one
     # call lives beside the declaration that describes it
-    # (huggorm#63).
+    # (nixidae/nixidae#600).
     Cxx("return nix::openStore(uri);")
 
 

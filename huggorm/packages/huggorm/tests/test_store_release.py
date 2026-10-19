@@ -1,7 +1,7 @@
 """A closed evaluator lets its store go, after a path literal or an import.
 
 Both held their accessor - and through the store accessor mounted under
-it, the Store - for the life of the process (huggorm#128). A path literal
+it, the Store - for the life of the process (nixidae/nixidae#696). A path literal
 lives in an arena that runs no destructors, and the `ExprParseFile` an
 `import` allocates is a `gc` object, which runs none either. A caught
 error holds its position until a collection finalizes it. A daemon

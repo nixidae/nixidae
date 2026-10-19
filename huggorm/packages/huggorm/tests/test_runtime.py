@@ -78,7 +78,7 @@ async def test_a_pool_store_hands_back_a_store_path_itself(
         tmp_path: pathlib.Path) -> None:
     """StorePath is pool AND non-blocking, so it has no wrapper: an
     awaited store method hands back the binding object itself, and
-    reading it is a plain call (huggorm#25)."""
+    reading it is a plain call (nixidae/nixidae#562)."""
     from huggorm_bindings import ContentAddressMethod as CA
     from huggorm_bindings import HashAlgorithm, StorePath
     from huggorm_generated import AsyncStore
@@ -172,7 +172,7 @@ async def test_calls_on_one_thread_run_in_the_order_they_were_made(
         ) -> None:
     """A server runs the calls of one state in the order a client sent
     them. Building an argument, or the target itself, must not let a
-    later call go first (huggorm#155)."""
+    later call go first (nixidae/nixidae#740)."""
     from huggorm_generated import _runtime
 
     order: list[str] = []
@@ -204,7 +204,7 @@ async def test_calls_on_one_thread_run_in_the_order_they_were_made(
 def test_a_waiting_thread_runs_what_arrives_while_it_waits() -> None:
     """Work submitted while the thread waits runs on it, inside the
     wait. Work queued before the wait runs after the job that waits
-    (huggorm#155)."""
+    (nixidae/nixidae#740)."""
     import concurrent.futures
     import threading
 
@@ -250,7 +250,7 @@ def test_a_waiting_thread_runs_what_arrives_while_it_waits() -> None:
 def test_a_pool_thread_that_waits_does_not_count() -> None:
     """A one-thread pool whose thread waits for work it submits: the
     pool starts a thread for that work, and retires it after
-    (huggorm#155)."""
+    (nixidae/nixidae#740)."""
     import concurrent.futures
 
     from huggorm_generated import _runtime
@@ -283,7 +283,7 @@ def test_a_pool_thread_that_waits_does_not_count() -> None:
 async def test_a_worker_goes_on_while_a_posted_hook_waits() -> None:
     """The worker queues posted hooks up to the window while the loop
     runs the first, and its call ends only once all have run
-    (huggorm#155)."""
+    (nixidae/nixidae#740)."""
     from huggorm_generated import _runtime
 
     window = _runtime._POSTED_WINDOW
@@ -407,14 +407,14 @@ async def test_a_thunk_refuses_access_until_forced() -> None:
 
 async def test_an_error_arrives_as_itself_or_as_internal_error() -> None:
     """A nix::Error is DECLARED, so `except NixError` works here exactly
-    as against the sync binding (huggorm#66). Anything else carries no
+    as against the sync binding (nixidae/nixidae#603). Anything else carries no
     parts and arrives as an InternalError naming it."""
     from huggorm_generated import AsyncEvalState, AsyncStore
     from huggorm_generated._policy import ERROR_MODULE
     from huggorm_generated._runtime import InternalError
 
     # By its DERIVED name: the errors module is named after the
-    # declaration (huggorm#63).
+    # declaration (nixidae/nixidae#600).
     NixError = importlib.import_module(ERROR_MODULE).NixError
 
     state = AsyncEvalState(AsyncStore(URI))
@@ -533,7 +533,7 @@ async def test_closing_a_busy_affine_wrapper_leaves_the_loop_free() -> None:
     """`aclose` waits for the thread's queue to drain, and that wait
     must not hold the event loop: a server closes a dropped state while
     its thread still evaluates, and every other client waits on the
-    same loop (huggorm#143). A timer, not the loop, ends the work."""
+    same loop (nixidae/nixidae#715). A timer, not the loop, ends the work."""
     import threading
     import time
 

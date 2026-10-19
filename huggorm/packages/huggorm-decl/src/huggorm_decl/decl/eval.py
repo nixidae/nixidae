@@ -108,7 +108,7 @@ from huggorm_dsl.declare import (
 )
 # How a value TREE is walked, read by the RPC layer so that no layer
 # above this declaration knows what a Value is or which of its methods
-# do what (huggorm#30). `kind` names the accessor that says what this
+# do what (nixidae/nixidae#567). `kind` names the accessor that says what this
 # node is; its answer selects one of the branches below. A kind named
 # nowhere here crosses as a proxy - and real Nix has five of those:
 # thunk, function, external, failed and path. Laziness the wire cannot
@@ -120,7 +120,7 @@ from huggorm_dsl.declare import (
     # one value differ, and a wrapper that dies hands its id() to the
     # next one. The underlying value's address is the identity.
     identity="_identity",
-    # A forcing walk (huggorm#147) forces each node it visits, and does
+    # A forcing walk (nixidae/nixidae#721) forces each node it visits, and does
     # not enter a derivation: forcing one instantiates it, and nixpkgs
     # is a tree of them. `printValueAsJSON` stops there too.
     force="_force",
@@ -245,7 +245,7 @@ return self.state().isDerivation(*self.get());
     #
     # A list[Value] or dict[str, Value] accessor is deliberately
     # absent. It needs a collection of PROXIES, which is the recursive
-    # value message (huggorm#30), not another loop here.
+    # value message (nixidae/nixidae#567), not another loop here.
 
     def size(self) -> I64:
         """Elements in a list, or attributes in an attribute set.
@@ -864,7 +864,7 @@ return self.get()->primOp()->args;
         # one at 585-625. readFile at position.cc:49, substr at
         # nixexpr.cc:644-648. Measured: a gate that expected "" failed
         # with `basic_string::substr: __pos (which is 3) > this->size()`.
-        # A cheap-looking accessor that does I/O is huggorm#67's surprise.
+        # A cheap-looking accessor that does I/O is nixidae/nixidae#604's surprise.
         Cxx("""
 huggorm::gc_register_thread();
 self.state().forceValue(*self.get(), nix::noPos);
@@ -1040,7 +1040,7 @@ class LogField:
 
     # The wire reads `text_bytes`: a log line is bytes Nix raised, and
     # `text` decodes strict UTF-8, so the crossing would fail on the
-    # first line no decoder accepts (nanopynix#312).
+    # first line no decoder accepts (nixidae/nixidae#664).
     @reads("text")
     @wire_read("text_bytes")
     def text(self) -> Str:
@@ -1057,7 +1057,7 @@ class LogField:
         `text` decodes strict UTF-8, so a builder that prints anything
         else fails that call. A log carries bytes and not text, and the
         decoder belongs to the caller."""
-        # nanopynix#312
+        # nixidae/nixidae#664
 
 
 @header("huggorm_decl/cpp/logging.hpp")
@@ -1083,7 +1083,7 @@ class LogRecord:
     are: `Verbosity`, `ActivityType` and `ResultType` are int-valued
     C++ enums and nothing upstream parses one from a string.
     """
-    # internal-json: logging.cc:272. huggorm#32 says why the mechanism
+    # internal-json: logging.cc:272. nixidae/nixidae#569 says why the mechanism
     # differs. `decl/words.py` is for vocabularies whose member IS the
     # string libstore parses, and these are not that.
 
@@ -1465,10 +1465,10 @@ return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)
 # and the natural way to write one closes over the state itself,
 # because the result comes from `state.make_int`. That is a cycle
 # Python's collector cannot see through, so the class says how to
-# traverse it (huggorm#93).
+# traverse it (nixidae/nixidae#630).
 @gc_slots("huggorm::evaluator_slots")
 # How `client.value(state, data)` makes a Value from Python data, in
-# one hop on this state's thread (huggorm#147). The builders below, so
+# one hop on this state's thread (nixidae/nixidae#721). The builders below, so
 # the RPC layer names none of them.
 @builds(
     null="make_null",
@@ -1518,7 +1518,7 @@ class EvalState:
     own.
     """
     # Goal 1: a binding is not MORE permissive than what it binds.
-    # Carl decided this; huggorm#85 records it.
+    # Carl decided this; nixidae/nixidae#622 records it.
 
     def __init__(self, store: Store,
                  settings: dict[str, Str] | None = None,
@@ -1713,7 +1713,7 @@ return at;
         renders as `«nix-internal»/derivation-internal.nix`. A watcher
         has to skip what it cannot stat; the list is what the cache
         holds, not a promise that each entry is on disk."""
-        # huggorm#16
+        # nixidae/nixidae#553
         Cxx("return huggorm::cached_files(self.state());")
 
     def forget_file(self, path: Str) -> None:
@@ -1750,7 +1750,7 @@ return at;
 
         A path that was never cached forgets nothing, which is what
         makes feeding a whole closure in safe."""
-        # The closure: huggorm#16. The diff: huggorm#83.
+        # The closure: nixidae/nixidae#553. The diff: nixidae/nixidae#620.
         Cxx("""
 if (path.empty())
     throw std::invalid_argument("empty path");
@@ -1820,10 +1820,10 @@ huggorm::forget_file(self.state(), self.state().rootPath(path));
         (`nix/patches/nix-base-env-size.patch`). Registering past it
         raises rather than corrupting the heap, which stock Nix does
         not: `addPrimOp` tests no bound at all."""
-        # Arity 0: eval.cc:523. In-process only: huggorm#33; the other
-        # direction is huggorm#34. Without @gc_slots the cycle leaked
+        # Arity 0: eval.cc:523. In-process only: nixidae/nixidae#570; the other
+        # direction is nixidae/nixidae#571. Without @gc_slots the cycle leaked
         # two instances at shutdown, and the C++ side's weak reference
-        # broke the wrong arm (huggorm#93). A gate holds zero.
+        # broke the wrong arm (nixidae/nixidae#630). A gate holds zero.
         Cxx("""
 if (name.empty())
     throw std::invalid_argument("empty name");
@@ -1895,8 +1895,8 @@ return self.make_primop(name, static_cast<std::size_t>(arity), fn);
         half of the records, which is worse than either getting none.
         """
         # One evaluation thread: nothing under src/libexpr names
-        # `eval-cores` in the 2.35 or the git lane. The ceiling: huggorm#102. Lowering
-        # again: huggorm#95. No pin since huggorm#89 step 4.
+        # `eval-cores` in the 2.35 or the git lane. The ceiling: nixidae/nixidae#639. Lowering
+        # again: nixidae/nixidae#632. No pin since nixidae/nixidae#626 step 4.
         Cxx("""
 if (capacity < 1)
     throw std::invalid_argument("capacity must be at least 1");
@@ -1928,7 +1928,7 @@ return huggorm::subscribe_logs(static_cast<std::size_t>(capacity),
         opened. Called straight through, they would replace or clear
         the subscription an open `Session/Logs` stream is pumping, and
         leave that stream connected and silent."""
-        # Thread exit: huggorm#96. The fan-out: huggorm#85.
+        # Thread exit: nixidae/nixidae#633. The fan-out: nixidae/nixidae#622.
         Cxx("""
 (void) self;
 huggorm::unsubscribe_logs();
@@ -2782,7 +2782,7 @@ def subscribe_process_logs(capacity: I64 = 1024,
     the READER draining it, and a reader that stops draining grows
     this without limit. The capacity does not save it, because the
     records it never drops are the ones that accumulate."""
-    # huggorm#85: the build log, and the third gap. huggorm#96: the
+    # nixidae/nixidae#622: the build log, and the third gap. nixidae/nixidae#633: the
     # open daemon connection.
     Cxx("""
 if (capacity < 1)
@@ -2814,8 +2814,8 @@ def unsubscribe_process_logs() -> None:
     process fan-out as the pair on `EvalState` goes through the
     state's: a remote caller leaves only the readers it opened, and
     an open `Session/ProcessLogs` stream keeps hearing."""
-    # huggorm#95 measured 1052 daemon debug lines. The fan-out:
-    # huggorm#85.
+    # nixidae/nixidae#632 measured 1052 daemon debug lines. The fan-out:
+    # nixidae/nixidae#622.
 
 
 @needs("huggorm_decl/cpp/logging.hpp")
@@ -2838,7 +2838,7 @@ def _log_tap_init() -> None:
     claimed, so an unsubscribed caller sees what Nix prints. A
     claimed record does not also appear on stderr."""
     # `extern Logger * logger;` in both lanes' logging.hh. The tee went
-    # in huggorm#89.
+    # in nixidae/nixidae#626.
 
 
 @needs("huggorm_decl/cpp/gc.hpp")

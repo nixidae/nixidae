@@ -1,7 +1,7 @@
 #pragma once
 /**
  * A `nix::Store` that Python implements, layered over another store
- * (huggorm#149).
+ * (nixidae/nixidae#732).
  *
  * `LayeredStore` is the base a Python subclass extends. Each hook has
  * the name and the contract of the `Store` method a caller already

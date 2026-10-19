@@ -5,7 +5,7 @@ connections hold plus what escrow holds. Every mutation is a MOVE
 between those places, so a mismatch is a lease made or lost by
 accident - a leaked handle, or one reaped under its holder. The
 escrow double count in `bind` was that bug, and an ad-hoc randomized
-loop is what would have caught it first (huggorm#12). This is that
+loop is what would have caught it first (nixidae/nixidae#549). This is that
 loop, committed: fixed seeds, so a failure names the seed and the
 step that broke it.
 

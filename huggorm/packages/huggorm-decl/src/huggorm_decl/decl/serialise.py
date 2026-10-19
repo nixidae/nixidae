@@ -1,7 +1,7 @@
 """
 nix::Source and nix::Sink: `huggorm_decl/cpp/serialise.hpp`.
 
-Byte streams, as Nix moves a NAR (huggorm#149). A subclass overrides
+Byte streams, as Nix moves a NAR (nixidae/nixidae#732). A subclass overrides
 `read` or `write`, and Nix reads or writes through it:
 
     class Collect(Sink):
@@ -20,7 +20,7 @@ and `write` raise.
 
 An async program passes an object with an async `write` or `read`
 instead (`AsyncSink`, `AsyncSource`), and so does a remote client:
-the method runs on the loop of the call that reads it (huggorm#155).
+the method runs on the loop of the call that reads it (nixidae/nixidae#740).
 """
 
 from huggorm_dsl.declare import (

@@ -4,7 +4,7 @@ Handle lifecycle core: leased graph with connection-backed holders.
 Transport-agnostic by design: a transport surfaces just two things, a
 request token and periodic pings.
 
-Model (huggorm#2):
+Model (nixidae/nixidae#539):
 - Holders are CONNECTIONS identified by a token. Every handle crossing
   the wire (Acquire, proxy-typed returns) grants one lease to the
   caller's connection. The handle ID remains the access capability;
@@ -128,7 +128,7 @@ class HandleTable:
     def unbind(self, token: str, conn: Connection) -> None:
         """One stream that bound `conn` under this token closed. The
         record goes with the last stream, if it holds no leases
-        (huggorm#159). One that holds leases stays for the sweeper, or
+        (nixidae/nixidae#746). One that holds leases stays for the sweeper, or
         with no TTL for good: a lease lasts until a release.
 
         `conn` is the record the stream bound, not the token's record
@@ -158,7 +158,7 @@ class HandleTable:
         a miss - so a client the sweeper had already reaped got an
         empty connection back under its old token and a cheerful
         ok=True, then discovered its death later as "unknown handle"
-        on some unrelated call (huggorm#49).
+        on some unrelated call (nixidae/nixidae#586).
 
         Public, because Ping is not lifecycle's own code and had no
         business reaching an underscore."""
@@ -388,7 +388,7 @@ class HandleTable:
         """Drop each candidate with no leases and no live children, and
         then its parents, which unlinking it may free. Only an entry
         that lost leases can become free, so the work follows the
-        release, not the size of the table (huggorm#143)."""
+        release, not the size of the table (nixidae/nixidae#715)."""
         dropped: list[str] = []
         todo = list(candidates)
         while todo:

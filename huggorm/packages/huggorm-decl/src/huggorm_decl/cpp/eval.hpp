@@ -101,7 +101,7 @@ struct Repl;
 
 // ---- the file cache, which libexpr keeps to itself ----------------
 //
-// huggorm#16 wants the server to watch every file an evaluation
+// nixidae/nixidae#553 wants the server to watch every file an evaluation
 // read, so a change can invalidate the warm state rather than throw
 // it away. libexpr KNOWS - `EvalState::fileEvalCache` is keyed by
 // resolved path - and offers no way to ask: the member is private
@@ -281,7 +281,7 @@ public:
     // callable through nix's base env, and the callable reached the
     // state through its closure cell. Python's collector cannot walk
     // the first arm, which lives in C++ memory it knows nothing
-    // about. Measured in huggorm#93: two `gc.collect()` calls did
+    // about. Measured in nixidae/nixidae#630: two `gc.collect()` calls did
     // not free it.
     //
     // So the reference lives HERE, in one place a `tp_traverse` slot
@@ -506,7 +506,7 @@ private:
 //
 // nanobind offers no abstraction for this - its own `refleaks.rst`
 // says so and says to drop to the CPython slots, which is what these
-// are. Read there rather than recalled, after huggorm#93 measured
+// are. Read there rather than recalled, after nixidae/nixidae#630 measured
 // the leak.
 //
 // A declaration cannot carry it. A traversal is a FUNCTION the
@@ -553,7 +553,7 @@ inline int evaluator_tp_traverse(PyObject * self, visitproc visit, void * arg)
  * It stays because that is a fact about THIS cycle, not about the
  * class. An `EvalState` reached only through C++ participants would
  * have nothing else to clear. Kept as correctness, and recorded as
- * untested (huggorm#93).
+ * untested (nixidae/nixidae#630).
  */
 inline int evaluator_tp_clear(PyObject * self)
 {
@@ -910,7 +910,7 @@ nix::PosIdx error_position(const Site &)
  * errors.
  *
  * GENERIC in the call site and the argument array, because Nix 2.36
- * changed both types of `PrimOpFun` (huggorm#55).
+ * changed both types of `PrimOpFun` (nixidae/nixidae#592).
  */
 inline nix::fun<nix::PrimOpFun> primop_impl(
     std::weak_ptr<EvalCore> weak, std::size_t slot, std::size_t arity,
@@ -972,7 +972,7 @@ inline nix::fun<nix::PrimOpFun> primop_impl(
  * The direction everything else here runs the other way. Every
  * emitted binding is Python calling C++; this is C++ calling Python,
  * in the middle of an evaluation, on Nix's thread. It is the first
- * such path since the mock went (huggorm#60 deleted the last
+ * such path since the mock went (nixidae/nixidae#597 deleted the last
  * trampoline), and the fact it carries - a foreign evaluator's
  * callback re-entering the interpreter - is one no declaration can
  * express. Generated code CALLS it, which is what makes it a helper.
@@ -993,7 +993,7 @@ inline nix::fun<nix::PrimOpFun> primop_impl(
  *
  * Arguments cross as `Bridge`, which ROOTS each one, so a Python
  * object outliving the call retains its argument rather than
- * dangling. huggorm#33 argued for a borrowed view that refuses to
+ * dangling. nixidae/nixidae#570 argued for a borrowed view that refuses to
  * outlive the call; the root is why none is needed.
  *
  * A registration lasts as long as the state. The state owns the
@@ -1013,7 +1013,7 @@ inline void Evaluator::register_primop(const std::string & name,
     // The core OWNS the callable and the lambda carries an index, so
     // the only strong Python reference is one a `tp_clear` slot can
     // drop. Capturing `fn` here instead is what made the cycle in
-    // huggorm#93, and no `weak_ptr` fixes that: the arm that closes
+    // nixidae/nixidae#630, and no `weak_ptr` fixes that: the arm that closes
     // it runs from C++ memory into Python, which is the direction
     // Python's collector cannot follow.
     const std::size_t slot = core_->hold_primop(std::move(fn));

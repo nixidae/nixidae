@@ -183,7 +183,7 @@ async def test_a_value_that_crossed_still_compares_and_hashes(
 # against neither generated surface: both wrapped it in an
 # InternalError and kept it as __cause__. This suite found that on its
 # first run and pinned it with a helper that asserted BOTH shapes; the
-# helper is gone because there is now one shape (huggorm#66).
+# helper is gone because there is now one shape (nixidae/nixidae#603).
 #
 # So these are written the way a CALLER writes them. That is the
 # claim: an exception type is part of a result, and `AsyncStore` makes
@@ -308,7 +308,7 @@ async def test_a_file_evaluated_twice_is_read_once(
     complete there would leave a thunk that might still want the
     file - which would make a failure mean the wrong thing.
 
-    The third part is why this matters to huggorm#16: the cache
+    The third part is why this matters to nixidae/nixidae#553: the cache
     belongs to the STATE. A fresh evaluator has to read, so a state
     that dies takes the warm work with it - which is what makes "the
     same state, claimed later" the milestone rather than a
@@ -339,7 +339,7 @@ async def test_a_file_reached_by_import_is_in_the_cache_too(
         state: Any, tmp_path: Any) -> None:
     """What a watcher would watch, and why it is not our own boundary.
 
-    huggorm#16 wants a change to a file an evaluation read to
+    nixidae/nixidae#553 wants a change to a file an evaluation read to
     invalidate the warm state. Our binding sees ONE path - the one
     handed to `eval_file` - and an evaluation reads many: `import`
     goes through `evalFile` too, so the file it names is cached
@@ -396,7 +396,7 @@ async def test_forgetting_a_closure_picks_up_an_edited_import(
     and it also drops the fetched flake inputs - re-downloading every
     input because one local file changed.
 
-    The CLOSURE, not the file, and huggorm#16 records the
+    The CLOSURE, not the file, and nixidae/nixidae#553 records the
     measurement that says so: the cache holds no edge from an importer
     to its import, so forgetting `inner` alone leaves `outer`
     answering its old value. The negative control below is that
@@ -491,7 +491,7 @@ BASH_LEAF = ('derivation { name = "leaf"; system = "x86_64-linux"; '
 
 async def test_one_consumer_rewrites_a_derivation_everywhere(
         surface: str, client: Any, tmp_path: Any) -> None:
-    """One body over all three surfaces, end to end (huggorm#111).
+    """One body over all three surfaces, end to end (nixidae/nixidae#667).
 
     Evaluate, force, read the derivation path, then rewrite it as
     `nix develop` does and write the rewrite back. The rewrite is the

@@ -2,7 +2,7 @@
 Fixtures for the huggorm suites.
 
 anyio, not asyncio: anyio's pytest plugin is the runner, and the
-harness here uses anyio primitives throughout (huggorm#35).
+harness here uses anyio primitives throughout (nixidae/nixidae#572).
 
 Two fixtures matter, and each exists because something here is
 expensive or slow to set up:
@@ -65,7 +65,7 @@ def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
 
     Not the machine's daemon. That one may be a proxy that drops the
     narration a test asserts on: pynixd forwards no `STDERR_NEXT` line,
-    so a check for its absence passed and tested nothing (huggorm#160).
+    so a check for its absence passed and tested nothing (nixidae/nixidae#748).
     An empty NIX_CONF_DIR keeps the machine's nix.conf out, because its
     `use-cgroups` refuses a daemon run as a user."""
     nix = os.environ.get("HUGGORM_ORACLE_NIX")
@@ -99,7 +99,7 @@ def ambient_store() -> Any:
 
     "auto" is whatever the ambient configuration says - usually the
     daemon. A build sandbox has none of that, which is the whole
-    reason the marker exists (huggorm#37). Session-scoped: opening a
+    reason the marker exists (nixidae/nixidae#574). Session-scoped: opening a
     store is a connection, and one is enough."""
     from huggorm_bindings import Store
 
@@ -204,7 +204,7 @@ async def server() -> AsyncIterator[Server]:
 @pytest.fixture(scope="session")
 async def callback_server() -> AsyncIterator[Server]:
     """A server that lets a client hand over objects it calls back
-    (huggorm#153)."""
+    (nixidae/nixidae#738)."""
     async for s in _serve(None, "--experimental-callbacks"):
         yield s
 
@@ -225,7 +225,7 @@ async def client(server: Server) -> AsyncIterator[Any]:
     the group entered and exited by ONE task, and a fixture body is
     one task across its yield; a test is not the same task, which is
     why this cannot be an `AsyncExitStack` a test adds clients to
-    (measured, huggorm#35)."""
+    (measured, nixidae/nixidae#572)."""
     from huggorm import remote
 
     # Entered and left by hand rather than with one `async with`,

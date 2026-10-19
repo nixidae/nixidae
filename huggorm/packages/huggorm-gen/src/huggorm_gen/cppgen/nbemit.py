@@ -145,7 +145,7 @@ def _sites(classes: Sequence[ir.ClassModel],
 #
 # A body is TEXT the declaration carries, so which headers it needs is
 # DERIVED here rather than carried by a hand-written one on the
-# emitted file's behalf. That was the arrangement huggorm#90 found:
+# emitted file's behalf. That was the arrangement nixidae/nixidae#627 found:
 # `eval.hpp` held a `<stdexcept>` it never used, for bodies that throw
 # `std::invalid_argument` 54 times - a fact about generated code,
 # living in a file a person maintains.
@@ -387,7 +387,7 @@ def records_header(unit: ir.ModuleModel, package: str,
 
     A HEADER, not the unit, because a record is a C++ type another unit
     can name: `eval`'s `LogRecord` holds `path`'s `ErrorInfo`. A struct
-    emitted into its own unit is visible nowhere else (huggorm#103)."""
+    emitted into its own unit is visible nowhere else (nixidae/nixidae#640)."""
     values = [c for c in unit.bindable() if c.is_value]
     if not values:
         return None
@@ -440,7 +440,7 @@ def words_conversion(cls: ir.EnumModel) -> list[str]:
     the compiler refuses to build the day upstream adds an
     enumerator, and naming `nix::HashAlgorithm::MD5` refuses the day
     upstream removes or renames one. Both were measured before this
-    was written (huggorm#70).
+    was written (nixidae/nixidae#607).
 
     Not upstream's own `printHashAlgo`. It would render correctly and
     check nothing, and the words this repo publishes would drift from
@@ -753,7 +753,7 @@ def rethrow_as_nix(errors: ir.Errors) -> list[str]:
 
 def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
     """The C++ subclass that hands `cls`'s virtuals to a Python override
-    (huggorm#84).
+    (nixidae/nixidae#621).
 
     Not `NB_OVERRIDE`: its ticket holds the GIL for the whole scope,
     so the fall-through to the C++ implementation would run under the
@@ -908,7 +908,7 @@ class Emitter:
         # chain is emitted, so the includes it needs are emitted too - the
         # three of them lived in `cpp/errors.hpp` until now, which is a
         # fact about generated code stated in a hand-written helper
-        # (huggorm#90). `decl/errors.py` says which header each class is
+        # (nixidae/nixidae#627). `decl/errors.py` says which header each class is
         # in, beside the `cxx` that names the class.
         out += [f'#include "{h}"' for h in errors]
         # Each class's header, then whatever the bodies reach past it.
@@ -986,7 +986,7 @@ class Emitter:
                 and m.returns.required.container):
             # Neither a pointer bind nor `as_list` converts the payload
             # of an optional, so nanobind would cast the C++ type: a set
-            # where the declaration says list (huggorm#139).
+            # where the declaration says list (nixidae/nixidae#711).
             raise TypeError(
                 f"{cls.name}.{m.name}: a `{m.returns.spelling}` return has "
                 f"no conversion. Declare the container alone: an absent one "
@@ -1585,7 +1585,7 @@ class Emitter:
         declaration carries - the union's C++ type, how to reach the
         std::variant inside it, and which arm the variant wraps.
 
-        It was a hand-written header (huggorm#63). Two unions wrote the
+        It was a hand-written header (nixidae/nixidae#600). Two unions wrote the
         same visit four times, and the two `drv_path` bodies that called
         it were identical text in two classes that differ in nothing the
         line touches. One declared fact answers all of it.
@@ -1757,7 +1757,7 @@ class Emitter:
         # the refusal is the ARGUMENT's, not the caster's. Measured: a
         # KeyedBuildResult with no failure arm could not be rebuilt at
         # all, and the message named every parameter as compatible
-        # (huggorm#71).
+        # (nixidae/nixidae#608).
         args = "".join(f', "{name}"_a' + (".none()" if t.pyobject else "")
                        for name, t in fields)
         made = ", ".join(f"{t.cxx} {name}" for name, t in fields)
@@ -1805,7 +1805,7 @@ class Emitter:
         # whose construction needed one line of adaptation had to put a
         # helper in `cpp/`. That is how `huggorm::open_store` came to
         # exist: three lines wrapping one call, because the emitter could
-        # not write it (huggorm#63).
+        # not write it (nixidae/nixidae#600).
         extras = self._extras(waits(cls, made), made.params)
         doc = _doc(cls.init.doc) if cls.init.doc else ""
         if made.cxx_body is None:
@@ -1933,7 +1933,7 @@ class Emitter:
         # refusal is the argument's rather than the caster's. Measured: a
         # KeyedBuildResult with no failure arm could not be rebuilt at
         # all, and the message listed every parameter as compatible
-        # (huggorm#71).
+        # (nixidae/nixidae#608).
         keywords = "".join(f', "{n}"_a' + (".none()" if f.type.pyobject else "")
                            for (n, _, _), f in zip(fields, cls.wire_fields,
                                                    strict=True))
@@ -2001,7 +2001,7 @@ class Emitter:
         # nothing here to derive, because a traversal is a function over a
         # member no declaration describes. Without it a class that stores
         # a callable leaks itself as soon as that callable closes over it
-        # (huggorm#93).
+        # (nixidae/nixidae#630).
         slots = (f", nb::type_slots({cls.gc_slots})"
                  if cls.gc_slots else "")
         lines = [f"static void bind_{cls.name.lower()}(nb::module_ &m) {{",
@@ -2055,12 +2055,12 @@ class Emitter:
             # The DOOR, not the C++ fact. `nix::Store` is abstract AND
             # opened by a factory, so it takes the branch below - reading
             # `decl.abstract` here sent it to this one instead and
-            # `Store("dummy://")` stopped existing (huggorm#61).
+            # `Store("dummy://")` stopped existing (nixidae/nixidae#598).
             #
             # It used to be a `pointer_and_handle` guard, which refused a
             # direct call and let a SUBCLASS through - because a Python
             # class deriving from this one was instantiated as the
-            # trampoline. There are no trampolines any more (huggorm#60),
+            # trampoline. There are no trampolines any more (nixidae/nixidae#597),
             # so there is no door to hold open and no reason for the
             # binding to know what `nb_inst_python_derived` is.
             # The sentence says WHICH way the door is shut, because the
@@ -2152,7 +2152,7 @@ class Emitter:
 
         One site is enough. A unit that answers with an exception has to
         look the Python class up by module and name, and the module name
-        is not a literal any declaration may write - huggorm#63 is the
+        is not a literal any declaration may write - nixidae/nixidae#600 is the
         day a stale copy of it turned every nix error into a
         RuntimeError. So the emitter states it once per unit that needs
         it, and the declaration's body reads it by name."""

@@ -6,7 +6,7 @@ derived path is either a store path you already have, or a derivation
 plus which of its outputs you want - and the second arm can nest,
 because a derivation's path may itself be another derivation's output.
 
-The first SUM types this repo carries. huggorm#59 has the reasoning;
+The first SUM types this repo carries. nixidae/nixidae#596 has the reasoning;
 the short of it is that upstream's own two encodings both tag a union
 by shape - a JSON string means opaque, `["*"]` means all outputs - and
 the wire here names the arm by its index, so it is better than either.
@@ -15,12 +15,12 @@ There is no `DerivedPathOpaque` on this surface. Upstream's is a
 struct holding one `StorePath` and nothing else, so the opaque arm IS
 a StorePath and a caller never learns a wrapper existed. Each union
 says so on its own alias, and the emitter writes the conversion both
-ways from that (huggorm#63).
+ways from that (nixidae/nixidae#600).
 
 Nothing here prints itself. `DerivedPath::to_string` takes a
 `StoreDirConfig &` by upstream's own signature, so rendering is
 `store.print_derived_path(dp)` - the same split `print_store_path`
-already makes for a StorePath (huggorm#40, huggorm#42).
+already makes for a StorePath (nixidae/nixidae#577, nixidae/nixidae#579).
 """
 
 from typing import Annotated
@@ -63,7 +63,7 @@ class OutputsSpec:
     request from "every output" - so the two are different fields and
     the constructor will not let them blur.
     """
-    # huggorm#41
+    # nixidae/nixidae#578
 
     def __init__(self, all: Bint = False,
                  names: list[Str] | None = None) -> None:

@@ -12,7 +12,7 @@ The TREE supplies TEXT the interpreter drops: the C++ inside a body,
 docstrings (an attribute's included), where an import came from, and
 the position a refusal points at. Each definition's node is found by
 the line the import names, and `_reconcile` refuses a line the tree
-has no node at (huggorm#123).
+has no node at (nixidae/nixidae#689).
 
 A body still never runs: `def` defines, it does not call. So `Cxx(...)`
 in one is dead text this module lifts out of the tree, which is why a
@@ -96,7 +96,7 @@ BUILTIN_DECORATORS = frozenset({"property", "staticmethod", "classmethod",
 # reads a definition's `co_firstlineno`, `_reconcile` checks that the
 # tree has a node there, and `_resolve` keeps the arm the import
 # chose. A reader short one of the three arms drops an `async def`
-# out of one reading and not the other (huggorm#88).
+# out of one reading and not the other (nixidae/nixidae#625).
 DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 type DefinitionNode = ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
 
@@ -142,7 +142,7 @@ MESSAGE_PARTS = 2
 
 # The dunders a declaration may write as an ordinary method. Every
 # emitter carries a method by name. Each one is added when a
-# declaration needs it (huggorm#88).
+# declaration needs it (nixidae/nixidae#625).
 DECLARED_DUNDERS = frozenset({"__call__"})
 
 
@@ -158,7 +158,7 @@ def is_surface(name: str) -> bool:
 # declaration this one imports - `decl/store.py` pulls in five - so an
 # error is routinely raised while reading a file that is not the one
 # the caller asked for. The old message said "line 183" and left a
-# reader to work out which of nine files that was (huggorm#61).
+# reader to work out which of nine files that was (nixidae/nixidae#598).
 #
 # A plain list, not a ContextVar. Nothing here runs concurrently: the
 # generator reads the corpus on one thread, and a ContextVar would buy
@@ -374,7 +374,7 @@ class Type:
     def inner(self) -> Type:
         """What this node wraps. Every walk that follows one argument
         comes through here, so a new `Origin` fails type-check here
-        rather than being skipped (huggorm#139)."""
+        rather than being skipped (nixidae/nixidae#711)."""
         match self.origin:
             case None:
                 raise TypeError(f"'{self.python}' wraps nothing")
@@ -421,7 +421,7 @@ class Type:
         `uint` means the unsigned one, and the C++ spelling the alias
         already carries is what says which. Above the boundary both
         are still `int`; only the crossing knows the width
-        (huggorm#79).
+        (nixidae/nixidae#616).
 
         The vocabulary says which: `U64` carries `Cxx(width="uint")`.
         `uint` must be one of `wiretypes.SCALAR_NAMES`, and
@@ -441,7 +441,7 @@ class Type:
                 raise TypeError(
                     f"'{inner}' holds a {leaf.cxx.spelling}, and a "
                     f"container of a width has no wire spelling yet. "
-                    f"See huggorm#79.")
+                    f"See nixidae/nixidae#616.")
             inner = leaf.cxx.width
         return f"{inner}?" if self.optional else inner
 
@@ -500,7 +500,7 @@ class Method:
     #
     # NO EMITTER HONOURS IT YET. `nbemit` refuses a bound class that
     # sets it, because the stub, `_parts` and the wire all call an
-    # accessor and a binding alone cannot change that (huggorm#76).
+    # accessor and a binding alone cannot change that (nixidae/nixidae#613).
     # The word stays because the reader is where it is read and the
     # refusal is what reads it.
     prop: bool = False
@@ -670,7 +670,7 @@ class Class:
 
         The DERIVED question, computed once here because three layers
         used to ask it and all three asked `abstract` instead
-        (huggorm#61). `@abstract` states a fact about C++: the type has
+        (nixidae/nixidae#598). `@abstract` states a fact about C++: the type has
         pure virtuals. Whether a caller can write `Store(uri)` is a
         different question, and conflating them meant the declaration
         could not state the true fact about nix::Store without
@@ -1020,7 +1020,7 @@ def _check_markers(decorators: list[ast.expr], kind: str) -> None:
             name = ""
         if not name:
             # The import would still apply `@d.reads(...)`, and every
-            # reader of the AST would miss it (huggorm#140).
+            # reader of the AST would miss it (nixidae/nixidae#712).
             raise DeclarationError(
                 node, "write a decorator as a bare name: "
                 "import the marker, and use @reads, not @d.reads")
@@ -1138,7 +1138,7 @@ def _body(node: ast.FunctionDef) -> Body | None:
                       f"whose shape differs between Nix versions goes in a "
                       f"cpp/ helper that detects the shape; a different "
                       f"Python surface is a branch around the method "
-                      f"(huggorm#134).")
+                      f"(nixidae/nixidae#706).")
         cxx = _cxx_call(node, stmt)
         if cxx is not None:
             if seen:
@@ -1203,12 +1203,12 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
         # classmethod not at all, the stub would need the same
         # decorator, and `_parts` fetches an accessor off an INSTANCE.
         # That is four outputs for a shape no declaration wants yet
-        # (huggorm#76).
+        # (nixidae/nixidae#613).
         raise DeclarationError(
             node, f"{node.name}: @{type(held).__name__} has no meaning in "
                   f"a declaration yet, and this reads a method as one "
                   f"that takes self - so its first parameter would be "
-                  f"dropped. See huggorm#76.")
+                  f"dropped. See nixidae/nixidae#613.")
     signature = inspect.signature(
         fn, annotation_format=annotationlib.Format.FORWARDREF)
     every = list(signature.parameters.values())
@@ -1232,7 +1232,7 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
         declared = type_of(anns[arg.arg], arg, fn.__globals__)
         if default is None and not declared.optional:
             # An implicit Optional: every surface but the C++ then says
-            # `| None` where the declaration did not (huggorm#104).
+            # `| None` where the declaration did not (nixidae/nixidae#641).
             raise DeclarationError(
                 arg, f"{node.name}({arg.arg}): a default of None needs "
                      f"`| None` in the type.")
@@ -1360,7 +1360,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
     # answering first: `@derives("Store")` left the import unused.
     # A vocabulary IS a StrEnum, in the declaration as in the emitted
     # module, so a default such as `HashAlgorithm.SHA256` types as the
-    # word and not as `str` (huggorm#104). The base is Python's, not a
+    # word and not as `str` (nixidae/nixidae#641). The base is Python's, not a
     # declared class, so it is checked here and never becomes `base`.
     if decl.kind is DeclKind.WORDS:
         if holder.__bases__ != (enum.StrEnum,):
@@ -1371,7 +1371,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
         # One base, and only on an @in_process class. Nix hands a
         # Python-implemented store back as the object Python made, so
         # that object must BE a Store to nanobind: accepted where one
-        # is, with its methods (huggorm#149). The async and remote
+        # is, with its methods (nixidae/nixidae#732). The async and remote
         # surfaces carry no hierarchy, so a served class has no base.
         (base,) = holder.__bases__ if len(holder.__bases__) == 1 else (None,)
         if (base is None or "_decl" not in base.__dict__
@@ -1379,7 +1379,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             raise DeclarationError(
                 node, f"{node.name}: only an @in_process class has a base, "
                       f"and it is one declared class. Declare the methods "
-                      f"on {node.name} itself (huggorm#60).")
+                      f"on {node.name} itself (nixidae/nixidae#597).")
         decl.base = base.__name__
     # `@needs` writes onto whatever it decorates, and on a class that
     # is the stand-in rather than the Decl - so it is read here
@@ -1430,7 +1430,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # cause: the import keeps the function, so it named a live
             # line, and `_reconcile` saw a line the tree reader had no
             # node for. The message blamed `co_firstlineno` and never
-            # said "async" (huggorm#88). `DEFINITIONS` closed that,
+            # said "async" (nixidae/nixidae#625). `DEFINITIONS` closed that,
             # which is what makes this refusal reachable.
             _survive(DeclarationError(
                 item,
@@ -1485,7 +1485,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # `def __call__` would get no binding, no stub line, no rpc
             # and no diagnostic - and a skip is
             # indistinguishable from an absence, which is this repo's
-            # named failure mode (huggorm#88).
+            # named failure mode (nixidae/nixidae#625).
             #
             # `__init__` is the one exception and it is handled above.
             # The value dunders are DERIVED rather than declared:
@@ -1507,7 +1507,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
                 f"value dunders are derived from the class decorators - "
                 f"@wire_value writes them, and its `order=` and "
                 f"`text=` decide which - so do not declare one. "
-                f"Anything else needs the emitters taught (huggorm#88); "
+                f"Anything else needs the emitters taught (nixidae/nixidae#625); "
                 f"declare it under a plain name until then."),
                 unsound=f"{node.name}.{item.name}")
         else:
@@ -1549,7 +1549,7 @@ def _mentions(cls: Class, node: ast.AST) -> None:
     then crosses the wire losing a field in silence.
 
     This does not prove the body USES a field correctly - only the
-    round-trip test can, and it does (huggorm#56). It catches the
+    round-trip test can, and it does (nixidae/nixidae#593). It catches the
     forgetting, which is the failure that costs nothing to catch here
     and a debugging session to catch there.
 
@@ -1579,7 +1579,7 @@ def _guarded_import(name: str, globals: Mapping[str, object] | None = None,
     A declaration describes C++; it computes nothing, so it needs
     nothing past the vocabulary, the other declarations and the
     typing names. Not a sandbox: declarations are trusted repository
-    code, and this catches a mistake (huggorm#123)."""
+    code, and this catches a mistake (nixidae/nixidae#689)."""
     if level or not any(name == m or name.startswith(f"{m}.")
                         for m in IMPORTABLE):
         raise ImportError(
@@ -1606,7 +1606,7 @@ class _DeclarationFinder(importlib.abc.MetaPathFinder):
     """Owns every `huggorm_decl.decl.*` import, so a declaration is one
     module object however it is reached: by `load`, by another
     declaration or by a test. Two objects made `StorePath` two classes
-    (huggorm#140)."""
+    (nixidae/nixidae#712)."""
 
     def find_spec(self, fullname: str, path: Sequence[str] | None,
                   target: ModuleType | None = None
@@ -1671,7 +1671,7 @@ def load(path: str) -> ModuleType:
     tree-only - as did every file importing from it. The tree read is
     not obviously wrong: a declaration with no `NIX_VERSION` branch
     keeps exactly the same nodes either way, so nothing anywhere
-    said a word (huggorm#82).
+    said a word (nixidae/nixidae#619).
 
     Nothing wanted the fallback. Every declaration in `decl/`
     imports, and the one emitter that already asked - `pyerrors` -
@@ -1726,7 +1726,7 @@ def load(path: str) -> ModuleType:
 # reaches `_method`'s own refusal instead - which already names the
 # real problem, that a static method's first parameter would be
 # dropped. The two arms were text that could never run, claiming a
-# coverage this hint does not have (huggorm#75).
+# coverage this hint does not have (nixidae/nixidae#612).
 _ON_DESCRIPTOR = re.compile(
     r"'(property)' object has no attribute '_(\w+)'")
 
@@ -1735,7 +1735,7 @@ def _descriptor_hint(exc: BaseException) -> str:
     """The one-line fix, when the import failed for the known reason.
 
     `@property` and a marker on one accessor is legal, and the ORDER
-    decides whether it imports. Measured both ways (huggorm#76):
+    decides whether it imports. Measured both ways (nixidae/nixidae#613):
 
         @instant                  AttributeError, at import
         @property                 - a property takes no attribute
@@ -1759,7 +1759,7 @@ def _descriptor_hint(exc: BaseException) -> str:
     the only builtin descriptor that refuses an attribute. That is
     measured, and the regex comment holds the measurement.
 
-    huggorm#76 asked for this to be said in a REFUSAL rather than in
+    nixidae/nixidae#613 asked for this to be said in a REFUSAL rather than in
     a comment, because a comment is not where a reader who hit it is
     looking. The comment above is now the second copy, and the
     refusal is the one that reaches them.
@@ -1770,14 +1770,14 @@ def _descriptor_hint(exc: BaseException) -> str:
     descriptor, marker = m.group(1), m.group(2)
     # HONEST ABOUT WHAT THE ORDER BUYS. It fixes the IMPORT and
     # nothing else: the emitter still refuses a `@property` accessor
-    # (huggorm#76). A hint that stopped at the order would send a
+    # (nixidae/nixidae#613). A hint that stopped at the order would send a
     # reader to a second refusal with no warning that it was coming,
     # which is worse than the raw AttributeError it replaces.
     return (f"\nWrite @{descriptor} OUTERMOST, above @{marker}. A marker "
             f"sets `_{marker}` on what it is handed, and a {descriptor} "
             f"object takes no attribute - so the marker has to reach the "
             f"function underneath it. That fixes the IMPORT. An emitter "
-            f"still refuses a @{descriptor} accessor - see huggorm#76 - so "
+            f"still refuses a @{descriptor} accessor - see nixidae/nixidae#613 - so "
             f"declare it as a plain method until that changes.")
 
 
@@ -1796,7 +1796,7 @@ def _live(path: str) -> set[int]:
 
     Always a set. `load` refuses a file that will not import, so
     "the import kept nothing because there was no import" is no
-    longer one of the answers (huggorm#82)."""
+    longer one of the answers (nixidae/nixidae#619)."""
     # `_definitions`' walk, so the two cannot disagree about what a
     # definition is.
     return set(_definitions(path))
@@ -1834,7 +1834,7 @@ def _definitions(path: str) -> dict[int, Any]:
         # A DESCRIPTOR holds the function rather than being one, so
         # the function is asked for it. Without this a `@property`
         # accessor named no line and vanished from the binding in
-        # silence (huggorm#75).
+        # silence (nixidae/nixidae#612).
         fn = getattr(obj, "fget", None) or getattr(obj, "__func__", obj)
         if not isinstance(fn, types.FunctionType):
             return
@@ -1880,8 +1880,8 @@ def _reconcile(tree: ast.Module, live: set[int], path: str) -> None:
     it is no error in general. A definition under NO `if` is: the
     import ran it, so a line the import did not keep means the object
     went somewhere `_definitions` does not look - a descriptor
-    (huggorm#75), a rebound name, a wrapping decorator. The reader
-    would drop it in silence (huggorm#140)."""
+    (nixidae/nixidae#612), a rebound name, a wrapping decorator. The reader
+    would drop it in silence (nixidae/nixidae#712)."""
     if not live:
         return
     unbranched = [n for n in tree.body if isinstance(n, DEFINITIONS)]
@@ -1921,7 +1921,7 @@ def _resolve(body: list[ast.stmt], live: set[int]) -> list[ast.stmt]:
     it was neither - a declaration with no `if` in it keeps exactly
     the same nodes that way, so a file that did not import read as a
     file that did. `load` refuses one now, so `live` is always known
-    (huggorm#82)."""
+    (nixidae/nixidae#619)."""
     out: list[ast.stmt] = []
 
     def walk(nodes: list[ast.stmt]) -> None:
@@ -1974,7 +1974,7 @@ def resolved(path: str) -> ast.Module:
     exception declaration IS its own output. It read `tree.body` and
     so saw neither arm of a branch, while the module transform copied
     both through - three holes at once, and none of them loud
-    (huggorm#73)."""
+    (nixidae/nixidae#610)."""
     with reading(path):
         return _chosen(path)[0]
 
@@ -2001,7 +2001,7 @@ def _read(path: str) -> Module:
     The tree supplies each definition's text and position, found by
     the line the import names. A name the reader can put nowhere is
     refused, so nothing a declaration writes reaches no output in
-    silence (huggorm#73, #75, #78, #88, #123).
+    silence (nixidae/nixidae#610, #75, #78, #88, #123).
 
     A module holds declared classes, exceptions, union aliases,
     decorated functions and imports. IMPORTS are read from the tree:
@@ -2302,7 +2302,7 @@ def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST) -> None:
             raise DeclarationError(
                 node, f"{cls.name}: '{arm}' crosses as a {other.decl.wire}, "
                       f"not as a value. An arm that granted a lease would "
-                      f"make every union a bulk-lease problem (huggorm#31).")
+                      f"make every union a bulk-lease problem (nixidae/nixidae#568).")
 
 
 def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
@@ -2357,7 +2357,7 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
 
     `cxx` and `header` come as a pair. A `cxx` with no `header` is a
     catch whose type the emitted file reaches only through somebody
-    else's include (huggorm#90). A `header` with no `cxx` reaches no
+    else's include (nixidae/nixidae#627). A `header` with no `cxx` reaches no
     emitter, and a line nobody reads looks exactly like one nobody
     wrote.
 
@@ -2371,7 +2371,7 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
                   f"translator catches this type, and nothing says "
                   f"which header declares it. Add `header = \"nix/...\"` "
                   f"beside it, or the emitted file reaches the type "
-                  f"only through somebody else's include (huggorm#90).")
+                  f"only through somebody else's include (nixidae/nixidae#627).")
     if header and not cxx:
         raise DeclarationError(
             node, f"{node.name}: `header` with no `cxx`. Only a class "

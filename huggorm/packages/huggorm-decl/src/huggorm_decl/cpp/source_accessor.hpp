@@ -1,6 +1,6 @@
 #pragma once
 /**
- * A `nix::SourceAccessor` that Python implements (huggorm#152).
+ * A `nix::SourceAccessor` that Python implements (nixidae/nixidae#737).
  *
  * One class serves both directions, as `Sink` and `Source` do. A Python
  * subclass is a file tree Nix reads: the evaluator, `addToStore` and a

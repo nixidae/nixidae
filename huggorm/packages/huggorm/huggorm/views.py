@@ -1,5 +1,5 @@
 """
-Read-only views of a realized value tree (huggorm#147).
+Read-only views of a realized value tree (nixidae/nixidae#721).
 
 A list or an attribute set that `realize` walked comes back as one of
 these. Each IS the async class of its node, on a remote backend, so

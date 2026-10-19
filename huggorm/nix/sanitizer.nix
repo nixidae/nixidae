@@ -88,7 +88,7 @@ let
   # It then writes across that range, in `PlatformUnpoisonStacks`, and reports
   # its own write as a `stack-buffer-overflow` in `archive.cc`. Every frame of
   # the report belongs to `libasan.so`, and the address is a wild pointer. See
-  # nanopynix#60, which carries the measurement.
+  # nixidae/nixidae#89, which carries the measurement.
   #
   # ASAN supplies `__sanitizer_start_switch_fiber` and
   # `__sanitizer_finish_switch_fiber` for this, and boost calls both under
@@ -233,7 +233,7 @@ in
   # `bdw_gc_required` after 2.31, and `src/libexpr/meson.build` of 2.31 reads
   # only `dependency('bdw-gc', required : get_option('gc'))`. An ASAN build
   # together with the collector therefore *succeeded* there, and produced
-  # exactly the configuration whose report is not evidence. nanopynix#126 raised
+  # exactly the configuration whose report is not evidence. nixidae/nixidae#161 raised
   # the floor to 2.34, so meson now refuses the combination on every supported
   # version, and this attribute refuses it earlier. Read this paragraph before
   # you lower the floor again.
@@ -326,7 +326,7 @@ in
     );
 
   # Whether the nix components need a boost with the `ucontext` backend.
-  # `boostFiberFlags` above holds the whole reason, and nanopynix#60 holds the
+  # `boostFiberFlags` above holds the whole reason, and nixidae/nixidae#89 holds the
   # measurement.
   needsUcontextBoost = isAddress;
 

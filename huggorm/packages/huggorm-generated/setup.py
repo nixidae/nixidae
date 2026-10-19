@@ -8,7 +8,7 @@ default.nix), so the imports below are satisfied by the standard PEP
 
 `huggorm-bindings` is not among them, and not in the build at all. The
 generator reads the declarations and imports nothing compiled, so an
-import of the bindings fails this build (huggorm#65, huggorm#145).
+import of the bindings fails this build (nixidae/nixidae#602, nixidae/nixidae#717).
 
 The generation happens HERE, at import, rather than from a `build_py`
 hook. setuptools resolves and VALIDATES the package list while it

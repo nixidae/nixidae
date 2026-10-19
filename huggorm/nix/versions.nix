@@ -18,18 +18,18 @@ let
   # shared one from every evaluator thread. 2.36 makes it `constinit`.
   emptyBindings = patch "nix-thread-local-empty-bindings";
   # The base environment and `builtins` hold 512 slots, not 128, and a
-  # write past the end throws (huggorm#33).
+  # write past the end throws (nixidae/nixidae#570).
   baseEnvSize = patch "nix-base-env-size";
   # `gmtime_r` for `lastModified`. 2.36 changes the line it replaces.
   gmtime234 = patch "nix-2.34-gmtime-not-thread-safe";
   gmtime236 = patch "nix-2.36-gmtime-not-thread-safe";
   # Upstream 5c4f498d3, in 2.35 and backported to 2.34.9: an interrupted
-  # thunk can be forced again (huggorm#97). It applies after `baseEnvSize`.
+  # thunk can be forced again (nixidae/nixidae#634). It applies after `baseEnvSize`.
   interruptedThunk234 = patch "nix-2.34-interrupted-thunk-recovers";
   # One temporary roots file per LocalStore, not per process.
   tempRoots = patch "nix-temp-roots-per-store";
   # `setOptions` sends a daemon a level other than `nix::verbosity`
-  # (huggorm#102).
+  # (nixidae/nixidae#639).
   remoteVerbosity = patch "nix-remote-verbosity";
   remoteVerbosity236 = patch "nix-2.36-remote-verbosity";
   # `statisticsJSON`, the `count-calls` setting, and concurrent call
@@ -38,18 +38,18 @@ let
   countCalls235 = patch "nix-2.35-count-calls";
   countCalls236 = patch "nix-2.36-count-calls";
   # A parsed path literal held its accessor, so the Store, for the life of
-  # the process (huggorm#128).
+  # the process (nixidae/nixidae#696).
   exprPath = patch "nix-expr-path-holds-no-accessor";
-  # The same, for the `ExprParseFile` every `import` allocates (huggorm#128).
+  # The same, for the `ExprParseFile` every `import` allocates (nixidae/nixidae#696).
   parseFile = patch "nix-parse-file-holds-no-accessor";
   # The `open_tree` polyfill defines `AT_RECURSIVE`, which glibc 2.28
   # lacks: the manylinux build needs it. 2.34 does not call `open_tree`.
   atRecursive = patch "nix-open-tree-at-recursive";
   # A pure evaluation checks for an interrupt once per function call
-  # (huggorm#158). On 2.34 it applies after `interruptedThunk234`.
+  # (nixidae/nixidae#744). On 2.34 it applies after `interruptedThunk234`.
   callChecksInterrupt = patch "nix-call-function-checks-interrupt";
   # A state frees its primops; each dropped state leaked 84.5 KiB
-  # (huggorm#162).
+  # (nixidae/nixidae#755).
   ownsPrimOps = patch "nix-evalstate-owns-primops";
 in
 {
@@ -111,7 +111,7 @@ in
       ownsPrimOps
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
-    # ships gcc-toolset-14 (huggorm#109).
+    # ships gcc-toolset-14 (nixidae/nixidae#660).
     wheels = false;
   };
 
@@ -124,7 +124,7 @@ in
     # The first `%d` in `GC_LOG_FILE` is the process id.
     (patch "boehmgc-log-file-pid")
     # `GC_set_all_interior_pointers` after `GC_init` keeps offset 0
-    # (huggorm#101).
+    # (nixidae/nixidae#638).
     (patch "bdwgc-late-interior-pointers")
   ];
 }

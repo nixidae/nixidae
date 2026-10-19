@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     # Every refusal this build can see, before it derives anything
-    # (huggorm#61).
+    # (nixidae/nixidae#598).
     corpus().read_all()
     # ...and every rule the typed model must obey, before anything is
     # written.
@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> None:
           f"{len(model.ordered_served)} class(es)")
     (out / "__init__.py").write_text(ast.unparse(init_module(model)) + "\n")
 
-    # Type stubs for the bindings themselves (huggorm#27). The bindings
+    # Type stubs for the bindings themselves (nixidae/nixidae#564). The bindings
     # are compiled extensions, so a typechecker reads no signatures out
     # of them and every binding type resolves to Any - which made the
     # generated protocols name types that check nothing.

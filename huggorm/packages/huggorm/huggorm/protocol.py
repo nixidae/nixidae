@@ -6,7 +6,7 @@ element is an `Op`. Values inside a frame are `codec` shapes.
 
 Both ends run the same build, so nothing here negotiates. HELLO
 carries the build identity, and a server refuses any other
-(huggorm#142). Only the server's own uid may connect.
+(nixidae/nixidae#714). Only the server's own uid may connect.
 
     HELLO     [Op, identity, claim | None]
     WELCOME   [Op, token, lease_ttl]
@@ -17,7 +17,7 @@ carries the build identity, and a server refuses any other
     RESULT    [Op, call_id, value]
     FAULT     [Op, call_id | None, fault]
 
-Three more, only with experimental callbacks on (huggorm#153). The
+Three more, only with experimental callbacks on (nixidae/nixidae#738). The
 server calls an object the client keeps, and the client answers:
 
     CALLBACK  [Op, callback_id, client_id, method, [arg, ...]]
@@ -215,7 +215,7 @@ class Faults:
     A DECLARED error crosses as itself: `error` indexes the declared
     error classes and `parts` are its parts, and the far side rebuilds
     that class, so `except BadStorePath` works over the wire
-    (huggorm#66). Anything else crosses as an InternalError: its cause
+    (nixidae/nixidae#603). Anything else crosses as an InternalError: its cause
     crosses as itself when declared, and by builtin name when not."""
 
     def __init__(self, codec: Codec | None = None,

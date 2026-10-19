@@ -10,7 +10,7 @@ and upstream's own comment says why it exists:
     won't throw an exception, but return a BuildResult containing an
     error message.
 
-So a caller building twenty targets gets twenty results (huggorm#71).
+So a caller building twenty targets gets twenty results (nixidae/nixidae#608).
 
 A SUM, and one arm of it is an exception class. `using Failure =
 BuildError;` is one line of upstream and it is the whole reason this
@@ -122,7 +122,7 @@ class KeyedBuildResult:
     with the typed error rather than throwing it, and it is the
     caller who decides what to do with one.
     """
-    # huggorm#71
+    # nixidae/nixidae#608
 
     # WIRE ORDER: what was asked, which arm answered, and the facts
     # that hold whichever arm it is.
@@ -215,7 +215,7 @@ return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
 
         The failure arm arrives as a Python exception, and this reads
         its declared parts back off it - the same four `_wire_fields`
-        names an error crosses under (huggorm#36). The COLOUR is
+        names an error crosses under (nixidae/nixidae#573). The COLOUR is
         dropped here and not lost: libstore formats a message when it
         builds one, so a rebuilt error carries the plain text and
         `colored` answers the same string. Nothing but a terminal can

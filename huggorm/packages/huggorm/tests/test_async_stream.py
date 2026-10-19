@@ -1,4 +1,4 @@
-"""NAR streams an async program serves to Nix (huggorm#155).
+"""NAR streams an async program serves to Nix (nixidae/nixidae#740).
 
 An object with an async `write` stands in for a `Sink`, and one with an
 async `read` for a `Source`, in process and from a remote client.

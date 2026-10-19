@@ -26,7 +26,7 @@ def test_no_hardcoded_domain_types(model: ir.Model) -> None:
     # Exception classes are domain types too, and the same rule holds
     # for the same reason: which errors exist is the bindings' to
     # declare, so no layer above them may carry a list of them
-    # (huggorm#36). The builtins this layer raises ITSELF - KeyError for
+    # (nixidae/nixidae#573). The builtins this layer raises ITSELF - KeyError for
     # an unknown handle - are not in that set and are not the subject.
     domain |= set(model.errors.classes)
     here = pathlib.Path(huggorm.__file__).resolve().parent
@@ -43,7 +43,7 @@ def test_no_hardcoded_domain_types(model: ir.Model) -> None:
 def test_a_declared_error_crosses_as_its_own_message() -> None:
     """The class identity is an index into the declared errors, not a
     name to look up. A name crosses only for an undeclared cause, and
-    only a builtin exception class is built from one (huggorm#36).
+    only a builtin exception class is built from one (nixidae/nixidae#573).
 
     Needs no server: this is what the server would put on the wire."""
     from huggorm.protocol import Faults
@@ -150,7 +150,7 @@ def test_the_front_door_covers_the_surface() -> None:
 
     `import huggorm` used to export two mock DEMO classes, so a user
     faced three packages and no guidance on which to import - the
-    build topology as the first thing to learn (huggorm#51).
+    build topology as the first thing to learn (nixidae/nixidae#588).
 
     Derived rather than listed twice: this asks the two packages what
     they export and requires the front door to carry all of it. A new
@@ -159,7 +159,7 @@ def test_the_front_door_covers_the_surface() -> None:
 
 Everything behind the front door
     has to reach it, with no exception left: the Mock* classes were the
-    last one, and they are gone (huggorm#60)."""
+    last one, and they are gone (nixidae/nixidae#597)."""
     import huggorm
     import huggorm_bindings
     import huggorm_generated
@@ -235,7 +235,7 @@ def test_an_enum_survives_a_container() -> None:
     """An enum is a scalar, and a container does not change that.
 
     Nothing declares an enum container today, so the case is built
-    here. That is the whole reason it stayed latent (huggorm#47)."""
+    here. That is the whole reason it stayed latent (nixidae/nixidae#584)."""
     from conftest import across, crossed
 
     from huggorm.codec import Codec
@@ -268,7 +268,7 @@ def test_a_method_with_no_wire_form_is_absent_everywhere(
     Not everything a binding offers is a remote call. EvalState's
     make_primop takes a Python callable, which is not data, and a
     remote one would make the evaluator call back over the socket
-    (huggorm#33). So the server publishes no handler for it.
+    (nixidae/nixidae#570). So the server publishes no handler for it.
 
     It stays on the one class, with a `Local` spec. A remote backend
     refuses it with the spec's reason (`test_primop.py`)."""
@@ -329,7 +329,7 @@ def test_a_declared_order_is_an_order_that_works(
     `__eq__` and no ordering, the class gets all six comparison slots
     anyway, and reflection read the slots back as implemented
     comparisons. `sorted(infos)` passed the typechecker and raised
-    TypeError (huggorm#52).
+    TypeError (nixidae/nixidae#589).
 
     Reflection cannot answer this - it measures what the compiler
     emitted, not what the source said - so the fix was to take
@@ -389,7 +389,7 @@ def test_the_stubs_promise_the_same_order_the_model_does(
         model: ir.Model) -> None:
     """The stubs are what a caller's typechecker reads.
 
-    huggorm#52 was a complaint about the STUBS. Stubs that come from a
+    nixidae/nixidae#589 was a complaint about the STUBS. Stubs that come from a
     second route, one that never sees the declaration, can disagree
     with the model about whether PathInfo has an ordering. A second
     route to the same fact is a second answer to it.
@@ -435,7 +435,7 @@ def test_a_blocking_method_on_a_value_gets_a_coroutine(
     """`@blocks` on a value is awaitable, as a free coroutine.
 
     A value has no wrapper, so without one an async caller stalls its
-    event loop (huggorm#25). `Input.fingerprint` hashes a path input's
+    event loop (nixidae/nixidae#562). `Input.fingerprint` hashes a path input's
     tree. Its async form is `input_fingerprint(input, store)`, the
     package exports it, and the method's stub names it."""
     import sys
@@ -473,14 +473,14 @@ def test_a_class_with_no_door_refuses_to_be_built(
     the trampoline, and `MockStore()` succeeded. The failure moved to
     the first call, as "tried to call a pure virtual function", which
     is a worse place to learn about it. There are no trampolines now
-    (huggorm#60) and the binding simply declares no constructor, but
+    (nixidae/nixidae#597) and the binding simply declares no constructor, but
     the guard this test drives is the same one.
 
     This asked `abstract` and slept for it. Nothing had carried
     `@abstract` since the mock went, so the loop ran zero times and
     said so in a comment. `constructs` is the question it always
     meant - "is there a door" - and it separates the two things
-    `@abstract` used to say (huggorm#61). nix::Store now states the
+    `@abstract` used to say (nixidae/nixidae#598). nix::Store now states the
     true C++ fact about itself and still constructs, through its
     factory, so it is correctly NOT a subject here; the five produced
     types are.
@@ -510,7 +510,7 @@ def test_every_declared_constructor_default_reaches_the_binding() -> None:
     `for n, _ in params` never sees a default. The `nb::init` path was
     written that way, and `EvalState(store_uri, settings=None)` bound
     `settings` as required, while the stub said it was optional
-    (huggorm#97). Only a constructor with a C++ body wrote defaults.
+    (nixidae/nixidae#634). Only a constructor with a C++ body wrote defaults.
 
     nanobind keeps a signature's defaults as the third item of
     `__nb_signature__`, so the count is read off the compiled class."""

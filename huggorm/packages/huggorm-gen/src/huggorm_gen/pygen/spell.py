@@ -1,5 +1,5 @@
 """How one emitted module writes the types it names, and what that
-needs imported (huggorm#29).
+needs imported (nixidae/nixidae#566).
 
 A surface renames only the PROXY leaves - to an async class or a
 `@calls_back` protocol - and keeps every structure around them. Every
@@ -57,7 +57,7 @@ class Spelling:
                  client: Rename | None = None) -> None:
         self._proxy = proxy
         # The async protocol a parameter of a `@calls_back` class also
-        # takes, on a surface that adapts one (huggorm#155).
+        # takes, on a surface that adapts one (nixidae/nixidae#740).
         self._client = client
         # Union arms to write a union out as, instead of naming its
         # alias: a binding stub, because a compiled module holds no

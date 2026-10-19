@@ -305,7 +305,7 @@ async def test_a_nested_capture_silences_no_outer_reader() -> None:
 
     The binding REPLACES a thread's subscription, so a `capture()`
     that subscribed on its own left the outer `logs()` loop connected
-    and silent, forever (huggorm#85). Both join the state's tap now:
+    and silent, forever (nixidae/nixidae#622). Both join the state's tap now:
     the capture sees its record, and the outer loop hears that one
     and the one raised after the capture ended."""
     async with AsyncSession("dummy://") as session:
@@ -340,7 +340,7 @@ async def test_a_cancelled_reader_still_unsubscribes() -> None:
     anyio re-delivers a cancel at each await in the generator's
     `finally`, so an unshielded teardown stops at its first await and
     never unsubscribes - which leaks the thread's verbosity
-    (huggorm#95). Unshield it and `unsubscribed` stays empty."""
+    (nixidae/nixidae#632). Unshield it and `unsubscribed` stays empty."""
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         unsubscribed: list[bool] = []
@@ -401,7 +401,7 @@ async def test_remote_capture_collects(server: Any) -> None:
 async def test_a_remote_warning_crosses_with_its_error_info(
         server: Any) -> None:
     """A record raised by `logEI` crosses with its parts: the same
-    `ErrorInfo` a failed call's error carries (huggorm#85, gap 4)."""
+    `ErrorInfo` a failed call's error carries (nixidae/nixidae#622, gap 4)."""
     ctx = _connect(server)
     async with ctx as session:
         state = await session.eval(await session.store())

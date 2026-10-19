@@ -126,7 +126,7 @@ def test_a_missing_import_is_a_render_error(render_served: Any, srv: pathlib.Pat
 
 def test_each_render_collects(render: Any) -> None:
     """The collector runs after a render, so a minion does not grow to
-    Nix's initial heap before its first collection (havsorm#2)."""
+    Nix's initial heap before its first collection (nixidae/nixidae#752)."""
     import huggorm_bindings
 
     before = huggorm_bindings.gc_stats()["collections"]
@@ -177,7 +177,7 @@ def test_ext_pillar_takes_options(tmp_path: pathlib.Path) -> None:
 
 
 def test_a_nix_pillar_sls_imports_from_pillar_roots(tmp_path: pathlib.Path) -> None:
-    """havsorm#4: in a pillar render the file client serves pillar_roots."""
+    """nixidae/nixidae#754: in a pillar render the file client serves pillar_roots."""
     srv = tmp_path / "pillar"
     srv.mkdir()
     (srv / "top.sls").write_text("base:\n  '*':\n    - db\n")

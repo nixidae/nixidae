@@ -1,4 +1,4 @@
-"""The facts a test states that each Nix spells its own way (huggorm#55).
+"""The facts a test states that each Nix spells its own way (nixidae/nixidae#592).
 
 A test builds a derivation-output key or asks a collection to look at some
 paths, and 2.34 and 2.35 take different types for both. Each helper takes the
@@ -92,7 +92,7 @@ else:
     MissingFileError = SysError
 
 # Nix's own wording, where no type or field tells the error apart
-# (huggorm#145). One place, so a Nix that rewords one branches it here,
+# (nixidae/nixidae#717). One place, so a Nix that rewords one branches it here,
 # as MISSING_FILE does. huggorm's own messages stay in the tests.
 BAD_STORE_URI = "Cannot parse Nix store"
 BUILD_LOG_STORAGE = "Build log storage and retrieval"

@@ -1,5 +1,5 @@
 """
-The frames, the build identity, the peer check and faults (huggorm#142).
+The frames, the build identity, the peer check and faults (nixidae/nixidae#714).
 
 Over a socketpair: what crosses is real bytes on a real Unix socket,
 and no socket path is involved.
@@ -143,7 +143,7 @@ def test_the_identity_is_stable() -> None:
 
 def test_a_declared_error_crosses_as_itself() -> None:
     """Not `str()` of each part: `info` is a record, and its parts
-    cross as one (huggorm#100)."""
+    cross as one (nixidae/nixidae#637)."""
     from huggorm_bindings import EvalState, Store
     from huggorm_bindings.errors import MissingAttribute
 

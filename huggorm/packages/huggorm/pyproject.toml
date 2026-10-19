@@ -10,7 +10,7 @@ version = "0.1.0"
 description = "Python library over the generated Nix bindings"
 requires-python = ">=3.11"
 # Floors, never ceilings: a wheel installed beside a distribution's own
-# packages has to take the versions already there (huggorm#107).
+# packages has to take the versions already there (nixidae/nixidae#658).
 # anyio 4 is the first whose task groups always raise ExceptionGroup.
 dependencies = [
     "huggorm-bindings",
@@ -44,7 +44,7 @@ addopts = "-q --strict-markers --strict-config"
 # test drops out of the build gate and nobody finds out.
 #
 # So a bare `pytest` runs everything, which is what a devshell wants,
-# and the sandboxed build passes `-m "not live"` (huggorm#37).
+# and the sandboxed build passes `-m "not live"` (nixidae/nixidae#574).
 markers = [
     "live: needs the machine's own Nix store - a daemon, a db, or a path that exists. Cannot run in a build sandbox",
 ]

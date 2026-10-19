@@ -1,7 +1,7 @@
 {
   lib,
   python3Packages,
-  # The Nix the surface describes (huggorm#55).
+  # The Nix the surface describes (nixidae/nixidae#592).
   version,
   zuban,
   ruff,
@@ -22,8 +22,8 @@ python3Packages.buildPythonPackage {
   # setup.py imports huggorm_gen.pygen to run it.
   #
   # huggorm-bindings is not an input at all. The generator derives
-  # every surface from the declarations (huggorm#65), so this builds
-  # beside the compile and not after it (huggorm#145). The wrappers it
+  # every surface from the declarations (nixidae/nixidae#602), so this builds
+  # beside the compile and not after it (nixidae/nixidae#717). The wrappers it
   # writes import the bindings at run time, so a consumer installs both:
   # `huggorm` propagates the two, and imports them in its check.
   build-system = [
@@ -38,7 +38,7 @@ python3Packages.buildPythonPackage {
   # anyio because a generated wrapper hands back the async spelling of
   # a type when the bindings declare one: Store.real_path returns a
   # pathlib.Path in process and an anyio.Path from the wrapper, so the
-  # emitted module imports anyio (huggorm#40).
+  # emitted module imports anyio (nixidae/nixidae#577).
   propagatedBuildInputs = [ python3Packages.anyio ];
   # The metadata names huggorm-bindings, truthfully, and this build has
   # none. `huggorm` installs both and imports both in its check.
@@ -50,13 +50,13 @@ python3Packages.buildPythonPackage {
   env.HUGGORM_NIX_VERSION = version;
 
   # The emitted package and the stubs, checked as a pair. This is the
-  # claim huggorm#17 and huggorm#27 make - that a consumer can be
+  # claim nixidae/nixidae#554 and nixidae/nixidae#564 make - that a consumer can be
   # typechecked against the generated protocols - so it is worth
   # holding rather than asserting.
   #
   # PYTHONPATH carries the build directory because the stub package is
   # not installed yet, and a PEP 561 <pkg>-stubs directory is found
-  # only through an interpreter's search path (huggorm#27).
+  # only through an interpreter's search path (nixidae/nixidae#564).
   nativeCheckInputs = [ zuban ];
 
   checkPhase = ''

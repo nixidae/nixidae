@@ -4,7 +4,7 @@
 re-export lines that tracked the declarations by hand. That is a
 MAPPING - a Python name to the module it comes from - and it is the
 same species as a hand-written C++ mapping, in a language where it
-looks harmless (huggorm#64). Four lines of it were added by hand in one
+looks harmless (nixidae/nixidae#601). Four lines of it were added by hand in one
 session for one new declaration, which is how the cost shows up.
 
 Everything the file says is already in the declarations:
@@ -62,7 +62,7 @@ so nobody has to learn a second one.
 Nothing, this file included. It used to be twenty-five re-export lines
 that tracked the declarations by hand, and they are derived now: the
 names come from what each declaration binds and the modules come from
-the declarations' own stems (huggorm#64).
+the declarations' own stems (nixidae/nixidae#601).
 
 The C++ this repo writes is not here either. It is
 `huggorm_decl/cpp/`, with the declarations that NAME it - `@binds`
@@ -89,7 +89,7 @@ rather than as a function of its own.
 
 There isn't one. `fake-library/` was a C++ stand-in this repo grew
 before real Nix was linked; every module here binds libstore or
-libexpr now, and the stand-in is deleted (huggorm#60).
+libexpr now, and the stand-in is deleted (nixidae/nixidae#597).
 '''
 
 

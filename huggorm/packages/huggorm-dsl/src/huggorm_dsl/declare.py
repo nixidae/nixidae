@@ -55,7 +55,7 @@ class Crossing(StrEnum):
 
 
 class Subscription(StrEnum):
-    """What a call does to a subscription a server shares (huggorm#85)."""
+    """What a call does to a subscription a server shares (nixidae/nixidae#622)."""
 
     # Opens one subscription per object, or per process for a free
     # function, and answers each caller its own reader of it.
@@ -90,7 +90,7 @@ class Cxx:
 
     `width` is the wire scalar for an integer a sint64 cannot hold:
     `uint` for a uint64_t. Python has one `int`, so only the crossing
-    needs it, and a service parameter cannot say it (huggorm#79)."""
+    needs it, and a service parameter cannot say it (nixidae/nixidae#616)."""
 
     spelling: str
     copy: str = "value"
@@ -216,7 +216,7 @@ Duration = Annotated[datetime.timedelta, Cxx("microseconds")]
 # That is not a gap to fill later: a remote client registering a
 # primop would make the evaluator call BACK over the socket, on its
 # own evaluation thread, once per invocation - a distributed call in
-# a hot loop. huggorm#33 records it as a decision rather than an
+# a hot loop. nixidae/nixidae#570 records it as a decision rather than an
 # omission.
 #
 # `object` and not `Callable[..., Any]`, and the reflection gate is
@@ -267,7 +267,7 @@ class Enumerated:
     upstream - by the word's own name. A word not named here is
     `{cxx}::{word}`, which is every word in the usual case.
 
-    Not an `nb::enum_`. Measured (huggorm#70): a chain of
+    Not an `nb::enum_`. Measured (nixidae/nixidae#607): a chain of
     `.value("MD5", ...)` calls with an enumerator left out compiles
     silently, because `.value` is a runtime call and there is nothing
     for the compiler to check it against. A switch is the whole
@@ -472,7 +472,7 @@ class Decl:
 #
 # Where a marker is legal, how many times, and what it conflicts with.
 # One table, read by `read.py` so a rule is CHECKED rather than
-# restated in a docstring and enforced nowhere (huggorm#61).
+# restated in a docstring and enforced nowhere (nixidae/nixidae#598).
 #
 # Before this, `read.py` carried 28 hand-written raises and the rules
 # below were prose. The ones that were never written stayed unchecked:
@@ -571,7 +571,7 @@ def in_process(cls: type) -> type:
 
 
 def calls_back(cls: type) -> type:
-    """EXPERIMENTAL (huggorm#153): a remote client may pass one of these.
+    """EXPERIMENTAL (nixidae/nixidae#738): a remote client may pass one of these.
 
     For an `@in_process` class whose `@virtual` methods Nix calls. The
     client's object stays in the client and crosses as a client handle;
@@ -823,7 +823,7 @@ def gc_slots(table: str) -> Callable[[type], type]:
 
     A class that stores a Python callable and does NOT say this leaks
     itself whenever that callable closes over it, which is the normal
-    way to write one (huggorm#93). Nothing detects the omission
+    way to write one (nixidae/nixidae#630). Nothing detects the omission
     today."""
     def apply(cls: type) -> type:
         _decl(cls).gc_slots = table
@@ -1086,7 +1086,7 @@ def virtual[F: Callable[..., Any]](fn: F) -> F:
 
 
 def posted[F: Callable[..., Any]](fn: F) -> F:
-    """Nix need not wait for this hook to finish (huggorm#155).
+    """Nix need not wait for this hook to finish (nixidae/nixidae#740).
 
     For a `@virtual` that answers nothing, on a `@calls_back` class.
     An async object's call is queued, and Nix goes on; a full queue
@@ -1098,7 +1098,7 @@ def posted[F: Callable[..., Any]](fn: F) -> F:
 
 
 def subscription[F: Callable[..., Any]](role: Subscription) -> Callable[[F], F]:
-    """A server shares this call among its callers (huggorm#85).
+    """A server shares this call among its callers (nixidae/nixidae#622).
 
     The binding REPLACES a thread's subscription, so a second caller
     passed straight through would silence the first. The server opens

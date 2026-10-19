@@ -1,5 +1,5 @@
 """A server stops on SIGTERM or SIGINT, and closes what it holds
-(huggorm#143)."""
+(nixidae/nixidae#715)."""
 
 import contextlib
 import os
@@ -13,7 +13,7 @@ from conftest import socket_path, wait_socket
 
 from huggorm import remote
 
-# Pure: Nix checks for an interrupt once per function call (huggorm#158).
+# Pure: Nix checks for an interrupt once per function call (nixidae/nixidae#744).
 PURE = ("let sum = builtins.foldl' (a: b: a + b) 0; "
         "range = n: builtins.genList (x: x) n; in "
         "builtins.foldl' (a: _: a + sum (range 1000)) 0 (range 1000000)")

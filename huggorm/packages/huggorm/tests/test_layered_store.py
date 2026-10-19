@@ -1,4 +1,4 @@
-"""A Nix store implemented in Python, layered over another (huggorm#149).
+"""A Nix store implemented in Python, layered over another (nixidae/nixidae#732).
 
 A subclass of `LayeredStore` overrides the hooks it answers; Nix calls
 them through the emitted trampoline, and everything else runs on the

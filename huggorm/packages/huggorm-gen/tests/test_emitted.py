@@ -116,8 +116,8 @@ def test_an_optional_return_names_a_value_or_nothing(
     """`T | None` is a real return type, and only for some T.
 
     Absence is msgpack's nil, so any T may be optional: a scalar, a
-    value, a container, an element of a container (huggorm#48,
-    huggorm#142).
+    value, a container, an element of a container (nixidae/nixidae#585,
+    nixidae/nixidae#714).
 
     A WRAPPED T is allowed too. Every layer adopts T when it is there
     and passes None through: the runner by the call's spec
@@ -145,7 +145,7 @@ def test_an_optional_return_names_a_value_or_nothing(
     assert "-> AsyncValue | None" in emitted, emitted
 
     # No pool class returns an affine one, plain or optional. An affine
-    # class may (huggorm#8).
+    # class may (nixidae/nixidae#545).
     from huggorm_gen import contracts
 
     made = ir.TypeRef.named("State", ir.Kind.PROXY)
@@ -261,14 +261,14 @@ def test_the_wire_refuses_what_it_cannot_carry() -> None:
     A container of PROXIES stays refused whichever container it is, at
     any depth: one lease per element is not something anything grants
     in bulk. An opaque object and a module type with no wire spelling
-    have no wire form at all. Containers nest freely (huggorm#142)."""
+    have no wire form at all. Containers nest freely (nixidae/nixidae#714)."""
     from huggorm_gen import ir
     from huggorm_gen.cppgen.generate import declared_model
 
     free = declared_model().functions
     assert free["collect_garbage"].returns is None
     # gc_stats returns dict[str, int]: the declaration says what the
-    # entries hold (huggorm#30).
+    # entries hold (nixidae/nixidae#567).
     gc_return = free["gc_stats"].returns
     assert gc_return is not None and gc_return.spelling == "dict[str, int]"
 

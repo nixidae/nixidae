@@ -2,7 +2,7 @@
 
 The type cannot say where an object lives, so each side checks at the
 call: in process a remote handle is refused, and over the wire an
-in-process object is refused (huggorm#26). A consumer typed against
+in-process object is refused (nixidae/nixidae#563). A consumer typed against
 the async classes then drives either location with the same code.
 """
 

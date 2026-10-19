@@ -25,7 +25,7 @@ python3Packages.buildPythonPackage {
   # The generator too, because `setup.py` writes `huggorm/__init__.py`
   # before setuptools resolves the package list. The front door is a
   # mapping of Python names onto the two packages behind it, so it is
-  # derived rather than tracked by hand (huggorm#64).
+  # derived rather than tracked by hand (nixidae/nixidae#601).
   #
   # ruff lays the front door out, as it does the generated package.
   nativeBuildInputs = [ ruff ];
@@ -40,13 +40,13 @@ python3Packages.buildPythonPackage {
   # generated is propagated so anyone writing code in/downstream of
   # huggorm sees huggorm_generated in their environment.
   # asyncinotify: the kernel telling the watcher a file moved, instead
-  # of the watcher stat-ing for it (huggorm#83). Linux only, which is
+  # of the watcher stat-ing for it (nixidae/nixidae#620). Linux only, which is
   # what let it beat watchdog - Carl ruled Darwin out for now, so
   # cross-platform bought nothing and cost a thread pool. It
   # propagates nothing but python3 itself.
-  # msgpack: the value format of the Unix socket transport (huggorm#142).
+  # msgpack: the value format of the Unix socket transport (nixidae/nixidae#714).
   # The front door and the suite read the declarations for the Nix the
-  # bindings link (huggorm#55).
+  # bindings link (nixidae/nixidae#592).
   env.HUGGORM_NIX_VERSION = huggorm-bindings.nixVersion;
   env.HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
   # The plugin `test_plugins.py` loads: built against this lane's Nix,
@@ -75,7 +75,7 @@ python3Packages.buildPythonPackage {
   # --python-executable, not MYPYPATH: a PEP 561 <pkg>-stubs package is
   # only found through an interpreter's search path, never through
   # MYPYPATH. Without it every binding type reads as Any and the check
-  # passes while proving nothing (huggorm#27).
+  # passes while proving nothing (nixidae/nixidae#564).
   nativeCheckInputs = [
     # The suite builds a git work tree for the git fetcher to read.
     gitMinimal
@@ -110,7 +110,7 @@ python3Packages.buildPythonPackage {
     # writable store, so a test that needs one cannot run here. The
     # rest of the suite runs on every build, as it always has. The
     # live half runs from the devshell: nix run --file . test
-    # (huggorm#37).
+    # (nixidae/nixidae#574).
     pytest -m "not live"
     runHook postCheck
   '';

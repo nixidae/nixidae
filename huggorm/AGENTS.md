@@ -270,11 +270,15 @@ and present every time (#91).
 
 # Maintain the issues as you work
 
-The tracker is GitHub issues on `nixidae/huggorm`. Issue #N is the
-old `tasks/NNN` file for every N up to 105, so a `tasks/NNN` in a
-commit message means #N. #106 holds the old board, `tasks/README.md`.
-Refer to an issue as `#N` in Markdown, and as `huggorm#N` in code, in
-comments and in error messages.
+The tracker is GitHub issues on `nixidae/nixidae`, label
+`source: huggorm`. huggorm's own issues moved there on 2026-10-19.
+An old `huggorm#N`, or a bare `#N` in huggorm's files and history
+(this file included), maps to its
+new number through `nix/issue-migration/map.jsonl` in the monorepo.
+A `tasks/NNN` in a commit message means old huggorm#N, for every N up
+to 105. nixidae/nixidae#643 holds the old board, `tasks/README.md`.
+Refer to an issue as `nixidae/nixidae#N` everywhere: this tree is
+exported to `nixidae/huggorm`, where a bare `#N` links nowhere.
 
 Goal 3 says to record decisions in the issues, including the ones that
 turned out wrong. That is not a step at the end.

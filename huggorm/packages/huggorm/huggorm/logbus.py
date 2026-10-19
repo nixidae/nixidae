@@ -1,7 +1,7 @@
 """One log subscription, many readers over it.
 
 The binding REPLACES a thread's subscription, so a second
-`subscribe_logs` on one state silences the first reader (huggorm#85).
+`subscribe_logs` on one state silences the first reader (nixidae/nixidae#622).
 The server and the local session therefore open one subscription per
 state, or one on the process sink, and fan it out here.
 """
@@ -26,7 +26,7 @@ def widest(readers: Iterable[Share]) -> int:
     The WIDEST any reader asked for, and not a constant 7: a
     subscription raises the level `RemoteStore::setOptions` sends to
     the daemon, so subscribing at 7 asks every daemon connection to
-    narrate at vomit whether or not anyone wants it (huggorm#102). A
+    narrate at vomit whether or not anyone wants it (nixidae/nixidae#639). A
     reader that wants more REOPENS the subscription at its level
     rather than being refused."""
     return max((r.level for r in readers), default=LOG_LEVEL)
@@ -152,7 +152,7 @@ class Fanout:
         waits leaves a consistent state: the subscription stays, and
         the next `join` reuses it. Discarded after, a cancelled
         `leave` would keep a reader nobody drains. Not observed;
-        huggorm#32 tried two perturbations and saw no cancel here."""
+        nixidae/nixidae#569 tried two perturbations and saw no cancel here."""
         self._readers.discard(reader)
         async with self._lock:
             if self._readers or self._sub is None:

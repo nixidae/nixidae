@@ -2,7 +2,7 @@
 
 Nix allocates every builtin with `new PrimOp`, and only a collector-owned
 Value points at it, so before nix-evalstate-owns-primops.patch each state
-leaked 84.5 KiB of malloc memory when it was dropped (huggorm#162).
+leaked 84.5 KiB of malloc memory when it was dropped (nixidae/nixidae#755).
 
 In a child: the measurement is process-wide, and a test beside it would
 allocate into it.

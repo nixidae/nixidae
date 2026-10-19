@@ -333,10 +333,10 @@ class Dispatcher:
         # an affine thread from the collector's list, and cancelling
         # that is how a dead thread stays registered. It OWNS its
         # children, so nothing here retains a set of tasks by hand
-        # (huggorm#35).
+        # (nixidae/nixidae#572).
         self.tasks = tasks
         self.table = HandleTable(ttl=lease_ttl, escrow_ttl=escrow_ttl)
-        # EXPERIMENTAL (huggorm#153): whether a client may hand over an
+        # EXPERIMENTAL (nixidae/nixidae#738): whether a client may hand over an
         # object the server calls back.
         self.callbacks = callbacks
         self.table.on_drop = self._on_drop
@@ -358,7 +358,7 @@ class Dispatcher:
         # The `@subscription` calls, routed through the fan-outs.
         # Called straight through, an OPEN REPLACES the thread's
         # subscription, and an open `Session/Logs` stream on that
-        # state goes connected and silent (huggorm#85). So the handle a
+        # state goes connected and silent (nixidae/nixidae#622). So the handle a
         # remote OPEN answers is a fan-out reader, and a remote CLOSE
         # leaves only the readers that connection opened. Keyed by the
         # declared role, so no layer above the bindings names a method
@@ -386,7 +386,7 @@ class Dispatcher:
         self._handle_readers: dict[tuple[str, int], weakref.WeakSet[Reader]] = {}
         # A failure crosses the same way a value does: by what the
         # bindings declare, never by a type this file names
-        # (huggorm#36).
+        # (nixidae/nixidae#573).
         self.faults = Faults(self.codec)
         self.handlers = self._handlers()
 
@@ -442,7 +442,7 @@ class Dispatcher:
         and this is the path that shuts an affine thread down, which
         is also where that thread leaves the collector's list. Losing
         it silently cost both, and a hand-kept set of tasks was the
-        old defence (huggorm#35).
+        old defence (nixidae/nixidae#572).
 
         `start_soon` is a plain method, not a coroutine, so a
         callback the sweep calls synchronously can still use it."""
@@ -490,8 +490,8 @@ class Dispatcher:
         A declared error crosses as itself, so the far side rebuilds
         the class rather than approximating it by name. Anything else
         crosses as an InternalError that carries it, so unknown handles
-        and bugs arrive debuggable, not anonymous (huggorm#36,
-        huggorm#66).
+        and bugs arrive debuggable, not anonymous (nixidae/nixidae#573,
+        nixidae/nixidae#603).
 
         The test is `to_dict`, not `isinstance(e, WrapperError)`. A
         declared Nix error cannot subclass WrapperError, because the
@@ -668,7 +668,7 @@ class Dispatcher:
         it with the call that already exists. A forcing walk forces
         what it visits, inside the same bounds, and a node whose force
         throws crosses as a handle - so it still cannot raise halfway
-        down a half-built message (huggorm#147)."""
+        down a half-built message (nixidae/nixidae#721)."""
         target = self.resolve(hid, token)
         spec = TREES.get(DECLARED.get(type(target), ""))
         if spec is None:
@@ -682,7 +682,7 @@ class Dispatcher:
 
     async def build(self, token: str, hid: str, data: Any) -> list[Any]:
         """A value made from Python data, in one hop on the state's own
-        thread, answered as the tree it built (huggorm#147).
+        thread, answered as the tree it built (nixidae/nixidae#721).
 
         A handle inside the data stands for the value it names, and
         answers under the same id, so the caller keeps its own object
@@ -713,7 +713,7 @@ class Dispatcher:
         Not `subscribe_logs`: a reader opened here is outside the set
         a remote `unsubscribe_logs` leaves, so a caller reading a
         state's log keeps reading through a subscribe and an
-        unsubscribe on the same state (huggorm#85). Releasing the
+        unsubscribe on the same state (nixidae/nixidae#622). Releasing the
         handle leaves the fan-out. The reader pins the state it
         reads."""
         if hid is None:
@@ -925,7 +925,7 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
     stop first, and anything they started is still awaited by `work`
     afterwards.
 
-    That split is the trap huggorm#35 names first: a task group does
+    That split is the trap nixidae/nixidae#572 names first: a task group does
     not cancel its children on exit, it waits for them.
 
     The socket is mode 0600, and a connection checks the peer's uid
@@ -940,8 +940,8 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
 
         # Connection liveness: transports never report death; the
         # sweeper notices silence past the TTL and releases what
-        # the dead connection held (huggorm#2). It also releases
-        # escrow nobody claimed in time (huggorm#143).
+        # the dead connection held (nixidae/nixidae#539). It also releases
+        # escrow nobody claimed in time (nixidae/nixidae#715).
         ttls = [t for t in (lease_ttl, escrow_ttl) if t]
 
         async def sweeper() -> None:
@@ -994,7 +994,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--experimental-callbacks", action="store_true",
         help="let a client hand over objects this server calls back, "
-             "such as a SourceAccessor (huggorm#153). EXPERIMENTAL and "
+             "such as a SourceAccessor (nixidae/nixidae#738). EXPERIMENTAL and "
              "unsafe for a state that several clients share")
     args = parser.parse_args(argv)
     for name, value in args.option:

@@ -120,7 +120,7 @@ def _adapted(t: ir.TypeRef) -> bool:
 def _passed(params: Sequence[ir.ParamModel]) -> str:
     """The arguments a call hands its runner. A `@calls_back` one goes
     through `adapt`, which wraps an async object in a stub Nix can
-    call (huggorm#155)."""
+    call (nixidae/nixidae#740)."""
     return ", ".join(f"adapt({p.type.leaf.name}, {p.name})"
                      if _adapted(p.type) else p.name for p in params)
 
@@ -433,7 +433,7 @@ def policy_module(model: ir.Model) -> str:
         methods.append((c.name, ast.Tuple(elts=offered)))
     body.append(_table("METHODS", "dict[str, tuple[Call, ...]]", methods))
     # What the server may call on a client's object: each `@virtual`,
-    # numbered within its class (huggorm#153).
+    # numbered within its class (nixidae/nixidae#738).
     body.append(_table("CALLBACKS", "dict[str, tuple[Hook, ...]]", [
         (c.name, tuple(cs.Hook(_spec(i, m.name, m.params, m.returns), m.posted)
                        for i, m in enumerate(c.hooks)))
@@ -666,7 +666,7 @@ def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
         # No runner and no target: there is no way in, so there is
         # nothing to construct lazily. Keyed on the DOOR rather than on
         # `abstract`, which is the C++ fact - nix::Store is abstract and
-        # still constructs, through its factory (huggorm#61).
+        # still constructs, through its factory (nixidae/nixidae#598).
         init = _code("""
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 raise TypeError($message)
@@ -710,7 +710,7 @@ def _future_annotations() -> ast.ImportFrom:
     a protocol's hook can name a class defined later. PEP 649 already
     defers evaluation on 3.14; the package also runs on 3.11 and up,
     where an async wrapper's method returning its own class needs this
-    (huggorm#107)."""
+    (nixidae/nixidae#658)."""
     return ast.ImportFrom(module="__future__",
                           names=[ast.alias(name="annotations")], level=0)
 
@@ -718,7 +718,7 @@ def _future_annotations() -> ast.ImportFrom:
 def protocol_module(model: ir.Model) -> ast.Module:
     """Emit one Protocol per `@calls_back` class: the async object a
     program writes for Nix to call, in process or on a remote client
-    (huggorm#155).
+    (nixidae/nixidae#740).
 
     A hook takes and answers what the sync hook does: the stub that
     calls it hands the answer to Nix unchanged."""
@@ -951,7 +951,7 @@ def _stub_dunders(name: str, dunders: list[str]) -> list[ast.stmt]:
     surface only, so they skip the value dunders - right for the
     async classes, and wrong here. Without these, a typechecker reads
     object's __eq__ and calls `a < b` an error on a class that supports
-    it, and `sorted(paths)` an error on a list of them (huggorm#46).
+    it, and `sorted(paths)` an error on a list of them (nixidae/nixidae#583).
 
     Which ones exist is reflected, not assumed: ordering and __str__
     are per-class, because a store path has a natural order and a
@@ -1032,7 +1032,7 @@ def stub_module(model: ir.Model, module: str) -> ast.Module:
     a .so, so without this every binding type is Any - which is why an
     async-typed consumer could catch a call to a method that does
     not exist and NOT catch a str passed where a StorePath is declared
-    (huggorm#27).
+    (nixidae/nixidae#564).
 
     A class only a call hands back raises from __init__, so the stub
     says NoReturn - true, and it makes StorePath() an error at the call
@@ -1169,7 +1169,7 @@ def package_exports(model: ir.Model) -> list[str]:
 
     Apart from `init_module` because a second file needs the same
     list: `huggorm.__init__` re-exports this package whole, and the
-    front door is emitted too (huggorm#64). Computing it there as well
+    front door is emitted too (nixidae/nixidae#601). Computing it there as well
     would be one list stated twice, which is exactly the thing that
     front door existed as."""
     return ([c.async_name for c in model.ordered_served]

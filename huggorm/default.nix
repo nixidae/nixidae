@@ -151,7 +151,7 @@ rec {
       wheels ? true,
     }:
     # `majorMinor`, because `2.36pre...` sorts BEFORE `2.36` in
-    # `versionAtLeast` (huggorm#55).
+    # `versionAtLeast` (nixidae/nixidae#592).
     assert lib.assertMsg (lib.versions.majorMinor components.version == minor) ''
       nix/versions.nix states ${minor}, and this nixpkgs gives
       ${components.version}. A master that moved to a new minor needs
@@ -239,7 +239,7 @@ rec {
         licenses = pkgs.callPackage ./nix/licenses.nix { };
 
         # The emitted C++ for this Nix. `HUGGORM_NIX_VERSION` picks each
-        # declaration's `NIX_VERSION` branch (huggorm#55).
+        # declaration's `NIX_VERSION` branch (nixidae/nixidae#592).
         bindings-src = bindings-src.overrideAttrs { HUGGORM_NIX_VERSION = self.version; };
         # The generator's own suite, for this Nix, with no compile.
         generator-tests =
@@ -388,7 +388,7 @@ rec {
   #
   # The emitted C++ for every Nix version, about 4 s each with no
   # compile. Each version picks its own declaration branches, so a
-  # refusal that only one version reaches fails here (huggorm#129 sat
+  # refusal that only one version reaches fails here (nixidae/nixidae#698 sat
   # on main because nothing built the 2.35 one).
   every-nix-src = pkgs.linkFarm "huggorm-every-nix-src" (
     lib.mapAttrsToList (name: _: {
@@ -410,7 +410,7 @@ rec {
   # nix build --file . byNixpkgs.release.lanes.nix_2_35.huggorm
   #
   # This file again, on another nixpkgs, with that nixpkgs' Python 3.14.
-  # `release` follows the latest NixOS release (huggorm#108).
+  # `release` follows the latest NixOS release (nixidae/nixidae#659).
   byNixpkgs = lib.optionalAttrs (!pin) {
     release =
       let
@@ -474,7 +474,7 @@ rec {
   );
   # The emitted front door, into the working tree.
   #
-  # `huggorm/__init__.py` is generated (huggorm#64) and the tree keeps
+  # `huggorm/__init__.py` is generated (nixidae/nixidae#601) and the tree keeps
   # none of it, so `packages/huggorm/huggorm/` is a NAMESPACE portion.
   # Python's finder - and zuban's - prefer a regular package found
   # LATER on the path, so without this the tree's `huggorm` is not the
@@ -500,7 +500,7 @@ rec {
   # without a rebuild. zuban needs an interpreter rather than a search
   # path: a PEP 561 <pkg>-stubs package is found only through one, and
   # without it every binding type reads as Any and the check passes
-  # while proving nothing (huggorm#27).
+  # while proving nothing (nixidae/nixidae#564).
   check = pkgs.writeShellApplication {
     name = "check";
     runtimeInputs = [
@@ -529,7 +529,7 @@ rec {
       # The declarations branch on the gates, so each later Nix gets a
       # run of its own. The suite and the generated surface need no
       # such run here: each version's own build typechecks them
-      # (huggorm#55).
+      # (nixidae/nixidae#592).
       echo "--- typecheck: the declarations, for ${toString minors.gates} ---"
       ${lib.concatMapStrings (at: ''
         zuban mypy --python-executable "${ourPython}/bin/python3" \
@@ -558,7 +558,7 @@ rec {
   #
   # The WHOLE suite, outside the sandbox. A build has no daemon, no db
   # and no writable store, so anything that touches a real store cannot
-  # be a build check - and that half will only grow (huggorm#37). The
+  # be a build check - and that half will only grow (nixidae/nixidae#574). The
   # build runs `pytest -m "not live"`; this runs everything.
   #
   # PYTHONPATH puts the working tree's huggorm ahead of the installed
@@ -570,7 +570,7 @@ rec {
   # and the store's package wins the whole directory. See its comment.
   #
   # PYTEST_DEBUG_TEMPROOT gives this suite its OWN basedir, and that
-  # is huggorm#62. pytest's default is `$TMPDIR/pytest-of-$USER`,
+  # is nixidae/nixidae#599. pytest's default is `$TMPDIR/pytest-of-$USER`,
   # keyed by USER and not by project, so every pytest on this machine
   # shares one directory. Three consequences, all measured:
   #

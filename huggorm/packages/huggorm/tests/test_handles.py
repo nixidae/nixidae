@@ -1,5 +1,5 @@
 """
-HandleTable unit tests (huggorm#2, huggorm#31).
+HandleTable unit tests (nixidae/nixidae#539, nixidae/nixidae#568).
 
 The lifecycle suite drives the table through a real server, which
 is what proves the transport. It cannot reach the cases that only the
@@ -166,7 +166,7 @@ def test_escrow_survives_and_re_indexes() -> None:
 
 def test_unclaimed_escrow_is_released_after_its_ttl() -> None:
     """Escrow waits for a successor that comes soon, such as a forked
-    worker, not for one that comes tomorrow (huggorm#143). A bucket
+    worker, not for one that comes tomorrow (nixidae/nixidae#715). A bucket
     claimed in time keeps its objects; one left past the TTL drops."""
     t = HandleTable(ttl=None, escrow_ttl=300.0)
     a, b = t.bind(), t.bind()
@@ -305,7 +305,7 @@ def test_touch_takes_ownership_back_after_detach() -> None:
 
 def test_a_closed_stream_forgets_a_token_that_holds_nothing() -> None:
     """With no TTL nothing sweeps, so the close is the only way the
-    record goes (huggorm#159)."""
+    record goes (nixidae/nixidae#746)."""
     t = table(ttl=None)
     a = t.bind()
     bound = t.connections[a]

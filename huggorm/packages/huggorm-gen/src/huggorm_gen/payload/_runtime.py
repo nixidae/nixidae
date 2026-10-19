@@ -88,7 +88,7 @@ class WrapperError(Exception):
     # at the wire, where the emitted `_policy` says which classes
     # exist. This module is emitted beside the wrappers and must not
     # know which library it wraps, so it holds no map of library
-    # errors to guess a cause from (huggorm#36).
+    # errors to guess a cause from (nixidae/nixidae#573).
 
 
 class InternalError(WrapperError):
@@ -721,7 +721,7 @@ def _check_isolation(callee: Any, args: Iterable[Any]) -> None:
             continue
         if not isinstance(r, BaseRunner):
             # One class holds either backend, so the location is
-            # checked here, not by a typechecker (huggorm#26).
+            # checked here, not by a typechecker (nixidae/nixidae#563).
             raise TypeError(
                 f"{type(x).__name__} is a handle on a server, and an "
                 f"in-process call needs the object itself")
@@ -736,7 +736,7 @@ def _check_isolation(callee: Any, args: Iterable[Any]) -> None:
             # skips those. It stays because it is the rule rather than
             # an optimisation - the day an affine class returns a wire
             # value, refusing the copy would be wrong. Said here so it
-            # is not read as covered (huggorm#75's lesson).
+            # is not read as covered (nixidae/nixidae#612's lesson).
             continue
         _refuse_foreign(callee, r, x)
 
@@ -921,7 +921,7 @@ class BaseRunner:
         args = self._adapted_args(spec, args)
         _check_isolation(self, args)
         # A dedicated thread runs its calls in the order they arrive here,
-        # so nothing may await before the submit (huggorm#155). Its
+        # so nothing may await before the submit (nixidae/nixidae#740). Its
         # arguments build in `_invoke` instead: a pool object builds on
         # any thread, and `_check_isolation` refused every affine one
         # that lives on another thread.
@@ -988,7 +988,7 @@ class AffineRunner(BaseRunner):
         self._pool.submit(self._retire)
         # The wait lasts as long as the work still queued, which is an
         # evaluation when a server closes a dropped state. On the loop
-        # it stalled every other client (huggorm#143).
+        # it stalled every other client (nixidae/nixidae#715).
         await anyio.to_thread.run_sync(lambda: self._pool.shutdown(wait=True))
 
     def _retire(self) -> None:

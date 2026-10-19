@@ -34,7 +34,7 @@ from typing import Any
 #
 # Found by `GCOptions.max_freed`, whose upstream default is the
 # largest uint64_t: sending the default options object raised
-# `ValueError: Value out of range: 18446744073709551615` (huggorm#79).
+# `ValueError: Value out of range: 18446744073709551615` (nixidae/nixidae#616).
 SCALAR_NAMES = ("str", "int", "uint", "float", "bool", "bytes")
 
 # A declared type that is not a builtin and still goes in a field as
@@ -43,7 +43,7 @@ SCALAR_NAMES = ("str", "int", "uint", "float", "bool", "bytes")
 # `datetime.timedelta` is what a DURATION is
 # above every boundary: nanobind's own chrono caster hands a
 # `std::chrono::microseconds` over as one, so the in-process surface
-# needs nothing of ours (huggorm#71).
+# needs nothing of ours (nixidae/nixidae#608).
 #
 # It crosses as an int of MICROSECONDS. Carl's decision, and the two
 # reasons agree: a timedelta's own finest unit IS the microsecond, so
@@ -87,7 +87,7 @@ class Spelled:
 # A filesystem path crosses as the str it is. It names a file on the
 # SERVER's machine, which #142 makes the client's: a same-uid Unix
 # socket. A socket forwarded over ssh or into a container breaks that,
-# and the path then names a file the client cannot open (huggorm#148).
+# and the path then names a file the client cannot open (nixidae/nixidae#722).
 SPELLED = {
     "datetime.timedelta": Spelled("int", _duration_out, _duration_in),
     "pathlib.Path": Spelled("str", os.fspath, pathlib.Path),

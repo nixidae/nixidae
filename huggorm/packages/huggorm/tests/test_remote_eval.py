@@ -1,4 +1,4 @@
-"""Remote evaluation of the client's files (huggorm#153). EXPERIMENTAL.
+"""Remote evaluation of the client's files (nixidae/nixidae#738). EXPERIMENTAL.
 
 The client keeps a `SourceAccessor` and hands it to `EvalState.mount`
 on the server. The server calls the accessor back over the connection
@@ -154,7 +154,7 @@ async def test_the_server_evaluates_a_directory_on_the_client(
 async def test_an_async_client_tree_calls_the_server_back(
         callback_server: Server) -> None:
     """The client's hook awaits a call on the state that waits for it.
-    The state's thread runs that call while it waits (huggorm#155)."""
+    The state's thread runs that call while it waits (nixidae/nixidae#740)."""
     from test_async_accessor import Tree
 
     answers: list[int] = []

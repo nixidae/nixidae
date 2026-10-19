@@ -1,5 +1,5 @@
 """
-The first REAL Nix type (huggorm#15).
+The first REAL Nix type (nixidae/nixidae#552).
 
 nix::StorePath is the smallest thing that proves the chain end to end:
 pkg-config linkage against the split nix-store component, a namespaced
@@ -121,7 +121,7 @@ def test_a_value_compares_hashes_and_prints() -> None:
     Without this, two paths naming the same store object were never
     equal, a set of them deduplicated nothing, and repr() showed an
     address instead of the one string the object carries - so every
-    caller compared .to_string() by hand (huggorm#46).
+    caller compared .to_string() by hand (nixidae/nixidae#583).
 
     The comparison is C++'s. nix::StorePath defaults operator== and
     operator<=>, so the binding declares them rather than
@@ -172,7 +172,7 @@ def test_an_explicit_DEFAULT_is_not_an_absent_field() -> None:
     `None if not raw`, so an explicitly-passed 0 or "" arrived as
     None. Absence is msgpack's nil and nothing else.
 
-    Asked of the CODEC rather than of a type (huggorm#60): real Nix's
+    Asked of the CODEC rather than of a type (nixidae/nixidae#597): real Nix's
     one optional scalar, `PathInfo.registration_time`, collapses 0 and
     unknown on purpose, so no object's accessors can pose the
     question."""

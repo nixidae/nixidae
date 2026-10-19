@@ -4,7 +4,7 @@ Collections over the wire, and the whole tree in one round trip.
 Every element of a value is a value in its own right, so walking an
 attribute set from a client is a chain of handles - a round trip and a
 thread handover per node. Realize walks it once, on the value's own
-thread, and answers with the shape (huggorm#30).
+thread, and answers with the shape (nixidae/nixidae#567).
 """
 
 import gc
@@ -156,7 +156,7 @@ async def test_a_repeated_value_crosses_once(state: Any) -> None:
     assert expanded == ["a"] and diamond["a"] == [], diamond
 
 
-# -- a forcing walk (huggorm#147) ------------------------------------------
+# -- a forcing walk (nixidae/nixidae#721) ------------------------------------------
 
 async def test_a_forcing_walk_forces_what_it_visits(state: Any) -> None:
     client = state._backend.client
@@ -211,7 +211,7 @@ async def test_an_endless_value_ends_at_the_budget(state: Any) -> None:
     assert 5 < levels < 20, levels
 
 
-# -- views (huggorm#147) ---------------------------------------------------
+# -- views (nixidae/nixidae#721) ---------------------------------------------------
 
 async def apply_int(state: Any, fn: str, arg: Any) -> int:
     result = await (await state.eval_expr(fn))(arg)
@@ -264,7 +264,7 @@ async def test_a_list_view(state: Any) -> None:
     assert await apply_int(state, "builtins.length", xs) == 3
 
 
-# -- data into Nix (huggorm#147) --------------------------------------------
+# -- data into Nix (nixidae/nixidae#721) --------------------------------------------
 
 @pytest.mark.parametrize(("data", "kind"), [
     (None, "null"), (True, "bool"), (1, "int"), (0.5, "float"),

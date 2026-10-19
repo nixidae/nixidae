@@ -16,5 +16,5 @@ where = ["src"]
 [tool.setuptools.package-data]
 # py.typed because the emitters import this package and are checked
 # --strict: without it every call reads as Any and the check passes
-# while proving nothing (huggorm#27).
+# while proving nothing (nixidae/nixidae#564).
 huggorm_dsl = ["py.typed"]

@@ -17,7 +17,7 @@ build. Its order is the part a person gets wrong: C++ picks the FIRST
 matching catch, so a base listed before its subclass swallows it.
 The model computes it from the inheritance.
 
-The module's BODY is `read.resolved`, not a raw parse (huggorm#73). A
+The module's BODY is `read.resolved`, not a raw parse (nixidae/nixidae#610). A
 raw `tree.body` holds both arms of an `if NIX_VERSION >= ...`, so the
 transform would copy the whole branch into the emitted file. The
 emitted module holds the classes this build's Nix has, flat, with no
@@ -86,7 +86,7 @@ def chain(errors: ir.Errors, raise_as: str) -> list[str]:
     `errors.module` is where the helper looks the class up. Passed
     from here, so the helper names no part of the library it raises
     into: a stale copy of the name fails at RUNTIME, by falling back
-    to RuntimeError (huggorm#63).
+    to RuntimeError (nixidae/nixidae#600).
 
     A class with no `cxx` is not caught. That is how a Python-only
     exception - one this binding raises itself and Nix never throws -
@@ -160,7 +160,7 @@ def module(tree: ast.Module, doc: str, package: str = "") -> str:
             # It worked only because `generate.py` happens to call
             # `error_chain` before this. Found on 2026-09-05 by
             # `headers` being added and reading []; recorded in
-            # huggorm#90.
+            # nixidae/nixidae#627.
             cls = copy.deepcopy(node)
             cls.body = [item for item in cls.body
                         if not (isinstance(item, ast.Assign)

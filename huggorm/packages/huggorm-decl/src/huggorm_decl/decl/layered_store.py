@@ -1,7 +1,7 @@
 """
 huggorm::LayeredStore: `huggorm_decl/cpp/layered_store.hpp`.
 
-A Nix store implemented in Python, over another store (huggorm#149).
+A Nix store implemented in Python, over another store (nixidae/nixidae#732).
 
     class Mine(LayeredStore):
         def __init__(self, config):

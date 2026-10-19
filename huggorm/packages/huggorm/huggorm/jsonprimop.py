@@ -80,7 +80,7 @@ async def register_json_primop(
     runner = state._backend
     if not isinstance(runner, BaseRunner):
         raise TypeError("register_json_primop runs only in process: a primop "
-                        "calls Python on the evaluator's thread (huggorm#33)")
+                        "calls Python on the evaluator's thread (nixidae/nixidae#570)")
     await runner.run(lambda raw: raw.register_primop(name, arity, json_primop(raw, fn)))
 
 

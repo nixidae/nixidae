@@ -150,7 +150,7 @@ async def test_a_nix_error_keeps_its_type_and_its_colour(client: Any) -> None:
     against a map of five builtins, so a BadStorePath arrived as a
     plain Exception; then it crossed as its declared parts but under
     an InternalError, so `except BadStorePath` still caught nothing
-    (huggorm#36, huggorm#66).
+    (nixidae/nixidae#573, nixidae/nixidae#603).
 
     The colour survives either way, which is the field that exists
     for the caller's terminal - and the caller with a terminal is
@@ -240,7 +240,7 @@ async def test_a_produced_class_refuses_remote_construction(
     that only says no is one somebody has to debug - and `match=` on
     the class name alone passed for a message that said nothing else.
 
-    huggorm#12 lists "unknown CLASS on Acquire" as a blind spot and
+    nixidae/nixidae#549 lists "unknown CLASS on Acquire" as a blind spot and
     describes a server-side check by class NAME. A call crosses by its
     number in the call table, so an unknown class has no number to
     send. What is left is the CLIENT's check, and this is it."""
@@ -262,7 +262,7 @@ async def test_a_free_function_crosses(client: Any) -> None:
 
 
 # Two properties lost their only exercise when the store mock went,
-# and both come back with the libexpr EvalState (huggorm#60):
+# and both come back with the libexpr EvalState (nixidae/nixidae#597):
 #
 # - a FREE FUNCTION taking a bound handle. No real free function this
 #   repo binds takes one. nix::copyPaths is the obvious first;
@@ -302,7 +302,7 @@ async def test_a_dict_return_crosses_as_a_map(client: Any) -> None:
     """Nix attribute names are always strings, so map<string, V> covers
     every dict this API returns; the value type comes from the
     declaration, which is the same annotation the typechecker reads
-    (huggorm#30)."""
+    (nixidae/nixidae#567)."""
     stats = await client.call_function("gc_stats")
     assert isinstance(stats, dict) and stats["heap_size"] > 0, stats
     assert all(isinstance(k, str) for k in stats), stats
@@ -504,7 +504,7 @@ async def test_a_path_info_crosses_as_a_value(
 
     # A container field comes back as a LIST.
     # An optional SCALAR field, across the wire, on the arm that has
-    # a value: exact rather than a guess from truthiness (huggorm#48).
+    # a value: exact rather than a guess from truthiness (nixidae/nixidae#585).
     # ...and it is a MESSAGE with a message inside it, so this is
     # also the first nested wire-value to cross: a ContentAddress
     # holding a Hash holding an algorithm and raw digest bytes.
@@ -678,7 +678,7 @@ async def test_a_filesystem_path_crosses_as_a_path(
     It names a file on the server's machine, which is this one: the
     client and the server share a same-uid Unix socket. A chroot
     store proves the answer is the REAL location: its printed path is
-    under /nix/store, and its files are under the root (huggorm#148)."""
+    under /nix/store, and its files are under the root (nixidae/nixidae#722)."""
     root = tmp_path / "store"
     src = tmp_path / "src"
     src.mkdir()
@@ -798,7 +798,7 @@ async def test_concurrent_first_calls_build_one_object(client: Any) -> None:
 
     The server builds a wrapper's object lazily, on its first call,
     and a POOL store's first calls run on different threads, so they
-    race on that construction (huggorm#12). An affine object cannot:
+    race on that construction (nixidae/nixidae#549). An affine object cannot:
     its one thread serializes them.
 
     A writable `dummy://` keeps its paths per instance, so a second
@@ -835,7 +835,7 @@ async def test_a_client_of_another_build_is_refused(
     """Calls cross by number and values by position, so a client from
     another build would decode every answer wrongly and without an
     error. HELLO carries the build identity, and the server refuses a
-    mismatch before the connection holds anything (huggorm#142)."""
+    mismatch before the connection holds anything (nixidae/nixidae#714)."""
     from huggorm import remote
     from huggorm.protocol import Refusal, Refused
 

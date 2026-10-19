@@ -14,7 +14,7 @@
       flake = false;
     };
     # The latest NixOS release. huggorm builds against it too, so a Nix user
-    # on a release gets lanes that were tested there (huggorm#108).
+    # on a release gets lanes that were tested there (nixidae/nixidae#659).
     nixpkgs-release = {
       url = "github:NixOS/nixpkgs/nixos-26.05";
       flake = false;

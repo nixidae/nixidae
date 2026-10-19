@@ -11,7 +11,7 @@ cover. The canned environment still travels through real files and
 the real parser, so only the store is fake.
 
 A real end-to-end build belongs to the `live` half with the other
-builder runs (huggorm#37): it needs a real `bash` and a store that
+builder runs (nixidae/nixidae#574): it needs a real `bash` and a store that
 runs builders, and neither holds in the hermetic suite.
 """
 
@@ -229,7 +229,7 @@ def test_rewrite_strings_replaces_every_occurrence_sorted() -> None:
 def test_rewrite_strings_rescans_from_the_replacement() -> None:
     """Upstream's next search starts AT the replacement, so the text a
     replacement forms with what follows is replaced too. A port that
-    continued past it answered `ab` here (huggorm#112)."""
+    continued past it answered `ab` here (nixidae/nixidae#668)."""
     assert _rewrite_strings("abb", {"ab": "a"}) == "a"
 
 
@@ -438,7 +438,7 @@ def test_a_failed_build_raises_its_own_error(
     `logs()` streams here. Rewrapping it in a `NixError` lost a
     `BuildError`'s class, `info` and `status`, and reading a strict
     UTF-8 log could replace the build error with `UnicodeDecodeError`
-    (huggorm#112)."""
+    (nixidae/nixidae#668)."""
     from huggorm.devshell import get_build_environment
     from huggorm.errors import NixError
     from huggorm_bindings import Store

@@ -85,7 +85,7 @@ async def test_a_blocking_method_on_a_value_is_awaitable(
         tmp_path: pathlib.Path) -> None:
     """`Input.fingerprint` blocks, and `Input` is a value with no
     wrapper, so its async form is a free coroutine. It takes the
-    store as either form, as every free coroutine does (huggorm#25)."""
+    store as either form, as every free coroutine does (nixidae/nixidae#562)."""
     from huggorm_bindings import Store, input_from_attrs
     from huggorm_generated import AsyncStore, input_fingerprint
 
