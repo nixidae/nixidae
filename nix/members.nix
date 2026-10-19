@@ -7,6 +7,12 @@
 #            requires the two to be one derivation. null for a source with
 #            no flake.
 {
+  # The organisation's profile and community files. The monorepo's own
+  # `.github/` holds its workflows, so the directory is `dotgithub`.
+  dotgithub = {
+    repo = "nixidae/.github";
+    package = null;
+  };
   easykubenix = {
     repo = "nixidae/easykubenix";
     package = {

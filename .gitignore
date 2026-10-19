@@ -18,6 +18,7 @@
 !/pkgs/
 
 # The sources. josh exports each one to its own repository.
+!/dotgithub/
 !/easykubenix/
 !/ghanix/
 !/havsorm/

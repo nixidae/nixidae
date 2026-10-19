@@ -1,6 +1,7 @@
 # nixidae
 
-One repository that holds nine projects. A change that crosses two of them
+One repository that holds nine projects, and the organisation's `.github`
+repository. A change that crosses two of them
 lands in one commit, and one lock pins everything they use from outside.
 
 | directory | what it is |
@@ -14,6 +15,7 @@ lands in one commit, and one lock pins everything they use from outside.
 | `havsorm` | Salt states written in Nix, evaluated by huggorm |
 | `pydd` | Dynamic derivations planned in Python |
 | `ghanix` | GitHub Actions workflows as NixOS modules |
+| `dotgithub` | `nixidae/.github`: the organisation profile and community files |
 
 ## Each project still has its own repository
 
@@ -22,7 +24,8 @@ with the same commit hashes that repository always had. Work happens here:
 a commit pushed straight to an exported repository does not come back, and
 the next export refuses to overwrite it.
 
-Each one goes to `github.com/nixidae/<directory>`.
+Each one goes to `github.com/nixidae/<directory>`, and `dotgithub` goes to
+`github.com/nixidae/.github`.
 
 `nix/members.nix` is the list. `.github/workflows/josh-export.yml` runs the
 export, through `pkgs/josh-export`. Tests run only here. An exported
