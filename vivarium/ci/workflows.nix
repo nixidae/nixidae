@@ -62,6 +62,13 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    ipsec = {
+      # Seven UML guests, about three minutes once built: the kernel's
+      # XFRM, ESP and xfrmi options only matter here.
+      description = "strongSwan site-to-site with certificates, BGP over the tunnels";
+      timeoutMinutes = 45;
+      backend = "uml";
+    };
     suse-ansible = {
       # openSUSE Leap's own cloud image on the UML kernel, configured by
       # Ansible from a NixOS guest: the kernel's XFS, btrfs and VFAT only
