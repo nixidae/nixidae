@@ -90,7 +90,13 @@ in
   # workflow renders to any more.
   update = pkgs.writeShellScriptBin "ci-workflow-update" ''
     set -euo pipefail
-    cd "$(git rev-parse --show-toplevel)/.github/workflows"
+    # A secondary jj workspace has no .git. nixidae/nixidae#18.
+    if ! root=$(${lib.getExe pkgs.jujutsu} root 2>/dev/null) &&
+      ! root=$(${lib.getExe pkgs.git} rev-parse --show-toplevel 2>/dev/null); then
+      echo "ci-workflow-update: $PWD is in no jj workspace and no git checkout" >&2
+      exit 1
+    fi
+    cd "$root/.github/workflows"
     for source in ${lib.escapeShellArgs sources}; do
       rm -f "$source"-*.yml
     done
