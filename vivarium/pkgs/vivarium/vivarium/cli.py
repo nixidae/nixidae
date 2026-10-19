@@ -40,6 +40,15 @@ from .spec import PhaseSpec, Spec, SpecError
 
 
 
+def _absolute(value: str) -> Path:
+    """A path argument, made absolute against the directory vivarium started in.
+
+    A guest's `/init` mounts `<out>/artifacts/<machine>` from another working
+    directory, so a relative `--out` boots no guest. nixidae/nixidae#17.
+    """
+    return Path(value).absolute()
+
+
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
     """The command line, and whatever follows `--` for pytest.
 
@@ -60,10 +69,10 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="boot the guests and run every phase")
-    run.add_argument("--spec", type=Path, required=True, help="the spec Nix wrote")
+    run.add_argument("--spec", type=_absolute, required=True, help="the spec Nix wrote")
     run.add_argument(
         "--out",
-        type=Path,
+        type=_absolute,
         required=True,
         help="where the run's evidence goes: artifacts, log, report, status",
     )
@@ -84,7 +93,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     )
     run.add_argument(
         "--kernel",
-        type=Path,
+        type=_absolute,
         metavar="PATH",
         help=(
             "boot this kernel instead of the one Nix built: `linux` from a UML"
@@ -159,10 +168,10 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     phases = sub.add_parser("phases", help="list the phases and exit")
-    phases.add_argument("--spec", type=Path, required=True)
+    phases.add_argument("--spec", type=_absolute, required=True)
 
     ctl = sub.add_parser("ctl", help="reach into a run: exec and inject any time, the rest while paused")
-    ctl.add_argument("--out", type=Path, required=True, help="the run's --out")
+    ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     ctl.add_argument("op", choices=[str(op) for op in Op])
     ctl.add_argument(
         "arg",
