@@ -69,8 +69,9 @@ async def test(vms: Machines) -> None:
     async def watch(name: str, vm: Machine, expression: str, count: int) -> None:
         results[name] = await capture(vm, "internet", expression, count, 12)
 
+    endpoints = " or ".join(f"host {t['eastAddress']}" for t in tunnels.values())
     async with anyio.create_task_group() as tg:
-        tg.start_soon(watch, "esp", west, "esp and (host 192.0.2.21 or host 192.0.2.22)", 6)
+        tg.start_soon(watch, "esp", west, f"esp and ({endpoints})", 6)
         tg.start_soon(watch, "plain", west, "icmp", 1)
         await anyio.sleep(2)
         out = await vms.carol.succeed(ping(hosts["dave"]["address"]))

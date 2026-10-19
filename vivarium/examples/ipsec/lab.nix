@@ -13,8 +13,8 @@
 # against a CRL with `revocation = strict`. east takes any outside address
 # (`remote_addrs = %any`), as AWS does for a certificate-based customer
 # gateway, so the certificate is the only thing that admits a peer.
-# mallory is on the internet with west's identity three ways and must get
-# nowhere.
+# mallory is on the internet: it claims west's identity three ways, and
+# sends plaintext from bob's address. None of it gets anywhere.
 {
   lib,
   pkgs,

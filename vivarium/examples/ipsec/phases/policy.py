@@ -86,7 +86,10 @@ async def test(vms: Machines) -> None:
     rc, out = results["bob"]
     if rc != 0:
         raise AssertionError(f"bob did not see alice's own address:\n{out}")
-    print("[test] on the internet: ESP between 192.0.2.1 and 192.0.2.2, no ICMP; bob sees 10.1.0.10 unNATed")
+    print(
+        f"[test] on the internet: ESP between {cfg['westAddress']} and {cfg['policy']['eastAddress']}, "
+        f"no ICMP; bob sees {alice_address} unNATed"
+    )
 
     after = child((await established(west, "policy")), "policy")
     assert after is not None
