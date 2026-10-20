@@ -994,8 +994,7 @@ class Emitter:
         if not (cls.via or m.returns_handle or m.reads or m.guard
                 or m.names or m.produces or wants_list or m.returns_word
                 or _holds_bytes(m.returns)
-                or any(pr.via or pr.parsed_by or _holds_bytes(pr.type)
-                       for pr in m.params)):
+                or any(pr.converts for pr in m.params)):
             return None
         _bytes_shapes(f"{cls.name}.{m.name}", m.params, m.returns)
         for pr in m.params:
@@ -2109,11 +2108,15 @@ class Emitter:
             extras.append(arg)
         tail = "".join(f", {x}" for x in extras)
         if fn.cxx_body is None:
-            if _holds_bytes(fn.returns) or any(_holds_bytes(pr.type)
-                                               for pr in fn.params):
+            if _holds_bytes(fn.returns):
                 raise TypeError(
                     f"{fn.name}: bound by name, a string crosses as `str` "
                     f"where the declaration says bytes. Carry a Cxx body.")
+            if converted := [pr.name for pr in fn.params if pr.converts]:
+                raise TypeError(
+                    f"{fn.name}: bound by name, {converted} reach the C++ "
+                    f"as nanobind cast them, with no conversion. Carry a "
+                    f"Cxx body.")
             return [f'{INDENT}m.def("{fn.name}", &{fn.cxx_name}{tail});']
         # A body, for a function whose C++ is assembled rather than named.
         # `gc_stats` reads five counters out of gc.h and hands back one

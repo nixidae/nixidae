@@ -2175,6 +2175,51 @@ def _set_param(tmp_path: pathlib.Path, param: str) -> str:
     return nbemit.Emitter(model, unit).bind_function(store)
 
 
+def test_a_collection_parameter_alone_gets_a_body(
+        tmp_path: pathlib.Path) -> None:
+    """A `list[StorePath]` with nothing else to convert was bound by
+    pointer, so the C++ got a vector where it takes a StorePathSet
+    (nixidae/nixidae#874)."""
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    source = SET_PARAM.replace(
+        "def names(self, paths: PARAM) -> list[Str]:",
+        "def forget(self, paths: list[StorePath]) -> None:")
+    assert "def forget" in source
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
+                     {}, ir.Errors("", {}), (unit,))
+    store = next(c for c in unit.classes if c.name == "Store")
+    emitted = nbemit.Emitter(model, unit).bind_function(store)
+    assert "forget(as_set<nix::StorePathSet>(paths))" in emitted, emitted
+
+
+def test_a_free_function_bound_by_name_refuses_a_conversion(
+        tmp_path: pathlib.Path) -> None:
+    """Bound by name, nothing converts an argument (nixidae/nixidae#874)."""
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    source = SET_PARAM.replace(
+        "from huggorm_dsl.declare import Str, binding, header",
+        "from huggorm_dsl.declare import Str, binding, binds, header",
+    ).replace("PARAM", "list[StorePath]") + '''
+
+@binds("nix::forget")
+def forget(paths: list[StorePath]) -> None:
+    """Forget them."""
+'''
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
+                     {}, ir.Errors("", {}), (unit,))
+    fn = next(f for f in unit.functions if f.name == "forget")
+    with pytest.raises(TypeError, match=r"\['paths'\]"):
+        nbemit.Emitter(model, unit).free_function(fn)
+
+
 def test_an_absent_list_over_a_set_converts_what_it_opens(
         tmp_path: pathlib.Path) -> None:
     """The binding opens the optional to a vector, and `as_set` takes

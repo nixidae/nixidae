@@ -371,6 +371,15 @@ class ParamModel:
     # `default is None`, which says there is no default at all.
     defaults_to_none: bool = False
 
+    @property
+    def converts(self) -> bool:
+        """Whether the binding converts this argument before the C++
+        takes it. A binding by pointer hands the C++ what nanobind cast,
+        so every branch that may bind by pointer asks this one question
+        (nixidae/nixidae#874)."""
+        return bool(self.via or self.parsed_by or self.collection
+                    or self.absent or self.type.holds_bytes)
+
     @classmethod
     def of(cls, p: Param, resolver: Resolver) -> ParamModel:
         declared = p.type
