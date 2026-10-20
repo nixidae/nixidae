@@ -44,7 +44,16 @@ python3Packages.buildPythonPackage {
   pname = "huggorm-bindings";
   version = "0.1.0";
   pyproject = true;
-  src = ./.;
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./LICENSE
+      ./NOTICE
+      ./pyproject.toml
+      ./setup.py
+      ./_backend
+    ];
+  };
 
   build-system = with python3Packages; [
     setuptools

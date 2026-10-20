@@ -1,4 +1,5 @@
 {
+  lib,
   python3Packages,
   huggorm-bindings,
   huggorm-generated,
@@ -20,7 +21,17 @@ python3Packages.buildPythonPackage {
   pname = "huggorm";
   version = "0.1.0";
   pyproject = true;
-  src = ./.;
+  # `tests/` too: the check phase runs the suite.
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./LICENSE
+      ./pyproject.toml
+      ./setup.py
+      ./huggorm
+      ./tests
+    ];
+  };
 
   # The generator too, because `setup.py` writes `huggorm/__init__.py`
   # before setuptools resolves the package list. The front door is a

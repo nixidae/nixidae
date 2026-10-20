@@ -17,7 +17,14 @@ python3Packages.buildPythonPackage {
   pname = "huggorm-generated";
   version = "0.1.0";
   pyproject = true;
-  src = ./.;
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./LICENSE
+      ./pyproject.toml
+      ./setup.py
+    ];
+  };
 
   # setup.py imports huggorm_gen.pygen to run it.
   #

@@ -21,7 +21,14 @@ rec {
     pname = "huggorm-dsl";
     version = "0.1.0";
     pyproject = true;
-    src = ./packages/huggorm-dsl;
+    src = lib.fileset.toSource {
+      root = ./packages/huggorm-dsl;
+      fileset = lib.fileset.unions [
+        ./packages/huggorm-dsl/LICENSE
+        ./packages/huggorm-dsl/pyproject.toml
+        ./packages/huggorm-dsl/src
+      ];
+    };
     build-system = [ python3.pkgs.setuptools ];
     pythonImportsCheck = [ "huggorm_dsl" ];
   };
@@ -32,7 +39,14 @@ rec {
     pname = "huggorm-decl";
     version = "0.1.0";
     pyproject = true;
-    src = ./packages/huggorm-decl;
+    src = lib.fileset.toSource {
+      root = ./packages/huggorm-decl;
+      fileset = lib.fileset.unions [
+        ./packages/huggorm-decl/LICENSE
+        ./packages/huggorm-decl/pyproject.toml
+        ./packages/huggorm-decl/src
+      ];
+    };
     build-system = [ python3.pkgs.setuptools ];
     dependencies = [ huggorm-dsl ];
     pythonImportsCheck = [ "huggorm_decl" ];

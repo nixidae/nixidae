@@ -220,7 +220,16 @@ lib.makeScope pkgs.newScope (
       self.build {
         pname = "huggorm-bindings-${py}";
         inherit (nixComponents) version;
-        src = ../../packages/huggorm-bindings;
+        src = lib.fileset.toSource {
+          root = ../../packages/huggorm-bindings;
+          fileset = lib.fileset.unions [
+            ../../packages/huggorm-bindings/LICENSE
+            ../../packages/huggorm-bindings/NOTICE
+            ../../packages/huggorm-bindings/pyproject.toml
+            ../../packages/huggorm-bindings/setup.py
+            ../../packages/huggorm-bindings/_backend
+          ];
+        };
         deps = [ self.nixLibs ];
         script = ''
           export PYTHONPATH=${
