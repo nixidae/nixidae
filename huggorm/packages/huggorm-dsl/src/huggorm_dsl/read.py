@@ -1073,6 +1073,14 @@ def _cxx_call(node: ast.FunctionDef, stmt: ast.stmt) -> Body | None:
         raise DeclarationError(
             stmt, f"{node.name}: Cxx() takes one string "
                   f"literal. The C++ is carried, not built.")
+    if value.keywords:
+        names = ", ".join(f"{k.arg}=" if k.arg else "**"
+                          for k in value.keywords)
+        raise DeclarationError(
+            stmt, f"{node.name}: a body Cxx() takes no keywords, and "
+                  f"{names} would reach no output. `copy` and `width` "
+                  f"belong on a type's Cxx, in an Annotated alias "
+                  f"(nixidae/nixidae#870).")
     literal = value.args[0]
     text = str(literal.value)
     # The literal starts on its own line; the C++ starts after the

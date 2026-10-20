@@ -2465,3 +2465,24 @@ def test_every_refusal_in_a_file_is_reported_at_once(
         read(_declaration(tmp_path, TWO_MISTAKES))
     assert r"bad(y)" in str(caught.value)
     assert r"worse(z)" in str(caught.value)
+
+
+@pytest.mark.parametrize("keyword", ["copy=\"view\"", "width=32"])
+def test_a_body_cxx_with_a_keyword_is_refused(
+        tmp_path: pathlib.Path, keyword: str) -> None:
+    """`copy` and `width` mean something on a type's `Cxx` only. In a
+    body the reader read the text and dropped the keyword, in silence
+    (nixidae/nixidae#870)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    source = CALLABLE.replace(
+        'Cxx("return arg;")', f'Cxx("return arg;", {keyword})').replace(
+        '''
+    def __len__(self) -> I64:
+        """No emitter carries this one."""
+        Cxx("return 0;")
+''', "")
+    assert keyword in source
+    assert "__len__" not in source
+    with pytest.raises(DeclarationError, match="belong on a type"):
+        read(_declaration(tmp_path, source))
