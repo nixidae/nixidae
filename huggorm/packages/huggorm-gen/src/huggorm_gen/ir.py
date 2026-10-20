@@ -799,6 +799,18 @@ class ClassModel:
     # How Python data becomes a value, or None.
     builds: callspec.Builds[str] | None = None
 
+    @property
+    def callables(self) -> tuple[MethodModel, ...]:
+        """Every callable the binding writes for this class: the bound
+        methods, `__init__` and `_from_parts`.
+
+        Every walker over a unit reads this, not a subset of its own:
+        a subset without `__init__` drops the header its `@needs`
+        names and the conversion its `@spells` names
+        (nixidae/nixidae#873)."""
+        return (*self.bound,
+                *(c for c in (self.init, self.from_parts) if c is not None))
+
     @classmethod
     def of(cls, c: Class, package: str, module: str, resolver: Resolver,
            functions: Sequence[Method] = ()) -> ClassModel:

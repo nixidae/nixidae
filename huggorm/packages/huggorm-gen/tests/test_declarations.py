@@ -2248,6 +2248,44 @@ def _vocabulary(tmp_path: pathlib.Path, declared: str) -> str:
     return nbemit.Emitter(model, unit).bind_function(store)
 
 
+MARKED = '''
+    @needs("probe/{where}.hh")
+    @spells("HashAlgorithm")
+    def {name}(self) -> None:
+        """Marked."""
+        Cxx("(void) self;")
+'''
+
+
+@pytest.mark.parametrize("name", ["__init__", "touch"])
+def test_a_constructor_emits_what_it_needs_and_spells(
+        tmp_path: pathlib.Path, name: str) -> None:
+    """`@needs` and `@spells` on `__init__` reached no header and no
+    conversion, while the same marks on a method reached both
+    (nixidae/nixidae#873)."""
+    from huggorm_dsl.corpus import Corpus
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    (tmp_path / "probe.py").write_text(
+        WORDS_STORE.replace(
+            "from huggorm_dsl.declare import Enumerated, binding, binds, header, words",
+            "from huggorm_dsl.declare import (\n"
+            "    Cxx, Enumerated, binding, binds, header, needs, spells, words)")
+        .replace("DECLARED", MARKED.format(where=name, name=name)))
+    mod = Corpus(tmp_path, nanobind=("probe.py",)).module("probe")
+    unit = ir.ModuleModel.of(mod, "")
+    enums = {c.name: ir.EnumModel.of(c, "", "probe")
+             for c in mod.classes if c.is_words}
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
+                     enums, ir.Errors("", {}), (unit,))
+    store = next(c for c in unit.classes if c.name == "Store")
+    emitter = nbemit.Emitter(model, unit)
+    assert f'#include "probe/{name}.hh"' in emitter.includes([store], [])
+    assert [e.name for e in emitter._vocabularies_used([store], [])] == [
+        "HashAlgorithm"]
+
+
 def test_a_vocabulary_converts_with_no_body(tmp_path: pathlib.Path) -> None:
     """Bound by pointer, each of these took or answered the C++ enum,
     which no Python value converts to: a call that raises

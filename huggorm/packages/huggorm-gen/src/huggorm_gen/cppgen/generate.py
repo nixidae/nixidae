@@ -295,7 +295,9 @@ def emit_module(mod: Module, dotted: str, out: str,
     # person wrote, and counting only the first would let the second
     # absorb it silently.
     bodies = sum(_code_lines(m.cxx_body.text)
-                 for m in (*(m for c in mod.classes for m in c.methods),
+                 for m in (*(m for c in mod.classes
+                             for m in (*c.methods, c.ctor, c.from_parts)
+                             if m is not None),
                            *mod.functions)
                  if m.cxx_body is not None)
     if hand or bodies:

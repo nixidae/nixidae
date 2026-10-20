@@ -126,15 +126,10 @@ def _sites(classes: Sequence[ir.ClassModel],
     that brings <nanobind/stl/shared_ptr.h> in.
     """
     for cls in classes:
-        for m in cls.bound:
+        for m in cls.callables:
             for pr in m.params:
                 yield pr, pr.type
             yield None, m.returns
-        if cls.init is not None:
-            for pr in cls.init.params:
-                yield pr, pr.type
-        if cls.from_parts is not None:
-            yield None, cls.from_parts.returns
     for fn in functions:
         for pr in fn.params:
             yield pr, pr.type
@@ -211,9 +206,7 @@ def _bodies(classes: Sequence[ir.ClassModel],
     One walk, like `_sites`, and for the same reason. A body reaches
     the emitted file from five places and a header it needs is a
     header it needs from any of them."""
-    carried = [*(m.cxx_body for cls in classes for m in cls.bound),
-               *(c.cxx_body for cls in classes
-                 for c in (cls.init, cls.from_parts) if c is not None),
+    carried = [*(m.cxx_body for cls in classes for m in cls.callables),
                *(fn.cxx_body for fn in functions)]
     yield from (b.text for b in carried if b is not None)
     for cls in classes:
@@ -933,9 +926,8 @@ class Emitter:
                    if t is not None
                    and (other := self.model.declared(t.leaf)) is not None}
         wanted |= {h for cls in classes for h in cls.headers}
-        wanted |= {h for cls in classes for m in cls.bound for h in m.headers}
-        wanted |= {h for cls in classes if cls.from_parts is not None
-                   for h in cls.from_parts.headers}
+        wanted |= {h for cls in classes for m in cls.callables
+                   for h in m.headers}
         wanted |= {h for fn in functions for h in fn.headers}
         out += [f'#include "{h}"' for h in sorted(wanted - {""})]
         return out
@@ -1570,9 +1562,8 @@ class Emitter:
         # carrying a failure word, and `-> BuildError | None` says
         # nothing about it. The model checked each is an enumerated
         # vocabulary.
-        spelled = [n for cls in classes for m in cls.bound for n in m.spells]
-        spelled += [n for cls in classes if cls.from_parts is not None
-                    for n in cls.from_parts.spells]
+        spelled = [n for cls in classes for m in cls.callables
+                   for n in m.spells]
         spelled += [n for fn in functions for n in fn.spells]
         out.update((name, self.model.enums[name]) for name in spelled)
         return [out[name] for name in sorted(out)]
