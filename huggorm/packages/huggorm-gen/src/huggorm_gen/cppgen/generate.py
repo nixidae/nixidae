@@ -162,6 +162,20 @@ def _code_lines(text: str) -> int:
 # method `.def("name", ...)` and a free function `m.def("name", ...)`,
 # and both end in `def("`.
 BOUND_NAME = re.compile(r'def\("([^"]+)"')
+CLASS_OPENS = re.compile(r'nb::class_<.*?>\(m, "([^"]+)"')
+
+
+def _sections(text: str) -> dict[str, str]:
+    """Each class's part of `text`: from its `nb::class_` to the next.
+
+    A name is checked against its own class, not one set for the
+    unit: there `Trace.pos` would hide a dropped `ErrorInfo.pos`, and
+    37 of 326 methods share a name in their unit
+    (nixidae/nixidae#875)."""
+    opens = [(m.start(), m.group(1)) for m in CLASS_OPENS.finditer(text)]
+    bounds = [at for at, _ in opens] + [len(text)]
+    return {name: text[at:end]
+            for (at, name), end in zip(opens, bounds[1:], strict=True)}
 
 
 def census_written(mod: Module, bound: Sequence[ir.ClassModel],
@@ -198,10 +212,12 @@ def census_written(mod: Module, bound: Sequence[ir.ClassModel],
     different fact from an emitter losing one method of a class it
     did bind."""
     wrote = set(BOUND_NAME.findall(text))
+    sections = _sections(text)
     bad = []
     for cls in bound:
+        own = set(BOUND_NAME.findall(sections.get(cls.name, "")))
         for m in cls.bound:
-            if m.name not in wrote:
+            if m.name not in own:
                 bad.append(f"{cls.name}.{m.name}()")
     for fn in mod.exported:
         if fn.name not in wrote:

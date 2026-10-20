@@ -1595,6 +1595,31 @@ def test_the_emitter_must_write_every_method_the_reader_kept() -> None:
         generate.census_written(mod, bound, lost)
 
 
+def test_a_dropped_method_is_missed_though_another_class_binds_its_name(
+        ) -> None:
+    """`ErrorInfo.pos` dropped, and `Trace.pos` still bound in the same
+    unit. One set of names for the unit passed it (nixidae/nixidae#875)."""
+    from huggorm_decl import corpus
+    from huggorm_gen.cppgen import generate
+    from huggorm_gen.cppgen.nbemit import extension
+
+    mod = corpus().module("path.py")
+    model = generate.declared_model()
+    unit = model.module("path")
+    bound = unit.bindable()
+    text = extension(unit, "huggorm_bindings.path", model,
+                     chain=[], errors="", prelude=PRELUDE)
+    generate.census_written(mod, bound, text)
+
+    at = text.index('(m, "ErrorInfo"')
+    tail = text[at:]
+    lost = text[:at] + tail.replace('.def("pos"', '.def("not_pos"', 1)
+    assert lost != text, "ErrorInfo no longer binds pos"
+    assert '.def("pos"' in lost, "Trace.pos is gone too"
+    with pytest.raises(TypeError, match=r"ErrorInfo\.pos\(\)"):
+        generate.census_written(mod, bound, lost)
+
+
 def test_a_function_the_emitter_writes_another_way_is_not_missing() -> None:
     """Three declared functions that are not bound names, and none of
     them is exempt by name.
