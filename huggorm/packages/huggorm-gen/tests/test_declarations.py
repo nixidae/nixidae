@@ -2411,3 +2411,57 @@ def test_a_bytes_shape_nothing_converts_is_refused(
     """Refused, not bound as the C++ spells it (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=re.escape(what)):
         _bytes(tmp_path, declared)
+
+
+# One bound class with one good method and two that refuse.
+TWO_MISTAKES = '''"""One bound class with two refused methods."""
+
+from huggorm_dsl.declare import Cxx, I64, binding, header
+
+
+@header("nix/expr/value.hh")
+@binding(cxx="nix::Value", threading="affine", blocking=True)
+class Twice:
+    """A value, for a test that never compiles one."""
+
+    def good(self, x: I64) -> I64:
+        """Kept."""
+        Cxx("return x;")
+
+    def bad(self, y) -> I64:
+        """No type on `y`."""
+        Cxx("return y;")
+
+    def worse(self, z) -> I64:
+        """No type on `z`."""
+        Cxx("return z;")
+'''
+
+
+def test_a_refused_declaration_is_refused_on_every_read(
+        tmp_path: pathlib.Path) -> None:
+    """A second read raises too, and does not hand back the class
+    with the refused methods gone (nixidae/nixidae#869).
+
+    The first read is the corpus read, which collects every refusal
+    in the set. A collector that records and goes on lets the read
+    return a partial `Module`, and the read cache keeps it."""
+    from huggorm_dsl.corpus import Corpus
+    from huggorm_dsl.read import DeclarationError, read
+
+    path = _declaration(tmp_path, TWO_MISTAKES)
+    with pytest.raises(DeclarationError, match=r"bad\(y\)"):
+        Corpus(tmp_path, nanobind=("errs.py",)).read_all()
+    with pytest.raises(DeclarationError, match=r"bad\(y\)"):
+        read(path)
+
+
+def test_every_refusal_in_a_file_is_reported_at_once(
+        tmp_path: pathlib.Path) -> None:
+    """Two mistakes in one file give two messages from one read."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    with pytest.raises(DeclarationError, match="2 declaration errors") as caught:
+        read(_declaration(tmp_path, TWO_MISTAKES))
+    assert r"bad(y)" in str(caught.value)
+    assert r"worse(z)" in str(caught.value)

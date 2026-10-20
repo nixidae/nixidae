@@ -170,6 +170,12 @@ _READING: list[str] = []
 class Diagnostics:
     """Every refusal one read produced, and what it made unsound.
 
+    LOCAL to one `_read`, which raises the lot before it returns, so
+    `functools.cache` stores nothing for a refused file. Not a
+    collector shared across reads: `_read` would record, return a
+    `Module` with the refused definition missing, and the cache would
+    hand that `Module` to every later read (nixidae/nixidae#869).
+
     A declaration author fixing three mistakes wants three messages,
     not three runs. What stops that being an improvement is BOGUS
     messages - a consequence reported as a cause - so this carries the
@@ -185,9 +191,10 @@ class Diagnostics:
     other declared, so an unresolvable arm here means nothing and the
     arm check says so once rather than guessing per arm.
 
-    Deduplicated, because `_uses` calls `read` for each import and
-    nothing caches it: `decl/path.py` is read by five declarations, so
-    one mistake in it would otherwise be reported five times."""
+    Deduplicated, because an import that refused carries its own
+    messages into this file's report: `decl/path.py` is imported by
+    five declarations, so `Corpus.read_all` would otherwise report one
+    mistake in it six times."""
 
     def __init__(self) -> None:
         self.messages: list[str] = []
@@ -195,11 +202,11 @@ class Diagnostics:
         self.blind = False
         self._seen: set[str] = set()
 
-    def record(self, err: Exception, unsound: str = "") -> None:
-        text = str(err)
-        if text not in self._seen:
-            self._seen.add(text)
-            self.messages.append(text)
+    def record(self, err: DeclarationError, unsound: str = "") -> None:
+        for text in err.messages:
+            if text not in self._seen:
+                self._seen.add(text)
+                self.messages.append(text)
         if unsound:
             self.unsound.add(unsound)
 
@@ -210,42 +217,8 @@ class Diagnostics:
             raise DeclarationError.already(self.messages[0])
         joined = "\n  ".join(self.messages)
         raise DeclarationError.already(
-            f"{len(self.messages)} declaration errors:\n  {joined}")
-
-
-# The collector in force, or None to raise on the first refusal.
-#
-# None is the DEFAULT and it is the honest one: a caller that reads a
-# single declaration wants the exception, and every test that asserts
-# a refusal keeps working unchanged. Collection is something the
-# generator opts into for a whole corpus read.
-_COLLECTING: Diagnostics | None = None
-
-
-@contextlib.contextmanager
-def collecting() -> Iterator[Diagnostics]:
-    """Gather refusals across one corpus read, then report them together.
-
-    Re-entrant by design: the outermost collector wins, so `_uses`
-    recursing into `read` contributes to one report rather than
-    starting a second."""
-    global _COLLECTING
-    if _COLLECTING is not None:
-        yield _COLLECTING
-        return
-    _COLLECTING = Diagnostics()
-    try:
-        yield _COLLECTING
-    finally:
-        done, _COLLECTING = _COLLECTING, None
-        done.raise_if_any()
-
-
-def _survive(err: DeclarationError, unsound: str = "") -> None:
-    """Record and continue, or re-raise when nothing is collecting."""
-    if _COLLECTING is None:
-        raise err
-    _COLLECTING.record(err, unsound)
+            f"{len(self.messages)} declaration errors:\n  {joined}",
+            self.messages)
 
 
 @contextlib.contextmanager
@@ -314,16 +287,24 @@ class DeclarationError(Exception):
             if col is not None:
                 where += f":{col + 1}"
         super().__init__(f"{where}: {message}")
+        self.messages: tuple[str, ...] = (str(self),)
 
     @classmethod
-    def already(cls, text: str) -> DeclarationError:
+    def already(cls, text: str,
+                messages: Sequence[str] = ()) -> DeclarationError:
         """One already-formatted message, for the collector's report.
 
         `__init__` builds the position from a node, and a report has
         several positions in it - so this is the way to make one
-        without a node to point at."""
+        without a node to point at.
+
+        `messages` keeps each refusal in a joined report apart, so
+        `Diagnostics.record` takes the refusals and not the joined
+        text. Not an `ExceptionGroup`: every caller catches a
+        `DeclarationError`, and a group is not one."""
         err = cls.__new__(cls)
         Exception.__init__(err, text)
+        err.messages = tuple(messages) or (text,)
         return err
 
 
@@ -1335,7 +1316,7 @@ def targets_name(item: ast.Assign) -> str:
 
 def _class(node: ast.ClassDef, vocab: dict[str, str],
            where: str, here: str,
-           fns: dict[int, Any]) -> Class:
+           fns: dict[int, Any], diag: Diagnostics) -> Class:
     # The import already ran this class's decorators, on the class
     # itself, so what they wrote is read off it rather than written
     # again onto a stand-in.
@@ -1410,7 +1391,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
         fn = _written(value, here)
         if fn is None:
             if not _dunder(name) and name not in (DECL, NEEDS):
-                _survive(DeclarationError(
+                diag.record(DeclarationError(
                     _binder(node, name),
                     f"{node.name}.{name} ({type(value).__name__}) reaches "
                     f"no output. A bound class holds its methods, its "
@@ -1432,7 +1413,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # node for. The message blamed `co_firstlineno` and never
             # said "async" (nixidae/nixidae#625). `DEFINITIONS` closed that,
             # which is what makes this refusal reachable.
-            _survive(DeclarationError(
+            diag.record(DeclarationError(
                 item,
                 f"{node.name}.{item.name}: a declaration describes a C++ "
                 f"binding, so `async def` says nothing here. The async "
@@ -1499,7 +1480,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # lands here too, and the answer is the same: Python
             # mangles it, nothing reads it, and the reader says so
             # rather than dropping it.
-            _survive(DeclarationError(
+            diag.record(DeclarationError(
                 item,
                 f"{node.name}.{item.name}: a name starting with `__` "
                 f"reaches no emitter unless the emitters are taught it. "
@@ -1518,12 +1499,12 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # one class are two mistakes, and stopping at the first
             # made a class as coarse a boundary as a file. Nothing
             # cross-checks methods BETWEEN classes, so a class short
-            # one method produces no bogus diagnostic - the collector
-            # refuses the whole read before any emitter sees it.
+            # one method produces no bogus diagnostic - `_read` raises
+            # before any emitter sees it.
             try:
                 methods.append(_method(item, vocab, fns))
             except DeclarationError as e:
-                _survive(e, unsound=f"{node.name}.{item.name}")
+                diag.record(e, unsound=f"{node.name}.{item.name}")
     out = Class(
         name=node.name,
         doc=ast.get_docstring(node, clean=False) or "",
@@ -2026,6 +2007,7 @@ def _read(path: str) -> Module:
     # SIBLINGS, so one bad definition does not hide the next. Each is
     # read in full or not at all - the failure is recorded, its name
     # is marked unsound, and the loop goes on.
+    diag = Diagnostics()
     classes: list[Class] = []
     errors: list[Class] = []
     functions: list[Method] = []
@@ -2039,7 +2021,7 @@ def _read(path: str) -> Module:
                 node = nodes[value.__firstlineno__]
                 assert isinstance(node, ast.ClassDef)
                 if node.decorator_list:
-                    cls = _class(node, vocab, stem, here, fns)
+                    cls = _class(node, vocab, stem, here, fns, diag)
                     classes.append(cls)
                 else:
                     errors.append(_error(node, value, glb, stem))
@@ -2057,8 +2039,8 @@ def _read(path: str) -> Module:
                     f"declaration holds declared classes, exceptions, union "
                     f"aliases, decorated functions and imports.")
         except DeclarationError as e:
-            _survive(e, unsound=name)
-    uses = _uses(tree, pathlib.Path(path).parent)
+            diag.record(e, unsound=name)
+    uses = _uses(tree, pathlib.Path(path).parent, diag)
     # ...checked once the arms can be resolved, which needs the
     # imports this file made and the classes it declares itself.
     #
@@ -2069,9 +2051,10 @@ def _read(path: str) -> Module:
                   **{u.name: u for u in unions}}
     for u in unions:
         try:
-            _check_arms(u, resolvable, assigned[u.name][0])
+            _check_arms(u, resolvable, assigned[u.name][0], diag)
         except DeclarationError as e:
-            _survive(e, unsound=u.name)
+            diag.record(e, unsound=u.name)
+    diag.raise_if_any()
     return Module(
         name=stem,
         doc=ast.get_docstring(tree, clean=False) or "",
@@ -2253,7 +2236,8 @@ def _variant(name: str, meta: tuple[object, ...], arms: tuple[str, ...],
 
 # What a union's ARM may be. Each refusal is its own sentence, because
 # each is a different mistake.
-def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST) -> None:
+def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST,
+                diag: Diagnostics) -> None:
     """The widened union rule, enforced where the arms can be resolved.
 
     `T | None` was the only union an annotation could hold, and it
@@ -2281,8 +2265,7 @@ def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST) -> None:
             # A union with one unsound arm and one genuinely bad arm
             # still reports the bad one, because this skips the arm
             # rather than the union.
-            if _COLLECTING is not None and (
-                    arm in _COLLECTING.unsound or _COLLECTING.blind):
+            if arm in diag.unsound or diag.blind:
                 continue
             raise DeclarationError(
                 node, f"{cls.name}: '{arm}' is not a declared class. A "
@@ -2395,7 +2378,8 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
         cxx=cxx, header=header, reader=reader)
 
 
-def _uses(tree: ast.Module, here: pathlib.Path) -> dict[str, Class]:
+def _uses(tree: ast.Module, here: pathlib.Path,
+          diag: Diagnostics) -> dict[str, Class]:
     """Declarations this one imported, read.
 
     `from huggorm_decl.decl.words import ContentAddressMethod`
@@ -2412,20 +2396,20 @@ def _uses(tree: ast.Module, here: pathlib.Path) -> dict[str, Class]:
         stem = (node.module or "").rsplit(".", 1)[-1]
         source = here / f"{stem}.py"
         if not source.exists():
-            _survive(DeclarationError(
+            diag.record(DeclarationError(
                 node, f"no declaration at {source}. A declaration may only "
                       f"import another declaration beside it."))
-            _blinded()
+            diag.blind = True
             continue
         try:
             other = read(str(source))
         except DeclarationError as e:
-            # The imported file refused. Its own diagnostics are
-            # already recorded by the boundaries inside it; this is
-            # the case where nothing was collecting, or where the
-            # refusal was file-level.
-            _survive(e)
-            _blinded()
+            # The imported file refused, so this one refuses too: a
+            # `Module` without that file's types is partial, and the
+            # cache would keep it. `blind` stops the arm check
+            # reporting each type the import owned as undeclared.
+            diag.record(e)
+            diag.blind = True
             continue
         # What the imported file itself imported, FIRST, so its own
         # classes win where a name appears twice.
@@ -2446,14 +2430,3 @@ def _uses(tree: ast.Module, here: pathlib.Path) -> dict[str, Class]:
         for cls in (*other.classes, *other.unions, *other.errors):
             out[cls.name] = cls
     return out
-
-
-def _blinded() -> None:
-    """Say that an import did not read, so this file knows less.
-
-    Without it the arm check below would report every type the missing
-    declaration owned as "not a declared class" - which is true of
-    what this reader can see and false about the tree, and is exactly
-    the bogus message collection has to avoid."""
-    if _COLLECTING is not None:
-        _COLLECTING.blind = True

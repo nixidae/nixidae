@@ -43,9 +43,10 @@ import pathlib
 
 from huggorm_dsl.read import (
     Class,
+    DeclarationError,
+    Diagnostics,
     Method,
     Module,
-    collecting,
     read,
 )
 from huggorm_dsl.read import resolved as resolve_tree
@@ -138,11 +139,14 @@ class Corpus:
         Idempotent and free after the first call: every read below is
         cached, so this populates the caches and later access pays
         nothing."""
-        with collecting():
-            for name in (*self._nanobind, *self._vocabularies):
+        diag = Diagnostics()
+        names = (*self._nanobind, *self._vocabularies)
+        for name in (*names, self._errors) if self._errors else names:
+            try:
                 self.module(name)
-            if self._errors:
-                self.module(self._errors)
+            except DeclarationError as e:
+                diag.record(e)
+        diag.raise_if_any()
 
     @property
     def nanobind(self) -> tuple[str, ...]:
