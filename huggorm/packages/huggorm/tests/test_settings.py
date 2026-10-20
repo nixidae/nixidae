@@ -141,6 +141,24 @@ def test_a_store_setting_is_there_too() -> None:
     assert "warn-dirty" in names, "fetcher settings are registered"
 
 
+def test_a_setting_only_nix_registers_reads_without_a_warning() -> None:
+    """`nix` registers these in its own sources, not in a library.
+
+    Every NixOS nix.conf names `trusted-users` and `allowed-users`, so
+    a program on these bindings warned `unknown setting` at
+    `init_plugins` on every start. Proved by breaking it: without the
+    registration this prints both warnings and reads None."""
+    probe = ("from huggorm_bindings import get_setting, init_plugins, load_config;"
+             "load_config(); init_plugins();"
+             "print(get_setting('trusted-users')); print(get_setting('bash-prompt'))")
+    nix_config = "trusted-users = root alice\nallowed-users = *\nbash-prompt = nix> "
+    out = subprocess.run([sys.executable, "-c", probe],
+                         env={**os.environ, "NIX_CONFIG": nix_config},
+                         capture_output=True, text=True, check=True)
+    assert "unknown setting" not in out.stderr
+    assert out.stdout.splitlines() == ["root alice", "nix>"]
+
+
 def test_an_unknown_name_reads_as_none() -> None:
     from huggorm_bindings import get_setting
 

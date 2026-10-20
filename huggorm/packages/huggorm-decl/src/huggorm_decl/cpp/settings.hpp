@@ -21,6 +21,7 @@
 // forward-declares it.
 #include <nlohmann/json.hpp>
 
+#include "huggorm_decl/cpp/binary_settings.hpp"
 #include "nix/cmd/common-eval-args.hh"
 #include "nix/expr/eval-settings.hh"
 #include "nix/expr/eval.hh"
