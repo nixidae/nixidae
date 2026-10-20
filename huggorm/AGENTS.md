@@ -107,7 +107,10 @@ In order:
 2. Whatever the destination above needs next and does not have.
 3. An issue that is outstanding and blocks nothing.
 
-The open issues are the board.
+The open issues are the board, except those labelled `user-initiated`
+or `off-main` (the monorepo `CLAUDE.md` says what each means).
+nixidae/nixidae#867 is the standing codegen review and never closes:
+a review pass is a comment there, and each finding its own issue.
 
 # Goals
 

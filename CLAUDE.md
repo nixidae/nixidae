@@ -7,6 +7,8 @@ One repository, ten sources (`nix/members.nix`): nine projects and `dotgithub`, 
 - Commit here only. A push straight to an exported repository is not brought back, and the next export refuses to overwrite it.
 - One tracker: nixidae/nixidae. Every issue of the exported repositories moved here on 2026-10-19, and they have issues turned off. An old `nixidae/<source>#N` URL redirects, but `gh issue view` on it fails: use `gh api repos/nixidae/<source>/issues/N --jq .html_url`, or `nix/issue-migration/map.jsonl`.
 - Labels: one `source: <name>` per issue (`source: monorepo` for josh, lock-subtrees, shared CI and pins), plus `upstream` or `needs decision` when they apply. The kind is the issue type (Bug, Feature, Task), not a label.
+- `user-initiated`: Agent never starts it; User does. Sub-items the issue marks for agents are open (#866: nanopynix to huggorm).
+- `off-main`: work on its own bookmark in its own workspace; nothing lands on `main` (#868: fix).
 - Tests run here only. An exported repository runs its Pages workflow and nothing else.
 - kr8s, containerd and flake-compatish are not sources. Each is a pin in `flake.lock`; an ignored checkout at `./<name>` replaces the pin. kr8s and containerd patches must stand as upstream pull requests.
 - A source's test workflows are `ciTestWorkflows` in its `default.nix`. Edit those, then `nix run --file . ci-workflow-update`. Never edit `.github/workflows/<source>-*.yml` by hand.
