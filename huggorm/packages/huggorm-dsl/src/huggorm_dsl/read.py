@@ -76,6 +76,7 @@ from typing import Annotated, Any, get_args, get_origin, get_overloads
 
 from huggorm_dsl import declare
 from huggorm_dsl.declare import (
+    PY_OBJECT,
     Crossing,
     Cxx,
     Decl,
@@ -1239,6 +1240,7 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
     # import already ran it, so the markers are read off `fn`.
     _check_markers(node.decorator_list, "method" if bound_kind else "free")
     marked = fn
+    _holds_the_gil(node, params, fn, method=bool(bound_kind))
     if getattr(marked, "_reads", "") and params:
         # A data member is READ, not called, so there is nowhere for
         # an argument to go. The emitter drops them silently, which
@@ -2073,6 +2075,31 @@ def _read(path: str) -> Module:
         unions=tuple(unions),
         uses=uses,
     )
+
+
+def _holds_the_gil(node: DefinitionNode, params: list[Param],
+                   fn: Any, *, method: bool) -> None:
+    """Refuse a by-value Python handle on a call that releases the GIL.
+
+    nanobind aborts the process when a reference count changes without
+    the GIL, and it compiles fine. A method needs `@instant`, because
+    its class may block and release the GIL for it. A free function
+    releases it only for `@blocks` (nixidae/nixidae#872)."""
+    def holds(t: Type) -> bool:
+        return t.cxx == PY_OBJECT or any(holds(a) for a in t.args)
+
+    handles = [p.name for p in params if holds(p.type)]
+    if not handles:
+        return
+    if method and not getattr(fn, "_instant", False):
+        raise DeclarationError(
+            node, f"{node.name}: {handles} is a Python object held by "
+                  f"value, which is safe only while the GIL is held. "
+                  f"Mark the method @instant.")
+    if not method and getattr(fn, "_blocks", False):
+        raise DeclarationError(
+            node, f"{node.name}: {handles} is a Python object held by "
+                  f"value, and @blocks releases the GIL around it.")
 
 
 def _free(node: DefinitionNode, vocab: dict[str, str],

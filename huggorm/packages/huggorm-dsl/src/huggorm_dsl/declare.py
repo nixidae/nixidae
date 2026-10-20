@@ -225,7 +225,8 @@ Duration = Annotated[datetime.timedelta, Cxx("microseconds")]
 # promise a check the binding does not make - and a declaration may
 # not be more permissive OR more specific than the C++ it binds. The
 # docstring is where "this must be callable" belongs.
-PyFunc = Annotated[object, Cxx("nb::object")]
+PY_OBJECT = Cxx("nb::object")
+PyFunc = Annotated[object, PY_OBJECT]
 
 
 @dataclass(frozen=True)

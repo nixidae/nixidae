@@ -2486,3 +2486,57 @@ def test_a_body_cxx_with_a_keyword_is_refused(
     assert "__len__" not in source
     with pytest.raises(DeclarationError, match="belong on a type"):
         read(_declaration(tmp_path, source))
+
+
+HANDLE_HELD = '''"""A by-value Python handle, on a method and on a free function."""
+
+from huggorm_dsl.declare import (
+    Cxx, PyFunc, Str, binding, binds, blocks, header, instant)
+
+
+@header("nix/expr/eval.hh")
+@binding(cxx="nix::EvalState", threading="affine", blocking=True)
+class Holder:
+    """A class whose calls release the GIL unless a method says not."""
+
+    {marker}
+    def keep(self, name: Str, fn: PyFunc) -> None:
+        """Keep `fn`."""
+        Cxx("self.keep(name, fn);")
+
+
+{free_marker}
+@binds("nix::keep")
+def keep(fn: PyFunc) -> None:
+    """Keep `fn`."""
+'''
+
+
+@pytest.mark.parametrize(("marker", "free_marker", "refused"), [
+    ("", "", "Mark the method @instant"),
+    ("@instant", "@blocks", "@blocks releases the GIL"),
+])
+def test_a_python_handle_on_a_call_that_releases_the_gil_is_refused(
+        tmp_path: pathlib.Path, marker: str, free_marker: str,
+        refused: str) -> None:
+    """nanobind aborts when a by-value `nb::object` changes its count
+    without the GIL, and the binding compiles fine
+    (nixidae/nixidae#872)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    source = HANDLE_HELD.replace("{marker}", marker).replace(
+        "{free_marker}", free_marker)
+    with pytest.raises(DeclarationError, match=refused):
+        read(_declaration(tmp_path, source))
+
+
+def test_a_python_handle_on_a_call_that_keeps_the_gil_is_read(
+        tmp_path: pathlib.Path) -> None:
+    """`@instant` on the method, no `@blocks` on the function."""
+    from huggorm_dsl.read import read
+
+    source = HANDLE_HELD.replace("{marker}", "@instant").replace(
+        "{free_marker}", "")
+    mod = read(_declaration(tmp_path, source))
+    assert [m.name for m in mod.classes[0].methods] == ["keep"]
+    assert [f.name for f in mod.functions] == ["keep"]
