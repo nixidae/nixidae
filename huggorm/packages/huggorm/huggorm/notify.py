@@ -42,11 +42,18 @@ Every limit in `watch.py` still holds: a `builtins.readFile` is in no
 cache and so in no watch, and the files are THIS machine's, so a
 remote state's are on the server.
 
-One limit is its own. A watch set is only correct for the roots that
-had been evaluated when it was built, so `sync()` has to run after an
-evaluation adds files. `Notifier.eval_file` does that for a caller;
-calling `Watcher.eval_file` directly is still correct and just leaves
-the watch set behind until the next `sync()`.
+## Waiting adds watches; only `sync()` removes them
+
+`next_change()` adds the directories the watcher depends on each time
+it starts to wait, so an evaluation through `Watcher.eval_file` is
+watched from the next wait on, with no call in between.
+
+It never removes one. A change forgets its root, so the root's
+directory drops out of what the watcher depends on until something
+evaluates the root again. Removing the watch in that gap left a
+re-evaluated root unwatched for good: three saves, one evaluation
+(nixidae/nixidae#878). Keeping it costs only events that `_paths`
+drops. An explicit `sync()` prunes.
 """
 
 from __future__ import annotations
@@ -132,12 +139,9 @@ class Notifier:
 
         Idempotent, and cheap when nothing moved - it diffs two sets of
         directory names and touches the kernel only for the
-        difference. Call it after an evaluation; `eval_file` below
-        does.
+        difference. The prune is the only removal; waiting only adds.
         """
         wanted = _parents(self._watcher.watching())
-        forgotten: list[str] = []
-
         for gone in sorted(set(self._watches) - wanted):
             # rm_watch on a directory the kernel already dropped -
             # deleted, unmounted - raises, and the watch is gone
@@ -146,7 +150,11 @@ class Notifier:
             with contextlib.suppress(OSError):
                 self._inotify.rm_watch(self._watches[gone])
             del self._watches[gone]
+        return await self._add(wanted)
 
+    async def _add(self, wanted: set[str]) -> list[str]:
+        """Watch every directory in `wanted` not yet watched."""
+        forgotten: list[str] = []
         for new in sorted(wanted - set(self._watches)):
             try:
                 self._watches[new] = self._inotify.add_watch(
@@ -166,11 +174,10 @@ class Notifier:
         """Evaluate a root through the watcher, then watch its files.
 
         The convenience, not a third owner of `eval_file`: the answer
-        is the watcher's, and the only thing added is the `sync()`
-        after it. Calling `Watcher.eval_file` yourself is correct and
-        leaves the watch set one `sync()` behind."""
+        is the watcher's. It watches now rather than at the next
+        wait."""
         value = await self._watcher.eval_file(path)
-        await self.sync()
+        await self._add(_parents(self._watcher.watching()))
         return value
 
     # -- the loop ---------------------------------------------------------
@@ -182,18 +189,20 @@ class Notifier:
         rather than passed on, because a watched directory can hold
         thousands of files this evaluation never read.
 
-        Re-syncs afterwards. A forget prunes what the watcher watches,
-        so the directories worth listening to change with it.
+        Adds watches before it waits, and removes none (module
+        docstring). A directory found gone while adding is itself the
+        change, answered without waiting.
         """
+        forgotten = await self._add(_parents(self._watcher.watching()))
+        if forgotten:
+            return forgotten
         while True:
             event = await self._inotify.get()
             paths = self._paths(event)
             if not paths:
                 continue
-            forgotten: list[str] = []
             for path in paths:
                 forgotten += await self._watcher.changed(path)
-            forgotten += await self.sync()
             return sorted(set(forgotten))
 
     async def run(self) -> None:

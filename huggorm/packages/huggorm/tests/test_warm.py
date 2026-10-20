@@ -230,6 +230,46 @@ async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
         tg.cancel_scope.cancel()
 
 
+async def test_every_save_is_re_evaluated_not_only_the_first(
+        state: Any, tmp_path: Any) -> None:
+    """Three saves, three evaluations (nixidae/nixidae#878).
+
+    The first save forgets the root, and a notifier that re-synced
+    right after it removed the root's only directory watch. The refresh
+    re-evaluated the root, nothing added the watch back, and every
+    later save went unheard. One save could not show it."""
+    inner = write(tmp_path / "inner.nix", "40 + 2\n")
+    outer = write(tmp_path / "outer.nix", f"import {inner}\n")
+
+    w = Watcher(state)
+    warm = Warmer(w)
+    warm.register(outer)
+
+    evaluated: list[str] = []
+    real = w.eval_file
+
+    async def counted(path: str) -> Any:
+        value = await real(path)
+        evaluated.append(path)
+        return value
+
+    w.eval_file = counted  # type: ignore[method-assign]
+
+    async with Notifier(w) as source, anyio.create_task_group() as tg:
+        await warm.refresh()
+        # Watched before the first write, which lands before `follow`
+        # first waits.
+        await source.sync()
+        evaluated.clear()
+
+        tg.start_soon(warm.follow, source, SETTLE)
+        for n in (1, 2, 3):
+            write(tmp_path / "inner.nix", f"{n} + 0\n")
+            await until(lambda n=n: evaluated == [outer] * n)
+            assert await (await real(outer)).integer() == n
+        tg.cancel_scope.cancel()
+
+
 async def test_one_save_is_one_evaluation(
         state: Any, tmp_path: Any) -> None:
     """One save is one evaluation, and the settle window is why.
