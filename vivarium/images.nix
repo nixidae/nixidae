@@ -24,6 +24,8 @@
   util-linux,
   fakeroot,
   libarchive,
+  gzip,
+  qemu-utils,
 }:
 let
   /*
@@ -214,5 +216,44 @@ in
         stripRoot = false;
       })
       + "/chr-7.24.5.img";
+  };
+
+  /**
+    SONiC VS (virtual switch) 202505, for `vivarium.sonic`: the community
+    build's own qcow2, 16 GiB virtual. Debian with the SONiC stack; boots
+    its own kernel and GRUB, so QEMU runs it unchanged.
+
+    Pinned to one Azure pipeline build. SONiC publishes no stable release
+    URL: `sonic-build.azurewebsites.net` serves a build's artifacts under
+    its numeric `buildId`, and a build ages out of the pipeline's
+    retention, so the pin needs a bump then. Same floating-image problem
+    as the cloud images above (nixidae/nixidae#19). To bump: open
+    https://sonic-build.azurewebsites.net/ui/sonic/pipelines, platform
+    `vs`, branch `202505`, newest succeeded build, and read its
+    `target/sonic-vs.img.gz`.
+
+    The artifact is a gzip'd 6 GiB qcow2. The store holds a recompressed
+    qcow2 of 1.9 GiB instead: QEMU decompresses a zlib cluster on read,
+    and the image is read-only under the per-run overlay. That thirds the
+    store footprint and what CI substitutes, at ~3 min of `qemu-img` once.
+  */
+  sonic-vs = {
+    disk =
+      let
+        gz = fetchurl {
+          url = "https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=202505&platform=vs&buildId=1238524&target=target%2Fsonic-vs.img.gz";
+          hash = "sha256-tCJYBLIJhwTJnit8eQ/m9w688H+uVd7W/mMELFNcLug=";
+          name = "sonic-vs-202505-1238524.img.gz";
+        };
+      in
+      runCommand "sonic-vs-202505.qcow2" {
+        nativeBuildInputs = [ gzip qemu-utils ];
+        preferLocalBuild = true;
+        allowSubstitutes = false;
+      } ''
+        gzip -dc ${gz} > full.qcow2
+        qemu-img convert -c -O qcow2 full.qcow2 $out
+      '';
+    format = "qcow2";
   };
 }
