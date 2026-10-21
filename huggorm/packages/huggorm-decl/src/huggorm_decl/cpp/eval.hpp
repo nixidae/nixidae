@@ -146,6 +146,20 @@ auto get(ImportResolutionCache);
 
 template struct Reach<ImportResolutionCache, &nix::EvalState::importResolutionCache>;
 
+// 2.34 keeps what `"${./x}"` copied to the store in `srcToStore`, so an
+// edited file still interpolates to its old copy (nixidae/nixidae#940).
+// 2.35 has no such map; `fetch-tree.hh` is the header that tells them
+// apart, as 2.34 lacks it.
+#if !__has_include("nix/expr/fetch-tree.hh")
+#define HUGGORM_SRC_TO_STORE 1
+struct SrcToStore
+{
+};
+auto get(SrcToStore);
+
+template struct Reach<SrcToStore, &nix::EvalState::srcToStore>;
+#endif
+
 // `EvalState::addPrimOp` is private too (`eval.hh:837`), so the same
 // rule reaches it. A member FUNCTION this time rather than a data
 // member, which `auto Member` already covers - the shim needed no
@@ -223,6 +237,9 @@ inline void forget_file(nix::EvalState & state, const nix::SourcePath & given)
         (state.*get(FileEvalCache{}))->erase(key);
     for (const auto & key : resolutions)
         (state.*get(ImportResolutionCache{}))->erase(key);
+#ifdef HUGGORM_SRC_TO_STORE
+    (state.*get(SrcToStore{}))->erase(given);
+#endif
 }
 
 // ---- one evaluator, and everything it outlives --------------------

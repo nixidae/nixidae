@@ -1764,7 +1764,9 @@ return at;
 
         It also drops the path's `lstat` entry. Nix caches `lstat` for
         the whole process, so a path found missing once stays missing
-        for every state after, even once the file exists."""
+        for every state after, even once the file exists. On 2.34 it
+        drops the path's store copy too, so `"${./x}"` copies the edited
+        file again."""
         # The closure: nixidae/nixidae#553. The diff: nixidae/nixidae#620.
         # The lstat cache: nixidae/nixidae#903.
         Cxx("""
