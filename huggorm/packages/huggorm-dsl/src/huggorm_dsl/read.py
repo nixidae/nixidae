@@ -123,11 +123,8 @@ IMPORTABLE = (VOCABULARY, DECLARATIONS, "typing", "enum")
 # that name.
 FROM_PARTS = "_from_parts"
 
-# The lines an exception declaration writes in its class body. `cxx`
-# and `header` are the class's own; `reader` and `_wire_fields` are
-# read off the import, so a subclass inherits them.
-CXX = "cxx"
-HEADER = "header"
+# The lines an exception declaration writes in its class body, read off
+# the import, so a subclass inherits them.
 READER = "reader"
 WIRE_FIELDS = "_wire_fields"
 # The parts `as_error` fills from `what()` itself.
@@ -1939,11 +1936,16 @@ def _read(path: str) -> Module:
             if isinstance(value, type) and value.__module__ == mod.__name__:
                 node = nodes[value.__firstlineno__]
                 assert isinstance(node, ast.ClassDef)
-                if declare.marks(value):
+                if issubclass(value, BaseException):
+                    errors.append(_error(node, value, glb, stem))
+                elif declare.marks(value):
                     cls = _class(node, vocab, stem, here, fns, diag, made)
                     classes.append(cls)
                 else:
-                    errors.append(_error(node, value, glb, stem))
+                    raise DeclarationError(
+                        node, f"{node.name}: a class with no marker declares "
+                              f"an exception, so it derives from "
+                              f"BaseException.")
             elif fn is not None:
                 _one_definition(fn, nodes)
                 functions.append(_free(nodes[fn.__code__.co_firstlineno],
@@ -2264,91 +2266,34 @@ def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
            stem: str) -> Class:
     """One EXCEPTION class this file declares.
 
-    An error declaration carries no marker - `cxx = "nix::Error"` is
-    a bare assignment, because there is no behaviour to mark. So an
-    unmarked class IS an exception, and one that derives from none
-    is refused: the module transform would copy it through, and no
-    model entry and no catch clause would know it. Any decorator on
-    it records no mark, so nothing reads what it says.
-
     The IMPORT says what the class derives from: `Interrupted` is a
     BaseException, as upstream's is, and a match on base names
     skipped it."""
-    if node.decorator_list:
-        raise DeclarationError(
-            node, f"{node.name}: a decorator here is not a marker from "
-                  f"{VOCABULARY}, so nothing reads what it says")
-    if not issubclass(kls, BaseException):
-        raise DeclarationError(
-            node, f"{node.name}: a class with no decorator declares "
-                  f"an exception, so it derives from BaseException.")
+    thrown: declare.Throws | None = _marks(node, kls, Target.ERROR).get(
+        "throws")
     return Class(
         name=node.name,
         doc=ast.get_docstring(node, clean=False) or "",
         decl=Decl(name=node.name, kind=DeclKind.ERROR),
         ctor=None,
         module=stem,
-        raised=_raised(node, kls, home),
+        raised=_raised(node, kls, home, thrown),
     )
 
 
-def _assigned(node: ast.ClassDef, kls: type, name: str) -> str:
-    """The class's OWN `name = "..."`, or empty.
-
-    `vars`, not `getattr`: a subclass inherits its base's catch, and
-    an inherited `cxx` would emit a second catch of the base type."""
-    value = vars(kls).get(name, "")
-    if not isinstance(value, str):
-        raise DeclarationError(
-            node, f"{node.name}: `{name}` is {type(value).__name__}; it "
-                  f"names C++, so write a string.")
-    return value
-
-
-def _header(node: ast.ClassDef, kls: type) -> Include | None:
-    """The class's OWN `header = Local("...")`, or None. `vars`, as
-    for `_assigned`."""
-    value = vars(kls).get(HEADER)
-    if value is None:
-        return None
-    try:
-        (checked,) = declare.require_includes(f"{node.name}.header", (value,))
-    except TypeError as e:
-        raise DeclarationError(node, str(e)) from None
-    return checked
-
-
-def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
+def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any],
+            thrown: declare.Throws | None) -> Raised:
     """One exception's C++ facts, refused unless it can be caught right.
 
-    All of it from the IMPORT. `cxx` and `header` belong to the class
-    that writes them, so they come from its own `vars`. The bases,
-    `_wire_fields` and `reader` are inherited through the MRO.
-
-    `cxx` and `header` come as a pair. A `cxx` with no `header` is a
-    catch whose type the emitted file reaches only through somebody
-    else's include (nixidae/nixidae#627). A `header` with no `cxx` reaches no
-    emitter, and a line nobody reads looks exactly like one nobody
-    wrote.
+    All of it from the IMPORT. `@throws` is own-class, as every mark
+    is. The bases, `_wire_fields` and `reader` are inherited through
+    the MRO.
 
     A caught class with parts past the message needs a `reader`: its
     catch would call the constructor with parts missing, and
     `raise_as` turns that refusal into a RuntimeError, in silence."""
-    cxx, header = _assigned(node, kls, CXX), _header(node, kls)
-    if cxx and not header:
-        raise DeclarationError(
-            node, f"{node.name}: `cxx = \"{cxx}\"` says the emitted "
-                  f"translator catches this type, and nothing says "
-                  f"which header declares it. Add "
-                  f"`header = Local(\"nix/...\")` "
-                  f"beside it, or the emitted file reaches the type "
-                  f"only through somebody else's include (nixidae/nixidae#627).")
-    if header and not cxx:
-        raise DeclarationError(
-            node, f"{node.name}: `header` with no `cxx`. Only a class "
-                  f"the translator CATCHES needs a header emitted for "
-                  f"it, so this line reaches no emitter - and a line "
-                  f"nobody reads looks exactly like one nobody wrote.")
+    cxx = thrown.cxx if thrown is not None else ""
+    header = thrown.header if thrown is not None else None
     fields = tuple(getattr(kls, WIRE_FIELDS, ()))
     reader = getattr(kls, READER, "")
     extra = fields[MESSAGE_PARTS:]

@@ -6,8 +6,8 @@ raised; a catch clause naming a class the module did not define failed
 at import. Nothing checked either way.
 
 The module is a TRANSFORM, like `pyenum.py`: a declaration of
-exception classes IS the module, once the `cxx = "nix::..."` lines
-come off. Every docstring, every base and the order are the
+exception classes IS the module, once the `@throws` markers and the
+`reader` lines come off. Every docstring, every base and the order are the
 declaration's own nodes. It stays a transform because an exception
 class body is arbitrary Python - methods, `__init__` - and not a
 binding fact the model could hold.
@@ -27,7 +27,7 @@ condition left to evaluate and no `NIX_VERSION` to import.
 import ast
 import copy
 
-from huggorm_dsl.read import CXX, DECLARATIONS, HEADER, READER, DeclarationError
+from huggorm_dsl.read import DECLARATIONS, READER, DeclarationError
 from huggorm_gen import ir
 
 # The package a declaration is WRITTEN in. Read off the reader's own
@@ -88,7 +88,7 @@ def chain(errors: ir.Errors, raise_as: str) -> list[str]:
     into: a stale copy of the name fails at RUNTIME, by falling back
     to RuntimeError (nixidae/nixidae#600).
 
-    A class with no `cxx` is not caught. That is how a Python-only
+    A class with no `@throws` is not caught. That is how a Python-only
     exception - one this binding raises itself and Nix never throws -
     stays in the module without inventing a catch for it.
     """
@@ -126,9 +126,9 @@ def module(tree: ast.Module, doc: str, package: str = "") -> str:
 
     A transform rather than a print, for `pyenum.py`'s reason: the
     output is Python and the declaration already is. What changes is
-    only what a caller must not see - the `cxx` and `header` lines,
-    which name C++ that no Python caller can act on, and any import
-    of the declaration LANGUAGE.
+    only what a caller must not see - the `@throws` markers and the
+    `reader` lines, which name C++ that no Python caller can act on,
+    and any import of the declaration LANGUAGE.
 
     The language import goes because the reason for it is gone. A
     declaration that branches writes `from huggorm_dsl.declare import
@@ -150,23 +150,16 @@ def module(tree: ast.Module, doc: str, package: str = "") -> str:
         node = _emitted_import(node, package)
         if isinstance(node, ast.ClassDef):
             # A COPY, because `corpus()` is cached for the process and
-            # hands every emitter the same tree. Stripping in place
-            # took `cxx` off that shared tree, so any reader that came
-            # after this one saw a declaration with no C++ in it at
-            # all - `chain` would emit a translator that catches
-            # NOTHING, and `headers` an include block with nothing in
-            # it. Both are silent: an empty chain compiles.
-            #
-            # It worked only because `generate.py` happens to call
-            # `error_chain` before this. Found on 2026-09-05 by
-            # `headers` being added and reading []; recorded in
-            # nixidae/nixidae#627.
+            # hands every emitter the same tree. A strip in place takes
+            # `@throws` off that shared tree, and a reader after this
+            # one emits a translator that catches nothing, which
+            # compiles (nixidae/nixidae#627).
             cls = copy.deepcopy(node)
             cls.body = [item for item in cls.body
                         if not (isinstance(item, ast.Assign)
                                 and len(item.targets) == 1
                                 and isinstance(item.targets[0], ast.Name)
-                                and item.targets[0].id in (CXX, HEADER, READER))]
+                                and item.targets[0].id == READER)]
             cls.decorator_list = []
             body.append(cls)
             continue

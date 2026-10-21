@@ -23,31 +23,25 @@ from huggorm_decl import PRELUDE
 
 BRANCHED = '''"""Two exception classes, one behind a version."""
 
-from huggorm_dsl.declare import Local, NIX_VERSION
+from huggorm_dsl.declare import Local, NIX_VERSION, throws
 
 
+@throws("nix::Error", Local("nix/util/error.hh"))
 class NixError(Exception):
     """The base every other one derives from."""
-
-    cxx = "nix::Error"
-    header = Local("nix/util/error.hh")
 
 
 if NIX_VERSION >= (2, 0):
 
+    @throws("nix::Here", Local("nix/util/error.hh"))
     class Here(NixError):
         """The arm this build has - the version is long past."""
 
-        cxx = "nix::Here"
-        header = Local("nix/util/error.hh")
-
 else:
 
+    @throws("nix::Gone", Local("nix/util/error.hh"))
     class Gone(NixError):
         """The arm it does not have."""
-
-        cxx = "nix::Gone"
-        header = Local("nix/util/error.hh")
 '''
 
 # The same hierarchy with nothing to resolve. Written out rather than
@@ -55,17 +49,17 @@ else:
 # under test, and computing one from the other would hide it.
 FLAT = '''"""Two exception classes, neither behind a version."""
 
+from huggorm_dsl.declare import Local, throws
 
+
+@throws("nix::Error", Local("nix/util/error.hh"))
 class NixError(Exception):
     """The base every other one derives from."""
 
-    cxx = "nix::Error"
 
-
+@throws("nix::Here", Local("nix/util/error.hh"))
 class Here(NixError):
     """Beside it, not under an `if`."""
-
-    cxx = "nix::Here"
 '''
 
 
@@ -123,18 +117,16 @@ def test_a_version_branch_is_resolved_before_an_emitter_sees_it(
 
 
 READERLESS = '''
-from huggorm_dsl.declare import Local, Map, Opt, Vec, I64
+from huggorm_dsl.declare import Local, Map, Opt, Vec, I64, throws
 
 
+@throws("nix::Error", Local("nix/util/error.hh"))
 class NixError(Exception):
-    cxx = "nix::Error"
-    header = Local("nix/util/error.hh")
     _wire_fields = (("message", str), ("colored", str), ("code", I64))
 
 
+@throws("nix::Read", Local("nix/util/error.hh"))
 class Read(NixError):
-    cxx = "nix::Read"
-    header = Local("nix/util/error.hh")
     reader = "huggorm::error_info"
 '''
 
@@ -1655,7 +1647,7 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
     emitted file includes - a fact about generated code, written into
     a file a person maintains (nixidae/nixidae#627).
 
-    `decl/errors.py` says `header = Local("nix/...")` beside each `cxx`,
+    `decl/errors.py` names the header in each `@throws`,
     and the emitter writes the include beside the chain.
 
     NOT load-bearing, measured before this was written: removing all
@@ -1692,48 +1684,49 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
         "the headers come from the derivation, not from a fixed list"
 
 
-def test_a_caught_error_must_say_which_header_declares_it(
-        tmp_path: pathlib.Path) -> None:
-    """Both directions refused, because either line alone reaches
-    nothing.
-
-    A `cxx` with no `header` is a catch whose type the emitted file
-    can only reach by accident. A `header` with no `cxx` is a line no
-    emitter reads, and this repo's named failure mode is a line
-    nobody reads looking exactly like one nobody wrote.
-
-    Drop either refusal and the matching half of this passes."""
+@pytest.mark.parametrize(("throws", "refusal"), [
+    # A catch whose type the emitted file reaches only by accident
+    # (nixidae/nixidae#627).
+    ('@throws("nix::Error")', "missing 1 required positional argument: "
+                              "'header'"),
+    ('@throws("nix::Error", "nix/util/error.hh")',
+     r'@throws takes Std\("x"\) or Local'),
+    ('@throws(Local("nix/util/error.hh"), "nix::Error")',
+     r"@throws names C\+\+, so it takes a string"),
+])
+def test_a_caught_error_names_its_type_and_its_header(
+        tmp_path: pathlib.Path, throws: str, refusal: str) -> None:
     from huggorm_dsl.read import DeclarationError, read
 
-    def errors(name: str, source: str) -> None:
-        (tmp_path / name).mkdir()
-        read(_declaration(tmp_path / name, source))
-
-    with pytest.raises(DeclarationError, match="which header declares it"):
-        errors("no_header", 'from huggorm_dsl.declare import Local\n\n\n'
-                            'class NixError(Exception):\n'
-                            '    cxx = "nix::Error"\n')
-
-    with pytest.raises(DeclarationError, match="`header` with no `cxx`"):
-        errors("no_cxx", 'from huggorm_dsl.declare import Local\n\n\n'
-                         'class NixError(Exception):\n'
-                         '    header = Local("nix/util/error.hh")\n')
+    with pytest.raises(DeclarationError, match=refusal):
+        read(_declaration(tmp_path, 'from huggorm_dsl.declare import '
+                                    'Local, throws\n\n\n'
+                                    f'{throws}\n'
+                                    'class NixError(Exception):\n'
+                                    '    pass\n'))
 
 
-def test_an_undecorated_class_is_an_exception(
-        tmp_path: pathlib.Path) -> None:
-    """A class with no decorator that derives from no exception is
+@pytest.mark.parametrize(("source", "refusal"), [
+    ('class Helper:\n    pass\n',
+     "Helper: a class with no marker declares an exception"),
+    ('@binding(cxx="x::Broken")\nclass Broken(Exception):\n    pass\n',
+     "@binding is not legal on a error"),
+    ('@throws("x::Broken", Local("x.hpp"))\n@binding(cxx="x::Stream")\n'
+     'class Stream:\n    pass\n',
+     "@throws is not legal on a class"),
+])
+def test_an_exception_and_a_bound_class_take_their_own_markers(
+        tmp_path: pathlib.Path, source: str, refusal: str) -> None:
+    """A class that derives from no exception and carries no marker is
     refused. The module transform would copy it through, and no model
     entry and no catch clause would know it - a silent skip."""
     from huggorm_dsl.read import DeclarationError, read
 
-    path = _declaration(tmp_path, 'class NixError(Exception):\n'
-                                  '    pass\n\n\n'
-                                  'class Helper:\n'
-                                  '    pass\n')
-    with pytest.raises(DeclarationError, match="Helper: a class with no "
-                                               "decorator declares an "
-                                               "exception"):
+    path = _declaration(tmp_path, 'from huggorm_dsl.declare import '
+                                  'Local, binding, throws\n\n\n'
+                                  'class NixError(Exception):\n'
+                                  '    pass\n\n\n' + source)
+    with pytest.raises(DeclarationError, match=refusal):
         read(path)
 
 
@@ -1749,13 +1742,13 @@ def test_a_reader_reads_a_record(tmp_path: pathlib.Path) -> None:
         _errors(read(path), ir)
 
 
-def test_the_header_line_does_not_reach_the_emitted_module() -> None:
-    """`header` is C++, so it goes where `cxx` goes: nowhere a caller
+def test_the_cxx_does_not_reach_the_emitted_module() -> None:
+    """`@throws` and `reader` name C++, so they go nowhere a caller
     can see.
 
     A caller catches `huggorm_bindings.errors.InvalidPath` and can do
-    nothing with the name of a nix header. Drop `HEADER` from
-    `module`'s filter and this fails."""
+    nothing with the name of a nix header. Drop `module`'s strip and
+    this fails."""
     import ast
 
     from huggorm_decl import corpus
@@ -1765,8 +1758,7 @@ def test_the_header_line_does_not_reach_the_emitted_module() -> None:
     tree = have.resolved(have.errors)
     text = pyerrors.module(tree, "doc", "pkg")
     lines = [ln.strip() for ln in text.splitlines()]
-    assert not [ln for ln in lines if ln.startswith("header =")], text
-    assert not [ln for ln in lines if ln.startswith("cxx =")], text
+    assert not [ln for ln in lines if ln.startswith("@throws")], text
     assert not [ln for ln in lines if ln.startswith("reader =")], text
     # The classes still arrive, so the absence above is a strip and
     # not an empty module. Prose may still say "cxx" - a docstring
@@ -2075,7 +2067,8 @@ SPELLED = '''"""A class whose markers are spelled CLASS_MARKER and METHOD_MARKER
 import typing
 
 import huggorm_dsl.declare as d
-from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, instant as fast
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, throws
+from huggorm_dsl.declare import instant as fast
 
 
 CLASS_MARKER
@@ -2138,8 +2131,8 @@ def test_a_marker_is_checked_by_what_it_recorded(
 
 
 @pytest.mark.parametrize(("stray", "refusal"), [
-    ('@typing.final\nclass Broken(Exception):\n    """."""\n\n'
-     '    cxx = "x::Broken"\n    header = Local("x.hpp")\n',
+    ('@typing.final\n@throws("x::Broken", Local("x.hpp"))\n'
+     'class Broken(Exception):\n    """."""\n',
      "Broken: a decorator here is not a marker"),
     ('@typing.final\ndef stray() -> Str:\n    """."""\n',
      r"stray \(function\) reaches no output"),
@@ -2196,19 +2189,6 @@ def test_a_header_is_an_include_not_a_string(
         read(_declaration(tmp_path, SPELLED.replace(old, new).replace(
             "CLASS_MARKER", '@binding(cxx="x::Stream")').replace(
                 "METHOD_MARKER", "")))
-
-
-def test_an_error_header_is_an_include_not_a_string(
-        tmp_path: pathlib.Path) -> None:
-    """An exception's `header` is refused as a bare string, as
-    `@header` is (nixidae/nixidae#938)."""
-    from huggorm_dsl.read import DeclarationError, read
-
-    with pytest.raises(DeclarationError,
-                       match=r'NixError.header takes Std\("x"\) or Local'):
-        read(_declaration(tmp_path, 'class NixError(Exception):\n'
-                                    '    cxx = "nix::Error"\n'
-                                    '    header = "nix/util/error.hh"\n'))
 
 
 def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:

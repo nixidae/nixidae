@@ -2,7 +2,7 @@
 Python exceptions for what real Nix throws.
 
 GENERATED. The source is `huggorm_decl/decl/errors.py`, which is this
-module plus one `cxx = "nix::..."` line per class.
+module plus one `@throws` marker per class.
 
 The hierarchy mirrors libnixutil's own, because catching by type is the
 point: `nix::BadStorePathName` derives from `BadStorePath` derives from
@@ -16,7 +16,7 @@ NixError. Nothing maintains the order; it is computed from the classes
 below.
 
 Only what a binding can actually raise lives here. A class with no
-`cxx` gets no catch clause, which is how a Python-only exception stays
+`@throws` gets no catch clause, which is how a Python-only exception stays
 in the module without inventing one.
 
 Every class in this module reaches the wire. An error crosses as a
@@ -26,9 +26,10 @@ this file: the emitter writes the module and knows where it put it.
 """
 
 from huggorm_decl.decl.path import ErrorInfo
-from huggorm_dsl.declare import Local
+from huggorm_dsl.declare import Local, throws
 
 
+@throws("nix::Error", Local("nix/util/error.hh"))
 class NixError(Exception):
     """Anything nix::Error, and the base of everything below.
 
@@ -47,11 +48,9 @@ class NixError(Exception):
     and losing the error. The exact bytes stay on the info parts,
     which cross as bytes."""
 
-    cxx = "nix::Error"
-    header = Local("nix/util/error.hh")
     # The C++ template that reads each part beyond the two strings off
     # the caught exception, given the part's record type. Inherited,
-    # and taken off the emitted module as `cxx` is.
+    # and taken off the emitted module.
     reader = "huggorm::error_info"
 
     # What crosses the wire, in constructor order: an error is rebuilt
@@ -145,13 +144,12 @@ class NixError(Exception):
         return {"code": self.code, **parts}
 
 
+@throws("nix::UsageError", Local("nix/util/error.hh"))
 class UsageError(NixError):
     """nix::UsageError - the caller asked for something incoherent."""
 
-    cxx = "nix::UsageError"
-    header = Local("nix/util/error.hh")
 
-
+@throws("nix::SystemError", Local("nix/util/error.hh"))
 class SysError(NixError):
     """nix::SystemError, including its errno-carrying nix::SysError.
 
@@ -160,10 +158,8 @@ class SysError(NixError):
     `except SystemError` catching the wrong thing is exactly the kind
     of silence this hierarchy exists to remove."""
 
-    cxx = "nix::SystemError"
-    header = Local("nix/util/error.hh")
 
-
+@throws("nix::Unsupported", Local("nix/store/store-api.hh"))
 class Unsupported(NixError):
     """nix::Unsupported - this store cannot do that at all.
 
@@ -178,10 +174,8 @@ class Unsupported(NixError):
     right response usually differs: a caller can fall back to another
     store, and cannot fall back from a genuine error."""
 
-    cxx = "nix::Unsupported"
-    header = Local("nix/store/store-api.hh")
 
-
+@throws("nix::InvalidPath", Local("nix/store/store-api.hh"))
 class InvalidPath(NixError):
     """nix::InvalidPath - the store has no such path.
 
@@ -192,42 +186,32 @@ class InvalidPath(NixError):
     caller can substitute or build after this and cannot after the
     other."""
 
-    cxx = "nix::InvalidPath"
-    header = Local("nix/store/store-api.hh")
 
-
+@throws("nix::BadStorePath", Local("nix/store/store-dir-config.hh"))
 class BadStorePath(NixError):
     """nix::BadStorePath - not a store path."""
 
-    cxx = "nix::BadStorePath"
-    header = Local("nix/store/store-dir-config.hh")
 
-
+@throws("nix::BadStorePathName", Local("nix/store/store-dir-config.hh"))
 class BadStorePathName(BadStorePath):
     """nix::BadStorePathName - a store path whose name part is invalid."""
 
-    cxx = "nix::BadStorePathName"
-    header = Local("nix/store/store-dir-config.hh")
 
-
+@throws("nix::UnimplementedError", Local("nix/util/error.hh"))
 class UnimplementedError(NixError):
     """nix::UnimplementedError - Nix has no implementation of this, on
     this platform or in this build."""
 
-    cxx = "nix::UnimplementedError"
-    header = Local("nix/util/error.hh")
 
-
+@throws("nix::ParseError", Local("nix/expr/eval-error.hh"))
 class ParseError(NixError):
     """nix::ParseError - the text is not a Nix expression.
 
     A sibling of `EvalBaseError`, as upstream has it: a parse fails
     before any evaluation starts."""
 
-    cxx = "nix::ParseError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::EvalBaseError", Local("nix/expr/eval-error.hh"))
 class EvalBaseError(NixError):
     """nix::EvalBaseError - evaluation stopped, not always because the
     code is wrong.
@@ -236,60 +220,46 @@ class EvalBaseError(NixError):
     a few: `StackOverflowError` (`max-call-depth`), `IFDError` and
     `RecoverableEvalError`."""
 
-    cxx = "nix::EvalBaseError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::EvalError", Local("nix/expr/eval-error.hh"))
 class EvalError(EvalBaseError):
     """nix::EvalError - evaluation failed."""
 
-    cxx = "nix::EvalError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::TypeError", Local("nix/expr/eval-error.hh"))
 class NixTypeError(EvalError):
     """nix::TypeError - a value is not the type the operation needs.
 
     `Nix` in the name because a Python `TypeError` would shadow the
     builtin, as `SysError` explains."""
 
-    cxx = "nix::TypeError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::UndefinedVarError", Local("nix/expr/eval-error.hh"))
 class UndefinedVarError(EvalError):
     """nix::UndefinedVarError - an expression names a variable that no
     scope binds."""
 
-    cxx = "nix::UndefinedVarError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::AssertionError", Local("nix/expr/eval-error.hh"))
 class NixAssertionError(EvalError):
     """nix::AssertionError - an `assert` was false.
 
     `Nix` in the name because a Python `AssertionError` would shadow the
     builtin, as `NixTypeError` explains."""
 
-    cxx = "nix::AssertionError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::ThrownError", Local("nix/expr/eval-error.hh"))
 class ThrownError(NixAssertionError):
     """nix::ThrownError - `builtins.throw`. Upstream derives it from
     AssertionError, and so does this."""
 
-    cxx = "nix::ThrownError"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("nix::Abort", Local("nix/expr/eval-error.hh"))
 class Abort(EvalError):
     """nix::Abort - `builtins.abort`."""
 
-    cxx = "nix::Abort"
-    header = Local("nix/expr/eval-error.hh")
 
-
+@throws("huggorm::MissingAttribute", Local("huggorm_decl/cpp/eval_errors.hpp"))
 class MissingAttribute(EvalError):
     """`Value.get` of a name the set does not hold.
 
@@ -298,17 +268,13 @@ class MissingAttribute(EvalError):
     caller of `get` tells a missing name from a failure of the
     evaluation."""
 
-    cxx = "huggorm::MissingAttribute"
-    header = Local("huggorm_decl/cpp/eval_errors.hpp")
 
-
+@throws("huggorm::ListIndex", Local("huggorm_decl/cpp/eval_errors.hpp"))
 class ListIndex(EvalError):
     """`Value.at` of an index the list does not hold."""
 
-    cxx = "huggorm::ListIndex"
-    header = Local("huggorm_decl/cpp/eval_errors.hpp")
 
-
+@throws("nix::Interrupted", Local("nix/util/signals.hh"))
 class Interrupted(BaseException):
     """nix::Interrupted - a call cancelled at Nix's next checkInterrupt.
 
@@ -317,9 +283,6 @@ class Interrupted(BaseException):
     same reason, and because upstream agrees: `nix::Interrupted`
     derives `BaseError`, not `Error`. So the `nix::Error` catch never
     matched it, and a cancelled call raised a bare RuntimeError."""
-
-    cxx = "nix::Interrupted"
-    header = Local("nix/util/signals.hh")
 
     _wire_fields = (("message", str), ("colored", str))
 
@@ -349,7 +312,7 @@ class BuildError(NixError):
     is what `buildPaths` throws and what `buildPathsWithResults`
     RETURNS.
 
-    No `cxx`, which means no catch clause, which means `build_paths`
+    No `@throws`, which means no catch clause, which means `build_paths`
     still raises a plain NixError today. That is deliberate: adding a
     catch here would change what an existing method raises, and this
     task is about the method that does not raise at all (nixidae/nixidae#608).

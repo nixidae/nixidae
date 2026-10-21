@@ -596,6 +596,8 @@ class Target(StrEnum):
     """What a marker may decorate."""
 
     CLASS = "class"
+    # An exception class.
+    ERROR = "error"
     METHOD = "method"
     # A module-level function.
     FREE = "free"
@@ -766,7 +768,7 @@ def marker(*target: Target, repeatable: bool = False,
 
 def _marks_it(rule: Marker, arg: object) -> bool:
     if isinstance(arg, type):
-        return Target.CLASS in rule.target
+        return bool(rule.target & {Target.CLASS, Target.ERROR})
     return isinstance(arg, types.FunctionType | property | staticmethod
                       | classmethod)
 
@@ -857,6 +859,31 @@ def header(path: Include) -> Include:
     """The C++ header this class is declared in."""
     (checked,) = require_includes("@header", (path,))
     return checked
+
+
+@dataclass(frozen=True)
+class Throws:
+    """The C++ exception an exception class stands for."""
+
+    cxx: str
+    # The header that declares it. Without one, the emitted file reaches
+    # the type only through somebody else's include (nixidae/nixidae#627).
+    header: Include
+
+
+@marker(Target.ERROR)
+def throws(cxx: str, header: Include) -> Throws:
+    """The C++ exception the translator catches as this class. An
+    exception without it is one only this binding raises, and no catch
+    clause names it.
+
+    Own-class, as every mark is: a subclass inherits its base's catch,
+    and an inherited mark would emit a second catch of the base type."""
+    if not isinstance(cxx, str) or not cxx:
+        raise TypeError(f"@throws names C++, so it takes a string, not "
+                        f"{cxx!r}")
+    (checked,) = require_includes("@throws", (header,))
+    return Throws(cxx, checked)
 
 
 @flag(Target.CLASS)
