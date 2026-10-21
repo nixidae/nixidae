@@ -95,6 +95,17 @@ pkgs.runCommand "huggorm-licenses"
       echo "Each directory holds the licence text of one bundled library,"
       echo "copied from the source the manylinux image builds."
       echo ""
-      ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: src: ''echo "${name} ${src}"'') srcs)}
+      ${
+        # The source's name without its store hash: Nix scans an output
+        # for the hashes of its inputs, so a full path here kept every
+        # source archive alive in every closure that holds the bindings,
+        # about 350 MiB (nixidae/nixidae#939).
+        lib.concatStringsSep "\n" (
+          lib.mapAttrsToList (
+            name: src:
+            ''echo "${name} ${builtins.substring 33 (-1) (baseNameOf (builtins.unsafeDiscardStringContext "${src}"))}"''
+          ) srcs
+        )
+      }
     } > "$out/README"
   ''
