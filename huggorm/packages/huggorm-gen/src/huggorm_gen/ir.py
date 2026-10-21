@@ -25,10 +25,12 @@ from huggorm_dsl.declare import (
     MAP,
     OPT,
     VEC,
+    Compare,
     Crossing,
     Cxx,
     Decl,
     DeclKind,
+    Holder,
     Include,
     Subscription,
     Threading,
@@ -830,7 +832,7 @@ class Semantics:
 
     @classmethod
     def of(cls, decl: Decl) -> Semantics:
-        return cls(decl.text, decl.shown, decl.compare == "cxx",
+        return cls(decl.text, decl.shown, decl.compare is Compare.CXX,
                    decl.order, decl.unit)
 
     @property
@@ -907,8 +909,8 @@ class ClassModel:
     tree: shapes.Tree[str] | None = None
     # The declared class this one derives from, or "".
     base: str = ""
-    # What C++ holds one through: "shared_ptr", or "".
-    holder: str = ""
+    # What C++ holds one through, or None.
+    holder: Holder | None = None
     # A remote client may pass one, and the server calls it back.
     calls_back: bool = False
     # How Python data becomes a value, or None.

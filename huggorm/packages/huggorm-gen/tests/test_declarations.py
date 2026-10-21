@@ -919,6 +919,23 @@ def test_the_model_refuses_an_arm_it_cannot_check(
         ir.ModuleModel.of(module, "")
 
 
+@pytest.mark.parametrize(("marker", "said"), [
+    ("wire_value", {"compare": "cpp"}),
+    ("binding", {"holder": "shared"}),
+])
+def test_a_marker_refuses_a_word_outside_its_set(
+        marker: str, said: dict[str, str]) -> None:
+    """`compare` and `holder` each take one word from a fixed set.
+
+    A misspelt `compare` that reached the model would compare the parts
+    in Python instead of calling the C++ `==`, and nothing would say so
+    (nixidae/nixidae#959)."""
+    from huggorm_dsl import declare
+
+    with pytest.raises(ValueError, match=repr(next(iter(said.values())))):
+        getattr(declare, marker)(**said)
+
+
 SPELLS = '''"""A body that spells a vocabulary nothing declares."""
 
 from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header, spells

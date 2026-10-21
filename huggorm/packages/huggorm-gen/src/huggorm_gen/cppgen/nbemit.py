@@ -55,7 +55,7 @@ goes in a helper the declaration names.
 from collections.abc import Iterator, Sequence
 from typing import assert_never
 
-from huggorm_dsl.declare import OPT, Crossing, Cxx, Include, Local, Std
+from huggorm_dsl.declare import OPT, Crossing, Cxx, Holder, Include, Local, Std
 from huggorm_dsl.read import Body
 from huggorm_gen import ir
 from huggorm_gen.cxx import NAMESPACE, fact
@@ -1101,7 +1101,7 @@ class Emitter:
         `shared_from_this()` works inside the call, as nanobind documents.
         By reference, `getBuilder` raised `bad_weak_ptr` on a Python
         store once `openStore`'s owner was gone."""
-        if cls.holder == "shared_ptr":
+        if cls.holder is Holder.SHARED_PTR:
             return (f"const std::shared_ptr<{cls.held}> &nb_self",
                     [f"{INDENT * 4}[[maybe_unused]] {cls.held} &{SELF} = *nb_self;"])
         return f"{cls.held} &{SELF}", []

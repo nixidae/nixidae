@@ -62,6 +62,23 @@ class Crossing(StrEnum):
     LOCAL = "local"
 
 
+class Compare(StrEnum):
+    """What `==` on a wire value compares."""
+
+    # The declared parts, in Python.
+    PARTS = "parts"
+    # The C++ type's own operator.
+    CXX = "cxx"
+
+
+class Holder(StrEnum):
+    """What Python holds a bound object through, when it does not own
+    the object outright."""
+
+    # A reference-counted handle: `nix::openStore` answers one.
+    SHARED_PTR = "shared_ptr"
+
+
 class DeclKind(StrEnum):
     """What sort of declaration a `Decl` is."""
 
@@ -497,7 +514,7 @@ class Decl:
     # which is legal: a union whose arms C++ holds directly needs no
     # conversion written at all.
     variant: Variant | None = None
-    compare: str = ""
+    compare: Compare = Compare.PARTS
     text: str = ""
     shown: str = ""
     order: bool = False
@@ -527,12 +544,11 @@ class Decl:
     # How Python DATA becomes one of the tree's values, on a type that
     # makes them. Read by the RPC layer, as `tree` is.
     builds: Builds[str] | None = None
-    # What Python holds one of these THROUGH. Empty for the usual
-    # case, where Python owns the object outright. "shared_ptr" for a
-    # class whose factory hands back a reference-counted handle -
-    # nix::openStore does, and a store has to stay open for as long
-    # as the object naming it does.
-    holder: str = ""
+    # What Python holds one of these THROUGH. None for the usual
+    # case, where Python owns the object outright. A store has to stay
+    # open for as long as the object naming it does, so it is held
+    # through the `shared_ptr` nix::openStore answers.
+    holder: Holder | None = None
     # How to reach the object whose methods this class binds, when the
     # bound type is a HANDLE rather than the object itself. Empty for
     # everything that binds its own methods; "get()" for a wrapper
@@ -938,7 +954,7 @@ def gc_slots(table: str) -> str:
 class _Binding(Fields):
     cxx: str
     threading: Threading
-    holder: str
+    holder: Holder | None
     blocking: bool
     via: str
     collection: str
@@ -946,7 +962,8 @@ class _Binding(Fields):
 
 @marker(Target.CLASS)
 def binding(cxx: str = "",
-            threading: Literal["pool", "affine"] = "pool", holder: str = "",
+            threading: Literal["pool", "affine"] = "pool",
+            holder: Literal["", "shared_ptr"] = "",
             blocking: bool = True, via: str = "",
             collection: str = "") -> _Binding:
     """The C++ class this binds, and how it may be called.
@@ -970,14 +987,15 @@ def binding(cxx: str = "",
     than to what it points at says so with its own `@cxx_body`, and
     the census counts it - which is the honest split, because those
     are the only lines that are about the handle at all."""
-    return _Binding(cxx, Threading(threading), holder, blocking, via,
+    return _Binding(cxx, Threading(threading),
+                    Holder(holder) if holder else None, blocking, via,
                     collection)
 
 
 @dataclass(frozen=True)
 class _WireValue(Fields):
     fields: tuple[Field | str, ...]
-    compare: str
+    compare: Compare
     text: str
     order: bool
     shown: str
@@ -986,7 +1004,8 @@ class _WireValue(Fields):
 
 
 @marker(Target.CLASS)
-def wire_value(fields: tuple[Field | str, ...] = (), compare: str = "parts",
+def wire_value(fields: tuple[Field | str, ...] = (),
+               compare: Literal["parts", "cxx"] = "parts",
                text: str = "", order: bool = False,
                shown: str = "", unit: bool = False,
                ) -> _WireValue:
@@ -1031,7 +1050,8 @@ def wire_value(fields: tuple[Field | str, ...] = (), compare: str = "parts",
     the accessor a repr identifies the value by, which every value
     has. A value with a `text` is shown by it unless it says
     otherwise."""
-    return _WireValue(fields, compare, text, order, shown or text, unit)
+    return _WireValue(fields, Compare(compare), text, order, shown or text,
+                      unit)
 
 
 @marker(Target.METHOD)
