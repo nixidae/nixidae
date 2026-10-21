@@ -70,6 +70,29 @@ class Kind(StrEnum):
     MODULE = "module"
     OPAQUE = "opaque"
 
+    @property
+    def wire(self) -> callspec.WireKind | None:
+        """What a leaf of this kind crosses as, by its own name. None
+        for a scalar, which crosses by its builtin, and for a kind that
+        does not cross by name at all."""
+        match self:
+            case Kind.ENUM:
+                return callspec.WireKind.ENUM
+            case Kind.VALUE:
+                return callspec.WireKind.VALUE
+            case Kind.UNION:
+                return callspec.WireKind.UNION
+            case Kind.ERROR:
+                return callspec.WireKind.ERROR
+            case Kind.PROXY:
+                return callspec.WireKind.PROXY
+            case Kind.CLIENT:
+                return callspec.WireKind.CLIENT
+            case Kind.SCALAR | Kind.MODULE | Kind.OPAQUE:
+                return None
+            case _:
+                assert_never(self)
+
 
 @dataclass(frozen=True)
 class Resolver:
@@ -306,19 +329,29 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
                     f"lease per element, and nothing grants leases in bulk "
                     f"(nixidae/nixidae#568)")
         t = element
-    if t.kind == Kind.OPAQUE:
-        return NOT_DATA
-    if t.kind == Kind.PROXY and t.name not in served:
-        # A handle only some service can answer is worth sending.
-        return (f"{t.spelling} is a proxy with no service: it crosses as a "
-                f"handle, and nothing is wrapped to answer a call on that "
-                f"handle. A remote caller would receive an id it cannot "
-                f"use.")
-    if t.kind == Kind.MODULE and t.name not in SPELLED:
-        return (f"{t.spelling} has no wire spelling: a type from another "
-                f"module crosses only as the builtin wiretypes.SPELLED "
-                f"names for it, and SPELLED names none for this one")
-    return None
+    match t.kind:
+        case Kind.OPAQUE:
+            return NOT_DATA
+        case Kind.PROXY:
+            if t.name in served:
+                return None
+            # A handle only some service can answer is worth sending.
+            return (f"{t.spelling} is a proxy with no service: it crosses "
+                    f"as a handle, and nothing is wrapped to answer a call "
+                    f"on that handle. A remote caller would receive an id "
+                    f"it cannot use.")
+        case Kind.MODULE:
+            if t.name in SPELLED:
+                return None
+            return (f"{t.spelling} has no wire spelling: a type from "
+                    f"another module crosses only as the builtin "
+                    f"wiretypes.SPELLED names for it, and SPELLED names "
+                    f"none for this one")
+        case (Kind.SCALAR | Kind.ENUM | Kind.UNION | Kind.ERROR
+              | Kind.VALUE | Kind.CLIENT):
+            return None
+        case _:
+            assert_never(t.kind)
 
 
 def enumerated(cls: Class | None) -> bool:
@@ -1525,13 +1558,17 @@ class Model:
         the wrong sort of declaration."""
         if t.origin:
             return None
-        if t.kind in (Kind.VALUE, Kind.PROXY, Kind.CLIENT):
-            return self.classes[t.name]
-        if t.kind == Kind.UNION:
-            return self.unions[t.name]
-        if t.kind == Kind.ENUM:
-            return self.enums[t.name]
-        return None
+        match t.kind:
+            case Kind.VALUE | Kind.PROXY | Kind.CLIENT:
+                return self.classes[t.name]
+            case Kind.UNION:
+                return self.unions[t.name]
+            case Kind.ENUM:
+                return self.enums[t.name]
+            case Kind.SCALAR | Kind.MODULE | Kind.ERROR | Kind.OPAQUE:
+                return None
+            case _:
+                assert_never(t.kind)
 
     @cached_property
     def producers(self) -> dict[str, tuple[str, ...]]:

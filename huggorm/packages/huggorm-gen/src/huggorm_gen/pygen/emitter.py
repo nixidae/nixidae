@@ -239,18 +239,6 @@ def _table(var: str, ann: str, rows: Sequence[tuple[str, object]]) -> ast.stmt:
         simple=1)
 
 
-# The kinds that cross by name. A scalar crosses by its builtin and a
-# container by its item, so neither is here.
-_CROSSES = {
-    ir.Kind.ENUM: cs.WireKind.ENUM,
-    ir.Kind.VALUE: cs.WireKind.VALUE,
-    ir.Kind.UNION: cs.WireKind.UNION,
-    ir.Kind.ERROR: cs.WireKind.ERROR,
-    ir.Kind.PROXY: cs.WireKind.PROXY,
-    ir.Kind.CLIENT: cs.WireKind.CLIENT,
-}
-
-
 def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
     """A resolved type as the `Wire` the codec dispatches on."""
     if t is None:
@@ -275,7 +263,7 @@ def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
         # converts a `datetime.timedelta` by name.
         return cs.Wire(cs.WireKind.SCALAR, t.width or t.name,
                        optional=optional)
-    if (kind := _CROSSES.get(t.kind)) is not None:
+    if (kind := t.kind.wire) is not None:
         return cs.Wire(kind, t.name, optional=optional)
     raise TypeError(f"{t.spelling} is a {t.kind}, which does not cross")
 

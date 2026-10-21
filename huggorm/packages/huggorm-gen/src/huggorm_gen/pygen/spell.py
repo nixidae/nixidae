@@ -94,20 +94,25 @@ class Spelling:
         return self._leaf(t, proxy or self._proxy)
 
     def _leaf(self, t: TypeRef, proxy: Rename | None) -> str:
-        if t.kind == Kind.PROXY:
-            if proxy is None:
-                raise TypeError(f"no spelling for the proxy {t.name}")
-            name, source = proxy(t)
-            self.need(name, source)
-            return name
-        if t.kind == Kind.MODULE:
-            self.module(t.name)
-        elif t.kind == Kind.UNION:
-            if self._expand is not None:
-                return self._arms(t.name)
-            self.need(t.name, UNIONS)
-        elif t.name not in BUILTIN:
-            self.need(t.name, BINDINGS)
+        match t.kind:
+            case Kind.PROXY:
+                if proxy is None:
+                    raise TypeError(f"no spelling for the proxy {t.name}")
+                name, source = proxy(t)
+                self.need(name, source)
+                return name
+            case Kind.MODULE:
+                self.module(t.name)
+            case Kind.UNION:
+                if self._expand is not None:
+                    return self._arms(t.name)
+                self.need(t.name, UNIONS)
+            case (Kind.SCALAR | Kind.ENUM | Kind.ERROR | Kind.VALUE
+                  | Kind.CLIENT | Kind.OPAQUE):
+                if t.name not in BUILTIN:
+                    self.need(t.name, BINDINGS)
+            case _:
+                assert_never(t.kind)
         return t.name
 
     def _arms(self, union: str) -> str:
