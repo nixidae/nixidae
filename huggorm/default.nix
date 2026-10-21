@@ -303,9 +303,6 @@ rec {
           if sanitizer == null then
             plain
           else
-            # The import check dlopens the extension into a plain CPython,
-            # and a late dlopen cannot grow the static TLS block, so the
-            # runtime is preloaded.
             plain.overrideAttrs (old: {
               env =
                 (old.env or { })
@@ -313,8 +310,7 @@ rec {
                   NIX_CFLAGS_COMPILE = sanitizer.flags;
                   NIX_CFLAGS_LINK = sanitizer.linkFlag;
                 }
-                // sanitizer.buildEnv
-                // lib.optionalAttrs (sanitizer.runtime != null) { LD_PRELOAD = sanitizer.runtime; };
+                // sanitizer.buildEnv;
               dontStrip = true;
             });
         # The same build under clang, with every warning an error. gcc's
@@ -342,11 +338,30 @@ rec {
         huggorm =
           let
             plain = self.callPackage ./packages/huggorm { };
+            sanitized =
+              if sanitizer == null then
+                plain
+              else
+                # The suite and the import check load the bindings, and
+                # run after fixup. Earlier phases run ruff, and under a
+                # preloaded TSAN runtime the uninstrumented ruff reports
+                # races in itself and exits 66. So the preload starts
+                # after fixup, and the check is the suite alone: the base
+                # lane runs ruff and zuban.
+                plain.overridePythonAttrs (old: {
+                  postFixup = (old.postFixup or "") + sanitizer.testEnv;
+                  checkPhase = ''
+                    runHook preCheck
+                    export HOME=$TMPDIR
+                    pytest -m "not live"
+                    runHook postCheck
+                  '';
+                });
           in
           if builtins.getEnv "HUGGORM_SKIP_SUITE" == "1" then
-            plain.overridePythonAttrs { doCheck = false; }
+            sanitized.overridePythonAttrs { doCheck = false; }
           else
-            plain;
+            sanitized;
         ourPython = python3.withPackages (ps: [
           self.huggorm-bindings
           self.huggorm-generated

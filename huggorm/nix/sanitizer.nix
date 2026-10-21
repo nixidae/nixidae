@@ -196,14 +196,16 @@ in
     else
       "ubsan";
 
-  # Environment for the *build* of huggorm-bindings, beside the compile
-  # flags. `mkLane` in `default.nix` merges it into the `env` of
-  # `huggorm-bindings`.
+  # Environment for the *build* of a derivation that loads the bindings:
+  # `huggorm-bindings` and `huggorm`. `mkLane` in `default.nix` merges it
+  # into their `env`.
   #
-  # **ASAN needs `detect_leaks=0` here, and the `LD_PRELOAD` that `runtime`
-  # above sets is the reason.** That preload is derivation-wide, because
-  # stubgen and the import check both dlopen the extension into a fresh python
-  # and a late dlopen cannot grow the TLS block. So it reaches `bash`, which
+  # The preload is derivation-wide, because stubgen, the import check and
+  # the suite each dlopen the extension into a fresh python, and a late
+  # dlopen cannot grow the TLS block. Without it the import fails with
+  # "libtsan.so.2: cannot allocate memory in static TLS block".
+  #
+  # **ASAN needs `detect_leaks=0` here, and the preload is the reason.** So it reaches `bash`, which
   # runs every phase, and LeakSanitizer runs at the exit of each of them.
   # Measured, in the first build of this variant: two reports, and every frame
   # of both was bash's own parser.
@@ -215,11 +217,11 @@ in
   #
   # Only the leak checker goes. A use-after-free or a stack-use-after-return
   # in the import check still reports, and still fails the build, which is
-  # what that phase is worth here. nanopynix's `nanopynix/tests.nix` sets
-  # its own, wider `ASAN_OPTIONS` for the run of the suite.
-  buildEnv = lib.optionalAttrs isAddress {
-    ASAN_OPTIONS = "detect_leaks=0";
-  };
+  # what that phase is worth here. `testEnv` sets the wider `ASAN_OPTIONS`
+  # of a suite.
+  buildEnv =
+    lib.optionalAttrs (runtime != null) { LD_PRELOAD = runtime; }
+    // lib.optionalAttrs isAddress { ASAN_OPTIONS = "detect_leaks=0"; };
 
   # Shell text that exports what a test process under this variant needs.
   # huggorm's suite and nanopynix's runner both source it, so the two run
