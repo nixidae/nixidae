@@ -56,12 +56,26 @@ let
     }) config.vivarium.nics
   );
 
+  # A management VRF for the uplink, like the RouterOS fabric test: eth0's
+  # lease and routes land in their own table, isolated from the dataplane.
+  uplinkVrf = if onOob then cfg.uplinkVrf else null;
+  vrfTable = "100";
+  vrfBlock = lib.optionalString (uplinkVrf != null) ''
+    vrf {
+        name ${uplinkVrf} {
+            table "${vrfTable}"
+        }
+    }
+  '';
+
   # eth0 leases its management address; a segment NIC takes the static
   # addresses the node gave it.
   uplinkStanza = lib.optionalString onOob ''
         ethernet eth0 {
             address "dhcp"
-            hw-id "${uplinkMac}"
+            hw-id "${uplinkMac}"${lib.optionalString (uplinkVrf != null) ''
+
+            vrf "${uplinkVrf}"''}
         }
   '';
 
@@ -76,7 +90,7 @@ let
     '') config.vivarium.nics}}
   '';
 
-  configBoot = pkgs.writeText "config.boot" (cfg.config + interfaceBlock);
+  configBoot = pkgs.writeText "config.boot" (cfg.config + vrfBlock + interfaceBlock);
   roots = [
     runner
     units
@@ -201,6 +215,16 @@ in
             default = [ ];
             example = [ "no-vyos-firewall" ];
           };
+          uplinkVrf = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            example = "mgmt";
+            description = ''
+              Put the out-of-band uplink (eth0) in this VRF, with a table
+              of its own (nixidae/nixidae#958). Its lease and routes stay
+              separate from the dataplane. Needs `vivarium.uplink.segment`.
+            '';
+          };
         };
       }
     );
@@ -219,6 +243,10 @@ in
       {
         assertion = lib.all (nic: builtins.match "eth[0-9]+" nic.name != null) config.vivarium.nics;
         message = "VyOS configures ethernet interfaces named ethN only; name vivarium.interfaces eth1, eth2, ...";
+      }
+      {
+        assertion = cfg.uplinkVrf != null -> config.vivarium.uplink.segment != null;
+        message = "vivarium.vyos.uplinkVrf puts the uplink in a VRF, so it needs vivarium.uplink.segment.";
       }
     ];
     system.build.vivariumImageGuest = {
