@@ -47,6 +47,7 @@ from huggorm_generated._shapes import (
     Items,
     Leaf,
     Null,
+    Scalar,
     Subscription,
     Tree,
 )
@@ -265,7 +266,7 @@ class Build:
                 made = self.spec.null(state)
                 return tree.Leaf("null", None), made
             case [Node.LEAF, bool() | int() | float() | str() as v]:
-                wire = type(v).__name__
+                wire = Scalar(type(v).__name__)
                 made = self.spec.leaves[wire](state, v)
                 return tree.Leaf(wire, v), made
             case [Node.STAYS, str(hid)]:

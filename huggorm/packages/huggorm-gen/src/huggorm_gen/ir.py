@@ -48,7 +48,10 @@ from huggorm_dsl.read import (
 from huggorm_dsl.read import Origin as Origin
 from huggorm_gen import cxx
 from huggorm_gen.payload import _callspec as callspec
-from huggorm_gen.payload._wiretypes import SCALAR_NAMES, SPELLED, TREE_LEAVES
+from huggorm_gen.payload._wiretypes import SPELLED
+
+# The scalars a value tree's leaf may be, by name.
+LEAVES = tuple(sorted(s.value for s in shapes.Scalar if s.leaf))
 
 # The words a proxy's surfaces are spelled with. Every name below is
 # the class name plus one of these.
@@ -124,7 +127,7 @@ class Resolver:
 
     def kind(self, name: str) -> Kind:
         """What a builtin or a declared name is."""
-        if name in SCALAR_NAMES:
+        if name in shapes.Scalar:
             return Kind.SCALAR
         if name == "object":
             return Kind.OPAQUE
@@ -157,9 +160,9 @@ class TypeRef:
     args: tuple[TypeRef, ...]
     kind: Kind
     name: str
-    # The wire scalar a leaf's C++ width needs: "uint" for a uint64_t.
+    # The wire scalar a leaf's C++ width needs: UINT for a uint64_t.
     # Python has one int; only the crossing has two (nixidae/nixidae#616).
-    width: str = ""
+    width: shapes.Scalar | None = None
     # How nanobind spells it by value, and the caster that needs.
     # Empty on a hand-built shape.
     cxx: str = ""
@@ -225,7 +228,7 @@ class TypeRef:
     def scalar(self) -> str | None:
         """The builtin this leaf goes in a field as, or None when it
         crosses as anything else."""
-        if self.width:
+        if self.width is not None:
             return self.width
         if self.kind == Kind.SCALAR:
             return self.name
@@ -264,7 +267,7 @@ class TypeRef:
     @property
     def is_bytes(self) -> bool:
         """`bytes` itself: not optional, not in a container."""
-        return not self.origin and self.name == "bytes"
+        return not self.origin and self.name == shapes.Scalar.BYTES
 
     @property
     def bytes_list(self) -> bool:
@@ -392,7 +395,7 @@ def type_ref(t: Type, resolver: Resolver, *, spelled: bool = True) -> TypeRef:
         # imported as itself.
         kind=Kind.MODULE if t.leaf.module else resolver.kind(name),
         name=name,
-        width=t.cxx.width if t.cxx is not None and not t.origin else "",
+        width=t.cxx.width if t.cxx is not None and not t.origin else None,
         twin=t.twin,
         declared=None if t.origin else resolver.known.get(name),
         spelled=t.cxx,
@@ -438,7 +441,7 @@ def crossable(t: Type | None, where: str) -> None:
     and naming the container `uint` would be wrong (nixidae/nixidae#616)."""
     held = t.required if t is not None else None
     if held is not None and held.origin and held.leaf.cxx is not None \
-            and held.leaf.cxx.width:
+            and held.leaf.cxx.width is not None:
         raise TypeError(
             f"{where}: '{held.python}' holds a {held.leaf.cxx.spelling}, and "
             f"a container of a width has no wire spelling yet. See "
@@ -1231,10 +1234,10 @@ def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
     for how in spec.kinds.values():
         match how:
             case shapes.Leaf():
-                if how.wire not in TREE_LEAVES:
+                if how.wire not in LEAVES:
                     raise TypeError(
                         f"{cls.name}: a tree leaf is a {how.wire}. A leaf "
-                        f"is one of {sorted(TREE_LEAVES)}.")
+                        f"is one of {list(LEAVES)}.")
                 names.append(how.read)
             case shapes.Items():
                 names += [how.size, how.item]
@@ -1252,10 +1255,10 @@ def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
 def _buildable(cls: ClassModel, spec: shapes.Builds[str]) -> None:
     """Refuse builders the class does not bind, or a leaf the tree has
     no arm for."""
-    if odd := sorted(set(spec.leaves) - TREE_LEAVES):
+    if odd := sorted(str(w) for w in spec.leaves if w not in LEAVES):
         raise TypeError(
             f"{cls.name}: @builds makes leaves {odd}. A leaf is one of "
-            f"{sorted(TREE_LEAVES)}.")
+            f"{list(LEAVES)}.")
     names = [spec.null, *spec.leaves.values(), spec.items, spec.add_item,
              spec.entries, spec.add_entry]
     bound = {m.name for m in cls.bound}

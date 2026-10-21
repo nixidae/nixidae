@@ -26,12 +26,38 @@ class Subscription(StrEnum):
     CLOSE = "close"
 
 
+class Scalar(StrEnum):
+    """A builtin the wire carries as one field."""
+
+    STR = "str"
+    # A signed 64-bit integer: every int64_t and half of a uint64_t.
+    INT = "int"
+    # A uint64_t. Above the boundary it is an `int`: the width is a fact
+    # about the crossing, not about the type a caller sees
+    # (nixidae/nixidae#616).
+    UINT = "uint"
+    FLOAT = "float"
+    BOOL = "bool"
+    # A store holds files, and their contents are not text.
+    BYTES = "bytes"
+
+    @property
+    def leaf(self) -> bool:
+        """Whether a value tree's leaf may be one."""
+        return self in (Scalar.STR, Scalar.INT, Scalar.FLOAT, Scalar.BOOL)
+
+    @property
+    def python(self) -> str:
+        """The Python type it is above the boundary."""
+        return "int" if self is Scalar.UINT else self.value
+
+
 @dataclass(frozen=True, slots=True)
 class Leaf[A]:
     """A node that crosses as one scalar. `wire` is its declared type,
     which picks the arm of the value message; `read` answers it."""
 
-    wire: str
+    wire: Scalar
     read: A
 
 
@@ -100,7 +126,7 @@ class Builds[A]:
     `add_entry(attrs, name, value)` do the same for an attribute set."""
 
     null: A
-    leaves: dict[str, A]
+    leaves: dict[Scalar, A]
     items: A
     add_item: A
     entries: A

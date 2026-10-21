@@ -44,6 +44,7 @@ from huggorm_dsl.declare import (
     Null,
     Opt,
     PyFunc,
+    Scalar,
     Std,
     Str,
     StrView,
@@ -133,10 +134,10 @@ from huggorm_dsl.declare import (
     # A Leaf's wire type is what picks the arm, so the layer above
     # reads a declared type name rather than a label this file
     # invented.
-    kinds={"int": Leaf("int", "integer"),
-           "float": Leaf("float", "floating"),
-           "string": Leaf("str", "string_value"),
-           "bool": Leaf("bool", "boolean"),
+    kinds={"int": Leaf(Scalar.INT, "integer"),
+           "float": Leaf(Scalar.FLOAT, "floating"),
+           "string": Leaf(Scalar.STR, "string_value"),
+           "bool": Leaf(Scalar.BOOL, "boolean"),
            "null": Null(),
            "list": Items(size="size", item="at"),
            "attrs": Entries(size="size", name="name_at", value="value_at")},
@@ -1483,8 +1484,8 @@ return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)
 # the RPC layer names none of them.
 @builds(
     null="make_null",
-    leaves={"int": "make_int", "float": "make_float", "str": "make_string",
-            "bool": "make_bool"},
+    leaves={Scalar.INT: "make_int", Scalar.FLOAT: "make_float",
+            Scalar.STR: "make_string", Scalar.BOOL: "make_bool"},
     items="make_list", add_item="list_append",
     entries="make_attrs", add_entry="attrs_set",
 )

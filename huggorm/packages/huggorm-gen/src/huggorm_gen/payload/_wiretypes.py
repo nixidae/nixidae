@@ -18,24 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-# The types that go in a field as themselves. The schema maps them to
-# proto types and the codec maps them to constructors; both start here.
-#
-# bytes is here because a store holds FILES. Their contents are not
-# text and must not be encoded as if they were: a str field would
-# round-trip a NAR into mojibake, and the hash that names the store
-# path would be a hash of the wrong thing.
-#
-# `uint` is here because C++ has two 64-bit integers and the wire
-# needs both. `int` is a sint64, which holds an int64_t and half of a
-# uint64_t; `uint` is a uint64. Above the boundary both are a Python
-# `int` - the width is a fact about the CROSSING, not about the type a
-# caller sees.
-#
-# Found by `GCOptions.max_freed`, whose upstream default is the
-# largest uint64_t: sending the default options object raised
-# `ValueError: Value out of range: 18446744073709551615` (nixidae/nixidae#616).
-SCALAR_NAMES = ("str", "int", "uint", "float", "bool", "bytes")
+from ._shapes import Scalar
 
 # A declared type that is not a builtin and still goes in a field as
 # one, with the builtin it goes in as.
@@ -79,7 +62,7 @@ class Spelled:
     a vocabulary: a StrEnum member IS a str, so its one constructor
     serves both directions, and a timedelta is not an int."""
 
-    field: str
+    field: Scalar
     out: Callable[[Any], Any]
     back: Callable[[Any], Any]
 
@@ -89,19 +72,15 @@ class Spelled:
 # socket. A socket forwarded over ssh or into a container breaks that,
 # and the path then names a file the client cannot open (nixidae/nixidae#722).
 SPELLED = {
-    "datetime.timedelta": Spelled("int", _duration_out, _duration_in),
-    "pathlib.Path": Spelled("str", os.fspath, pathlib.Path),
+    "datetime.timedelta": Spelled(Scalar.INT, _duration_out, _duration_in),
+    "pathlib.Path": Spelled(Scalar.STR, os.fspath, pathlib.Path),
 }
 
-# The scalars a value tree's leaf may be.
-TREE_LEAVES = frozenset({"str", "int", "bool", "float"})
 
 def python_spelling(type_str: str) -> str:
-    """The Python type a wire scalar is above the boundary.
-
-    `uint` is an `int` there: the width is a fact about the crossing.
-    Every other name answers itself, a class's included."""
-    return "int" if type_str == "uint" else type_str
+    """The Python type a wire scalar is above the boundary. Every
+    other name answers itself, a class's included."""
+    return Scalar(type_str).python if type_str in Scalar else type_str
 
 
 # How deep a UNION may nest before the codec refuses.

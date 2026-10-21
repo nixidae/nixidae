@@ -38,6 +38,7 @@ from huggorm_dsl.shapes import Entries as Entries
 from huggorm_dsl.shapes import Items as Items
 from huggorm_dsl.shapes import Leaf as Leaf
 from huggorm_dsl.shapes import Null as Null
+from huggorm_dsl.shapes import Scalar as Scalar
 from huggorm_dsl.shapes import Subscription as Subscription
 from huggorm_dsl.shapes import Tree as Tree
 
@@ -151,7 +152,7 @@ class Cxx:
     spelling: str
     caster: str | None = None
     by_ref: bool = False
-    width: str = ""
+    width: Scalar | None = None
     includes: tuple[Include, ...] = ()
 
     def of(self, held: str) -> str:
@@ -265,7 +266,7 @@ Bytes = Annotated[bytes, Cxx("nb::bytes", by_ref=True)]
 # and `registration_time` is a time_t the shim narrows to int64_t, so
 # a declaration that said `int` for both would leave the emitter to
 # guess, and it would guess the same for two fields that differ.
-U64 = Annotated[int, Cxx("std::uint64_t", width="uint",
+U64 = Annotated[int, Cxx("std::uint64_t", width=Scalar.UINT,
                          includes=(Std("cstdint"),))]
 I64 = Annotated[int, Cxx("std::int64_t", includes=(Std("cstdint"),))]
 # A Nix float is a C++ double (`NixFloat`), and so is a Python float.
@@ -818,7 +819,7 @@ def tree(kind: str,
 
 
 @marker(Target.CLASS)
-def builds(null: str, leaves: dict[str, str], items: str, add_item: str,
+def builds(null: str, leaves: dict[Scalar, str], items: str, add_item: str,
            entries: str, add_entry: str) -> Builds[str]:
     """How Python data becomes a value, for a type that makes values.
 

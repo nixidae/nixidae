@@ -43,6 +43,7 @@ from huggorm_generated._policy import (
     UNION_ARMS,
     WIRE_FIELDS,
 )
+from huggorm_generated._shapes import Scalar
 from huggorm_generated._wiretypes import MAX_UNION_DEPTH, SPELLED
 
 from . import tree
@@ -50,8 +51,9 @@ from . import tree
 # Each builtin scalar's converter, and the one type msgpack hands back
 # for it. `uint` is a width, which is the C++ side's business.
 _SCALARS: dict[str, tuple[Callable[[Any], Any], type]] = {
-    "str": (str, str), "int": (int, int), "uint": (int, int),
-    "float": (float, float), "bool": (bool, bool), "bytes": (bytes, bytes)}
+    Scalar.STR: (str, str), Scalar.INT: (int, int), Scalar.UINT: (int, int),
+    Scalar.FLOAT: (float, float), Scalar.BOOL: (bool, bool),
+    Scalar.BYTES: (bytes, bytes)}
 
 _I64_MIN, _I64_MAX = -(2**63), 2**63 - 1
 

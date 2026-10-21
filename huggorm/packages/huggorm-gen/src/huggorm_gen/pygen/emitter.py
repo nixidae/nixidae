@@ -262,7 +262,8 @@ def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
     if t.scalar is not None:
         # The leaf's own name, not the builtin it goes in as: the codec
         # converts a `datetime.timedelta` by name.
-        return cs.Wire(cs.WireKind.SCALAR, t.width or t.name,
+        return cs.Wire(cs.WireKind.SCALAR,
+                       t.width.value if t.width is not None else t.name,
                        optional=optional)
     if (kind := t.kind.wire) is not None:
         return cs.Wire(kind, t.name, optional=optional)
@@ -323,7 +324,7 @@ def _bound_tree(t: shapes.Tree[str]) -> ast.expr:
     for how in t.kinds.values():
         match how:
             case shapes.Leaf():
-                values.append(_typed(shapes.Leaf, ast.Constant(value=how.wire),
+                values.append(_typed(shapes.Leaf, _literal(how.wire),
                                      _accessor(how.read)))
             case shapes.Items():
                 values.append(_typed(shapes.Items, _accessor(how.size),
@@ -344,7 +345,7 @@ def _bound_tree(t: shapes.Tree[str]) -> ast.expr:
 
 def _bound_builds(b: shapes.Builds[str]) -> ast.expr:
     """`b`, with each builder name as an `Accessor`."""
-    leaves = ast.Dict(keys=[ast.Constant(value=w) for w in b.leaves],
+    leaves = ast.Dict(keys=[_literal(w) for w in b.leaves],
                       values=[_accessor(n) for n in b.leaves.values()])
     return _typed(shapes.Builds, _accessor(b.null), leaves, _accessor(b.items),
                   _accessor(b.add_item), _accessor(b.entries),
@@ -376,7 +377,7 @@ def policy_module(model: ir.Model) -> str:
         import_from("_callspec", "Accessor", "Acquire", "Arg", "Call", "Hook",
                     "Local", "Wire", "WireKind", level=1),
         import_from("_shapes", "Builds", "Entries", "Items", "Leaf", "Null",
-                    "Subscription", "Tree", level=1),
+                    "Scalar", "Subscription", "Tree", level=1),
     ]
     body.append(_table("WIRE_FIELDS", "dict[str, tuple[Arg, ...]]",
                        [(c.name, _args([(f.name, f.type) for f in c.wire_fields]))

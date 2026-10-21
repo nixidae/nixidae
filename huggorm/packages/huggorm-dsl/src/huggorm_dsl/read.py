@@ -394,13 +394,13 @@ class Type:
         are still `int`; only the crossing knows the width
         (nixidae/nixidae#616).
 
-        The vocabulary says which: `U64` carries `Cxx(width="uint")`.
-        `uint` must be one of `wiretypes.SCALAR_NAMES`, and
-        `contracts.wire` refuses a field type it does not know."""
+        The vocabulary says which: `U64` carries
+        `Cxx(width=Scalar.UINT)`, and `contracts.wire` refuses a field
+        type it does not know."""
         held = self.required
         inner = held.python
         leaf = held.leaf
-        if leaf.cxx is not None and leaf.cxx.width:
+        if leaf.cxx is not None and leaf.cxx.width is not None:
             if held.origin:
                 # A CONTAINER of the width, such as `dict[str, U64]`.
                 # The alias's C++ spelling reaches here attached to
@@ -413,7 +413,7 @@ class Type:
                     f"'{inner}' holds a {leaf.cxx.spelling}, and a "
                     f"container of a width has no wire spelling yet. "
                     f"See nixidae/nixidae#616.")
-            inner = leaf.cxx.width
+            inner = leaf.cxx.width.value
         return f"{inner}?" if self.optional else inner
 
 
