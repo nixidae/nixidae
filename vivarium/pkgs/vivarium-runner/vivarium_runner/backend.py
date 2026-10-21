@@ -353,7 +353,7 @@ class Uml:
 
     @staticmethod
     def _root(tools, rundir: Path, spec) -> list[str]:
-        """The disks and the root, for a NixOS image or a cloud image.
+        """The disks and the root, for a NixOS image, a cloud image or VyOS.
 
         A cloud image is qcow2, which ubd cannot read. It becomes a raw
         file in the run directory, sparse, and the guest writes to it
@@ -362,6 +362,9 @@ class Uml:
         image = spec.boot.get("image")
         if image is None:
             return [f"ubd0={rundir}/cow,{spec.image}", "root=/dev/ubda", "init=/init"]
+        if "initrd" in image:
+            # VyOS: a squashfs, read-only, which the initramfs overlays.
+            return [f"ubd0r={spec.image}", f"initrd={image['initrd']}", *image["kernelParams"]]
         raw = rundir / "disk.raw"
         subprocess.run(
             [str(tools.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],

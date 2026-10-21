@@ -1,0 +1,166 @@
+# A guest that boots VyOS under UML's kernel, from the squashfs of a
+# VyOS ISO.
+#
+# VyOS boots through Debian's live-boot: its initramfs unions the
+# squashfs with a persistence partition. Here a busybox initramfs does
+# the same with a tmpfs upper, so writes are lost at poweroff. Before it
+# hands over to VyOS's systemd it mounts the store and the artifacts over
+# hostfs, enables the vivarium agent, and writes `config.boot`.
+#
+# As with `vivarium.image`, the node's NixOS system is never built.
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.vivarium.vyos;
+  inherit (lib) mkOption types;
+
+  runner = config.system.build.vivariumRunnerPackage;
+  units = import ./foreign-units.nix { inherit lib pkgs runner; };
+  configBoot = pkgs.writeText "config.boot" cfg.config;
+  roots = [
+    runner
+    units
+    configBoot
+  ];
+
+  # VyOS's own default, without its serial console: ttyS0 is the agent's
+  # channel, and a getty there would read the agent's frames.
+  defaultConfig = ''
+    interfaces {
+        loopback lo {
+        }
+    }
+    system {
+        host-name "${config.networking.hostName}"
+        login {
+            user vyos {
+                authentication {
+                    encrypted-password "$6$QxPS.uk6mfo$9QBSo8u1FkH16gMyAVhus6fU3LOzvLR9Z9.82m3tiHFAxTtIkhaZSWssSgzt4v4dGAL8rhVQxTg0oAG9/q11h/"
+                    plaintext-password ""
+                }
+            }
+        }
+    }
+  '';
+
+  # The kernel hands parameters it does not know to /init as environment
+  # variables: VIVARIUM_STORE and VIVARIUM_ARTIFACTS (see image.nix).
+  # Store paths are read through /root/nix, the store mounted in the new
+  # root, so the initramfs holds busybox and this script only.
+  init = pkgs.writeScript "vyos-init" ''
+    #!/bin/sh
+    export PATH=/bin
+    set -e
+    # The lower directory's name says "live boot" to vyos-persistpath,
+    # which is true: nothing persists. Under any other name it reads the
+    # upper directory as <persistence>/boot/<image>/rw, and vyos-router
+    # bind-mounts a /boot that does not exist.
+    lower=/live/filesystem.squashfs
+    mkdir -p /proc /dev $lower /rw /root
+    mount -t proc none /proc
+    mount -t devtmpfs none /dev
+
+    mount -t squashfs -o ro /dev/ubda $lower
+    mount -t tmpfs -o mode=0755 tmpfs /rw
+    mkdir -p /rw/upper /rw/work
+    mount -t overlay overlay -o lowerdir=$lower,upperdir=/rw/upper,workdir=/rw/work /root
+
+    mkdir -p /root/nix /root/artifacts
+    mount -t hostfs none /root/nix -o "$VIVARIUM_STORE"
+    if [ -n "$VIVARIUM_ARTIFACTS" ]; then
+      mount -t hostfs none /root/artifacts -o "$VIVARIUM_ARTIFACTS"
+    fi
+
+    system=/root/etc/systemd/system
+    cp /root${units}/* $system/
+    mkdir -p $system/multi-user.target.wants
+    ln -sf ../vivarium-agent.service ../vivarium-journal.service $system/multi-user.target.wants/
+
+    # vyos-router owns the file: it changes its group and mode, and the
+    # migration rewrites it, so it is a copy and not the store path.
+    boot=/root/opt/vyatta/etc/config/config.boot
+    cp /root${configBoot} $boot
+    if ! grep -q vyos-config-version $boot; then
+      chroot /root /usr/bin/python3 /usr/libexec/vyos/add-system-version.py >> $boot
+    fi
+
+    umount /dev /proc
+    exec switch_root /root /sbin/init
+  '';
+
+  initrd = pkgs.makeInitrd {
+    compressor = "cat";
+    contents = [
+      {
+        object = "${pkgs.pkgsStatic.busybox}/bin";
+        symlink = "/bin";
+      }
+      {
+        object = init;
+        symlink = "/init";
+      }
+    ];
+  };
+in
+{
+  options.vivarium.vyos = mkOption {
+    default = null;
+    description = ''
+      Boot VyOS instead of NixOS. UML backend only. Take one from
+      `vivarium.images`, and give it a `config`.
+
+      The guest runs the vivarium agent, so `succeed`, the journal stream
+      and `/artifacts` work as on NixOS. `switch_to` and `add_closure` do
+      not: there is no NixOS to switch, and no Nix database.
+    '';
+    type = types.nullOr (
+      types.submodule {
+        options = {
+          squashfs = mkOption {
+            type = types.path;
+            description = "The root filesystem from a VyOS ISO, `live/filesystem.squashfs`.";
+          };
+          config = mkOption {
+            type = types.lines;
+            default = defaultConfig;
+            defaultText = lib.literalMD "the loopback, the node's host name and the `vyos` user";
+            description = ''
+              `config.boot`, in VyOS's own syntax. VyOS migrates it at
+              boot, and adds the version footer when it has none.
+
+              Leave `system console` out: ttyS0 carries the agent.
+            '';
+          };
+          kernelParams = mkOption {
+            type = types.listOf types.str;
+            default = [ ];
+            example = [ "no-vyos-firewall" ];
+          };
+        };
+      }
+    );
+  };
+
+  config = lib.mkIf (cfg != null) {
+    assertions = [
+      {
+        assertion = config.vivarium.backend == "uml";
+        message = "vivarium.vyos boots under UML only; this guest is ${config.vivarium.backend}.";
+      }
+      {
+        assertion = config.vivarium.image == null;
+        message = "vivarium.vyos and vivarium.image both name the guest's root.";
+      }
+    ];
+    system.build.vivariumImageGuest = {
+      initrd = "${initrd}/initrd";
+      inherit (cfg) kernelParams;
+    };
+    system.build.vivariumImageDisk = cfg.squashfs;
+    system.build.vivariumImageClosure = pkgs.closureInfo { rootPaths = roots; };
+  };
+}

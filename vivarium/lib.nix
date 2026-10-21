@@ -53,19 +53,8 @@ rec {
 
         nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0;
   */
-  images = import ./images.nix {
-    inherit (pkgs)
-      fetchurl
-      runCommand
-      unzip
-      xorriso
-      squashfsTools
-      python3
-      e2fsprogs
-      util-linux
-      fakeroot
-      ;
-  };
+
+  images = pkgs.callPackage ./images.nix {};
 
   /*
     pyright over a caller's test scripts, against this library.
@@ -193,11 +182,11 @@ rec {
             initrd = "${machine.vivarium.appliance.initrd}";
           };
         }
-      else if machine.vivarium.image != null then
+      else if machine.system.build ? vivariumImageGuest then
         {
-          # Another distribution's cloud image. Its NixOS system is never
-          # built; see modules/image-guest.nix.
-          image = "${machine.vivarium.image.disk}";
+          # Another distribution's cloud image, or VyOS. Its NixOS system
+          # is never built; see modules/image-guest.nix.
+          image = "${machine.system.build.vivariumImageDisk}";
           boot.image = machine.system.build.vivariumImageGuest;
         }
       else
@@ -551,7 +540,7 @@ rec {
               machineSpec machine
               // lib.optionalAttrs (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null) {
                 storePaths =
-                  if machine.vivarium.image != null then
+                  if machine.system.build ? vivariumImageGuest then
                     "${machine.system.build.vivariumImageClosure}/store-paths"
                   else
                     "${machine.system.build.vivariumNixRegistration}/store-paths";

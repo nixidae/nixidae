@@ -161,6 +161,7 @@ in
     ./nftables.nix
     ./qemu.nix
     ./store.nix
+    ./vyos-guest.nix
   ];
 
   options.vivarium = {

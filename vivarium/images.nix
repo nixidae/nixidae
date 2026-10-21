@@ -22,6 +22,7 @@
   e2fsprogs,
   util-linux,
   fakeroot,
+  libarchive,
 }:
 let
   /*
@@ -171,5 +172,31 @@ in
   vyos-2026_10_26 = vyos {
     version = "2026.10.26-0027-rolling";
     hash = "sha256-u5H/DWC/LK6BzLG/Izo6vP4Qe9Qv2b24fCQHVlVg/5Y=";
+  };
+
+  /**
+    VyOS rolling, for `vivarium.vyos`: the root squashfs of the ISO.
+
+    Pinned, not floating: VyOS publishes no checksum beside a fixed name.
+    The nightly releases on GitHub are deleted after some weeks, so a
+    pin goes stale and needs a bump.
+  */
+  vyos-rolling = {
+    squashfs =
+      let
+        iso = fetchurl {
+          url = "https://github.com/vyos/vyos-nightly-build/releases/download/2026.10.21-0025-rolling/vyos-2026.10.21-0025-rolling-generic-amd64.iso";
+          hash = "sha256-xlLFEH7JyaGTrfKc3ZWdubhqJNVlfPpzQykeo1DDarQ=";
+        };
+      in
+      # Local: on a remote builder the ISO goes out and the squashfs
+      # comes back, 1.2 GB for a copy.
+     runCommand "vyos-2026.10.21-0025-rolling.squashfs" {
+        nativeBuildInputs = [ libarchive ];
+        preferLocalBuild = true;
+        allowSubstitutes = false;
+      } ''
+        bsdtar -xOf ${iso} live/filesystem.squashfs > $out
+      '';
   };
 }

@@ -1097,6 +1097,35 @@ let
     };
 
     /*
+      Does VyOS boot under UML, from its ISO's squashfs, and apply its
+      config.boot? See modules/vyos-guest.nix.
+    */
+    vyos-uml = mkTest {
+      name = "vyos-uml";
+      nodes.vyos = {
+        vivarium.vyos = images.vyos-rolling // {
+          config = ''
+            interfaces {
+                dummy dum0 {
+                    address "10.255.0.1/32"
+                }
+                loopback lo {
+                }
+            }
+            system {
+                host-name "vyos1"
+            }
+          '';
+        };
+        vivarium.memory = "1024M";
+      };
+      phases.vyos = {
+        script = ./tests/phases/vyos.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
       Can an unprivileged, read-only reader open the guest's Nix
       database, as on a running host? harmonia's cache is one.
     */
