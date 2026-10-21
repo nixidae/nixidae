@@ -132,3 +132,7 @@ HAS_COLLECTOR = os.environ.get("HUGGORM_NIX_GC", "1") == "1"
 #: questions by name, and `test_settings` holds that.
 needs_collector = pytest.mark.skipif(
     not HAS_COLLECTOR, reason="this Nix was built without the collector")
+
+# Whether this lane instruments the bindings and Nix with ASAN, as the
+# lane says in `sanitizer.testEnv`.
+UNDER_ASAN = os.environ.get("HUGGORM_SANITIZER") == "address"
