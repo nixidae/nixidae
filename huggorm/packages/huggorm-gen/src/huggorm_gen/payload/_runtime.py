@@ -33,8 +33,8 @@ import queue
 import threading
 import types
 import weakref
-from collections.abc import Awaitable, Callable, Iterable
-from typing import Any, Protocol
+from collections.abc import Awaitable, Callable, Iterable, Iterator
+from typing import Any, Protocol, runtime_checkable
 
 import anyio
 import anyio.from_thread
@@ -106,6 +106,37 @@ class InternalError(WrapperError):
         d["cause_type"] = type(cause).__name__
         d["cause_message"] = str(cause)
         return d
+
+
+@runtime_checkable
+class TypedError(Protocol):
+    """An error the declarations name, which crosses as itself.
+
+    A protocol, not `WrapperError`: the bindings are imported BY this
+    runtime and cannot import it back, so a declared Nix error cannot
+    subclass it."""
+
+    def to_dict(self) -> dict[str, Any]: ...
+
+
+def typed_or_internal(label: str, e: Exception) -> Exception:
+    """What a failure crosses as: a typed error as itself, anything
+    else as an `InternalError` that carries it."""
+    if isinstance(e, TypedError):
+        return e
+    return InternalError(f"{label} failed", cause=e)
+
+
+@contextlib.contextmanager
+def _typed(label: str) -> Iterator[None]:
+    """Raise what `typed_or_internal` makes of a failure."""
+    try:
+        yield
+    except Exception as e:
+        failure = typed_or_internal(label, e)
+        if failure is e:
+            raise
+        raise failure from e
 
 
 def _shared_pool() -> _Pool:
@@ -533,8 +564,7 @@ def _stub_class(base: type) -> type:
                 hooks.post(run)
                 return None
             return hooks.ask(run)
-        call.__name__ = name
-        return call
+        return functools.update_wrapper(call, getattr(base, name))
 
     namespace = {"__init__": __init__,
                  **{h.call.name: hook(h.call.name, h.posted)
@@ -634,6 +664,27 @@ async def _until_done(future: asyncio.Future[Any], request: int,
     return future.result()
 
 
+async def _hop(executor: concurrent.futures.Executor, label: str,
+               fn: Callable[[], Any]) -> Any:
+    """Run `fn` on `executor` as one wrapped call: named, with its
+    hooks run on the loop, stopped when cancelled, and failing as
+    `typed_or_internal` says.
+
+    The request is allocated HERE, on the loop thread, and passed in:
+    run_in_executor carries no context, so a contextvar set on this
+    side would not reach the thread that does the work."""
+    request = _next_request()
+    hooks = _Hooks(executor)
+
+    def invoke() -> Any:
+        with _typed(label), _InRequest(request, hooks):
+            return fn()
+
+    return await _until_done(
+        asyncio.get_running_loop().run_in_executor(executor, invoke),
+        request, hooks)
+
+
 def _refuse_foreign(callee: Any, arg: Any, x: Any) -> None:
     """Refuse a proxy that belongs to another isolation.
 
@@ -701,7 +752,7 @@ def _check_isolation(callee: Any, args: Iterable[Any]) -> None:
 
     BEFORE the executor hop and before `_materialize_args`, which is
     why it is here rather than inside `unwrap_arg`. Two reasons, and
-    the first is the one that made it move: `_invoke` wraps anything
+    the first is the one that made it move: `_hop` wraps anything
     it catches in an `InternalError`, so a refusal raised down there
     reached a caller as "force failed" with the reason buried in a
     cause. A rule the caller has to act on may not arrive as an
@@ -825,22 +876,12 @@ class BaseRunner:
         # A wrapper argument contributes its target object.
         return [unwrap_arg(a) for a in args]
 
-    def _invoke(self, method: str, args: list[Any],
-                request: int | None, hooks: _Hooks | None = None) -> Any:
+    def _invoke(self, method: str, args: list[Any]) -> Any:
+        """Call `method` on the target, on the thread this runs on. The
+        bindings bind methods only, so a non-callable attribute fails
+        here rather than reading as a value."""
         try:
-            with (_InRequest(request, hooks) if request is not None
-                  else contextlib.nullcontext()):
-                obj = self._resolve()
-                attr = getattr(obj, method)
-                args = self._unwrap(args)
-                # Properties resolve to values, not callables: reading
-                # one still runs on this runner's thread, which is the
-                # point.
-                return attr(*args) if callable(attr) else attr
-        except Exception as e:
-            if hasattr(e, "to_dict"):
-                raise  # typed wrapper error — pass through untouched
-            raise InternalError(f"{method} failed", cause=e) from e
+            return getattr(self._resolve(), method)(*self._unwrap(args))
         finally:
             cur = threading.current_thread()
             self.last_worker_name = cur.name
@@ -884,21 +925,8 @@ class BaseRunner:
         many times - walking a value that holds values - and must not
         pay a handover for every visit. The function runs on the home
         thread, so everything it touches is on that thread too."""
-        loop = asyncio.get_running_loop()
-        request = _next_request()
-        hooks = _Hooks(self._executor())
-
-        def invoke() -> Any:
-            try:
-                with _InRequest(request, hooks):
-                    return fn(self._resolve())
-            except Exception as e:
-                if hasattr(e, "to_dict"):
-                    raise
-                raise InternalError("run failed", cause=e) from e
-
-        return await _until_done(
-            loop.run_in_executor(self._executor(), invoke), request, hooks)
+        return await _hop(self._executor(), "run",
+                          lambda: fn(self._resolve()))
 
     def _adopted(self, returns: Wire | None, result: Any) -> Any:
         """`result` in its async form when the call returns a served
@@ -927,17 +955,9 @@ class BaseRunner:
         # that lives on another thread.
         if not self.dedicated_thread:
             await _materialize_args(args)
-        loop = asyncio.get_running_loop()
-        # Allocated HERE, on the loop thread, and passed in.
-        # run_in_executor carries no context, so a contextvar set on
-        # this side would not reach the thread that does the work.
-        request = _next_request()
-        hooks = _Hooks(self._executor())
-        return self._adopted(spec.returns, await _until_done(
-            loop.run_in_executor(
-                self._executor(),
-                lambda: self._invoke(spec.name, args, request, hooks)),
-            request, hooks))
+        return self._adopted(spec.returns, await _hop(
+            self._executor(), spec.name,
+            lambda: self._invoke(spec.name, args)))
 
 
 def _release_gc_thread() -> None:
@@ -1019,7 +1039,9 @@ class InlineRunner(BaseRunner):
         args = self._adapted_args(spec, args)
         _check_isolation(self, args)
         await _materialize_args(args)
-        return self._adopted(spec.returns, self._invoke(spec.name, args, None))
+        with _typed(spec.name):
+            result = self._invoke(spec.name, args)
+        return self._adopted(spec.returns, result)
 
     async def run(self, fn: Callable[[Any], Any]) -> Any:
         return fn(self.ensure())
@@ -1103,19 +1125,7 @@ async def call_function(spec: Call | Local, fn: Callable[..., Any],
     return as a method's does, with the pool as the producer."""
     args = BaseRunner._adapted_args(spec, args)
     await _materialize_args(args)
-    loop = asyncio.get_running_loop()
-    request = _next_request()
-    hooks = _Hooks(_shared_pool())
-
-    def invoke() -> Any:
-        try:
-            with _InRequest(request, hooks):
-                return fn(*[unwrap_arg(a) for a in args])
-        except Exception as e:
-            if hasattr(e, "to_dict"):
-                raise  # typed wrapper error - pass through untouched
-            raise InternalError(f"{fn.__name__} failed", cause=e) from e
-
-    return PoolRunner(None)._adopted(spec.returns, await _until_done(
-        loop.run_in_executor(_shared_pool(), invoke), request, hooks))
+    return PoolRunner(None)._adopted(spec.returns, await _hop(
+        _shared_pool(), fn.__name__,
+        lambda: fn(*[unwrap_arg(a) for a in args])))
 

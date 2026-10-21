@@ -36,7 +36,7 @@ import anyio.abc
 from huggorm_generated._callspec import Acquire, Call
 from huggorm_generated._classes import CLASSES
 from huggorm_generated._policy import ACQUIRE, CALLBACKS, FREE, NO_RPC
-from huggorm_generated._runtime import Remote
+from huggorm_generated._runtime import Remote, typed_or_internal
 
 from . import views
 from .codec import Codec
@@ -486,8 +486,6 @@ class NixClient:
         is awaited, and may call the server meanwhile. A sync one, such
         as a binding object, runs on the loop and blocks it while it
         runs (nixidae/nixidae#740)."""
-        from huggorm_generated._runtime import InternalError
-
         try:
             cls, obj = self._objects[client_id]
             spec = next(h.call for h in CALLBACKS[cls] if h.call.name == name)
@@ -499,9 +497,8 @@ class NixClient:
             return [Op.RESULT, n,
                     self.codec.encode(spec.returns, answer, _no_handle)]
         except Exception as e:
-            failure = (e if hasattr(e, "to_dict")
-                       else InternalError(f"callback {name} failed", cause=e))
-            return [Op.FAULT, n, self.faults.encode(failure)]
+            return [Op.FAULT, n, self.faults.encode(
+                typed_or_internal(f"callback {name}", e))]
 
     async def acquire(self, cls_name: str, *args: Any) -> Any:
         """Construct one instance remotely, from typed constructor

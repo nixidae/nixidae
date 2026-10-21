@@ -40,7 +40,7 @@ from huggorm_generated._policy import (
     METHODS,
     TREES,
 )
-from huggorm_generated._runtime import BaseRunner
+from huggorm_generated._runtime import BaseRunner, typed_or_internal
 from huggorm_generated._shapes import (
     Builds,
     Entries,
@@ -492,18 +492,11 @@ class Dispatcher:
         the class rather than approximating it by name. Anything else
         crosses as an InternalError that carries it, so unknown handles
         and bugs arrive debuggable, not anonymous (nixidae/nixidae#573,
-        nixidae/nixidae#603).
-
-        The test is `to_dict`, not `isinstance(e, WrapperError)`. A
-        declared Nix error cannot subclass WrapperError, because the
-        bindings are imported BY the generated runtime and cannot
-        import it back. The runtime applies the same duck-type one
-        layer down."""
-        from huggorm_generated._runtime import InternalError
-
-        if hasattr(e, "to_dict") or isinstance(e, Refused):
+        nixidae/nixidae#603). A refusal is the server's own, and
+        crosses as itself too."""
+        if isinstance(e, Refused):
             return e
-        return InternalError(f"{label} failed", cause=e)
+        return typed_or_internal(label, e)
 
     def adopt(self, obj: Any, parent: Any) -> Any:
         """The async wrapper for a bare binding object.
