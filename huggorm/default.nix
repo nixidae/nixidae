@@ -463,6 +463,9 @@ rec {
             export HUGGORM_ORACLE_NIX="${self.nix}/bin/nix"
             export HUGGORM_ORACLE_BASH="${pkgs.bash}"
             export HUGGORM_TCP_STORE_PLUGINS="${self.nix-tcp-store}/lib/nix/plugins"
+            # What the build tells the suite in `packages/huggorm`'s `env`.
+            export HUGGORM_NIX_VERSION="${self.huggorm-bindings.nixVersion}"
+            export HUGGORM_NIX_GC="${if self.huggorm-bindings.hasCollector then "1" else "0"}"
             export PYTEST_DEBUG_TEMPROOT="''${PYTEST_DEBUG_TEMPROOT:-/tmp/huggorm}"
             mkdir -p "$PYTEST_DEBUG_TEMPROOT"
             # SAID OUT LOUD, because no gate can hold this. The suite runs

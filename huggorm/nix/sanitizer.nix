@@ -232,6 +232,8 @@ in
       export LD_PRELOAD="${runtime}''${LD_PRELOAD:+ $LD_PRELOAD}"
     ''
     + ''
+      # A test whose bound depends on the variant reads it here.
+      export HUGGORM_SANITIZER=${name}
       # A sanitizer reports on file descriptor 2, and pytest's default
       # `--capture=fd` points that descriptor at a temporary file.
       # `halt_on_error=1` aborts before pytest prints the buffer, so the run
