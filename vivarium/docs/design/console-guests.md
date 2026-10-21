@@ -2,10 +2,17 @@
 
 Carl and Claude write this together. Status: **milestone 1 built**
 (2026-10-21): the `routeros` test boots CHR, applies its config and
-answers through the console, sandboxed. nixidae/nixidae#945 (RouterOS)
-is the first user; #657 (other operating systems), #948 (containerlab's
-NOS recipes) and #950 (agents as computer users, replayed) are the wider
-frame.
+answers through the console, sandboxed; the `sonic` test boots SONiC VS
+and answers a shell on the console, the same framework with a Linux-shell
+dialect. nixidae/nixidae#945 (RouterOS) is the first user; #657 (other
+operating systems), #948 (containerlab's NOS recipes) and #950 (agents as
+computer users, replayed) are the wider frame.
+
+Two kinds of console guest share the framework. RouterOS is a **device
+CLI** (RouterOS script, no exit status, its own line editor). SONiC is a
+**Linux login shell**: the framing is a generic POSIX-shell frame
+(`shell.py`) that Cumulus VX reuses next; only the login and the prompt
+are the OS's own.
 
 ## The problem
 
@@ -77,6 +84,22 @@ and its raw serial bytes are in `tests/fixtures/routeros/`.
   booting at all, even with `bootindex=0` on the CHR disk.
 - `/import file-name=pcie1/cfg.rsc verbose=yes` applies the file and
   echoes each line as `#line N`.
+
+SONiC VS 202505 (`sonic-vs.img`, buildId 1238524), QEMU with KVM, 4 GiB,
+two cores, 2026-10-21.
+
+- The image is **qcow2**, 16 GiB virtual, not raw like CHR. The scratch
+  overlay backs it with `-F qcow2`; the backend reads the format from the
+  image spec (`images.sonic-vs.format`), raw by default.
+- Debian 12, kernel 6.1. `sonic login:` arrives ~15 s after QEMU starts.
+  Login `admin` / `YourPaSsWoRd`, no forced password change (the image's
+  built-in credentials). The prompt is a plain Debian `admin@sonic:~$ `.
+- Boot to a logged-in shell: 15.5 s sandboxed. The switch stack
+  (`show version` and the rest of the SONiC CLI) answers within a second
+  or two of login, before every container has settled.
+- No config disk yet: milestone 1 is boot and a shell. SONiC's config is
+  `config_db.json`, applied later (a build-time write into the image, or
+  `config reload`).
 
 ## Design
 
@@ -181,6 +204,19 @@ value, an error after output in the middle of a script, a syntax error,
 `:error`, a multi-line script, a bounded `/ping`, and 10000 lines of
 output (179 KB, 2.9 s) all come back exact.
 
+The shell dialect (`vivarium_runner/shell.py` + `sonic.py`):
+
+- `shell.frame` is the Linux analogue, OS-independent: the command goes in
+  as base64, a fresh shell decodes and runs it, and the combined output
+  comes back as one base64 line between `<n>-B` and `<n>-D <status>`. One
+  typed line, under the terminal's 4 KB canonical limit; chunking a longer
+  command is not built yet (milestone 1 commands are short).
+- `shell.parse` keys off the markers alone on a line, so the echo does not
+  count; a non-zero status is a failure, carried in the message.
+- `sonic.py` adds only the login (`admin` / `YourPaSsWoRd`) and the Debian
+  prompt, and names `shell.frame`/`shell.parse`. Cumulus VX is the next
+  user of `shell`.
+
 ### 5. The run
 
 - `Machine.start` on a console guest logs in, applies the config disk,
@@ -202,6 +238,11 @@ output (179 KB, 2.9 s) all come back exact.
   script, an agent call refused. 20 s, 19.4 of it the boot.
 - `routeros-route`: two NixOS guests through the CHR.
 - `routeros-bgp`: eBGP with FRR, and two LANs joined only by it.
+- `pkgs/vivarium-runner/tests/test_sonic.py`: the shell frame and parser,
+  and `ConsoleControl` against a fake Linux console (login, a command, a
+  failing command's status).
+- `sonic` (`default.nix`): SONiC VS under QEMU, a shell command, a
+  failing command, the `show version` CLI, an agent call refused. ~17 s.
 
 ## Rules for a phase on a console guest
 
