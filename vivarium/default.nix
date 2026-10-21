@@ -93,6 +93,55 @@ let
     };
   };
 
+  # A NixOS "services" guest for the out-of-band management network
+  # (nixidae/nixidae#958): Kea hands out leases on `segment` from a pool,
+  # and the guest holds the first address. A real run provisions foreign
+  # guests from here (ssh/api), so this guest is also the jump host.
+  servicesNode = segment: {
+    vivarium.interfaces.${segment} = {
+      inherit segment;
+      addresses = [ "10.42.0.1/24" ];
+    };
+    services.kea.dhcp4 = {
+      enable = true;
+      settings = {
+        valid-lifetime = 3600;
+        lease-database = {
+          type = "memfile";
+          persist = true;
+          name = "/var/lib/kea/dhcp4.leases";
+        };
+        interfaces-config = {
+          dhcp-socket-type = "raw";
+          interfaces = [ segment ];
+        };
+        subnet4 = [
+          {
+            id = 1;
+            subnet = "10.42.0.0/24";
+            # Bound to the interface, so Kea picks the subnet by the link a
+            # request arrives on and not by an address that networkd may
+            # not have put on yet.
+            interface = segment;
+            pools = [ { pool = "10.42.0.100 - 10.42.0.150"; } ];
+          }
+        ];
+      };
+    };
+  };
+
+  # A guest whose `segment` interface takes its address from DHCP, the way
+  # a foreign guest's management interface will. vivarium addresses a
+  # segment interface statically by default, so the DHCP client is forced
+  # on here.
+  dhcpClient = segment: {
+    vivarium.interfaces.${segment} = {
+      inherit segment;
+      addresses = [ ];
+    };
+    networking.interfaces.${segment}.useDHCP = lib.mkForce true;
+  };
+
   # Two guests on one segment, addressed statically.
   pair = network: {
     server = {
@@ -1206,6 +1255,23 @@ let
       nodes.sw1.vivarium.sonic = images.sonic-vs;
       phases.sonic = {
         script = ./tests/phases/sonic.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
+      The out-of-band management fabric, first piece (nixidae/nixidae#958):
+      a NixOS services guest runs Kea DHCP4 on a segment, a peer leases a
+      management address there, and the two reach each other. The foreign
+      guests come later; this proves the services guest and the lease.
+    */
+    oob = mkTest {
+      name = "oob";
+      backend = "qemu";
+      nodes.svc = servicesNode "mgmt";
+      nodes.client = dhcpClient "mgmt";
+      phases.oob = {
+        script = ./tests/phases/oob.py;
         after = [ "boot" ];
       };
     };
