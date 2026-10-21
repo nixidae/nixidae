@@ -50,16 +50,24 @@ def write(path: Any, text: str) -> str:
     return str(path)
 
 
-async def until(check: Any, deadline: float = DEADLINE) -> None:
-    """Wait for a condition the background task will make true.
+class Evaluations(list[str]):
+    """The roots `eval_file` evaluated, and a wait for more of them."""
 
-    A poll and not a sleep: it returns on the first pass that holds,
-    so a working implementation costs one scheduler turn. The deadline
-    is what turns "never" into a named failure instead of a hang.
-    """
-    with anyio.fail_after(deadline):
-        while not check():
-            await anyio.sleep(0)
+    def __init__(self) -> None:
+        super().__init__()
+        self._grew = anyio.Event()
+
+    def append(self, path: str) -> None:
+        super().append(path)
+        self._grew.set()
+        self._grew = anyio.Event()
+
+    async def until(self, check: Any) -> None:
+        """Until `check` holds. The deadline turns "never" into a
+        named failure instead of a hang."""
+        with anyio.fail_after(DEADLINE):
+            while not check():
+                await self._grew.wait()
 
 
 async def test_a_registered_root_is_stale_until_it_is_evaluated(
@@ -206,7 +214,7 @@ async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
     warm = Warmer(w)
     warm.register(outer)
 
-    evaluated: list[str] = []
+    evaluated = Evaluations()
     real = w.eval_file
 
     async def counted(path: str) -> Any:
@@ -225,7 +233,7 @@ async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
         write(tmp_path / "inner.nix", "1 + 1\n")
 
         # Nobody called anything. The eager pass did.
-        await until(lambda: evaluated == [outer])
+        await evaluated.until(lambda: evaluated == [outer])
         assert await (await w.eval_file(outer)).integer() == 2
         tg.cancel_scope.cancel()
 
@@ -245,7 +253,7 @@ async def test_every_save_is_re_evaluated_not_only_the_first(
     warm = Warmer(w)
     warm.register(outer)
 
-    evaluated: list[str] = []
+    evaluated = Evaluations()
     real = w.eval_file
 
     async def counted(path: str) -> Any:
@@ -265,7 +273,7 @@ async def test_every_save_is_re_evaluated_not_only_the_first(
         tg.start_soon(warm.follow, source, SETTLE)
         for n in (1, 2, 3):
             write(tmp_path / "inner.nix", f"{n} + 0\n")
-            await until(lambda n=n: evaluated == [outer] * n)
+            await evaluated.until(lambda n=n: evaluated == [outer] * n)
             assert await (await real(outer)).integer() == n
         tg.cancel_scope.cancel()
 
@@ -298,7 +306,7 @@ async def test_one_save_is_one_evaluation(
     warm = Warmer(w)
     warm.register(outer)
 
-    evaluated: list[str] = []
+    evaluated = Evaluations()
     real = w.eval_file
 
     async def counted(path: str) -> Any:
@@ -315,7 +323,7 @@ async def test_one_save_is_one_evaluation(
         tg.start_soon(warm.follow, source, SETTLE)
         write(tmp_path / "inner.nix", "1 + 1\n")
 
-        await until(lambda: evaluated == [outer])
+        await evaluated.until(lambda: evaluated == [outer])
         # Long enough that a straggler from the same save would have
         # arrived. Nothing here is waiting FOR it - the assertion is
         # that it does not come.

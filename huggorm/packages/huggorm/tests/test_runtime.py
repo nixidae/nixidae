@@ -8,6 +8,7 @@ import functools
 import gc
 import importlib
 import pathlib
+import threading
 import time
 import types
 from typing import Any
@@ -206,20 +207,19 @@ def test_a_waiting_thread_runs_what_arrives_while_it_waits() -> None:
     wait. Work queued before the wait runs after the job that waits
     (nixidae/nixidae#740)."""
     import concurrent.futures
-    import threading
 
     from huggorm_generated import _runtime
 
     home = _runtime._Home("huggorm-test-home")
     done: concurrent.futures.Future[None] = concurrent.futures.Future()
-    started, go = threading.Event(), threading.Event()
+    started, go, entered = threading.Event(), threading.Event(), threading.Event()
     order: list[str] = []
 
     def waits() -> int:
         started.set()
         go.wait()
         order.append("waits")
-        home.wait(done)
+        home.wait(done, entered.set)
         order.append("waited")
         return threading.get_ident()
 
@@ -228,10 +228,8 @@ def test_a_waiting_thread_runs_what_arrives_while_it_waits() -> None:
     before = home.submit(order.append, "queued before")
     go.set()
     try:
-        deadline = time.monotonic() + 5
-        while home._inbox is None:
-            assert time.monotonic() < deadline, "the thread never waited"
-            time.sleep(0.01)
+        assert entered.wait(5), "the thread never waited"
+
         def inside_the_wait() -> int:
             order.append("inside")
             return threading.get_ident()
@@ -257,11 +255,17 @@ def test_a_pool_thread_that_waits_does_not_count() -> None:
 
     pool = _runtime._Pool(1, name="huggorm-test-pool")
     done: concurrent.futures.Future[str] = concurrent.futures.Future()
+    ran: list[threading.Thread] = []
+
+    def answered() -> None:
+        ran.append(threading.current_thread())
+        done.set_result("answered")
 
     def answer() -> None:
-        pool.submit(done.set_result, "answered")
+        pool.submit(answered)
 
     def waits() -> str:
+        ran.append(threading.current_thread())
         pool.wait(done, answer)
         return done.result()
 
@@ -269,11 +273,19 @@ def test_a_pool_thread_that_waits_does_not_count() -> None:
         assert pool.submit(waits).result(5) == "answered"
         # The next job runs on the one thread the size allows.
         assert pool.submit(lambda: "again").result(5) == "again"
-        # The surplus thread retires after its job, not with it.
-        deadline = time.monotonic() + 5
-        while len(pool._threads) != 1:
-            assert time.monotonic() < deadline, pool._threads
-            time.sleep(0.01)
+        # The surplus thread retires after its job, not with it. Which
+        # of the two retires is a race under the pool's lock, so the
+        # test waits for whichever exits first.
+        retired = threading.Event()
+
+        def joined(thread: threading.Thread) -> None:
+            thread.join()
+            retired.set()
+
+        for thread in ran:
+            threading.Thread(target=joined, args=(thread,), daemon=True).start()
+        assert retired.wait(5), "no thread retired"
+        assert len(pool._threads) == 1, pool._threads
     finally:
         if not done.done():
             done.set_result("released")
@@ -296,6 +308,7 @@ async def test_a_worker_goes_on_while_a_posted_hook_waits() -> None:
     window = _runtime._POSTED_WINDOW
     gate = anyio.Event()
     posted: list[int] = []
+    full = threading.Event()
     ran: list[int] = []
 
     async def write(i: int) -> None:
@@ -307,12 +320,13 @@ async def test_a_worker_goes_on_while_a_posted_hook_waits() -> None:
         for i in range(3 * window):
             hooks.post(functools.partial(write, i))
             posted.append(i)
+            if len(posted) == window:
+                full.set()
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(_runtime.call_function, _own("work"), work, [])
-        with anyio.fail_after(10):
-            while len(posted) < window:
-                await anyio.sleep(0.01)
+        assert await anyio.to_thread.run_sync(full.wait, 10)
+        # A negative: the worker does not post past the window.
         await anyio.sleep(0.1)
         assert len(posted) == window
         assert ran == []

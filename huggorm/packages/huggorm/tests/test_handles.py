@@ -14,6 +14,8 @@ Run:  nix develop --file . shell --command pytest huggorm/tests
 """
 
 
+from typing import Any
+
 import anyio
 import pytest
 from conftest import socket_path
@@ -381,14 +383,22 @@ async def test_a_server_forgets_a_closed_connection() -> None:
         dispatcher = server.Dispatcher(work, lease_ttl=0)
         listener = await anyio.create_unix_listener(path)
 
+        ended = anyio.Event()
+
+        async def connection(stream: Any) -> None:
+            try:
+                await dispatcher.connection(stream)
+            finally:
+                ended.set()
+
         async def serving() -> None:
-            await listener.serve(dispatcher.connection)
+            await listener.serve(connection)
 
         loops.start_soon(serving)
         with anyio.fail_after(10):
             async with remote.connect(path) as client:
                 token = client.token
                 assert token in dispatcher.table.connections
-            while token in dispatcher.table.connections:
-                await anyio.sleep(0.01)
+            await ended.wait()
+        assert token not in dispatcher.table.connections
         loops.cancel_scope.cancel()

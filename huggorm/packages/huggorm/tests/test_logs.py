@@ -593,17 +593,15 @@ async def test_a_remote_handle_drains(client: Any) -> None:
     `dropped` and `close` all read through it.
 
     The handle is a reader of the state's fan-out, and each `drain`
-    pulls the shared queue."""
+    pulls the shared queue. ONE drain: the trace is queued on the
+    evaluation thread before `eval_expr` answers."""
     state = await client.acquire(
         "EvalState", await client.acquire("Store", "dummy://"))
     stream = await state.subscribe_logs()
     try:
         await state.eval_expr(TRACE % "through a handle")
-        records: list[Any] = []
-        with anyio.fail_after(20):
-            while not any("through a handle" in r.text() for r in records):
-                records += await stream.drain()
-                await anyio.sleep(0.05)
+        records = await stream.drain()
+        assert any("through a handle" in r.text() for r in records), records
         assert await stream.dropped() == 0
     finally:
         await stream.close()

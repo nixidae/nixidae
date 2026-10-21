@@ -82,6 +82,8 @@ def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
              "--extra-experimental-features", "nix-command"],
             env=env, stdout=out, stderr=subprocess.STDOUT)
     try:
+        # A poll, bounded: the daemon says nothing when its socket is
+        # up, and a file appearing sends no notification.
         deadline = time.monotonic() + 10
         while not sock.exists():
             assert proc.poll() is None, log.read_text()
