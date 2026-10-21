@@ -97,38 +97,71 @@ let
   # (nixidae/nixidae#958): Kea hands out leases on `segment` from a pool,
   # and the guest holds the first address. A real run provisions foreign
   # guests from here (ssh/api), so this guest is also the jump host.
-  servicesNode = segment: {
-    vivarium.interfaces.${segment} = {
-      inherit segment;
-      addresses = [ "10.42.0.1/24" ];
-    };
-    services.kea.dhcp4 = {
-      enable = true;
-      settings = {
-        valid-lifetime = 3600;
-        lease-database = {
-          type = "memfile";
-          persist = true;
-          name = "/var/lib/kea/dhcp4.leases";
+  #
+  # `gateway` makes it the OOB gateway too: it routes the segment out
+  # through its passt uplink (`vec0`) and masquerades, advertises itself
+  # as the DHCP default route, and `forwardPorts` (nixpkgs' `networking.nat`
+  # shape) DNATs a port arriving over passt to an address on the segment --
+  # the single forwarding point host->OOB-guest access goes through.
+  # `reservations` (Kea's subnet shape) pins a client's address outside the
+  # pool, so a DNAT target is stable. Both default off, so a plain services
+  # guest keeps its current configuration unchanged.
+  servicesNode =
+    {
+      segment,
+      gateway ? false,
+      reservations ? [ ],
+      forwardPorts ? [ ],
+    }:
+    {
+      vivarium.interfaces.${segment} = {
+        inherit segment;
+        addresses = [ "10.42.0.1/24" ];
+      };
+      networking.nat = lib.mkIf gateway {
+        enable = true;
+        externalInterface = "vec0";
+        internalInterfaces = [ segment ];
+        inherit forwardPorts;
+      };
+      services.kea.dhcp4 = {
+        enable = true;
+        settings = {
+          valid-lifetime = 3600;
+          lease-database = {
+            type = "memfile";
+            persist = true;
+            name = "/var/lib/kea/dhcp4.leases";
+          };
+          interfaces-config = {
+            dhcp-socket-type = "raw";
+            interfaces = [ segment ];
+          };
+          subnet4 = [
+            (
+              {
+                id = 1;
+                subnet = "10.42.0.0/24";
+                # Bound to the interface, so Kea picks the subnet by the link a
+                # request arrives on and not by an address that networkd may
+                # not have put on yet.
+                interface = segment;
+                pools = [ { pool = "10.42.0.100 - 10.42.0.150"; } ];
+              }
+              // lib.optionalAttrs (reservations != [ ]) { inherit reservations; }
+              // lib.optionalAttrs gateway {
+                option-data = [
+                  {
+                    name = "routers";
+                    data = "10.42.0.1";
+                  }
+                ];
+              }
+            )
+          ];
         };
-        interfaces-config = {
-          dhcp-socket-type = "raw";
-          interfaces = [ segment ];
-        };
-        subnet4 = [
-          {
-            id = 1;
-            subnet = "10.42.0.0/24";
-            # Bound to the interface, so Kea picks the subnet by the link a
-            # request arrives on and not by an address that networkd may
-            # not have put on yet.
-            interface = segment;
-            pools = [ { pool = "10.42.0.100 - 10.42.0.150"; } ];
-          }
-        ];
       };
     };
-  };
 
   # Two guests on one segment, addressed statically.
   pair = network: {
@@ -1257,7 +1290,7 @@ let
     oob = mkTest {
       name = "oob";
       backend = "qemu";
-      nodes.svc = servicesNode "mgmt";
+      nodes.svc = servicesNode { segment = "mgmt"; };
       nodes.client.vivarium.uplink.segment = "mgmt";
       phases.oob = {
         script = ./tests/phases/oob.py;
@@ -1275,7 +1308,7 @@ let
       name = "oob-sonic";
       backend = "qemu";
       nodes.svc = {
-        imports = [ (servicesNode "mgmt") ];
+        imports = [ (servicesNode { segment = "mgmt"; }) ];
         environment.systemPackages = [ pkgs.sshpass ];
       };
       nodes.sw1 = {
@@ -1297,7 +1330,7 @@ let
     oob-routeros = mkTest {
       name = "oob-routeros";
       backend = "qemu";
-      nodes.svc = servicesNode "mgmt";
+      nodes.svc = servicesNode { segment = "mgmt"; };
       nodes.r1 = {
         vivarium.routeros = images.routeros-chr // {
           # ether1 is the uplink on the management segment; put it in a
@@ -1316,6 +1349,57 @@ let
       nodes.d1 = lanHost "data" "10.9.0.2" "10.9.0.1" "10.42.0.0";
       phases.vrf = {
         script = ./tests/phases/oob-routeros.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
+      The services guest as the OOB gateway (nixidae/nixidae#958): the
+      single point the host reaches an out-of-band guest through. `sw`'s
+      uplink is on the management segment and has no passt forward of its
+      own; the host reaches a service in it through one passt forward on
+      `svc`, which DNATs to `sw`. The reply only returns because Kea gives
+      `sw` the default route back to `svc`, so this proves both halves at
+      once.
+    */
+    oob-gateway = mkTest {
+      name = "oob-gateway";
+      backend = "qemu";
+      nodes.svc = {
+        imports = [
+          (servicesNode {
+            segment = "mgmt";
+            gateway = true;
+            # `sw`'s uplink (vec0) MAC is 52:54:00:12:00:<index>, and index
+            # is the node's place in name order: svc, sw -> sw is 1. The
+            # reservation pins it to 10.42.0.10, outside the pool, so the
+            # DNAT target is stable. A wrong MAC leaves `sw` on a pool
+            # address and the phase's wait for .10 fails -- it is not silent.
+            reservations = [
+              {
+                hw-address = "52:54:00:12:00:01";
+                ip-address = "10.42.0.10";
+              }
+            ];
+            forwardPorts = [
+              {
+                sourcePort = 8080;
+                destination = "10.42.0.10:8080";
+                proto = "tcp";
+              }
+            ];
+          })
+        ];
+        # passt must forward 8080 for the DNAT to have anything to rewrite;
+        # its forwards are fixed before boot.
+        vivarium.forward = [ { ports = [ 8080 ]; } ];
+      };
+      nodes.sw = {
+        vivarium.uplink.segment = "mgmt";
+        environment.systemPackages = [ pkgs.python3 ];
+      };
+      phases.gateway = {
+        script = ./tests/phases/oob-gateway.py;
         after = [ "boot" ];
       };
     };
