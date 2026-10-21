@@ -112,6 +112,13 @@ let
       description = "SONiC VS boots and answers a shell on its serial console";
       timeoutMinutes = 30;
     };
+    oob = {
+      # The out-of-band management fabric, first piece: a NixOS services
+      # guest runs Kea DHCP4 and a peer leases a management address. Two
+      # small NixOS guests, 2.6 s once built.
+      description = "a services guest hands out a management lease with Kea";
+      timeoutMinutes = 20;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
