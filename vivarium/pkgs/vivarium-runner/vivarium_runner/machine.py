@@ -172,6 +172,10 @@ class MachineSpec:
     kubernetes: bool = False
     """`services.vivarium-k8s.enable`: whether `cluster.bring_up` makes
     this guest a node. A run's cache guest, for one, is not."""
+    uplink: str | None = None
+    """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
+    out-of-band management network a peer serves (nixidae/nixidae#958).
+    `None` is passt, the default."""
     forward: tuple[forward.Rule, ...] = ()
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
@@ -199,6 +203,7 @@ class MachineSpec:
             configurations=data.get("configurations", {}),
             kubernetes=data.get("kubernetes", False),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
+            uplink=data.get("uplink"),
             forward=tuple(
                 forward.Rule.from_json(rule) for rule in data.get("forward", [])
             ),

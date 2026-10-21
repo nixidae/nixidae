@@ -601,6 +601,19 @@ in
       '';
     };
 
+    uplink.segment = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "mgmt";
+      description = ''
+        The Ethernet segment the uplink (`vec0`) joins instead of passt:
+        an out-of-band management network a peer serves with DHCP (see the
+        `servicesNode` helper; nixidae/nixidae#958). The guest leases its
+        management address there. It then has no passt uplink, and so no
+        forwards. QEMU only.
+      '';
+    };
+
     nics = lib.mkOption {
       internal = true;
       readOnly = true;
@@ -649,6 +662,12 @@ in
       {
         assertion = config.vivarium.lan.address != null -> config.vivarium.lan.network != null;
         message = "vivarium.lan.address is set but vivarium.lan.network is not, so nothing would be wired to vec1.";
+      }
+      {
+        # The uplink-as-segment netdev is wired in the QEMU backend only;
+        # UML routes its uplink through the passt bridge wrapper (#958).
+        assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend == "qemu";
+        message = "vivarium.uplink.segment needs the QEMU backend; this guest is ${config.vivarium.backend}.";
       }
       {
         assertion = lib.all (

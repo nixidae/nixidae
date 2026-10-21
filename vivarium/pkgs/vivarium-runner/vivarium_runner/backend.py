@@ -455,6 +455,22 @@ class Qemu:
                 os.close(fd)
             raise
 
+    def _uplink_netdev(self, machine, rundir, lan_fds, helpers, opened) -> tuple[str, int | None]:
+        """The `vec0` QEMU netdev, and the passt fd to keep open (or None).
+
+        passt by default. When the spec names an uplink segment, vec0 is a
+        dgram on that segment's fd instead, so the uplink joins an
+        out-of-band management network a peer serves -- there is no passt,
+        and so no forwards (nixidae/nixidae#958).
+        """
+        spec, tools = machine.spec, machine.tools
+        if spec.uplink is not None:
+            return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
+        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+        helpers.append(passt_proc)
+        opened.append(passt_fd)
+        return f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}", passt_fd
+
     def _launch(
         self,
         machine,
@@ -512,11 +528,7 @@ class Qemu:
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
-        passt_fd, passt_proc = self._passt(
-            tools, rundir, machine.forward, machine.offline
-        )
-        helpers.append(passt_proc)
-        opened.append(passt_fd)
+        uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
 
         argv = [
             str(tools.qemu),
@@ -551,7 +563,7 @@ class Qemu:
             "virtserialport,chardev=agent,name=vivarium-agent"
             if boot.get("efi")
             else "virtconsole,chardev=agent",
-            "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
+            "-netdev", uplink,
             "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops
@@ -649,9 +661,7 @@ class Qemu:
         disk_fds = self._scratch_disk(tools, rundir, spec.image, image.get("format", "raw"))
         opened.extend(disk_fds)
 
-        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
-        helpers.append(passt_proc)
-        opened.append(passt_fd)
+        uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
 
         argv = [
             str(tools.qemu),
@@ -667,7 +677,7 @@ class Qemu:
             "-device", "virtio-blk-pci,drive=root,bootindex=0",
             "-chardev", f"socket,id=control,fd={agent_fd}",
             "-serial", "chardev:control",
-            "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
+            "-netdev", uplink,
             "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
             "-qmp", f"unix:{sockets}/qmp,server=on,wait=off",
         ]
@@ -682,7 +692,9 @@ class Qemu:
                 "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
                 "-device", f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
             ]
-        pass_fds = (agent_fd, passt_fd, *lan_fds.values(), *disk_fds)
+        pass_fds = tuple(
+            fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None
+        )
         return Launch(
             argv=argv,
             pass_fds=pass_fds,
@@ -887,7 +899,7 @@ class Appliance(Qemu):
     For a guest nothing of ours can run inside, a router's or a switch's
     virtual edition. What it shares with a QEMU guest is the hardware: the
     per-run disk layer, the passt uplink as the first NIC unless
-    `vivarium.uplink` is off, and each segment as one more, in `interfaces`
+    `vivarium.uplink.enable` is off, and each segment as one more, in `interfaces`
     order. So the appliance names its ports as it would on a PCI bus.
 
     No agent means no `succeed`. The runner reads the console until the

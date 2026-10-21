@@ -163,6 +163,7 @@ rec {
       network = machine.vivarium.lan.network;
       address = machine.vivarium.lan.address;
       interfaces = machine.vivarium.nics;
+      uplink = machine.vivarium.uplink.segment;
       forward = machine.vivarium.forward;
       kubernetes = machine.services.vivarium-k8s.enable or false;
     }
@@ -174,7 +175,7 @@ rec {
           image = "${machine.vivarium.appliance.disk}";
           boot.appliance = {
             inherit (machine.vivarium.appliance) format ready cmdline;
-            inherit (machine.vivarium) uplink;
+            uplink = machine.vivarium.uplink.enable;
           }
           // lib.optionalAttrs (machine.vivarium.appliance.kernel != null) {
             kernel = "${machine.vivarium.appliance.kernel}";

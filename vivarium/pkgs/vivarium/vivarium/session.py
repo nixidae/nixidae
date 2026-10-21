@@ -343,6 +343,10 @@ class Session:
         # can hold a slash.
         segments: dict[str, list[str]] = defaultdict(list)
         for one in specs:
+            # A guest whose uplink joins a management segment instead of
+            # passt (nixidae/nixidae#958): vec0 is a member of that segment.
+            if one.uplink is not None:
+                segments[one.uplink].append(f"{one.name}/vec0")
             for nic in one.interfaces:
                 segments[nic.segment].append(f"{one.name}/{nic.name}")
             if one.interfaces:

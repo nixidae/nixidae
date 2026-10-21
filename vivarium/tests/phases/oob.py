@@ -1,9 +1,9 @@
-"""A NixOS services guest hands out a management lease with Kea.
+"""A guest's uplink leases a management address from a Kea services guest.
 
-The first piece of the out-of-band management fabric (nixidae/nixidae#958):
-one guest runs Kea DHCP4 on a segment, another leases an address there and
-the two reach each other. No foreign guest yet; this proves the services
-guest.
+The out-of-band management fabric (nixidae/nixidae#958): one guest runs
+Kea DHCP4 on a segment, another joins it as its uplink (`vec0`, not passt)
+and leases there, and the two reach each other. This is how a foreign
+guest's management interface reaches the fabric.
 """
 
 import asyncio
@@ -22,12 +22,12 @@ async def test(vms: Machines) -> None:
     await svc.wait_for_unit("kea-dhcp4-server.service")
     print("[test] the services guest runs Kea DHCP4")
 
-    # The client's mgmt interface leases an address from the pool. No
+    # The client's uplink (vec0) leases an address from the pool. No
     # generic "retry a command" helper, so poll as `wait_for_unit` does.
     deadline = asyncio.get_running_loop().time() + 60
     address: str | None = None
     while asyncio.get_running_loop().time() < deadline:
-        rc, out = await client.execute("ip -4 -brief addr show mgmt")
+        rc, out = await client.execute("ip -4 -brief addr show vec0")
         match = POOL.search(out)
         if rc == 0 and match is not None:
             address = match.group(0)

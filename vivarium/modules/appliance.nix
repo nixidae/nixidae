@@ -9,14 +9,15 @@ let
   inherit (lib) mkOption types;
 in
 {
-  options.vivarium.uplink = mkOption {
+  options.vivarium.uplink.enable = mkOption {
     type = types.bool;
     default = true;
     description = ''
       Whether the guest gets passt's uplink, `vec0`: NAT to the host's
       network and the `forward` rules. Off, an appliance's first port is
       its first segment, as on a router whose only cables are the ones the
-      test lays. Only the `appliance` backend honours it.
+      test lays. Only the `appliance` backend honours it; `uplink.segment`
+      is the other way to replace passt.
     '';
   };
 
@@ -89,11 +90,11 @@ in
       message = "vivarium.appliance and vivarium.backend = \"appliance\" go together.";
     }
     {
-      assertion = config.vivarium.uplink || config.vivarium.backend == "appliance";
-      message = "vivarium.uplink = false: only the appliance backend can leave the uplink out.";
+      assertion = config.vivarium.uplink.enable || config.vivarium.backend == "appliance";
+      message = "vivarium.uplink.enable = false: only the appliance backend can leave the uplink out.";
     }
     {
-      assertion = config.vivarium.uplink || config.vivarium.forward == [ ];
+      assertion = config.vivarium.uplink.enable || config.vivarium.forward == [ ];
       message = "vivarium.forward needs the uplink: forwards are passt's.";
     }
   ];

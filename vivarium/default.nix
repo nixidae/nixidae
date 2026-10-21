@@ -130,18 +130,6 @@ let
     };
   };
 
-  # A guest whose `segment` interface takes its address from DHCP, the way
-  # a foreign guest's management interface will. vivarium addresses a
-  # segment interface statically by default, so the DHCP client is forced
-  # on here.
-  dhcpClient = segment: {
-    vivarium.interfaces.${segment} = {
-      inherit segment;
-      addresses = [ ];
-    };
-    networking.interfaces.${segment}.useDHCP = lib.mkForce true;
-  };
-
   # Two guests on one segment, addressed statically.
   pair = network: {
     server = {
@@ -1260,16 +1248,17 @@ let
     };
 
     /*
-      The out-of-band management fabric, first piece (nixidae/nixidae#958):
-      a NixOS services guest runs Kea DHCP4 on a segment, a peer leases a
-      management address there, and the two reach each other. The foreign
-      guests come later; this proves the services guest and the lease.
+      The out-of-band management fabric (nixidae/nixidae#958): a NixOS
+      services guest runs Kea DHCP4 on a segment, and a peer joins that
+      segment as its uplink (`vec0`, not passt) and leases a management
+      address there. This is how a foreign guest's management interface
+      will reach the fabric.
     */
     oob = mkTest {
       name = "oob";
       backend = "qemu";
       nodes.svc = servicesNode "mgmt";
-      nodes.client = dhcpClient "mgmt";
+      nodes.client.vivarium.uplink.segment = "mgmt";
       phases.oob = {
         script = ./tests/phases/oob.py;
         after = [ "boot" ];
