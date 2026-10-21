@@ -334,6 +334,23 @@ def _shipped(out: pathlib.Path) -> list[pathlib.Path]:
     return sorted([*out.glob("*.py"), *stubs.glob("*.pyi")])
 
 
+def test_the_declaration_and_the_runtime_share_one_shape(
+        out: pathlib.Path) -> None:
+    """A declaration builds the same `Tree` and `Builds` classes that
+    `_policy` builds, so no copy between them can drop or swap a field
+    (nixidae/nixidae#886). The package ships the DSL's file itself."""
+    from huggorm_dsl import declare, shapes
+    from huggorm_gen.payload import _shapes
+
+    names = ("Builds", "Entries", "Items", "Leaf", "Null", "Subscription",
+             "Tree")
+    for name in names:
+        assert getattr(declare, name) is getattr(shapes, name), name
+        assert getattr(_shapes, name) is getattr(shapes, name), name
+    shipped = (out / "_shapes.py").read_text()
+    assert shipped == pathlib.Path(shapes.__file__).read_text()
+
+
 def test_shipped_docstrings_cite_no_issue_or_upstream_line(
         out: pathlib.Path) -> None:
     """A docstring reaches every reader of every lane. An issue number

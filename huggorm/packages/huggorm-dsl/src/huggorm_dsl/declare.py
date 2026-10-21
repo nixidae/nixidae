@@ -33,6 +33,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Protocol
 
+from huggorm_dsl.shapes import Builds as Builds
+from huggorm_dsl.shapes import Entries as Entries
+from huggorm_dsl.shapes import Items as Items
+from huggorm_dsl.shapes import Leaf as Leaf
+from huggorm_dsl.shapes import Null as Null
+from huggorm_dsl.shapes import Subscription as Subscription
+from huggorm_dsl.shapes import Tree as Tree
+
 
 class Threading(StrEnum):
     """Which thread a bound object's calls run on."""
@@ -52,16 +60,6 @@ class Crossing(StrEnum):
     VALUE = "value"
     # Never: the class has no async or remote surface. `@in_process`.
     LOCAL = "local"
-
-
-class Subscription(StrEnum):
-    """What a call does to a subscription a server shares (nixidae/nixidae#622)."""
-
-    # Opens one subscription per object, or per process for a free
-    # function, and answers each caller its own reader of it.
-    OPEN = "open"
-    # Leaves only the readers this caller opened.
-    CLOSE = "close"
 
 
 class DeclKind(StrEnum):
@@ -424,10 +422,10 @@ class Decl:
     # How a value TREE is walked, for a type that holds others. Read
     # by the RPC layer, so no layer above the declaration knows what
     # the type is or which of its methods do what.
-    tree: Tree | None = None
+    tree: Tree[str] | None = None
     # How Python DATA becomes one of the tree's values, on a type that
     # makes them. Read by the RPC layer, as `tree` is.
-    builds: Builds | None = None
+    builds: Builds[str] | None = None
     # What Python holds one of these THROUGH. Empty for the usual
     # case, where Python owns the object outright. "shared_ptr" for a
     # class whose factory hands back a reference-counted handle -
@@ -671,64 +669,11 @@ def abstract() -> None:
     often than a leaf - what it does not get is a constructor."""
 
 
-@dataclass(frozen=True)
-class Leaf:
-    """A node that crosses as one scalar. `wire` is its declared type,
-    which picks the arm of the value message; `read` is the accessor
-    that answers it."""
-
-    wire: str
-    read: str
-
-
-@dataclass(frozen=True)
-class Null:
-    """A node that crosses as None. It has nothing to read."""
-
-
-@dataclass(frozen=True)
-class Items:
-    """A node that holds values by position: `size` counts them and
-    `item(i)` reads one."""
-
-    size: str
-    item: str
-
-
-@dataclass(frozen=True)
-class Entries:
-    """A node that holds values by name: `size` counts them, and
-    `name(i)` and `value(i)` read one."""
-
-    size: str
-    name: str
-    value: str
-
-
-@dataclass(frozen=True)
-class Tree:
-    """How a value tree is walked. `kind` names the accessor that says
-    what a node is, and `kinds` maps each answer to how that node is
-    read. An answer `kinds` does not hold crosses as a proxy.
-
-    `identity` names the accessor that makes two nodes the same node.
-    Empty means Python identity.
-
-    `force` names the accessor that forces a node in place, for a walk
-    that forces. `stop` names a predicate on an `Entries` node that
-    keeps it a proxy in such a walk: a derivation, which a forcing walk
-    must not enter."""
-
-    kind: str
-    kinds: dict[str, Leaf | Items | Entries | Null]
-    identity: str = ""
-    force: str = ""
-    stop: str = ""
-
-
 @marker(Target.CLASS)
-def tree(kind: str, kinds: dict[str, Leaf | Items | Entries | Null],
-         identity: str = "", force: str = "", stop: str = "") -> Tree:
+def tree(kind: str,
+         kinds: dict[str, Leaf[str] | Items[str] | Entries[str] | Null],
+         identity: str | None = None, force: str | None = None,
+         stop: str | None = None) -> Tree[str]:
     """How a value TREE is walked, for a type that holds others.
 
     The RPC layer reads it, so no layer above this declaration knows
@@ -738,26 +683,9 @@ def tree(kind: str, kinds: dict[str, Leaf | Items | Entries | Null],
     return Tree(kind, kinds, identity, force, stop)
 
 
-@dataclass(frozen=True)
-class Builds:
-    """How Python data becomes a value, by the methods that make one.
-
-    `null` takes no argument. `leaves` maps a tree leaf's wire type to
-    the method that makes one from that scalar. `items` makes an empty
-    list and `add_item(list, value)` appends to it; `entries` and
-    `add_entry(attrs, name, value)` do the same for an attribute set."""
-
-    null: str
-    leaves: dict[str, str]
-    items: str
-    add_item: str
-    entries: str
-    add_entry: str
-
-
 @marker(Target.CLASS)
 def builds(null: str, leaves: dict[str, str], items: str, add_item: str,
-           entries: str, add_entry: str) -> Builds:
+           entries: str, add_entry: str) -> Builds[str]:
     """How Python data becomes a value, for a type that makes values.
 
     The RPC layer reads it and builds a whole value in one hop, so no

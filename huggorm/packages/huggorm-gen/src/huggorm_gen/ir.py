@@ -20,7 +20,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import NamedTuple, assert_never
 
-from huggorm_dsl import declare
+from huggorm_dsl import shapes
 from huggorm_dsl.declare import Crossing, Decl, DeclKind, Subscription, Threading
 from huggorm_dsl.read import (
     MESSAGE_PARTS,
@@ -684,7 +684,7 @@ class MethodModel:
     # `@posted`: Nix need not wait for an async override.
     posted: bool = False
     # `@subscription`: what it does to a subscription a server shares.
-    subscription: callspec.Subscription | None = None
+    subscription: shapes.Subscription | None = None
     # The C++ type of the HANDLE class it returns, or "".
     returns_handle: str = ""
     # It returns a vocabulary with a C++ enum behind it.
@@ -770,7 +770,7 @@ class FunctionModel:
     # Turns a library exception into a Python one (`@translator`).
     translator: bool = False
     # `@subscription`: what it does to a subscription a server shares.
-    subscription: callspec.Subscription | None = None
+    subscription: shapes.Subscription | None = None
 
     @classmethod
     def of(cls, fn: Method, package: str, module: str,
@@ -887,7 +887,7 @@ class ClassModel:
     # The declared factory's name, whether this module binds it or not.
     factory_name: str = ""
     # How a value that holds values is walked, or None.
-    tree: callspec.Tree[str] | None = None
+    tree: shapes.Tree[str] | None = None
     # The declared class this one derives from, or "".
     base: str = ""
     # What C++ holds one through: "shared_ptr", or "".
@@ -895,7 +895,7 @@ class ClassModel:
     # A remote client may pass one, and the server calls it back.
     calls_back: bool = False
     # How Python data becomes a value, or None.
-    builds: callspec.Builds[str] | None = None
+    builds: shapes.Builds[str] | None = None
 
     @property
     def callables(self) -> tuple[MethodModel, ...]:
@@ -957,8 +957,8 @@ class ClassModel:
             custom=tuple(decl.custom.values()),
             gc_slots=decl.gc_slots,
             factory_name=decl.factory,
-            tree=_tree(decl),
-            builds=_builds(decl),
+            tree=decl.tree,
+            builds=decl.builds,
             base=decl.base,
             holder=decl.holder,
             calls_back=decl.calls_back,
@@ -1046,13 +1046,7 @@ class ClassModel:
         return f"{self.name}Msg"
 
 
-_SUBSCRIPTION = {
-    Subscription.OPEN: callspec.Subscription.OPEN,
-    Subscription.CLOSE: callspec.Subscription.CLOSE,
-}
-
-
-def _subscription(where: str, m: Method) -> callspec.Subscription | None:
+def _subscription(where: str, m: Method) -> shapes.Subscription | None:
     """`@subscription`, in the shape the server calls: an OPEN takes
     `(capacity, level)` and answers a reader, and a CLOSE takes nothing
     and answers nothing."""
@@ -1068,7 +1062,7 @@ def _subscription(where: str, m: Method) -> callspec.Subscription | None:
         raise TypeError(
             f"{where}: @subscription(CLOSE) takes nothing and answers "
             f"nothing")
-    return _SUBSCRIPTION[m.subscription]
+    return m.subscription
 
 
 def _posted(owner: Class, m: Method) -> bool:
@@ -1103,46 +1097,23 @@ def _virtual(owner: Class, m: Method) -> bool:
     return True
 
 
-def _tree(decl: Decl) -> callspec.Tree[str] | None:
-    """`@tree(...)`, as the record the server reads."""
-    spec = decl.tree
-    if spec is None:
-        return None
-    kinds: dict[str, callspec.Leaf[str] | callspec.Items[str]
-                | callspec.Entries[str] | callspec.Null] = {}
-    for answer, how in spec.kinds.items():
-        match how:
-            case declare.Leaf():
-                kinds[answer] = callspec.Leaf(how.wire, how.read)
-            case declare.Items():
-                kinds[answer] = callspec.Items(how.size, how.item)
-            case declare.Entries():
-                kinds[answer] = callspec.Entries(how.size, how.name, how.value)
-            case declare.Null():
-                kinds[answer] = callspec.Null()
-            case _:
-                assert_never(how)
-    return callspec.Tree(spec.kind, kinds, spec.identity or None,
-                         spec.force or None, spec.stop or None)
-
-
-def _walkable(cls: ClassModel, spec: callspec.Tree[str]) -> None:
+def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
     """Refuse a tree that names an accessor the class does not bind,
     or a leaf type the value message has no arm for."""
     names = [spec.kind, *(n for n in (spec.identity, spec.force, spec.stop) if n)]
     for how in spec.kinds.values():
         match how:
-            case callspec.Leaf():
+            case shapes.Leaf():
                 if how.wire not in TREE_LEAVES:
                     raise TypeError(
                         f"{cls.name}: a tree leaf is a {how.wire}. A leaf "
                         f"is one of {sorted(TREE_LEAVES)}.")
                 names.append(how.read)
-            case callspec.Items():
+            case shapes.Items():
                 names += [how.size, how.item]
-            case callspec.Entries():
+            case shapes.Entries():
                 names += [how.size, how.name, how.value]
-            case callspec.Null():
+            case shapes.Null():
                 pass
     bound = {m.name for m in cls.bound}
     if missing := [n for n in names if n not in bound]:
@@ -1151,16 +1122,7 @@ def _walkable(cls: ClassModel, spec: callspec.Tree[str]) -> None:
             f"not bind.")
 
 
-def _builds(decl: Decl) -> callspec.Builds[str] | None:
-    """`@builds(...)`, as the record the server reads."""
-    spec = decl.builds
-    if spec is None:
-        return None
-    return callspec.Builds(spec.null, dict(spec.leaves), spec.items,
-                           spec.add_item, spec.entries, spec.add_entry)
-
-
-def _buildable(cls: ClassModel, spec: callspec.Builds[str]) -> None:
+def _buildable(cls: ClassModel, spec: shapes.Builds[str]) -> None:
     """Refuse builders the class does not bind, or a leaf the tree has
     no arm for."""
     if odd := sorted(set(spec.leaves) - TREE_LEAVES):

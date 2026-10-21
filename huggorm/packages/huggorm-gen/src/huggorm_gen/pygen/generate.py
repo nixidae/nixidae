@@ -12,6 +12,7 @@ import pathlib
 import sys
 
 from huggorm_decl import corpus
+from huggorm_dsl import shapes
 from huggorm_gen import contracts, ir
 from huggorm_gen.cppgen.generate import declared_model
 from huggorm_gen.pygen.emitter import (
@@ -52,7 +53,7 @@ from huggorm_gen.pygen.fmt import format_paths
 
 
 # The payload modules, copied into the package as written.
-VENDORED = {"_runtime.py", "_wiretypes.py", "_callspec.py"}
+VENDORED = {"_runtime.py", "_wiretypes.py", "_callspec.py", "_shapes.py"}
 
 
 def _vendor(src: pathlib.Path, dst: pathlib.Path) -> None:
@@ -187,6 +188,9 @@ def main(argv: list[str] | None = None) -> None:
     # ...and the call spec's types, which the emitted async classes
     # build and the hand-written client reads.
     _vendor(here / "_callspec.py", out / "_callspec.py")
+    # ...and the shapes `_callspec` re-exports, from the DSL, which
+    # declares with the same classes (nixidae/nixidae#886).
+    _vendor(pathlib.Path(shapes.__file__), out / "_shapes.py")
     print(f"copied runtime into {out}")
 
     # PEP 561: without this marker a typechecker skips an INSTALLED

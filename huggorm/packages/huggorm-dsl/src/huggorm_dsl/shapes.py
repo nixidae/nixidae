@@ -1,0 +1,107 @@
+"""The shapes a declaration and the runtime share.
+
+A declaration builds `Tree[str]`, naming each accessor. The emitter
+writes the same classes into `_policy`, and the server builds
+`Tree[Accessor]` with each accessor resolved. pygen copies this file
+into the generated package as `_shapes.py`, so the generated package
+never imports huggorm-dsl at run time.
+
+The standard library only: this file runs in both places.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+
+# nixidae/nixidae#622.
+class Subscription(StrEnum):
+    """What a call does to a subscription a server shares."""
+
+    # Opens one subscription per object, or per process for a free
+    # function, and answers each caller its own reader of it.
+    OPEN = "open"
+    # Leaves only the readers this caller opened.
+    CLOSE = "close"
+
+
+@dataclass(frozen=True, slots=True)
+class Leaf[A]:
+    """A node that crosses as one scalar. `wire` is its declared type,
+    which picks the arm of the value message; `read` answers it."""
+
+    wire: str
+    read: A
+
+
+@dataclass(frozen=True, slots=True)
+class Null:
+    """A node that crosses as None. It has nothing to read."""
+
+
+@dataclass(frozen=True, slots=True)
+class Items[A]:
+    """A node that holds values by position: `size` counts them and
+    `item(i)` reads one."""
+
+    size: A
+    item: A
+
+
+@dataclass(frozen=True, slots=True)
+class Entries[A]:
+    """A node that holds values by name: `size` counts them, and
+    `name(i)` and `value(i)` read one."""
+
+    size: A
+    name: A
+    value: A
+
+
+@dataclass(frozen=True, slots=True)
+class Tree[A]:
+    """How a value that HOLDS other values is walked.
+
+    Declared next to the binding, because only the declaration knows
+    which of a type's methods answers its kind and which reads a
+    child. The server walks a whole tree in one hop, so it needs all
+    of this before it starts.
+
+    `kinds` maps each answer of the `kind` accessor to how that node
+    is read. An answer it does not hold is a thunk or something else
+    the declaration does not name, and it crosses as a proxy.
+
+    `identity` is what makes two nodes the same node, and it is
+    declared rather than assumed: Python identity is not it wherever a
+    binding builds a fresh wrapper per access. None falls back to
+    `id()`.
+
+    `force` forces a node in place, for a walk that forces. `stop` is a
+    predicate on an `Entries` node that keeps it a proxy in such a
+    walk: a derivation, which a forcing walk must not enter. None means
+    the type declares neither."""
+
+    kind: A
+    kinds: dict[str, Leaf[A] | Items[A] | Entries[A] | Null]
+    identity: A | None = None
+    force: A | None = None
+    stop: A | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Builds[A]:
+    """How Python data becomes a value, by the methods of the type that
+    makes values.
+
+    `null` takes no argument. `leaves` maps a tree leaf's wire type to
+    the method that makes one from that scalar. `items` makes an empty
+    list and `add_item(list, value)` appends to it; `entries` and
+    `add_entry(attrs, name, value)` do the same for an attribute set."""
+
+    null: A
+    leaves: dict[str, A]
+    items: A
+    add_item: A
+    entries: A
+    add_entry: A

@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from string import Template
 from typing import assert_never
 
+from huggorm_dsl import shapes
 from huggorm_dsl.declare import Crossing, Threading
 from huggorm_gen import ir
 from huggorm_gen.payload import _callspec as cs
@@ -316,21 +317,21 @@ def _typed(cls: type, *args: ast.expr, **kw: ast.expr) -> ast.expr:
         keywords=[ast.keyword(arg=k, value=v) for k, v in kw.items()])
 
 
-def _bound_tree(t: cs.Tree[str]) -> ast.expr:
+def _bound_tree(t: shapes.Tree[str]) -> ast.expr:
     """`t`, with each accessor name as an `Accessor`."""
     values: list[ast.expr] = []
     for how in t.kinds.values():
         match how:
-            case cs.Leaf():
-                values.append(_typed(cs.Leaf, ast.Constant(value=how.wire),
+            case shapes.Leaf():
+                values.append(_typed(shapes.Leaf, ast.Constant(value=how.wire),
                                      _accessor(how.read)))
-            case cs.Items():
-                values.append(_typed(cs.Items, _accessor(how.size),
+            case shapes.Items():
+                values.append(_typed(shapes.Items, _accessor(how.size),
                                      _accessor(how.item)))
-            case cs.Entries():
-                values.append(_typed(cs.Entries, _accessor(how.size),
+            case shapes.Entries():
+                values.append(_typed(shapes.Entries, _accessor(how.size),
                                      _accessor(how.name), _accessor(how.value)))
-            case cs.Null():
+            case shapes.Null():
                 values.append(_literal(how))
             case _:
                 assert_never(how)
@@ -338,14 +339,14 @@ def _bound_tree(t: cs.Tree[str]) -> ast.expr:
     optional = {k: _accessor(v) for k, v in (
         ("identity", t.identity), ("force", t.force), ("stop", t.stop))
         if v is not None}
-    return _typed(cs.Tree, _accessor(t.kind), kinds, **optional)
+    return _typed(shapes.Tree, _accessor(t.kind), kinds, **optional)
 
 
-def _bound_builds(b: cs.Builds[str]) -> ast.expr:
+def _bound_builds(b: shapes.Builds[str]) -> ast.expr:
     """`b`, with each builder name as an `Accessor`."""
     leaves = ast.Dict(keys=[ast.Constant(value=w) for w in b.leaves],
                       values=[_accessor(n) for n in b.leaves.values()])
-    return _typed(cs.Builds, _accessor(b.null), leaves, _accessor(b.items),
+    return _typed(shapes.Builds, _accessor(b.null), leaves, _accessor(b.items),
                   _accessor(b.add_item), _accessor(b.entries),
                   _accessor(b.add_entry))
 
@@ -372,9 +373,10 @@ def policy_module(model: ir.Model) -> str:
     classes = [*model.constructed, *model.handed_back]
     body: list[ast.stmt] = [
         ast.Expr(value=ast.Constant(value=POLICY_DOC)),
-        import_from("_callspec", "Accessor", "Acquire", "Arg", "Builds", "Call", "Entries",
-                    "Hook", "Items", "Leaf", "Local", "Null", "Subscription",
-                    "Tree", "Wire", "WireKind", level=1),
+        import_from("_callspec", "Accessor", "Acquire", "Arg", "Call", "Hook",
+                    "Local", "Wire", "WireKind", level=1),
+        import_from("_shapes", "Builds", "Entries", "Items", "Leaf", "Null",
+                    "Subscription", "Tree", level=1),
     ]
     body.append(_table("WIRE_FIELDS", "dict[str, tuple[Arg, ...]]",
                        [(c.name, _args([(f.name, f.type) for f in c.wire_fields]))
@@ -739,7 +741,7 @@ def protocol_module(model: ir.Model) -> ast.Module:
 
 def _spec(index: int, name: str, params: Sequence[ir.ParamModel],
           returns: ir.TypeRef | None,
-          subscription: cs.Subscription | None = None) -> cs.Call:
+          subscription: shapes.Subscription | None = None) -> cs.Call:
     """One call's spec.
 
     A typed value, not a dict literal. A checker sees nothing in a

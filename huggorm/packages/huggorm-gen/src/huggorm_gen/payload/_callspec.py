@@ -30,7 +30,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Generic, TypeVar
+from typing import Any
+
+from ._shapes import Subscription
 
 
 class WireKind(StrEnum):
@@ -87,15 +89,6 @@ class Arg:
 
     name: str
     type: Wire
-
-
-class Subscription(StrEnum):
-    """What a call does to a subscription the server shares.
-    The server opens one per object, or per process for
-    a free function, and hands each caller its own reader."""
-
-    OPEN = "open"
-    CLOSE = "close"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,86 +173,9 @@ class Acquire:
     required: int
 
 
-# How one node of a value tree is read. `A` is an accessor: its name
-# in the build, which checks it against the class, and in `_policy` an
-# `Accessor` the server calls with the node or the state, then the
-# method's own arguments. Not a bound method: the walker meets a fresh
-# object per node.
-A = TypeVar("A")
+# What a `Tree` or a `Builds` holds in `_policy`: an accessor the
+# server calls with the node or the state, then the method's own
+# arguments. The build holds its name instead, and checks it against
+# the class. Not a bound method: the walker meets a fresh object per
+# node.
 Accessor = Callable[..., Any]
-
-
-@dataclass(frozen=True, slots=True)
-class Leaf(Generic[A]):
-    """A node that crosses as one scalar. `wire` is its declared type,
-    which picks the arm; `read` answers it."""
-
-    wire: str
-    read: A
-
-
-@dataclass(frozen=True, slots=True)
-class Null:
-    """A node that crosses as None."""
-
-
-@dataclass(frozen=True, slots=True)
-class Items(Generic[A]):
-    """A node that holds values by position."""
-
-    size: A
-    item: A
-
-
-@dataclass(frozen=True, slots=True)
-class Entries(Generic[A]):
-    """A node that holds values by name."""
-
-    size: A
-    name: A
-    value: A
-
-
-@dataclass(frozen=True, slots=True)
-class Tree(Generic[A]):
-    """How a value that HOLDS other values is walked.
-
-    Declared next to the binding, because only the declaration knows
-    which of a type's methods answers its kind and which reads a
-    child. The server walks a whole tree in one hop, so it needs all
-    of this before it starts.
-
-    `kinds` maps each answer of the `kind` accessor to how that node
-    is read. An answer it does not hold is a thunk or something else
-    the declaration does not name, and it crosses as a proxy.
-
-    `identity` is what makes two nodes the same node, and it is
-    declared rather than assumed: Python identity is not it wherever a
-    binding builds a fresh wrapper per access. None falls back to
-    `id()`.
-
-    `force` forces a node in place and `stop` keeps an `Entries` node a
-    proxy, both only in a walk that forces. None means the type
-    declares neither."""
-
-    kind: A
-    kinds: dict[str, Leaf[A] | Items[A] | Entries[A] | Null]
-    identity: A | None = None
-    force: A | None = None
-    stop: A | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Builds(Generic[A]):
-    """How Python data becomes a value, by the methods of the type that
-    makes values.
-
-    `leaves` is keyed by a tree leaf's wire type. `add_item` and
-    `add_entry` fill what `items` and `entries` made."""
-
-    null: A
-    leaves: dict[str, A]
-    items: A
-    add_item: A
-    entries: A
-    add_entry: A

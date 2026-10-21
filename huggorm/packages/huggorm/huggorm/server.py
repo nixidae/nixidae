@@ -30,18 +30,7 @@ import anyio
 from anyio.abc import SocketStream, TaskGroup
 
 from huggorm_bindings.errors import NixError
-from huggorm_generated._callspec import (
-    Accessor,
-    Acquire,
-    Builds,
-    Call,
-    Entries,
-    Items,
-    Leaf,
-    Null,
-    Subscription,
-    Tree,
-)
+from huggorm_generated._callspec import Accessor, Acquire, Call
 from huggorm_generated._classes import CLASSES
 from huggorm_generated._policy import (
     ACQUIRE,
@@ -52,6 +41,15 @@ from huggorm_generated._policy import (
     TREES,
 )
 from huggorm_generated._runtime import BaseRunner
+from huggorm_generated._shapes import (
+    Builds,
+    Entries,
+    Items,
+    Leaf,
+    Null,
+    Subscription,
+    Tree,
+)
 from huggorm_generated.free_functions import FUNCTIONS
 
 from . import tree
