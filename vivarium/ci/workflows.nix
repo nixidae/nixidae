@@ -85,6 +85,12 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    routeros = {
+      # MikroTik CHR under QEMU, driven through its serial console: the
+      # only test of ConsoleControl against a real guest. 20 s once built.
+      description = "RouterOS boots, applies its config disk and answers on its console";
+      timeoutMinutes = 20;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
