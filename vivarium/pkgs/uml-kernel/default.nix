@@ -410,6 +410,12 @@ in
       name = "um-report-cpu-mhz";
       patch = ./0002-um-report-cpu-mhz.patch;
     }
+    {
+      # Without this, `ethtool` on a down vec interface panics the guest.
+      # VyOS runs it on every interface during boot. See the patch.
+      name = "um-vector-get-ringparam-when-down";
+      patch = ./0003-um-vector-get-ringparam-when-down.patch;
+    }
   ];
   kernelArch = "um";
   target = "linux";

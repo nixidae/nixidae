@@ -1,0 +1,67 @@
+From: vivarium <https://github.com/Lillecarl/vivarium>
+Subject: [PATCH] um: don't dereference vector queues in get_ringparam when down
+
+The vector driver's rx_queue and tx_queue exist only while the interface
+is up: vector_net_open() creates them and vector_net_close() destroys
+them. vector_get_ringparam() read vp->rx_queue->max_depth unconditionally,
+so `ethtool <iface>` on a down vec interface dereferenced a NULL pointer
+(a device never opened, whose private area alloc_etherdev() zeroed) and
+panicked the guest:
+
+  Kernel panic - not syncing: Kernel mode fault at addr 0x24
+  Comm: ethtool
+  rings_prepare_data+0x83 -> vector_get_ringparam
+
+VyOS hits this during boot: it runs ethtool on each configured interface
+before bringing it up, which crashed every UML guest that gave a VyOS
+node a real segment interface.
+
+Report the configured queue depth (get_depth) when a queue is down; it is
+the depth the queue takes when open, so the value is right rather than
+merely safe. Also NULL the queue pointers after destroy_queue() in close,
+so ethtool on an interface that was up and then taken down reads NULL
+rather than a freed queue.
+
+--- a/arch/um/drivers/vector_kern.c
++++ b/arch/um/drivers/vector_kern.c
+@@ -1152,10 +1152,14 @@
+ 	kfree(vp->transport_data);
+ 	kfree(vp->header_rxbuffer);
+ 	kfree(vp->header_txbuffer);
+-	if (vp->rx_queue != NULL)
++	if (vp->rx_queue != NULL) {
+ 		destroy_queue(vp->rx_queue);
+-	if (vp->tx_queue != NULL)
++		vp->rx_queue = NULL;
++	}
++	if (vp->tx_queue != NULL) {
+ 		destroy_queue(vp->tx_queue);
++		vp->tx_queue = NULL;
++	}
+ 	kfree(vp->fds);
+ 	vp->fds = NULL;
+ 	vp->in_error = false;
+@@ -1428,11 +1432,19 @@
+ 				 struct netlink_ext_ack *extack)
+ {
+ 	struct vector_private *vp = netdev_priv(netdev);
++	int depth = get_depth(vp->parsed);
+ 
+-	ring->rx_max_pending = vp->rx_queue->max_depth;
+-	ring->tx_max_pending = vp->tx_queue->max_depth;
+-	ring->rx_pending = vp->rx_queue->max_depth;
+-	ring->tx_pending = vp->tx_queue->max_depth;
++	/*
++	 * The queues exist only while the interface is up: they are
++	 * created in vector_net_open() and torn down in vector_net_close().
++	 * ethtool on a down interface would otherwise dereference a NULL
++	 * (never opened) or freed (closed) queue and fault. Report the
++	 * configured depth, which is what the queue holds when open.
++	 */
++	ring->rx_max_pending = vp->rx_queue ? vp->rx_queue->max_depth : depth;
++	ring->tx_max_pending = vp->tx_queue ? vp->tx_queue->max_depth : depth;
++	ring->rx_pending = ring->rx_max_pending;
++	ring->tx_pending = ring->tx_max_pending;
+ }
+ 
+ static void vector_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
