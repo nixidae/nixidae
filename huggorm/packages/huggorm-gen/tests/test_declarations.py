@@ -305,12 +305,12 @@ def test_the_reader_sees_an_accessor_the_import_kept_as_a_descriptor(
         tmp_path: pathlib.Path) -> None:
     """A `@property` accessor survives the read, and says it is one.
 
-    `_live` asks each definition the import kept for its
-    `co_firstlineno`, and a `property` object has no `__code__` to ask
-    - so the accessor named no live line and `_resolve` dropped its
-    node as if a version branch had. Silently.
+    A `property` object has no `__code__` and no source, so a reader
+    that asks the descriptor rather than its function finds no
+    definition, and drops the accessor as if a version branch had.
+    Silently.
 
-    Measured before the fix, on `PathInfo.registration_time` marked
+    Measured on a reader that asked the descriptor, on `PathInfo.registration_time` marked
     `@property`: the accessor was gone from the emitted binding, from
     `_parts`, from `__repr__`, from `__hash__` and from
     `_wire_fields`, and the build's only complaint came from the
@@ -576,29 +576,17 @@ def test_an_async_def_says_why_it_is_refused(
         tmp_path: pathlib.Path) -> None:
     """`async def` in a declaration names its own cause.
 
-    It was refused before this, by accident. The import keeps the
-    function, so it named a live line; `ast.AsyncFunctionDef` is not
-    a subclass of `ast.FunctionDef`, so `_reconcile`'s node set had
-    no line there; and the message a reader got was
-
-        the import kept definitions at lines [16] and the tree has no
-        node there. The two readings have stopped lining up - most
-        likely `co_firstlineno` no longer points where this assumes.
-
-    Loud, and blaming the wrong thing. Nothing in it says "async",
-    and the cause it names - a Python release moving
-    `co_firstlineno` - sends a reader to the wrong file entirely.
-
-    The refusal is at the loop that drops it now, so it can say what
-    a declaration is: a description of a C++ binding, where the async
-    form is DERIVED from `@binding(threading=...)` and `@blocks`."""
+    The refusal is at the loop that drops it, so it can say what a
+    declaration is: a description of a C++ binding, where the async
+    form is DERIVED from `@binding(threading=...)` and `@blocks`. A
+    refusal from anywhere else does not say "async", and sends a
+    reader to the wrong place."""
     from huggorm_dsl.read import DeclarationError, read
 
     source = ASYNCS.replace(*AS_METHOD)
     with pytest.raises(DeclarationError, match="async def") as caught:
         read(_declaration(tmp_path, source))
     assert "Digest.base16" in str(caught.value)
-    assert "co_firstlineno" not in str(caught.value)
 
 
 def test_a_free_async_function_is_refused_too(
@@ -622,14 +610,9 @@ def test_an_undecorated_async_helper_reaches_nothing(
     contents check refuses it for that cause.
 
     The cause it is refused for is the point. Without
-    `ast.AsyncFunctionDef` in `DEFINITIONS`, `_reconcile` runs first
-    and refuses the helper as a line the tree has no node at, and the
-    two tests above fail on the message rather than on the raise:
-
-        FAILED test_an_async_def_says_why_it_is_refused
-          AssertionError: Regex pattern did not match.
-        FAILED test_a_free_async_function_is_refused_too
-          AssertionError: Regex pattern did not match."""
+    `ast.AsyncFunctionDef` in `DEFINITIONS`, the reader finds no node
+    for an `async def` and refuses it for that, and the two tests
+    above fail on the message rather than on the raise."""
     from huggorm_dsl.read import DeclarationError, read
 
     # ASYNCS as written: only the helper is async.
@@ -1238,6 +1221,30 @@ class Digest:
 '''
 
 
+PLAIN = STATIC.replace("    @staticmethod\n    def of(text", "    def of(self, text")
+
+
+@pytest.mark.parametrize(("tail", "line"), [
+    ("    of = None\n", 11),
+    ("\n    def of(self, text: Str) -> Str:\n        ...\n", 11),
+    ("\nDigest = None\n", 8),
+])
+def test_a_definition_the_import_replaced_is_refused(
+        tmp_path: pathlib.Path, tail: str, line: int) -> None:
+    """A definition under no `if` that its name no longer holds is
+    refused at its line. The reader walks what the import holds, so
+    it would drop the definition in silence (nixidae/nixidae#712)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    control = tmp_path / "control"
+    control.mkdir()
+    assert read(_declaration(control, PLAIN)).classes[0].methods
+
+    with pytest.raises(DeclarationError, match="under no `if`") as caught:
+        read(_declaration(tmp_path, PLAIN + tail))
+    assert f":{line}:" in str(caught.value)
+
+
 @pytest.mark.parametrize("line", [
     "import os",
     "from os import path",
@@ -1281,8 +1288,8 @@ def test_a_definition_under_no_branch_must_be_kept(
     (nixidae/nixidae#712)."""
     from huggorm_dsl.read import DeclarationError, read
 
-    with pytest.raises(DeclarationError, match=r"lost: .* the import kept "
-                                               r"nothing"):
+    with pytest.raises(DeclarationError, match=r"lost: .* the import holds "
+                                               r"something else"):
         read(_declaration(tmp_path, SHADOWED))
 
 
@@ -1421,10 +1428,10 @@ def test_an_accessor_declared_static_is_refused(
     signature short of an argument - the shape of the `open_store(uri)`
     bug `_method`'s own docstring records.
 
-    Reachable only since `_live` learnt to look through a descriptor.
-    Before that a `@staticmethod` carried no `__code__`, named no live
-    line, and was dropped whole in silence (nixidae/nixidae#612). The behaviour
-    changed there and no gate held it; this is that gate (nixidae/nixidae#613)."""
+    Reachable because the reader asks a descriptor for its function.
+    A `@staticmethod` carries no `__code__` itself, and a reader that
+    asked it would drop the method whole in silence
+    (nixidae/nixidae#612). This is the gate (nixidae/nixidae#613)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match="@staticmethod"):

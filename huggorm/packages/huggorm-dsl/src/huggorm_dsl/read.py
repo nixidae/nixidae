@@ -10,9 +10,8 @@ name the reader can put nowhere is refused.
 
 The TREE supplies TEXT the interpreter drops: the C++ inside a body,
 docstrings (an attribute's included), where an import came from, and
-the position a refusal points at. Each definition's node is found by
-the line the import names, and `_reconcile` refuses a line the tree
-has no node at (nixidae/nixidae#689).
+the position a refusal points at. Each definition's node is the parse
+of the source `inspect.getsourcelines` names for it.
 
 A body still never runs: `def` defines, it does not call. So `Cxx(...)`
 in one is dead text this module lifts out of the tree, which is why a
@@ -58,6 +57,7 @@ import builtins
 import contextlib
 import enum
 import functools
+import hashlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
@@ -89,12 +89,9 @@ from huggorm_dsl.declare import (
 )
 
 # Every node that DEFINES a name. Stated once because
-# `ast.AsyncFunctionDef` is not a subclass of `ast.FunctionDef`, and
-# the three readers that ask this question have to agree: `_live`
-# reads a definition's `co_firstlineno`, `_reconcile` checks that the
-# tree has a node there, and `_resolve` keeps the arm the import
-# chose. A reader short one of the three arms drops an `async def`
-# out of one reading and not the other (nixidae/nixidae#625).
+# `ast.AsyncFunctionDef` is not a subclass of `ast.FunctionDef`, and a
+# reader short one of the three drops an `async def` out of one
+# reading and not the other (nixidae/nixidae#625).
 DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 type DefinitionNode = ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
 
@@ -1154,8 +1151,7 @@ def _body(node: ast.FunctionDef) -> Body | None:
 
 
 
-def _method(node: ast.FunctionDef, vocab: dict[str, str],
-            fns: dict[int, Any],
+def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
             bound: bool = True, bound_kind: bool = True) -> Method:
     """One declared function.
 
@@ -1169,16 +1165,16 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
 
     A class member with no self says so with `@staticmethod`, and
     must: without it a type checker reads the first parameter as
-    self, which is the same mistake from the other side."""
-    # What the import holds at this line: the function, or the
-    # descriptor wrapping it. The descriptor is the fact a decorator
-    # spelling only names.
-    held = fns.get(_first_line(node))
+    self, which is the same mistake from the other side.
+
+    `held` is what the import holds: the function, or the descriptor
+    wrapping it. The descriptor is the fact a decorator spelling only
+    names."""
     fn = getattr(held, "fget", None) or getattr(held, "__func__", held)
     if not isinstance(fn, types.FunctionType):
         raise DeclarationError(
-            node, f"{node.name}: the import has no function at this line, "
-                  f"so its annotations cannot be resolved.")
+            node, f"{node.name}: the import holds no function here, so "
+                  f"its annotations cannot be resolved.")
     static = not bound and bound_kind
     if static and not isinstance(held, staticmethod):
         raise DeclarationError(
@@ -1310,14 +1306,9 @@ def targets_name(item: ast.Assign) -> str:
     return target.id
 
 
-def _class(node: ast.ClassDef, vocab: dict[str, str],
-           where: str, here: str,
-           fns: dict[int, Any], diag: Diagnostics,
+def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
+           where: str, here: str, diag: Diagnostics,
            made: Mapping[type, str]) -> Class:
-    holder = fns.get(_first_line(node))
-    if not isinstance(holder, type):
-        raise DeclarationError(
-            node, f"{node.name}: the import has no class at this line.")
     decl = Decl(name=node.name, factory=made.get(holder, ""),
                 **_marks(node, holder, Target.CLASS))
     # The base, said the way Python says it.
@@ -1371,10 +1362,8 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
     methods: list[Method] = []
     # The IMPORT says which members exist, in definition order, with
     # any `NIX_VERSION` branch already chosen; the tree gives each
-    # one's text, found by the line the import names.
-    nodes = {_first_line(n): n for n in ast.walk(node)
-             if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
-    items: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+    # one's text.
+    items: list[tuple[DefinitionNode, object]] = []
     for name, value in vars(holder).items():
         fn = _written(value, here)
         if fn is None:
@@ -1386,21 +1375,15 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
                     f"constructor, {FROM_PARTS} and what its decorators "
                     f"wrote."), unsound=f"{node.name}.{name}")
             continue
-        _one_definition(fn, nodes)
-        items.append(nodes[fn.__code__.co_firstlineno])
-    for item in items:
+        _one_definition(fn)
+        items.append((_node_of(fn), value))
+    for item, held in items:
         if isinstance(item, ast.AsyncFunctionDef):
             # A declaration says what the BINDING is, and a binding is
             # C++. Which methods get an async form is decided from
             # `@binding(threading=...)` and `@blocks`, one file later,
-            # so `async def` here says nothing the emitter can use.
-            #
-            # It was refused already, by accident and with the wrong
-            # cause: the import keeps the function, so it named a live
-            # line, and `_reconcile` saw a line the tree reader had no
-            # node for. The message blamed `co_firstlineno` and never
-            # said "async" (nixidae/nixidae#625). `DEFINITIONS` closed that,
-            # which is what makes this refusal reachable.
+            # so `async def` here says nothing the emitter can use
+            # (nixidae/nixidae#625).
             diag.record(DeclarationError(
                 item,
                 f"{node.name}.{item.name}: a declaration describes a C++ "
@@ -1416,7 +1399,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # the emitter writes that signature from the field list -
             # so the declaration writes the BODY and nothing else. A
             # `self` here would be the object it exists to build.
-            from_parts = _method(item, vocab, fns, bound=False)
+            from_parts = _method(item, held, vocab, bound=False)
             if from_parts.params:
                 raise DeclarationError(
                     item,
@@ -1426,7 +1409,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
                     f"disagree. The body reads them by name.")
             continue
         if item.name == "__init__":
-            ctor = _method(item, vocab, fns)
+            ctor = _method(item, held, vocab)
             if decl.factory and ctor.params:
                 # A class with a factory is built by it, so it owns
                 # the signature. Declaring it twice is how the
@@ -1490,7 +1473,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
             # one method produces no bogus diagnostic - `_read` raises
             # before any emitter sees it.
             try:
-                methods.append(_method(item, vocab, fns))
+                methods.append(_method(item, held, vocab))
             except DeclarationError as e:
                 diag.record(e, unsound=f"{node.name}.{item.name}")
     out = Class(
@@ -1587,7 +1570,7 @@ class _DeclarationFinder(importlib.abc.MetaPathFinder):
                 spec.loader, importlib.machinery.SourceFileLoader):
             return spec
         # Resolved: a Nix Python env reaches the package through a
-        # symlink, and `_definitions` matches `co_filename` against the
+        # symlink, and `_written` matches `co_filename` against the
         # resolved path. Unresolved, every definition went unmatched.
         origin = str(pathlib.Path(spec.origin).resolve())
         return importlib.util.spec_from_file_location(
@@ -1621,12 +1604,11 @@ def load(path: str) -> ModuleType:
     definitions exist, because a declaration may branch on
     `NIX_VERSION` and Python is what resolves that.
 
-    The module is handed back rather than consumed. `_live` wanted
-    only a set of line numbers and threw the rest away, which threw
-    away the thing an import is uniquely good for: INHERITANCE.
-    Python computed every base chain and every inherited attribute
-    while executing the file, and a reader that keeps the module gets
-    all of it for free instead of walking the tree again.
+    The module is handed back rather than consumed, because an import
+    is uniquely good at INHERITANCE. Python computed every base chain
+    and every inherited attribute while executing the file, and a
+    reader that keeps the module gets all of it for free instead of
+    walking the tree again.
 
     A file that will not import is REFUSED, with the reason it gave.
     This used to answer None, on the reading that a declaration is a
@@ -1655,14 +1637,19 @@ def load(path: str) -> ModuleType:
     try:
         if real is not None:
             return importlib.import_module(real)
-        spec = importlib.util.spec_from_file_location(
-            f"_huggorm_decl_{pathlib.Path(path).stem}", path)
+        # In `sys.modules`, under a name unique to the path: `inspect`
+        # finds a class's file through its module, and two test
+        # fixtures share a stem.
+        digest = hashlib.sha256(path.encode()).hexdigest()[:12]
+        name = f"_huggorm_decl_{pathlib.Path(path).stem}_{digest}"
+        spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
             raise DeclarationError.already(
                 f"{here}: Python will not load this file as a module at "
                 f"all.")
         mod = importlib.util.module_from_spec(spec)
         _guarded(mod)
+        sys.modules[name] = mod
         spec.loader.exec_module(mod)
     except DeclarationError:
         raise
@@ -1677,28 +1664,36 @@ def load(path: str) -> ModuleType:
     return mod
 
 
-def _live(path: str) -> set[int]:
-    """The first line of every class and function the IMPORT kept.
+def _node_of(obj: Callable[..., object]) -> DefinitionNode:
+    """The tree of one definition the import kept.
 
-    A declaration may branch on `NIX_VERSION`, and Python resolves
-    that during the import. This asks the resulting module which
-    definitions survived, and the answer is a set of LINES.
+    `inspect.getsourcelines` names the definition's own text and first
+    line, decorators included, so the node is this object's and no
+    index joins the two readings. It reads `co_firstlineno` and
+    `__firstlineno__` itself, so that dependency is CPython's contract.
 
-    Lines, not names: both arms of an `if` define the same name, so a
-    name match keeps both and the emitter binds the method twice.
-    `co_firstlineno` is the first DECORATOR's line when a definition
-    has decorators and the `def`/`class` line when it has none, so a
-    caller matches either.
+    A member's text is indented, so it parses as the body of an `if`.
+    Not `textwrap.dedent`: a `Cxx` literal has lines at column 0."""
+    name = getattr(obj, "__name__", "")
+    try:
+        lines, start = inspect.getsourcelines(obj)
+    except (OSError, TypeError) as e:
+        raise DeclarationError.already(
+            f"{name}: Python has no source for this definition. {e}") from e
+    src = "".join(lines)
+    indented = src[:1] in " \t"
+    tree = ast.parse("if 1:\n" + src if indented else src)
+    ast.increment_lineno(tree, start - 1 - indented)
+    node = next((n for n in ast.walk(tree) if isinstance(n, DEFINITIONS)),
+                None)
+    if node is None or node.name != name:
+        raise DeclarationError.already(
+            f"{name}: the source Python names for this definition, at line "
+            f"{start}, defines something else. A decorator replaced it.")
+    return node
 
-    Always a set. `load` refuses a file that will not import, so
-    "the import kept nothing because there was no import" is no
-    longer one of the answers (nixidae/nixidae#619)."""
-    # `_definitions`' walk, so the two cannot disagree about what a
-    # definition is.
-    return set(_definitions(path))
 
-
-def _one_definition(fn: Any, nodes: dict[int, Any]) -> None:
+def _one_definition(fn: types.FunctionType) -> None:
     """Refuse a name that `typing.@overload` gives several definitions.
 
     Every surface binds one definition per name: the stub, the async
@@ -1706,118 +1701,65 @@ def _one_definition(fn: Any, nodes: dict[int, Any]) -> None:
     spelling, so `@typing.overload` is refused too."""
     if earlier := get_overloads(fn):
         raise DeclarationError(
-            nodes[earlier[0].__code__.co_firstlineno],
+            _node_of(earlier[0]),
             f"{fn.__name__} is overloaded. A binding holds one definition "
             f"per name; give each signature its own name.")
 
 
-def _definitions(path: str) -> dict[int, Any]:
-    """Every class and function the import kept, by its first line.
+def _kept(path: str) -> list[Callable[..., object]]:
+    """Every class and function this file defines that the import kept.
 
-    The same walk `_live` makes, and the same key: `co_firstlineno` is
-    the first decorator's line, so a tree node finds its function by
-    `_first_line(node)`. The import is where an annotation becomes an
-    object, so this is how the reader reaches one.
-
-    `@overload` replaces a name with its last definition, and the
-    earlier ones are only in `typing.get_overloads`, so those are
-    walked too."""
+    A member is its function, under any descriptor."""
     mod = load(path)
     here = str(pathlib.Path(path).resolve())
-    out: dict[int, Any] = {}
-
-    def note(obj: object) -> None:
-        # A DESCRIPTOR holds the function rather than being one, so
-        # the function is asked for it. Without this a `@property`
-        # accessor named no line and vanished from the binding in
-        # silence (nixidae/nixidae#612).
-        fn = getattr(obj, "fget", None) or getattr(obj, "__func__", obj)
-        if not isinstance(fn, types.FunctionType):
-            return
-        # Python 3.14 compiles a module's annotations into an
-        # `__annotate__` function at line 1. No one wrote it.
-        if fn.__code__.co_filename != here or fn.__name__ == "__annotate__":
-            return
-        out[fn.__code__.co_firstlineno] = obj
-        for one in get_overloads(fn):
-            if isinstance(one, types.FunctionType):
-                out[one.__code__.co_firstlineno] = one
-
-    for obj in vars(mod).values():
-        note(obj)
-        if isinstance(obj, type) and obj.__module__ == mod.__name__:
-            # `__firstlineno__` is the first decorator's line, as
-            # `co_firstlineno` is for a function.
-            out[obj.__firstlineno__] = obj
-            for member in vars(obj).values():
-                note(member)
+    out: list[Callable[..., object]] = []
+    for value in vars(mod).values():
+        if isinstance(value, type) and value.__module__ == mod.__name__:
+            out.append(value)
+            out += [fn for member in vars(value).values()
+                    if (fn := _written(member, here)) is not None]
+        elif (fn := _written(value, here)) is not None:
+            out.append(fn)
     return out
 
 
-def _first_line(node: ast.FunctionDef | ast.AsyncFunctionDef
-                | ast.ClassDef) -> int:
-    """The line `co_firstlineno` names for this definition."""
-    return node.decorator_list[0].lineno if node.decorator_list else node.lineno
+def _unbranched(tree: ast.Module, mod: ModuleType, here: str) -> None:
+    """Refuse a definition under no `if` that the import does not hold.
 
+    The import ran it, so its name holds something else only when a
+    rebinding, a second definition or a wrapping decorator replaced
+    it. The reader would drop it in silence (nixidae/nixidae#712).
 
-def _reconcile(tree: ast.Module, live: set[int], path: str) -> None:
-    """Every definition the import kept must exist in the tree.
-
-    The two readings come from one file in one call, so they cannot
-    drift the way two declarations of one fact drift - that was F1 and
-    F7a. What they CAN do is stop lining up, and the way that happens
-    is a Python release changing what `co_firstlineno` points at.
-
-    Then nothing matches, `_resolve` keeps nothing, and the module
-    emits an empty binding. Silently. This is the check that makes it
-    loud.
-
-    The other direction, `nodes - live`, holds every dead `if` arm, so
-    it is no error in general. A definition under NO `if` is: the
-    import ran it, so a line the import did not keep means the object
-    went somewhere `_definitions` does not look - a descriptor
-    (nixidae/nixidae#612), a rebound name, a wrapping decorator. The reader
-    would drop it in silence (nixidae/nixidae#712)."""
-    if not live:
-        return
-    unbranched = [n for n in tree.body if isinstance(n, DEFINITIONS)]
-    unbranched += [m for n in unbranched if isinstance(n, ast.ClassDef)
-                   for m in n.body if isinstance(m, DEFINITIONS)]
-    for n in unbranched:
-        if not ({n.lineno} | {d.lineno for d in n.decorator_list}) & live:
+    An `@overload` keeps its earlier definitions only in
+    `typing.get_overloads`, and `_one_definition` refuses them."""
+    def check(n: DefinitionNode, scope: Mapping[str, object]) -> None:
+        held = scope.get(n.name)
+        got = (held if isinstance(held, type)
+               and held.__module__ == mod.__name__ else _written(held, here))
+        if got is None or n.lineno not in {
+                _node_of(d).lineno for d in [got, *get_overloads(got)]}:
             raise DeclarationError(
                 n, f"{n.name}: this definition is under no `if`, and the "
-                   f"import kept nothing at its line. Something replaced "
-                   f"or wrapped it, and the reader would drop it.")
-    nodes = {n.lineno for n in ast.walk(tree)
-             if isinstance(n, DEFINITIONS)}
-    nodes |= {d.lineno for n in ast.walk(tree)
-              if isinstance(n, DEFINITIONS)
-              for d in n.decorator_list}
-    orphans = sorted(live - nodes)
-    if orphans:
-        raise DeclarationError(
-            tree,
-            f"{pathlib.Path(path).name}: the import kept definitions at "
-            f"lines {orphans} and the tree has no node there. The two "
-            f"readings have stopped lining up - most likely "
-            f"`co_firstlineno` no longer points where this assumes.")
+                   f"import holds something else under its name. Something "
+                   f"replaced or wrapped it, and the reader would drop it.")
+
+    for n in tree.body:
+        if not isinstance(n, DEFINITIONS):
+            continue
+        check(n, vars(mod))
+        cls = vars(mod).get(n.name)
+        if isinstance(n, ast.ClassDef) and isinstance(cls, type):
+            for m in n.body:
+                if isinstance(m, DEFINITIONS):
+                    check(m, vars(cls))
 
 
 def _resolve(body: list[ast.stmt], live: set[int]) -> list[ast.stmt]:
     """One body with its `if` arms already chosen.
 
     Nothing here evaluates a condition. Python did that during the
-    import, and this keeps what Python kept - matched by the line a
-    definition starts on.
-
-    There used to be a third answer here: with `live` unknown the
-    `if` was flattened whole, both arms read, the name usually
-    declared twice. It was defended as loud rather than silent, and
-    it was neither - a declaration with no `if` in it keeps exactly
-    the same nodes that way, so a file that did not import read as a
-    file that did. `load` refuses one now, so `live` is always known
-    (nixidae/nixidae#619)."""
+    import, and this keeps what Python kept: `live` holds the
+    `def`/`class` line of each definition the import kept."""
     out: list[ast.stmt] = []
 
     def walk(nodes: list[ast.stmt]) -> None:
@@ -1825,11 +1767,7 @@ def _resolve(body: list[ast.stmt], live: set[int]) -> list[ast.stmt]:
             if isinstance(n, ast.If):
                 walk(n.body)
                 walk(n.orelse)
-            elif isinstance(n, DEFINITIONS):
-                own = {n.lineno} | {d.lineno for d in n.decorator_list}
-                if own & live:
-                    out.append(n)
-            else:
+            elif not isinstance(n, DEFINITIONS) or n.lineno in live:
                 out.append(n)
 
     walk(body)
@@ -1872,21 +1810,10 @@ def resolved(path: str) -> ast.Module:
     both through - three holes at once, and none of them loud
     (nixidae/nixidae#610)."""
     with reading(path):
-        return _chosen(path)[0]
-
-
-def _chosen(path: str) -> tuple[ast.Module, set[int]]:
-    """One declaration parsed, its `if` arms chosen, and which lines
-    the import kept.
-
-    The four lines both readings open with. `resolved` would have
-    been a copy of them - same parse, same `_live`, same reconcile,
-    same `_resolve` - and the fact that copy would have restated is
-    which arm of a branch this build is looking at."""
-    tree = ast.parse(pathlib.Path(path).read_text(), filename=path)
-    live = _live(path)
-    _reconcile(tree, live, path)
-    return ast.Module(body=_resolve(tree.body, live), type_ignores=[]), live
+        tree = ast.parse(pathlib.Path(path).read_text(), filename=path)
+        _unbranched(tree, load(path), str(pathlib.Path(path).resolve()))
+        live = {_node_of(d).lineno for d in _kept(path)}
+        return ast.Module(body=_resolve(tree.body, live), type_ignores=[])
 
 
 def _read(path: str) -> Module:
@@ -1894,8 +1821,8 @@ def _read(path: str) -> Module:
 
     The IMPORT drives: `vars` holds every name the build has, in
     definition order, with each `NIX_VERSION` branch already chosen.
-    The tree supplies each definition's text and position, found by
-    the line the import names. A name the reader can put nowhere is
+    The tree supplies each definition's text and position, parsed from
+    the source the definition names. A name the reader can put nowhere is
     refused, so nothing a declaration writes reaches no output in
     silence (nixidae/nixidae#610, #75, #78, #88, #123).
 
@@ -1906,14 +1833,11 @@ def _read(path: str) -> Module:
     came from."""
     tree = ast.parse(pathlib.Path(path).read_text(), filename=path)
     mod = load(path)
-    fns = _definitions(path)
-    _reconcile(tree, set(fns), path)
-    nodes = {_first_line(n): n for n in ast.walk(tree)
-             if isinstance(n, DEFINITIONS)}
+    here = str(pathlib.Path(path).resolve())
+    _unbranched(tree, mod, here)
     assigned = _assignments(tree)
     vocab = _vocabulary(tree)
     stem = pathlib.Path(path).stem
-    here = str(pathlib.Path(path).resolve())
     imported = {a.asname or a.name.split(".")[0]
                 for n in ast.walk(tree)
                 if isinstance(n, ast.Import | ast.ImportFrom)
@@ -1923,7 +1847,7 @@ def _read(path: str) -> Module:
     # read in full or not at all - the failure is recorded, its name
     # is marked unsound, and the loop goes on.
     diag = Diagnostics()
-    made = _factories(glb, here, mod, nodes, diag)
+    made = _factories(glb, here, mod, diag)
     classes: list[Class] = []
     errors: list[Class] = []
     functions: list[Method] = []
@@ -1934,12 +1858,12 @@ def _read(path: str) -> Module:
         fn = _written(value, here)
         try:
             if isinstance(value, type) and value.__module__ == mod.__name__:
-                node = nodes[value.__firstlineno__]
+                node = _node_of(value)
                 assert isinstance(node, ast.ClassDef)
                 if issubclass(value, BaseException):
                     errors.append(_error(node, value, glb, stem))
                 elif declare.marks(value):
-                    cls = _class(node, vocab, stem, here, fns, diag, made)
+                    cls = _class(node, value, vocab, stem, here, diag, made)
                     classes.append(cls)
                 else:
                     raise DeclarationError(
@@ -1947,9 +1871,8 @@ def _read(path: str) -> Module:
                               f"an exception, so it derives from "
                               f"BaseException.")
             elif fn is not None:
-                _one_definition(fn, nodes)
-                functions.append(_free(nodes[fn.__code__.co_firstlineno],
-                                       fn, vocab, fns))
+                _one_definition(fn)
+                functions.append(_free(_node_of(fn), value, vocab))
             elif _union(value) is not None and name in assigned:
                 unions.append(_union_class(name, value, stem,
                                            *assigned[name]))
@@ -1985,13 +1908,12 @@ def _read(path: str) -> Module:
         vocabulary=vocab,
         unions=tuple(unions),
         uses=uses,
-        markers=frozenset(m.marker.name for obj in fns.values()
+        markers=frozenset(m.marker.name for obj in _kept(path)
                           for m in declare.marks(obj)),
     )
 
 
 def _factories(glb: Mapping[str, object], here: str, mod: ModuleType,
-               nodes: Mapping[int, ast.AST],
                diag: Diagnostics) -> dict[type, str]:
     """Each class a `@constructs` function here builds, and that
     function's name.
@@ -2007,7 +1929,7 @@ def _factories(glb: Mapping[str, object], here: str, mod: ModuleType,
             cls = mark.value
             if not (isinstance(cls, type) and cls.__module__ == mod.__name__):
                 diag.record(DeclarationError(
-                    nodes[fn.__code__.co_firstlineno],
+                    _node_of(fn),
                     f"{fn.__name__}: @constructs names a class this file "
                     f"does not declare."), unsound=fn.__name__)
                 continue
@@ -2040,8 +1962,8 @@ def _holds_the_gil(node: DefinitionNode, fn: Method, *,
                   f"value, and @blocks releases the GIL around it.")
 
 
-def _free(node: DefinitionNode, fn: object, vocab: dict[str, str],
-          fns: dict[int, Any]) -> Method:
+def _free(node: DefinitionNode, fn: object,
+          vocab: dict[str, str]) -> Method:
     """One module-level function: a FREE binding, if it is marked.
 
     nanopynix has 72 of them, `m.def("open_store", &open_store_uri,
@@ -2059,7 +1981,7 @@ def _free(node: DefinitionNode, fn: object, vocab: dict[str, str],
             f"{node.name}: a declaration describes a C++ binding, so "
             f"`async def` says nothing here. The async form is "
             f"DERIVED from @threading - so write a plain `def`.")
-    return _method(node, vocab, fns, bound=False, bound_kind=False)
+    return _method(node, fn, vocab, bound=False, bound_kind=False)
 
 
 def _assignments(tree: ast.Module) -> dict[str, tuple[ast.Assign, str]]:
