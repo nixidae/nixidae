@@ -279,18 +279,7 @@ class Uml:
         spec, tools = machine.spec, machine.tools
         ram = physmem_dir(spec.memory)
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
-        argv = [
-            str(tools.bridge),
-            "--vec",
-            self._vec(0, 3, spec.mtu),
-            # The bridge forks passt, so the uplink's addressing reaches
-            # it one argument at a time rather than directly.
-            *(
-                arg
-                for value in forward.uplink_args(machine.offline)
-                for arg in ("--passt", value)
-            ),
-            *forward.to_args(machine.forward),
+        kernel = [
             str(tools.kernel),
             *self._root(tools, rundir, spec),
             "rw",
@@ -316,9 +305,33 @@ class Uml:
             # as an environment variable -- "will be passed to user space"
             # in the boot log. modules/image.nix mounts it there, with
             # busybox, and says why it cannot be a mount unit.
-            argv.append(f"{ARTIFACTS_ENV}={machine.artifacts}")
+            kernel.append(f"{ARTIFACTS_ENV}={machine.artifacts}")
         # What /init mounts as the guest's /nix; see modules/image.nix.
-        argv.append(f"{STORE_ENV}={spec.store}")
+        kernel.append(f"{STORE_ENV}={spec.store}")
+
+        if spec.uplink is None:
+            # vec0 is passt, behind the bridge: it forks passt and
+            # translates its length-prefixed frames to the fd transport.
+            argv = [
+                str(tools.bridge),
+                "--vec",
+                self._vec(0, 3, spec.mtu),
+                # The bridge forks passt, so the uplink's addressing reaches
+                # it one argument at a time rather than directly.
+                *(
+                    arg
+                    for value in forward.uplink_args(machine.offline)
+                    for arg in ("--passt", value)
+                ),
+                *forward.to_args(machine.forward),
+                *kernel,
+            ]
+        else:
+            # vec0 joins an out-of-band management segment instead of passt
+            # (nixidae/nixidae#958). No passt means no bridge: vec0 is a
+            # plain fd transport like the segment NICs, straight to the
+            # kernel, and the guest leases its management address there.
+            argv = [*kernel, self._vec(0, lan_fds["vec0"], spec.mtu, spec.mac(0))]
         for nic in spec.interfaces:
             argv.append(self._vec(nic.nic, lan_fds[nic.name], spec.mtu, nic.mac))
 

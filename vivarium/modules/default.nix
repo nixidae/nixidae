@@ -664,10 +664,10 @@ in
         message = "vivarium.lan.address is set but vivarium.lan.network is not, so nothing would be wired to vec1.";
       }
       {
-        # The uplink-as-segment netdev is wired in the QEMU backend only;
-        # UML routes its uplink through the passt bridge wrapper (#958).
-        assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend == "qemu";
-        message = "vivarium.uplink.segment needs the QEMU backend; this guest is ${config.vivarium.backend}.";
+        # vec0 joins a segment fd on QEMU and UML (#958). A container's
+        # uplink is pasta's, which has no such fd to redirect.
+        assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend != "container";
+        message = "vivarium.uplink.segment needs the QEMU or UML backend; this guest is ${config.vivarium.backend}.";
       }
       {
         assertion = lib.all (

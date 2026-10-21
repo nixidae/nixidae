@@ -1299,6 +1299,23 @@ let
     };
 
     /*
+      The out-of-band fabric under UML (nixidae/nixidae#958): the same
+      lease as `oob`, but both guests are UML processes. It proves a UML
+      guest's uplink joins a management segment -- vec0 on a segment fd
+      instead of the passt bridge -- which is what VyOS needs to reach the
+      fabric, since VyOS runs under UML.
+    */
+    oob-uml = mkTest {
+      name = "oob-uml";
+      nodes.svc = servicesNode { segment = "mgmt"; };
+      nodes.client.vivarium.uplink.segment = "mgmt";
+      phases.oob = {
+        script = ./tests/phases/oob.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
       Provision SONiC the real way (nixidae/nixidae#958): SONiC's eth0 is
       its uplink on the management segment and leases from the services
       guest's Kea; the services guest then reaches SONiC over SSH and
