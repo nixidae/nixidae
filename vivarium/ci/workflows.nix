@@ -133,6 +133,13 @@ let
       description = "RouterOS keeps its management in a VRF, isolated from the dataplane";
       timeoutMinutes = 20;
     };
+    oob-gateway = {
+      # The services guest as the OOB gateway: the host reaches a guest
+      # whose uplink is on the management segment through one passt
+      # forward that DNATs to it. Two small NixOS guests, 1.6 s once built.
+      description = "the services guest is the single forwarding point to an out-of-band guest";
+      timeoutMinutes = 20;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
