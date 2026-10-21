@@ -24,8 +24,11 @@ from huggorm_decl.decl.path import StorePath
 from huggorm_decl.decl.words import ContentAddressMethod, HashAlgorithm
 from huggorm_dsl.declare import (
     Cxx,
+    Map,
+    Opt,
     Str,
     Variant,
+    Vec,
     binding,
     header,
     needs,
@@ -172,11 +175,11 @@ class InputDrvNode:
     derivation, and its outputs are a child node."""
 
     @reads("value", collection="std::set<nix::OutputName, std::less<>>")
-    def outputs(self) -> list[Str]:
+    def outputs(self) -> Vec[Str]:
         """The outputs needed directly, sorted."""
 
     @reads("childMap")
-    def dynamic_outputs(self) -> dict[str, InputDrvNode]:
+    def dynamic_outputs(self) -> Map[InputDrvNode]:
         """Per output that is itself a derivation, the outputs of that
         derivation the build needs."""
 
@@ -204,20 +207,20 @@ class Derivation:
         """The program the build runs."""
 
     @reads("args")
-    def args(self) -> list[Str]:
+    def args(self) -> Vec[Str]:
         """The builder's arguments, in order."""
 
     @reads("env")
-    def env(self) -> dict[str, Str]:
+    def env(self) -> Map[Str]:
         """The builder's environment."""
 
     @needs("huggorm_decl/cpp/derivation.hpp")
-    def input_srcs(self) -> list[StorePath]:
+    def input_srcs(self) -> Vec[StorePath]:
         """Store paths the build reads that no derivation makes."""
         Cxx("return as_list(huggorm::input_srcs(self));")
 
     @needs("huggorm_decl/cpp/derivation.hpp")
-    def input_drvs(self) -> dict[str, InputDrvNode]:
+    def input_drvs(self) -> Map[InputDrvNode]:
         """The derivations the build needs, by `.drv` base name, and
         which of their outputs.
 
@@ -231,11 +234,11 @@ return out;
         """)
 
     @reads("outputs")
-    def outputs(self) -> dict[str, DerivationOutput]:
+    def outputs(self) -> Map[DerivationOutput]:
         """Each output by name, and how it is addressed."""
 
     @needs("nlohmann/json.hpp")
-    def structured_attrs(self) -> Str | None:
+    def structured_attrs(self) -> Opt[Str]:
         """The structured attributes as JSON text, or None when the
         derivation passes its attributes as environment variables."""
         Cxx("""

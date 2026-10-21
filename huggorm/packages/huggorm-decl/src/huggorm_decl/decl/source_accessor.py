@@ -32,6 +32,8 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Cxx,
+    Map,
+    Opt,
     Path,
     Str,
     binding,
@@ -58,7 +60,7 @@ class Stat:
 
     # WIRE ORDER: the parts, in the order the constructor takes them.
 
-    def __init__(self, type: FileType, file_size: U64 | None = None,
+    def __init__(self, type: FileType, file_size: Opt[U64] = None,
                  is_executable: Bint = False) -> None:
         """Describe an object. Only a regular file has a size or an
         executable bit."""
@@ -72,7 +74,7 @@ new (self) nix::SourceAccessor::Stat{
         """What kind of object this is."""
 
     @reads("fileSize")
-    def file_size(self) -> U64 | None:
+    def file_size(self) -> Opt[U64]:
         """A regular file's size, when the accessor knows it."""
 
     @reads("isExecutable")
@@ -88,15 +90,15 @@ new (self) nix::SourceAccessor::Stat{
 class SourceAccessor:
     """A file tree Nix reads. See the module."""
 
-    def __init__(self, below: SourceAccessor | None = None) -> None:
+    def __init__(self, below: Opt[SourceAccessor] = None) -> None:
         """An accessor over `below`, or over nothing."""
 
     @virtual
-    def maybe_lstat(self, path: Str) -> Stat | None:
+    def maybe_lstat(self, path: Str) -> Opt[Stat]:
         """What is at `path`, or None when nothing is."""
 
     @virtual
-    def read_directory(self, path: Str) -> dict[str, FileType | None]:
+    def read_directory(self, path: Str) -> Map[Opt[FileType]]:
         """The entries of the directory at `path`, each with its type.
         None for a type the accessor does not know: Nix asks
         `maybe_lstat` for it when it needs it."""

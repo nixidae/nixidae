@@ -17,7 +17,9 @@ from huggorm_decl.decl.signature import Signature
 from huggorm_dsl.declare import (
     NIX_2_35,
     Cxx,
+    Opt,
     Str,
+    Vec,
     binding,
     header,
     instant,
@@ -134,7 +136,7 @@ class Realisation:
     # WIRE ORDER: what it is, what it is, and who says so.
 
     def __init__(self, id: DrvOutput, out_path: StorePath,
-                 signatures: list[Signature] | None = None) -> None:
+                 signatures: Opt[Vec[Signature]] = None) -> None:
         """Say that output `id` turned out to be `out_path`."""
         Cxx("new (self) nix::Realisation{{out_path, {signatures.begin(), signatures.end()}}, id};")
 
@@ -151,7 +153,7 @@ class Realisation:
         remembers."""
 
     @reads("signatures")
-    def signatures(self) -> list[Signature]:
+    def signatures(self) -> Vec[Signature]:
         """Who vouched for this realisation.
 
         A realisation is a claim that building a derivation produced a
@@ -187,7 +189,7 @@ if NIX_2_35:
             """The store path that output turned out to be."""
 
         @reads("signatures")
-        def signatures(self) -> list[Signature]:
+        def signatures(self) -> Vec[Signature]:
             """Who vouched for it. Sorted, as Nix's set keeps them."""
 
         @staticmethod

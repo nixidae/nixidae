@@ -29,8 +29,10 @@ from huggorm_decl.decl.path import StorePath
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Opt,
     Str,
     Variant,
+    Vec,
     Wrap,
     binding,
     header,
@@ -66,7 +68,7 @@ class OutputsSpec:
     # nixidae/nixidae#578
 
     def __init__(self, all: Bint = False,
-                 names: list[Str] | None = None) -> None:
+                 names: Opt[Vec[Str]] = None) -> None:
         """`OutputsSpec(names=["out", "dev"])` names them.
         `OutputsSpec(all=True)` is every output.
 
@@ -99,7 +101,7 @@ if (all) {
         """Whether every output is wanted, however many there are."""
         Cxx("return std::holds_alternative<nix::OutputsSpec::All>(self.raw);")
 
-    def names(self) -> list[Str]:
+    def names(self) -> Vec[Str]:
         """The outputs named, or empty when `all` is true.
 
         Sorted, because upstream keeps them in a set and the order is

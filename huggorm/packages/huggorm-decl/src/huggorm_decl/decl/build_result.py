@@ -33,6 +33,8 @@ from huggorm_dsl.declare import (
     U64,
     Cxx,
     Duration,
+    Map,
+    Opt,
     binding,
     header,
     needs,
@@ -76,7 +78,7 @@ class BuildSuccess:
         Cxx("return huggorm::as_word(self.status);")
 
     @reads("builtOutputs")
-    def built_outputs(self) -> dict[str, BuiltRealisation]:
+    def built_outputs(self) -> Map[BuiltRealisation]:
         """Each wanted output's name, and what it turned out to be.
 
         Empty unless the target was a derivation whose outputs are
@@ -134,7 +136,7 @@ class KeyedBuildResult:
         The same union `build_paths` takes, so a caller can match a
         result against what they asked for."""
 
-    def success(self) -> BuildSuccess | None:
+    def success(self) -> Opt[BuildSuccess]:
         """The success arm, or None when the build failed.
 
         `error` is the other half and exactly one of the two is
@@ -146,7 +148,7 @@ return std::nullopt;
         """)
 
     @needs("huggorm_decl/cpp/errors.hpp")
-    def error(self) -> BuildError | None:
+    def error(self) -> Opt[BuildError]:
         """The failure arm, or None when the build succeeded.
 
         A `huggorm_bindings.errors.BuildError` INSTANCE - the typed
@@ -184,7 +186,7 @@ return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
         """When the build stopped, as a Unix time. 0 when none ran."""
 
     @reads("cpuUser")
-    def cpu_user(self) -> Duration | None:
+    def cpu_user(self) -> Opt[Duration]:
         """CPU time the builder spent in user code, or None.
 
         A datetime.timedelta, which is Python's own duration - so a
@@ -197,7 +199,7 @@ return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
         already valid never ran at all."""
 
     @reads("cpuSystem")
-    def cpu_system(self) -> Duration | None:
+    def cpu_system(self) -> Opt[Duration]:
         """CPU time the builder spent in the kernel, or None.
 
         The other half of `cpu_user`, under the same rule."""

@@ -107,7 +107,8 @@ class Cxx:
     """How a Python type is spelled in C++.
 
     `spelling` is the C++ type by value, and `includes` the headers
-    that declare it. `caster` names the nanobind caster header it
+    that declare it. A container's spelling is a template: `{}` is
+    what it holds. `caster` names the nanobind caster header it
     needs, `<nanobind/stl/{caster}.h>`, or None when nanobind casts it
     with no extra header. `by_ref` makes a parameter take it by const
     reference.
@@ -121,6 +122,10 @@ class Cxx:
     by_ref: bool = False
     width: str = ""
     includes: tuple[Include, ...] = ()
+
+    def of(self, held: str) -> str:
+        """A container's C++, holding `held`."""
+        return self.spelling.format(held)
 
     @property
     def param(self) -> tuple[str, str | None]:
@@ -287,6 +292,23 @@ Duration = Annotated[datetime.timedelta,
 # `nb::object`.
 PY_OBJECT = Cxx("nb::object")
 PyFunc = Annotated[object, PY_OBJECT]
+
+# The containers, generic over what they hold. A container's spelling
+# is a template, and `{}` is the C++ of what it holds.
+#
+# A vector, not the std::set libstore keeps a set in. A set casts to a
+# Python set, which has no order - and every one of these answers is
+# sorted, which is information a caller can use.
+VEC = Cxx("std::vector<{}>", "vector", includes=(Std("vector"),))
+type Vec[T] = Annotated[list[T], VEC]
+# `std::map`, which is what libstore keeps every map in - `OutputPathMap`
+# and `SingleDrvOutputs` are both one. Keyed by a name only: the codec
+# unpacks with `strict_map_key`, and a Nix attribute name is a string.
+MAP = Cxx("std::map<std::string, {}>", "map",
+          includes=(Std("map"), Std("string")))
+type Map[V] = Annotated[dict[str, V], MAP]
+OPT = Cxx("std::optional<{}>", "optional", includes=(Std("optional"),))
+type Opt[T] = Annotated[T | None, OPT]
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,9 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Opt,
     Str,
+    Vec,
     binding,
     header,
     needs,
@@ -65,7 +67,7 @@ if NIX_2_35:
         An empty set collects nothing: upstream returns before it
         reads a root."""
 
-        def __init__(self, paths: list[StorePath],
+        def __init__(self, paths: Vec[StorePath],
                      delete_referrers: Bint = False) -> None:
             """The paths, and whether their dead referrers may go too."""
             Cxx("""
@@ -74,7 +76,7 @@ new (self) nix::GCOptions::SpecificPaths{
             """)
 
         @reads("paths")
-        def paths(self) -> list[StorePath]:
+        def paths(self) -> Vec[StorePath]:
             """The paths. Sorted, as Nix's set keeps them."""
 
         @reads("deleteReferrers")
@@ -117,8 +119,8 @@ class GCOptions:
     if NIX_2_35:
         def __init__(self, action: GCAction = GCAction.DELETE_DEAD,
                      ignore_liveness: Bint = False,
-                     paths_to_delete: GCPaths | None = None,
-                     max_freed: U64 | None = None) -> None:
+                     paths_to_delete: Opt[GCPaths] = None,
+                     max_freed: Opt[U64] = None) -> None:
             """Say what to collect. Every answer has an upstream default.
 
             `paths_to_delete` None leaves upstream's default, the whole
@@ -137,8 +139,8 @@ if (max_freed)
     else:
         def __init__(self, action: GCAction = GCAction.DELETE_DEAD,
                      ignore_liveness: Bint = False,
-                     paths_to_delete: list[StorePath] | None = None,
-                     max_freed: U64 | None = None) -> None:
+                     paths_to_delete: Opt[Vec[StorePath]] = None,
+                     max_freed: Opt[U64] = None) -> None:
             """Say what to collect. Every answer has an upstream default.
 
             `max_freed` is None rather than a number, and that is not a
@@ -174,12 +176,12 @@ if (max_freed)
             """Where the collection looks: the whole store, or some paths."""
     else:
         @reads("pathsToDelete")
-        def paths_to_delete(self) -> list[StorePath]:
+        def paths_to_delete(self) -> Vec[StorePath]:
             """The paths `DELETE_SPECIFIC` should try to delete.
 
             Read by no other action. Sorted, because Nix keeps them in a
             set and the order is that set's."""
-    def max_freed(self) -> U64 | None:
+    def max_freed(self) -> Opt[U64]:
         """Stop once this many bytes have been freed, or None for no
         limit.
 
@@ -215,7 +217,7 @@ class GCResults:
     """
 
     @reads("paths", collection="nix::StringSet")
-    def paths(self) -> list[Str]:
+    def paths(self) -> Vec[Str]:
         """The roots, or the paths that were or would be deleted.
 
         Strings, not store paths, and that is upstream's own choice:

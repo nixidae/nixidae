@@ -51,8 +51,11 @@ from huggorm_decl.decl.words import (
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Map,
+    Opt,
     PyFunc,
     Str,
+    Vec,
     binding,
     header,
     in_process,
@@ -79,7 +82,7 @@ class LayeredStoreConfig:
         """What follows `scheme://`, before any `?`."""
 
     @reads("params")
-    def params(self) -> dict[str, Str]:
+    def params(self) -> Map[Str]:
         """The URI parameters no Nix store setting takes: the Python
         store's own."""
 
@@ -95,7 +98,7 @@ class LayeredStore(Store):
     factory made, so `Store("mine://")` answers the subclass."""
 
     def __init__(self, config: LayeredStoreConfig,
-                 underlying: Store | None = None) -> None:
+                 underlying: Opt[Store] = None) -> None:
         """A layer over `underlying`, or over nothing."""
 
     @virtual
@@ -108,18 +111,18 @@ class LayeredStore(Store):
         does not hold it."""
 
     @virtual
-    def query_path_from_hash_part(self, hash_part: Str) -> StorePath | None:
+    def query_path_from_hash_part(self, hash_part: Str) -> Opt[StorePath]:
         """The path whose hash part this is, or None."""
 
     @virtual
-    def query_all_valid_paths(self) -> list[StorePath]:
+    def query_all_valid_paths(self) -> Vec[StorePath]:
         """Every path the store holds."""
 
     @virtual
     def query_referrers(
         self,
         path: StorePath,
-    ) -> list[StorePath]:
+    ) -> Vec[StorePath]:
         """The paths that refer to `path`."""
 
     @virtual
@@ -127,34 +130,34 @@ class LayeredStore(Store):
         """Keep `path` from garbage collection while this process lives."""
 
     @virtual
-    def query_valid_derivers(self, path: StorePath) -> list[StorePath]:
+    def query_valid_derivers(self, path: StorePath) -> Vec[StorePath]:
         """The derivations the store holds that have `path` as an output."""
 
     @virtual
-    def query_valid_paths(self, paths: list[StorePath]) -> list[StorePath]:
+    def query_valid_paths(self, paths: Vec[StorePath]) -> Vec[StorePath]:
         """Which of `paths` the store holds. Nothing is substituted."""
 
     @virtual
     def compute_fs_closure(
         self,
-        paths: list[StorePath],
+        paths: Vec[StorePath],
         flip_direction: Bint = False,
         include_outputs: Bint = False,
         include_derivers: Bint = False,
-    ) -> list[StorePath]:
+    ) -> Vec[StorePath]:
         """Every path reachable from `paths`, `paths` included."""
 
     @virtual
     def query_substitutable_paths(
-            self, paths: list[StorePath]) -> list[StorePath]:
+            self, paths: Vec[StorePath]) -> Vec[StorePath]:
         """Which of `paths` a substituter can supply."""
 
     @virtual
-    def query_missing(self, targets: list[DerivedPath]) -> MissingPaths:
+    def query_missing(self, targets: Vec[DerivedPath]) -> MissingPaths:
         """What building `targets` must do."""
 
     @virtual
-    def query_realisation(self, id: DrvOutput) -> Realisation | None:
+    def query_realisation(self, id: DrvOutput) -> Opt[Realisation]:
         """What a content-addressed output turned out to be, or None."""
 
     @virtual
@@ -181,7 +184,7 @@ class LayeredStore(Store):
         """Check the store, and answer True when errors remain."""
 
     @virtual
-    def is_trusted_client(self) -> TrustedFlag | None:
+    def is_trusted_client(self) -> Opt[TrustedFlag]:
         """Whether this store trusts its client, or None if it cannot
         say."""
 
@@ -190,22 +193,22 @@ class LayeredStore(Store):
         """Make `path` valid, by substituting it if it is not."""
 
     @virtual
-    def build_paths(self, targets: list[DerivedPath],
+    def build_paths(self, targets: Vec[DerivedPath],
                     mode: BuildMode = BuildMode.NORMAL,
-                    eval_store: Store | None = None) -> None:
+                    eval_store: Opt[Store] = None) -> None:
         """Build or fetch every one of `targets`, and wait."""
 
     @virtual
     def build_paths_with_results(
-            self, targets: list[DerivedPath],
+            self, targets: Vec[DerivedPath],
             mode: BuildMode = BuildMode.NORMAL,
-            eval_store: Store | None = None,
-    ) -> list[KeyedBuildResult]:
+            eval_store: Opt[Store] = None,
+    ) -> Vec[KeyedBuildResult]:
         """Build or fetch every one of `targets`, and report on each."""
 
     @virtual
     def get_fs_accessor(self, path: StorePath,
-                        require_valid_path: Bint = True) -> SourceAccessor | None:
+                        require_valid_path: Bint = True) -> Opt[SourceAccessor]:
         """The files of `path`, or None when the store has none there.
         Nix reads a store path's files through this, the evaluator
         included."""
@@ -222,7 +225,7 @@ class LayeredStore(Store):
         dump_method: FileSerialisationMethod = FileSerialisationMethod.NAR,
         hash_method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
         repair: Bint = False,
     ) -> StorePath:
         """Add what `dump` serialises, and name the result."""
@@ -235,7 +238,7 @@ class LayeredStore(Store):
 
 
 @needs("huggorm_decl/cpp/layered_store.hpp")
-def register_store_implementation(name: Str, schemes: list[Str],
+def register_store_implementation(name: Str, schemes: Vec[Str],
                                   factory: PyFunc) -> None:
     """Make `schemes` open a store that `factory` makes, for the rest of
     the process.

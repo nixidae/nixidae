@@ -54,10 +54,10 @@ becomes the place the real code lives.
 from collections.abc import Iterator, Sequence
 from typing import assert_never
 
-from huggorm_dsl.declare import Crossing, Include, Local, Std
+from huggorm_dsl.declare import OPT, Crossing, Cxx, Include, Local, Std
 from huggorm_dsl.read import Body
 from huggorm_gen import ir
-from huggorm_gen.cxx import NAMESPACE
+from huggorm_gen.cxx import NAMESPACE, fact
 
 INDENT = "    "
 
@@ -549,9 +549,14 @@ def _word_values(t: ir.TypeRef | None, model: ir.Model | None
 def _word_map_cxx(t: ir.TypeRef, words: ir.EnumModel) -> str:
     """The C++ map a `dict[str, W]` answer is: the enum, maybe absent."""
     assert words.cxx is not None
-    held = (f"std::optional<{words.cxx.held}>" if t.inner.optional
+    held = (_container(t.inner).of(words.cxx.held) if t.inner.optional
             else words.cxx.held)
-    return f"std::map<std::string, {held}>"
+    return _container(t).of(held)
+
+
+def _container(t: ir.TypeRef) -> Cxx:
+    """The `Vec`, `Map` or `Opt` this node is."""
+    return fact(t.spelling, t.spelled)
 
 
 def _answer_cxx(t: ir.TypeRef, model: ir.Model | None) -> str:
@@ -561,7 +566,7 @@ def _answer_cxx(t: ir.TypeRef, model: ir.Model | None) -> str:
     words = _word_answer(t, model)
     if words is None or words.cxx is None:
         return _virtual_cxx(t)
-    return (f"std::optional<{words.cxx.held}>" if t.optional
+    return (_container(t).of(words.cxx.held) if t.optional
             else words.cxx.held)
 
 
@@ -577,8 +582,9 @@ def _taken(t: ir.TypeRef | None, model: ir.Model | None) -> list[str]:
         parser = values.parsed_by or f"from_word<{values.cxx.held}>"
         word = f"{parser}(nb::cast<std::string>(item.second))"
         if t.inner.optional:
-            word = (f"item.second.is_none() ? std::optional<{values.cxx.held}>{{}}"
-                    f" : std::optional<{values.cxx.held}>{{{word}}}")
+            held = _container(t.inner).of(values.cxx.held)
+            word = (f"item.second.is_none() ? {held}{{}}"
+                    f" : {held}{{{word}}}")
         return [f"{_word_map_cxx(t, values)} out;",
                 "for (auto item : nb::cast<nb::dict>(answer))",
                 f"{INDENT}out.emplace(nb::cast<std::string>(item.first), {word});",
@@ -801,6 +807,10 @@ class Emitter:
             if t.caster:
                 casters.add(t.caster)
             if t.spelled is not None:
+                # The alias's own, which a hand-built shape such as
+                # `optional_of` carries with no `caster` resolved.
+                if t.spelled.caster:
+                    casters.add(t.spelled.caster)
                 declared.update(t.spelled.includes)
             # A container or an optional needs what it HOLDS cast too:
             # `list[StorePath]` needs <vector>, and a `list[str]` needs
@@ -824,7 +834,7 @@ class Emitter:
             # one and nothing else optional in it - `store` had returns
             # to hide it, `derived_path` had not.
             if pr is not None and pr.absent:
-                casters.add("optional")
+                note(ir.TypeRef.optional_of(pr.type))
         # A hook has no signature worth casting, and it still names the
         # header its C++ lives in. `wanted` below is where that lands.
 
@@ -1201,7 +1211,7 @@ class Emitter:
         if m.returns is not None and values is not None:
             word = f"{NAMESPACE}::as_word(item.second)"
             if m.returns.inner.optional:
-                word = (f"item.second ? std::optional<std::string>{{"
+                word = (f"item.second ? {m.returns.inner.cxx}{{"
                         f"{NAMESPACE}::as_word(*item.second)}} : std::nullopt")
             body += [f"{INDENT * 4}{_answer_cxx(m.returns, self.model)} answer;",
                      f"{INDENT * 4}{{", *release,
@@ -1263,8 +1273,9 @@ class Emitter:
                 args += f", {spelled} {pr.name}_"
                 if pr.type.optional:
                     opening += [
-                        f"{INDENT * depth}std::optional<decltype({parser}"
-                        f"(*{pr.name}_))> {pr.name};",
+                        f"{INDENT * depth}"
+                        f"{_container(pr.type).of(f'decltype({parser}(*{pr.name}_))')}"
+                        f" {pr.name};",
                         f"{INDENT * depth}if ({pr.name}_)",
                         f"{INDENT * (depth + 1)}{pr.name} = {parser}(*{pr.name}_);"]
                     continue
@@ -1275,7 +1286,7 @@ class Emitter:
                 args += f", {spelled} {pr.name}"
                 continue
             held = pr.type.required.cxx
-            args += f", const std::optional<{held}> & {pr.name}_"
+            args += f", const {OPT.of(held)} & {pr.name}_"
             opening.append(f"{INDENT * depth}const {held} {pr.name} = "
                            f"{pr.name}_.value_or({held}{{}});")
         return args, opening

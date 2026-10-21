@@ -28,8 +28,11 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Map,
+    Opt,
     Str,
     Variant,
+    Vec,
     Wrap,
     binding,
     blocks,
@@ -68,7 +71,7 @@ class RegistryEntry:
     def target(self) -> Str:
         """The reference it resolves to."""
 
-    def extra_attrs(self) -> dict[str, Attr]:
+    def extra_attrs(self) -> Map[Attr]:
         """What the entry adds to the target. `dir` is the subdirectory
         of a flake that is not at the top of its tree."""
 
@@ -93,11 +96,11 @@ class RegistryWrite:
         Nix's own command says nothing when it removes nothing, so
         this is the only way to tell the two apart."""
 
-    def target(self) -> Str | None:
+    def target(self) -> Opt[Str]:
         """The reference the source now resolves to. None for a
         removal."""
 
-    def locked(self) -> Bint | None:
+    def locked(self) -> Opt[Bint]:
         """Whether that target is locked. Only a pin answers: an entry
         that is not locked still moves when its branch does."""
 
@@ -107,8 +110,8 @@ class RegistryWrite:
 @threading("pool")
 @blocks
 def registry_entries(store: Store,
-                     settings: dict[str, Str] | None = None,
-                     ) -> list[RegistryEntry]:
+                     settings: Opt[Map[Str]] = None,
+                     ) -> Vec[RegistryEntry]:
     """Every entry of every layer, in the order Nix consults them.
 
     THIS CAN DOWNLOAD. The global layer is the file `flake-registry`
@@ -145,9 +148,9 @@ return nix::fetchers::getUserRegistryPath().string();
        "nix/util/source-path.hh")
 @threading("pool")
 @blocks
-def registry_add(path: Str | None, source: Str, target: Str,
-                 base: Str | None = None,
-                 settings: dict[str, Str] | None = None) -> RegistryWrite:
+def registry_add(path: Opt[Str], source: Str, target: Str,
+                 base: Opt[Str] = None,
+                 settings: Opt[Map[Str]] = None) -> RegistryWrite:
     """`nix registry add`: resolve `source` to `target` from now on.
 
     `path` is the file, None for the user's. Both references parse as
@@ -182,9 +185,9 @@ return huggorm::RegistryWrite{file.string(), removed, to.input.to_string(), std:
        "nix/util/source-path.hh")
 @threading("pool")
 @blocks
-def registry_remove(path: Str | None, source: Str,
-                    base: Str | None = None,
-                    settings: dict[str, Str] | None = None) -> RegistryWrite:
+def registry_remove(path: Opt[Str], source: Str,
+                    base: Opt[Str] = None,
+                    settings: Opt[Map[Str]] = None) -> RegistryWrite:
     """`nix registry remove`: drop every entry for `source`.
 
     Whole references compare, so `nixpkgs` does not remove an entry
@@ -212,10 +215,10 @@ return huggorm::RegistryWrite{file.string(), removed, std::nullopt, std::nullopt
        "nix/util/source-path.hh")
 @threading("pool")
 @blocks
-def registry_pin(store: Store, path: Str | None, source: Str,
-                 target: Str | None = None,
-                 base: Str | None = None,
-                 settings: dict[str, Str] | None = None) -> RegistryWrite:
+def registry_pin(store: Store, path: Opt[Str], source: Str,
+                 target: Opt[Str] = None,
+                 base: Opt[Str] = None,
+                 settings: Opt[Map[Str]] = None) -> RegistryWrite:
     """`nix registry pin`: resolve `source` to what `target` is NOW.
 
     `target` None pins `source` to itself. THIS FETCHES: resolving

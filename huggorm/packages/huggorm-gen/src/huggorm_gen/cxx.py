@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol, assert_never
+from typing import TYPE_CHECKING, Protocol
 
 from huggorm_dsl.declare import STRING, Crossing, Cxx, Decl, DeclKind
-from huggorm_dsl.read import Class, Origin, Param
+from huggorm_dsl.read import Class, Param
 
 if TYPE_CHECKING:
     from huggorm_gen.ir import TypeRef
@@ -95,17 +95,17 @@ def arm(cls: Class, name: str, known: Mapping[str, Class]) -> str:
     """One arm as Python has it, in C++: a builtin from the alias the
     declaration wrote, and a class through its own declaration."""
     if (scalar := cls.decl.scalars.get(name)) is not None:
-        return leaf(scalar.python, scalar.cxx).spelling
+        return fact(scalar.python, scalar.cxx).spelling
     return bare(known[name], known)
 
 
-def leaf(python: str, fact: Cxx | None) -> Cxx:
-    """The C++ a leaf no class declares carries, or a refusal."""
-    if fact is None:
+def fact(python: str, said: Cxx | None) -> Cxx:
+    """The C++ an alias carries, or a refusal."""
+    if said is None:
         raise TypeError(
             f"'{python}' has no C++ spelling. A bound class names types "
             f"through an Annotated alias in declare.py.")
-    return fact
+    return said
 
 
 def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
@@ -128,34 +128,13 @@ def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
         # give a Python caller one spelling for absent and the emitter
         # two.
         return "nb::object", None
-    match t.origin:
-        case Origin.OPTIONAL:
-            held, _ = value(t.inner, known)
-            return f"std::optional<{held}>", "optional"
-        case Origin.LIST:
-            held, _ = value(t.inner, known)
-            # A vector, not the std::set libstore keeps them in. A set
-            # casts to a Python set, which has no order - and every one
-            # of these answers is sorted, which is information a caller
-            # can use.
-            return f"std::vector<{held}>", "vector"
-        case Origin.DICT:
-            held, _ = value(t.inner, known)
-            # `std::map`, which is what libstore keeps every one of
-            # these in - `OutputPathMap` and `SingleDrvOutputs` are both
-            # one - and what nanobind's <nanobind/stl/map.h> casts.
-            #
-            # str keys only: every map this API returns is keyed by a
-            # name, and the codec unpacks with `strict_map_key`. The
-            # declaration spells `dict[str, V]` and nothing else parses.
-            #
-            # Not an `nb::dict` built by hand in a body: that IS the
-            # mapping this exists to derive.
-            return f"std::map<std::string, {held}>", "map"
-        case None:
-            pass
-        case _:
-            assert_never(t.origin)
+    if t.origin is not None:
+        # `Vec`, `Map` or `Opt`: the alias's template, holding the C++
+        # of what it holds. Not an `nb::dict` built by hand in a body:
+        # that IS the mapping this exists to derive.
+        container = fact(t.spelling, t.spelled)
+        held, _ = value(t.inner, known)
+        return container.of(held), container.caster
     other = t.declared
     if other is not None:
         spelled = bare(other, known)
@@ -172,7 +151,7 @@ def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # holding a string or a vector does.
             return spelled, "variant"
         return spelled, STRING.caster if other.is_words else None
-    entry = leaf(t.name, t.spelled)
+    entry = fact(t.name, t.spelled)
     # The value, never the reference: a `const std::string &` member
     # of a struct is a dangling reference waiting to happen, and an
     # optional cannot hold one at all.
@@ -217,7 +196,7 @@ def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
         if other.decl.wire is Crossing.VALUE:
             return f"const {bare(other, known)} &", None
         return f"{bare(other, known)} &", None
-    return leaf(t.spelling, t.spelled).param
+    return fact(t.spelling, t.spelled).param
 
 
 def absent(pr: Param) -> bool:

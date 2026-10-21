@@ -21,7 +21,9 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Opt,
     Str,
+    Vec,
     binding,
     header,
     needs,
@@ -102,13 +104,13 @@ class PathInfo:
         """The size of that NAR in bytes. Not the size on disk."""
 
     @reads("deriver")
-    def deriver(self) -> StorePath | None:
+    def deriver(self) -> Opt[StorePath]:
         """The .drv that built this, or None.
 
         None is a real answer, not a gap: a path added straight to the
         store was not built by anything."""
 
-    def registration_time(self) -> I64 | None:
+    def registration_time(self) -> Opt[I64]:
         """When the store learnt about this path, as a Unix time, or
         None when it does not know.
 
@@ -126,7 +128,7 @@ return static_cast<std::int64_t>(self.registrationTime);
         it from a substituter or an import."""
 
     @reads("ca")
-    def ca(self) -> ContentAddress | None:
+    def ca(self) -> Opt[ContentAddress]:
         """How this path's content addresses itself, or None.
 
         Present for a path ADDED to the store. None for one that was
@@ -139,7 +141,7 @@ return static_cast<std::int64_t>(self.registrationTime);
         # nixidae/nixidae#585
 
     @reads("references")
-    def references(self) -> list[StorePath]:
+    def references(self) -> Vec[StorePath]:
         """The store paths this one points at, its own included when
         it does.
 
@@ -152,7 +154,7 @@ return static_cast<std::int64_t>(self.registrationTime);
         set's."""
 
     @reads("sigs")
-    def sigs(self) -> list[Signature]:
+    def sigs(self) -> Vec[Signature]:
         """Who vouched for this path.
 
         Empty for a path this store added itself: a signature says a

@@ -16,8 +16,10 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Field,
+    Opt,
     Str,
     StrView,
+    Vec,
     binding,
     binds,
     cxx_name,
@@ -155,7 +157,7 @@ class Trace:
         Strict UTF-8, so a hint quoting other bytes raises here and
         reads through `hint_bytes`."""
 
-    def pos(self) -> Position | None:
+    def pos(self) -> Opt[Position]:
         """Where, or None when the frame has no position."""
 
     @local
@@ -192,7 +194,7 @@ class ErrorInfo:
     def msg_bytes(self) -> Bytes:
         """The bytes of `msg`, exactly as Nix raised them."""
 
-    def pos(self) -> Position | None:
+    def pos(self) -> Opt[Position]:
         """Where the error is, or None when Nix gave no position."""
 
     def is_from_expr(self) -> Bint:
@@ -202,7 +204,7 @@ class ErrorInfo:
     def status(self) -> I64:
         """The exit status Nix's CLI gives for this error."""
 
-    def traces(self) -> list[Trace]:
+    def traces(self) -> Vec[Trace]:
         """The evaluation trace, in the order Nix prints it: the
         outermost frame first. Past 32 frames, the outermost ones go,
         because the frames nearest the error say the most."""
@@ -211,7 +213,7 @@ class ErrorInfo:
         """Whether Nix held more frames than `traces` does."""
 
     @wire_read("suggestions_bytes")
-    def suggestions(self) -> list[Str]:
+    def suggestions(self) -> Vec[Str]:
         """Nix's "did you mean" names, the best match first.
 
         Strict UTF-8 like the rest, so a suggestion of other bytes
@@ -219,7 +221,7 @@ class ErrorInfo:
 
     @local
     @reads("suggestions")
-    def suggestions_bytes(self) -> list[Bytes]:
+    def suggestions_bytes(self) -> Vec[Bytes]:
         """The suggestions as bytes, exactly as Nix raised them."""
 
 

@@ -14,6 +14,8 @@ from huggorm_decl.decl.registry import Attr
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
     Cxx,
+    Map,
+    Opt,
     Str,
     binding,
     blocks,
@@ -54,13 +56,13 @@ class Input:
         where the scheme has no place of its own for it."""
         Cxx("return self.toURLString();")
 
-    def to_attrs(self) -> dict[str, Attr]:
+    def to_attrs(self) -> Map[Attr]:
         """The input's attributes, what `builtins.fetchTree` takes."""
         Cxx("return self.toAttrs();")
 
     @local
     @blocks
-    def fingerprint(self, store: Store) -> Str | None:
+    def fingerprint(self, store: Store) -> Opt[Str]:
         """What names this input's contents in the evaluation cache, or
         None for an input that cannot say without fetching.
 
@@ -98,7 +100,7 @@ return huggorm::input_of(*fetch, url);
 @needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/fetchers.hpp",
        "nix/fetchers/fetch-settings.hh", "nix/fetchers/fetchers.hh")
 @threading("pool")
-def input_from_attrs(attrs: dict[str, Attr]) -> Input:
+def input_from_attrs(attrs: Map[Attr]) -> Input:
     """Build an input from its attributes, as `builtins.fetchTree` does
     from an attribute set. Refuses an attribute the input's scheme
     does not take. No fetcher setting takes part, as in

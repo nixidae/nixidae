@@ -14,6 +14,8 @@ one part is its attributes: `toAttrs` writes the subdirectory as
 from huggorm_decl.decl.registry import Attr
 from huggorm_dsl.declare import (
     Cxx,
+    Map,
+    Opt,
     Str,
     binding,
     blocks,
@@ -57,7 +59,7 @@ class FlakeRef:
     def subdir(self) -> Str:
         """The flake's directory inside the input, empty at the top."""
 
-    def to_attrs(self) -> dict[str, Attr]:
+    def to_attrs(self) -> Map[Attr]:
         """The input's attributes, with the subdirectory as `dir`."""
         Cxx("return self.toAttrs();")
 
@@ -80,7 +82,7 @@ return huggorm::flake_ref_from_attrs(*fetch, to_attrs);
        "nix/flake/flakeref.hh")
 @threading("pool")
 @blocks
-def parse_flake_ref(url: Str, base: Str | None = None) -> FlakeRef:
+def parse_flake_ref(url: Str, base: Opt[Str] = None) -> FlakeRef:
     """Parse `url` as `nix` parses a flake reference.
 
     `base` is the directory a relative path names from, None for the

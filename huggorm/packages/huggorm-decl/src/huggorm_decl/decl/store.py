@@ -32,9 +32,12 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Cxx,
+    Map,
+    Opt,
     Path,
     Str,
     StrView,
+    Vec,
     abstract,
     binding,
     binds,
@@ -117,18 +120,18 @@ class MissingPaths:
     """
 
     @reads("willBuild")
-    def will_build(self) -> list[StorePath]:
+    def will_build(self) -> Vec[StorePath]:
         """The derivations that would be BUILT here.
 
         Sorted, because Nix keeps them in a set and the order is that
         set's."""
 
     @reads("willSubstitute")
-    def will_substitute(self) -> list[StorePath]:
+    def will_substitute(self) -> Vec[StorePath]:
         """The outputs that would be FETCHED from a substituter."""
 
     @reads("unknown")
-    def unknown(self) -> list[StorePath]:
+    def unknown(self) -> Vec[StorePath]:
         """The paths this store cannot account for at all.
 
         Neither buildable nor substitutable from here - usually a
@@ -239,7 +242,7 @@ if (auto * remote = dynamic_cast<nix::RemoteStore *>(&self))
         data: Bytes,
         method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
     ) -> StorePath:
         """Add one file's contents to the store, and name the result.
 
@@ -294,7 +297,7 @@ return self.addToStoreFromDump(
         path: Str,
         method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
     ) -> StorePath:
         """Add a file or a directory from the filesystem to the store.
 
@@ -347,7 +350,7 @@ return self.addToStore(
         path: Str,
         method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
     ) -> StorePath:
         """The path `add_path_to_store` would give, without adding.
 
@@ -375,7 +378,7 @@ return self.computeStorePath(
         path: Str = "/",
         method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
     ) -> StorePath:
         """Add the object at `path` in `accessor` to the store.
 
@@ -390,7 +393,7 @@ return self.addToStore(
     as_set<nix::StorePathSet>(references));
         """)
     @cxx_name("queryAllValidPaths")
-    def query_all_valid_paths(self) -> list[StorePath]:
+    def query_all_valid_paths(self) -> Vec[StorePath]:
         """Every path this store holds.
 
         Not every store answers it. nix::Store's own implementation
@@ -404,7 +407,7 @@ return self.addToStore(
     def query_valid_derivers(
         self,
         path: StorePath,
-    ) -> list[StorePath]:
+    ) -> Vec[StorePath]:
         """Every derivation this store still holds that has `path` as
         an output.
 
@@ -420,8 +423,8 @@ return self.addToStore(
     @cxx_name("queryValidPaths")
     def query_valid_paths(
         self,
-        paths: list[StorePath],
-    ) -> list[StorePath]:
+        paths: Vec[StorePath],
+    ) -> Vec[StorePath]:
         """Which of these paths this store actually holds.
 
         The set form of `is_valid_path`, and not merely a loop over
@@ -440,11 +443,11 @@ return self.addToStore(
     # gets what `nix-store -qR` does.
     def compute_fs_closure(
         self,
-        paths: list[StorePath],
+        paths: Vec[StorePath],
         flip_direction: Bint = False,
         include_outputs: Bint = False,
         include_derivers: Bint = False,
-    ) -> list[StorePath]:
+    ) -> Vec[StorePath]:
         """Every path reachable from these, transitively.
 
         What `nix-store --query --requisites` answers, and the reason
@@ -474,7 +477,7 @@ return as_list(out);
     def query_referrers(
         self,
         path: StorePath,
-    ) -> list[StorePath]:
+    ) -> Vec[StorePath]:
         """Which store paths point AT this one.
 
         The inverse of `PathInfo.references`, and the direction a
@@ -492,7 +495,7 @@ return as_list(referrers);
         """)
     def make_validity_registration(
         self,
-        paths: list[StorePath],
+        paths: Vec[StorePath],
         show_derivers: Bint = True,
         show_hash: Bint = True,
     ) -> Str:
@@ -544,7 +547,7 @@ return fs->toRealPath(path);
     # every kind.
     @instant
     @needs("nix/store/local-fs-store.hh")
-    def root_dir(self) -> Path | None:
+    def root_dir(self) -> Opt[Path]:
         """The directory a chroot store is rooted at, or None for a
         store at its logical location or with no filesystem."""
         Cxx("""
@@ -555,7 +558,7 @@ return std::filesystem::path(*fs->config.rootDir.get()).string();
         """)
     @instant
     @needs("nix/store/local-fs-store.hh")
-    def state_dir(self) -> Path | None:
+    def state_dir(self) -> Opt[Path]:
         """Where the store keeps its database, roots and profiles, or
         None for a store with no filesystem."""
         Cxx("""
@@ -566,7 +569,7 @@ return std::filesystem::path(fs->config.stateDir.get()).string();
         """)
     @instant
     @needs("nix/store/local-fs-store.hh")
-    def log_dir(self) -> Path | None:
+    def log_dir(self) -> Opt[Path]:
         """Where the store keeps build logs, or None for a store with
         no filesystem."""
         Cxx("""
@@ -577,7 +580,7 @@ return std::filesystem::path(fs->config.logDir.get()).string();
         """)
     @instant
     @needs("nix/store/local-fs-store.hh")
-    def real_store_dir(self) -> Path | None:
+    def real_store_dir(self) -> Opt[Path]:
         """Where the store's files really are, or None for a store with
         no filesystem. Differs from `store_dir` for a chroot store."""
         Cxx("""
@@ -588,7 +591,7 @@ return std::filesystem::path(fs->config.realStoreDir.get()).string();
         """)
     @instant
     @needs("nix/store/local-store.hh")
-    def build_dir(self) -> Path | None:
+    def build_dir(self) -> Opt[Path]:
         """Where a local store runs its builds, or None for any other
         kind of store: a daemon's builds run where the daemon says."""
         Cxx("""
@@ -630,7 +633,7 @@ buffered.flush();
         """)
 
     def get_fs_accessor(self, path: StorePath,
-                        require_valid_path: Bint = True) -> SourceAccessor | None:
+                        require_valid_path: Bint = True) -> Opt[SourceAccessor]:
         """The files of `path`, or None when the store has no object
         there. With `require_valid_path` off, a path the store holds but
         has not registered is read too."""
@@ -649,7 +652,7 @@ return std::make_shared<huggorm::SourceAccessor>(std::move(found));
         dump_method: FileSerialisationMethod = FileSerialisationMethod.NAR,
         hash_method: ContentAddressMethod = ContentAddressMethod.NAR,
         hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-        references: list[StorePath] | None = None,
+        references: Opt[Vec[StorePath]] = None,
         repair: Bint = False,
     ) -> StorePath:
         """Add what `dump` serialises, and name the result. Nix's
@@ -731,7 +734,7 @@ return huggorm::StoreLocation{store_path, sub.absOrEmpty()};
     # binding hands back the KEYED type instead, and this is where
     # the key is put back: it is the caller's own argument.
     @needs("nix/store/realisation.hh")
-    def query_realisation(self, id: DrvOutput) -> Realisation | None:
+    def query_realisation(self, id: DrvOutput) -> Opt[Realisation]:
         """What a CA derivation's output turned out to be, or None.
 
         None is a normal answer twice over. The store may simply not
@@ -758,7 +761,7 @@ return nix::Realisation{*found, id};
     # READ-ONLY, which is why this is the first consumer rather than
     # `build_paths`: it answers against a chroot store with nothing
     # built, so the hermetic suite can exercise the whole shape.
-    def query_missing(self, targets: list[DerivedPath]) -> MissingPaths:
+    def query_missing(self, targets: Vec[DerivedPath]) -> MissingPaths:
         """What building these would have to do.
 
         Nothing is built, fetched or locked. A path already valid here
@@ -776,7 +779,7 @@ return nix::Realisation{*found, id};
     # hard-coded `dict[str, int]` serving one free function.
     @cxx_name("queryDerivationOutputMap")
     def query_derivation_output_map(
-            self, path: StorePath) -> dict[str, StorePath]:
+            self, path: StorePath) -> Map[StorePath]:
         """Which path each of this derivation's outputs has.
 
         Keyed by output NAME - `out`, `dev`, `man` - because that is
@@ -815,9 +818,9 @@ return nix::Realisation{*found, id};
     # (nixidae/nixidae#596): both take the same list, and only one of them
     # changes the store.
     @needs("huggorm_decl/cpp/build.hpp")
-    def build_paths(self, targets: list[DerivedPath],
+    def build_paths(self, targets: Vec[DerivedPath],
                     mode: BuildMode = BuildMode.NORMAL,
-                    eval_store: Store | None = None) -> None:
+                    eval_store: Opt[Store] = None) -> None:
         """Build or fetch every one of these, and wait.
 
         A target that is a derivation gets BUILT, which means its
@@ -848,10 +851,10 @@ return nix::Realisation{*found, id};
 
     @needs("nix/store/build-result.hh", "huggorm_decl/cpp/build.hpp")
     def build_paths_with_results(
-            self, targets: list[DerivedPath],
+            self, targets: Vec[DerivedPath],
             mode: BuildMode = BuildMode.NORMAL,
-            eval_store: Store | None = None,
-    ) -> list[KeyedBuildResult]:
+            eval_store: Opt[Store] = None,
+    ) -> Vec[KeyedBuildResult]:
         """Build or fetch every one of these, and report on each.
 
         The same work `build_paths` does, and the other shape of the
@@ -911,7 +914,7 @@ return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_o
         store was asked. A binary cache has nothing to root."""
     @cxx_name("querySubstitutablePaths")
     def query_substitutable_paths(
-            self, paths: list[StorePath]) -> list[StorePath]:
+            self, paths: Vec[StorePath]) -> Vec[StorePath]:
         """Which of these this store could FETCH rather than build.
 
         Asked of the substituters, not of this store: a path already
@@ -923,7 +926,7 @@ return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_o
         Shorter than what went in, and sorted, because upstream keeps
         them in a set."""
     @cxx_name("topoSortPaths")
-    def topo_sort_paths(self, paths: list[StorePath]) -> list[StorePath]:
+    def topo_sort_paths(self, paths: Vec[StorePath]) -> Vec[StorePath]:
         """These paths in reference order: a path before what it needs.
 
         If p refers to q then p comes before q. That is the order to
@@ -982,7 +985,7 @@ nix::require<nix::SubmitStore>(self).submitOutput(
             """)
 
     @needs("nix/store/log-store.hh", "nix/store/store-cast.hh")
-    def get_build_log(self, path: StorePath) -> Str | None:
+    def get_build_log(self, path: StorePath) -> Opt[Str]:
         """The log of the build that made this path, or None.
 
         `path` may be the derivation or one of its outputs; libstore
@@ -999,7 +1002,7 @@ nix::require<nix::SubmitStore>(self).submitOutput(
     def copy_closure(
         self,
         destination: Store,
-        paths: list[StorePath],
+        paths: Vec[StorePath],
         repair: Bint = False,
         check_sigs: Bint = True,
         substitute: Bint = False,
@@ -1021,7 +1024,7 @@ nix::copyClosure(
     substitute ? nix::Substitute : nix::NoSubstitute);
         """)
     @cxx_name("queryPathFromHashPart")
-    def query_path_from_hash_part(self, hash_part: Str) -> StorePath | None:
+    def query_path_from_hash_part(self, hash_part: Str) -> Opt[StorePath]:
         """Which store path has this hash part, or None.
 
         A store path's name begins with a 32-character base-32 hash,
@@ -1037,7 +1040,7 @@ nix::copyClosure(
         here the caller asked whether one exists."""
 
     @cxx_name("isTrustedClient")
-    def is_trusted_client(self) -> TrustedFlag | None:
+    def is_trusted_client(self) -> Opt[TrustedFlag]:
         """Whether this store trusts US, or None if it cannot say.
 
         Not a bool, because the answer has three values and upstream
@@ -1155,7 +1158,7 @@ if (indirect == nullptr)
 indirect->addIndirectRoot(path);
         """)
     @needs("algorithm")
-    def find_roots(self, censor: Bint) -> list[GcRoot]:
+    def find_roots(self, censor: Bint) -> Vec[GcRoot]:
         """Every root the collector would keep, sorted by link.
         `nix-store --gc --print-roots`.
 

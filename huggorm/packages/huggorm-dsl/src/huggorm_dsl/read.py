@@ -848,6 +848,11 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
             node, f"'{ann.__forward_arg__}' is not a name this file defines "
                   f"or imports. Import the declaration that declares it.")
     origin = get_origin(ann)
+    if isinstance(origin, typing.TypeAliasType):
+        # A generic alias such as `Vec[Str]`: its value with the
+        # arguments put in, `Annotated[list[Str], VEC]`.
+        ann = origin.__value__[*get_args(ann)]
+        origin = get_origin(ann)
     if origin is Annotated:
         held, *meta = get_args(ann)
         if any(isinstance(m, declare.Variant) for m in meta):
@@ -862,6 +867,9 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
                      if isinstance(m, declare.Async)), "")
         for m in meta:
             if isinstance(m, Cxx):
+                if get_origin(held) is not None:
+                    # A container alias: the structure, and its C++.
+                    return replace(type_of(held, node, home), cxx=m)
                 return replace(_undeclared(held, m), twin=twin)
         raise DeclarationError(
             node, f"'{ann}' carries no C++ spelling. Annotate the alias "
@@ -871,7 +879,7 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
         present = [a for a in arms if a is not type(None)]
         if len(arms) != 2 or len(present) != 1:
             raise DeclarationError(
-                node, f"'{ann}': an annotation holds `T | None` and no other "
+                node, f"'{ann}': an annotation holds `Opt[T]` and no other "
                       f"union. A sum type is a named alias with Variant(...).")
         inner = type_of(present[0], node, home)
         return Type(python=f"{inner.python} | None", origin=Origin.OPTIONAL,
@@ -893,7 +901,7 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
     if origin is not None:
         raise DeclarationError(
             node, f"'{ann}': no binding carries a {origin.__name__}. A "
-                  f"declaration holds list, dict[str, ...] and T | None.")
+                  f"declaration holds Vec, Map and Opt.")
     if isinstance(ann, type):
         if _declared(ann, home):
             return Type(python=ann.__name__, bound=True)
@@ -902,17 +910,19 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
 
 
 def _spelled(t: Type, node: ast.AST, where: str) -> Type:
-    """`t`, refused when a leaf of it is a bare builtin.
+    """`t`, refused when any node of it is a bare builtin.
 
     A builtin says what Python sees and nothing about the C++, so a
-    signature names a type from declare.py. An exception's parts are
-    read through `type_of` alone: no C++ signature names them."""
-    leaf = t.leaf
-    if not leaf.bound and leaf.cxx is None:
+    signature names a type from declare.py: `Vec[Str]`, not
+    `list[str]`. An exception's parts are read through `type_of`
+    alone: no C++ signature names them."""
+    for a in t.args:
+        _spelled(a, node, where)
+    if not t.bound and t.cxx is None:
         raise DeclarationError(
-            node, f"{where}: '{leaf.python}' is a bare builtin or class. "
-                  f"Name a type from declare.py - Str, Bint, I64, U64 - "
-                  f"which carries its C++ spelling.")
+            node, f"{where}: '{t.python}' is a bare builtin or class. "
+                  f"Name a type from declare.py - Str, I64, Vec, Map, "
+                  f"Opt - which carries its C++ spelling.")
     return t
 
 
@@ -1224,7 +1234,7 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
             # `| None` where the declaration did not (nixidae/nixidae#641).
             raise DeclarationError(
                 arg, f"{node.name}({arg.arg}): a default of None needs "
-                     f"`| None` in the type.")
+                     f"`Opt[...]` in the type.")
         member = _member(anns[arg.arg], default)
         # A vocabulary member is written as the member, not by repr.
         if default is not inspect.Parameter.empty and not member:

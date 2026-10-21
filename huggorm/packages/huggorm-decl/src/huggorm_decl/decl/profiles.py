@@ -14,8 +14,10 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Opt,
     Path,
     Str,
+    Vec,
     binding,
     blocks,
     header,
@@ -57,7 +59,7 @@ class Generation:
 @needs("nix/store/profiles.hh")
 @threading("pool")
 @blocks
-def find_generations(profile: Path) -> list[Generation]:
+def find_generations(profile: Path) -> Vec[Generation]:
     """Every generation of `profile`, oldest first. Empty for a profile
     that does not exist."""
     Cxx("""
@@ -69,7 +71,7 @@ return std::vector<nix::Generation>(gens.begin(), gens.end());
 @needs("nix/store/profiles.hh")
 @threading("pool")
 @blocks
-def current_generation(profile: Path) -> U64 | None:
+def current_generation(profile: Path) -> Opt[U64]:
     """The number of the generation `profile` points at, or None."""
     Cxx("return nix::findGenerations(profile).second;")
 
@@ -102,7 +104,7 @@ return generation.string();
 @needs("nix/store/profiles.hh")
 @threading("pool")
 @blocks
-def switch_generation(profile: Path, number: U64 | None = None, dry_run: Bint = False) -> None:
+def switch_generation(profile: Path, number: Opt[U64] = None, dry_run: Bint = False) -> None:
     """Point `profile` at generation `number`, or at the newest one older
     than the current. `nix-env --switch-generation` and `--rollback`.
 

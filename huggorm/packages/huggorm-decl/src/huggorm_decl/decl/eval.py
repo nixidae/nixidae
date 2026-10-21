@@ -39,11 +39,14 @@ from huggorm_dsl.declare import (
     Entries,
     Items,
     Leaf,
+    Map,
     Null,
+    Opt,
     PyFunc,
     Str,
     StrView,
     Subscription,
+    Vec,
     binding,
     binds,
     blocks,
@@ -269,7 +272,7 @@ throw nix::TypeError(self.state(), "expected %s or %s but found %s",
         Cxx("return static_cast<std::int64_t>(self.get()->listSize());")
 
     @guard("attrs")
-    def names(self) -> list[Str]:
+    def names(self) -> Vec[Str]:
         """Every attribute name, in alphabetical order. `name_at` for
         each index, in one call."""
         Cxx("""
@@ -385,7 +388,7 @@ return nix::rewriteStrings(text, rewrites);
 
     @blocks
     @needs("functional")
-    def string_context(self) -> list[Str]:
+    def string_context(self) -> Vec[Str]:
         """The string context of every string this value holds, each
         element in Nix's own encoding (`NixStringContextElem`), sorted.
 
@@ -444,7 +447,7 @@ return self.state().realiseString(*self.get(), nullptr, false, nix::noPos);
 
     @guard("list")
     @blocks
-    def realise_argv(self) -> list[Str]:
+    def realise_argv(self) -> Vec[Str]:
         """A list of strings, with everything they name built.
 
         `realise_string` for each element, with ONE build for the
@@ -624,7 +627,7 @@ return *path;
     @guard("attrs")
     @blocks
     @needs("nix/expr/get-drvs.hh")
-    def output_paths(self) -> dict[str, StorePath | None]:
+    def output_paths(self) -> Map[Opt[StorePath]]:
         """Each output this derivation value names, and its path.
 
         `PackageInfo::queryOutputs`, every output rather than only
@@ -732,7 +735,7 @@ return formals.has_value() && formals->ellipsis;
     # positions this declaration does not carry.
 
     @guard("function")
-    def formal_names(self) -> list[Str]:
+    def formal_names(self) -> Vec[Str]:
         """Every formal this lambda declares, alphabetically.
 
         Empty for a `x:` lambda, which declares none.
@@ -754,7 +757,7 @@ return names;
         """)
 
     @guard("function")
-    def defaulted_formals(self) -> list[Str]:
+    def defaulted_formals(self) -> Vec[Str]:
         """The formals that have a default, alphabetically.
 
         A SUBSET of `formal_names`, not the defaults themselves. A
@@ -809,7 +812,7 @@ return static_cast<std::int64_t>(self.get()->primOp()->arity);
         """)
 
     @guard("function")
-    def primop_args(self) -> list[Str]:
+    def primop_args(self) -> Vec[Str]:
         """This builtin's argument names, in declaration order.
 
         Real order, unlike `formal_names`: these are a vector the
@@ -821,7 +824,7 @@ return self.get()->primOp()->args;
         """)
 
     @blocks
-    def doc(self) -> Doc | None:
+    def doc(self) -> Opt[Doc]:
         """Documentation for this value, or None.
 
         `EvalState::getDoc`, which is what the REPL's `:doc` shows -
@@ -889,7 +892,7 @@ try {
         """)
 
     @blocks
-    def attr_doc(self, name: Str) -> AttrDoc | None:
+    def attr_doc(self, name: Str) -> Opt[AttrDoc]:
         """Where this set defines `name`, and the doc comment there.
 
         What the REPL's `:doc a.b` shows for an attribute. None when
@@ -956,7 +959,7 @@ return huggorm::SourceLocation{physical->string(), line};
 class Doc:
     """A value's documentation, as `EvalState::getDoc` answers it."""
 
-    def name(self) -> Str | None:
+    def name(self) -> Opt[Str]:
         """The function's name. An anonymous lambda's is "".
 
         Optional because upstream's field is. Both `getDoc` branches
@@ -967,13 +970,13 @@ class Doc:
     def arity(self) -> I64:
         """How many arguments a primop wants. 0 for a lambda."""
 
-    def args(self) -> list[Str]:
+    def args(self) -> Vec[Str]:
         """A primop's argument names. Empty for a lambda."""
 
     def doc(self) -> Str:
         """The text. For a lambda, prose built for the REPL."""
 
-    def path(self) -> Str | None:
+    def path(self) -> Opt[Str]:
         """The file that defines it, or None for a primop, which has
         no position. A string or stdin is named as Nix names it."""
 
@@ -993,7 +996,7 @@ class AttrDoc:
     def line(self) -> I64:
         """The line of the definition."""
 
-    def doc(self) -> Str | None:
+    def doc(self) -> Opt[Str]:
         """The doc comment before the definition, or None."""
 
 
@@ -1163,7 +1166,7 @@ class LogRecord:
         """The bytes of `text`, exactly as Nix raised them."""
 
     @reads("fields")
-    def fields(self) -> list[LogField]:
+    def fields(self) -> Vec[LogField]:
         """The typed payload, for a `"start"` or a `"result"`.
 
         What it MEANS depends on `type`. A `resProgress` carries done,
@@ -1172,7 +1175,7 @@ class LogRecord:
         binding does not restate it."""
 
     @reads("info")
-    def info(self) -> ErrorInfo | None:
+    def info(self) -> Opt[ErrorInfo]:
         """The parts of an error or a warning `logEI` raised: the
         position, the trace and the suggestions. The same record a
         failed call's `NixError.info` holds.
@@ -1209,7 +1212,7 @@ class LogStream:
     a missing log line. `dropped` counts what the bound refused.
     """
 
-    def drain(self) -> list[LogRecord]:
+    def drain(self) -> Vec[LogRecord]:
         """Everything waiting, and the queue is empty afterwards.
 
         Empty when nothing happened. It does not block and it does not
@@ -1260,11 +1263,11 @@ class LockedInput:
 class LockedFlake:
     """A flake with its lock file resolved, for the state that locked it."""
 
-    def description(self) -> Str | None:
+    def description(self) -> Opt[Str]:
         """The `description` in `flake.nix`, or None without one."""
         Cxx("return self.locked.flake.description;")
 
-    def find_input(self, path: list[Str]) -> LockedInput | None:
+    def find_input(self, path: Vec[Str]) -> Opt[LockedInput]:
         """The input at `path`, `["nixpkgs"]` or `["a", "b"]`, found as
         Nix finds it: through `follows`, raising on a cycle.
 
@@ -1329,7 +1332,7 @@ class Repl:
     `nix repl` refuses a set of attributes that exactly fills the free
     slots, which is one slot short of the allocation. This takes it."""
 
-    def process_line(self, line: Str, base: Str | None = None) -> Value | None:
+    def process_line(self, line: Str, base: Opt[Str] = None) -> Opt[Value]:
         """One line, as `nix repl` reads a line that is not a command.
 
         Bindings such as `x = 1` or `inherit (a) b` are added lazily,
@@ -1370,7 +1373,7 @@ for (auto & [symbol, def] : *bindings->attrs) {
 return std::nullopt;
         """)
 
-    def eval_expr(self, expr: Str, base: Str | None = None) -> Value:
+    def eval_expr(self, expr: Str, base: Opt[Str] = None) -> Value:
         """`EvalState.eval_expr`, in this scope."""
         Cxx("""
 auto & state = self.state();
@@ -1409,7 +1412,7 @@ state.autoCallFunction(*state.buildBindings(0).finish(), loaded, *made);
 return self.wrap(made);
         """)
 
-    def add_attrs(self, attrs: Value) -> list[Str]:
+    def add_attrs(self, attrs: Value) -> Vec[Str]:
         """Bind every attribute of a set, as `:load` does, and answer
         the names added."""
         Cxx("""
@@ -1432,7 +1435,7 @@ self.static_env->deduplicate();
 return names;
         """)
 
-    def names(self) -> list[Str]:
+    def names(self) -> Vec[Str]:
         """Every name an expression here can see, sorted: the bindings
         and the base scope, `builtins` and `true` among them."""
         Cxx("""
@@ -1444,7 +1447,7 @@ for (std::shared_ptr<const nix::StaticEnv> scope = self.static_env; scope; scope
 return std::vector<std::string>(seen.begin(), seen.end());
         """)
 
-    def select(self, expr: Str, base: Str | None = None) -> ReplSelection | None:
+    def select(self, expr: Str, base: Opt[Str] = None) -> Opt[ReplSelection]:
         """`a.b.c` split before its last select, or None when `expr`
         is not a select."""
         Cxx("""
@@ -1521,8 +1524,8 @@ class EvalState:
     # Carl decided this; nixidae/nixidae#622 records it.
 
     def __init__(self, store: Store,
-                 settings: dict[str, Str] | None = None,
-                 build_store: Store | None = None) -> None:
+                 settings: Opt[Map[Str]] = None,
+                 build_store: Opt[Store] = None) -> None:
         """Open a state against a store.
 
         REQUIRED, with no default. A state is bound to a store and a
@@ -1569,7 +1572,7 @@ if (!self.eval_settings().set(name, value) && !self.fetch_settings().set(name, v
         does. For logging only: it does not round-trip."""
         Cxx("return self.store().config.getHumanReadableURI();")
 
-    def parse_expr(self, expr: Str, base: Str | None = None) -> Value:
+    def parse_expr(self, expr: Str, base: Opt[Str] = None) -> Value:
         """Parse without evaluating: the result is an unforced thunk.
 
         `base` is the directory a relative path such as `./foo` names
@@ -1589,7 +1592,7 @@ made->mkThunk(&self.state().baseEnv, e);
 return self.wrap(made);
         """)
 
-    def eval_expr(self, expr: Str, base: Str | None = None) -> Value:
+    def eval_expr(self, expr: Str, base: Opt[Str] = None) -> Value:
         """Parse and evaluate: slow, fully forced result.
 
         `base` is the directory a relative path such as `./foo` names
@@ -1648,7 +1651,7 @@ return self.wrap(made);
     @needs("nix/fetchers/fetch-to-store.hh",
            "nix/util/mounted-source-accessor.hh")
     def mount(self, accessor: SourceAccessor, name: Str = "source",
-              path: StorePath | None = None) -> StorePath:
+              path: Opt[StorePath] = None) -> StorePath:
         """Show `accessor`'s tree to the evaluator at its store path.
 
         What Nix does with a lazily fetched input (`mountInput`): the
@@ -1680,7 +1683,7 @@ if (!path || !state.store->isValidPath(at))
 return at;
         """)
 
-    def cached_files(self) -> list[Str]:
+    def cached_files(self) -> Vec[Str]:
         """Every file whose evaluation this state has cached.
 
         What a watcher watches. A change to a file an evaluation read
@@ -1961,7 +1964,7 @@ huggorm::unsubscribe_logs();
         """A forced float value."""
 
     def make_string(self, value: Str,
-                    context: list[Str] | None = None,
+                    context: Opt[Vec[Str]] = None,
                     ) -> Value:
         """A forced string value, carrying `context`: elements as
         `string_context` names them.
@@ -2018,9 +2021,9 @@ return self.wrap_builder(made);
 
     @needs("huggorm_decl/cpp/call_settings.hpp", "nix/flake/settings.hh")
     def lock_flake(self, ref: FlakeRef, recreate: Bint = False,
-                   update: list[Str] | None = None,
+                   update: Opt[Vec[Str]] = None,
                    write_lock_file: Bint = True,
-                   settings: dict[str, Str] | None = None) -> LockedFlake:
+                   settings: Opt[Map[Str]] = None) -> LockedFlake:
         """Lock a flake, as `nix flake lock` does.
 
         `recreate` drops the old lock file; `update` names the inputs to
@@ -2118,7 +2121,7 @@ return self.state().statisticsJSON();
 
 @needs("huggorm_decl/cpp/gc.hpp")
 @threading("pool")
-def gc_stats() -> dict[str, I64]:
+def gc_stats() -> Map[I64]:
     """Live collector counters, bound straight from gc.h.
 
     These prove the collector is ACTIVE: a no-op integration cannot
@@ -2484,7 +2487,7 @@ huggorm::scope_cancellations().forget(static_cast<std::uint64_t>(scope));
 
 
 @needs("huggorm_decl/cpp/settings.hpp")
-def get_setting(name: Str) -> Str | None:
+def get_setting(name: Str) -> Opt[Str]:
     """The effective value of one setting, or None for an unknown name.
 
     Every registered setting: the store's, the evaluator's and the
@@ -2550,7 +2553,7 @@ if (!nix::globalConfig.set(name, value))
 
 
 @needs("huggorm_decl/cpp/settings.hpp")
-def list_settings(overridden_only: Bint = False) -> dict[str, Str]:
+def list_settings(overridden_only: Bint = False) -> Map[Str]:
     """Every registered setting and its effective value.
 
     `overridden_only` keeps the ones something set: nix.conf,
@@ -2652,7 +2655,7 @@ return nix::flakeSettings.toJSON().dump();
 
 
 @needs("nix/expr/eval-settings.hh")
-def parse_nix_path(value: Str) -> list[Str]:
+def parse_nix_path(value: Str) -> Vec[Str]:
     """Split a `NIX_PATH`-style string into its entries, as `nix` does.
 
     A `:` inside a URL does not split it, so `nixpkgs=https://...`

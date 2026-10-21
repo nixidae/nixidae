@@ -21,7 +21,17 @@ from functools import cached_property
 from typing import NamedTuple, assert_never
 
 from huggorm_dsl import shapes
-from huggorm_dsl.declare import Crossing, Cxx, Decl, DeclKind, Subscription, Threading
+from huggorm_dsl.declare import (
+    MAP,
+    OPT,
+    VEC,
+    Crossing,
+    Cxx,
+    Decl,
+    DeclKind,
+    Subscription,
+    Threading,
+)
 from huggorm_dsl.read import (
     MESSAGE_PARTS,
     Body,
@@ -156,8 +166,7 @@ class TypeRef:
     # The declaration a leaf names, resolved once. Not compared: a
     # `Class` holds dicts, and a type is the same type whoever asks.
     declared: Class | None = field(default=None, compare=False, repr=False)
-    # The C++ fact a leaf's alias carries, or None for a container and
-    # a declared class.
+    # The C++ fact the alias carries, or None for a declared class.
     spelled: Cxx | None = field(default=None, compare=False)
 
     @property
@@ -284,15 +293,18 @@ class TypeRef:
 
     @classmethod
     def list_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"list[{t.spelling}]", Origin.LIST, (t,), t.kind, t.name)
+        return cls(f"list[{t.spelling}]", Origin.LIST, (t,), t.kind, t.name,
+                   spelled=VEC)
 
     @classmethod
     def dict_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"dict[str, {t.spelling}]", Origin.DICT, (t,), t.kind, t.name)
+        return cls(f"dict[str, {t.spelling}]", Origin.DICT, (t,), t.kind,
+                   t.name, spelled=MAP)
 
     @classmethod
     def optional_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"{t.spelling} | None", Origin.OPTIONAL, (t,), t.kind, t.name)
+        return cls(f"{t.spelling} | None", Origin.OPTIONAL, (t,), t.kind,
+                   t.name, spelled=OPT)
 
 
 # Why an opaque Python object never crosses. A DECISION, unlike every
@@ -380,7 +392,7 @@ def type_ref(t: Type, resolver: Resolver, *, spelled: bool = True) -> TypeRef:
         width=t.cxx.width if t.cxx is not None and not t.origin else "",
         twin=t.twin,
         declared=None if t.origin else resolver.known.get(name),
-        spelled=None if t.origin else t.cxx,
+        spelled=t.cxx,
     )
     if not spelled:
         return ref

@@ -17,6 +17,7 @@ from typing import Annotated
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Map,
     Str,
     Variant,
     binding,
@@ -131,7 +132,7 @@ class StoreReference:
         """Which kind of store it names."""
 
     @reads("params")
-    def params(self) -> dict[str, Str]:
+    def params(self) -> Map[Str]:
         """The query parameters, decoded."""
 
     def render(self, with_params: Bint = True) -> Str:
