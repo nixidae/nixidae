@@ -56,7 +56,6 @@ import annotationlib
 import ast
 import builtins
 import contextlib
-import difflib
 import enum
 import functools
 import importlib.abc
@@ -69,7 +68,7 @@ import re
 import sys
 import types
 import typing
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import ModuleType
 from typing import Annotated, Any, get_args, get_origin, get_overloads
@@ -82,14 +81,11 @@ from huggorm_dsl.declare import (
     Decl,
     DeclKind,
     Field,
+    Mark,
     Subscription,
+    Target,
     Threading,
 )
-
-# Decorators that are Python's, not ours. A declaration may use them
-# and they are read rather than applied.
-BUILTIN_DECORATORS = frozenset({"property", "staticmethod", "classmethod",
-                                "overload"})
 
 # Every node that DEFINES a name. Stated once because
 # `ast.AsyncFunctionDef` is not a subclass of `ast.FunctionDef`, and
@@ -125,11 +121,6 @@ IMPORTABLE = (VOCABULARY, DECLARATIONS, "typing", "enum")
 # the wire layer asks for it by that name and the emitter binds it by
 # that name.
 FROM_PARTS = "_from_parts"
-
-# What a class decorator leaves on the class it marks. The reader
-# reads both off the import, and the class read accepts both.
-DECL = "_decl"
-NEEDS = "_needs"
 
 # The lines an exception declaration writes in its class body. `cxx`
 # and `header` are the class's own; `reader` and `_wire_fields` are
@@ -804,6 +795,8 @@ class Module:
     # is legal Python, so the reader follows the import rather than
     # matching the spelling it expects.
     vocabulary: dict[str, str] = field(default_factory=dict)
+    # The name of every marker a definition here carries.
+    markers: frozenset[str] = frozenset()
 
 
 # -- the vocabulary -------------------------------------------------------
@@ -935,8 +928,7 @@ def _member(ann: object, value: object) -> str:
     that says which member that is."""
     if not isinstance(ann, type) or not isinstance(value, str):
         return ""
-    decl = vars(ann).get(DECL)
-    if decl is None or decl.kind is not DeclKind.WORDS:
+    if not _marked(ann, declare.words):
         return ""
     return next((k for k, v in vars(ann).items()
                  if not k.startswith("_") and v == value), "")
@@ -981,61 +973,52 @@ def _declared(cls: type, home: Mapping[str, Any]) -> bool:
 
 # -- decorators -----------------------------------------------------------
 
-def _check_markers(decorators: list[ast.expr], kind: str) -> None:
-    """Check every marker against `declare.MARKERS`.
+def _marked(obj: object, by: Callable[..., object]) -> list[Mark]:
+    """The marks the marker `by` left on `obj`."""
+    rule = declare.MARKERS[by.__name__]
+    return [m for m in declare.marks(obj) if m.marker is rule]
 
-    One loop over a table, rather than a hand-written `if` per rule.
-    The raises this file carries are not all replaced - most are
-    about SHAPE, like "a body is a docstring then at most one Cxx" -
-    but the ones about WHERE a marker is legal collapse into here.
 
-    Unknown markers get a suggestion. `@read` for `@reads` is the
-    mistake this pays for the first time somebody makes it."""
-    seen: dict[str, ast.expr] = {}
-    for node in decorators:
-        if isinstance(node, ast.Call):
-            name = node.func.id if isinstance(node.func, ast.Name) else ""
-            called = True
-        elif isinstance(node, ast.Name):
-            name, called = node.id, False
-        else:
-            name = ""
-        if not name:
-            # The import would still apply `@d.reads(...)`, and every
-            # reader of the AST would miss it (nixidae/nixidae#712).
-            raise DeclarationError(
-                node, "write a decorator as a bare name: "
-                "import the marker, and use @reads, not @d.reads")
-        if name in BUILTIN_DECORATORS:
-            continue
-        rule = declare.MARKERS.get(name)
-        if rule is None:
-            near = difflib.get_close_matches(name, declare.MARKERS, 1, 0.6)
-            hint = f" - did you mean @{near[0]}?" if near else ""
-            raise DeclarationError(node, f"unknown marker @{name}{hint}")
+def _marks(node: DefinitionNode, held: object,
+           kind: Target) -> dict[str, Any]:
+    """The fields the markers on `held` fill, once their rules hold.
+
+    Read off the import, so a marker counts whatever name or module
+    attribute a declaration spells it with (nixidae/nixidae#881). A
+    decorator that records no mark reaches no output, so the count of
+    marks and wrapping descriptors must match the count of decorators.
+    """
+    got = declare.marks(held)
+    wraps = isinstance(held, property | staticmethod | classmethod)
+    if len(node.decorator_list) != len(got) + wraps:
+        raise DeclarationError(
+            node, f"{node.name}: a decorator here is not a marker from "
+                  f"{VOCABULARY}, so nothing reads what it says")
+    seen: set[str] = set()
+    out: dict[str, Any] = {}
+    for mark in got:
+        rule = mark.marker
         if kind not in rule.target:
             legal = ", ".join(sorted(rule.target))
             raise DeclarationError(
-                node, f"@{name} is not legal on a {kind} (legal on {legal})")
-        if rule.arity == "flag" and called:
-            raise DeclarationError(node, f"@{name} takes no arguments")
-        if rule.arity != "flag" and not called:
-            raise DeclarationError(node, f"@{name} needs arguments")
-        if rule.arity != "repeatable" and name in seen:
-            raise DeclarationError(node, f"@{name} may appear once")
-        seen[name] = node
-    for name, node in seen.items():
-        rule = declare.MARKERS[name]
-        for other in sorted(rule.excludes & seen.keys()):
+                node, f"@{rule.name} is not legal on a {kind} "
+                      f"(legal on {legal})")
+        if rule.name in seen and rule.arity is not declare.Arity.REPEATABLE:
+            raise DeclarationError(node, f"@{rule.name} may appear once")
+        seen.add(rule.name)
+        for name, value in mark.assigns().items():
+            out[name] = out[name] + value if name in out else value
+    for mark in got:
+        rule = mark.marker
+        for other in sorted(rule.excludes & seen):
             # Once per pair, not twice: the same conflict read from
             # both ends is one mistake.
-            if name < other:
+            if rule.name < other:
                 raise DeclarationError(
-                    node, f"@{name} and @{other} cannot both be set")
-        for other in sorted(rule.requires - seen.keys()):
-            raise DeclarationError(node, f"@{name} needs @{other}")
-
-
+                    node, f"@{rule.name} and @{other} cannot both be set")
+        for other in sorted(rule.requires - seen):
+            raise DeclarationError(node, f"@{rule.name} needs @{other}")
+    return out
 
 
 # -- methods --------------------------------------------------------------
@@ -1236,12 +1219,18 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
     if node.returns is not None and anns.get("return") is not None:
         ret = type_of(anns["return"], node.returns, fn.__globals__)
 
-    # A method decorator writes an attribute on the function, and the
-    # import already ran it, so the markers are read off `fn`.
-    _check_markers(node.decorator_list, "method" if bound_kind else "free")
-    marked = fn
-    _holds_the_gil(node, params, fn, method=bool(bound_kind))
-    if getattr(marked, "_reads", "") and params:
+    out = Method(
+        name=node.name,
+        doc=ast.get_docstring(node, clean=False) or "",
+        params=tuple(params),
+        ret=ret,
+        prop=isinstance(held, property),
+        cxx_body=_body(node),
+        **_marks(node, held,
+                 Target.METHOD if bound_kind else Target.FREE),
+    )
+    _holds_the_gil(node, out, method=bool(bound_kind))
+    if out.reads and params:
         # A data member is READ, not called, so there is nowhere for
         # an argument to go. The emitter drops them silently, which
         # would leave the Python signature demanding a value nothing
@@ -1249,34 +1238,7 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
         raise DeclarationError(
             node, f"{node.name}: @reads names a data member, so this "
                   f"accessor takes no parameters.")
-    return Method(
-        name=node.name,
-        doc=ast.get_docstring(node, clean=False) or "",
-        params=tuple(params),
-        ret=ret,
-        cxx_name=getattr(marked, "_cxx_name", ""),
-        guard=getattr(marked, "_guard", ""),
-        names=bool(getattr(marked, "_names", False)),
-        produces=getattr(marked, "_produces", ""),
-        fills=getattr(marked, "_fills", None),
-        blocks=bool(getattr(marked, "_blocks", False)),
-        instant=bool(getattr(marked, "_instant", False)),
-        prop=isinstance(held, property),
-        binds=getattr(marked, "_binds", ""),
-        reads=getattr(marked, "_reads", ""),
-        member_collection=getattr(marked, "_member_collection", ""),
-        cxx_body=_body(node),
-        local=bool(getattr(marked, "_local", False)),
-        virtual=bool(getattr(marked, "_virtual", False)),
-        posted=bool(getattr(marked, "_posted", False)),
-        wire_read=getattr(marked, "_wire_read", ""),
-        headers=tuple(getattr(marked, NEEDS, ())),
-        spells=tuple(getattr(marked, "_spells", ())),
-        startup=bool(getattr(marked, "_startup", False)),
-        translator=bool(getattr(marked, "_translator", False)),
-        policy=getattr(marked, "_policy", None),
-        subscription=getattr(marked, "_subscription", None),
-    )
+    return out
 
 
 def _members(node: ast.ClassDef) -> tuple[Member, ...]:
@@ -1326,17 +1288,14 @@ def targets_name(item: ast.Assign) -> str:
 
 def _class(node: ast.ClassDef, vocab: dict[str, str],
            where: str, here: str,
-           fns: dict[int, Any], diag: Diagnostics) -> Class:
-    # The import already ran this class's decorators, on the class
-    # itself, so what they wrote is read off it rather than written
-    # again onto a stand-in.
-    _check_markers(node.decorator_list, "class")
+           fns: dict[int, Any], diag: Diagnostics,
+           made: Mapping[type, str]) -> Class:
     holder = fns.get(_first_line(node))
     if not isinstance(holder, type):
         raise DeclarationError(
             node, f"{node.name}: the import has no class at this line.")
-    decl: Decl = holder.__dict__.get(DECL, Decl())
-    decl.name = node.name
+    decl = Decl(name=node.name, factory=made.get(holder, ""),
+                **_marks(node, holder, Target.CLASS))
     # The base, said the way Python says it.
     #
     # This used to be `@derives("Store")` and a Python base class was
@@ -1365,18 +1324,13 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
         # is, with its methods (nixidae/nixidae#732). The async and remote
         # surfaces carry no hierarchy, so a served class has no base.
         (base,) = holder.__bases__ if len(holder.__bases__) == 1 else (None,)
-        if (base is None or "_decl" not in base.__dict__
+        if (base is None or not declare.marks(base)
                 or decl.wire is not Crossing.LOCAL):
             raise DeclarationError(
                 node, f"{node.name}: only an @in_process class has a base, "
                       f"and it is one declared class. Declare the methods "
                       f"on {node.name} itself (nixidae/nixidae#597).")
         decl.base = base.__name__
-    # `@needs` writes onto whatever it decorates, and on a class that
-    # is the stand-in rather than the Decl - so it is read here
-    # instead of being restated in declare.py, which is the same trick
-    # every other decorator gets.
-    decl.headers = tuple(holder.__dict__.get(NEEDS, ()))
 
     if decl.kind is DeclKind.WORDS:
         return Class(
@@ -1400,7 +1354,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
     for name, value in vars(holder).items():
         fn = _written(value, here)
         if fn is None:
-            if not _dunder(name) and name not in (DECL, NEEDS):
+            if not _dunder(name):
                 diag.record(DeclarationError(
                     _binder(node, name),
                     f"{node.name}.{name} ({type(value).__name__}) reaches "
@@ -1691,85 +1645,12 @@ def load(path: str) -> ModuleType:
     except Exception as e:
         # The cause, verbatim. A declaration fails to import for
         # reasons that are one line to fix and impossible to guess
-        # at: a marker decorator over a `@property` sets an attribute
-        # on a descriptor and raises, and "it did not import" alone
-        # would send a reader to the wrong file.
+        # at, and "it did not import" alone would send a reader to the
+        # wrong file.
         raise DeclarationError.already(
             f"{here}: the declaration does not import, so nothing says "
-            f"which definitions exist. {type(e).__name__}: {e}"
-            f"{_descriptor_hint(e)}") from e
+            f"which definitions exist. {type(e).__name__}: {e}") from e
     return mod
-
-
-# A marker decorator applied to a `property`. Python's own message
-# names the descriptor and the attribute and stops there, which says
-# WHAT broke and not what to do about it.
-#
-# `property` ONLY, and the first version of this named `staticmethod`
-# and `classmethod` beside it. Measured on 3.14.7, and they do not
-# belong:
-#
-#     property       REFUSES - no __dict__ for setting new attributes
-#     staticmethod   accepts an attribute
-#     classmethod    accepts an attribute
-#
-# So `@instant` over a `@staticmethod` IMPORTS, and the declaration
-# reaches `_method`'s own refusal instead - which already names the
-# real problem, that a static method's first parameter would be
-# dropped. The two arms were text that could never run, claiming a
-# coverage this hint does not have (nixidae/nixidae#612).
-_ON_DESCRIPTOR = re.compile(
-    r"'(property)' object has no attribute '_(\w+)'")
-
-
-def _descriptor_hint(exc: BaseException) -> str:
-    """The one-line fix, when the import failed for the known reason.
-
-    `@property` and a marker on one accessor is legal, and the ORDER
-    decides whether it imports. Measured both ways (nixidae/nixidae#613):
-
-        @instant                  AttributeError, at import
-        @property                 - a property takes no attribute
-        def base16(self): ...
-
-        @property                 prop=True instant=True
-        @instant                  - the marker gets the function
-        def base16(self): ...
-
-    So `@property` OUTERMOST is the answer, and it costs the reader
-    nothing: the reader takes the function out of the property
-    (`fget`) and reads the marker off it, and `prop` is read from the
-    tree.
-
-    The MARKER is derived rather than listed. Every marker in
-    `declare.py` writes `_<name>` onto what it is handed, so the
-    shape is the fact and a list would be that fact stated twice and
-    would go stale on the next marker.
-
-    The DESCRIPTOR is named, and only one of them is: `property` is
-    the only builtin descriptor that refuses an attribute. That is
-    measured, and the regex comment holds the measurement.
-
-    nixidae/nixidae#613 asked for this to be said in a REFUSAL rather than in
-    a comment, because a comment is not where a reader who hit it is
-    looking. The comment above is now the second copy, and the
-    refusal is the one that reaches them.
-    """
-    m = _ON_DESCRIPTOR.search(str(exc))
-    if m is None:
-        return ""
-    descriptor, marker = m.group(1), m.group(2)
-    # HONEST ABOUT WHAT THE ORDER BUYS. It fixes the IMPORT and
-    # nothing else: the emitter still refuses a `@property` accessor
-    # (nixidae/nixidae#613). A hint that stopped at the order would send a
-    # reader to a second refusal with no warning that it was coming,
-    # which is worse than the raw AttributeError it replaces.
-    return (f"\nWrite @{descriptor} OUTERMOST, above @{marker}. A marker "
-            f"sets `_{marker}` on what it is handed, and a {descriptor} "
-            f"object takes no attribute - so the marker has to reach the "
-            f"function underneath it. That fixes the IMPORT. An emitter "
-            f"still refuses a @{descriptor} accessor - see nixidae/nixidae#613 - so "
-            f"declare it as a plain method until that changes.")
 
 
 def _live(path: str) -> set[int]:
@@ -2018,6 +1899,7 @@ def _read(path: str) -> Module:
     # read in full or not at all - the failure is recorded, its name
     # is marked unsound, and the loop goes on.
     diag = Diagnostics()
+    made = _factories(glb, here, mod, nodes, diag)
     classes: list[Class] = []
     errors: list[Class] = []
     functions: list[Method] = []
@@ -2031,7 +1913,7 @@ def _read(path: str) -> Module:
                 node = nodes[value.__firstlineno__]
                 assert isinstance(node, ast.ClassDef)
                 if node.decorator_list:
-                    cls = _class(node, vocab, stem, here, fns, diag)
+                    cls = _class(node, vocab, stem, here, fns, diag, made)
                     classes.append(cls)
                 else:
                     errors.append(_error(node, value, glb, stem))
@@ -2074,11 +1956,38 @@ def _read(path: str) -> Module:
         vocabulary=vocab,
         unions=tuple(unions),
         uses=uses,
+        markers=frozenset(m.marker.name for obj in fns.values()
+                          for m in declare.marks(obj)),
     )
 
 
-def _holds_the_gil(node: DefinitionNode, params: list[Param],
-                   fn: Any, *, method: bool) -> None:
+def _factories(glb: Mapping[str, object], here: str, mod: ModuleType,
+               nodes: Mapping[int, ast.AST],
+               diag: Diagnostics) -> dict[type, str]:
+    """Each class a `@constructs` function here builds, and that
+    function's name.
+
+    Only a class this file declares: the reader of another file would
+    never see the mark, and the class would bind with no constructor."""
+    out: dict[type, str] = {}
+    for value in glb.values():
+        fn = _written(value, here)
+        if fn is None:
+            continue
+        for mark in _marked(fn, declare.constructs):
+            cls = mark.value
+            if not (isinstance(cls, type) and cls.__module__ == mod.__name__):
+                diag.record(DeclarationError(
+                    nodes[fn.__code__.co_firstlineno],
+                    f"{fn.__name__}: @constructs names a class this file "
+                    f"does not declare."), unsound=fn.__name__)
+                continue
+            out[cls] = fn.__name__
+    return out
+
+
+def _holds_the_gil(node: DefinitionNode, fn: Method, *,
+                   method: bool) -> None:
     """Refuse a by-value Python handle on a call that releases the GIL.
 
     nanobind aborts the process when a reference count changes without
@@ -2088,15 +1997,15 @@ def _holds_the_gil(node: DefinitionNode, params: list[Param],
     def holds(t: Type) -> bool:
         return t.cxx == PY_OBJECT or any(holds(a) for a in t.args)
 
-    handles = [p.name for p in params if holds(p.type)]
+    handles = [p.name for p in fn.params if holds(p.type)]
     if not handles:
         return
-    if method and not getattr(fn, "_instant", False):
+    if method and not fn.instant:
         raise DeclarationError(
             node, f"{node.name}: {handles} is a Python object held by "
                   f"value, which is safe only while the GIL is held. "
                   f"Mark the method @instant.")
-    if not method and getattr(fn, "_blocks", False):
+    if not method and fn.blocks:
         raise DeclarationError(
             node, f"{node.name}: {handles} is a Python object held by "
                   f"value, and @blocks releases the GIL around it.")

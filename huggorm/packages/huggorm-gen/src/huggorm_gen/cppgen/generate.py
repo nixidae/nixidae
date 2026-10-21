@@ -365,25 +365,13 @@ def census_markers(have: Any) -> None:
     says so in a comment, where a person finds it only by reading the
     branch that never fires - so the build says it now.
 
-    Read off the DECORATOR NODES rather than the reader's output. The
-    reader keeps what a marker MEANT and throws away which word said
-    it, and `@constructs(...)` and `@binds` both end up as fields
-    that no longer name themselves.
-
     Printed rather than raised. A marker waiting for its user is a
     real state - `@abstract` is waiting for the split nixidae/nixidae#598
     describes - and failing the build would only get it deleted."""
-    used: set[str] = set()
     names = [*have.module_names, *have.vocabularies]
     if have.errors:
         names.append(have.errors)
-    for name in names:
-        for node in ast.walk(have.tree(name)):
-            for dec in getattr(node, "decorator_list", []):
-                if isinstance(dec, ast.Call):
-                    dec = dec.func
-                if isinstance(dec, ast.Name):
-                    used.add(dec.id)
+    used = {m for name in names for m in have.module(name).markers}
     declared = set(declare.MARKERS)
     unused = sorted(declared - used)
     print(f"markers: {len(declared)} declared, "

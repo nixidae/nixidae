@@ -1177,9 +1177,7 @@ def test_the_census_runs_when_the_corpus_is_built(
     assert ran, "corpus() no longer runs the census"
 
 
-# A marker decorator over a `@property`. The marker sets an attribute
-# on what it is handed and a property object takes none, so the
-# module raises while Python is still executing it.
+# A marker decorator over a `@property`.
 UNIMPORTABLE = '''"""One accessor with a marker over a @property."""
 
 from huggorm_dsl.declare import Cxx, Str, binding, header, instant
@@ -1291,28 +1289,19 @@ def test_a_declaration_that_will_not_import_is_refused(
     (nixidae/nixidae#619).
 
     The cause is carried because it is one line to fix and impossible
-    to guess at. `@instant` over `@property` sets an attribute on a
-    descriptor, and "it did not import" alone would send a reader to
+    to guess at, and "it did not import" alone would send a reader to
     the wrong file."""
     from huggorm_dsl.read import DeclarationError, read
 
-    path = _declaration(tmp_path, UNIMPORTABLE)
+    path = _declaration(tmp_path, UNRELATED)
     with pytest.raises(DeclarationError, match="does not import"):
         read(path)
-    with pytest.raises(DeclarationError, match="'property' object"):
+    with pytest.raises(DeclarationError, match="NameError"):
         read(path)
 
 
-# The SAME accessor with the decorators the other way round. The
-# marker reaches the function, the property wraps what it returns,
-# and the module imports.
-IMPORTABLE = UNIMPORTABLE.replace("    @instant\n    @property",
-                                  "    @property\n    @instant")
-
-# A file that will not import for a reason that has nothing to do
-# with a descriptor. The control: the hint must not be appended to
-# every import failure, or it says nothing.
-UNRELATED = '''"""One accessor naming something that does not exist."""
+# A file that will not import.
+UNRELATED ='''"""One accessor naming something that does not exist."""
 
 from huggorm_dsl.declare import Cxx, Str, binding, header
 
@@ -1371,77 +1360,32 @@ def test_a_refusal_names_the_file_whatever_type_the_path_was(
     assert str(same.value) == str(caught.value)
 
 
-def test_a_marker_over_a_descriptor_says_which_order_to_write(
+@pytest.mark.parametrize("order", [
+    "    @instant\n    @property", "    @property\n    @instant"])
+def test_a_marker_reaches_the_function_under_a_property(
+        tmp_path: pathlib.Path, order: str) -> None:
+    """A marker records itself on the function a descriptor holds, so
+    the order of `@property` and a marker decides nothing
+    (nixidae/nixidae#881)."""
+    from huggorm_dsl.read import read
+
+    method = read(_declaration(tmp_path, UNIMPORTABLE.replace(
+        "    @instant\n    @property", order))).classes[0].methods[0]
+    assert (method.prop, method.instant) == (True, True)
+
+
+def test_a_marker_over_a_staticmethod_reaches_its_refusal(
         tmp_path: pathlib.Path) -> None:
-    """Python's message says WHAT broke. This says what to do.
-
-    `AttributeError: 'property' object has no attribute '_instant'`
-    is accurate and is not actionable: it names the descriptor and
-    the attribute and stops, so a reader has to work out on their own
-    that the two decorators can simply be swapped.
-
-    nixidae/nixidae#613 asked for the answer to be in a REFUSAL rather than
-    in a comment, and this is it. The answer was MEASURED both ways
-    rather than reasoned about - see the second assertion, which is
-    the one that says the advice is true.
-
-    Derived from the message shape, not from a list of markers: every
-    marker in `declare.py` writes `_<name>` onto what it is handed,
-    so a list would be that fact stated twice and would go stale on
-    the next marker.
-
-    It is honest about what the swap buys, and that is deliberate.
-    The order fixes the IMPORT and nothing else - an emitter still
-    refuses a `@property` accessor - so a hint that stopped at the
-    order would send a reader to a second refusal with no warning
-    that one was coming."""
+    """A marker over a `@staticmethod` reaches the function under it,
+    and the reader then refuses the static method itself."""
     from huggorm_dsl.read import DeclarationError, read
 
-    with pytest.raises(DeclarationError) as caught:
-        read(_declaration(tmp_path, UNIMPORTABLE))
-    said = str(caught.value)
-    assert "@property OUTERMOST" in said, said
-    assert "@instant" in said, "it names the marker it read, not a list"
-    assert "nixidae/nixidae#613" in said, "and where the path ends"
-
-    # THE ADVICE IS TRUE, measured rather than asserted. Written the
-    # way the refusal says, the file imports AND both facts survive:
-    # `_apply` skips a builtin decorator and applies the marker to
-    # its throwaway, so the marker reaches it from either position,
-    # and `prop` is read from the tree either way.
-    good = tmp_path / "good"
-    good.mkdir()
-    method = read(_declaration(good, IMPORTABLE)).classes[0].methods[0]
-    assert method.prop, "the tree still says it is an attribute"
-    assert method.instant, "and the marker was not lost on the way"
-
-    # THE CONTROL. An import failure with no descriptor in it gets no
-    # hint - without this the gate passes for a hint appended to
-    # everything, which would be advice on a file it does not fit.
-    other = tmp_path / "other"
-    other.mkdir()
-    with pytest.raises(DeclarationError) as unrelated:
-        read(_declaration(other, UNRELATED))
-    assert "does not import" in str(unrelated.value)
-    assert "OUTERMOST" not in str(unrelated.value), str(unrelated.value)
-
-    # `property` IS THE ONLY ONE, and the first version of the hint
-    # named `staticmethod` and `classmethod` beside it. Measured on
-    # 3.14.7: only a property refuses an attribute, so a marker over
-    # a `@staticmethod` IMPORTS and reaches `_method`'s own refusal -
-    # which already names the real problem. Those two arms were text
-    # that could never run (nixidae/nixidae#612), and this is what says so.
-    static = tmp_path / "static"
-    static.mkdir()
     marked = STATIC.replace("    @staticmethod",
                             "    @instant\n    @staticmethod")
     marked = marked.replace("binding, header",
                             "binding, header, instant")
-    with pytest.raises(DeclarationError) as over_static:
-        read(_declaration(static, marked))
-    assert "@staticmethod" in str(over_static.value)
-    assert "does not import" not in str(over_static.value), \
-        "a staticmethod takes the attribute, so the import survives"
+    with pytest.raises(DeclarationError, match="@staticmethod"):
+        read(_declaration(tmp_path, marked))
 
 
 def test_an_accessor_declared_static_is_refused(
@@ -2075,27 +2019,78 @@ def test_posted_reaches_the_hook_table(tmp_path: pathlib.Path) -> None:
     assert [(m.name, m.posted) for m in cls.hooks] == [("write", True)]
 
 
-@pytest.mark.parametrize("decorator", [
-    "@d.binding(cxx=\"x::Stream\")", "@d.in_process", "@typing.final"])
-def test_a_decorator_that_is_not_a_bare_name_is_refused(
-        tmp_path: pathlib.Path, decorator: str) -> None:
-    """The reader matches markers by name in the AST. An attribute form
-    still works through the import, so every AST check would skip it
-    (nixidae/nixidae#712)."""
+SPELLED = '''"""A class whose markers are spelled CLASS_MARKER and METHOD_MARKER."""
+
+import typing
+
+import huggorm_dsl.declare as d
+from huggorm_dsl.declare import Cxx, Str, binding, header, instant as fast
+
+
+CLASS_MARKER
+@header("x.hpp")
+class Stream:
+    """A stream."""
+
+    METHOD_MARKER
+    def name(self) -> Str:
+        """."""
+        Cxx("return self.name;")
+'''
+
+
+@pytest.mark.parametrize(("class_marker", "method_marker"), [
+    ('@binding(cxx="x::Stream", blocking=False)', "@fast"),
+    ('@d.binding(cxx="x::Stream", blocking=False)', "@d.instant"),
+])
+def test_a_marker_is_read_from_the_import_whatever_its_spelling(
+        tmp_path: pathlib.Path, class_marker: str, method_marker: str) -> None:
+    """A marker records itself on what it marks, so an alias and the
+    attribute form say what the bare name says (nixidae/nixidae#881)."""
+    from huggorm_dsl.read import read
+
+    module = read(_declaration(tmp_path, SPELLED.replace(
+        "CLASS_MARKER", class_marker).replace("METHOD_MARKER", method_marker)))
+    (cls,) = module.classes
+    assert (cls.decl.cxx, cls.decl.blocking) == ("x::Stream", False)
+    assert [(m.name, m.instant) for m in cls.methods] == [("name", True)]
+
+
+@pytest.mark.parametrize(("class_marker", "method_marker", "refusal"), [
+    ('@typing.final\n@binding(cxx="x::Stream")', "", "not a marker"),
+    ('@binding(cxx="x::Stream")', "@typing.final", "not a marker"),
+    ('@binding(cxx="x::Stream")\n@fast', "", "not legal on a class"),
+    ('@binding(cxx="x::Stream")', "@d.binds", "needs arguments"),
+    ('@binding(cxx="x::Stream")', '@d.cxx_name("a")\n    @d.cxx_name("b")',
+     "may appear once"),
+    ('@binding(cxx="x::Stream")', "@d.blocks\n    @fast",
+     "cannot both be set"),
+])
+def test_a_marker_is_checked_by_what_it_recorded(
+        tmp_path: pathlib.Path, class_marker: str, method_marker: str,
+        refusal: str) -> None:
+    """A decorator that records no mark reaches no output, so it is
+    refused rather than dropped."""
     from huggorm_dsl.read import DeclarationError, read
 
-    source = (
-        '"""A class."""\n\n'
-        "import typing\n\n"
-        "import huggorm_dsl.declare as d\n"
-        "from huggorm_dsl.declare import binding, header\n\n\n"
-        f"{decorator}\n"
-        '@header("x.hpp")\n'
-        '@binding(cxx="x::Other")\n'
-        "class Stream:\n"
-        '    """A stream."""\n')
-    with pytest.raises(DeclarationError, match="bare name"):
-        read(_declaration(tmp_path, source))
+    with pytest.raises(DeclarationError, match=refusal):
+        read(_declaration(tmp_path, SPELLED.replace(
+            "CLASS_MARKER", class_marker).replace(
+                "METHOD_MARKER", method_marker)))
+
+
+def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
+    """`@needs` is repeatable, so a second one adds headers. It does not
+    replace the first."""
+    from huggorm_dsl.read import read
+
+    module = read(_declaration(tmp_path, SPELLED.replace(
+        "CLASS_MARKER", '@d.needs("c1.hpp")\n@d.needs("c2.hpp")\n'
+                        '@binding(cxx="x::Stream")').replace(
+        "METHOD_MARKER", '@d.needs("m1.hpp")\n    @d.needs("m2.hpp")')))
+    (cls,) = module.classes
+    assert cls.decl.headers == ("c1.hpp", "c2.hpp")
+    assert [m.headers for m in cls.methods] == [("m1.hpp", "m2.hpp")]
 
 
 OPTIONAL_LIST = '''"""A return the emitter cannot convert."""

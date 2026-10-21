@@ -23,15 +23,15 @@ is a fact about the boundary rather than about nix::StorePath.
 """
 
 import datetime
+import functools
 import os
 import pathlib
 import re
+import types
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Annotated, Any, Literal, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])
+from typing import Annotated, Any, Literal, Protocol
 
 
 class Threading(StrEnum):
@@ -469,109 +469,190 @@ class Decl:
     tagged: tuple[str, str, dict[str, str]] | None = None
 
 
-# -- what each marker means, as DATA --------------------------------
+# -- markers --------------------------------------------------------
 #
-# Where a marker is legal, how many times, and what it conflicts with.
-# One table, read by `read.py` so a rule is CHECKED rather than
-# restated in a docstring and enforced nowhere (nixidae/nixidae#598).
-#
-# Before this, `read.py` carried 28 hand-written raises and the rules
-# below were prose. The ones that were never written stayed unchecked:
-# `@needs` on a class worked by accident before it worked on purpose,
-# and `@local` on a class that is not a wire value is still harmless
-# and silent.
+# A marker records itself on what it marks: one `Mark` per decorator,
+# on `__marks__`. The reader reads the marks off the import, so an
+# alias (`instant as fast`) and the attribute form (`@d.instant`) say
+# what the bare name says (nixidae/nixidae#881).
+
+
+class Target(StrEnum):
+    """What a marker may decorate."""
+
+    CLASS = "class"
+    METHOD = "method"
+    # A module-level function.
+    FREE = "free"
+
+
+class Arity(StrEnum):
+    """How a marker is written, and how often."""
+
+    # Bare: `@local`.
+    FLAG = "flag"
+    # Called, once: `@reads("narSize")`.
+    ONCE = "once"
+    # Called, and stacks: `@needs`.
+    REPEATABLE = "repeatable"
 
 
 @dataclass(frozen=True)
 class Marker:
-    """One decorator's rules.
-
-    `target` is which kinds of thing it may decorate: a class, a
-    method of one, or a module-level function.
-
-    `arity` is "flag" for a bare `@name`, "once" for a `@name(...)`
-    that may appear a single time, and "repeatable" for one that may
-    stack.
+    """One decorator's rules, and the field its mark fills.
 
     `excludes` names markers it cannot appear beside. `requires` names
-    ones it needs.
-    """
+    ones it needs. `field` is the `Method` or `Decl` field the value
+    fills. None for `@constructs`, which fills a field of the class it
+    names, not of what it marks."""
 
-    target: frozenset[str]
-    arity: str
-    excludes: frozenset[str] = frozenset()
-    requires: frozenset[str] = frozenset()
-
-
-def _t(*targets: str) -> frozenset[str]:
-    return frozenset(targets)
-
-
-# The table is SELF-ENFORCING. `_check_markers` rejects any decorator
-# name without a row here, so a marker added below and not added here
-# cannot be used by a declaration at all - it fails on first use, with
-# a "did you mean" suggestion, rather than working silently under no
-# rules.
-MARKERS: dict[str, Marker] = {
-    # On a class.
-    "abstract": Marker(_t("class"), "flag"),
-    "tagged": Marker(_t("class"), "once"),
-    "binding": Marker(_t("class"), "once"),
-    "builds": Marker(_t("class"), "once"),
-    "custom": Marker(_t("class"), "once"),
-    "gc_slots": Marker(_t("class"), "once"),
-    "header": Marker(_t("class"), "once"),
-    "in_process": Marker(_t("class"), "flag",
-                         excludes=frozenset({"wire_value"})),
-    "calls_back": Marker(_t("class"), "flag",
-                         requires=frozenset({"in_process"})),
-    "produced": Marker(_t("class"), "flag"),
-    "tree": Marker(_t("class"), "once"),
-    "wire_value": Marker(_t("class"), "once"),
-    "words": Marker(_t("class"), "once"),
-    # On a method, or on a module-level function.
-    "binds": Marker(_t("method", "free"), "once"),
-    "blocks": Marker(_t("method", "free"), "flag",
-                     # Documented inverses: one says a call can wait,
-                     # the other says it cannot.
-                     excludes=frozenset({"instant"})),
-    "cxx_name": Marker(_t("method"), "once"),
-    "spells": Marker(_t("method"), "once"),
-    "fills": Marker(_t("method"), "once"),
-    "guard": Marker(_t("method"), "once"),
-    "names": Marker(_t("method"), "flag"),
-    "produces": Marker(_t("method"), "once"),
-    "instant": Marker(_t("method"), "flag",
-                      excludes=frozenset({"blocks"})),
-    "local": Marker(_t("method"), "flag"),
-    "reads": Marker(_t("method"), "once"),
-    "wire_read": Marker(_t("method"), "once"),
-    "threading": Marker(_t("method", "free"), "once"),
-    # On anything that names C++ it needs compiled beside it.
-    "needs": Marker(_t("class", "method", "free"), "repeatable"),
-    # On a module-level function only.
-    "constructs": Marker(_t("free"), "once"),
-    "startup": Marker(_t("free"), "flag"),
-    "translator": Marker(_t("free"), "flag"),
-    # On a method of an @in_process class.
-    "virtual": Marker(_t("method"), "flag"),
-    "posted": Marker(_t("method"), "flag", requires=frozenset({"virtual"})),
-    # On a method, or on a module-level function, a server serves.
-    "subscription": Marker(_t("method", "free"), "once"),
-}
+    name: str
+    target: frozenset[Target]
+    arity: Arity
+    excludes: frozenset[str]
+    requires: frozenset[str]
+    field: str | None
 
 
-def in_process(cls: type) -> type:
+class Fields:
+    """A mark value that fills one field per attribute: `@binding`
+    fills six fields of a `Decl`."""
+
+
+@dataclass(frozen=True)
+class Mark:
+    """One marker applied: its rules, and what it said."""
+
+    marker: Marker
+    value: object
+
+    def assigns(self) -> dict[str, Any]:
+        """The fields this mark fills, by name."""
+        if self.marker.field is None:
+            return {}
+        if isinstance(self.value, Fields):
+            return dict(vars(self.value))
+        return {self.marker.field: self.value}
+
+
+MARKS = "__marks__"
+
+# Every marker, by name. `flag` and `marker` fill it.
+MARKERS: dict[str, Marker] = {}
+
+
+class Apply(Protocol):
+    """A marker ready to apply. It returns what it marks, unchanged."""
+
+    def __call__[T](self, obj: T, /) -> T: ...
+
+
+class _Make(Protocol):
+    def __call__[**P](self, spec: Callable[P, object], /
+                      ) -> Callable[P, Apply]: ...
+
+
+def _held(obj: object) -> object:
+    """The function a descriptor holds, or `obj` itself."""
+    return getattr(obj, "fget", None) or getattr(obj, "__func__", obj)
+
+
+def marks(obj: object) -> tuple[Mark, ...]:
+    """The marks on a class or a function, outermost first."""
+    return tuple(vars(_held(obj)).get(MARKS, ()))
+
+
+def _record[T](obj: T, mark: Mark) -> T:
+    # Through a descriptor: a `property` takes no attribute, so a mark
+    # set on one fails the import.
+    held = _held(obj)
+    # Its own list, so a class never appends to its base's.
+    own: list[Mark] | None = vars(held).get(MARKS)
+    if own is None:
+        own = []
+        setattr(held, MARKS, own)
+    # Decorators apply innermost first.
+    own.insert(0, mark)
+    return obj
+
+
+def _register(spec: Callable[..., object], target: tuple[Target, ...],
+              arity: Arity, excludes: tuple[str, ...],
+              requires: tuple[str, ...], field: str | None) -> Marker:
+    name = spec.__name__
+    rule = Marker(name, frozenset(target), arity, frozenset(excludes),
+                  frozenset(requires), name if field == "" else field)
+    MARKERS[name] = rule
+    return rule
+
+
+def flag(*target: Target, excludes: tuple[str, ...] = (),
+         requires: tuple[str, ...] = (), field: str | None = "",
+         ) -> Callable[[Callable[[], object]], Apply]:
+    """Make a marker written bare: `@local`.
+
+    The body answers the value, or True when it answers nothing. The
+    marker fills the field it is named after unless `field` names
+    another."""
+    def make(spec: Callable[[], object]) -> Apply:
+        said = spec()
+        mark = Mark(_register(spec, target, Arity.FLAG, excludes, requires,
+                              field),
+                    True if said is None else said)
+
+        def apply[T](obj: T) -> T:
+            return _record(obj, mark)
+        functools.update_wrapper(apply, spec)
+        return apply
+    return make
+
+
+def marker(*target: Target, repeatable: bool = False,
+           excludes: tuple[str, ...] = (), requires: tuple[str, ...] = (),
+           field: str | None = "") -> _Make:
+    """Make a marker written with arguments: `@reads("narSize")`.
+
+    The body's signature is the marker's, and the body answers the
+    value. A `repeatable` marker's values concatenate."""
+    def make[**P](spec: Callable[P, object]) -> Callable[P, Apply]:
+        rule = _register(
+            spec, target, Arity.REPEATABLE if repeatable else Arity.ONCE,
+            excludes, requires, field)
+
+        def factory(*args: P.args, **kwargs: P.kwargs) -> Apply:
+            if len(args) == 1 and not kwargs and _marks_it(rule, args[0]):
+                # `@reads` with no parentheses: Python hands the marker
+                # what it should mark.
+                raise TypeError(f"@{rule.name} needs arguments")
+            mark = Mark(rule, spec(*args, **kwargs))
+
+            def apply[T](obj: T) -> T:
+                return _record(obj, mark)
+            return apply
+        functools.update_wrapper(factory, spec)
+        return factory
+    return make
+
+
+def _marks_it(rule: Marker, arg: object) -> bool:
+    if isinstance(arg, type):
+        return Target.CLASS in rule.target
+    return isinstance(arg, types.FunctionType | property | staticmethod
+                      | classmethod)
+
+
+@flag(Target.CLASS, excludes=("wire_value",), field="wire")
+def in_process() -> Crossing:
     """This class never crosses: no async wrapper, no protocol, no RPC.
 
     For a class whose objects only make sense in this process, such
     as a base a Python subclass implements for Nix to call. A handle
     to one would name an object no remote caller can use."""
-    _decl(cls).wire = Crossing.LOCAL
-    return cls
+    return Crossing.LOCAL
 
 
-def calls_back(cls: type) -> type:
+@flag(Target.CLASS, requires=("in_process",))
+def calls_back() -> None:
     """EXPERIMENTAL (nixidae/nixidae#738): a remote client may pass one of these.
 
     For an `@in_process` class whose `@virtual` methods Nix calls. The
@@ -579,18 +660,15 @@ def calls_back(cls: type) -> type:
     the server calls its `@virtual` methods back over the connection,
     from the thread that needs the answer. Off unless both ends enable
     callbacks."""
-    _decl(cls).calls_back = True
-    return cls
 
 
-def abstract(cls: type) -> type:
+@flag(Target.CLASS)
+def abstract() -> None:
     """Python may not construct one of these.
 
     The base of a hierarchy whose leaves are the implementations. It
     still gets a class, because a caller holds the base far more
     often than a leaf - what it does not get is a constructor."""
-    _decl(cls).abstract = True
-    return cls
 
 
 @dataclass(frozen=True)
@@ -648,21 +726,16 @@ class Tree:
     stop: str = ""
 
 
+@marker(Target.CLASS)
 def tree(kind: str, kinds: dict[str, Leaf | Items | Entries | Null],
-         identity: str = "", force: str = "",
-         stop: str = "") -> Callable[[type], type]:
+         identity: str = "", force: str = "", stop: str = "") -> Tree:
     """How a value TREE is walked, for a type that holds others.
 
     The RPC layer reads it, so no layer above this declaration knows
     what the type is or which of its methods do what. The build checks
     every accessor it names against the class, and the emitter writes
     it into `_policy.TREES`, which the server reads."""
-    spec = Tree(kind, kinds, identity, force, stop)
-
-    def apply(cls: type) -> type:
-        _decl(cls).tree = spec
-        return cls
-    return apply
+    return Tree(kind, kinds, identity, force, stop)
 
 
 @dataclass(frozen=True)
@@ -682,23 +755,20 @@ class Builds:
     add_entry: str
 
 
+@marker(Target.CLASS)
 def builds(null: str, leaves: dict[str, str], items: str, add_item: str,
-           entries: str, add_entry: str) -> Callable[[type], type]:
+           entries: str, add_entry: str) -> Builds:
     """How Python data becomes a value, for a type that makes values.
 
     The RPC layer reads it and builds a whole value in one hop, so no
     layer above this declaration names a builder. The build checks
     every method it names against the class, and the emitter writes it
     into `_policy.BUILDERS`."""
-    spec = Builds(null, leaves, items, add_item, entries, add_entry)
-
-    def apply(cls: type) -> type:
-        _decl(cls).builds = spec
-        return cls
-    return apply
+    return Builds(null, leaves, items, add_item, entries, add_entry)
 
 
-def startup[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.FREE)
+def startup() -> None:
     """Call this once, when the module is imported.
 
     Not exported. It is what a library demands before anything else
@@ -710,37 +780,26 @@ def startup[F: Callable[..., Any]](fn: F) -> F:
     a fact about the library it binds. The emitter used to name
     libstore's in every extension, which is wrong for a module that
     does not bind libstore."""
-    fn._startup = True  # type: ignore[attr-defined]
-    return fn
 
 
-def translator[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.FREE)
+def translator() -> None:
     """The C++ that turns a library exception into a Python one.
 
     Registered once for the module, and not exported. The default is
     already right for a library that throws std::exception - nanobind
     maps that to RuntimeError - so a declaration says this only when
     the library has a hierarchy worth keeping."""
-    fn._translator = True  # type: ignore[attr-defined]
-    return fn
 
 
-def _decl(cls: type) -> Decl:
-    if "_decl" not in cls.__dict__:
-        cls._decl = Decl()  # type: ignore[attr-defined]
-    d: Decl = cls.__dict__["_decl"]
-    return d
-
-
-def header(path: str) -> Callable[[type], type]:
+@marker(Target.CLASS)
+def header(path: str) -> str:
     """The C++ header this class is declared in."""
-    def apply(cls: type) -> type:
-        _decl(cls).header = path
-        return cls
-    return apply
+    return path
 
 
-def produced(cls: type) -> type:
+@flag(Target.CLASS)
+def produced() -> None:
     """This class is built by something else, never constructed.
 
     A produced value holds no C++ object at all: the object that made
@@ -753,11 +812,10 @@ def produced(cls: type) -> type:
     What makes one is read off the return types, and the refusing
     __init__ names each such call, so a caller who guesses wrong is
     told where to look."""
-    _decl(cls).produced = True
-    return cls
 
 
-def constructs(cls: type) -> Callable[[F], F]:
+@marker(Target.FREE, field=None)
+def constructs(cls: type) -> type:
     """This free function is `cls`'s constructor.
 
     `open_store` builds a Store, so a caller writes `Store("auto")`
@@ -768,14 +826,19 @@ def constructs(cls: type) -> Callable[[F], F]:
     On the function, not the class: the class is defined first, so
     the function names an object that exists, where the class could
     only name the function by a string."""
-    def apply(fn: F) -> F:
-        _decl(cls).factory = fn.__name__
-        return fn
-    return apply
+    return cls
 
 
+@dataclass(frozen=True)
+class _Words(Fields):
+    parsed_by: str
+    enumerated: Enumerated | None
+    kind: DeclKind = DeclKind.WORDS
+
+
+@marker(Target.CLASS)
 def words(parsed_by: str = "", enumerated: Enumerated | None = None,
-          ) -> Callable[[type], type]:
+          ) -> _Words:
     """This class is a VOCABULARY: the words a Nix parser takes.
 
     A StrEnum, so a member IS the string libstore parses. Passing
@@ -797,14 +860,11 @@ def words(parsed_by: str = "", enumerated: Enumerated | None = None,
     one. It buys the direction `parsed_by` does not have - a word
     coming BACK from libstore - and, because that direction is a
     switch, it makes the compiler check the list."""
-    def apply(cls: type) -> type:
-        d = _decl(cls)
-        d.kind, d.parsed_by, d.enumerated = DeclKind.WORDS, parsed_by, enumerated
-        return cls
-    return apply
+    return _Words(parsed_by, enumerated)
 
 
-def gc_slots(table: str) -> Callable[[type], type]:
+@marker(Target.CLASS)
+def gc_slots(table: str) -> str:
     """This class holds Python objects, and here is how to traverse
     them.
 
@@ -826,16 +886,24 @@ def gc_slots(table: str) -> Callable[[type], type]:
     itself whenever that callable closes over it, which is the normal
     way to write one (nixidae/nixidae#630). Nothing detects the omission
     today."""
-    def apply(cls: type) -> type:
-        _decl(cls).gc_slots = table
-        return cls
-    return apply
+    return table
 
 
+@dataclass(frozen=True)
+class _Binding(Fields):
+    cxx: str
+    threading: Threading
+    holder: str
+    blocking: bool
+    via: str
+    collection: str
+
+
+@marker(Target.CLASS)
 def binding(cxx: str = "",
             threading: Literal["pool", "affine"] = "pool", holder: str = "",
             blocking: bool = True, via: str = "",
-            collection: str = "") -> Callable[[type], type]:
+            collection: str = "") -> _Binding:
     """The C++ class this binds, and how it may be called.
 
     `blocking=False` means no method here can wait: every one is a
@@ -857,19 +925,26 @@ def binding(cxx: str = "",
     than to what it points at says so with its own `@cxx_body`, and
     the census counts it - which is the honest split, because those
     are the only lines that are about the handle at all."""
-    def apply(cls: type) -> type:
-        d = _decl(cls)
-        d.cxx, d.blocking = cxx, blocking
-        d.threading = Threading(threading)
-        d.holder, d.via, d.collection = holder, via, collection
-        return cls
-    return apply
+    return _Binding(cxx, Threading(threading), holder, blocking, via,
+                    collection)
 
 
+@dataclass(frozen=True)
+class _WireValue(Fields):
+    fields: tuple[Field | str, ...]
+    compare: str
+    text: str
+    order: bool
+    shown: str
+    unit: bool
+    wire: Crossing = Crossing.VALUE
+
+
+@marker(Target.CLASS)
 def wire_value(fields: tuple[Field | str, ...] = (), compare: str = "parts",
                text: str = "", order: bool = False,
                shown: str = "", unit: bool = False,
-               ) -> Callable[[type], type]:
+               ) -> _WireValue:
     """This class serializes, and here is what it is made of.
 
     `unit` says the value has NO parts, and that is the whole fact:
@@ -911,17 +986,11 @@ def wire_value(fields: tuple[Field | str, ...] = (), compare: str = "parts",
     the accessor a repr identifies the value by, which every value
     has. A value with a `text` is shown by it unless it says
     otherwise."""
-    def apply(cls: type) -> type:
-        d = _decl(cls)
-        d.wire, d.fields, d.compare = Crossing.VALUE, fields, compare
-        d.text, d.order = text, order
-        d.shown = shown or text
-        d.unit = unit
-        return cls
-    return apply
+    return _WireValue(fields, compare, text, order, shown or text, unit)
 
 
-def custom(name: str, source: str) -> Callable[[type], type]:
+@marker(Target.CLASS)
+def custom(name: str, source: str) -> dict[str, str]:
     """Whole-class C++ this emitter cannot derive, carried verbatim.
 
     The escape hatch, and it is counted. `cpp/README` makes the same
@@ -931,21 +1000,18 @@ def custom(name: str, source: str) -> Callable[[type], type]:
 
     `@cxx_body` is the per-METHOD hatch, and it is the one to reach
     for first. This carries lines a class needs and no method owns."""
-    def apply(cls: type) -> type:
-        _decl(cls).custom[name] = source
-        return cls
-    return apply
+    return {name: source}
 
 
-def cxx_name[F: Callable[..., Any]](name: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def cxx_name(name: str) -> str:
     """What C++ calls this method, when it is not what Python does."""
-    def apply(fn: F) -> F:
-        fn._cxx_name = name  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return name
 
 
-def tagged(reach: str, ask: str, **names: str) -> Callable[[type], type]:
+@marker(Target.CLASS)
+def tagged(reach: str, ask: str,
+           **names: str) -> tuple[str, str, dict[str, str]]:
     """This class is a handle over a TAGGED UNION.
 
     `reach` hands the union over. `ask` says which arm it holds. The
@@ -960,13 +1026,11 @@ def tagged(reach: str, ask: str, **names: str) -> Callable[[type], type]:
     Written name-first because the name is the Python fact and the
     enumerator is the C++ one, and a declaration reads better in the
     direction it is used."""
-    def mark(cls: type) -> type:
-        _decl(cls).tagged = (reach, ask, dict(names))
-        return cls
-    return mark
+    return (reach, ask, dict(names))
 
 
-def produces[F: Callable[..., Any]](init: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def produces(init: str) -> str:
     """This method makes a new value by calling ONE initialiser.
 
     `init` is the C++ name of that initialiser, and it is the whole of
@@ -983,13 +1047,11 @@ def produces[F: Callable[..., Any]](init: str) -> Callable[[F], F]:
     a conditional - the method is not in this pattern. Give it a body
     instead of stretching the marker, because a marker that describes
     structure is a C++ string with punctuation."""
-    def mark(fn: F) -> F:
-        fn._produces = init  # type: ignore[attr-defined]
-        return fn
-    return mark
+    return init
 
 
-def fills[F: Callable[..., Any]](maker: str, arm: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def fills(maker: str, arm: str) -> tuple[str, str]:
     """This method mutates a value the binding BUILT, and nothing else.
 
     `maker` is the method that makes such a value, and it is what the
@@ -1009,22 +1071,19 @@ def fills[F: Callable[..., Any]](maker: str, arm: str) -> Callable[[F], F]:
     A marker rather than two hand-written checks, because it repeats:
     the same decision covers appending to a list and setting an
     attribute, and a third builder would make it three."""
-    def mark(fn: F) -> F:
-        fn._fills = (maker, arm)  # type: ignore[attr-defined]
-        return fn
-    return mark
+    return (maker, arm)
 
 
-def names[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.METHOD)
+def names() -> None:
     """This accessor answers which arm the union holds, by NAME.
 
     Emitted from the `@arms` table, so the names a caller sees and
     the names `@guard` checks against cannot drift apart."""
-    fn._names = True  # type: ignore[attr-defined]
-    return fn
 
 
-def guard[F: Callable[..., Any]](arm: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def guard(arm: str) -> str:
     """This accessor is valid only when the union holds `arm`.
 
     Not politeness. `nix::Value`'s readers are `noexcept` and
@@ -1038,22 +1097,21 @@ def guard[F: Callable[..., Any]](arm: str) -> Callable[[F], F]:
     This is what makes a handle over a union bindable at all. A method
     bound by pointer cannot check anything first, which is why binding
     a tagged union that way is wrong. A generated body can check."""
-    def mark(fn: F) -> F:
-        fn._guard = arm  # type: ignore[attr-defined]
-        return fn
-    return mark
+    return arm
 
 
-def blocks[F: Callable[..., Any]](fn: F) -> F:
+# Documented inverses: one says a call can wait, the other says it
+# cannot.
+@flag(Target.METHOD, Target.FREE, excludes=("instant",))
+def blocks() -> None:
     """This method can wait, so the emitter releases the GIL around it.
 
     Per-method rather than per-class, because a class whose calls
     mostly block still has accessors that cannot."""
-    fn._blocks = True  # type: ignore[attr-defined]
-    return fn
 
 
-def local[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.METHOD)
+def local() -> None:
     """This accessor is for a caller, and does not cross the wire.
 
     A wire value crosses as every accessor it has, so nothing lists
@@ -1066,11 +1124,10 @@ def local[F: Callable[..., Any]](fn: F) -> F:
     The test is whether `_from_parts` could not rebuild the value
     without it. If it could, the accessor is a convenience and belongs
     here."""
-    fn._local = True  # type: ignore[attr-defined]
-    return fn
 
 
-def virtual[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.METHOD)
+def virtual() -> None:
     """A Python subclass may override this C++ virtual.
 
     The binding emits a trampoline. When C++ calls the method, a
@@ -1082,11 +1139,10 @@ def virtual[F: Callable[..., Any]](fn: F) -> F:
     Only on an `@in_process` class: an override is Python in this
     process, and a remote caller could not reach it. The method binds
     the C++ member by name, so it carries no body."""
-    fn._virtual = True  # type: ignore[attr-defined]
-    return fn
 
 
-def posted[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.METHOD, requires=("virtual",))
+def posted() -> None:
     """Nix need not wait for this hook to finish (nixidae/nixidae#740).
 
     For a `@virtual` that answers nothing, on a `@calls_back` class.
@@ -1094,11 +1150,10 @@ def posted[F: Callable[..., Any]](fn: F) -> F:
     makes Nix wait. A failure fails the call that reads the object, at
     a later write or at its end. The call returns only once every
     queued call has run."""
-    fn._posted = True  # type: ignore[attr-defined]
-    return fn
 
 
-def subscription[F: Callable[..., Any]](role: Subscription) -> Callable[[F], F]:
+@marker(Target.METHOD, Target.FREE)
+def subscription(role: Subscription) -> Subscription:
     """A server shares this call among its callers (nixidae/nixidae#622).
 
     The binding REPLACES a thread's subscription, so a second caller
@@ -1106,14 +1161,17 @@ def subscription[F: Callable[..., Any]](role: Subscription) -> Callable[[F], F]:
     the subscription once and answers each OPEN with a reader of it;
     a CLOSE leaves only that caller's readers. In process, the call
     runs as declared."""
-    def mark(fn: F) -> F:
-        fn._subscription = role  # type: ignore[attr-defined]
-        return fn
-    return mark
+    return role
 
 
-def reads[F: Callable[..., Any]](member: str,
-                                 collection: str = "") -> Callable[[F], F]:
+@dataclass(frozen=True)
+class _Reads(Fields):
+    reads: str
+    member_collection: str
+
+
+@marker(Target.METHOD)
+def reads(member: str, collection: str = "") -> _Reads:
     """This accessor reads a C++ DATA MEMBER, not a method.
 
     The distinction is not pedantry, it decides what gets emitted. A
@@ -1135,14 +1193,11 @@ def reads[F: Callable[..., Any]](member: str,
 
     Only the WRITE direction needs it. Reading goes through `as_list`,
     which is a template over any range."""
-    def apply(fn: F) -> F:
-        fn._reads = member  # type: ignore[attr-defined]
-        fn._member_collection = collection  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return _Reads(member, collection)
 
 
-def wire_read[F: Callable[..., Any]](accessor: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def wire_read(accessor: str) -> str:
     """This part crosses the wire as what `accessor` reads.
 
     The part keeps this accessor's name and position. Only the reader
@@ -1153,14 +1208,15 @@ def wire_read[F: Callable[..., Any]](accessor: str) -> Callable[[F], F]:
     list restates every part to change one, and an accessor added later
     and left out of it silently stays off the wire. `accessor` must be
     `@local`, or it would cross a second time as a part of its own."""
-    def apply(fn: F) -> F:
-        fn._wire_read = accessor  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return accessor
 
 
-def needs[F: Callable[..., Any]](*headers: str) -> Callable[[F], F]:
+@marker(Target.CLASS, Target.METHOD, Target.FREE, repeatable=True,
+        field="headers")
+def needs(*headers: str) -> tuple[str, ...]:
     """C++ headers this method's body needs, beyond its class's.
+
+    On a class, the headers every body of the class needs.
 
     `@header` on a class names where the bound TYPE is declared, and
     that is the one header every method has in common. A body reaches
@@ -1172,13 +1228,11 @@ def needs[F: Callable[..., Any]](*headers: str) -> Callable[[F], F]:
     anything - a body that stops using a type stops naming it - and
     without it an emitted module fails to compile with a message
     about a type nobody can find the declaration for."""
-    def apply(fn: F) -> F:
-        fn._needs = headers  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return headers
 
 
-def spells[F: Callable[..., Any]](*words: str) -> Callable[[F], F]:
+@marker(Target.METHOD)
+def spells(*words: str) -> tuple[str, ...]:
     """Vocabularies this method's BODY spells, beyond its signature.
 
     Not `@names`, which is taken: that one says an accessor ANSWERS
@@ -1200,13 +1254,11 @@ def spells[F: Callable[..., Any]](*words: str) -> Callable[[F], F]:
     instead: a name no declaration declares as an enum-backed
     vocabulary is refused rather than skipped, which is the gate the
     typed argument would have been."""
-    def apply(fn: F) -> F:
-        fn._spells = words  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return words
 
 
-def instant[F: Callable[..., Any]](fn: F) -> F:
+@flag(Target.METHOD, excludes=("blocks",))
+def instant() -> None:
     """This method cannot wait, on a class whose calls generally can.
 
     The inverse of `@blocks`, and both are needed for the same reason:
@@ -1216,11 +1268,10 @@ def instant[F: Callable[..., Any]](fn: F) -> F:
     `get_store_dir` reads a string the config already holds, so
     releasing the GIL around it would cost two thread-state
     transitions to save nothing."""
-    fn._instant = True  # type: ignore[attr-defined]
-    return fn
 
 
-def threading(policy: Literal["pool"]) -> Callable[[F], F]:
+@marker(Target.METHOD, Target.FREE, field="policy")
+def threading(policy: Literal["pool"]) -> Threading:
     """Opt one FREE function into the generated surface, under `policy`.
 
     The marker is what opts a function in. An undeclared function is
@@ -1238,14 +1289,11 @@ def threading(policy: Literal["pool"]) -> Callable[[F], F]:
             f"a free function may only declare 'pool' threading (got "
             f"{policy!r}). It has no instance, so there is no thread for "
             f"it to be affine to.")
-
-    def apply(fn: F) -> F:
-        fn._policy = Threading(policy)  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return Threading(policy)
 
 
-def binds[F: Callable[..., Any]](name: str) -> Callable[[F], F]:
+@marker(Target.METHOD, Target.FREE)
+def binds(name: str) -> str:
     """The C++ function this free function binds.
 
     A class says `@binding(cxx=...)` because it maps onto a type. A
@@ -1258,7 +1306,11 @@ def binds[F: Callable[..., Any]](name: str) -> Callable[[F], F]:
     declaration owns is the BINDING - the Python name, the parameter
     names, whether the call can wait - and naming the helper is how it
     reaches one without pretending to have written it."""
-    def apply(fn: F) -> F:
-        fn._binds = name  # type: ignore[attr-defined]
-        return fn
-    return apply
+    return name
+
+
+# A rule names other markers by name, so a misspelt one would check
+# nothing.
+if _unknown := {n for rule in MARKERS.values()
+                for n in rule.excludes | rule.requires} - MARKERS.keys():
+    raise NameError(f"a marker rule names no marker: {sorted(_unknown)}")
