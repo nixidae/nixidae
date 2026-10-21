@@ -81,9 +81,11 @@ python3Packages.buildPythonPackage {
   # directly - libexpr exposes no thread-registration API, so that half
   # of the integration is this repo's. null for a libexpr built without
   # the collector, and then nothing here names a Boehm symbol.
+  # Not propagated: the extension reaches Nix's libraries through its
+  # RPATH. A propagated `-dev` output puts its headers, boost's 147 MiB
+  # among them, in every environment that imports the bindings
+  # (nixidae/nixidae#939).
   buildInputs = lib.optional (boehmgc != null) boehmgc ++ nixLibs;
-
-  propagatedBuildInputs = nixLibs;
 
   passthru.nixVersion = nix-store.version;
   # Whether libexpr allocates through the collector: its tests ask
