@@ -29,6 +29,8 @@ rec {
   josh-export = pkgs.callPackage ./pkgs/josh-export { };
   # The josh josh-export runs, for a job that needs a source's own commit.
   inherit (pkgs) josh;
+  # The ruff pyedit.toml fixes staged Python with.
+  inherit (pkgs) ruff;
 
   # -- the sources -----------------------------------------------------------
   #
