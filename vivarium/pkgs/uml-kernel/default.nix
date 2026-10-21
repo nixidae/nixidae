@@ -364,6 +364,31 @@ let
     NETFILTER_XT_MATCH_POLICY = yes;
   };
 
+  # What VyOS's boot asks of the kernel, each seen failing in its boot log:
+  # vyos-router's `nfct helper add` (cthelper), the conntrack sysctls,
+  # conntrack-logger's events, the VRF zones and rpfilter's `fib` in
+  # vyos-firewall-init.conf, and atop's process accounting.
+  vyosConfig = with lib.kernel; {
+    # Dropped without a word unless both of the next two are on.
+    NF_CT_NETLINK_HELPER = yes;
+    NETFILTER_NETLINK_QUEUE = yes;
+    NETFILTER_NETLINK_GLUE_CT = yes;
+    NF_CONNTRACK_TIMESTAMP = yes;
+    NF_CONNTRACK_EVENTS = yes;
+    NF_CONNTRACK_ZONES = yes;
+    NFT_FIB_INET = yes;
+    NFT_FIB_IPV4 = yes;
+    NFT_FIB_IPV6 = yes;
+    BSD_PROCESS_ACCT = yes;
+    BSD_PROCESS_ACCT_V3 = yes;
+    # atopacctd reads per-task statistics over the taskstats netlink
+    # family; without it, "receive NETLINK family, errno -2" and a timeout.
+    TASKSTATS = yes;
+    TASK_DELAY_ACCT = yes;
+    TASK_XACCT = yes;
+    TASK_IO_ACCOUNTING = yes;
+  };
+
   smpConfig = lib.optionalAttrs smp (
     with lib.kernel;
     {
@@ -397,7 +422,7 @@ in
     "SUBARCH=x86_64"
     "CC=${lib.getExe stdenv.cc}"
   ];
-  structuredExtraConfig = baseConfig // containerConfig // ipsecConfig // smpConfig;
+  structuredExtraConfig = baseConfig // containerConfig // ipsecConfig // vyosConfig // smpConfig;
   extraMeta.platforms = lib.platforms.linux;
 }).overrideAttrs
   (
