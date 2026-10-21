@@ -1357,7 +1357,7 @@ def _class(node: ast.ClassDef, vocab: dict[str, str],
                 node, f"{node.name}: only an @in_process class has a base, "
                       f"and it is one declared class. Declare the methods "
                       f"on {node.name} itself (nixidae/nixidae#597).")
-        decl.base = base.__name__
+        decl = replace(decl, base=base.__name__)
 
     if decl.kind is DeclKind.WORDS:
         return Class(
@@ -2282,13 +2282,10 @@ def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
         raise DeclarationError(
             node, f"{node.name}: a class with no decorator declares "
                   f"an exception, so it derives from BaseException.")
-    decl = Decl()
-    decl.name = node.name
-    decl.kind = DeclKind.ERROR
     return Class(
         name=node.name,
         doc=ast.get_docstring(node, clean=False) or "",
-        decl=decl,
+        decl=Decl(name=node.name, kind=DeclKind.ERROR),
         ctor=None,
         module=stem,
         raised=_raised(node, kls, home),

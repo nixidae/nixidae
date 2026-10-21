@@ -2124,6 +2124,30 @@ def test_a_foreign_decorator_alone_is_refused(
                 "METHOD_MARKER", "") + "\n\n" + stray))
 
 
+def test_a_read_decl_is_frozen_and_keeps_its_base(
+        tmp_path: pathlib.Path) -> None:
+    """The reader builds each `Decl` whole, so a later reader cannot
+    change one (nixidae/nixidae#901). The base is the field it set last."""
+    import dataclasses
+
+    from huggorm_dsl.read import read
+
+    module = read(_declaration(tmp_path, SPELLED.replace(
+        "CLASS_MARKER", '@binding(cxx="x::Stream")\n@d.in_process').replace(
+            "METHOD_MARKER", "") + '''
+
+@binding(cxx="x::Sub")
+@d.in_process
+@header("x.hpp")
+class Sub(Stream):
+    """A sub-stream."""
+'''))
+    sub = next(c for c in module.classes if c.name == "Sub")
+    assert sub.decl.base == "Stream"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        sub.decl.base = ""  # type: ignore[misc]
+
+
 def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
     """`@needs` is repeatable, so a second one adds headers. It does not
     replace the first."""

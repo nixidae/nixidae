@@ -436,7 +436,7 @@ class Field:
     read: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class Decl:
     """Everything the emitter knows about one bound class."""
 
