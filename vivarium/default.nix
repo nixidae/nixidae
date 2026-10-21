@@ -1145,6 +1145,50 @@ let
     };
 
     /*
+      Two NixOS guests on two segments, routed through RouterOS. The
+      router's interfaces carry their vivarium names and addresses.
+    */
+    routeros-route =
+      let
+        host = segment: address: gateway: other: {
+          vivarium.interfaces.${segment} = {
+            inherit segment;
+            addresses = [ "${address}/24" ];
+          };
+          networking.interfaces.${segment}.ipv4.routes = [
+            {
+              address = other;
+              prefixLength = 24;
+              via = gateway;
+            }
+          ];
+        };
+      in
+      mkTest {
+        name = "routeros-route";
+        backend = "qemu";
+        nodes.r1 = {
+          vivarium.routeros = images.routeros-chr;
+          vivarium.interfaces = {
+            left = {
+              segment = "left";
+              addresses = [ "10.1.0.1/24" ];
+            };
+            right = {
+              segment = "right";
+              addresses = [ "10.2.0.1/24" ];
+            };
+          };
+        };
+        nodes.a = host "left" "10.1.0.2" "10.1.0.1" "10.2.0.0";
+        nodes.b = host "right" "10.2.0.2" "10.2.0.1" "10.1.0.0";
+        phases.route = {
+          script = ./tests/phases/routeros-route.py;
+          after = [ "boot" ];
+        };
+      };
+
+    /*
       Can an unprivileged, read-only reader open the guest's Nix
       database, as on a running host? harmonia's cache is one.
     */

@@ -15,13 +15,30 @@ let
   cfg = config.vivarium.routeros;
   inherit (lib) mkOption types;
 
+  # vivarium names an interface by its attribute, on every backend. CHR
+  # names NICs ether1..N in PCI order instead, so each is renamed by the
+  # MAC vivarium gave it, and gets the addresses declared for it.
+  interfaces = lib.concatMapStrings (
+    nic:
+    ''
+      /interface ethernet set [find mac-address=${nic.mac}] name=${nic.name}
+    ''
+    + lib.concatMapStrings (
+      address:
+      if lib.hasInfix ":" address then
+        "/ipv6 address add address=${address} interface=${nic.name} advertise=no\n"
+      else
+        "/ip address add address=${address} interface=${nic.name}\n"
+    ) nic.addresses
+  ) config.vivarium.nics;
+
   # A bare ext4 filesystem, no partition table: RouterOS mounts it at once.
   # Inside an MBR table, CHR 7.24.5 does not boot at all.
   configDisk =
     pkgs.runCommand "vivarium-routeros-config-${config.networking.hostName}"
       {
         nativeBuildInputs = [ pkgs.e2fsprogs ];
-        configText = cfg.config;
+        configText = interfaces + cfg.config;
         passAsFile = [ "configText" ];
       }
       ''
@@ -41,8 +58,9 @@ in
       `execute` and `succeed` run RouterOS commands, not a shell. The
       agent's calls (`unit_state`, `journal`, `add_closure`, ...) refuse.
 
-      NICs are `ether1` (the uplink, with RouterOS's default DHCP client),
-      then `ether2`, ... in `vivarium.interfaces` order.
+      The uplink is `ether1`, with RouterOS's default DHCP client. Each of
+      `vivarium.interfaces` has its attribute name inside RouterOS, as on
+      every backend, and its `addresses`, before `config` runs.
     '';
     type = types.nullOr (
       types.submodule {
@@ -55,7 +73,7 @@ in
             type = types.lines;
             default = "";
             example = ''
-              /ip address add address=10.1.0.1/24 interface=ether2
+              /routing ospf instance add name=default
             '';
             description = ''
               RouterOS script, applied with `/import` once the console is
