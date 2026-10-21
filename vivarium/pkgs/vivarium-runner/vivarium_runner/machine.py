@@ -14,6 +14,7 @@ file does not know which kind of machine it started.
 
 from __future__ import annotations
 
+import anyio
 import asyncio
 import collections
 import contextlib
@@ -1545,6 +1546,30 @@ class Machine:
                     f"(state: {state})\n{await self.journal(unit)}"
                 )
             await asyncio.sleep(0.5)
+
+    async def wait_until_succeeds(
+        self, command: str, timeout: float = 120, poll: float = 1.0
+    ) -> str:
+        """Run *command* in the guest until it exits 0; return its output.
+
+        The nixos-test idiom for a settle: push the condition into the
+        command -- a ``grep -q``, a ``ping`` -- so a wait is a command that
+        comes good. Raises after *timeout* seconds, with the last output.
+        """
+        out = ""
+        with self.waiting(f"`{command}` to succeed"):
+            try:
+                with anyio.fail_after(timeout):
+                    while True:
+                        rc, out = await self.execute(command)
+                        if rc == 0:
+                            return out
+                        await anyio.sleep(poll)
+            except TimeoutError:
+                raise MachineError(
+                    f"[{self.name}] `{command}` did not succeed within "
+                    f"{timeout:.0f}s:\n{out}"
+                ) from None
 
 
 class Machines(dict[str, Machine]):
