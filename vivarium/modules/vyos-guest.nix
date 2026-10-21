@@ -20,12 +20,31 @@ let
 
   runner = config.system.build.vivariumRunnerPackage;
   units = import ./foreign-units.nix { inherit lib pkgs runner; };
+  # vec0 is the uplink. On the out-of-band fabric (nixidae/nixidae#958) it
+  # joins a management segment and leases there, so rename it eth0 and let
+  # VyOS DHCP it. Otherwise VyOS does not manage it: the agent is on ttyS0,
+  # not the network. Its MAC is the runner's `spec.mac(0)`, lowercase.
+  hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
+  uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
+  onOob = config.vivarium.uplink.segment != null;
+  uplinkLink = lib.optional onOob {
+    name = "05-vivarium-eth0.link";
+    path = pkgs.writeText "eth0.link" ''
+      [Match]
+      MACAddress=${uplinkMac}
+
+      [Link]
+      Name=eth0
+    '';
+  };
+
   # vivarium names an interface by its attribute on every backend. UML
   # names NICs vecN, which VyOS's own naming rule (65-vyos-net.rules,
   # eth*/wlan*/e* only) never touches, so a .link file renames each by
   # the MAC vivarium gave it.
   links = pkgs.linkFarm "vivarium-vyos-links" (
-    map (nic: {
+    uplinkLink
+    ++ map (nic: {
       name = "10-vivarium-${nic.name}.link";
       path = pkgs.writeText "${nic.name}.link" ''
         [Match]
@@ -37,11 +56,20 @@ let
     }) config.vivarium.nics
   );
 
+  # eth0 leases its management address; a segment NIC takes the static
+  # addresses the node gave it.
+  uplinkStanza = lib.optionalString onOob ''
+        ethernet eth0 {
+            address "dhcp"
+            hw-id "${uplinkMac}"
+        }
+  '';
+
   # The interfaces' hw-id and addresses, in a block of their own after the
   # user's config.
-  interfaceBlock = lib.optionalString (config.vivarium.nics != [ ]) ''
+  interfaceBlock = lib.optionalString (onOob || config.vivarium.nics != [ ]) ''
     interfaces {
-    ${lib.concatMapStrings (nic: ''
+    ${uplinkStanza}${lib.concatMapStrings (nic: ''
           ethernet ${nic.name} {
       ${lib.concatMapStrings (address: "        address \"${address}\"\n") nic.addresses}        hw-id "${nic.mac}"
           }
