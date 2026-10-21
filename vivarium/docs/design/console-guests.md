@@ -1,17 +1,20 @@
 # Console guests: design
 
-Carl and Claude write this together. Status: **proposal, not reviewed.**
-nixidae/nixidae#945 (RouterOS) is the first user; #657 (other operating
-systems) and #948 (containerlab's NOS recipes) are the wider frame.
+Carl and Claude write this together. Status: **milestone 1 built**
+(2026-10-21): the `routeros` test boots CHR, applies its config and
+answers through the console, sandboxed. nixidae/nixidae#945 (RouterOS)
+is the first user; #657 (other operating systems), #948 (containerlab's
+NOS recipes) and #950 (agents as computer users, replayed) are the wider
+frame.
 
 ## The problem
 
-A vivarium guest today runs the vivarium agent. `Machine` reaches it over
-a socketpair (UML `ssl0`, QEMU `virtconsole`), and every phase API
+A vivarium guest runs the vivarium agent. `Machine` reaches it over a
+socketpair (UML `ssl0`, QEMU `virtconsole`), and every phase API
 (`execute`, `unit_state`, `journal`, `add_closure`, ...) is an agent call.
 The run itself also calls the agent on every guest, whatever the phases
-ask: the injected `boot` phase (`systemctl is-system-running --wait`),
-the settle marker (`systemd-cat`), and `systemctl poweroff` at the end.
+ask: the `boot` recipe (`systemctl is-system-running --wait`), the settle
+marker (`systemd-cat`), and `systemctl poweroff` at the end.
 
 A network operating system such as MikroTik RouterOS runs its own kernel
 and userland. The agent cannot run there. The only channel the host has
@@ -22,9 +25,8 @@ something has configured it through that console.
 ## Facts, measured
 
 RouterOS CHR 7.24.5 (`chr-7.24.5.img`, raw, 128 MiB), QEMU with KVM,
-256 MiB, serial on a unix socket, two virtio NICs, 2026-10-21. The raw
-serial bytes are in `tests/fixtures/routeros/`, with the probe that
-made them.
+256 MiB, serial on a unix socket, two virtio NICs, 2026-10-21. The probe
+and its raw serial bytes are in `tests/fixtures/routeros/`.
 
 **Login**
 
@@ -76,84 +78,81 @@ made them.
 - `/import file-name=pcie1/cfg.rsc verbose=yes` applies the file and
   echoes each line as `#line N`.
 
-## Proposal
+## Design
 
 Five layers. Each one is replaceable without the others.
 
 ### 1. Image (Nix)
 
-`images.routeros-chr` fetches `chr-<v>.img.zip` from
-download.mikrotik.com (fixed hash, pinned version: MikroTik keeps old
-versions there) and unzips it. A local derivation (`preferLocalBuild`,
-but see #947).
+`images.routeros-chr` fetches `chr-<v>.img.zip` from download.mikrotik.com
+(fixed hash, pinned version: MikroTik keeps old versions there).
 
-### 2. Guest module (Nix)
+### 2. Guest module (Nix): `modules/routeros-guest.nix`
 
-`vivarium.routeros = { image; config; }`, beside `vivarium.image` and
+`vivarium.routeros = { disk; config; }`, beside `vivarium.image` and
 `vivarium.vyos`. QEMU backend only (assertion). The node is a NixOS
-evaluation for the common options (memory, interfaces, forwards), and
-its system is never built. It sets `system.build.vivariumImageGuest`
-with `boot = "disk"` and `control = "routeros"`.
+evaluation for the common options (memory, interfaces, forwards); its
+system is never built. It sets `system.build.vivariumImageGuest` to
+`{ control = "routeros"; configDisk; }`, and no store closure, so the
+spec gives the guest no store view and no `qemuBoot`.
 
-`config` is RouterOS script (`.rsc`) text. The module builds a **config
-disk**: a bare ext4 image with `config.rsc` on it, made with
-`mkfs.ext4 -d` as the UML root image is.
+`config` is RouterOS script. The module writes it as
+`vivarium-config.rsc` onto a bare ext4 image (`mkfs.ext4 -d`).
 
-### 3. Backend: QEMU disk boot
+### 3. Backend: QEMU disk boot (`Qemu._launch_disk`)
 
-A second branch in `Qemu._launch`, also #657's:
+Taken when the spec's `boot` holds `image`. Also #657's.
 
 - The disk is the image, through a per-run qcow2 over it, with
-  `bootindex=0`. The config disk follows, as a per-run copy, read-write
-  (RouterOS refuses to mount it read-only).
-- No `-kernel`, no virtiofs for the store or the artifacts, no balloon.
-  `Machine.start` builds no store view (no `storePaths`).
-- **The serial port is the control socket**: the guest end of the
-  socketpair the agent uses today.
+  `bootindex=0`. The config disk follows, as a per-run copy, read-write.
+- No `-kernel`, no virtiofs, no balloon, no subordinate-id check.
+- **The serial port is the control socket**: the end of the socketpair
+  the agent would get.
 - The first NIC is the uplink (passt), so `ether1` gets the default DHCP
   client. Segment NICs follow in `interfaces` order, as `ether2..N`.
 
-Console and control are one byte stream. The control layer writes what
-it reads into the console log and `Machine`'s history. Nothing else
-reads the serial port.
+### 4. Control (`vivarium_runner/control.py`, anyio)
 
-### 4. Control (Python, anyio)
-
-`Machine` talks to a `Control`, not to the agent directly. The lifecycle
-calls the run makes on every guest are part of it:
+`Machine.execute` runs every command through a `Control`:
 
 ```python
 class Control(Protocol):
-    async def ready(self) -> None: ...          # the boot phase waits on this
-    async def run(self, command: str, timeout: float) -> Result: ...
-    async def mark(self, text: str) -> None: ...  # the settle marker
-    async def shutdown(self) -> None: ...
-
-@dataclass(frozen=True)
-class Result:
-    ok: bool
-    output: str
+    async def execute(self, command: str, timeout: float,
+                      env: Mapping[str, str] | None = None) -> tuple[int, str]: ...
+    async def aclose(self) -> None: ...
 ```
 
-- `AgentControl` wraps today's arpyc calls, unchanged behaviour. `ok` is
-  `exit code == 0`.
-- `ConsoleControl` drives a byte stream with a **dialect**. One command
-  at a time (an `anyio.Lock`), deadlines with `anyio.fail_after`.
+- `AgentControl` (in `machine.py`) is the arpyc `run` call, unchanged:
+  a shell, with its exit status.
+- `ConsoleControl` drives a byte stream with a **dialect**: it answers
+  the login screens, then sends frames and reads until the dialect parses
+  a result. One command at a time (`anyio.Lock`), deadlines with
+  `anyio.fail_after`. On a timeout it sends Ctrl-C and waits for the
+  prompt; if none comes, every later command fails with that reason.
+  Its exit status is 0, or 1 with the guest's message as the last line.
+  Every byte read goes to `console.raw` among the guest's artifacts.
 
-A dialect is pure functions over bytes, so it is tested against the
-recorded transcripts with no VM:
+The agent-only calls (`unit_state`, `journal`, `listening`, ...) stay
+agent RPC, outside `Control`. On a console guest they raise
+`MachineError` naming the console; `add_closure` and `switch_to` refuse.
+
+A dialect is data and pure functions, so it is tested with no VM:
 
 ```python
-class Dialect(Protocol):
-    login: Sequence[Step]                         # expect / send pairs
-    def frame(self, command: str, nonce: str) -> bytes: ...
-    def parse(self, buffer: bytes, nonce: str) -> Result | None: ...  # None: not complete
+@dataclass(frozen=True)
+class Dialect:
+    name: str
+    login: Sequence[Rule]          # a screen ending in `pattern` gets `reply`; None: done
+    prompt: re.Pattern[bytes]
+    frame: Callable[[str, str], list[bytes]]          # command, nonce -> lines
+    parse: Callable[[bytes, str], Result | None]      # None: not complete
+    configure: str | None = None   # applies the config disk after login
 ```
 
-The RouterOS dialect:
+The RouterOS dialect (`vivarium_runner/routeros.py`):
 
-- `login`: the steps above, user `admin+ct65535w9999h`, then a password
-  set for the run.
+- `login`: user `admin+ct65535w9999h`, empty password, no licence, then
+  the password `vivarium`.
 - `frame`: **base64 in both directions.** The typed line is a fixed
   template; only the nonce and base64 vary, so no command can break its
   syntax, and the line editor sees nothing it rewrites:
@@ -163,49 +162,60 @@ The RouterOS dialect:
   ```
 
   The executed script decodes the command, runs it, and on an error
-  prints `<n>-E <message>` as its last line. Its whole output comes
-  back base64-encoded, one line, so no `\r`, escape code or wrap can
-  reach the data.
+  prints `<n>-E <message>` as its last line. The whole output comes back
+  as one base64 line, so no `\r`, escape code or wrap reaches the data.
+  A command whose base64 passes 16 KB goes in chunks through a `:global`,
+  which the frame line removes after.
 - `parse`: the base64 between the lines `<n>-B` and `<n>-D` (the echo
-  holds the markers only inside quotes). Decoded, a last line starting
-  `<n>-E ` means `ok = False` with that message; the lines before it
-  are the output up to the error.
-- A command whose base64 passes 16 KB goes in chunks: each chunk is
-  appended to a `:global` with its own short line, and the frame decodes
-  the global instead of a literal. The global is removed after.
+  holds the markers only inside quotes), complete once the prompt is
+  back. A last line `<n>-E <message>` means failure.
+- `configure`: waits up to 30 s for `vivarium-config.rsc` on any disk,
+  then `/import ... verbose=yes`. A failing line fails the boot.
 
 Measured with this frame: interface output, a bad command, an invalid
 value, an error after output in the middle of a script, a syntax error,
 `:error`, a multi-line script, a bounded `/ping`, and 10000 lines of
 output (179 KB, 2.9 s) all come back exact.
-- `ready`: logged in, then `/import file-name=pcie1/config.rsc` through
-  the frame. An import error fails the boot with RouterOS's message.
-- `mark`: `:log info "<text>"`.
-- `shutdown`: none. Nothing in the guest persists, so the backend kills
-  QEMU. (`/system shutdown` asks `[y/N]`.)
 
-### 5. Machine API
+### 5. The run
 
-- `execute` / `succeed` / `fail` go to `Control.run`. On RouterOS the
-  command is RouterOS CLI, not a shell.
-- Agent-only calls (`unit_state`, `journal`, `add_closure`, `switch_to`,
-  `listening`, `processes`, `meminfo`) raise `MachineError` naming the
-  control kind, as `switch_to` does on a cloud image today.
+- `Machine.start` on a console guest logs in, applies the config disk,
+  and records the boot. The `boot` recipe asks systemd only on agent
+  guests (`vm.control_kind`).
+- The settle marker skips a guest whose journal is not streaming, which
+  a console guest never does.
+- Shutdown does not ask: nothing in the guest persists, so QEMU is
+  stopped. (`/system shutdown` asks `[y/N]`.)
+
+## Tests
+
+- `pkgs/vivarium-runner/tests/test_routeros.py`: the frame, the parser,
+  chunking, and `ConsoleControl` against a fake CHR (login, failure,
+  chunked command, timeout recovery, a looping login); and every frame
+  of a real run's `console.raw` (`tests/fixtures/`) parsed again.
+- `routeros` (`default.nix`): CHR under QEMU, config disk, a command, a
+  failing command's message, 3000 lines of output, an agent call
+  refused. 20 s, 19.4 of it the boot.
 
 ## Rules for a phase on a console guest
 
+- `execute` runs the guest's own command language, not a shell.
 - One command at a time per guest. A command that does not return
   (`/ping` without `count=`, `print follow`) holds the console until its
   deadline, then fails the phase. Give every such command a bound.
 - Output is text for a human. Prefer `print terse`, `print as-value` or
   `:put [get ...]` to tables.
 
-## Services later
+## Later
 
-Once the console works, `config` can enable the REST API (`/ip service
-www-ssl`) on `ether1`, and a vivarium forward reaches it from the host.
-A `RestControl` then gives phases JSON (`GET /rest/ip/address`) instead
-of parsed text. The console stays the bootstrap and the fallback.
+- **Services.** `config` can enable the REST API (`/ip service www-ssl`)
+  on `ether1`, and a vivarium forward reaches it from the host. A
+  `RestControl` then gives phases JSON (`GET /rest/ip/address`). The
+  console stays the bootstrap and the fallback.
+- **A screen control** for #950: observe with a screenshot and OCR, act
+  with keys and the pointer. The console transcript is the first
+  recording format a replay reads.
+- **`Machine` on anyio** (#949). `ConsoleControl` is anyio already.
 
 ## Limits
 
@@ -217,24 +227,8 @@ of parsed text. The console stays the bootstrap and the fallback.
 
 ## Milestones
 
-1. Image, module, config disk, QEMU disk boot, `Control` with
-   `AgentControl` and `ConsoleControl`, the RouterOS dialect, and its
-   unit tests on the transcripts. Test: CHR boots, imports a config,
-   and `:put [/system identity get name]` answers.
+1. **Done.** Image, module, config disk, QEMU disk boot, `Control`, the
+   RouterOS dialect and its tests, the `routeros` test.
 2. Two NixOS guests route through the CHR.
 3. BGP between the CHR and an FRR guest (#945's done line).
 4. `RestControl`.
-
-## Open, for Carl
-
-- **`execute` or a new method.** `execute("/ip address print")` reuses
-  every helper that takes `execute`, but means a different language per
-  guest. A `cli()` method keeps `execute` a shell. Proposed: `execute`,
-  because "the guest's own command language" is what a phase wants.
-- **`Control` now, or a side class.** Proposed: `Control` now, with the
-  agent path wrapped unchanged. It is the seam every later NOS uses, and
-  the lifecycle calls need it anyway.
-- **asyncio in `Machine`.** New code is anyio; `Machine` stays asyncio
-  until its own rework (nixidae/nixidae#949), which this does not start.
-- **The 15 s login.** Live with it for now; look again when a test boots
-  many routers.
