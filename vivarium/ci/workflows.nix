@@ -148,6 +148,14 @@ let
       timeoutMinutes = 20;
       backend = "uml";
     };
+    vyos-oob = {
+      # VyOS on the fabric: eth0 (the uplink) leases its management
+      # address from the services guest's Kea. VyOS under UML plus a NixOS
+      # guest; the cap is the VyOS ISO fetch on a cold cache.
+      description = "VyOS leases its management address from the fabric";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
