@@ -104,6 +104,14 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    sonic = {
+      # SONiC VS under QEMU, driven through its serial console: the
+      # shell-dialect console guest, where RouterOS is the CLI-dialect
+      # one. Boots in ~21 s; the cap is the 1.9 GB image fetch on a cold
+      # cache.
+      description = "SONiC VS boots and answers a shell on its serial console";
+      timeoutMinutes = 30;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
