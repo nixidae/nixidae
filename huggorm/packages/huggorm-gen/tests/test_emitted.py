@@ -15,6 +15,7 @@ import pytest
 
 from huggorm_dsl.declare import Crossing, Threading
 from huggorm_dsl.read import is_surface
+from huggorm_gen.ir import NoDefault
 from huggorm_gen.pygen.generate import main as generate
 
 
@@ -239,7 +240,7 @@ def test_each_wrapper_constructor_is_the_declared_one(out: pathlib.Path) -> None
             f"{py.name}.__init__ unwraps {sorted(unwrapped)}, "
             f"must unwrap every declared parameter {declared}"
         )
-        n_optional = sum(1 for p in c.ctor if p.default is not None)
+        n_optional = sum(1 for p in c.ctor if p.default is not NoDefault.REQUIRED)
         assert len(init.args.defaults) == n_optional, (
             f"{py.name}.__init__ has {len(init.args.defaults)} default(s), "
             f"the declaration says {n_optional} optional parameter(s)"
@@ -435,6 +436,15 @@ def _expr(src: str) -> str:
     return ast.unparse(ast.parse(src, mode="eval").body)
 
 
+def _defaults(params: Any) -> list[str]:
+    """The declared defaults, each as the source a surface writes."""
+    from huggorm_gen import ir
+
+    return [_expr(f"{p.default.vocabulary}.{p.default.name}"
+                  if isinstance(p.default, ir.Member) else repr(p.default))
+            for p in params if p.default is not ir.NoDefault.REQUIRED]
+
+
 def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
     """The emitted surface against the DECLARATION.
 
@@ -471,8 +481,7 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
                     f"declaration says {want_names}")
             # Defaults align to the END of the parameter list, the way
             # Python aligns them.
-            want_defaults = [_expr(p.default) for p in m.params
-                             if p.default is not None]
+            want_defaults = _defaults(m.params)
             if [_expr(d) for d in sig["defaults"]] != want_defaults:
                 failures.append(
                     f"{c.name}.{m.name} defaults to {sig['defaults']}, the "
@@ -500,9 +509,7 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
                          and f.name == "__init__"), None)
             if init is None:
                 continue
-            want = [_expr(p.default)
-                    for p in declared_classes[node.name].ctor
-                    if p.default is not None]
+            want = _defaults(declared_classes[node.name].ctor)
             got = [_expr(ast.unparse(d)) for d in init.args.defaults]
             if got != want:
                 failures.append(
@@ -512,7 +519,7 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
 
     assert not failures, ("the emitted surface and the declaration "
                           "disagree:\n  " + "\n  ".join(failures))
-    assert any(p.default is not None
+    assert any(p.default is not NoDefault.REQUIRED
                for c in declared_classes.values() for p in c.ctor), (
         "no constructor declares a default; that half proves nothing")
     assert ctor_checked >= len(served) // 2, (
@@ -521,7 +528,7 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
         f"checked only {checked} method(s) across {len(served)} classes")
     # Non-vacuity: something must actually HAVE a default, or the
     # comparison is between two empty lists everywhere.
-    assert any(p.default is not None
+    assert any(p.default is not NoDefault.REQUIRED
                for c in declared_classes.values()
                for m in c.methods for p in m.params), (
         "no method declares a default; this gate now proves nothing")

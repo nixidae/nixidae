@@ -16,7 +16,7 @@ import inspect
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from enum import StrEnum
+from enum import Enum, StrEnum
 from functools import cached_property
 from typing import NamedTuple, assert_never
 
@@ -501,16 +501,28 @@ class Answer(StrEnum):
 
 
 @dataclass(frozen=True)
+class Member:
+    """A vocabulary member as a default, `HashAlgorithm.SHA256`. The
+    value `'sha256'` says nothing about which vocabulary it is from."""
+
+    vocabulary: str
+    name: str
+
+
+class NoDefault(Enum):
+    """The default of a required parameter. None is a default."""
+
+    REQUIRED = "required"
+
+
+type Default = Member | str | bytes | int | float | tuple[object, ...] | None
+
+
+@dataclass(frozen=True)
 class ParamModel:
     name: str
     type: TypeRef
-    # The default as the Python SOURCE that writes it, or None when
-    # there is no default. A vocabulary member is written as the
-    # member: `'nar'` says nothing about which vocabulary it is from.
-    default: str | None
-    # The vocabulary a member default names, which a module writing the
-    # default has to import, or "".
-    default_class: str = ""
+    default: Default | NoDefault
     # The default as C++ spells it, or "" when there is none.
     cxx_default: str = ""
     # How nanobind spells the parameter, and the caster that needs. A
@@ -527,10 +539,6 @@ class ParamModel:
     collection: str = ""
     # The member a HANDLE parameter is unwrapped through, or "".
     via: str = ""
-    # The declared default is None: the parameter may be omitted, and
-    # an absent argument is a fact the surfaces spell. Distinct from
-    # `default is None`, which says there is no default at all.
-    defaults_to_none: bool = False
 
     @property
     def arrives(self) -> Arrives:
@@ -565,24 +573,24 @@ class ParamModel:
     def of(cls, p: Param, resolver: Resolver) -> ParamModel:
         written = type_ref(p.type, resolver)
         absent = cxx.absent(p)
+        default: Default | NoDefault
         if not p.has_default:
-            default = None
+            default = NoDefault.REQUIRED
         elif p.member:
-            default = f"{p.type.python}.{p.member}"
+            default = Member(p.type.python, p.member)
         else:
-            default = repr(p.default)
+            default = p.default
         spelled, caster = cxx.param(written, resolver.known)
         handle = written.handle
         # A container that defaults to None is the container: an absent
-        # one IS an empty one, so every surface spells it `list[X]` or
-        # `dict[str, X]` (nixidae/nixidae#641).
+        # one IS an empty one, so the model holds `list[X]` or
+        # `dict[str, X]`. A surface adds `| None` for the default
+        # (nixidae/nixidae#641).
         return cls(p.name, written.required if absent else written, default,
-                   p.type.python if p.member else "", cxx.default(p),
-                   spelled, caster, absent=absent,
+                   cxx.default(p), spelled, caster, absent=absent,
                    parsed_by=written.parsed_by,
                    collection=written.required.collection,
-                   via=handle.decl.via if handle is not None else "",
-                   defaults_to_none=p.has_default and p.default is None)
+                   via=handle.decl.via if handle is not None else "")
 
 
 def blockers(params: Sequence[ParamModel], returns: TypeRef | None,
@@ -1724,7 +1732,8 @@ class Model:
                 me = TypeRef(c.name, None, (), Kind.VALUE, c.name)
                 out.append(FunctionModel(
                     name, c.qualified_module, c.threading,
-                    (ParamModel(_snake(c.name), me, None), *m.params),
+                    (ParamModel(_snake(c.name), me, NoDefault.REQUIRED),
+                     *m.params),
                     m.returns, m.doc, calls=MethodRef(c.name, m.name)))
         return out
 

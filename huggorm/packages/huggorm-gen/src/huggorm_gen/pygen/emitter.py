@@ -137,42 +137,37 @@ def _arguments(leading: list[ast.arg], params: Sequence[ir.ParamModel],
     caller resolves it, because the same declared type is spelled
     differently in an async class, in a protocol and in a stub.
 
-    The default is written from the declared source string, so every
-    surface offers the same one. A caller that omits the argument gets
-    the same value in-process and over RPC, and the wire never has to
+    The default is written from the declared value, so every surface
+    offers the same one. A caller that omits the argument gets the
+    same value in-process and over RPC, and the wire never has to
     represent absence."""
     args = list(leading)
     defaults: list[ast.expr] = []
     for p, type_str in zip(params, types, strict=True):
         annotation = _ann(type_str, f"{where}:{p.name}")
-        if p.defaults_to_none and not _admits_none(annotation):
-            # A parameter that may be omitted is spelled `T | None`.
-            # `output: str = None` is implicit Optional, which strict
-            # typecheckers reject and which misdescribes the default
-            # the emitter itself writes. Here rather than at each call
+        if p.default is None and not p.type.optional:
+            # An absent container: the model holds the container, and
+            # `references: list[X] = None` is implicit Optional, which
+            # strict typecheckers reject. Here rather than at each call
             # site: the four surfaces spell the TYPE differently and
             # none of them spells this differently.
             annotation = ast.BinOp(left=annotation, op=ast.BitOr(),
                                    right=ast.Constant(value=None))
         args.append(ast.arg(arg=p.name, annotation=annotation))
-        if p.default is not None:
-            defaults.append(_ann(p.default, f"{where}:{p.name}="))
-        elif defaults:
-            raise ValueError(
-                f"{where}: required parameter {p.name!r} follows a "
-                f"defaulted one")
+        match p.default:
+            case ir.NoDefault.REQUIRED:
+                if defaults:
+                    raise ValueError(
+                        f"{where}: required parameter {p.name!r} follows "
+                        f"a defaulted one")
+            case ir.Member(vocabulary, name):
+                defaults.append(ast.Attribute(
+                    value=ast.Name(id=vocabulary), attr=name))
+            case value:
+                defaults.append(_literal(value))
     return ast.arguments(posonlyargs=[], args=args, vararg=None,
                          kwonlyargs=[], kw_defaults=[], kwarg=None,
                          defaults=defaults)
-
-
-def _admits_none(annotation: ast.expr) -> bool:
-    """Whether a union arm of `annotation` is already None."""
-    if isinstance(annotation, ast.Constant):
-        return annotation.value is None
-    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
-        return _admits_none(annotation.left) or _admits_none(annotation.right)
-    return False
 
 
 # The emitted `_policy.py`'s own docstring. Out here rather than
@@ -224,7 +219,7 @@ def _literal(v: object) -> ast.expr:
     if isinstance(v, dict):
         return ast.Dict(keys=[_literal(k) for k in v],
                         values=[_literal(x) for x in v.values()])
-    if v is None or isinstance(v, (str, int, float)):
+    if v is None or isinstance(v, (str, bytes, int, float)):
         return ast.Constant(value=v)
     raise TypeError(f"no literal for {type(v).__name__}: {v!r}")
 
@@ -772,7 +767,7 @@ def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
     remotely."""
     acquires = [(c.name, specs.add(f"_acquire_{c.name}", cs.Acquire(
         specs.next, c.name, _args([(p.name, p.type) for p in c.ctor]),
-        sum(1 for p in c.ctor if p.default is None))))
+        sum(1 for p in c.ctor if p.default is ir.NoDefault.REQUIRED))))
         for c in model.acquirable]
     functions = [model.functions[n] for n in sorted(model.functions)]
     free = [(fn.name, specs.add(_function_spec(fn.name), _spec(

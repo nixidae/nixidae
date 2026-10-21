@@ -14,7 +14,7 @@ import ast
 from collections.abc import Callable, Iterable, Mapping
 from typing import assert_never
 
-from huggorm_gen.ir import Kind, Origin, ParamModel, TypeRef
+from huggorm_gen.ir import Kind, Member, Origin, ParamModel, TypeRef
 from huggorm_gen.payload._wiretypes import python_spelling
 
 # Names Python already has.
@@ -147,8 +147,8 @@ class Spelling:
     def defaults(self, params: Iterable[ParamModel]) -> None:
         """The vocabulary a member default names is an import too."""
         for p in params:
-            if p.default_class:
-                self.need(p.default_class, BINDINGS)
+            if isinstance(p.default, Member):
+                self.need(p.default.vocabulary, BINDINGS)
 
     def absorb(self, other: Spelling) -> None:
         """Take another renderer's imports, for a module that spells
