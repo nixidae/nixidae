@@ -119,6 +119,13 @@ let
       description = "a services guest hands out a management lease with Kea";
       timeoutMinutes = 20;
     };
+    oob-sonic = {
+      # The fabric end to end: SONiC's eth0 leases from the services
+      # guest's Kea, and the services guest provisions it over SSH. SONiC
+      # (4 GiB) plus a NixOS guest; the cap is the SONiC image fetch.
+      description = "the services guest provisions SONiC over SSH";
+      timeoutMinutes = 30;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
