@@ -1033,16 +1033,15 @@ def _marks(node: DefinitionNode, held: object,
         seen.add(rule.name)
         for name, value in mark.assigns().items():
             out[name] = out[name] + value if name in out else value
-    for mark in got:
-        rule = mark.marker
-        for other in sorted(rule.excludes & seen):
-            # Once per pair, not twice: the same conflict read from
-            # both ends is one mistake.
-            if rule.name < other:
-                raise DeclarationError(
-                    node, f"@{rule.name} and @{other} cannot both be set")
-        for other in sorted(rule.requires - seen):
-            raise DeclarationError(node, f"@{rule.name} needs @{other}")
+    rules = {mark.marker for mark in got}
+    for pair in declare.EXCLUSIVE:
+        if pair <= rules:
+            a, b = sorted(r.name for r in pair)
+            raise DeclarationError(node, f"@{a} and @{b} cannot both be set")
+    for rule in sorted(rules & declare.REQUIRES.keys(), key=lambda r: r.name):
+        for need in sorted(declare.REQUIRES[rule] - rules,
+                           key=lambda r: r.name):
+            raise DeclarationError(node, f"@{rule.name} needs @{need.name}")
     return out
 
 

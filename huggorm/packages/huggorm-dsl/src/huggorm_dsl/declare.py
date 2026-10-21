@@ -582,16 +582,14 @@ class Arity(StrEnum):
 class Marker:
     """One decorator's rules, and the field its mark fills.
 
-    `excludes` names markers it cannot appear beside. `requires` names
-    ones it needs. `field` is the `Method` or `Decl` field the value
-    fills. None for `@constructs`, which fills a field of the class it
-    names, not of what it marks."""
+    `field` is the `Method` or `Decl` field the value fills. None for
+    `@constructs`, which fills a field of the class it names, not of
+    what it marks. The rules between markers are `EXCLUSIVE` and
+    `REQUIRES`."""
 
     name: str
     target: frozenset[Target]
     arity: Arity
-    excludes: frozenset[str]
-    requires: frozenset[str]
     field: str | None
 
 
@@ -620,6 +618,12 @@ MARKS = "__marks__"
 
 # Every marker, by name. `flag` and `marker` fill it.
 MARKERS: dict[str, Marker] = {}
+
+# The rules between markers. Stated by the marker objects once all of
+# them exist, because two markers that exclude each other cannot name
+# each other where they are defined.
+EXCLUSIVE: list[frozenset[Marker]] = []
+REQUIRES: dict[Marker, frozenset[Marker]] = {}
 
 
 class Apply(Protocol):
@@ -658,17 +662,30 @@ def _record[T](obj: T, mark: Mark) -> T:
 
 
 def _register(spec: Callable[..., object], target: tuple[Target, ...],
-              arity: Arity, excludes: tuple[str, ...],
-              requires: tuple[str, ...], field: str | None) -> Marker:
+              arity: Arity, field: str | None) -> Marker:
     name = spec.__name__
-    rule = Marker(name, frozenset(target), arity, frozenset(excludes),
-                  frozenset(requires), name if field == "" else field)
+    rule = Marker(name, frozenset(target), arity,
+                  name if field == "" else field)
     MARKERS[name] = rule
     return rule
 
 
-def flag(*target: Target, excludes: tuple[str, ...] = (),
-         requires: tuple[str, ...] = (), field: str | None = "",
+def _rule(made: Callable[..., object]) -> Marker:
+    """The rule behind a marker `flag` or `marker` made."""
+    return MARKERS[made.__name__]
+
+
+def _exclusive(a: Callable[..., object], b: Callable[..., object]) -> None:
+    """`a` and `b` cannot mark one definition."""
+    EXCLUSIVE.append(frozenset({_rule(a), _rule(b)}))
+
+
+def _requires(a: Callable[..., object], b: Callable[..., object]) -> None:
+    """`a` marks only a definition that `b` marks too."""
+    REQUIRES[_rule(a)] = REQUIRES.get(_rule(a), frozenset()) | {_rule(b)}
+
+
+def flag(*target: Target, field: str | None = "",
          ) -> Callable[[Callable[[], object]], Apply]:
     """Make a marker written bare: `@local`.
 
@@ -677,8 +694,7 @@ def flag(*target: Target, excludes: tuple[str, ...] = (),
     another."""
     def make(spec: Callable[[], object]) -> Apply:
         said = spec()
-        mark = Mark(_register(spec, target, Arity.FLAG, excludes, requires,
-                              field),
+        mark = Mark(_register(spec, target, Arity.FLAG, field),
                     True if said is None else said)
 
         def apply[T](obj: T) -> T:
@@ -689,7 +705,6 @@ def flag(*target: Target, excludes: tuple[str, ...] = (),
 
 
 def marker(*target: Target, repeatable: bool = False,
-           excludes: tuple[str, ...] = (), requires: tuple[str, ...] = (),
            field: str | None = "") -> _Make:
     """Make a marker written with arguments: `@reads("narSize")`.
 
@@ -698,7 +713,7 @@ def marker(*target: Target, repeatable: bool = False,
     def make[**P](spec: Callable[P, object]) -> Callable[P, Apply]:
         rule = _register(
             spec, target, Arity.REPEATABLE if repeatable else Arity.ONCE,
-            excludes, requires, field)
+            field)
 
         def factory(*args: P.args, **kwargs: P.kwargs) -> Apply:
             if len(args) == 1 and not kwargs and _marks_it(rule, args[0]):
@@ -722,7 +737,7 @@ def _marks_it(rule: Marker, arg: object) -> bool:
                       | classmethod)
 
 
-@flag(Target.CLASS, excludes=("wire_value",), field="wire")
+@flag(Target.CLASS, field="wire")
 def in_process() -> Crossing:
     """This class never crosses: no async wrapper, no protocol, no RPC.
 
@@ -732,7 +747,7 @@ def in_process() -> Crossing:
     return Crossing.LOCAL
 
 
-@flag(Target.CLASS, requires=("in_process",))
+@flag(Target.CLASS)
 def calls_back() -> None:
     """EXPERIMENTAL (nixidae/nixidae#738): a remote client may pass one of these.
 
@@ -1099,7 +1114,7 @@ def guard(arm: str) -> str:
 
 # Documented inverses: one says a call can wait, the other says it
 # cannot.
-@flag(Target.METHOD, Target.FREE, excludes=("instant",))
+@flag(Target.METHOD, Target.FREE)
 def blocks() -> None:
     """This method can wait, so the emitter releases the GIL around it.
 
@@ -1138,7 +1153,7 @@ def virtual() -> None:
     the C++ member by name, so it carries no body."""
 
 
-@flag(Target.METHOD, requires=("virtual",))
+@flag(Target.METHOD)
 def posted() -> None:
     """Nix need not wait for this hook to finish (nixidae/nixidae#740).
 
@@ -1254,7 +1269,7 @@ def spells(*words: str) -> tuple[str, ...]:
     return words
 
 
-@flag(Target.METHOD, excludes=("blocks",))
+@flag(Target.METHOD)
 def instant() -> None:
     """This method cannot wait, on a class whose calls generally can.
 
@@ -1306,8 +1321,7 @@ def binds(name: str) -> str:
     return name
 
 
-# A rule names other markers by name, so a misspelt one would check
-# nothing.
-if _unknown := {n for rule in MARKERS.values()
-                for n in rule.excludes | rule.requires} - MARKERS.keys():
-    raise NameError(f"a marker rule names no marker: {sorted(_unknown)}")
+_exclusive(blocks, instant)
+_exclusive(in_process, wire_value)
+_requires(calls_back, in_process)
+_requires(posted, virtual)

@@ -2090,6 +2090,13 @@ def test_a_marker_is_read_from_the_import_whatever_its_spelling(
      "may appear once"),
     ('@binding(cxx="x::Stream")', "@d.blocks\n    @fast",
      "cannot both be set"),
+    ('@binding(cxx="x::Stream")', "@fast\n    @d.blocks",
+     "@blocks and @instant cannot both be set"),
+    ('@binding(cxx="x::Stream")\n@d.wire_value()\n@d.in_process', "",
+     "@in_process and @wire_value cannot both be set"),
+    ('@binding(cxx="x::Stream")\n@d.calls_back', "",
+     "@calls_back needs @in_process"),
+    ('@binding(cxx="x::Stream")', "@d.posted", "@posted needs @virtual"),
 ])
 def test_a_marker_is_checked_by_what_it_recorded(
         tmp_path: pathlib.Path, class_marker: str, method_marker: str,
