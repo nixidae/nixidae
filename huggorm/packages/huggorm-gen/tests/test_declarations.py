@@ -1821,7 +1821,6 @@ def test_the_runtime_header_declares_what_the_bodies_spell() -> None:
               for m in cls.callables if (b := m.cxx_body) is not None]
     bodies += [b.text for fn in model.functions.values()
                if (b := fn.cxx_body) is not None]
-    bodies += [t for cls in model.classes.values() for t in cls.custom]
     spelled = set(re.findall(r"std::\w+", "\n".join(bodies)))
     assert "std::invalid_argument" in spelled, "the control"
     unknown = spelled - BODY_STD.keys()

@@ -293,9 +293,9 @@ def emit_module(mod: Module, dotted: str, out: str,
     #
     # A hatch nobody measures becomes the place the real code lives -
     # that is the bargain `cpp/README` makes - and `cpp/` was
-    # exactly such a hatch: `census` counts `Cxx` bodies and `@custom`
-    # blocks, both of which live in a declaration, while a helper a
-    # declaration NAMES landed in a directory no number ever read.
+    # exactly such a hatch: `census` counts `Cxx` bodies, which live in
+    # a declaration, while a helper a declaration NAMES landed in a
+    # directory no number ever read.
     # Found by cython-reviewer, reviewing a change that added thirty
     # lines there.
     #

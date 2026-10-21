@@ -896,10 +896,8 @@ class ClassModel:
     cxx: str = ""
     # The member a method is called through, or "".
     via: str = ""
-    # Headers the class's carried C++ needs.
+    # Headers the class's C++ needs.
     headers: tuple[str, ...] = ()
-    # Carried C++, verbatim, appended to the binding.
-    custom: tuple[str, ...] = ()
     # A `PyType_Slot[]` the binding names, or "".
     gc_slots: str = ""
     # The declared factory's name, whether this module binds it or not.
@@ -972,7 +970,6 @@ class ClassModel:
             cxx=decl.cxx,
             via=decl.via,
             headers=decl.headers,
-            custom=tuple(decl.custom.values()),
             gc_slots=decl.gc_slots,
             factory_name=decl.factory,
             tree=decl.tree,

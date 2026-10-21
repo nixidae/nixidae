@@ -46,9 +46,10 @@ method behind a closure.
 
 ## What it refuses
 
-A shape it cannot derive stops with a reason. The escape hatch is
-`@custom`, counted and printed, because a hatch nobody measures
-becomes the place the real code lives.
+A shape it cannot derive stops with a reason. The escape hatch is a
+method's `Cxx` body, counted and printed, because a hatch nobody
+measures becomes the place the real code lives. C++ no method owns
+goes in a helper the declaration names.
 """
 
 from collections.abc import Iterator, Sequence
@@ -2032,9 +2033,6 @@ class Emitter:
             if cls.init is None:
                 body += self._from_parts(cls)
         body += _value_semantics(cls)
-        for source in cls.custom:
-            body += [f"{INDENT * 2}{line}".rstrip()
-                     for line in source.splitlines()]
         if body:
             body[-1] += ";"
         return "\n".join([*lines, *body, *markers(cls), "}"]) + "\n"

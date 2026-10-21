@@ -485,7 +485,6 @@ class Decl:
     order: bool = False
     # A value with no parts. See `wire_value`.
     unit: bool = False
-    custom: dict[str, str] = field(default_factory=dict)
     # A `PyType_Slot[]` this class's binding installs, by C++ name.
     # Empty for everything that holds no Python object. See `gc_slots`.
     gc_slots: str = ""
@@ -999,20 +998,6 @@ def wire_value(fields: tuple[Field | str, ...] = (), compare: str = "parts",
     has. A value with a `text` is shown by it unless it says
     otherwise."""
     return _WireValue(fields, compare, text, order, shown or text, unit)
-
-
-@marker(Target.CLASS)
-def custom(name: str, source: str) -> dict[str, str]:
-    """Whole-class C++ this emitter cannot derive, carried verbatim.
-
-    The escape hatch, and it is counted. `cpp/README` makes the same
-    bargain: a hatch nobody measures becomes the place the real code
-    lives. The emitter reports how many lines went through here, so
-    growth is visible rather than gradual.
-
-    `@cxx_body` is the per-METHOD hatch, and it is the one to reach
-    for first. This carries lines a class needs and no method owns."""
-    return {name: source}
 
 
 @marker(Target.METHOD)
