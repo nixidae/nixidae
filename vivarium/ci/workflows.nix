@@ -91,6 +91,12 @@ let
       description = "RouterOS boots, applies its config disk and answers on its console";
       timeoutMinutes = 20;
     };
+    routeros-bgp = {
+      # eBGP between CHR and FRR, and two LANs that only BGP joins. It
+      # covers routeros-route, which stays a local test.
+      description = "RouterOS and FRR exchange routes over eBGP";
+      timeoutMinutes = 20;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
