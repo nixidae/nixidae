@@ -79,14 +79,6 @@ new (self) nix::SourceAccessor::Stat{
     def is_executable(self) -> Bint:
         """Whether a regular file is executable."""
 
-    @staticmethod
-    def _from_parts() -> Stat:
-        """Rebuild one from the parts that crossed."""
-        Cxx("""
-return nix::SourceAccessor::Stat{
-    .type = type, .fileSize = file_size, .isExecutable = is_executable};
-        """)
-
 
 @in_process
 @calls_back

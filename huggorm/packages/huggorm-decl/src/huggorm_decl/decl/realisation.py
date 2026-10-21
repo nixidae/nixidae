@@ -162,24 +162,6 @@ class Realisation:
         Sorted, because Nix keeps them in a set and the order is that
         set's."""
 
-    @staticmethod
-    def _from_parts() -> Realisation:
-        """Rebuild one from the parts that crossed.
-
-        An aggregate, unlike PathInfo's: `nix::Realisation` derives
-        from `nix::UnkeyedRealisation` publicly and neither declares a
-        constructor, so the inner braces initialise the base and the
-        last member is the key.
-
-        No parsing. Every part arrives as itself - a StorePath, a
-        DrvOutput, a list of Signature - because all three are their
-        own messages (nixidae/nixidae#594). This body would have had three
-        parses a year ago and has none."""
-        Cxx("""
-return nix::Realisation{
-    {out_path, as_set<std::set<nix::Signature>>(signatures)}, id};
-        """)
-
 
 if NIX_2_35:
     @produced

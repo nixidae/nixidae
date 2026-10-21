@@ -1117,6 +1117,11 @@ def _shaped(cls: ClassModel) -> ClassModel:
             f"wire by existing - mark the ones that should not "
             f"@local, or give the constructor what they send.")
     if not cls.is_value:
+        if cls.from_parts is not None and cls.init is not None:
+            raise TypeError(
+                f"{cls.name}: declares `_from_parts` beside a constructing "
+                f"`__init__`. The constructor rebuilds it from its parts, "
+                f"so the body is never emitted. Drop `_from_parts`.")
         return cls
     if cls.from_parts is not None:
         if not cls.from_parts.cxx_body:

@@ -996,11 +996,17 @@ class Signed:
 @pytest.mark.parametrize(("text", "extra", "refusal"), [
     ("nothing", "", "names no accessor"),
     ("name", '    def sig(self) -> Str:\n        """."""\n', "@local"),
+    ("name", '    @staticmethod\n    def _from_parts() -> Signed:\n'
+             '        """."""\n'
+             '        Cxx("return nix::Signature{name, {}};")\n',
+     "beside a constructing `__init__`"),
 ])
 def test_the_model_refuses_a_value_that_cannot_round_trip(
         tmp_path: pathlib.Path, text: str, extra: str, refusal: str) -> None:
     """A `text=` that names no accessor, and a constructor that does not
-    take every wire field, are refused by the model (nixidae/nixidae#676)."""
+    take every wire field, are refused by the model (nixidae/nixidae#676).
+    So is a `_from_parts` body on a value its constructor rebuilds: the
+    emitter binds the class itself, and the body is never emitted."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
