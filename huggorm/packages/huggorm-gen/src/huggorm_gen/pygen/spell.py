@@ -11,6 +11,7 @@ emitted text back.
 from __future__ import annotations
 
 import ast
+import functools
 from collections.abc import Callable, Iterable, Mapping
 from typing import assert_never
 
@@ -37,6 +38,24 @@ def sibling(cls: str) -> Source:
 # A renamed proxy, and where it comes from: None when the module
 # defines it.
 Rename = Callable[[TypeRef], tuple[str, Source | None]]
+
+
+def dotted(name: str) -> ast.expr:
+    """`pathlib.Path` as the attribute chain it is."""
+    head, *rest = name.split(".")
+    node: ast.expr = ast.Name(id=head)
+    for part in rest:
+        node = ast.Attribute(value=node, attr=part)
+    return node
+
+
+def union(first: ast.expr, *rest: ast.expr) -> ast.expr:
+    """`first | ...`, left to right as Python groups it."""
+    return functools.reduce(
+        lambda a, b: ast.BinOp(left=a, op=ast.BitOr(), right=b), rest, first)
+
+
+NONE = ast.Constant(value=None)
 
 
 def import_from(module: str, *names: str, level: int = 0) -> ast.ImportFrom:
@@ -69,38 +88,41 @@ class Spelling:
         self.modules: set[str] = set()
 
     def __call__(self, t: TypeRef, proxy: Rename | None = None,
-                 twin: bool = False, client: bool = False) -> str:
+                 twin: bool = False, client: bool = False) -> ast.expr:
         """`client` widens a `@calls_back` leaf to its async protocol:
         a parameter takes one, a return never hands one back."""
         match t.origin:
             case Origin.OPTIONAL:
-                return f"{self(t.args[0], proxy, twin, client)} | None"
+                return union(self(t.args[0], proxy, twin, client), NONE)
             case Origin.LIST:
-                return f"list[{self(t.args[0], proxy, twin, client)}]"
+                return ast.Subscript(value=ast.Name(id="list"),
+                                     slice=self(t.args[0], proxy, twin, client))
             case Origin.DICT:
-                return f"dict[str, {self(t.args[0], proxy, twin, client)}]"
+                return ast.Subscript(value=ast.Name(id="dict"), slice=ast.Tuple(
+                    elts=[ast.Name(id="str"),
+                          self(t.args[0], proxy, twin, client)]))
             case None:
                 pass
             case _:
                 assert_never(t.origin)
         if twin and t.twin:
             self.module(t.twin)
-            return t.twin
+            return dotted(t.twin)
         if client and t.kind == Kind.CLIENT and self._client is not None:
             name, source = self._client(t)
             self.need(t.name, BINDINGS)
             self.need(name, source)
-            return f"{t.name} | {name}"
+            return union(ast.Name(id=t.name), ast.Name(id=name))
         return self._leaf(t, proxy or self._proxy)
 
-    def _leaf(self, t: TypeRef, proxy: Rename | None) -> str:
+    def _leaf(self, t: TypeRef, proxy: Rename | None) -> ast.expr:
         match t.kind:
             case Kind.PROXY:
                 if proxy is None:
                     raise TypeError(f"no spelling for the proxy {t.name}")
                 name, source = proxy(t)
                 self.need(name, source)
-                return name
+                return ast.Name(id=name)
             case Kind.MODULE:
                 self.module(t.name)
             case Kind.UNION:
@@ -113,20 +135,20 @@ class Spelling:
                     self.need(t.name, BINDINGS)
             case _:
                 assert_never(t.kind)
-        return t.name
+        return dotted(t.name)
 
-    def _arms(self, union: str) -> str:
+    def _arms(self, alias: str) -> ast.expr:
         assert self._expand is not None
         out = []
-        for arm in self._expand[union]:
+        for arm in self._expand[alias]:
             if arm.kind == Kind.UNION:
                 out.append(self._arms(arm.name))
                 continue
             name = python_spelling(arm.name)
             if name not in BUILTIN:
                 self.need(name, BINDINGS)
-            out.append(name)
-        return " | ".join(out)
+            out.append(dotted(name))
+        return union(*out)
 
     def need(self, name: str, source: Source | None) -> None:
         if source is not None:
@@ -136,13 +158,13 @@ class Spelling:
     def bindings(self) -> set[str]:
         return self.froms.get(BINDINGS, set())
 
-    def module(self, dotted: str) -> None:
+    def module(self, name: str) -> None:
         """A type written dotted, `pathlib.Path`: its module is bound."""
-        self.modules.add(dotted.split(".", 1)[0])
+        self.modules.add(name.split(".", 1)[0])
 
     def returns(self, t: TypeRef | None, proxy: Rename | None = None,
-                twin: bool = False) -> str:
-        return self(t, proxy, twin) if t is not None else "None"
+                twin: bool = False) -> ast.expr:
+        return self(t, proxy, twin) if t is not None else NONE
 
     def defaults(self, params: Iterable[ParamModel]) -> None:
         """The vocabulary a member default names is an import too."""

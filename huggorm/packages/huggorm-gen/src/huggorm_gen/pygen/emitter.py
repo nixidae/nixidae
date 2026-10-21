@@ -8,7 +8,7 @@ import ast
 import dataclasses
 import enum
 import textwrap
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from string import Template
 from typing import assert_never
 
@@ -21,12 +21,15 @@ from huggorm_gen.payload._wiretypes import (
 )
 from huggorm_gen.pygen.spell import (
     BINDINGS,
+    NONE,
     PROTOCOLS,
     Rename,
     Source,
     Spelling,
+    dotted,
     import_from,
     sibling,
+    union,
 )
 
 ASYNC = ir.ASYNC
@@ -45,38 +48,31 @@ def _code(src: str, signature: ast.arguments | None = None,
     return node
 
 
-def _def(header: str, body: str = "...", doc: str = "",
-         signature: ast.arguments | None = None) -> ast.stmt:
-    """One def from its header and its body, both as source.
+def _def(header: str, body: str | list[ast.stmt] = "...", doc: str = "",
+         signature: ast.arguments | None = None,
+         returns: ast.expr | None = None) -> ast.stmt:
+    """One def from its header and its body, as source or as nodes.
 
     `signature` replaces the parameters, for one `_arguments` spells
-    per surface, and `doc` goes first when there is one."""
-    indented = textwrap.indent(textwrap.dedent(body).strip(), "    ")
+    per surface, `returns` is the return type a surface spells, and
+    `doc` goes first when there is one."""
+    source = body if isinstance(body, str) else "..."
+    indented = textwrap.indent(textwrap.dedent(source).strip(), "    ")
     src = f"{header}:\n{indented}"
     try:
         node = ast.parse(src).body[0]
     except SyntaxError as e:
         raise ValueError(f"cannot parse the emitted {header!r}") from e
     assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    if not isinstance(body, str):
+        node.body = body
     if signature is not None:
         node.args = signature
+    if returns is not None:
+        node.returns = returns
     if doc:
         node.body.insert(0, ast.Expr(value=ast.Constant(value=doc)))
     return node
-
-
-def _forwarded(call: str, returns: str) -> str:
-    """The body that hands back an awaited forward, typed.
-
-    The runtime hands back Any - it dispatches by method name onto an
-    object it knows nothing about. The declared type is the
-    declaration's claim about that method, so the cast is where the
-    claim is made rather than a silent Any leaking into every caller.
-    A method returning None does not return at all: there is nothing
-    to hand back."""
-    if returns == "None":
-        return f"await {call}"
-    return f"return cast({returns}, await {call})"
 
 
 def _twinned(call: str, t: ir.TypeRef) -> str:
@@ -110,12 +106,24 @@ def _built(t: ir.TypeRef, value: str, depth: int = 0) -> str:
             assert_never(t.origin)
 
 
-def _handing_back(call: str, r: ir.TypeRef | None, returns: str) -> str:
+def _handing_back(call: str, r: ir.TypeRef | None,
+                  returns: ast.expr) -> list[ast.stmt]:
     """The body of an async call: its twin built, or its answer cast.
-    The runner has already adopted a returned served class."""
-    if r is not None and r.leaf.twin:
-        return _twinned(call, r)
-    return _forwarded(call, returns)
+    The runner has already adopted a returned served class.
+
+    The runtime hands back Any - it dispatches by method name onto an
+    object it knows nothing about. The declared type is the
+    declaration's claim about that method, so the cast is where the
+    claim is made rather than a silent Any leaking into every caller.
+    A method returning None does not return at all: there is nothing
+    to hand back."""
+    awaited = ast.Await(value=ast.parse(call, mode="eval").body)
+    if r is None:
+        return [ast.Expr(value=awaited)]
+    if r.leaf.twin:
+        return ast.parse(_twinned(call, r)).body
+    return [ast.Return(value=ast.Call(func=ast.Name(id="cast"),
+                                      args=[returns, awaited], keywords=[]))]
 
 
 def _casts(returns: Iterable[ir.TypeRef | None]) -> bool:
@@ -135,30 +143,32 @@ RUNNER = {
 }
 
 def _arguments(leading: list[ast.arg], params: Sequence[ir.ParamModel],
-               types: list[str], where: str) -> ast.arguments:
+               spell: Spelling, where: str,
+               annotate: Callable[[ir.TypeRef], ast.expr] | None = None
+               ) -> ast.arguments:
     """`leading` plus one argument per declared parameter, annotated
     and defaulted.
 
-    `types` is the annotation each parameter is written with. The
-    caller resolves it, because the same declared type is spelled
-    differently in an async class, in a protocol and in a stub.
+    `annotate` writes a parameter's type, `spell` when not given: the
+    same declared type is spelled differently in an async class, in a
+    protocol and in a stub. `spell` imports what a default names.
 
     The default is written from the declared value, so every surface
     offers the same one. A caller that omits the argument gets the
     same value in-process and over RPC, and the wire never has to
     represent absence."""
+    spell.defaults(params)
     args = list(leading)
     defaults: list[ast.expr] = []
-    for p, type_str in zip(params, types, strict=True):
-        annotation = _ann(type_str, f"{where}:{p.name}")
-        if p.default is None and not p.type.optional:
-            # An absent container: the model holds the container, and
-            # `references: list[X] = None` is implicit Optional, which
-            # strict typecheckers reject. Here rather than at each call
-            # site: the four surfaces spell the TYPE differently and
-            # none of them spells this differently.
-            annotation = ast.BinOp(left=annotation, op=ast.BitOr(),
-                                   right=ast.Constant(value=None))
+    for p in params:
+        annotation = (annotate or spell)(p.type)
+        if p.absent:
+            # The model holds the container, and `references: list[X] =
+            # None` is implicit Optional, which strict typecheckers
+            # reject. Here rather than at each call site: the four
+            # surfaces spell the TYPE differently and none of them
+            # spells this differently.
+            annotation = union(annotation, NONE)
         args.append(ast.arg(arg=p.name, annotation=annotation))
         match p.default:
             case ir.NoDefault.REQUIRED:
@@ -456,13 +466,9 @@ def unions_module(unions: Mapping[str, ir.UnionModel]) -> str:
         ast.ImportFrom(module="huggorm_bindings",
                        names=[ast.alias(name=a) for a in arms], level=0),
     ]
-    for alias, union in unions.items():
-        members = union.arms
-        value: ast.expr = ast.Name(id=python_spelling(members[0].name))
-        for arm in members[1:]:
-            value = ast.BinOp(left=value, op=ast.BitOr(),
-                              right=ast.Name(id=python_spelling(arm.name)))
-        body.append(ast.Assign(targets=[ast.Name(id=alias)], value=value))
+    for alias, u in unions.items():
+        body.append(ast.Assign(targets=[ast.Name(id=alias)], value=union(
+            *(dotted(python_spelling(a.name)) for a in u.arms))))
     body.append(ast.Assign(
         targets=[ast.Name(id="__all__")],
         value=ast.List(elts=[ast.Constant(value=a) for a in unions])))
@@ -489,18 +495,19 @@ def _as_async(t: ir.TypeRef) -> tuple[str, Source | None]:
 
 
 def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef,
-             client: bool = False) -> str:
+             client: bool = False) -> ast.expr:
     """A constructor's or a free function's parameter: a bare proxy
     takes the sync object or its async wrapper.
     `client` widens a `@calls_back` class where the call adapts it."""
     if t.kind == ir.Kind.PROXY and not t.origin and t.name in model.served:
         spell.need(t.name, BINDINGS)
         spell.need(f"{ASYNC}{t.name}", sibling(t.name))
-        return f"{t.name} | {ASYNC}{t.name}"
+        return union(ast.Name(id=t.name), ast.Name(id=f"{ASYNC}{t.name}"))
     return spell(t, _as_binding, client=client)
 
 
-def _returning(spell: Spelling, model: ir.Model, r: ir.TypeRef | None) -> str:
+def _returning(spell: Spelling, model: ir.Model,
+               r: ir.TypeRef | None) -> ast.expr:
     """How an async surface spells a call's return. A served class is
     its async class, a type with an async twin is the twin, and
     everything else is itself."""
@@ -509,43 +516,32 @@ def _returning(spell: Spelling, model: ir.Model, r: ir.TypeRef | None) -> str:
     return spell.returns(r, _as_binding, twin=True)
 
 
-def _async_spelling(model: ir.Model, c: ir.ClassModel
-                    ) -> tuple[Spelling, list[str],
-                               dict[str, tuple[list[str], str]]]:
-    """How the in-process async module for `c` spells every type it
-    writes: the constructor's parameters, then each method's parameters
-    and return.
+def _async_spelling(model: ir.Model) -> Spelling:
+    """How an in-process async module spells the types it writes.
 
-    A constructor takes the sync object or its async wrapper, and only
-    a bare proxy is widened so. A served class, parameter or adopted
-    return, is its async class. A type with an async twin is the twin,
-    and everything else is itself. An unserved class has no async
-    class, so a method that takes one takes the binding class: the
-    method has no RPC, and the runner calls it in this process."""
-    spell = Spelling(lambda t: _as_async(t) if t.name in model.served
-                     else _as_binding(t),
-                     client=_client_rename(PROTOCOLS))
-    ctor = [_widened(spell, model, p.type) for p in c.ctor]
-    methods: dict[str, tuple[list[str], str]] = {}
-    for m in c.methods:
-        params = [spell(p.type, client=True) for p in m.params]
-        methods[m.name] = (params, _returning(spell, model, m.returns))
-        spell.defaults(m.params)
-    return spell, ctor, methods
+    A served class, parameter or adopted return, is its async class. A
+    type with an async twin is the twin, and everything else is itself.
+    An unserved class has no async class, so a method that takes one
+    takes the binding class: the method has no RPC, and the runner
+    calls it in this process."""
+    return Spelling(lambda t: _as_async(t) if t.name in model.served
+                    else _as_binding(t),
+                    client=_client_rename(PROTOCOLS))
 
 
-def _hop_method(cls: ast.ClassDef, model: ir.Model,
-                m: ir.MethodModel, svc: str,
-                signature: tuple[list[str], str]) -> None:
+def _hop_method(cls: ast.ClassDef, model: ir.Model, spell: Spelling,
+                m: ir.MethodModel, svc: str) -> None:
     """One `async def` that sends its spec to the backend. The backend
     hands a returned served class back in its async form."""
-    params, returns = signature
+    returns = _returning(spell, model, m.returns)
     call = (f"self._backend.call({_spec_name(svc, m.name)}, "
             f"[{', '.join(p.name for p in m.params)}])")
     cls.body.append(_def(
-        f"async def {m.name}() -> {returns}",
+        f"async def {m.name}()",
         _handing_back(call, m.returns, returns), m.doc,
-        _arguments([ast.arg(arg="self")], m.params, params, f"{svc}.{m.name}")))
+        _arguments([ast.arg(arg="self")], m.params, spell, f"{svc}.{m.name}",
+                   lambda t: spell(t, client=True)),
+        returns))
 
 
 _POLICY_DOC = {
@@ -556,12 +552,12 @@ _POLICY_DOC = {
 }
 
 
-def _async_module(model: ir.Model, c: ir.ClassModel, doc: str,
-                  class_doc: str, init: ast.stmt, typing_names: set[str],
+def _async_module(model: ir.Model, c: ir.ClassModel, spell: Spelling,
+                  doc: str, class_doc: str, init: ast.stmt,
+                  typing_names: set[str],
                   runtime_names: set[str]) -> ast.Module:
     """`Async<X>`: the skeleton both async modules share. `init` is
-    how an instance comes to hold an object."""
-    spell, _, methods = _async_spelling(model, c)
+    how an instance comes to hold an object, spelled with `spell`."""
     # `__init__` or `_adopt` names the sync class it takes.
     spell.need(c.name, BINDINGS)
     cls = ast.ClassDef(name=c.async_name, bases=[], keywords=[], decorator_list=[], body=[
@@ -583,7 +579,7 @@ def _async_module(model: ir.Model, c: ir.ClassModel, doc: str,
             """, svc=c.name, adopter=RUNNER[c.execution]),
     ])
     for m in c.methods:
-        _hop_method(cls, model, m, c.name, methods[m.name])
+        _hop_method(cls, model, spell, m, c.name)
     cls.body.append(_code("""
         async def aclose(self) -> None:
             await self._backend.aclose()
@@ -626,7 +622,7 @@ def returned_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
             self._backend = $adopter.adopt(obj, runner)
         """, svc=c.name, adopter=RUNNER[c.execution])
     return _async_module(
-        model, c,
+        model, c, _async_spelling(model),
         f"Generated async wrapper for returned type {c.name} "
         f"(threading: {policy}) - do not edit.",
         f"A {c.name} that another call hands back, in this process or on "
@@ -642,6 +638,7 @@ def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
     be built and is only ever received from a call."""
     svc = c.name
     threading = c.threading
+    spell = _async_spelling(model)
     doc = (f"Generated async wrapper for {svc} (threading: {threading}) - "
            f"do not edit. Built via ast at Nix build time.")
     if not c.constructs:
@@ -656,7 +653,7 @@ def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
                 f"{c.async_name} has no constructor: nothing declared makes "
                 f"one. Receive one from a call that returns {svc}."))
         return _async_module(
-            model, c, doc,
+            model, c, spell, doc,
             f"A {svc}, in this process or on a server. Only a call hands one "
             f"back: nothing declared constructs it.",
             init, {"Any"}, set())
@@ -664,21 +661,22 @@ def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
     name = (f", name={f'huggorm-affine-{svc}'!r}"
             if threading is Threading.AFFINE
             else "")
-    _, ctor, _ = _async_spelling(model, c)
     # A zero-argument lambda over __init__'s parameters, so the object
     # is built on the runner's thread, not the caller's. Each argument
     # goes through unwrap_arg: a wrapper passed in contributes its
-    # target object, not the async shell.
+    # target object, not the async shell. Only a bare proxy is widened
+    # to take the sync object or its async wrapper.
     init = _code("""
         def __init__(self) -> None:
             self._backend = $runner(lambda: $svc($values)$name)
-        """, _arguments([ast.arg(arg="self")], c.ctor, ctor, f"{svc}.__init__"),
+        """, _arguments([ast.arg(arg="self")], c.ctor, spell, f"{svc}.__init__",
+                        lambda t: _widened(spell, model, t)),
         runner=runner, svc=svc, name=name,
         values=", ".join(f"unwrap_arg({p.name})" for p in c.ctor))
     # `unwrap_arg` only when the factory calls it: an unused import is
     # what `test_no_unused_imports` rejects.
     return _async_module(
-        model, c, doc,
+        model, c, spell, doc,
         f"A {svc}, in this process or on a server. Constructed here, it is "
         f"built lazily on its runner thread; `NixClient.acquire` builds one "
         f"on a server.",
@@ -705,19 +703,7 @@ def protocol_module(model: ir.Model) -> ast.Module:
     A hook takes and answers what the sync hook does: the stub that
     calls it hands the answer to Nix unchanged."""
     spell = Spelling(_as_async)
-    hooks = {
-        (cls.name, m.name): ([spell(p.type) for p in m.params],
-                             spell.returns(m.returns))
-        for cls in model.called_back for m in cls.hooks
-    }
-    mod = ast.Module(body=[], type_ignores=[])
-    mod.body.append(ast.Expr(value=ast.Constant(value=(
-        "Generated protocols: the objects a program writes for Nix to "
-        "call - do not edit."))))
-    mod.body.append(_future_annotations())
-    mod.body.append(import_from("typing", "Protocol"))
-    mod.body.extend(spell.imports())
-
+    classes: list[ast.stmt] = []
     for model_cls in model.called_back:
         cls = ast.ClassDef(
             name=model_cls.async_name, bases=[ast.Name(id="Protocol")],
@@ -730,13 +716,22 @@ def protocol_module(model: ir.Model) -> ast.Module:
                     f"in that call's task. It may await\n    other calls, "
                     f"the same EvalState's included.\n    ")))])
         for m in model_cls.hooks:
-            params, returns = hooks[(model_cls.name, m.name)]
             cls.body.append(_def(
-                f"async def {m.name}() -> {returns}", doc=m.doc,
-                signature=_arguments([ast.arg(arg="self")], m.params, params,
-                                     f"{model_cls.async_name}.{m.name}")))
-        mod.body.append(cls)
+                f"async def {m.name}()", doc=m.doc,
+                signature=_arguments([ast.arg(arg="self")], m.params, spell,
+                                     f"{model_cls.async_name}.{m.name}"),
+                returns=spell.returns(m.returns)))
+        classes.append(cls)
 
+    mod = ast.Module(type_ignores=[], body=[
+        ast.Expr(value=ast.Constant(value=(
+            "Generated protocols: the objects a program writes for Nix to "
+            "call - do not edit."))),
+        _future_annotations(),
+        import_from("typing", "Protocol"),
+        *spell.imports(),
+        *classes,
+    ])
     ast.fix_missing_locations(mod)
     return mod
 
@@ -873,14 +868,21 @@ def free_function_module(model: ir.Model) -> ast.Module:
     fns = async_functions(model)
 
     spell = Spelling(client=_client_rename(PROTOCOLS))
-    signatures = {}
+    defs: list[ast.stmt] = []
     for fn in fns:
         if fn.calls is not None:
             spell.need(fn.calls.cls, BINDINGS)
-        params = [_widened(spell, model, p.type, client=True)
-                  for p in fn.params]
-        signatures[fn.name] = (params, _returning(spell, model, fn.returns))
-        spell.defaults(fn.params)
+        ret = _returning(spell, model, fn.returns)
+        target = ("_" + fn.name if fn.calls is None
+                  else f"{fn.calls.cls}.{fn.calls.method}")
+        call = (f"call_function({_function_spec(fn.name)}, {target}, "
+                f"[{', '.join(p.name for p in fn.params)}])")
+        defs.append(_def(f"async def {fn.name}()",
+                         _handing_back(call, fn.returns, ret), fn.doc,
+                         _arguments([], fn.params, spell, fn.name,
+                                    lambda t: _widened(spell, model, t,
+                                                       client=True)),
+                         ret))
 
     mod = ast.Module(body=[], type_ignores=[])
     mod.body.append(ast.Expr(value=ast.Constant(
@@ -901,15 +903,7 @@ def free_function_module(model: ir.Model) -> ast.Module:
         mod.body.append(import_from(
             "_policy", *(_function_spec(fn.name) for fn in fns), level=1))
 
-    for fn in fns:
-        params, ret = signatures[fn.name]
-        target = ("_" + fn.name if fn.calls is None
-                  else f"{fn.calls.cls}.{fn.calls.method}")
-        call = (f"call_function({_function_spec(fn.name)}, {target}, "
-                f"[{', '.join(p.name for p in fn.params)}])")
-        mod.body.append(_def(f"async def {fn.name}() -> {ret}",
-                             _handing_back(call, fn.returns, ret), fn.doc,
-                             _arguments([], fn.params, params, fn.name)))
+    mod.body.extend(defs)
 
     # The server finds the coroutine a wire call names here, not by an
     # attribute lookup on the package.
@@ -976,24 +970,21 @@ def _stub_class(c: ir.ClassModel, spell: Spelling, produced: bool,
             doc=f"Always raises: a {name} is produced by another object, "
                 f"never constructed."))
     else:
-        spell.defaults(c.ctor)
         cls.body.append(_def(
             "def __init__() -> None",
-            signature=_arguments([ast.arg(arg="self")], c.ctor,
-                                 [spell(p.type) for p in c.ctor],
+            signature=_arguments([ast.arg(arg="self")], c.ctor, spell,
                                  f"{name}.__init__")))
     cls.body.extend(_stub_dunders(name, c.dunders))
     for m in c.methods:
-        spell.defaults(m.params)
-        params = [spell(p.type) for p in m.params]
         doc = m.doc
         if (coroutine := coroutines.get(ir.MethodRef(name, m.name))) is not None:
             doc = (f"{doc}\n\n" if doc else "") + (
                 f"Blocks. From async code, await `huggorm.{coroutine}`.")
         cls.body.append(_def(
-            f"def {m.name}() -> {spell.returns(m.returns)}", doc=doc,
-            signature=_arguments([ast.arg(arg="self")], m.params, params,
-                                 f"{name}.{m.name}")))
+            f"def {m.name}()", doc=doc,
+            signature=_arguments([ast.arg(arg="self")], m.params, spell,
+                                 f"{name}.{m.name}"),
+            returns=spell.returns(m.returns)))
     if len(cls.body) == 1:
         # Docstring only: a class body needs a statement.
         cls.body.append(ast.Expr(value=ast.Constant(value=Ellipsis)))
@@ -1002,10 +993,9 @@ def _stub_class(c: ir.ClassModel, spell: Spelling, produced: bool,
 
 def _stub_function(fn: ir.FunctionModel, spell: Spelling,
                    where: str) -> ast.stmt:
-    spell.defaults(fn.params)
-    params = [spell(p.type) for p in fn.params]
-    return _def(f"def {fn.name}() -> {spell.returns(fn.returns)}", doc=fn.doc,
-                signature=_arguments([], fn.params, params, where))
+    return _def(f"def {fn.name}()", doc=fn.doc,
+                signature=_arguments([], fn.params, spell, where),
+                returns=spell.returns(fn.returns))
 
 
 def _homes(model: ir.Model) -> dict[str, str]:

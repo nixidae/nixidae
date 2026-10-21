@@ -126,6 +126,23 @@ def test_a_twin_is_built_wherever_the_signature_spells_one(
     assert _untwinned(done.value.value) == built
 
 
+def test_a_constructor_imports_the_vocabulary_its_default_names() -> None:
+    """`_arguments` imports what a default names, so no surface can
+    write `Mode.FAST` and leave `Mode` undefined. The type is `int`, so
+    only the default can name `Mode`."""
+    import dataclasses
+
+    from huggorm_gen import ir
+    from huggorm_gen.pygen.emitter import wrapper_module
+
+    mode = ir.ParamModel("mode", ir.TypeRef.named("int", ir.Kind.SCALAR),
+                         ir.Member("Mode", "FAST"))
+    c = dataclasses.replace(_cls("Opener"), ctor=(mode,))
+    src = ast.unparse(wrapper_module(_model(c, enums=("Mode",)), c))
+    assert "mode: int=Mode.FAST" in src
+    assert re.search(r"from huggorm_bindings import .*\bMode\b", src), src
+
+
 def test_an_unwrapped_class_hands_back_nothing_wrapped() -> None:
     """A pool class that cannot block is not wrapped, so a caller holds
     its sync object - and a wrapped return would arrive with no
