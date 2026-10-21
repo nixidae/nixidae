@@ -33,6 +33,7 @@ from huggorm_dsl.declare import (
     U64,
     Cxx,
     Duration,
+    Local,
     Map,
     Opt,
     binding,
@@ -55,7 +56,7 @@ else:
 
 
 @produced
-@header("nix/store/build-result.hh")
+@header(Local("nix/store/build-result.hh"))
 @binding(
     # A nested struct, and its own type. `BuildResult::Success` is
     # what upstream calls it; `BuildResultSuccessStatus` beside it is
@@ -102,7 +103,7 @@ return nix::BuildResult::Success{
 
 
 @produced
-@header("nix/store/build-result.hh")
+@header(Local("nix/store/build-result.hh"))
 @binding(
     cxx="nix::KeyedBuildResult",
     threading="pool",
@@ -147,7 +148,7 @@ if (auto * arm = self.tryGetSuccess())
 return std::nullopt;
         """)
 
-    @needs("huggorm_decl/cpp/errors.hpp")
+    @needs(Local("huggorm_decl/cpp/errors.hpp"))
     def error(self) -> Opt[BuildError]:
         """The failure arm, or None when the build succeeded.
 

@@ -14,6 +14,7 @@ from huggorm_decl.decl.registry import Attr
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
     Cxx,
+    Local,
     Map,
     Opt,
     Str,
@@ -29,7 +30,7 @@ from huggorm_dsl.declare import (
 
 
 @produced
-@header("nix/fetchers/fetchers.hh")
+@header(Local("nix/fetchers/fetchers.hh"))
 @binding(
     cxx="nix::fetchers::Input",
     threading="pool",
@@ -71,9 +72,9 @@ class Input:
         Cxx("return self.getFingerprint(*store);")
 
     @staticmethod
-    @needs("huggorm_decl/cpp/call_settings.hpp",
-           "huggorm_decl/cpp/fetchers.hpp",
-           "nix/fetchers/fetch-settings.hh")
+    @needs(Local("huggorm_decl/cpp/call_settings.hpp"),
+           Local("huggorm_decl/cpp/fetchers.hpp"),
+           Local("nix/fetchers/fetch-settings.hh"))
     def _from_parts() -> Input:
         """Rebuild one from its attributes, with the process's fetcher
         settings, as `FlakeRef` does."""
@@ -83,8 +84,8 @@ return huggorm::input_of_attrs(*fetch, std::move(to_attrs));
         """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/fetchers.hpp",
-       "nix/fetchers/fetch-settings.hh", "nix/fetchers/fetchers.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/fetchers.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"), Local("nix/fetchers/fetchers.hh"))
 @threading("pool")
 def input_from_url(url: Str) -> Input:
     """Parse `url` as `builtins.fetchTree` parses a URL.
@@ -97,8 +98,8 @@ return huggorm::input_of(*fetch, url);
     """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/fetchers.hpp",
-       "nix/fetchers/fetch-settings.hh", "nix/fetchers/fetchers.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/fetchers.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"), Local("nix/fetchers/fetchers.hh"))
 @threading("pool")
 def input_from_attrs(attrs: Map[Attr]) -> Input:
     """Build an input from its attributes, as `builtins.fetchTree` does

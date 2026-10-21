@@ -39,6 +39,7 @@ from huggorm_dsl.declare import (
     Entries,
     Items,
     Leaf,
+    Local,
     Map,
     Null,
     Opt,
@@ -74,7 +75,7 @@ from huggorm_dsl.declare import (
 
 
 @produced
-@header("huggorm_decl/cpp/eval.hpp")
+@header(Local("huggorm_decl/cpp/eval.hpp"))
 @binding(
     # One state per thread, and its values belong to that thread. The
     # async layer inherits the runner rather than making a new one -
@@ -283,7 +284,7 @@ return names;
         """)
 
     @guard("list")
-    @needs("huggorm_decl/cpp/eval_errors.hpp")
+    @needs(Local("huggorm_decl/cpp/eval_errors.hpp"))
     def at(self, index: I64) -> Value:
         """One element of a list.
 
@@ -326,7 +327,7 @@ return self.wrap(by_name[static_cast<std::size_t>(index)]->value);
         Cxx("return self.get()->attrs()->get(self.intern(name)) != nullptr;")
 
     @guard("attrs")
-    @needs("huggorm_decl/cpp/eval_errors.hpp")
+    @needs(Local("huggorm_decl/cpp/eval_errors.hpp"))
     def get(self, name: Str) -> Value:
         """One attribute by name.
 
@@ -348,7 +349,7 @@ return self.wrap(attr->value);
         """)
 
     @blocks
-    @needs("nix/expr/value-to-json.hh", "nlohmann/json.hpp")
+    @needs(Local("nix/expr/value-to-json.hh"), Local("nlohmann/json.hpp"))
     def to_json(self, copy_to_store: Bint = False) -> Str:
         """This value as JSON text, forced all the way down.
 
@@ -367,7 +368,7 @@ return nix::printValueAsJSON(
         """)
 
     @blocks
-    @needs("nix/expr/value-to-json.hh", "nlohmann/json.hpp")
+    @needs(Local("nix/expr/value-to-json.hh"), Local("nlohmann/json.hpp"))
     def realise_json(self, copy_to_store: Bint = False) -> Str:
         """`to_json`, with every store path its strings name built.
 
@@ -387,7 +388,7 @@ return nix::rewriteStrings(text, rewrites);
         """)
 
     @blocks
-    @needs("functional")
+    @needs(Local("functional"))
     def string_context(self) -> Vec[Str]:
         """The string context of every string this value holds, each
         element in Nix's own encoding (`NixStringContextElem`), sorted.
@@ -599,7 +600,7 @@ return self.wrap(out);
 
     @guard("attrs")
     @blocks
-    @needs("nix/expr/get-drvs.hh")
+    @needs(Local("nix/expr/get-drvs.hh"))
     def drv_path(self) -> StorePath:
         """The `.drv` this derivation value names.
 
@@ -626,7 +627,7 @@ return *path;
 
     @guard("attrs")
     @blocks
-    @needs("nix/expr/get-drvs.hh")
+    @needs(Local("nix/expr/get-drvs.hh"))
     def output_paths(self) -> Map[Opt[StorePath]]:
         """Each output this derivation value names, and its path.
 
@@ -914,7 +915,7 @@ return huggorm::AttrDoc{huggorm::position_file(pos), pos.line, comment};
         """)
 
     @blocks
-    @needs("nix/expr/attr-path.hh")
+    @needs(Local("nix/expr/attr-path.hh"))
     def edit_location(self) -> SourceLocation:
         """The file and line `nix edit` and the REPL's `:edit` open.
 
@@ -1013,7 +1014,7 @@ class SourceLocation:
         """The line, or 0 for the whole file."""
 
 
-@header("huggorm_decl/cpp/logging.hpp")
+@header(Local("huggorm_decl/cpp/logging.hpp"))
 @binding(
     cxx="huggorm::LogField",
     threading="pool",
@@ -1063,7 +1064,7 @@ class LogField:
         # nixidae/nixidae#664
 
 
-@header("huggorm_decl/cpp/logging.hpp")
+@header(Local("huggorm_decl/cpp/logging.hpp"))
 @binding(
     cxx="huggorm::LogRecord",
     threading="pool",
@@ -1184,7 +1185,7 @@ class LogRecord:
         text."""
 
 
-@header("huggorm_decl/cpp/logging.hpp")
+@header(Local("huggorm_decl/cpp/logging.hpp"))
 @binding(
     cxx="huggorm::LogQueue",
     # A share, because the queue outlives the subscribe call and the
@@ -1258,7 +1259,7 @@ class LockedInput:
 
 
 @produced
-@header("huggorm_decl/cpp/eval.hpp")
+@header(Local("huggorm_decl/cpp/eval.hpp"))
 @binding(
     # Locked for one state, and handed back to that state to call. The
     # async layer keeps it on the state's runner, as it keeps a Value.
@@ -1288,7 +1289,7 @@ return huggorm::LockedInput{node->lockedRef, node->originalRef, node->isFlake};
         """)
 
     @blocks
-    @needs("huggorm_decl/cpp/flakeref.hpp")
+    @needs(Local("huggorm_decl/cpp/flakeref.hpp"))
     def write_lock_file(self) -> None:
         """Write `flake.lock` beside `flake.nix`, as `nix flake
         lock` does, whatever `lock_flake` was told."""
@@ -1303,7 +1304,7 @@ huggorm::invalidate_cache(flake.lockFilePath());
 
 
 @produced
-@header("huggorm_decl/cpp/eval.hpp")
+@header(Local("huggorm_decl/cpp/eval.hpp"))
 @binding(threading="affine", blocking=False, cxx="huggorm::ReplSelection")
 class ReplSelection:
     """`a.b.c` split before its last select, as `nix repl` splits it
@@ -1319,7 +1320,7 @@ class ReplSelection:
 
 
 @produced
-@header("huggorm_decl/cpp/eval.hpp")
+@header(Local("huggorm_decl/cpp/eval.hpp"))
 @binding(
     # The environment belongs to one state, and its thunks evaluate
     # there. The async layer keeps it on the state's runner.
@@ -1391,7 +1392,7 @@ state.forceValue(*made, made->determinePos(nix::noPos));
 return self.wrap(made);
         """)
 
-    @needs("nix/cmd/common-eval-args.hh")
+    @needs(Local("nix/cmd/common-eval-args.hh"))
     def eval_file(self, path: Str) -> Value:
         """`EvalState.eval_file`, in this scope: the file sees the
         bindings, as an expression does. Not cached, because the
@@ -1405,7 +1406,7 @@ state.forceValue(*made, made->determinePos(nix::noPos));
 return self.wrap(made);
         """)
 
-    @needs("nix/cmd/common-eval-args.hh")
+    @needs(Local("nix/cmd/common-eval-args.hh"))
     def load_file(self, path: Str) -> Value:
         """What `:load` adds: the file, called with no arguments when
         it is a function. Nothing is added; `add_attrs` adds it."""
@@ -1469,7 +1470,7 @@ return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)
         """)
 
 
-@header("huggorm_decl/cpp/eval.hpp")
+@header(Local("huggorm_decl/cpp/eval.hpp"))
 # A state HOLDS Python callables - `register_primop` gives it one -
 # and the natural way to write one closes over the state itself,
 # because the result comes from `state.make_int`. That is a cycle
@@ -1616,7 +1617,7 @@ self.state().forceValue(*made, nix::noPos);
 return self.wrap(made);
         """)
 
-    @needs("nix/cmd/common-eval-args.hh")
+    @needs(Local("nix/cmd/common-eval-args.hh"))
     def eval_file(self, path: Str) -> Value:
         """Evaluate a file, and remember it.
 
@@ -1654,8 +1655,8 @@ self.state().evalFile(nix::lookupFileArg(self.state(), path), *made);
 return self.wrap(made);
         """)
 
-    @needs("nix/fetchers/fetch-to-store.hh",
-           "nix/util/mounted-source-accessor.hh")
+    @needs(Local("nix/fetchers/fetch-to-store.hh"),
+           Local("nix/util/mounted-source-accessor.hh"))
     def mount(self, accessor: SourceAccessor, name: Str = "source",
               path: Opt[StorePath] = None) -> StorePath:
         """Show `accessor`'s tree to the evaluator at its store path.
@@ -2025,7 +2026,7 @@ return self.wrap_builder(made);
         set built by assignment."""
         Cxx("return target.stage_attr(name, item.get());")
 
-    @needs("huggorm_decl/cpp/call_settings.hpp", "nix/flake/settings.hh")
+    @needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/flake/settings.hh"))
     def lock_flake(self, ref: FlakeRef, recreate: Bint = False,
                    update: Opt[Vec[Str]] = None,
                    write_lock_file: Bint = True,
@@ -2075,7 +2076,7 @@ auto flake = nix::flake::getFlake(
 return flake.resolvedRef;
         """)
 
-    @needs("nlohmann/json.hpp", "nix/fetchers/attrs.hh")
+    @needs(Local("nlohmann/json.hpp"), Local("nix/fetchers/attrs.hh"))
     def flake_metadata_json(self, locked: LockedFlake) -> Str:
         """The object `nix flake metadata --json` prints.
 
@@ -2125,7 +2126,7 @@ return self.state().statisticsJSON();
 # --- free functions ------------------------------------------------
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 @threading("pool")
 def gc_stats() -> Map[I64]:
     """Live collector counters, bound straight from gc.h.
@@ -2160,7 +2161,7 @@ return {
     """)
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 @threading("pool")
 @blocks
 @binds("huggorm::gc_collect")
@@ -2176,7 +2177,7 @@ def collect_garbage() -> None:
     from unknown thread"."""
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 def collector_owner_thread() -> I64:
     """The kernel thread id of the thread that initialised the collector,
     or 0 where the platform has none.
@@ -2189,7 +2190,7 @@ return huggorm::gc_owner().load(std::memory_order_acquire);
     """)
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 @binds("huggorm::gc_start")
 def start_collector() -> None:
     """Start the collector's threads now, rather than at the first
@@ -2200,7 +2201,7 @@ def start_collector() -> None:
     settings before it makes an evaluator calls this first."""
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 @binds("huggorm::gc_unregister_thread")
 def gc_release_thread() -> None:
     """Take the CURRENT thread off the collector's list.
@@ -2217,7 +2218,7 @@ def gc_release_thread() -> None:
     executor does when its wrapper is closed."""
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def process_verbosity() -> I64:
     """What nix will PRODUCE, process-wide, right now.
 
@@ -2231,7 +2232,7 @@ return static_cast<std::int64_t>(nix::verbosity);
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def daemon_verbosity() -> I64:
     """The level `RemoteStore::setOptions` tells a new daemon
     connection: the widest level a live subscription asks for, and
@@ -2243,7 +2244,7 @@ return static_cast<std::int64_t>(nix::remoteVerbosity.load(std::memory_order_rel
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def thread_verbosity() -> I64:
     """The level this thread keeps records at.
 
@@ -2259,7 +2260,7 @@ return static_cast<std::int64_t>(huggorm::effective_verbosity());
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def set_thread_verbosity(level: I64) -> None:
     """Give this thread a level of its own, with no queue.
 
@@ -2277,7 +2278,7 @@ huggorm::thread_level().set(static_cast<nix::Verbosity>(level));
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def clear_thread_verbosity() -> None:
     """Take this thread's own level away, so it follows the default."""
     Cxx("""
@@ -2285,7 +2286,7 @@ huggorm::thread_level().clear();
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def default_verbosity() -> I64:
     """The level of a thread with no level of its own.
 
@@ -2297,7 +2298,7 @@ return static_cast<std::int64_t>(
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def set_default_verbosity(level: I64) -> None:
     """Set the level of every thread with no level of its own.
 
@@ -2311,7 +2312,7 @@ huggorm::set_default_verbosity(static_cast<nix::Verbosity>(level));
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def log_message(level: I64, message: Str) -> None:
     """Write one message through Nix's logger, at `level`.
 
@@ -2324,7 +2325,7 @@ nix::logger->log(static_cast<nix::Verbosity>(level), message);
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def current_request() -> I64:
     """The call this thread is inside, as `begin_request` named it, or 0.
 
@@ -2334,7 +2335,7 @@ return static_cast<std::int64_t>(huggorm::thread_request());
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp", "huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"), Local("huggorm_decl/cpp/interrupt.hpp"))
 def begin_request(request: I64) -> I64:
     """Say which call this thread is inside. Answers the one before.
 
@@ -2364,7 +2365,7 @@ return static_cast<std::int64_t>(previous);
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 def end_request(previous: I64) -> None:
     """Mark this thread's call finished, and restore what ran before.
 
@@ -2392,7 +2393,7 @@ slot = static_cast<std::uint64_t>(previous);
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def cancel_request(request: I64) -> None:
     """Stop the call `begin_request` named, from any thread.
 
@@ -2412,7 +2413,7 @@ huggorm::cancellations().cancel(static_cast<std::uint64_t>(request));
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def forget_request(request: I64) -> None:
     """Drop a cancellation once its call is over.
 
@@ -2426,7 +2427,7 @@ huggorm::cancellations().forget(static_cast<std::uint64_t>(request));
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def begin_interrupt_scope(scope: I64) -> I64:
     """Arm an interrupt scope on this thread. Answers the one before.
 
@@ -2447,7 +2448,7 @@ return static_cast<std::int64_t>(previous);
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def end_interrupt_scope(previous: I64) -> None:
     """Disarm this thread's scope, and restore the one before."""
     Cxx("""
@@ -2457,7 +2458,7 @@ huggorm::thread_interrupt_scope() = static_cast<std::uint64_t>(previous);
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def cancel_interrupt_scope(scope: I64) -> None:
     """Stop the work inside `scope`, from any thread.
 
@@ -2471,7 +2472,7 @@ huggorm::scope_cancellations().cancel(static_cast<std::uint64_t>(scope));
     """)
 
 
-@needs("huggorm_decl/cpp/interrupt.hpp")
+@needs(Local("huggorm_decl/cpp/interrupt.hpp"))
 def forget_interrupt_scope(scope: I64) -> None:
     """Drop a scope's cancellation once nothing runs inside it."""
     Cxx("""
@@ -2492,7 +2493,7 @@ huggorm::scope_cancellations().forget(static_cast<std::uint64_t>(scope));
 # service is a decision nobody has made.
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def get_setting(name: Str) -> Opt[Str]:
     """The effective value of one setting, or None for an unknown name.
 
@@ -2508,7 +2509,7 @@ return std::nullopt;
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def load_config() -> None:
     """Read nix.conf and NIX_CONFIG into the process's settings.
 
@@ -2520,7 +2521,7 @@ nix::loadConfFile(nix::globalConfig);
     """)
 
 
-@needs("nix/main/plugin.hh", "atomic")
+@needs(Local("nix/main/plugin.hh"), Local("atomic"))
 def init_plugins() -> None:
     """Load the plugins that `plugin-files` names, as `nix` does at startup.
 
@@ -2541,7 +2542,7 @@ nix::initPlugins();
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def set_setting(name: Str, value: Str) -> None:
     """Set one setting for the process, as a line of nix.conf would.
 
@@ -2558,7 +2559,7 @@ if (!nix::globalConfig.set(name, value))
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def list_settings(overridden_only: Bint = False) -> Map[Str]:
     """Every registered setting and its effective value.
 
@@ -2574,7 +2575,7 @@ return out;
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def reset_overridden() -> None:
     """Forget which settings something set, and keep every value.
 
@@ -2586,7 +2587,7 @@ nix::globalConfig.resetOverridden();
     """)
 
 
-@needs("nix/util/experimental-features.hh")
+@needs(Local("nix/util/experimental-features.hh"))
 def is_experimental_feature(name: Str) -> Bint:
     """Whether this Nix names an experimental feature `name`.
 
@@ -2596,7 +2597,7 @@ def is_experimental_feature(name: Str) -> Bint:
     Cxx("return nix::parseExperimentalFeature(name).has_value();")
 
 
-@needs("nix/util/experimental-features.hh")
+@needs(Local("nix/util/experimental-features.hh"))
 def enable_experimental_feature(name: Str) -> None:
     """Add one experimental feature to the process's set.
 
@@ -2615,7 +2616,7 @@ nix::experimentalFeatureSettings.experimentalFeatures = features;
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def settings_json() -> Str:
     """Every registered setting as Nix describes it, in JSON.
 
@@ -2627,7 +2628,7 @@ return nix::globalConfig.toJSON().dump();
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def eval_settings_json() -> Str:
     """The evaluator's settings as `settings_json` describes them.
 
@@ -2638,7 +2639,7 @@ return nix::evalSettings.toJSON().dump();
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def fetch_settings_json() -> Str:
     """The fetchers' settings as `settings_json` describes them.
 
@@ -2649,7 +2650,7 @@ return nix::fetchSettings.toJSON().dump();
     """)
 
 
-@needs("huggorm_decl/cpp/settings.hpp")
+@needs(Local("huggorm_decl/cpp/settings.hpp"))
 def flake_settings_json() -> Str:
     """The flake settings as `settings_json` describes them.
 
@@ -2660,7 +2661,7 @@ return nix::flakeSettings.toJSON().dump();
     """)
 
 
-@needs("nix/expr/eval-settings.hh")
+@needs(Local("nix/expr/eval-settings.hh"))
 def parse_nix_path(value: Str) -> Vec[Str]:
     """Split a `NIX_PATH`-style string into its entries, as `nix` does.
 
@@ -2673,7 +2674,7 @@ return std::vector<std::string>(entries.begin(), entries.end());
     """)
 
 
-@needs("nix/expr/eval-settings.hh")
+@needs(Local("nix/expr/eval-settings.hh"))
 def is_pseudo_url(value: Str) -> Bint:
     """Whether a search path entry is a URL Nix fetches, not a path."""
     Cxx("""
@@ -2681,7 +2682,7 @@ return nix::EvalSettings::isPseudoUrl(value);
     """)
 
 
-@needs("nix/cmd/common-eval-args.hh")
+@needs(Local("nix/cmd/common-eval-args.hh"))
 def current_system() -> Str:
     """The system `builtins.currentSystem` answers, process-wide.
 
@@ -2692,7 +2693,7 @@ return nix::evalSettings.getCurrentSystem();
     """)
 
 
-@needs("nix/store/globals.hh")
+@needs(Local("nix/store/globals.hh"))
 def nix_version() -> Str:
     """The version of the Nix these bindings link, as `nix --version`
     prints it."""
@@ -2701,7 +2702,7 @@ return nix::nixVersion;
     """)
 
 
-@needs("nix/expr/counter.hh")
+@needs(Local("nix/expr/counter.hh"))
 def eval_counters_enabled() -> Bint:
     """Whether Nix counts evaluation work: values, environments, calls.
 
@@ -2714,7 +2715,7 @@ return nix::Counter::enabled;
     """)
 
 
-@needs("nix/expr/counter.hh")
+@needs(Local("nix/expr/counter.hh"))
 def set_eval_counters_enabled(enabled: Bint) -> None:
     """Turn Nix's evaluation counters on or off, for every evaluator.
 
@@ -2727,7 +2728,7 @@ nix::Counter::enabled = enabled;
     """)
 
 
-@needs("nix/expr/config.hh")
+@needs(Local("nix/expr/config.hh"))
 def boehm_gc() -> Bint:
     """Whether the linked libexpr allocates through the Boehm collector.
 
@@ -2738,7 +2739,7 @@ return static_cast<bool>(NIX_USE_BOEHMGC);
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 @threading("pool")
 @subscription(Subscription.OPEN)
 def subscribe_process_logs(capacity: I64 = 1024,
@@ -2803,7 +2804,7 @@ return huggorm::subscribe_process_logs(static_cast<std::size_t>(capacity),
     """)
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 @threading("pool")
 @binds("huggorm::unsubscribe_process_logs")
 @subscription(Subscription.CLOSE)
@@ -2827,7 +2828,7 @@ def unsubscribe_process_logs() -> None:
     # nixidae/nixidae#622.
 
 
-@needs("huggorm_decl/cpp/logging.hpp")
+@needs(Local("huggorm_decl/cpp/logging.hpp"))
 @binds("huggorm::install_log_tap")
 @startup
 def _log_tap_init() -> None:
@@ -2850,7 +2851,7 @@ def _log_tap_init() -> None:
     # in nixidae/nixidae#626.
 
 
-@needs("huggorm_decl/cpp/gc.hpp")
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
 @binds("huggorm::gc_boot")
 @startup
 def _gc_init() -> None:

@@ -10,6 +10,7 @@ path should not be splitting a string to find out.
 from huggorm_dsl.declare import (
     Bytes,
     Cxx,
+    Local,
     Str,
     binding,
     header,
@@ -20,7 +21,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/util/signature/local-keys.hh")
+@header(Local("nix/util/signature/local-keys.hh"))
 @binding(
     cxx="nix::Signature",
     # Two strings the object already owns.

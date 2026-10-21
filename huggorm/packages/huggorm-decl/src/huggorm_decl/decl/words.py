@@ -24,10 +24,10 @@ repositories.
 
 from enum import StrEnum
 
-from huggorm_dsl.declare import Enumerated, Wrap, header, words
+from huggorm_dsl.declare import Enumerated, Local, Wrap, header, words
 
 
-@header("nix/store/content-address.hh")
+@header(Local("nix/store/content-address.hh"))
 @words(parsed_by="nix::ContentAddressMethod::parse",
        enumerated=Enumerated(
            "nix::ContentAddressMethod::Raw",
@@ -82,7 +82,7 @@ class ContentAddressMethod(StrEnum):
     produces."""
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @words(parsed_by="nix::parseHashAlgo",
        enumerated=Enumerated("nix::HashAlgorithm"))
 class HashAlgorithm(StrEnum):
@@ -105,7 +105,7 @@ class HashAlgorithm(StrEnum):
     known, the feature is off until enabled."""
 
 
-@header("nix/util/file-content-address.hh")
+@header(Local("nix/util/file-content-address.hh"))
 @words(parsed_by="nix::parseFileSerialisationMethod",
        enumerated=Enumerated(
            "nix::FileSerialisationMethod",
@@ -119,7 +119,7 @@ class FileSerialisationMethod(StrEnum):
     NAR = "nar"
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @words(
     # No `parsed_by`, and that is a fact about upstream rather than an
     # omission. `nix::BuildMode` has no parser and no rendering: it
@@ -165,7 +165,7 @@ class BuildMode(StrEnum):
     difference is an error."""
 
 
-@header("nix/store/build-result.hh")
+@header(Local("nix/store/build-result.hh"))
 @words(
     # No `parsed_by`, the same way `BuildMode` has none. Upstream
     # parses neither status enum from a string: both cross Nix's own
@@ -211,7 +211,7 @@ class BuildSuccessStatus(StrEnum):
     content-addressed derivation does before it is built."""
 
 
-@header("nix/store/build-result.hh")
+@header(Local("nix/store/build-result.hh"))
 @words(
     enumerated=Enumerated(
         "nix::BuildResultFailureStatus",
@@ -298,7 +298,7 @@ class BuildFailureStatus(StrEnum):
     `output-rejected` where a local one says this."""
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @words(
     # No `parsed_by`, and this one was CHECKED rather than assumed
     # from BuildMode's case. Upstream has no string parser and no
@@ -345,7 +345,7 @@ class TrustedFlag(StrEnum):
     have. A daemon decides this from the connecting user."""
 
 
-@header("nix/store/gc-store.hh")
+@header(Local("nix/store/gc-store.hh"))
 @words(
     # No `parsed_by`, CHECKED rather than assumed. The only
     # conversions upstream are the worker protocol's, and they read
@@ -408,7 +408,7 @@ class GCAction(StrEnum):
     referrers."""
 
 
-@header("nix/fetchers/registry.hh")
+@header(Local("nix/fetchers/registry.hh"))
 @words(
     # No `parsed_by`: nothing upstream parses a layer from a string.
     # `nix registry list` prints a padded column of its own, so these
@@ -440,7 +440,7 @@ class RegistryType(StrEnum):
     """A file a command names with `--registry`."""
 
 
-@header("nix/util/source-accessor.hh")
+@header(Local("nix/util/source-accessor.hh"))
 @words(
     # No `parsed_by`: nothing upstream parses a type from a string.
     # The words are `Stat::typeString`'s, which Nix prints in errors.

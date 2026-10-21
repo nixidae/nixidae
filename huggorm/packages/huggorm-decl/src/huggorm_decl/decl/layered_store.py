@@ -51,6 +51,7 @@ from huggorm_decl.decl.words import (
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Local,
     Map,
     Opt,
     PyFunc,
@@ -66,7 +67,7 @@ from huggorm_dsl.declare import (
 
 
 @in_process
-@header("huggorm_decl/cpp/layered_store.hpp")
+@header(Local("huggorm_decl/cpp/layered_store.hpp"))
 @binding(cxx="huggorm::LayeredStoreConfig", holder="shared_ptr",
          threading="pool", blocking=False)
 class LayeredStoreConfig:
@@ -88,7 +89,7 @@ class LayeredStoreConfig:
 
 
 @in_process
-@header("huggorm_decl/cpp/layered_store.hpp")
+@header(Local("huggorm_decl/cpp/layered_store.hpp"))
 @binding(cxx="huggorm::LayeredStore", holder="shared_ptr",
          threading="pool", blocking=True)
 class LayeredStore(Store):
@@ -237,7 +238,7 @@ class LayeredStore(Store):
         """Add the path `info` describes, read as a NAR from `source`."""
 
 
-@needs("huggorm_decl/cpp/layered_store.hpp")
+@needs(Local("huggorm_decl/cpp/layered_store.hpp"))
 def register_store_implementation(name: Str, schemes: Vec[Str],
                                   factory: PyFunc) -> None:
     """Make `schemes` open a store that `factory` makes, for the rest of

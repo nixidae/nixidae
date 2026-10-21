@@ -17,6 +17,7 @@ from huggorm_decl.decl.signature import Signature
 from huggorm_dsl.declare import (
     NIX_2_35,
     Cxx,
+    Local,
     Opt,
     Str,
     Vec,
@@ -30,7 +31,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/realisation.hh")
+@header(Local("nix/store/realisation.hh"))
 @binding(
     cxx="nix::DrvOutput",
     # Two members the object already owns.
@@ -94,7 +95,7 @@ class DrvOutput:
 
 
 @produced
-@header("nix/store/realisation.hh")
+@header(Local("nix/store/realisation.hh"))
 @binding(
     cxx="nix::Realisation",
     # Every accessor reads memory the object already owns.
@@ -167,7 +168,7 @@ class Realisation:
 
 if NIX_2_35:
     @produced
-    @header("nix/store/realisation.hh")
+    @header(Local("nix/store/realisation.hh"))
     @binding(
         cxx="nix::UnkeyedRealisation",
         threading="pool",

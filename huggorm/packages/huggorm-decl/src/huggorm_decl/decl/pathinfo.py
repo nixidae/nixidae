@@ -21,6 +21,7 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Local,
     Opt,
     Str,
     Vec,
@@ -34,7 +35,7 @@ from huggorm_dsl.declare import (
 
 
 @produced
-@header("nix/store/path-info.hh")
+@header(Local("nix/store/path-info.hh"))
 @binding(
     cxx="nix::ValidPathInfo",
     # Every accessor reads memory the object already owns.
@@ -170,7 +171,7 @@ return static_cast<std::int64_t>(self.registrationTime);
     # through signer.hh today, and a body that leans on somebody
     # else's include is a body that breaks on an upstream tidy-up.
     @staticmethod
-    @needs("nix/util/signature/local-keys.hh")
+    @needs(Local("nix/util/signature/local-keys.hh"))
     def _from_parts() -> PathInfo:
         """Rebuild one from the parts that crossed.
 

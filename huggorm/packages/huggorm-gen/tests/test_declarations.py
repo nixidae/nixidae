@@ -23,14 +23,14 @@ from huggorm_decl import PRELUDE
 
 BRANCHED = '''"""Two exception classes, one behind a version."""
 
-from huggorm_dsl.declare import NIX_VERSION
+from huggorm_dsl.declare import Local, NIX_VERSION
 
 
 class NixError(Exception):
     """The base every other one derives from."""
 
     cxx = "nix::Error"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
 
 
 if NIX_VERSION >= (2, 0):
@@ -39,7 +39,7 @@ if NIX_VERSION >= (2, 0):
         """The arm this build has - the version is long past."""
 
         cxx = "nix::Here"
-        header = "nix/util/error.hh"
+        header = Local("nix/util/error.hh")
 
 else:
 
@@ -47,7 +47,7 @@ else:
         """The arm it does not have."""
 
         cxx = "nix::Gone"
-        header = "nix/util/error.hh"
+        header = Local("nix/util/error.hh")
 '''
 
 # The same hierarchy with nothing to resolve. Written out rather than
@@ -123,18 +123,18 @@ def test_a_version_branch_is_resolved_before_an_emitter_sees_it(
 
 
 READERLESS = '''
-from huggorm_dsl.declare import Map, Opt, Vec, I64
+from huggorm_dsl.declare import Local, Map, Opt, Vec, I64
 
 
 class NixError(Exception):
     cxx = "nix::Error"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
     _wire_fields = (("message", str), ("colored", str), ("code", I64))
 
 
 class Read(NixError):
     cxx = "nix::Read"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
     reader = "huggorm::error_info"
 '''
 
@@ -232,10 +232,10 @@ def test_a_declaration_that_does_not_branch_reads_the_same_either_way(
 # it was written until it was deleted (nixidae/nixidae#612).
 ATTRIBUTE = '''"""One bound class whose accessor is a @property."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -253,10 +253,10 @@ OVERLOADED = '''"""One bound class with an overloaded method."""
 
 from typing import overload
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, I64, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, I64, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -280,7 +280,7 @@ OVERLOADED_FREE = '''"""One free function, overloaded through the module."""
 
 import typing
 
-from huggorm_dsl.declare import Map, Opt, Vec, I64, Str, binds
+from huggorm_dsl.declare import Local, Map, Opt, Vec, I64, Str, binds
 
 
 @typing.overload
@@ -344,6 +344,7 @@ def test_the_reader_sees_an_accessor_the_import_kept_as_a_descriptor(
 WIRE_READ = '''"""One record with a part read through another accessor."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map,
     Opt,
     Vec,
@@ -427,10 +428,10 @@ def test_a_produced_class_nothing_returns_fails_the_build(
 # they do not.
 CALLABLE = '''"""One bound class that declares two dunders."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, I64, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, I64, Str, binding, header
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @binding(cxx="nix::Value", threading="affine", blocking=True)
 class Callable:
     """A value, for a test that never compiles one."""
@@ -469,16 +470,16 @@ def test_an_undeclarable_dunder_is_refused_rather_than_dropped(
 
 DERIVED = '''"""One bound class that names a base."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool")
 class Base:
     """A base."""
 
 
-@header("nix/store/local-store.hh")
+@header(Local("nix/store/local-store.hh"))
 @binding(cxx="nix::LocalStore", threading="pool")
 class Leaf(Base):
     """No emitter carries a hierarchy, so this is refused."""
@@ -499,10 +500,10 @@ def test_a_bound_base_is_refused_rather_than_dropped(
 
 DEFAULTED = '''"""One function whose default every surface writes as source."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Str, needs
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, needs
 
 
-@needs("nix/store/store-api.hh")
+@needs(Local("nix/store/store-api.hh"))
 def probe(x: Str = DEFAULT) -> Str:
     """A probe."""
 '''
@@ -551,10 +552,10 @@ def test_a_taught_dunder_reads_as_a_method(tmp_path: pathlib.Path) -> None:
 # removed and failed on a later assertion instead.
 ASYNCS = '''"""One declaration written with async defs."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header, threading
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, threading
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -648,10 +649,10 @@ def test_an_undecorated_async_helper_reaches_nothing(
 # One bound class, and one stray name the reader puts nowhere.
 STRAY = '''"""One bound class beside something that is not a declaration."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -687,6 +688,7 @@ def test_a_name_the_reader_puts_nowhere_is_refused(
 WIDTHS = '''"""One value that carries both 64-bit widths."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map,
     Opt,
     Vec,
@@ -699,7 +701,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/path-info.hh")
+@header(Local("nix/store/path-info.hh"))
 @binding(cxx="nix::Sizes", threading="pool", blocking=False)
 @wire_value()
 class Sizes:
@@ -719,10 +721,10 @@ class Sizes:
 # the dict a uint.
 HELD = '''"""One value whose field is a container of a width."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, U64, Cxx, binding, header, wire_value
+from huggorm_dsl.declare import Local, Map, Opt, Vec, U64, Cxx, binding, header, wire_value
 
 
-@header("nix/store/path-info.hh")
+@header(Local("nix/store/path-info.hh"))
 @binding(cxx="nix::Sizes", threading="pool", blocking=False)
 @wire_value()
 class Sizes:
@@ -739,10 +741,10 @@ class Sizes:
 # stubs and as a wire type by the schema.
 TAKES = '''"""One proxy whose method takes a width."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, U64, Bint, Cxx, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, U64, Bint, Cxx, binding, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Sizes", threading="pool", blocking=True)
 class Sizes:
     """A thing a caller keeps a handle on."""
@@ -863,23 +865,24 @@ def test_the_model_refuses_an_accessor_declared_as_an_attribute(
 TAGGED = '''"""A tagged union, and an accessor declared against it."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map, Opt, Vec, I64, Str, binding, fills, guard, header, names, tagged)
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @tagged("get()", "type<true>()", int="nix::nInt", list="nix::nList")
 @binding(cxx="nix::Value", threading="pool", blocking=False)
 class Held:
     """A union, for a test that never compiles one."""
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @binding(cxx="nix::Value", threading="pool", blocking=False)
 class Bare:
     """The same, with no @tagged to check against."""
 
 
-@header("nix/expr/eval.hh")
+@header(Local("nix/expr/eval.hh"))
 @binding(cxx="nix::EvalState", threading="pool", blocking=False)
 class State:
     """The owner of every method under test."""
@@ -918,10 +921,10 @@ def test_the_model_refuses_an_arm_it_cannot_check(
 
 SPELLS = '''"""A body that spells a vocabulary nothing declares."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, binding, header, spells
+from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header, spells
 
 
-@header("nix/expr/eval.hh")
+@header(Local("nix/expr/eval.hh"))
 @binding(cxx="nix::EvalState", threading="pool", blocking=False)
 class State:
     """The owner of the method under test."""
@@ -936,7 +939,7 @@ VOCABULARY = '''"""A vocabulary with something in it that is not a word."""
 
 from enum import StrEnum
 
-from huggorm_dsl.declare import Map, Opt, Vec, words
+from huggorm_dsl.declare import Local, Map, Opt, Vec, words
 
 
 @words()
@@ -982,10 +985,10 @@ def test_the_model_refuses_a_spelling_of_no_vocabulary(
 
 SHAPE = '''"""A wire value whose shape cannot round-trip."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header, wire_value
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, wire_value
 
 
-@header("nix/store/path.hh")
+@header(Local("nix/store/path.hh"))
 @binding(cxx="nix::Signature", threading="pool", blocking=False)
 @wire_value(text="{text}")
 class Signed:
@@ -1026,6 +1029,7 @@ def test_the_model_refuses_a_value_that_cannot_round_trip(
 HELD_ELSEWHERE = '''"""A record part read through a member another type holds."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map,
     Opt,
     Vec,
@@ -1048,7 +1052,7 @@ class Collected:
         """The same paths, as the member holds them."""
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """What makes one."""
@@ -1190,10 +1194,10 @@ def test_the_census_runs_when_the_corpus_is_built(
 # A marker decorator over a `@property`.
 UNIMPORTABLE = '''"""One accessor with a marker over a @property."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header, instant
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, instant
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -1210,10 +1214,10 @@ class Digest:
 # skipping the first one.
 STATIC = '''"""One accessor written as a @staticmethod."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -1243,10 +1247,10 @@ def test_a_declaration_imports_only_from_the_allowed_modules(
 
 SHADOWED = '''"""A store whose import throws a method away."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -1313,10 +1317,10 @@ def test_a_declaration_that_will_not_import_is_refused(
 # A file that will not import.
 UNRELATED ='''"""One accessor naming something that does not exist."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -1431,10 +1435,10 @@ def test_an_accessor_declared_static_is_refused(
 # never read (nixidae/nixidae#618).
 BRANCHED_ACCESSOR = '''"""One bound class whose accessor is behind a version."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, NIX_VERSION, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, NIX_VERSION, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -1495,10 +1499,10 @@ def _versioned_body(body: str) -> str:
     inner = "\n".join("        " + line for line in body.strip().splitlines())
     return f'''"""One bound class whose body branches on the version."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, NIX_VERSION, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, NIX_VERSION, Cxx, Str, binding, header
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(cxx="nix::Hash", threading="pool", blocking=False)
 class Digest:
     """A digest, for a test that never compiles one."""
@@ -1634,7 +1638,7 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
     emitted file includes - a fact about generated code, written into
     a file a person maintains (nixidae/nixidae#627).
 
-    `decl/errors.py` now says `header = "nix/..."` beside each `cxx`,
+    `decl/errors.py` says `header = Local("nix/...")` beside each `cxx`,
     and the emitter writes the include beside the chain.
 
     NOT load-bearing, measured before this was written: removing all
@@ -1649,7 +1653,8 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
     from huggorm_gen.cppgen.nbemit import extension
 
     headers = declared_model().errors.headers
-    assert headers == ["huggorm_decl/cpp/eval_errors.hpp",
+    assert [h.name for h in headers] == [
+                       "huggorm_decl/cpp/eval_errors.hpp",
                        "nix/expr/eval-error.hh",
                        "nix/store/store-api.hh",
                        "nix/store/store-dir-config.hh",
@@ -1662,7 +1667,7 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
                      chain=[], errors="", prelude=PRELUDE,
                      error_headers=headers)
     for h in headers:
-        assert f'#include "{h}"' in text, h
+        assert h.line in text, h
 
     without = extension(unit, "huggorm_bindings.path", declared_model(),
                         chain=[], errors="", prelude=PRELUDE)
@@ -1688,12 +1693,14 @@ def test_a_caught_error_must_say_which_header_declares_it(
         read(_declaration(tmp_path / name, source))
 
     with pytest.raises(DeclarationError, match="which header declares it"):
-        errors("no_header", 'class NixError(Exception):\n'
+        errors("no_header", 'from huggorm_dsl.declare import Local\n\n\n'
+                            'class NixError(Exception):\n'
                             '    cxx = "nix::Error"\n')
 
     with pytest.raises(DeclarationError, match="`header` with no `cxx`"):
-        errors("no_cxx", 'class NixError(Exception):\n'
-                         '    header = "nix/util/error.hh"\n')
+        errors("no_cxx", 'from huggorm_dsl.declare import Local\n\n\n'
+                         'class NixError(Exception):\n'
+                         '    header = Local("nix/util/error.hh")\n')
 
 
 def test_an_undecorated_class_is_an_exception(
@@ -1834,10 +1841,10 @@ def test_the_runtime_header_declares_what_the_bodies_spell() -> None:
 
 NESTED = '''"""An alias two containers down."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(cxx="nix::Thing", threading="pool", blocking=False)
 class Thing:
     """Holds a map of lists."""
@@ -1868,10 +1875,10 @@ def test_an_alias_is_resolved_at_any_depth(tmp_path: pathlib.Path) -> None:
 
 QUOTED = '''"""A quoted annotation."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(cxx="nix::Thing", threading="pool", blocking=False)
 class Thing:
     """Says its type as text."""
@@ -1902,10 +1909,11 @@ def test_an_annotation_the_import_cannot_resolve_is_refused(
 # filled per case.
 WALKED = '''"""One proxy that holds others."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, I64, Cxx, Items, Leaf, Str, binding, header, tree
+from huggorm_dsl.declare import (
+    Local, Map, Opt, Vec, I64, Cxx, Items, Leaf, Str, binding, header, tree)
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @tree(kind="type_name", kinds={kinds})
 @binding(cxx="nix::Value", threading="pool", blocking=True)
 class Node:
@@ -1943,11 +1951,11 @@ def test_a_tree_that_names_what_the_class_lacks_is_refused(
 
 STREAMED = '''"""A class whose override takes or answers bytes."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Bytes, binding, header, in_process, virtual
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Bytes, binding, header, in_process, virtual
 
 
 @in_process
-@header("x.hpp")
+@header(Local("x.hpp"))
 @binding(cxx="x::Stream")
 class Stream:
     """A stream."""
@@ -1994,6 +2002,7 @@ def test_a_virtual_refuses_a_list_of_bytes(
 POSTED = '''"""A stream whose write Nix need not wait for."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map,
     Opt,
     Vec,
@@ -2002,7 +2011,7 @@ from huggorm_dsl.declare import (
 
 @in_process
 CALLS_BACK
-@header("x.hpp")
+@header(Local("x.hpp"))
 @binding(cxx="x::Stream")
 class Stream:
     """A stream."""
@@ -2049,11 +2058,11 @@ SPELLED = '''"""A class whose markers are spelled CLASS_MARKER and METHOD_MARKER
 import typing
 
 import huggorm_dsl.declare as d
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header, instant as fast
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header, instant as fast
 
 
 CLASS_MARKER
-@header("x.hpp")
+@header(Local("x.hpp"))
 class Stream:
     """A stream."""
 
@@ -2113,7 +2122,7 @@ def test_a_marker_is_checked_by_what_it_recorded(
 
 @pytest.mark.parametrize(("stray", "refusal"), [
     ('@typing.final\nclass Broken(Exception):\n    """."""\n\n'
-     '    cxx = "x::Broken"\n    header = "x.hpp"\n',
+     '    cxx = "x::Broken"\n    header = Local("x.hpp")\n',
      "Broken: a decorator here is not a marker"),
     ('@typing.final\ndef stray() -> Str:\n    """."""\n',
      r"stray \(function\) reaches no output"),
@@ -2145,7 +2154,7 @@ def test_a_read_decl_is_frozen_and_keeps_its_base(
 
 @binding(cxx="x::Sub")
 @d.in_process
-@header("x.hpp")
+@header(Local("x.hpp"))
 class Sub(Stream):
     """A sub-stream."""
 '''))
@@ -2155,26 +2164,58 @@ class Sub(Stream):
         sub.decl.base = ""  # type: ignore[misc]
 
 
+@pytest.mark.parametrize(("old", "new"), [
+    ('@header(Local("x.hpp"))', '@header("x.hpp")'),
+    ("METHOD_MARKER", '@d.needs("m.hpp")'),
+    ("METHOD_MARKER", '@d.needs(Local("m.hpp"), "n.hpp")'),
+])
+def test_a_header_is_an_include_not_a_string(
+        tmp_path: pathlib.Path, old: str, new: str) -> None:
+    """A bare string says neither `<x>` nor `"x"`, so `@header` and
+    `@needs` refuse one (nixidae/nixidae#938)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    with pytest.raises(DeclarationError, match=r'takes Std\("x"\) or Local'):
+        read(_declaration(tmp_path, SPELLED.replace(old, new).replace(
+            "CLASS_MARKER", '@binding(cxx="x::Stream")').replace(
+                "METHOD_MARKER", "")))
+
+
+def test_an_error_header_is_an_include_not_a_string(
+        tmp_path: pathlib.Path) -> None:
+    """An exception's `header` is refused as a bare string, as
+    `@header` is (nixidae/nixidae#938)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    with pytest.raises(DeclarationError,
+                       match=r'NixError.header takes Std\("x"\) or Local'):
+        read(_declaration(tmp_path, 'class NixError(Exception):\n'
+                                    '    cxx = "nix::Error"\n'
+                                    '    header = "nix/util/error.hh"\n'))
+
+
 def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
     """`@needs` is repeatable, so a second one adds headers. It does not
     replace the first."""
+    from huggorm_dsl.declare import Local
     from huggorm_dsl.read import read
 
     module = read(_declaration(tmp_path, SPELLED.replace(
-        "CLASS_MARKER", '@d.needs("c1.hpp")\n@d.needs("c2.hpp")\n'
+        "CLASS_MARKER", '@d.needs(Local("c1.hpp"))\n@d.needs(Local("c2.hpp"))\n'
                         '@binding(cxx="x::Stream")').replace(
-        "METHOD_MARKER", '@d.needs("m1.hpp")\n    @d.needs("m2.hpp")')))
+        "METHOD_MARKER", '@d.needs(Local("m1.hpp"))\n    @d.needs(Local("m2.hpp"))')))
     (cls,) = module.classes
-    assert cls.decl.headers == ("c1.hpp", "c2.hpp")
-    assert [m.headers for m in cls.methods] == [("m1.hpp", "m2.hpp")]
+    assert cls.decl.headers == (Local("c1.hpp"), Local("c2.hpp"))
+    assert [m.headers for m in cls.methods] == [
+        (Local("m1.hpp"), Local("m2.hpp"))]
 
 
 OPTIONAL_LIST = '''"""A return the emitter cannot convert."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2204,10 +2245,10 @@ def test_an_optional_container_return_is_refused(
 
 ABSENT_CONTAINER = '''"""A container parameter that may be omitted."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2249,17 +2290,17 @@ def test_an_absent_container_parameter_is_an_empty_one(
 
 SET_PARAM = '''"""A derived method whose parameter libstore holds as a set."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Str, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, header
 
 
-@header("nix/store/path.hh")
+@header(Local("nix/store/path.hh"))
 @binding(cxx="nix::StorePath", collection="nix::StorePathSet",
          threading="pool", blocking=False)
 class StorePath:
     """A store path."""
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2311,8 +2352,8 @@ def test_a_free_function_bound_by_name_refuses_a_conversion(
     from huggorm_gen.cppgen import nbemit
 
     source = SET_PARAM.replace(
-        "from huggorm_dsl.declare import Map, Opt, Vec, Str, binding, header",
-        "from huggorm_dsl.declare import Map, Opt, Vec, Str, binding, binds, header",
+        "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, header",
+        "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, binds, header",
     ).replace("PARAM", "Vec[StorePath]") + '''
 
 @binds("nix::forget")
@@ -2349,10 +2390,10 @@ WORDS_STORE = '''"""A store that takes and answers a vocabulary."""
 
 from enum import StrEnum
 
-from huggorm_dsl.declare import Map, Opt, Vec, Enumerated, binding, binds, header, words
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Enumerated, binding, binds, header, words
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @words(parsed_by="nix::parseHashAlgo",
        enumerated=Enumerated("nix::HashAlgorithm"))
 class HashAlgorithm(StrEnum):
@@ -2362,7 +2403,7 @@ class HashAlgorithm(StrEnum):
     SHA256 = "sha256"
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2401,7 +2442,7 @@ def _vocabulary(tmp_path: pathlib.Path, declared: str) -> str:
 
 
 MARKED = '''
-    @needs("probe/{where}.hh")
+    @needs(Local("probe/{where}.hh"))
     @spells("HashAlgorithm")
     def {name}(self) -> None:
         """Marked."""
@@ -2421,10 +2462,11 @@ def test_a_constructor_emits_what_it_needs_and_spells(
 
     (tmp_path / "probe.py").write_text(
         WORDS_STORE.replace(
-            "from huggorm_dsl.declare import "
+            "from huggorm_dsl.declare import Local, "
             "Map, Opt, Vec, Enumerated, binding, binds, header, words",
             "from huggorm_dsl.declare import (\n"
-            "    Map, Opt, Vec, Cxx, Enumerated, binding, binds, header, needs,\n"
+            "    Local, Map, Opt, Vec, Cxx, Enumerated, binding, binds, header,\n"
+            "    needs,\n"
             "    spells, words)")
         .replace("DECLARED", MARKED.format(where=name, name=name)))
     mod = Corpus(tmp_path, nanobind=("probe.py",)).module("probe")
@@ -2489,17 +2531,17 @@ def test_a_vocabulary_nothing_converts_is_refused(
 
 HANDLES = '''"""A store that takes and answers handles."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @binding(cxx="huggorm::Value", via="get()", threading="pool",
          blocking=False)
 class Value:
     """A handle."""
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2543,10 +2585,10 @@ def test_a_container_of_errors_names_the_errors_module() -> None:
 
 BYTES_STORE = '''"""A store that takes and answers bytes."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Bytes, binding, binds, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Bytes, binding, binds, header
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2608,10 +2650,10 @@ def test_a_bytes_shape_nothing_converts_is_refused(
 # One bound class with one good method and two that refuse.
 TWO_MISTAKES = '''"""One bound class with two refused methods."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, Cxx, I64, binding, header
+from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, I64, binding, header
 
 
-@header("nix/expr/value.hh")
+@header(Local("nix/expr/value.hh"))
 @binding(cxx="nix::Value", threading="affine", blocking=True)
 class Twice:
     """A value, for a test that never compiles one."""
@@ -2683,13 +2725,14 @@ def test_a_body_cxx_with_a_keyword_is_refused(
 HANDLE_HELD = '''"""A by-value Python handle, on a method and on a free function."""
 
 from huggorm_dsl.declare import (
+    Local,
     Map,
     Opt,
     Vec,
     Cxx, PyFunc, Str, binding, binds, blocks, header, instant)
 
 
-@header("nix/expr/eval.hh")
+@header(Local("nix/expr/eval.hh"))
 @binding(cxx="nix::EvalState", threading="affine", blocking=True)
 class Holder:
     """A class whose calls release the GIL unless a method says not."""
@@ -2739,10 +2782,10 @@ def test_a_python_handle_on_a_call_that_keeps_the_gil_is_read(
 
 LEAF = '''"""One leaf type as a parameter and a return."""
 
-from huggorm_dsl.declare import Map, Opt, Vec, NAME, Cxx, binding, header, instant
+from huggorm_dsl.declare import Local, Map, Opt, Vec, NAME, Cxx, binding, header, instant
 
 
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
 class Store:
     """A store."""
@@ -2819,6 +2862,28 @@ def test_a_unit_includes_the_header_each_leaf_names(
                      {}, ir.Errors("", {}), (unit,))
     lines = nbemit.Emitter(model, unit).includes(unit.classes, ())
     assert lines.count(include) == 1, lines
+
+
+def test_a_needed_header_is_included_as_its_kind_says(
+        tmp_path: pathlib.Path) -> None:
+    """`@needs(Std("x"))` renders `<x>` among the standard headers, and
+    `Local("x")` renders `"x"` among the others (nixidae/nixidae#938)."""
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    source = LEAF.replace("ALIAS", "Bint").replace("NAME", "Bint").replace(
+        "header, instant", "header, instant, needs, Std").replace(
+        "    @instant\n",
+        '    @instant\n    @needs(Std("atomic"), Local("x/y.hh"))\n')
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
+                     {}, ir.Errors("", {}), (unit,))
+    lines = nbemit.Emitter(model, unit).includes(unit.classes, ())
+    std, local = "#include <atomic>", '#include "x/y.hh"'
+    assert lines.count(std) == 1 and lines.count(local) == 1, lines
+    assert lines.index(std) < lines.index(
+        '#include "nix/store/store-api.hh"') < lines.index(local), lines
 
 
 @pytest.mark.parametrize("signature", [

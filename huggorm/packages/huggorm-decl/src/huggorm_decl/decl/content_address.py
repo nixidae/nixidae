@@ -22,6 +22,7 @@ from huggorm_decl.decl.hash import Hash
 from huggorm_decl.decl.words import ContentAddressMethod
 from huggorm_dsl.declare import (
     Cxx,
+    Local,
     Str,
     binding,
     header,
@@ -32,7 +33,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/content-address.hh")
+@header(Local("nix/store/content-address.hh"))
 @binding(
     cxx="nix::ContentAddress",
     # Two members the object already owns.

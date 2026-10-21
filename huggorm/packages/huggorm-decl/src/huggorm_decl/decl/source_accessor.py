@@ -32,6 +32,7 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Cxx,
+    Local,
     Map,
     Opt,
     Path,
@@ -47,7 +48,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/util/source-accessor.hh")
+@header(Local("nix/util/source-accessor.hh"))
 @binding(cxx="nix::SourceAccessor::Stat", threading="pool", blocking=False)
 @wire_value(
     # PARTS: `Stat` has no comparison of its own.
@@ -84,7 +85,7 @@ new (self) nix::SourceAccessor::Stat{
 
 @in_process
 @calls_back
-@header("huggorm_decl/cpp/source_accessor.hpp")
+@header(Local("huggorm_decl/cpp/source_accessor.hpp"))
 @binding(cxx="huggorm::SourceAccessor", holder="shared_ptr",
          threading="pool", blocking=True)
 class SourceAccessor:
@@ -113,7 +114,7 @@ class SourceAccessor:
         target: Nix follows a symlink itself."""
 
 
-@needs("huggorm_decl/cpp/source_accessor.hpp")
+@needs(Local("huggorm_decl/cpp/source_accessor.hpp"))
 def filesystem_accessor(root: Path) -> SourceAccessor:
     """The file tree at `root` on this machine, read as Nix reads one.
 

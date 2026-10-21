@@ -24,6 +24,7 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Local,
     Opt,
     Str,
     Vec,
@@ -40,7 +41,7 @@ if NIX_2_35:
 
     from huggorm_dsl.declare import Variant
 
-    @header("nix/store/gc-store.hh")
+    @header(Local("nix/store/gc-store.hh"))
     @binding(
         cxx="nix::GCOptions::WholeStore",
         threading="pool",
@@ -54,7 +55,7 @@ if NIX_2_35:
             """Nothing to say: the arm is the whole fact."""
             Cxx("new (self) nix::GCOptions::WholeStore{};")
 
-    @header("nix/store/gc-store.hh")
+    @header(Local("nix/store/gc-store.hh"))
     @binding(
         cxx="nix::GCOptions::SpecificPaths",
         threading="pool",
@@ -87,7 +88,7 @@ new (self) nix::GCOptions::SpecificPaths{
         GCWholeStore | GCSpecificPaths,
         Variant(
             "nix::GCOptions::GCPaths",
-            header="nix/store/gc-store.hh",
+            header=Local("nix/store/gc-store.hh"),
             # `std::variant<WholeStore, SpecificPaths>`, in that order.
             bare=True,
         ),
@@ -95,8 +96,8 @@ new (self) nix::GCOptions::SpecificPaths{
     """Where a collection looks: the whole store, or some paths."""
 
 
-@header("nix/store/gc-store.hh")
-@needs("limits")
+@header(Local("nix/store/gc-store.hh"))
+@needs(Local("limits"))
 @binding(
     cxx="nix::GCOptions",
     # Four members the object owns. Nothing here talks to a store.
@@ -200,7 +201,7 @@ return self.maxFreed;
         """)
 
 
-@header("nix/store/gc-store.hh")
+@header(Local("nix/store/gc-store.hh"))
 @binding(
     cxx="nix::GCResults",
     threading="pool",

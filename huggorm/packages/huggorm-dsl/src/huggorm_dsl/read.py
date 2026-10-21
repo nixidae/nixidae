@@ -81,6 +81,7 @@ from huggorm_dsl.declare import (
     Decl,
     DeclKind,
     Field,
+    Include,
     Mark,
     Subscription,
     Target,
@@ -515,7 +516,7 @@ class Method:
     wire_read: str = ""
     # Headers this method's BODY needs, beyond its class's, from
     # @needs. Empty when the signature already names everything.
-    headers: tuple[str, ...] = ()
+    headers: tuple[Include, ...] = ()
     # Vocabularies this method's BODY spells, beyond its signature,
     # from @spells. `@needs` one level up: a body that builds a word
     # the signature never mentions still wants the conversion.
@@ -557,7 +558,7 @@ class Raised:
     # The C++ class the translator catches, and the header that
     # declares it. Both empty for an exception only this binding raises.
     cxx: str = ""
-    header: str = ""
+    header: Include | None = None
     # The C++ template that reads each part past the message off the
     # caught exception, given the part's record type.
     reader: str = ""
@@ -2304,6 +2305,19 @@ def _assigned(node: ast.ClassDef, kls: type, name: str) -> str:
     return value
 
 
+def _header(node: ast.ClassDef, kls: type) -> Include | None:
+    """The class's OWN `header = Local("...")`, or None. `vars`, as
+    for `_assigned`."""
+    value = vars(kls).get(HEADER)
+    if value is None:
+        return None
+    try:
+        (checked,) = declare.require_includes(f"{node.name}.header", (value,))
+    except TypeError as e:
+        raise DeclarationError(node, str(e)) from None
+    return checked
+
+
 def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
     """One exception's C++ facts, refused unless it can be caught right.
 
@@ -2320,12 +2334,13 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any]) -> Raised:
     A caught class with parts past the message needs a `reader`: its
     catch would call the constructor with parts missing, and
     `raise_as` turns that refusal into a RuntimeError, in silence."""
-    cxx, header = _assigned(node, kls, CXX), _assigned(node, kls, HEADER)
+    cxx, header = _assigned(node, kls, CXX), _header(node, kls)
     if cxx and not header:
         raise DeclarationError(
             node, f"{node.name}: `cxx = \"{cxx}\"` says the emitted "
                   f"translator catches this type, and nothing says "
-                  f"which header declares it. Add `header = \"nix/...\"` "
+                  f"which header declares it. Add "
+                  f"`header = Local(\"nix/...\")` "
                   f"beside it, or the emitted file reaches the type "
                   f"only through somebody else's include (nixidae/nixidae#627).")
     if header and not cxx:

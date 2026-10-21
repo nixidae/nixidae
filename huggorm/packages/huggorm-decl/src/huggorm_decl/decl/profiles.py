@@ -14,6 +14,7 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Local,
     Opt,
     Path,
     Str,
@@ -30,7 +31,7 @@ from huggorm_dsl.declare import (
 
 
 @produced
-@header("nix/store/profiles.hh")
+@header(Local("nix/store/profiles.hh"))
 @binding(cxx="nix::Generation", threading="pool", blocking=False)
 @wire_value(compare="parts")
 class Generation:
@@ -56,7 +57,7 @@ class Generation:
         Cxx("return nix::Generation{number, path, creation_time};")
 
 
-@needs("nix/store/profiles.hh")
+@needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
 def find_generations(profile: Path) -> Vec[Generation]:
@@ -68,7 +69,7 @@ return std::vector<nix::Generation>(gens.begin(), gens.end());
     """)
 
 
-@needs("nix/store/profiles.hh")
+@needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
 def current_generation(profile: Path) -> Opt[U64]:
@@ -76,7 +77,7 @@ def current_generation(profile: Path) -> Opt[U64]:
     Cxx("return nix::findGenerations(profile).second;")
 
 
-@needs("nix/store/profiles.hh", "nix/store/local-fs-store.hh", "filesystem")
+@needs(Local("nix/store/profiles.hh"), Local("nix/store/local-fs-store.hh"), Local("filesystem"))
 @threading("pool")
 @blocks
 def set_profile(store: Store, profile: Path, path: StorePath) -> Path:
@@ -101,7 +102,7 @@ return generation.string();
     """)
 
 
-@needs("nix/store/profiles.hh")
+@needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
 def switch_generation(profile: Path, number: Opt[U64] = None, dry_run: Bint = False) -> None:
@@ -112,7 +113,7 @@ def switch_generation(profile: Path, number: Opt[U64] = None, dry_run: Bint = Fa
     Cxx("nix::switchGeneration(profile, number, dry_run);")
 
 
-@needs("nix/store/profiles.hh")
+@needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
 def delete_old_generations(profile: Path, dry_run: Bint = False) -> None:
@@ -121,7 +122,7 @@ def delete_old_generations(profile: Path, dry_run: Bint = False) -> None:
     Cxx("nix::deleteOldGenerations(profile, dry_run);")
 
 
-@needs("nix/store/profiles.hh")
+@needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
 def delete_generations_older_than(profile: Path, older_than: Str,

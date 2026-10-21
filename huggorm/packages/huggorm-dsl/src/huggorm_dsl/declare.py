@@ -102,6 +102,20 @@ class Local:
 type Include = Std | Local
 
 
+def require_includes(said: str,
+                     headers: tuple[object, ...]) -> tuple[Include, ...]:
+    """`headers`, refused unless each is an `Include`. The kind says
+    whether it renders `<x>` or `"x"`, and a bare string says neither."""
+    out: list[Include] = []
+    for h in headers:
+        if not isinstance(h, Std | Local):
+            raise TypeError(
+                f"{said} takes Std(\"x\") or Local(\"x\"), not {h!r}: the "
+                f"kind says whether it renders <x> or \"x\"")
+        out.append(h)
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class Cxx:
     """How a Python type is spelled in C++.
@@ -418,9 +432,13 @@ class Variant:
 
     cxx: str
     raw: str = ""
-    header: str = ""
+    header: Include | None = None
     wraps: dict[str, Wrap] = field(default_factory=dict)
     bare: bool = False
+
+    def __post_init__(self) -> None:
+        if self.header is not None:
+            require_includes("Variant(header=...)", (self.header,))
 
 
 @dataclass(frozen=True)
@@ -441,11 +459,11 @@ class Decl:
     """Everything the emitter knows about one bound class."""
 
     name: str = ""
-    header: str = ""
+    header: Include | None = None
     # Headers this class's BODIES need, beyond the one above, from a
     # class-level `@needs`. A method may say it for itself; a class
     # says it once when several of its bodies reach the same place.
-    headers: tuple[str, ...] = ()
+    headers: tuple[Include, ...] = ()
     cxx: str = ""
     # Nothing a caller writes builds one: `@produced`.
     produced: bool = False
@@ -819,9 +837,10 @@ def translator() -> None:
 
 
 @marker(Target.CLASS)
-def header(path: str) -> str:
+def header(path: Include) -> Include:
     """The C++ header this class is declared in."""
-    return path
+    (checked,) = require_includes("@header", (path,))
+    return checked
 
 
 @flag(Target.CLASS)
@@ -1225,7 +1244,7 @@ def wire_read(accessor: str) -> str:
 
 @marker(Target.CLASS, Target.METHOD, Target.FREE, repeatable=True,
         field="headers")
-def needs(*headers: str) -> tuple[str, ...]:
+def needs(*headers: Include) -> tuple[Include, ...]:
     """C++ headers this method's body needs, beyond its class's.
 
     On a class, the headers every body of the class needs.
@@ -1240,7 +1259,7 @@ def needs(*headers: str) -> tuple[str, ...]:
     anything - a body that stops using a type stops naming it - and
     without it an emitted module fails to compile with a message
     about a type nobody can find the declaration for."""
-    return headers
+    return require_includes("@needs", headers)
 
 
 @marker(Target.METHOD)

@@ -29,6 +29,7 @@ from huggorm_dsl.declare import (
     Cxx,
     Decl,
     DeclKind,
+    Include,
     Subscription,
     Threading,
 )
@@ -709,7 +710,7 @@ class MethodModel:
     returns_word: bool = False
     # Headers its body needs (`@needs`), and the vocabularies its body
     # converts that no signature names (`@spells`).
-    headers: tuple[str, ...] = ()
+    headers: tuple[Include, ...] = ()
     spells: tuple[str, ...] = ()
 
     @classmethod
@@ -781,7 +782,7 @@ class FunctionModel:
     cxx_body: Body | None = None
     blocks: bool = False
     instant: bool = False
-    headers: tuple[str, ...] = ()
+    headers: tuple[Include, ...] = ()
     spells: tuple[str, ...] = ()
     # Runs once when the module is imported (`@startup`).
     startup: bool = False
@@ -880,8 +881,8 @@ class ClassModel:
     # A declared `_from_parts`, which a value carries when its C++ type
     # cannot be rebuilt from the parts as they are.
     from_parts: MethodModel | None = None
-    # The header that declares its C++ type, or "".
-    header: str = ""
+    # The header that declares its C++ type, or None.
+    header: Include | None = None
     semantics: Semantics = Semantics()
     # "proxy" unless the declaration proves the class is a value:
     # stateful is the safe default on both sides.
@@ -897,7 +898,7 @@ class ClassModel:
     # The member a method is called through, or "".
     via: str = ""
     # Headers the class's C++ needs.
-    headers: tuple[str, ...] = ()
+    headers: tuple[Include, ...] = ()
     # A `PyType_Slot[]` the binding names, or "".
     gc_slots: str = ""
     # The declared factory's name, whether this module binds it or not.
@@ -1232,7 +1233,7 @@ class CxxVariant:
 
     cxx: str
     raw: str
-    header: str
+    header: Include | None
     bare: bool
     alternatives: tuple[Alternative, ...]
 
@@ -1245,7 +1246,7 @@ class UnionModel:
 
     name: str
     arms: tuple[TypeRef, ...]
-    header: str = ""
+    header: Include | None = None
     # The declared C++ union, or None for a sum only Python has.
     variant: CxxVariant | None = None
 
@@ -1298,8 +1299,8 @@ class EnumModel:
     members: tuple[WordModel, ...]
     # RAW: the emitted module carries the indentation the source had.
     doc: str
-    # The header that declares its C++ enum, or "".
-    header: str = ""
+    # The header that declares its C++ enum, or None.
+    header: Include | None = None
     cxx: CxxEnum | None = None
     # The C++ parser upstream has for a word, or "": then the binding
     # writes `from_word` itself.
@@ -1341,7 +1342,7 @@ class ErrorModel:
     # only this binding raises.
     cxx: str = ""
     # The header that declares `cxx`.
-    header: str = ""
+    header: Include | None = None
     # The reader each part past the message is read off the caught
     # exception with, as C++, in part order.
     readers: tuple[str, ...] = ()
@@ -1398,11 +1399,12 @@ class Errors:
         return cls(module, classes, tuple(caught))
 
     @property
-    def headers(self) -> list[str]:
+    def headers(self) -> list[Include]:
         """Every header the catch chain needs, once each, sorted: an
         include block is a set, and the chain's order is a fact about
         the catches."""
-        return sorted({c.header for c in self.classes.values() if c.header})
+        return sorted({c.header for c in self.classes.values()
+                       if c.header is not None}, key=lambda h: h.line)
 
 def _depth(name: str, classes: Mapping[str, ErrorModel]) -> int:
     """How far this class is from the root of the declared hierarchy.

@@ -786,7 +786,7 @@ class Emitter:
 
     def includes(self, classes: Sequence[ir.ClassModel],
                  functions: Sequence[ir.FunctionModel],
-                 errors: Sequence[str] = ()) -> list[str]:
+                 errors: Sequence[Include] = ()) -> list[str]:
         """Exactly the headers this translation unit needs, and no others.
 
         Derived from the declared types rather than listed. A caster left
@@ -847,23 +847,11 @@ class Emitter:
                for cls in classes):
             # std::hash lives in <functional>, and the value hash uses it.
             out.append("#include <functional>")
-        # What each leaf's alias says declares it. A hand-written body
-        # is text no type speaks for: the runtime header includes the
-        # standard headers a body may use, for every unit.
-        out += [h.line for h in sorted(h for h in declared
-                                       if isinstance(h, Std))]
-        # The headers that declare the types the CATCH CHAIN names. The
-        # chain is emitted, so the includes it needs are emitted too - the
-        # three of them lived in `cpp/errors.hpp` until now, which is a
-        # fact about generated code stated in a hand-written helper
-        # (nixidae/nixidae#627). `decl/errors.py` says which header each class is
-        # in, beside the `cxx` that names the class.
-        out += [Local(h).line for h in errors]
         # Each class's header, then whatever the bodies reach past it.
         # Sorted and de-duplicated, because two methods needing one
         # header is normal and the order of a declaration's methods is
         # not an order for includes.
-        wanted = {cls.header for cls in classes}
+        wanted: set[Include | None] = {cls.header for cls in classes}
         # A union's own type, which no `@header` names: the alias carries
         # it, because a unit that only PASSES one declares none of its
         # arms and would otherwise include nothing that spells it.
@@ -884,9 +872,19 @@ class Emitter:
         wanted |= {h for cls in classes for m in cls.callables
                    for h in m.headers}
         wanted |= {h for fn in functions for h in fn.headers}
-        local = {Local(h) for h in wanted - {""}}
-        local |= {h for h in declared if isinstance(h, Local)}
-        out += [h.line for h in sorted(local)]
+        every = {h for h in wanted if h is not None} | set(declared)
+        # What each leaf's alias says declares it, and each `@needs`
+        # that names a standard header.
+        out += [h.line for h in sorted(h for h in every if isinstance(h, Std))]
+        # The headers that declare the types the CATCH CHAIN names. The
+        # chain is emitted, so the includes it needs are emitted too - the
+        # three of them lived in `cpp/errors.hpp` until now, which is a
+        # fact about generated code stated in a hand-written helper
+        # (nixidae/nixidae#627). `decl/errors.py` says which header each class is
+        # in, beside the `cxx` that names the class.
+        out += [h.line for h in errors]
+        out += [h.line for h in sorted(h for h in every
+                                       if isinstance(h, Local))]
         return out
 
     def _extras(self, wait: bool, params: Sequence[ir.ParamModel]) -> str:
@@ -2114,7 +2112,7 @@ class Emitter:
                functions: Sequence[ir.FunctionModel],
                exported: Sequence[ir.FunctionModel],
                errors: str = "",
-               error_headers: Sequence[str] = (),
+               error_headers: Sequence[Include] = (),
                package: str = "",
                *, prelude: str) -> str:
         """One translation unit: the includes, then a bind function each.
@@ -2190,7 +2188,7 @@ def imports(unit: ir.ModuleModel, model: ir.Model) -> list[str]:
 def extension(unit: ir.ModuleModel, dotted: str, model: ir.Model,
               chain: list[str] | None = None,
               errors: str = "",
-              error_headers: Sequence[str] = (),
+              error_headers: Sequence[Include] = (),
               *, prelude: str) -> str:
     """One whole extension module: includes, bindings, entry point.
 

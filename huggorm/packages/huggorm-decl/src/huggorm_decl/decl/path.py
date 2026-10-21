@@ -16,6 +16,7 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Field,
+    Local,
     Opt,
     Str,
     StrView,
@@ -37,7 +38,7 @@ from huggorm_dsl.declare import (
 
 # 100% C++, by decision: the C API is not feature complete, so it is
 # not a fallback for the awkward cases either.
-@header("nix/store/path.hh")
+@header(Local("nix/store/path.hh"))
 @binding(
     # nix::StorePath deletes its default constructor. That costs
     # nothing: the binding reaches it through a pointer that starts
@@ -233,7 +234,7 @@ class ErrorInfo:
 # and get wrong.
 
 
-@needs("huggorm_decl/cpp/libstore.hpp")
+@needs(Local("huggorm_decl/cpp/libstore.hpp"))
 @binds("huggorm::init_libstore")
 @startup
 def _init_libstore() -> None:
@@ -248,7 +249,7 @@ def _init_libstore() -> None:
     """
 
 
-@needs("huggorm_decl/cpp/errors.hpp", "huggorm_decl/cpp/error_info.hpp")
+@needs(Local("huggorm_decl/cpp/errors.hpp"), Local("huggorm_decl/cpp/error_info.hpp"))
 @binds("huggorm::translate_nix_error")
 @translator
 def _translate_nix_error() -> None:

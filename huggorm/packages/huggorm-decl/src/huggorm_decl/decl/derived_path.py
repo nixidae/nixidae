@@ -29,6 +29,7 @@ from huggorm_decl.decl.path import StorePath
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Local,
     Opt,
     Str,
     Variant,
@@ -41,7 +42,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/outputs-spec.hh")
+@header(Local("nix/store/outputs-spec.hh"))
 @binding(
     cxx="nix::OutputsSpec",
     # Two members the object already owns.
@@ -113,7 +114,7 @@ return {};
         """)
 
 
-@header("nix/store/derived-path.hh")
+@header(Local("nix/store/derived-path.hh"))
 @binding(
     cxx="nix::SingleDerivedPathBuilt",
     threading="pool",
@@ -156,7 +157,7 @@ SingleDerivedPath = Annotated[
         # own accessor - `&p` leans on the inheritance being public,
         # which is a detail of the header rather than an API of it.
         raw="raw()",
-        header="nix/store/derived-path.hh",
+        header=Local("nix/store/derived-path.hh"),
         # Upstream's opaque arm is `DerivedPathOpaque`, whose only
         # member is the StorePath Python is given. Both unions
         # alias the SAME struct, and each says so for itself: a
@@ -174,7 +175,7 @@ derivation's output, and so on down.
 """
 
 
-@header("nix/store/derived-path.hh")
+@header(Local("nix/store/derived-path.hh"))
 @binding(
     cxx="nix::DerivedPathBuilt",
     threading="pool",
@@ -213,7 +214,7 @@ DerivedPath = Annotated[
     Variant(
         "nix::DerivedPath",
         raw="raw()",
-        header="nix/store/derived-path.hh",
+        header=Local("nix/store/derived-path.hh"),
         # Upstream's opaque arm is `DerivedPathOpaque`, whose only
         # member is the StorePath Python is given. Both unions
         # alias the SAME struct, and each says so for itself: a

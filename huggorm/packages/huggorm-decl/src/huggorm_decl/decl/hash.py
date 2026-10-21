@@ -18,6 +18,7 @@ from huggorm_decl.decl.words import HashAlgorithm
 from huggorm_dsl.declare import (
     Bytes,
     Cxx,
+    Local,
     Str,
     binding,
     header,
@@ -28,7 +29,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/util/hash.hh")
+@header(Local("nix/util/hash.hh"))
 @binding(
     cxx="nix::Hash",
     # Every accessor reads memory the object already owns.

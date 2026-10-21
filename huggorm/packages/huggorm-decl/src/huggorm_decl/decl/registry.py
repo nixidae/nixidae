@@ -28,6 +28,7 @@ from huggorm_dsl.declare import (
     U64,
     Bint,
     Cxx,
+    Local,
     Map,
     Opt,
     Str,
@@ -46,7 +47,7 @@ Attr = Annotated[
     Str | U64 | Bint,
     Variant(
         "nix::fetchers::Attr",
-        header="nix/fetchers/attrs.hh",
+        header=Local("nix/fetchers/attrs.hh"),
         # Upstream keeps a bool as `Explicit<bool>`, so that a bool
         # never converts to the integer arm by accident. Python's
         # `bool` is already its own type.
@@ -105,8 +106,8 @@ class RegistryWrite:
         that is not locked still moves when its branch does."""
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "nix/fetchers/fetch-settings.hh",
-       "nix/fetchers/registry.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/fetchers/fetch-settings.hh"),
+       Local("nix/fetchers/registry.hh"))
 @threading("pool")
 @blocks
 def registry_entries(store: Store,
@@ -134,7 +135,7 @@ return out;
     """)
 
 
-@needs("nix/fetchers/registry.hh")
+@needs(Local("nix/fetchers/registry.hh"))
 def user_registry_path() -> Str:
     """The user's registry file, which a write with no path changes."""
     Cxx("""
@@ -142,10 +143,10 @@ return nix::fetchers::getUserRegistryPath().string();
     """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/flakeref.hpp",
-       "nix/fetchers/fetch-settings.hh",
-       "nix/fetchers/registry.hh", "nix/flake/flakeref.hh",
-       "nix/util/source-path.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"),
+       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
+       Local("nix/util/source-path.hh"))
 @threading("pool")
 @blocks
 def registry_add(path: Opt[Str], source: Str, target: Str,
@@ -179,10 +180,10 @@ return huggorm::RegistryWrite{file.string(), removed, to.input.to_string(), std:
     """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/flakeref.hpp",
-       "nix/fetchers/fetch-settings.hh",
-       "nix/fetchers/registry.hh", "nix/flake/flakeref.hh",
-       "nix/util/source-path.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"),
+       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
+       Local("nix/util/source-path.hh"))
 @threading("pool")
 @blocks
 def registry_remove(path: Opt[Str], source: Str,
@@ -209,10 +210,10 @@ return huggorm::RegistryWrite{file.string(), removed, std::nullopt, std::nullopt
     """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/flakeref.hpp",
-       "nix/fetchers/fetch-settings.hh",
-       "nix/fetchers/registry.hh", "nix/flake/flakeref.hh",
-       "nix/util/source-path.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"),
+       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
+       Local("nix/util/source-path.hh"))
 @threading("pool")
 @blocks
 def registry_pin(store: Store, path: Opt[Str], source: Str,

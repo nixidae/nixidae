@@ -109,7 +109,7 @@ def error_chain() -> list[str]:
     return pyerrors.chain(declared_model().errors, "huggorm::raise_as")
 
 
-def error_headers() -> list[str]:
+def error_headers() -> list[declare.Include]:
     """The headers the catch chain's types are declared in.
 
     Read from the same tree, at the same moment, as the chain itself.
@@ -230,7 +230,7 @@ def census_written(mod: Module, bound: Sequence[ir.ClassModel],
 
 
 def emit_module(mod: Module, dotted: str, out: str,
-                chain: list[str], headers: list[str] | None = None) -> int:
+                chain: list[str], headers: list[declare.Include] | None = None) -> int:
     """One declaration, as the one C++ translation unit it owns.
 
     A file, not a class: a nanobind extension is one translation unit,
@@ -445,8 +445,9 @@ def census_gc_slots(have: Any) -> None:
     rather than thought about."""
     slotted: dict[str, set[str]] = {}
     for cls in have.classes:
-        if cls.decl.header:
-            says = slotted.setdefault(pathlib.Path(cls.decl.header).name, set())
+        if cls.decl.header is not None:
+            says = slotted.setdefault(
+                pathlib.Path(cls.decl.header.name).name, set())
             if cls.decl.gc_slots:
                 says.add(cls.name)
     for f in sorted(CPP.glob("*.hpp")):

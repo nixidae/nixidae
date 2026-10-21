@@ -14,6 +14,7 @@ one part is its attributes: `toAttrs` writes the subdirectory as
 from huggorm_decl.decl.registry import Attr
 from huggorm_dsl.declare import (
     Cxx,
+    Local,
     Map,
     Opt,
     Str,
@@ -30,7 +31,7 @@ from huggorm_dsl.declare import (
 
 
 @produced
-@header("nix/flake/flakeref.hh")
+@header(Local("nix/flake/flakeref.hh"))
 @binding(
     cxx="nix::FlakeRef",
     # Every accessor reads what the object holds.
@@ -64,9 +65,9 @@ class FlakeRef:
         Cxx("return self.toAttrs();")
 
     @staticmethod
-    @needs("huggorm_decl/cpp/call_settings.hpp",
-           "huggorm_decl/cpp/flakeref.hpp",
-           "nix/fetchers/fetch-settings.hh")
+    @needs(Local("huggorm_decl/cpp/call_settings.hpp"),
+           Local("huggorm_decl/cpp/flakeref.hpp"),
+           Local("nix/fetchers/fetch-settings.hh"))
     def _from_parts() -> FlakeRef:
         """Rebuild one from its attributes, with the process's fetcher
         settings: the attributes already say everything a setting would
@@ -77,9 +78,9 @@ return huggorm::flake_ref_from_attrs(*fetch, to_attrs);
         """)
 
 
-@needs("huggorm_decl/cpp/call_settings.hpp", "huggorm_decl/cpp/flakeref.hpp",
-       "nix/fetchers/fetch-settings.hh",
-       "nix/flake/flakeref.hh")
+@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
+       Local("nix/fetchers/fetch-settings.hh"),
+       Local("nix/flake/flakeref.hh"))
 @threading("pool")
 @blocks
 def parse_flake_ref(url: Str, base: Opt[Str] = None) -> FlakeRef:

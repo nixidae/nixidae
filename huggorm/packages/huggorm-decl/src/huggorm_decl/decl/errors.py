@@ -26,6 +26,7 @@ this file: the emitter writes the module and knows where it put it.
 """
 
 from huggorm_decl.decl.path import ErrorInfo
+from huggorm_dsl.declare import Local
 
 
 class NixError(Exception):
@@ -47,7 +48,7 @@ class NixError(Exception):
     which cross as bytes."""
 
     cxx = "nix::Error"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
     # The C++ template that reads each part beyond the two strings off
     # the caught exception, given the part's record type. Inherited,
     # and taken off the emitted module as `cxx` is.
@@ -148,7 +149,7 @@ class UsageError(NixError):
     """nix::UsageError - the caller asked for something incoherent."""
 
     cxx = "nix::UsageError"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
 
 
 class SysError(NixError):
@@ -160,7 +161,7 @@ class SysError(NixError):
     of silence this hierarchy exists to remove."""
 
     cxx = "nix::SystemError"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
 
 
 class Unsupported(NixError):
@@ -178,7 +179,7 @@ class Unsupported(NixError):
     store, and cannot fall back from a genuine error."""
 
     cxx = "nix::Unsupported"
-    header = "nix/store/store-api.hh"
+    header = Local("nix/store/store-api.hh")
 
 
 class InvalidPath(NixError):
@@ -192,21 +193,21 @@ class InvalidPath(NixError):
     other."""
 
     cxx = "nix::InvalidPath"
-    header = "nix/store/store-api.hh"
+    header = Local("nix/store/store-api.hh")
 
 
 class BadStorePath(NixError):
     """nix::BadStorePath - not a store path."""
 
     cxx = "nix::BadStorePath"
-    header = "nix/store/store-dir-config.hh"
+    header = Local("nix/store/store-dir-config.hh")
 
 
 class BadStorePathName(BadStorePath):
     """nix::BadStorePathName - a store path whose name part is invalid."""
 
     cxx = "nix::BadStorePathName"
-    header = "nix/store/store-dir-config.hh"
+    header = Local("nix/store/store-dir-config.hh")
 
 
 class UnimplementedError(NixError):
@@ -214,7 +215,7 @@ class UnimplementedError(NixError):
     this platform or in this build."""
 
     cxx = "nix::UnimplementedError"
-    header = "nix/util/error.hh"
+    header = Local("nix/util/error.hh")
 
 
 class ParseError(NixError):
@@ -224,7 +225,7 @@ class ParseError(NixError):
     before any evaluation starts."""
 
     cxx = "nix::ParseError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class EvalBaseError(NixError):
@@ -236,14 +237,14 @@ class EvalBaseError(NixError):
     `RecoverableEvalError`."""
 
     cxx = "nix::EvalBaseError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class EvalError(EvalBaseError):
     """nix::EvalError - evaluation failed."""
 
     cxx = "nix::EvalError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class NixTypeError(EvalError):
@@ -253,7 +254,7 @@ class NixTypeError(EvalError):
     builtin, as `SysError` explains."""
 
     cxx = "nix::TypeError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class UndefinedVarError(EvalError):
@@ -261,7 +262,7 @@ class UndefinedVarError(EvalError):
     scope binds."""
 
     cxx = "nix::UndefinedVarError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class NixAssertionError(EvalError):
@@ -271,7 +272,7 @@ class NixAssertionError(EvalError):
     builtin, as `NixTypeError` explains."""
 
     cxx = "nix::AssertionError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class ThrownError(NixAssertionError):
@@ -279,14 +280,14 @@ class ThrownError(NixAssertionError):
     AssertionError, and so does this."""
 
     cxx = "nix::ThrownError"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class Abort(EvalError):
     """nix::Abort - `builtins.abort`."""
 
     cxx = "nix::Abort"
-    header = "nix/expr/eval-error.hh"
+    header = Local("nix/expr/eval-error.hh")
 
 
 class MissingAttribute(EvalError):
@@ -298,14 +299,14 @@ class MissingAttribute(EvalError):
     evaluation."""
 
     cxx = "huggorm::MissingAttribute"
-    header = "huggorm_decl/cpp/eval_errors.hpp"
+    header = Local("huggorm_decl/cpp/eval_errors.hpp")
 
 
 class ListIndex(EvalError):
     """`Value.at` of an index the list does not hold."""
 
     cxx = "huggorm::ListIndex"
-    header = "huggorm_decl/cpp/eval_errors.hpp"
+    header = Local("huggorm_decl/cpp/eval_errors.hpp")
 
 
 class Interrupted(BaseException):
@@ -318,7 +319,7 @@ class Interrupted(BaseException):
     matched it, and a cancelled call raised a bare RuntimeError."""
 
     cxx = "nix::Interrupted"
-    header = "nix/util/signals.hh"
+    header = Local("nix/util/signals.hh")
 
     _wire_fields = (("message", str), ("colored", str))
 

@@ -17,6 +17,7 @@ from typing import Annotated
 from huggorm_dsl.declare import (
     Bint,
     Cxx,
+    Local,
     Map,
     Str,
     Variant,
@@ -30,7 +31,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/store-reference.hh")
+@header(Local("nix/store/store-reference.hh"))
 @binding(
     cxx="nix::StoreReference::Auto",
     threading="pool",
@@ -45,7 +46,7 @@ class StoreReferenceAuto:
         Cxx("new (self) nix::StoreReference::Auto{};")
 
 
-@header("nix/store/store-reference.hh")
+@header(Local("nix/store/store-reference.hh"))
 @binding(
     cxx="nix::StoreReference::Daemon",
     threading="pool",
@@ -60,7 +61,7 @@ class StoreReferenceDaemon:
         Cxx("new (self) nix::StoreReference::Daemon{};")
 
 
-@header("nix/store/store-reference.hh")
+@header(Local("nix/store/store-reference.hh"))
 @binding(
     cxx="nix::StoreReference::Local",
     threading="pool",
@@ -75,7 +76,7 @@ class StoreReferenceLocal:
         Cxx("new (self) nix::StoreReference::Local{};")
 
 
-@header("nix/store/store-reference.hh")
+@header(Local("nix/store/store-reference.hh"))
 @binding(
     cxx="nix::StoreReference::Specified",
     threading="pool",
@@ -108,7 +109,7 @@ StoreReferenceVariant = Annotated[
     | StoreReferenceLocal,
     Variant(
         "nix::StoreReference::Variant",
-        header="nix/store/store-reference.hh",
+        header=Local("nix/store/store-reference.hh"),
         # A typedef of `std::variant<Auto, Specified, Daemon, Local>`,
         # the arms above in that order.
         bare=True,
@@ -118,7 +119,7 @@ StoreReferenceVariant = Annotated[
 
 
 @produced
-@header("nix/store/store-reference.hh")
+@header(Local("nix/store/store-reference.hh"))
 @binding(
     cxx="nix::StoreReference",
     threading="pool",
@@ -141,7 +142,7 @@ class StoreReference:
 
 
 @threading("pool")
-@needs("nix/store/store-reference.hh")
+@needs(Local("nix/store/store-reference.hh"))
 def parse_store_reference(uri: Str) -> StoreReference:
     """Read `uri` as libstore does before it opens a store.
 

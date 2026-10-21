@@ -26,6 +26,7 @@ the method runs on the loop of the call that reads it (nixidae/nixidae#740).
 from huggorm_dsl.declare import (
     U64,
     Bytes,
+    Local,
     binding,
     calls_back,
     header,
@@ -37,7 +38,7 @@ from huggorm_dsl.declare import (
 
 @in_process
 @calls_back
-@header("huggorm_decl/cpp/serialise.hpp")
+@header(Local("huggorm_decl/cpp/serialise.hpp"))
 @binding(cxx="huggorm::Sink", threading="pool", blocking=True)
 class Sink:
     """Where Nix writes bytes."""
@@ -57,7 +58,7 @@ class Sink:
 
 @in_process
 @calls_back
-@header("huggorm_decl/cpp/serialise.hpp")
+@header(Local("huggorm_decl/cpp/serialise.hpp"))
 @binding(cxx="huggorm::Source", threading="pool", blocking=True)
 class Source:
     """Where Nix reads bytes from."""

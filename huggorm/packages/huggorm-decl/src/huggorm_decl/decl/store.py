@@ -32,6 +32,7 @@ from huggorm_dsl.declare import (
     Bint,
     Bytes,
     Cxx,
+    Local,
     Map,
     Opt,
     Path,
@@ -98,7 +99,7 @@ class StoreLocation:
         answer rather than a gap - there is nothing below it."""
 
 @produced
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(
     cxx="nix::MissingPaths",
     # Five members the object already owns.
@@ -153,7 +154,7 @@ class MissingPaths:
 # UDSRemoteStore - and it is still opened by `Store(uri)`, because
 # openStore answers the abstractness with a concrete subclass.
 @abstract
-@header("nix/store/store-api.hh")
+@header(Local("nix/store/store-api.hh"))
 @binding(
     cxx="nix::Store",
     # openStore hands back a ref<Store>, which is a shared_ptr that
@@ -216,7 +217,7 @@ class Store:
         """The directory this store's paths live under, such as
         `/nix/store`. A chroot store keeps the logical one here."""
         Cxx("return self.config.storeDir_;")
-    @needs("nix/store/remote-store.hh")
+    @needs(Local("nix/store/remote-store.hh"))
     def close(self) -> None:
         """Shut down this store's daemon connections now.
 
@@ -235,7 +236,7 @@ if (auto * remote = dynamic_cast<nix::RemoteStore *>(&self))
     # the string libstore parses, so it crosses as one and nothing
     # here translates - which is why the words are declared rather
     # than bound.
-    @needs("nix/util/serialise.hh")
+    @needs(Local("nix/util/serialise.hh"))
     def add_to_store(
         self,
         name: Str,
@@ -290,7 +291,7 @@ return self.addToStoreFromDump(
     hash_algo,
     as_set<nix::StorePathSet>(references));
         """)
-    @needs("nix/util/source-accessor.hh")
+    @needs(Local("nix/util/source-accessor.hh"))
     def add_path_to_store(
         self,
         name: Str,
@@ -343,7 +344,7 @@ return self.addToStore(
     as_set<nix::StorePathSet>(references));
         """)
 
-    @needs("nix/util/source-accessor.hh")
+    @needs(Local("nix/util/source-accessor.hh"))
     def compute_store_path(
         self,
         name: Str,
@@ -516,7 +517,7 @@ return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
     # answer names a file on the store's machine, so it is a path a
     # caller there can open. Over RPC that is the server's machine,
     # which a same-uid Unix socket makes the caller's (nixidae/nixidae#722).
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def real_path(self, path: StorePath) -> Path:
         """Where this store object's files really are.
 
@@ -546,7 +547,7 @@ return fs->toRealPath(path);
     # store, and a caller that lists a store's directories asks it of
     # every kind.
     @instant
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def root_dir(self) -> Opt[Path]:
         """The directory a chroot store is rooted at, or None for a
         store at its logical location or with no filesystem."""
@@ -557,7 +558,7 @@ if (fs == nullptr || !fs->config.rootDir.get())
 return std::filesystem::path(*fs->config.rootDir.get()).string();
         """)
     @instant
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def state_dir(self) -> Opt[Path]:
         """Where the store keeps its database, roots and profiles, or
         None for a store with no filesystem."""
@@ -568,7 +569,7 @@ if (fs == nullptr)
 return std::filesystem::path(fs->config.stateDir.get()).string();
         """)
     @instant
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def log_dir(self) -> Opt[Path]:
         """Where the store keeps build logs, or None for a store with
         no filesystem."""
@@ -579,7 +580,7 @@ if (fs == nullptr)
 return std::filesystem::path(fs->config.logDir.get()).string();
         """)
     @instant
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def real_store_dir(self) -> Opt[Path]:
         """Where the store's files really are, or None for a store with
         no filesystem. Differs from `store_dir` for a chroot store."""
@@ -590,7 +591,7 @@ if (fs == nullptr)
 return std::filesystem::path(fs->config.realStoreDir.get()).string();
         """)
     @instant
-    @needs("nix/store/local-store.hh")
+    @needs(Local("nix/store/local-store.hh"))
     def build_dir(self) -> Opt[Path]:
         """Where a local store runs its builds, or None for any other
         kind of store: a daemon's builds run where the daemon says."""
@@ -733,7 +734,7 @@ return huggorm::StoreLocation{store_path, sub.absOrEmpty()};
     # is the one you passed. `decl/realisation.py` says why the
     # binding hands back the KEYED type instead, and this is where
     # the key is put back: it is the caller's own argument.
-    @needs("nix/store/realisation.hh")
+    @needs(Local("nix/store/realisation.hh"))
     def query_realisation(self, id: DrvOutput) -> Opt[Realisation]:
         """What a CA derivation's output turned out to be, or None.
 
@@ -804,7 +805,7 @@ return nix::Realisation{*found, id};
         arguments and this binds one, so there is a call to write."""
         Cxx("return self.queryDerivationOutputMap(path);")
 
-    @needs("nix/store/realisation.hh")
+    @needs(Local("nix/store/realisation.hh"))
     def register_drv_output(self, output: Realisation,
                             check_sigs: Bint = True) -> None:
         """Record what a content-addressed output turned out to be.
@@ -817,7 +818,7 @@ return nix::Realisation{*found, id};
     # The pair is upstream's own, and it is why the union exists
     # (nixidae/nixidae#596): both take the same list, and only one of them
     # changes the store.
-    @needs("huggorm_decl/cpp/build.hpp")
+    @needs(Local("huggorm_decl/cpp/build.hpp"))
     def build_paths(self, targets: Vec[DerivedPath],
                     mode: BuildMode = BuildMode.NORMAL,
                     eval_store: Opt[Store] = None) -> None:
@@ -849,7 +850,7 @@ return nix::Realisation{*found, id};
         derivations A holds. None reads them from this store."""
         Cxx("huggorm::build_paths(self, targets, mode, eval_store.value_or(nullptr));")
 
-    @needs("nix/store/build-result.hh", "huggorm_decl/cpp/build.hpp")
+    @needs(Local("nix/store/build-result.hh"), Local("huggorm_decl/cpp/build.hpp"))
     def build_paths_with_results(
             self, targets: Vec[DerivedPath],
             mode: BuildMode = BuildMode.NORMAL,
@@ -878,7 +879,7 @@ return nix::Realisation{*found, id};
         Cxx("""
 return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_or(nullptr));
         """)
-    @needs("huggorm_decl/cpp/build.hpp")
+    @needs(Local("huggorm_decl/cpp/build.hpp"))
     def ensure_path(self, path: StorePath) -> None:
         """Make this path valid, by substituting it if it is not.
 
@@ -946,7 +947,7 @@ return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_o
 
         Raises when the path is not a valid derivation in this
         store."""
-    @needs("nlohmann/json.hpp", "huggorm_decl/cpp/store.hpp")
+    @needs(Local("nlohmann/json.hpp"), Local("huggorm_decl/cpp/store.hpp"))
     def add_derivation(self, json: Str) -> StorePath:
         """Write a derivation from Nix's JSON, and answer its path.
 
@@ -959,7 +960,7 @@ return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_o
 auto drv = huggorm::derivation_from_json(self, nlohmann::json::parse(json));
 return self.writeDerivation(drv);
         """)
-    @needs("nix/store/derivations.hh")
+    @needs(Local("nix/store/derivations.hh"))
     def write_derivation(self, drv: Derivation,
                          repair: Bint = False) -> StorePath:
         """Write `drv` to the store as a `.drv`, and answer its path.
@@ -968,7 +969,7 @@ return self.writeDerivation(drv);
         Cxx("return self.writeDerivation(drv, repair ? nix::Repair : nix::NoRepair);")
 
     if NIX_2_36:
-        @needs("nix/store/store-cast.hh", "nix/store/submit-store.hh")
+        @needs(Local("nix/store/store-cast.hh"), Local("nix/store/submit-store.hh"))
         def submit_output(self, path: StorePath, output: Str) -> None:
             """Register `path` as output `output` of the build that runs now.
 
@@ -984,7 +985,7 @@ nix::require<nix::SubmitStore>(self).submitOutput(
     nix::SingleDerivedPath::Opaque{path}, output);
             """)
 
-    @needs("nix/store/log-store.hh", "nix/store/store-cast.hh")
+    @needs(Local("nix/store/log-store.hh"), Local("nix/store/store-cast.hh"))
     def get_build_log(self, path: StorePath) -> Opt[Str]:
         """The log of the build that made this path, or None.
 
@@ -1064,7 +1065,7 @@ if (!flag)
 return huggorm::as_word(*flag);
         """)
 
-    @needs("nix/store/gc-store.hh")
+    @needs(Local("nix/store/gc-store.hh"))
     @cxx_name("collectGarbage")
     def collect_garbage(self, options: GCOptions) -> GCResults:
         """Run a garbage collection, and say what it found or removed.
@@ -1102,7 +1103,7 @@ nix::GCResults results;
 gc->collectGarbage(options, results);
 return results;
         """)
-    @needs("nix/store/local-fs-store.hh")
+    @needs(Local("nix/store/local-fs-store.hh"))
     def add_perm_root(self, path: StorePath, gc_root: Str) -> Path:
         """Make `gc_root` a symlink to this path, and root the path
         through it. `nix-store --add-root`.
@@ -1136,7 +1137,7 @@ return fs->addPermRoot(path, gc_root).string();
         A store that cannot optimise does nothing and does not say so:
         that is `nix::Store`'s own default. A daemon store asks the
         daemon."""
-    @needs("nix/store/indirect-root-store.hh")
+    @needs(Local("nix/store/indirect-root-store.hh"))
     def add_indirect_root(self, path: Str) -> None:
         """Register the symlink at `path` as a root, and leave the
         symlink to the caller. `nix-store --add-root --indirect` does
@@ -1157,7 +1158,7 @@ if (indirect == nullptr)
         self.config.getHumanReadableURI());
 indirect->addIndirectRoot(path);
         """)
-    @needs("algorithm")
+    @needs(Local("algorithm"))
     def find_roots(self, censor: Bint) -> Vec[GcRoot]:
         """Every root the collector would keep, sorted by link.
         `nix-store --gc --print-roots`.
@@ -1319,7 +1320,7 @@ return self.parseStorePath(path);
 # there is no constructor to declare, and `@constructs(Store)` makes
 # this function the way in.
 @constructs(Store)
-@needs("nix/store/store-open.hh")
+@needs(Local("nix/store/store-open.hh"))
 @blocks
 def open_store(uri: Str = "auto") -> Store:
     """Open the store this URI names.
@@ -1357,7 +1358,7 @@ def open_store(uri: Str = "auto") -> Store:
 # libstore needs neither - which is what the emitter used to assume
 # and get wrong.
 
-@needs("nix/store/store-reference.hh")
+@needs(Local("nix/store/store-reference.hh"))
 def render_store_reference(uri: Str, with_params: Bint = True) -> Str:
     """Parse a store URI and render it back, as Nix normalises it.
 
@@ -1369,8 +1370,8 @@ return nix::StoreReference::parse(uri).render(with_params);
     """)
 
 
-@needs("nix/store/store-registration.hh", "nix/util/experimental-features.hh",
-       "nix/util/json-utils.hh")
+@needs(Local("nix/store/store-registration.hh"), Local("nix/util/experimental-features.hh"),
+       Local("nix/util/json-utils.hh"))
 def store_types_json() -> Str:
     """Every registered store type, in JSON, keyed by its name.
 
@@ -1395,7 +1396,7 @@ return out.dump();
     """)
 
 
-@needs("huggorm_decl/cpp/libstore.hpp")
+@needs(Local("huggorm_decl/cpp/libstore.hpp"))
 @binds("huggorm::init_libstore")
 @startup
 def _init_libstore() -> None:

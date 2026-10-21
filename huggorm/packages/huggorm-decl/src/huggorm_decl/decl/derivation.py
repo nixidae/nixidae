@@ -24,6 +24,7 @@ from huggorm_decl.decl.path import StorePath
 from huggorm_decl.decl.words import ContentAddressMethod, HashAlgorithm
 from huggorm_dsl.declare import (
     Cxx,
+    Local,
     Map,
     Opt,
     Str,
@@ -38,7 +39,7 @@ from huggorm_dsl.declare import (
 )
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivationOutput::InputAddressed",
     threading="pool",
@@ -57,7 +58,7 @@ class DerivationOutputInputAddressed:
         """Where the output goes, known before it is built."""
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivationOutput::CAFixed",
     threading="pool",
@@ -79,7 +80,7 @@ class DerivationOutputCAFixed:
         """The method and hash the output must match."""
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivationOutput::CAFloating",
     threading="pool",
@@ -104,7 +105,7 @@ class DerivationOutputCAFloating:
         """Which hash names it."""
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivationOutput::Deferred",
     threading="pool",
@@ -121,7 +122,7 @@ class DerivationOutputDeferred:
         Cxx("new (self) nix::DerivationOutput::Deferred{};")
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivationOutput::Impure",
     threading="pool",
@@ -155,13 +156,13 @@ DerivationOutput = Annotated[
     Variant(
         "nix::DerivationOutput",
         raw="raw",
-        header="nix/store/derivations.hh",
+        header=Local("nix/store/derivations.hh"),
     ),
 ]
 """How one output of a derivation is addressed."""
 
 
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::DerivedPathMap<std::set<nix::OutputName, std::less<>>>::ChildNode",
     threading="pool",
@@ -185,7 +186,7 @@ class InputDrvNode:
 
 
 @produced
-@header("nix/store/derivations.hh")
+@header(Local("nix/store/derivations.hh"))
 @binding(
     cxx="nix::Derivation",
     threading="pool",
@@ -214,12 +215,12 @@ class Derivation:
     def env(self) -> Map[Str]:
         """The builder's environment."""
 
-    @needs("huggorm_decl/cpp/derivation.hpp")
+    @needs(Local("huggorm_decl/cpp/derivation.hpp"))
     def input_srcs(self) -> Vec[StorePath]:
         """Store paths the build reads that no derivation makes."""
         Cxx("return as_list(huggorm::input_srcs(self));")
 
-    @needs("huggorm_decl/cpp/derivation.hpp")
+    @needs(Local("huggorm_decl/cpp/derivation.hpp"))
     def input_drvs(self) -> Map[InputDrvNode]:
         """The derivations the build needs, by `.drv` base name, and
         which of their outputs.
@@ -237,7 +238,7 @@ return out;
     def outputs(self) -> Map[DerivationOutput]:
         """Each output by name, and how it is addressed."""
 
-    @needs("nlohmann/json.hpp")
+    @needs(Local("nlohmann/json.hpp"))
     def structured_attrs(self) -> Opt[Str]:
         """The structured attributes as JSON text, or None when the
         derivation passes its attributes as environment variables."""
@@ -247,7 +248,7 @@ if (!self.structuredAttrs)
 return nlohmann::json(self.structuredAttrs->structuredAttrs).dump();
         """)
 
-    @needs("nlohmann/json.hpp")
+    @needs(Local("nlohmann/json.hpp"))
     def to_json(self) -> Str:
         """The derivation as Nix's own JSON document.
 
