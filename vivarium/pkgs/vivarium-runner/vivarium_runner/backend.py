@@ -646,7 +646,7 @@ class Qemu:
         image = spec.boot["image"]
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
-        disk_fds = self._scratch_disk(tools, rundir, spec.image)
+        disk_fds = self._scratch_disk(tools, rundir, spec.image, image.get("format", "raw"))
         opened.extend(disk_fds)
 
         passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
@@ -725,7 +725,9 @@ class Qemu:
                 "-q",
                 "-f", "qcow2",
                 # Named, because qemu-img refuses to guess a backing
-                # format and a guess would be silently wrong.
+                # format and a guess would be silently wrong. Raw for a
+                # NixOS root and CHR; qcow2 for an image that ships one,
+                # such as SONiC's.
                 "-F", backing,
                 "-b", str(image),
                 str(scratch),
