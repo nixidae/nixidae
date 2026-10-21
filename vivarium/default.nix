@@ -1387,7 +1387,10 @@ let
       backend = "qemu";
       nodes.svc = {
         imports = [ (servicesNode { segment = "mgmt"; }) ];
-        environment.systemPackages = [ pkgs.sshpass ];
+        environment.systemPackages = [
+          pkgs.sshpass
+          pkgs.jq
+        ];
       };
       nodes.sw1 = {
         vivarium.sonic = images.sonic-vs;
@@ -1396,6 +1399,12 @@ let
       phases.provision = {
         script = ./tests/phases/oob-sonic.py;
         after = [ "boot" ];
+      };
+      # The heavier path, on the same booted SONiC: push a whole
+      # config_db.json and apply it with `config reload`.
+      phases.reload = {
+        script = ./tests/phases/oob-sonic-reload.py;
+        after = [ "provision" ];
       };
     };
 
