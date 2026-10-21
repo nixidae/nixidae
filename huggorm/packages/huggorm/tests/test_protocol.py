@@ -9,6 +9,7 @@ import os
 import socket
 import struct
 from collections.abc import AsyncIterator
+from typing import Any
 
 import anyio
 import pytest
@@ -18,10 +19,14 @@ from conftest import socket_path
 from huggorm.protocol import (
     MAX_FRAME,
     Channel,
+    ConnectionLost,
     Control,
     Faults,
     Op,
+    Peer,
     ProtocolError,
+    Refusal,
+    Refused,
     build_identity,
     peer_uid,
 )
@@ -134,6 +139,112 @@ async def test_a_late_answer_is_dropped() -> None:
             async with remote.connect(path) as client:
                 assert await client._ask(Op.CONTROL, Control.PING, []) is True
         tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_an_answer_reaches_its_asker(
+        pair: tuple[Channel, Channel]) -> None:
+    """A RESULT or REPLY answers its value, a FAULT or REFUSE raises."""
+    left, right = pair
+    asker = Peer(left, Faults())
+
+    async def server() -> None:
+        call = await right.receive()
+        await right.send([Op.REPLY, call[1], "value"])
+        call = await right.receive()
+        await right.send([Op.FAULT, call[1], Faults().encode(
+            Refused(Refusal.SWEPT, "gone"))])
+
+    async def reader() -> None:
+        while True:
+            asker.deliver(await left.receive())
+
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(server)
+            tg.start_soon(reader)
+            assert await asker.ask(Op.CALLBACK, 1, "read", []) == "value"
+            with pytest.raises(Refused, match="gone"):
+                await asker.ask(Op.CONTROL, Control.PING, [])
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_an_asker_that_stops_waiting_sends_cancel(
+        pair: tuple[Channel, Channel]) -> None:
+    left, right = pair
+    asker = Peer(left, Faults())
+    with anyio.move_on_after(0.2):
+        await asker.ask(Op.CONTROL, Control.PING, [])
+    with anyio.fail_after(10):
+        call = await right.receive()
+        assert await right.receive() == [Op.CANCEL, call[1]]
+
+
+@pytest.mark.anyio
+async def test_close_wakes_every_asker_and_refuses_the_next(
+        pair: tuple[Channel, Channel]) -> None:
+    left, right = pair
+    asker = Peer(left, Faults())
+
+    async def waits() -> None:
+        with pytest.raises(ConnectionLost):
+            await asker.ask(Op.CONTROL, Control.PING, [])
+
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(waits)
+            await right.receive()
+            asker.close()
+    with pytest.raises(ConnectionLost):
+        await asker.ask(Op.CONTROL, Control.PING, [])
+
+
+@pytest.mark.anyio
+async def test_a_cancel_reaches_an_answer_that_has_not_started(
+        pair: tuple[Channel, Channel]) -> None:
+    """A CANCEL read right after its request finds the answer's scope,
+    even when the answer's task has not run yet. Nothing in between
+    has to checkpoint: `serve` registers the scope before it starts
+    the task."""
+    left, right = pair
+    answerer = Peer(left, Faults())
+    ran = False
+
+    async def answer() -> list[Any]:
+        nonlocal ran
+        ran = True
+        return [Op.RESULT, 1, "late"]
+
+    async with anyio.create_task_group() as tg:
+        answerer.serve(tg, 1, answer)
+        answerer.cancel(1)
+    assert not ran
+    await left.stream.send_eof()
+    with pytest.raises(anyio.EndOfStream):
+        await right.receive()
+
+
+@pytest.mark.anyio
+async def test_close_cancels_every_answer(
+        pair: tuple[Channel, Channel]) -> None:
+    left, _ = pair
+    answerer = Peer(left, Faults())
+    stopped = anyio.Event()
+
+    async def answer() -> list[Any]:
+        try:
+            await anyio.sleep_forever()
+        finally:
+            stopped.set()
+        raise AssertionError("unreachable")
+
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as tg:
+            answerer.serve(tg, 1, answer)
+            await anyio.sleep(0)
+            answerer.close()
+    assert stopped.is_set()
 
 
 def test_the_identity_is_stable() -> None:

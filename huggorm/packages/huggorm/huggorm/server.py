@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import anyio
-from anyio.abc import SocketStream
+from anyio.abc import SocketStream, TaskGroup
 
 from huggorm_bindings.errors import NixError
 from huggorm_generated._callspec import (
@@ -64,6 +64,7 @@ from .protocol import (
     Control,
     Faults,
     Op,
+    Peer,
     ProtocolError,
     Refusal,
     Refused,
@@ -819,88 +820,70 @@ class Dispatcher:
             self.table.unbind(token, bound)
 
     async def _serve(self, channel: Channel, token: str) -> None:
-        running: dict[int, anyio.CancelScope] = {}
-        back = (Callbacks(channel, self.codec, self.faults)
-                if self.callbacks else None)
+        peer = Peer(channel, self.faults)
+        back = Callbacks(peer, self.codec) if self.callbacks else None
         async with anyio.create_task_group() as calls:
             try:
-                await self._frames(channel, token, calls, running, back)
+                await self._frames(peer, token, calls, back)
             finally:
-                # Before the calls are cancelled: a thread waiting on a
-                # callback must fail, or it never lets its call end.
-                if back is not None:
-                    back.close()
-                calls.cancel_scope.cancel()
+                peer.close()
 
-    async def _frames(self, channel: Channel, token: str, calls: Any,
-                      running: dict[int, anyio.CancelScope],
+    async def _frames(self, peer: Peer, token: str, calls: TaskGroup,
                       back: Callbacks | None = None) -> None:
         """Read frames until EOF. Each CALL and CONTROL runs in its own
         task, so a slow call does not hold up the next."""
         while True:
             try:
-                frame = await channel.receive()
+                frame = await peer.channel.receive()
             except (anyio.EndOfStream, anyio.BrokenResourceError):
                 return
             match frame:
                 case [Op.CALL, int(cid), int(index), hid, list(args)]:
                     label = (self.handlers[index].label
                              if index in self.handlers else f"call {index}")
-                    calls.start_soon(
-                        self._answer, channel, token, cid, running, label,
+                    peer.serve(calls, cid, functools.partial(
+                        self._answer, token, cid, label,
                         functools.partial(self._run_call, token, index, hid,
-                                          args, back))
+                                          args, back)))
                 case [Op.CONTROL, int(cid), int(number), list(args)]:
                     try:
                         control = Control(number)
                     except ValueError:
                         raise ProtocolError(
                             f"no control numbered {number}") from None
-                    calls.start_soon(
-                        self._answer, channel, token, cid, running,
+                    peer.serve(calls, cid, functools.partial(
+                        self._answer, token, cid,
                         f"Session/{control.name.lower()}",
                         functools.partial(self._control, token, control,
                                           args),
-                        control is Control.PING)
+                        control is Control.PING))
                 case [Op.CANCEL, int(cid)]:
-                    scope = running.get(cid)
-                    if scope is not None:
-                        scope.cancel()
+                    peer.cancel(cid)
                 case [Op.DROP, list(hids)] if all(type(h) is str
                                                   for h in hids):
                     self.release_many(token, hids)
                 case [Op.REPLY | Op.REFUSE, int(), _] if back is not None:
-                    back.answer(frame)
+                    peer.deliver(frame)
                 case _:
                     raise ProtocolError(f"a frame arrived as {frame!r:.80}")
 
-    async def _answer(self, channel: Channel, token: str, cid: int,
-                      running: dict[int, anyio.CancelScope], label: str,
+    async def _answer(self, token: str, cid: int, label: str,
                       run: Callable[[], Awaitable[Any]],
-                      after_sweep: bool = False) -> None:
-        """Run one call and send its RESULT or FAULT. A CANCEL ends it
-        with no answer.
+                      after_sweep: bool = False) -> list[Any]:
+        """Run one call, and answer its RESULT or FAULT frame.
 
         A swept connection's token is gone, and every lease with it.
         Every call but a ping is refused then: a ping answers False,
         which is how the client learns."""
-        with anyio.CancelScope() as scope:
-            running[cid] = scope
-            try:
-                if not after_sweep and token not in self.table.connections:
-                    raise Refused(
-                        Refusal.SWEPT,
-                        f"connection {token[:8]} was swept, and its handles "
-                        f"with it")
-                frame = [Op.RESULT, cid, await run()]
-            except Exception as e:
-                frame = [Op.FAULT, cid,
-                         self.faults.encode(self._failure(e, label))]
-            finally:
-                running.pop(cid, None)
-            with contextlib.suppress(anyio.BrokenResourceError,
-                                     anyio.ClosedResourceError):
-                await channel.send(frame)
+        try:
+            if not after_sweep and token not in self.table.connections:
+                raise Refused(
+                    Refusal.SWEPT,
+                    f"connection {token[:8]} was swept, and its handles "
+                    f"with it")
+            return [Op.RESULT, cid, await run()]
+        except Exception as e:
+            return [Op.FAULT, cid, self.faults.encode(self._failure(e, label))]
 
 
 async def serve(path: str, lease_ttl: float = 120.0, *,

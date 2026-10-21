@@ -25,6 +25,7 @@ from nixversion import MISSING_FILE, MissingFileError
 
 from huggorm import remote
 from huggorm.lifecycle import ShareMode
+from huggorm.protocol import Control, Op
 
 
 async def wrapper_error(coro: Any) -> dict[str, str]:
@@ -286,8 +287,6 @@ async def test_ping_reports_a_swept_connection(swept: Swept) -> None:
 
     A fresh connection still works, which is what says the server
     refused this token rather than the service."""
-    from huggorm.protocol import Control, Op
-
     c = swept.doomed_client
     assert await c._ask(Op.CONTROL, Control.PING, []) is False
 
@@ -339,8 +338,8 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
     `bind` ends the old link before it connects, so a call on the new
     link never meets the old one's end. The test keeps the old link
     alive past the second `bind` and ends it while a call waits on the
-    new one. Perturbation: give every `_Link` one shared `pending`
-    table and the waiting call wakes as "closed during the call"."""
+    new one. Perturbation: one `_waiting` table for every `Peer`, and
+    the waiting call wakes as "closed during the call"."""
     with anyio.fail_after(20):
         async with remote.connect(ttl_server.path) as c:
             old = c._link
@@ -349,13 +348,21 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
                 await c.bind()
             new = c._link
             assert old is not None and new is not None and new is not old
-            waiting = new.pending[0] = remote._Pending()
-            old.scope.cancel()
-            while not old.closed:
-                await anyio.sleep(0.01)
-            assert not waiting.done.is_set()
-            del new.pending[0]
-            assert await c.alive()
+            asked = anyio.Event()
+            answer: list[Any] = []
+
+            async def ask() -> None:
+                asked.set()
+                answer.append(await new.peer.ask(
+                    Op.CONTROL, Control.PING, []))
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(ask)
+                await asked.wait()
+                old.scope.cancel()
+                while not old.closed:
+                    await anyio.sleep(0.01)
+            assert answer == [True]
 
 
 async def test_a_swept_client_stops_rather_than_rebinding(

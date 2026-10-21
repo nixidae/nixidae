@@ -17,49 +17,30 @@ client.
 
 from __future__ import annotations
 
-import contextlib
 import functools
-import itertools
 import types
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass, field
 from typing import Any
-
-import anyio
 
 from huggorm_generated._callspec import Call
 from huggorm_generated._policy import CALLBACKS
 
 from .codec import Codec
-from .protocol import Channel, Faults, Op
+from .protocol import Op, Peer
 
 
 def _no_proxy(_: Any) -> Any:
     raise TypeError("a callback carries no handle")
 
 
-@dataclass
-class _Waiting:
-    done: anyio.Event = field(default_factory=anyio.Event)
-    frame: list[Any] | None = None
-
-
-class ClientGone(Exception):
-    """The client closed its connection, so a callback has no answer."""
-
-
 class Callbacks:
     """One connection's calls into the client's objects. Server side,
     on the loop."""
 
-    def __init__(self, channel: Channel, codec: Codec, faults: Faults) -> None:
-        self.channel = channel
+    def __init__(self, peer: Peer, codec: Codec) -> None:
+        self.peer = peer
         self.codec = codec
-        self.faults = faults
-        self._ids = itertools.count(1)
-        self._waiting: dict[int, _Waiting] = {}
         self._proxies: dict[int, Any] = {}
-        self._closed = False
 
     def obj(self, cls: str, client_id: int) -> Any:
         """The proxy for the client's object `client_id`, made once."""
@@ -75,41 +56,8 @@ class Callbacks:
         client answers."""
         raw = [self.codec.encode(a.type, v, _no_proxy)
                for a, v in zip(spec.args, args, strict=True)]
-        if self._closed:
-            raise ClientGone("the client closed the connection")
-        n = next(self._ids)
-        waiting = self._waiting[n] = _Waiting()
-        try:
-            await self.channel.send([Op.CALLBACK, n, client_id, spec.name, raw])
-            await waiting.done.wait()
-        except BaseException:
-            if not waiting.done.is_set():
-                # `send` shields itself, so a cancelled caller still sends.
-                with contextlib.suppress(anyio.BrokenResourceError,
-                                         anyio.ClosedResourceError):
-                    await self.channel.send([Op.CANCEL, n])
-            raise
-        finally:
-            self._waiting.pop(n, None)
-        match waiting.frame:
-            case [Op.REPLY, _, value]:
-                return self.codec.decode(spec.returns, value, _no_proxy)
-            case [Op.REFUSE, _, fault]:
-                raise self.faults.decode(fault)
-        raise ClientGone("the client closed the connection during a callback")
-
-    def answer(self, frame: list[Any]) -> None:
-        """A REPLY or REFUSE from the client."""
-        waiting = self._waiting.get(frame[1])
-        if waiting is not None:
-            waiting.frame = frame
-            waiting.done.set()
-
-    def close(self) -> None:
-        """The connection ended: every waiting callback fails."""
-        self._closed = True
-        for waiting in self._waiting.values():
-            waiting.done.set()
+        value = await self.peer.ask(Op.CALLBACK, client_id, spec.name, raw)
+        return self.codec.decode(spec.returns, value, _no_proxy)
 
 
 @functools.cache

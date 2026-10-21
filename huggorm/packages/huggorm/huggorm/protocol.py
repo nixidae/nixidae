@@ -40,19 +40,24 @@ arrive, and the client drops it.
 from __future__ import annotations
 
 import builtins
+import contextlib
 import enum
 import functools
 import hashlib
 import importlib
 import importlib.util
+import itertools
 import pathlib
 import socket
 import struct
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
 
 import anyio
-from anyio.abc import SocketAttribute, SocketStream
+import anyio.lowlevel
+from anyio.abc import SocketAttribute, SocketStream, TaskGroup
 from anyio.streams.buffered import BufferedByteReceiveStream
 
 from huggorm_generated._callspec import Wire, WireKind
@@ -201,6 +206,127 @@ class Channel:
 
     async def aclose(self) -> None:
         await self.stream.aclose()
+
+
+class ConnectionLost(ConnectionError):
+    """The connection closed, so a request has no answer. The server's
+    leases are not released by that: a new connection that claims the
+    token can take them back while they last."""
+
+
+@dataclass
+class _Waiting:
+    """One request waiting for its answer. `frame` stays None when the
+    connection closed first."""
+
+    done: anyio.Event = field(default_factory=anyio.Event)
+    frame: list[Any] | None = None
+
+
+class Peer:
+    """One end's requests in flight, both ways, over one channel.
+
+    The protocol is symmetric. Each end asks (CALL and CONTROL from the
+    client, CALLBACK from the server) and answers what the other asks.
+    The ids of each direction are the asker's own. Whoever reads the
+    channel hands this object the answers and the CANCELs."""
+
+    def __init__(self, channel: Channel, faults: Faults) -> None:
+        self.channel = channel
+        self.faults = faults
+        self._ids = itertools.count(1)
+        self._waiting: dict[int, _Waiting] = {}
+        self._answering: dict[int, anyio.CancelScope] = {}
+        self._closed = False
+
+    async def ask(self, op: Op, *body: Any) -> Any:
+        """Send one request and answer the value of its RESULT or
+        REPLY, or raise the fault of its FAULT or REFUSE.
+
+        An asker that stops waiting for any reason sends CANCEL, so
+        the other end stops work nobody will read. The answer may still
+        arrive, and `deliver` drops it."""
+        if self._closed:
+            raise ConnectionLost("the connection is closed")
+        n = next(self._ids)
+        waiting = self._waiting[n] = _Waiting()
+        try:
+            try:
+                await self.channel.send([op, n, *body])
+            except (anyio.BrokenResourceError,
+                    anyio.ClosedResourceError) as e:
+                raise ConnectionLost("the connection is closed") from e
+            try:
+                await waiting.done.wait()
+            except BaseException:
+                if not waiting.done.is_set():
+                    # `send` shields itself, so a cancelled asker still
+                    # sends.
+                    with contextlib.suppress(anyio.BrokenResourceError,
+                                             anyio.ClosedResourceError):
+                        await self.channel.send([Op.CANCEL, n])
+                raise
+        finally:
+            self._waiting.pop(n, None)
+        match waiting.frame:
+            case [Op.RESULT | Op.REPLY, _, value]:
+                return value
+            case [Op.FAULT | Op.REFUSE, _, fault]:
+                raise self.faults.decode(fault)
+            case None:
+                raise ConnectionLost("the connection closed during the call")
+        raise ProtocolError(f"an answer arrived as {waiting.frame!r:.80}")
+
+    def deliver(self, frame: list[Any]) -> None:
+        """An answer: `[op, id, value or fault]`. One for a request
+        nobody waits on any more is dropped."""
+        waiting = self._waiting.get(frame[1])
+        if waiting is not None:
+            waiting.frame = frame
+            waiting.done.set()
+
+    def serve(self, tasks: TaskGroup, n: int,
+              answer: Callable[[], Awaitable[list[Any]]]) -> None:
+        """Answer request `n` in a task of `tasks`: send the frame
+        `answer` makes. A CANCEL for `n` ends it with no answer.
+
+        The scope is registered before the task starts, so a CANCEL
+        read at once finds it. Nothing has to checkpoint in between."""
+        scope = self._answering[n] = anyio.CancelScope()
+        tasks.start_soon(self._answer, n, scope, answer)
+
+    async def _answer(self, n: int, scope: anyio.CancelScope,
+                      answer: Callable[[], Awaitable[list[Any]]]) -> None:
+        try:
+            with scope:
+                # A cancel delivered at the first await would still
+                # run `answer` up to that await: a thread may start.
+                await anyio.lowlevel.checkpoint_if_cancelled()
+                frame = await answer()
+                with contextlib.suppress(anyio.BrokenResourceError,
+                                         anyio.ClosedResourceError):
+                    await self.channel.send(frame)
+        finally:
+            if self._answering.get(n) is scope:
+                del self._answering[n]
+
+    def cancel(self, n: int) -> None:
+        """A CANCEL from the other end, for its request `n`."""
+        scope = self._answering.get(n)
+        if scope is not None:
+            scope.cancel()
+
+    def close(self) -> None:
+        """The connection ended. Every waiting request fails, then
+        every answer stops.
+
+        In this order: an answer can be a thread that waits on one of
+        this end's requests, and it ends only once that request fails."""
+        self._closed = True
+        for waiting in self._waiting.values():
+            waiting.done.set()
+        for scope in self._answering.values():
+            scope.cancel()
 
 
 # -- faults --------------------------------------------------------------
