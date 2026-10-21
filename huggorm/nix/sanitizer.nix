@@ -221,6 +221,53 @@ in
     ASAN_OPTIONS = "detect_leaks=0";
   };
 
+  # Shell text that exports what a test process under this variant needs.
+  # huggorm's suite and nanopynix's runner both source it, so the two run
+  # under one set of rules. A value the caller already exported comes after
+  # this variant's, and so overrides it.
+  testEnv =
+    lib.optionalString (runtime != null) ''
+      export LD_PRELOAD="${runtime}''${LD_PRELOAD:+ $LD_PRELOAD}"
+    ''
+    + ''
+      # A sanitizer reports on file descriptor 2, and pytest's default
+      # `--capture=fd` points that descriptor at a temporary file.
+      # `halt_on_error=1` aborts before pytest prints the buffer, so the run
+      # says nothing at all. `--capture=sys` keeps the descriptor.
+      export PYTEST_ADDOPTS="--capture=sys''${PYTEST_ADDOPTS:+ $PYTEST_ADDOPTS}"
+    ''
+    + lib.optionalString isThread ''
+      # halt_on_error=1: a race in a hot loop otherwise reports on every
+      # occurrence, and the log reaches millions of lines.
+      # die_after_fork=0: `nix daemon` forks a handler per connection, and
+      # the child starts threads. TSAN aborts that child by default.
+      # report_thread_leaks=0: anyio's and concurrent.futures' idle workers
+      # finish and nothing joins them. That is no race, and with
+      # halt_on_error=1 one of them failed a job with exit status 66
+      # (nanopynix CI run 32401477688). The only frame in such a report is
+      # CPython's `do_start_joinable_thread`, so a suppression line would
+      # match every Python thread.
+      export TSAN_OPTIONS="halt_on_error=1 history_size=7 second_deadlock_stack=1 die_after_fork=0 report_thread_leaks=0 suppressions=${./tsan-suppressions.txt}''${TSAN_OPTIONS:+ $TSAN_OPTIONS}"
+    ''
+    + lib.optionalString isUndefined ''
+      # UBSan reports and carries on by default, so a run passes with the
+      # report in its log. Not `-fno-sanitize-recover`: see `sanitizerFlags`.
+      # print_stacktrace: the line a report names is often in a header, and
+      # the caller says whose defect it is.
+      export UBSAN_OPTIONS="print_stacktrace=1 halt_on_error=1''${UBSAN_OPTIONS:+ $UBSAN_OPTIONS}"
+    ''
+    + lib.optionalString isAddress ''
+      # detect_leaks=0: libexpr without the collector allocates and never
+      # frees, by design, so a leak report is no defect.
+      # detect_stack_use_after_return=1 is off by default, and it is the
+      # shape of nixidae/nixidae#63: a stack-local `fetchers::Settings` whose
+      # address outlived its frame.
+      export ASAN_OPTIONS="detect_leaks=0 detect_stack_use_after_return=1 halt_on_error=1 print_stacktrace=1''${ASAN_OPTIONS:+ $ASAN_OPTIONS}"
+      # ASAN cannot see inside CPython's own arenas. A report then names the
+      # arena, not the caller.
+      export PYTHONMALLOC=malloc
+    '';
+
   # Whether this variant forces `enableGC = false` on nix-expr.
   #
   # **Only ASAN.** `mesonFlags` below quotes the test that libexpr makes, and

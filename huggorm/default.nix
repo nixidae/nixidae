@@ -96,9 +96,7 @@ rec {
         lib.mapAttrsToList (lane: v: {
           inherit lane;
           inherit (v) minor;
-        }) (
-          lib.filterAttrs (_: v: v ? components) versions
-        )
+        }) (lib.filterAttrs (_: v: v ? components) versions)
       );
     in
     {
@@ -349,6 +347,119 @@ rec {
             plain.overridePythonAttrs { doCheck = false; }
           else
             plain;
+        ourPython = python3.withPackages (ps: [
+          self.huggorm-bindings
+          self.huggorm-generated
+          self.huggorm
+          # The generator imports them, so the interpreter every check
+          # runs against has to have them.
+          huggorm-gen
+          huggorm-decl
+          huggorm-dsl
+          # The suites run under pytest, in the devshell and in the build
+          # alike. pytest-timeout because a hung test is the failure this
+          # suite is most exposed to - a server that never came up, or a
+          # native crash that took a thread with it.
+          ps.pytest
+          ps.anyio
+          ps.pytest-timeout
+          # The inotify change source. A propagated dependency of
+          # huggorm, so the interpreter check and test run against needs
+          # it too.
+          ps.asyncinotify
+          # For `check`, which types the two `setup.py` files too.
+          ps.types-setuptools
+        ]);
+        # The emitted front door, into the working tree.
+        #
+        # `huggorm/__init__.py` is generated (nixidae/nixidae#601) and the tree keeps
+        # none of it, so `packages/huggorm/huggorm/` is a NAMESPACE portion.
+        # Python's finder - and zuban's - prefer a regular package found
+        # LATER on the path, so without this the tree's `huggorm` is not the
+        # one anything reads: the dev loop `nix run test` exists for is
+        # gone, and `check` typechecks the store's copy while reporting the
+        # tree's file names. Both were measured.
+        #
+        # It writes a gitignored file into the tree, which is what both
+        # `setup.py` files already do with their own output.
+        #
+        # -P, or it copies the file onto itself. Without it the cwd goes
+        # first on sys.path, so once the copy exists `import huggorm` finds
+        # THAT one and source and destination are one file.
+        #
+        # Run from the repository root.
+        frontDoor = ''
+          ${self.ourPython}/bin/python3 -P -c 'import huggorm, shutil; shutil.copyfile(huggorm.__file__, "packages/huggorm/huggorm/__init__.py")'
+        '';
+        # nix run --file . test -- [pytest args]
+        # HUGGORM_SKIP_SUITE=1 nix run --file . 'lanes."nix_2_34-tsan".test' -- [pytest args]
+        #
+        # The WHOLE suite, outside the sandbox. A build has no daemon, no db
+        # and no writable store, so anything that touches a real store cannot
+        # be a build check - and that half will only grow (nixidae/nixidae#574). The
+        # build runs `pytest -m "not live"`; this runs everything.
+        #
+        # A sanitizer lane runs it under that sanitizer's `testEnv`.
+        # HUGGORM_SKIP_SUITE=1 skips the lane's sandboxed suite, which
+        # runs before this otherwise.
+        #
+        # PYTHONPATH puts the working tree's huggorm ahead of the installed
+        # copy, so an edit is testable without a rebuild. huggorm_bindings
+        # and huggorm_generated still come from the store: one is compiled
+        # and the other is generated, so neither exists in the tree.
+        #
+        # `frontDoor` first, or the tree's huggorm is a namespace portion
+        # and the store's package wins the whole directory. See its comment.
+        #
+        # PYTEST_DEBUG_TEMPROOT gives this suite its OWN basedir, and that
+        # is nixidae/nixidae#599. pytest's default is `$TMPDIR/pytest-of-$USER`,
+        # keyed by USER and not by project, so every pytest on this machine
+        # shares one directory. Three consequences, all measured:
+        #
+        #   - another project's leftovers are counted as this suite's, and
+        #     were, twice;
+        #   - its unremovable directories warn on every run here - 177 of
+        #     them once, enough to push the totals line off the screen,
+        #     which is how a broken build read as `0 FAILED`;
+        #   - reclaiming means deleting everybody's.
+        #
+        # A FIXED path, not a per-run one. pytest keeps the three newest
+        # numbered directories under the basedir and prunes the rest, so a
+        # fresh root per run would defeat the pruning it relies on.
+        #
+        # The variable is named for debugging and is documented surface -
+        # `pytest --help` lists it - and it only replaces the PARENT. The
+        # `pytest-of-$USER` directory, the numbering, the locks and the
+        # retention all still work exactly as they did.
+        test = pkgs.writeShellApplication {
+          name = "test";
+          runtimeInputs = [
+            pkgs.gitMinimal
+            self.ourPython
+          ];
+          # `testEnv` first: `frontDoor` imports the bindings.
+          text = lib.optionalString (sanitizer != null) sanitizer.testEnv + ''
+            cd "''${HUGGORM_ROOT:-.}"
+            ${self.frontDoor}
+            cd packages/huggorm
+            export PYTHONPATH="$PWD''${PYTHONPATH:+:$PYTHONPATH}"
+            # The oracle the devshell's live test runs: the CLI of the Nix the
+            # bindings link, and a `bash` for its derivation's builder.
+            export HUGGORM_ORACLE_NIX="${self.nix}/bin/nix"
+            export HUGGORM_ORACLE_BASH="${pkgs.bash}"
+            export HUGGORM_TCP_STORE_PLUGINS="${self.nix-tcp-store}/lib/nix/plugins"
+            export PYTEST_DEBUG_TEMPROOT="''${PYTEST_DEBUG_TEMPROOT:-/tmp/huggorm}"
+            mkdir -p "$PYTEST_DEBUG_TEMPROOT"
+            # SAID OUT LOUD, because no gate can hold this. The suite runs
+            # inside a build sandbox too, where the variable is unset and
+            # the default root is right - so a test asserting the root
+            # would have to skip there, and a gate that skips when it
+            # breaks is this repo's named failure mode. One line names the
+            # root instead, and a run that lost it says so.
+            echo "temp: $PYTEST_DEBUG_TEMPROOT/pytest-of-$(id -un)"
+            exec pytest "$@"
+          '';
+        };
       }
       # nix build --file . lanes.nix_2_35.manylinux.checks
       // lib.optionalAttrs (wheels && gc && sanitizer == null) {
@@ -396,6 +507,9 @@ rec {
     manylinux
     nix-tcp-store
     nix-tcp-store-check
+    ourPython
+    frontDoor
+    test
     ;
 
   # nix build --file . every-nix-src
@@ -459,55 +573,6 @@ rec {
   # nix run --file . python -- $args
   # to be able to run Python commands
   python = python3;
-  # nix run --file . python -- $args
-  # to be able to run Python commands with our packages loaded
-  ourPython = python3.withPackages (
-    ps: with ps; [
-      huggorm-bindings
-      huggorm-generated
-      huggorm
-      # The generator imports them, so the interpreter every check
-      # runs against has to have them.
-      huggorm-gen
-      huggorm-decl
-      huggorm-dsl
-      # The suites run under pytest, in the devshell and in the build
-      # alike. pytest-timeout because a hung test is the failure this
-      # suite is most exposed to - a server that never came up, or a
-      # native crash that took a thread with it.
-      pytest
-      anyio
-      pytest-timeout
-      # The inotify change source. A propagated dependency of
-      # huggorm, so the interpreter check and test run against needs
-      # it too.
-      asyncinotify
-      # For `check`, which types the two `setup.py` files too.
-      types-setuptools
-    ]
-  );
-  # The emitted front door, into the working tree.
-  #
-  # `huggorm/__init__.py` is generated (nixidae/nixidae#601) and the tree keeps
-  # none of it, so `packages/huggorm/huggorm/` is a NAMESPACE portion.
-  # Python's finder - and zuban's - prefer a regular package found
-  # LATER on the path, so without this the tree's `huggorm` is not the
-  # one anything reads: the dev loop `nix run test` exists for is
-  # gone, and `check` typechecks the store's copy while reporting the
-  # tree's file names. Both were measured.
-  #
-  # It writes a gitignored file into the tree, which is what both
-  # `setup.py` files already do with their own output.
-  #
-  # -P, or it copies the file onto itself. Without it the cwd goes
-  # first on sys.path, so once the copy exists `import huggorm` finds
-  # THAT one and source and destination are one file.
-  #
-  # Run from the repository root.
-  frontDoor = ''
-    ${ourPython}/bin/python3 -P -c 'import huggorm, shutil; shutil.copyfile(huggorm.__file__, "packages/huggorm/huggorm/__init__.py")'
-  '';
-
   # nix run --file . check
   #
   # The same two tools the builds gate on, over the whole tree at once,
@@ -568,70 +633,6 @@ rec {
     '';
   };
 
-  # nix run --file . test -- [pytest args]
-  #
-  # The WHOLE suite, outside the sandbox. A build has no daemon, no db
-  # and no writable store, so anything that touches a real store cannot
-  # be a build check - and that half will only grow (nixidae/nixidae#574). The
-  # build runs `pytest -m "not live"`; this runs everything.
-  #
-  # PYTHONPATH puts the working tree's huggorm ahead of the installed
-  # copy, so an edit is testable without a rebuild. huggorm_bindings
-  # and huggorm_generated still come from the store: one is compiled
-  # and the other is generated, so neither exists in the tree.
-  #
-  # `frontDoor` first, or the tree's huggorm is a namespace portion
-  # and the store's package wins the whole directory. See its comment.
-  #
-  # PYTEST_DEBUG_TEMPROOT gives this suite its OWN basedir, and that
-  # is nixidae/nixidae#599. pytest's default is `$TMPDIR/pytest-of-$USER`,
-  # keyed by USER and not by project, so every pytest on this machine
-  # shares one directory. Three consequences, all measured:
-  #
-  #   - another project's leftovers are counted as this suite's, and
-  #     were, twice;
-  #   - its unremovable directories warn on every run here - 177 of
-  #     them once, enough to push the totals line off the screen,
-  #     which is how a broken build read as `0 FAILED`;
-  #   - reclaiming means deleting everybody's.
-  #
-  # A FIXED path, not a per-run one. pytest keeps the three newest
-  # numbered directories under the basedir and prunes the rest, so a
-  # fresh root per run would defeat the pruning it relies on.
-  #
-  # The variable is named for debugging and is documented surface -
-  # `pytest --help` lists it - and it only replaces the PARENT. The
-  # `pytest-of-$USER` directory, the numbering, the locks and the
-  # retention all still work exactly as they did.
-  test = pkgs.writeShellApplication {
-    name = "test";
-    runtimeInputs = [
-      pkgs.gitMinimal
-      ourPython
-    ];
-    text = ''
-      cd "''${HUGGORM_ROOT:-.}"
-      ${frontDoor}
-      cd packages/huggorm
-      export PYTHONPATH="$PWD''${PYTHONPATH:+:$PYTHONPATH}"
-      # The oracle the devshell's live test runs: the CLI of the Nix the
-      # bindings link, and a `bash` for its derivation's builder.
-      export HUGGORM_ORACLE_NIX="${nix}/bin/nix"
-      export HUGGORM_ORACLE_BASH="${pkgs.bash}"
-      export HUGGORM_TCP_STORE_PLUGINS="${nix-tcp-store}/lib/nix/plugins"
-      export PYTEST_DEBUG_TEMPROOT="''${PYTEST_DEBUG_TEMPROOT:-/tmp/huggorm}"
-      mkdir -p "$PYTEST_DEBUG_TEMPROOT"
-      # SAID OUT LOUD, because no gate can hold this. The suite runs
-      # inside a build sandbox too, where the variable is unset and
-      # the default root is right - so a test asserting the root
-      # would have to skip there, and a gate that skips when it
-      # breaks is this repo's named failure mode. One line names the
-      # root instead, and a run that lost it says so.
-      echo "temp: $PYTEST_DEBUG_TEMPROOT/pytest-of-$(id -un)"
-      exec pytest "$@"
-    '';
-  };
-
   # nix run --file . show -- [files|surface]
   #
   # Read what the build produced, without knowing where the store put
@@ -643,28 +644,28 @@ rec {
       ourPython
     ];
     text = ''
-            pkg="${huggorm-generated}/lib/python3.14/site-packages"
-            gen="$pkg/huggorm_generated"
-            case "''${1:-files}" in
-              files)
-                echo "generated package: $gen"
-                ls -1 "$gen"
-                echo
-                echo "binding stubs: $pkg/huggorm_bindings-stubs"
-                ls -1 "$pkg/huggorm_bindings-stubs"
-                ;;
-              surface)
-                for f in "$gen"/async_*.py "$gen"/protocols.py "$gen"/_classes.py \
-                         "$gen"/free_functions.py "$gen"/_policy.py; do
-                  echo "=== $f ==="
-                  cat "$f"
-                done
-                ;;
-              *)
-                echo "usage: show [files|surface]" >&2
-                exit 2
-                ;;
-            esac
+      pkg="${huggorm-generated}/lib/python3.14/site-packages"
+      gen="$pkg/huggorm_generated"
+      case "''${1:-files}" in
+        files)
+          echo "generated package: $gen"
+          ls -1 "$gen"
+          echo
+          echo "binding stubs: $pkg/huggorm_bindings-stubs"
+          ls -1 "$pkg/huggorm_bindings-stubs"
+          ;;
+        surface)
+          for f in "$gen"/async_*.py "$gen"/protocols.py "$gen"/_classes.py \
+                   "$gen"/free_functions.py "$gen"/_policy.py; do
+            echo "=== $f ==="
+            cat "$f"
+          done
+          ;;
+        *)
+          echo "usage: show [files|surface]" >&2
+          exit 2
+          ;;
+      esac
     '';
   };
 
