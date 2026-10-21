@@ -14,11 +14,13 @@ this host, `.driver`: paused at this phase, sw opens a TCP connection to
 masquerades the segment out through its passt uplink.
 """
 
-import asyncio
 import urllib.error
 import urllib.request
 
-from vivarium_runner import Machine, Machines
+import anyio
+import anyio.to_thread
+
+from vivarium_runner import Machines
 
 PAGE = "hello-from-behind-the-gateway"
 DOC_ROOT = "/tmp/www"
@@ -29,38 +31,28 @@ target. The phase waits for exactly this, so a wrong reservation fails
 loudly rather than passing on a pool address."""
 GATEWAY = "10.42.0.1"
 
+SETTLED = (
+    f"ip -4 -brief addr show vec0 | grep -qF {SW_ADDRESS}"
+    f" && ip -4 route show default | grep -qF 'via {GATEWAY}'"
+)
+"""sw holds its reserved address and its default route from DHCP."""
 
-async def _settled(sw: Machine, timeout: float) -> None:
-    """Wait until `sw` holds its reserved address and the default route."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    addr = route = ""
-    while asyncio.get_running_loop().time() < deadline:
-        _, addr = await sw.execute("ip -4 -brief addr show vec0")
-        _, route = await sw.execute("ip -4 route show default")
-        if SW_ADDRESS in addr and f"via {GATEWAY}" in route:
-            return
-        await asyncio.sleep(1)
-    raise AssertionError(
-        f"sw never leased {SW_ADDRESS} with a default via {GATEWAY}:\n"
-        f"addr: {addr}\nroute: {route}"
-    )
+
+def _get(where: str) -> str:
+    return urllib.request.urlopen(f"http://{where}/probe", timeout=5).read().decode().strip()
 
 
 async def _fetch(where: str, timeout: float = 30) -> str:
     """GET /probe from the host side, giving the path time to come up."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        try:
-            return await asyncio.to_thread(
-                lambda: urllib.request.urlopen(f"http://{where}/probe", timeout=5)
-                .read()
-                .decode()
-                .strip()
-            )
-        except (urllib.error.URLError, OSError) as error:
-            if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError(f"nothing answered on {where}: {error}")
-            await asyncio.sleep(0.5)
+    try:
+        with anyio.fail_after(timeout):
+            while True:
+                try:
+                    return await anyio.to_thread.run_sync(_get, where)
+                except (urllib.error.URLError, OSError):
+                    await anyio.sleep(0.5)
+    except TimeoutError:
+        raise AssertionError(f"nothing answered on {where} within {timeout:.0f}s") from None
 
 
 async def test(vms: Machines) -> None:
@@ -71,7 +63,7 @@ async def test(vms: Machines) -> None:
     await svc.wait_for_unit("nat.service")
     print("[test] the services guest runs Kea and the NAT gateway")
 
-    await _settled(sw, 60)
+    await sw.wait_until_succeeds(SETTLED, timeout=60)
     print(f"[test] sw leased its reserved {SW_ADDRESS} and a default route via {GATEWAY}")
 
     # A service in sw, bound long after passt stopped taking arguments.

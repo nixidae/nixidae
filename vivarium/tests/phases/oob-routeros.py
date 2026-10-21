@@ -4,9 +4,13 @@ ether1, the uplink, is on the management segment and leases from the
 services guest's Kea in a `mgmt` VRF; the dataplane interface stays in
 `main`. The two routing tables are separate, so management and dataplane
 cannot reach each other -- the model sonic-vs could not instantiate.
+
+RouterOS is a device CLI, not a shell: `/ping` to an unreachable host
+exits 0 and says "no route" in its output, so these poll the output
+rather than an exit status, which is why they are not `wait_until_succeeds`.
 """
 
-import asyncio
+import anyio
 
 from vivarium_runner import Machine, Machines
 
@@ -25,12 +29,12 @@ async def _reaches(r1: Machine, dst: str, vrf: str | None = None) -> bool:
 
 async def _wait_reach(r1: Machine, dst: str, vrf: str | None, timeout: float) -> None:
     """Wait until r1 reaches *dst* in *vrf*; the lease and the peer settle."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        if await _reaches(r1, dst, vrf):
-            return
-        await asyncio.sleep(2)
-    raise AssertionError(f"{dst} (vrf={vrf or 'main'}) never became reachable")
+    try:
+        with anyio.fail_after(timeout):
+            while not await _reaches(r1, dst, vrf):
+                await anyio.sleep(2)
+    except TimeoutError:
+        raise AssertionError(f"{dst} (vrf={vrf or 'main'}) never became reachable") from None
 
 
 async def test(vms: Machines) -> None:
@@ -42,16 +46,19 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"ether1 is not in a mgmt VRF:\n{vrf}")
 
     # ether1's Kea lease binds in the mgmt VRF; it may not be up yet.
-    deadline = asyncio.get_running_loop().time() + 60
     lease = ""
-    while asyncio.get_running_loop().time() < deadline:
-        addresses = await r1.succeed("/ip address print terse")
-        lease = next((line for line in addresses.splitlines() if "interface=ether1" in line), "")
-        if "vrf=mgmt" in lease and "10.42.0." in lease:
-            break
-        await asyncio.sleep(2)
-    else:
-        raise AssertionError(f"ether1 has no Kea lease in the mgmt VRF:\n{lease}")
+    try:
+        with anyio.fail_after(60):
+            while True:
+                addresses = await r1.succeed("/ip address print terse")
+                lease = next(
+                    (line for line in addresses.splitlines() if "interface=ether1" in line), ""
+                )
+                if "vrf=mgmt" in lease and "10.42.0." in lease:
+                    break
+                await anyio.sleep(2)
+    except TimeoutError:
+        raise AssertionError(f"ether1 has no Kea lease in the mgmt VRF:\n{lease}") from None
     print(f"[test] ether1 leased in the mgmt VRF: {lease.split('address=')[1].split()[0]}")
 
     # The reachable directions, once the lease and the data host settle.

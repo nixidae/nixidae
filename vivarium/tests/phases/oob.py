@@ -6,13 +6,11 @@ and leases there, and the two reach each other. This is how a foreign
 guest's management interface reaches the fabric.
 """
 
-import asyncio
-import re
-
 from vivarium_runner import Machines
 
-POOL = re.compile(r"10\.42\.0\.(1[0-4][0-9]|150)")
-"""An address from Kea's pool, 10.42.0.100-150."""
+LEASE = r"ip -4 -brief addr show vec0 | grep -m1 -oE '10\.42\.0\.(1[0-4][0-9]|150)'"
+"""Print vec0's address once it holds one from Kea's pool, 10.42.0.100-150.
+`grep -m1` keeps the output one line and its exit status the match."""
 
 
 async def test(vms: Machines) -> None:
@@ -22,19 +20,8 @@ async def test(vms: Machines) -> None:
     await svc.wait_for_unit("kea-dhcp4-server.service")
     print("[test] the services guest runs Kea DHCP4")
 
-    # The client's uplink (vec0) leases an address from the pool. No
-    # generic "retry a command" helper, so poll as `wait_for_unit` does.
-    deadline = asyncio.get_running_loop().time() + 60
-    address: str | None = None
-    while asyncio.get_running_loop().time() < deadline:
-        rc, out = await client.execute("ip -4 -brief addr show vec0")
-        match = POOL.search(out)
-        if rc == 0 and match is not None:
-            address = match.group(0)
-            break
-        await asyncio.sleep(1)
-    if address is None:
-        raise AssertionError("the client leased no pool address on mgmt within 60s")
+    # The client's uplink (vec0) leases an address from the pool.
+    address = (await client.wait_until_succeeds(LEASE)).strip()
     print(f"[test] the client leased {address} from Kea")
 
     await client.succeed("ping -c1 -W2 10.42.0.1")
