@@ -117,6 +117,8 @@ class _Link:
     # the server sweeps it, which is what a lifecycle test wants.
     pinger: anyio.CancelScope = field(default_factory=anyio.CancelScope)
     expired: bool = False
+    # Set once `_run` has closed the socket.
+    done: anyio.Event = field(default_factory=anyio.Event)
 
 
 class NixClient:
@@ -308,8 +310,11 @@ class NixClient:
                     tasks.start_soon(ping)
         finally:
             link.peer.close()
-            with anyio.CancelScope(shield=True):
-                await link.peer.channel.aclose()
+            try:
+                with anyio.CancelScope(shield=True):
+                    await link.peer.channel.aclose()
+            finally:
+                link.done.set()
 
     # -- connection lifecycle -----------------------------------------
     async def __aenter__(self) -> NixClient:
@@ -343,6 +348,15 @@ class NixClient:
         if self._link is not None:
             self._link.scope.cancel()
 
+    async def _end(self) -> None:
+        """End the link and wait until its socket is closed. The server
+        then sees the old connection end before the new HELLO
+        (nixidae/nixidae#935)."""
+        link = self._link
+        self._close()
+        if link is not None:
+            await link.done.wait()
+
     async def bind(self, claim_token: str | None = None) -> str:
         """Connect and take a connection identity. A detached session's
         token as `claim_token` claims its escrowed handles. The server
@@ -357,7 +371,7 @@ class NixClient:
                 "and `bind` starts the loop inside it. Use "
                 "`async with remote.connect(path) as client:` - or "
                 "`async with NixClient(path)` if you are binding by hand.")
-        self._close()
+        await self._end()
         stream = await anyio.connect_unix(self.path)
         channel = Channel(stream)
         try:

@@ -331,6 +331,10 @@ async def test_the_context_stops_the_ping_loop(ttl_server: Server) -> None:
         assert c._link.peer.closed.is_set(), "leaving ended the link"
 
 
+async def _keep() -> None:
+    """A `NixClient._end` that leaves the old link running."""
+
+
 async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
         ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each link keeps its own waiting calls (nixidae/nixidae#882).
@@ -344,7 +348,7 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
         async with remote.connect(ttl_server.path) as c:
             old = c._link
             with monkeypatch.context() as m:
-                m.setattr(c, "_close", lambda: None)
+                m.setattr(c, "_end", _keep)
                 await c.bind()
             new = c._link
             assert old is not None and new is not None and new is not old
@@ -362,6 +366,30 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
                 old.scope.cancel()
                 await old.peer.closed.wait()
             assert answer == [True]
+
+
+async def test_a_second_bind_closes_the_old_socket_first(
+        ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The old socket is closed before the new one connects, so the
+    server sees the old connection end before the new HELLO
+    (nixidae/nixidae#935). Perturbation: `bind` connects right after
+    the cancel, and the old socket is still open."""
+    with anyio.fail_after(20):
+        async with remote.connect(ttl_server.path) as c:
+            assert c._link is not None
+            sock = c._link.peer.channel.stream.extra(
+                anyio.abc.SocketAttribute.raw_socket)
+            connect = anyio.connect_unix
+            at_connect: list[int] = []
+
+            async def watched(path: str) -> Any:
+                at_connect.append(sock.fileno())
+                return await connect(path)
+
+            with monkeypatch.context() as m:
+                m.setattr(anyio, "connect_unix", watched)
+                await c.bind()
+            assert at_connect == [-1]
 
 
 async def test_a_swept_client_stops_rather_than_rebinding(
