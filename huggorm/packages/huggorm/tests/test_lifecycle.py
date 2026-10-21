@@ -328,8 +328,34 @@ async def test_the_context_stops_the_ping_loop(ttl_server: Server) -> None:
     three-minute wait."""
     with anyio.fail_after(20):
         async with remote.connect(ttl_server.path) as c:
-            assert c._pinger is not None, "bind started it"
-        assert c._pinger is None, "and leaving stopped it"
+            assert c._link is not None and not c._link.closed
+        assert c._link.closed, "leaving ended the link"
+
+
+async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
+        ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each link keeps its own waiting calls (nixidae/nixidae#882).
+
+    `bind` ends the old link before it connects, so a call on the new
+    link never meets the old one's end. The test keeps the old link
+    alive past the second `bind` and ends it while a call waits on the
+    new one. Perturbation: give every `_Link` one shared `pending`
+    table and the waiting call wakes as "closed during the call"."""
+    with anyio.fail_after(20):
+        async with remote.connect(ttl_server.path) as c:
+            old = c._link
+            with monkeypatch.context() as m:
+                m.setattr(c, "_close", lambda: None)
+                await c.bind()
+            new = c._link
+            assert old is not None and new is not None and new is not old
+            waiting = new.pending[0] = remote._Pending()
+            old.scope.cancel()
+            while not old.closed:
+                await anyio.sleep(0.01)
+            assert not waiting.done.is_set()
+            del new.pending[0]
+            assert await c.alive()
 
 
 async def test_a_swept_client_stops_rather_than_rebinding(
@@ -346,13 +372,13 @@ async def test_a_swept_client_stops_rather_than_rebinding(
     Recovery is bind() plus re-acquiring, and that is the caller's
     decision because only the caller knows what it was holding."""
     c = swept.doomed_client
-    assert c._expired is False, "nothing has told it yet"
+    assert c._link.expired is False, "nothing has told it yet"
 
     # One iteration of the real loop, which returns as soon as it
     # learns the answer.
     with anyio.fail_after(5):
-        await c._ping_loop(0.01)
-    assert c._expired is True
+        await c._ping_loop(c._link, 0.01)
+    assert c._link.expired is True
 
     with pytest.raises(remote.ConnectionExpired, match="swept"):
         await c.acquire("Store", "dummy://")

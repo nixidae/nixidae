@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
+import anyio.abc
 
 from huggorm_generated._callspec import Acquire, Call
 from huggorm_generated._classes import CLASSES
@@ -83,6 +84,12 @@ class ConnectionLost(ConnectionError):
     take them back while they last."""
 
 
+def _swept(token: str) -> ConnectionExpired:
+    return ConnectionExpired(
+        f"connection {token!r} was swept by the server; its handles are "
+        f"gone. Call bind() and re-acquire.")
+
+
 def handle_of(obj: Any) -> str:
     """The handle `obj` holds on a server.
 
@@ -113,6 +120,29 @@ class _Pending:
     frame: list[Any] | None = None
 
 
+@dataclass
+class _Link:
+    """One connection, and everything that ends with it.
+
+    `scope` holds the reader, the ping loop and the callbacks being
+    answered, so cancelling it ends the connection. Each link keeps its
+    own waiting calls: the end of an old link wakes none of a new
+    link's (nixidae/nixidae#882)."""
+
+    channel: Channel
+    token: str
+    scope: anyio.CancelScope = field(default_factory=anyio.CancelScope)
+    # Inside `scope`. Cancelled alone, the connection goes silent and
+    # the server sweeps it, which is what a lifecycle test wants.
+    pinger: anyio.CancelScope = field(default_factory=anyio.CancelScope)
+    pending: dict[int, _Pending] = field(default_factory=dict)
+    # The callbacks being answered, by the server's id, so its CANCEL
+    # finds the one to stop.
+    answering: dict[int, anyio.CancelScope] = field(default_factory=dict)
+    expired: bool = False
+    closed: bool = False
+
+
 class NixClient:
     def __init__(self, path: str | os.PathLike[str], *,
                  experimental_callbacks: bool = False) -> None:
@@ -123,26 +153,18 @@ class NixClient:
         self.experimental_callbacks = experimental_callbacks
         self._objects: dict[int, tuple[str, Any]] = {}
         self._object_ids: dict[int, int] = {}
-        # The callbacks being answered, by id. A hook may never return,
-        # and the task group waits for it, so closing cancels them.
-        self._answering: dict[int, anyio.CancelScope] = {}
         self.codec = Codec()
         # Rebuilds a declared error from its parts, so a remote failure
         # has the same shape as an in-process one: an InternalError
         # whose __cause__ is the real error (nixidae/nixidae#573).
         self.faults = Faults(self.codec)
-        self.channel: Channel | None = None
-        self.token: str | None = None
-        # The task group this client's background work runs in: the
-        # reader and the ping loop, each with its own cancel scope.
-        # None until `__aenter__`, which is why `bind` outside the
-        # context refuses rather than starting a task nothing owns.
-        self._tasks: Any = None
-        self._reader: Any = None
-        self._pinger: Any = None
-        self._expired = False
+        self._link: _Link | None = None
+        # The task group each link runs in. None outside `async with`,
+        # which is why `bind` there refuses rather than starting a
+        # task nothing owns.
+        self._tasks: anyio.abc.TaskGroup | None = None
+        self._exit = contextlib.AsyncExitStack()
         self._ids = itertools.count(1)
-        self._pending: dict[int, _Pending] = {}
         # How many live client objects point at each handle, and which
         # handles have lost their last one. A finalizer runs on
         # whichever thread dropped the reference - possibly during
@@ -233,18 +255,23 @@ class NixClient:
             self._dropped.clear()
         if not queued:
             return 0
-        await self._live().send([Op.DROP, queued])
+        await self._live().channel.send([Op.DROP, queued])
         return len(queued)
 
+    @property
+    def token(self) -> str | None:
+        """This connection's identity on the server. None before
+        `bind`; kept after the connection ends, so it can be claimed."""
+        return None if self._link is None else self._link.token
+
     # -- frames ---------------------------------------------------------
-    def _live(self) -> Channel:
-        if self._expired:
-            raise ConnectionExpired(
-                f"connection {self.token!r} was swept by the server; its "
-                f"handles are gone. Call bind() and re-acquire.")
-        if self.channel is None:
+    def _live(self) -> _Link:
+        link = self._link
+        if link is not None and link.expired:
+            raise _swept(link.token)
+        if link is None or link.closed:
             raise ConnectionLost(f"no connection to {self.path}")
-        return self.channel
+        return link
 
     async def _ask(self, op: Op, *body: Any) -> Any:
         """Send one CALL or CONTROL and wait for its answer.
@@ -252,12 +279,12 @@ class NixClient:
         A caller cancelled while it waits sends CANCEL, so the server
         stops the work nobody will read. The answer may still arrive,
         and the reader drops it."""
-        channel = self._live()
+        link = self._live()
         cid = next(self._ids)
-        pending = self._pending[cid] = _Pending()
+        pending = link.pending[cid] = _Pending()
         try:
             try:
-                await channel.send([op, cid, *body])
+                await link.channel.send([op, cid, *body])
             except (anyio.BrokenResourceError,
                     anyio.ClosedResourceError) as e:
                 raise ConnectionLost(
@@ -267,68 +294,84 @@ class NixClient:
             if not pending.done.is_set():
                 with contextlib.suppress(anyio.BrokenResourceError,
                                          anyio.ClosedResourceError):
-                    await channel.send([Op.CANCEL, cid])
+                    await link.channel.send([Op.CANCEL, cid])
             raise
         finally:
-            self._pending.pop(cid, None)
+            link.pending.pop(cid, None)
         match pending.frame:
             case [Op.RESULT, _, value]:
                 return value
             case [Op.FAULT, _, fault]:
-                raise self._fault(fault)
+                raise self._fault(link, fault)
             case None:
                 raise ConnectionLost(
                     f"the connection to {self.path} closed during the call")
         raise ProtocolError(f"an answer arrived as {pending.frame!r:.80}")
 
-    def _fault(self, raw: Any) -> BaseException:
+    def _fault(self, link: _Link, raw: Any) -> BaseException:
         error = self.faults.decode(raw)
         if isinstance(error, Refused) and error.reason is Refusal.SWEPT:
-            self._expired = True
-            return ConnectionExpired(
-                f"connection {self.token!r} was swept by the server; its "
-                f"handles are gone. Call bind() and re-acquire.")
+            link.expired = True
+            return _swept(link.token)
         return error
 
-    async def _read(self, channel: Channel, *,
-                    task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+    async def _read(self, link: _Link,
+                    tasks: anyio.abc.TaskGroup) -> None:
         """Hand each answer to the call waiting for it, until the
-        connection closes. Then wake every call still waiting."""
-        with anyio.CancelScope() as scope:
-            task_status.started(scope)
-            try:
-                while True:
-                    frame = await channel.receive()
-                    match frame:
-                        case [Op.RESULT | Op.FAULT, int(cid), _]:
-                            pending = self._pending.get(cid)
-                            if pending is not None:
-                                pending.frame = frame
-                                pending.done.set()
-                        case [Op.CALLBACK, int(n), int(client_id), str(name),
-                              list(raw)] if self.experimental_callbacks:
-                            self._tasks.start_soon(self._call_back, channel, n,
-                                                   client_id, name, raw)
-                        case [Op.CANCEL, int(n)] if self.experimental_callbacks:
-                            hook = self._answering.get(n)
-                            if hook is not None:
-                                hook.cancel()
-                        case _:
-                            raise ProtocolError(
-                                f"a frame arrived as {frame!r:.80}")
-            except (anyio.EndOfStream, anyio.BrokenResourceError,
-                    anyio.ClosedResourceError):
-                pass
-            except ProtocolError:
-                logger.warning("closing the connection to %s", self.path,
-                               exc_info=True)
-            finally:
-                if self.channel is channel:
-                    self.channel = None
-                for pending in self._pending.values():
-                    pending.done.set()
-                with anyio.CancelScope(shield=True):
-                    await channel.aclose()
+        connection closes. Then end the link."""
+        try:
+            while True:
+                frame = await link.channel.receive()
+                match frame:
+                    case [Op.RESULT | Op.FAULT, int(cid), _]:
+                        pending = link.pending.get(cid)
+                        if pending is not None:
+                            pending.frame = frame
+                            pending.done.set()
+                    case [Op.CALLBACK, int(n), int(client_id), str(name),
+                          list(raw)] if self.experimental_callbacks:
+                        tasks.start_soon(self._call_back, link, n,
+                                         client_id, name, raw)
+                    case [Op.CANCEL, int(n)] if self.experimental_callbacks:
+                        hook = link.answering.get(n)
+                        if hook is not None:
+                            hook.cancel()
+                    case _:
+                        raise ProtocolError(
+                            f"a frame arrived as {frame!r:.80}")
+        except (anyio.EndOfStream, anyio.BrokenResourceError,
+                anyio.ClosedResourceError):
+            pass
+        except ProtocolError:
+            logger.warning("closing the connection to %s", self.path,
+                           exc_info=True)
+        link.scope.cancel()
+
+    async def _run(self, link: _Link, interval: float, *,
+                   task_status: anyio.abc.TaskStatus[None]
+                   = anyio.TASK_STATUS_IGNORED) -> None:
+        """The link's tasks, under its one scope. Wakes every call
+        still waiting when they end, and closes the socket.
+
+        Started with `tg.start`, so the `finally` is entered before
+        `bind` returns: a task cancelled before its first step would
+        skip it and leak the socket."""
+        async def ping() -> None:
+            with link.pinger:
+                await self._ping_loop(link, interval)
+
+        try:
+            task_status.started()
+            with link.scope:
+                async with anyio.create_task_group() as tasks:
+                    tasks.start_soon(self._read, link, tasks)
+                    tasks.start_soon(ping)
+        finally:
+            link.closed = True
+            for pending in link.pending.values():
+                pending.done.set()
+            with anyio.CancelScope(shield=True):
+                await link.channel.aclose()
 
     # -- connection lifecycle -----------------------------------------
     async def __aenter__(self) -> NixClient:
@@ -345,34 +388,30 @@ class NixClient:
         the fixture and the test do not share a task. Measured, not
         assumed: the probe failed at teardown with an exception
         group."""
-        self._tasks = anyio.create_task_group()
-        await self._tasks.__aenter__()
+        self._tasks = await self._exit.enter_async_context(
+            anyio.create_task_group())
+        # Runs first on exit: a link's tasks never return on their
+        # own, and the group waits for them.
+        self._exit.callback(self._close)
         return self
 
     async def __aexit__(self, *exc: Any) -> bool | None:
-        """Stop the ping loop and the reader, and close the scope.
-
-        Both are cancelled BEFORE the group is exited, because a task
-        group waits for its children and neither returns on its own."""
-        self.stop_pinging()
-        self._close()
-        tasks, self._tasks = self._tasks, None
-        return await tasks.__aexit__(*exc)  # type: ignore[no-any-return]
+        try:
+            return await self._exit.__aexit__(*exc)
+        finally:
+            self._tasks = None
 
     def _close(self) -> None:
-        if self._reader is not None:
-            self._reader.cancel()
-            self._reader = None
-        for scope in self._answering.values():
-            scope.cancel()
+        if self._link is not None:
+            self._link.scope.cancel()
 
     async def bind(self, claim_token: str | None = None) -> str:
         """Connect and take a connection identity. A detached session's
         token as `claim_token` claims its escrowed handles. The server
         reports its lease TTL so pings can keep pace with it.
 
-        A second bind opens a new connection, with a new token unless
-        it claims one."""
+        A second bind ends the first connection and opens a new one,
+        with a new token unless it claims one."""
         if self._tasks is None:
             raise RuntimeError(
                 "this client is not open. A ping loop is a task and a "
@@ -380,7 +419,6 @@ class NixClient:
                 "and `bind` starts the loop inside it. Use "
                 "`async with remote.connect(path) as client:` - or "
                 "`async with NixClient(path)` if you are binding by hand.")
-        self.stop_pinging()
         self._close()
         stream = await anyio.connect_unix(self.path)
         channel = Channel(stream)
@@ -398,35 +436,14 @@ class NixClient:
             with anyio.CancelScope(shield=True):
                 await channel.aclose()
             raise
-        self.channel, self.token, self._expired = channel, token, False
-        self._reader = await self._tasks.start(self._read, channel)
+        self._link = _Link(channel, token)
         interval = max(0.5, min(ttl / 4, 15)) if ttl > 0 else 10.0
-        # `start`, not `start_soon`: it waits for the loop to report
-        # its own cancel scope, so `stop_pinging` can never find
-        # nothing to cancel.
-        self._pinger = await self._tasks.start(self._ping_loop, interval)
+        await self._tasks.start(self._run, self._link, interval)
         return token
 
-    async def _ping_loop(
-            self, interval: float = 10.0, *,
-            task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
-        """The loop, wrapped in the scope that stops it.
-
-        `bind` starts this with `tg.start`, which waits for
-        `task_status.started` and hands the scope back - so
-        `stop_pinging` always has something to cancel.
-
-        Awaiting it DIRECTLY also works, and a test does: the default
-        `TASK_STATUS_IGNORED` swallows the report, and the scope is
-        then entered and left by the awaiting task, which is what
-        anyio requires. `_ping_forever` is the body split out so that
-        call reads as one iteration of the real loop rather than as a
-        task."""
-        with anyio.CancelScope() as scope:
-            task_status.started(scope)
-            await self._ping_forever(interval)
-
-    async def _ping_forever(self, interval: float) -> None:
+    async def _ping_loop(self, link: _Link, interval: float) -> None:
+        """Keep `link` alive until it is swept or lost. A test awaits
+        it directly, after `stop_pinging`, as one turn of the loop."""
         while True:
             await anyio.sleep(interval)
             try:
@@ -437,10 +454,10 @@ class NixClient:
                     # call raises ConnectionExpired rather than
                     # failing later as "unknown handle" on something
                     # unrelated (nixidae/nixidae#586).
-                    self._expired = True
+                    link.expired = True
                     logger.warning(
                         "connection %r was swept by the server; its handles "
-                        "are gone. Call bind() and re-acquire.", self.token)
+                        "are gone. Call bind() and re-acquire.", link.token)
                     return
                 # The ping loop is the flush's home: it already runs on
                 # the event loop on a timer, which is exactly what a
@@ -461,14 +478,11 @@ class NixClient:
     def stop_pinging(self) -> None:
         """Stop the ping loop, without closing the client.
 
-        SYNCHRONOUS, because cancelling a scope is. A caller that just
-        wants the client gone uses `async with` and never calls this;
-        it stays for a test that needs the loop stopped mid-body, and
-        for `__aexit__`, which has to stop the loop before the group
-        waits for it."""
-        if self._pinger is not None:
-            self._pinger.cancel()
-            self._pinger = None
+        A caller that wants the client gone uses `async with` and never
+        calls this. It stays for a test that needs the connection to go
+        silent mid-body, so the server sweeps it."""
+        if self._link is not None:
+            self._link.pinger.cancel()
 
     async def alive(self) -> bool:
         """Whether the server still knows this connection.
@@ -513,7 +527,7 @@ class NixClient:
             self._objects[n] = (cls, obj)
         return n
 
-    async def _call_back(self, channel: Channel, n: int, client_id: int,
+    async def _call_back(self, link: _Link, n: int, client_id: int,
                          name: str, raw: list[Any]) -> None:
         """Answer one CALLBACK with its REPLY or REFUSE. In its own task,
         so the reader keeps reading. An async method (`AsyncSourceAccessor`)
@@ -521,11 +535,12 @@ class NixClient:
         as a binding object, runs on the loop and blocks it while it
         runs (nixidae/nixidae#740)."""
         with anyio.CancelScope() as scope:
-            self._answering[n] = scope
+            link.answering[n] = scope
             try:
-                await self._answer_callback(channel, n, client_id, name, raw)
+                await self._answer_callback(link.channel, n, client_id,
+                                            name, raw)
             finally:
-                self._answering.pop(n, None)
+                link.answering.pop(n, None)
 
     async def _answer_callback(self, channel: Channel, n: int,
                                client_id: int, name: str,

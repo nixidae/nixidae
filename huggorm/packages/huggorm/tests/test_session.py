@@ -160,7 +160,7 @@ async def test_remote_swept_connection_reports(ttl_server: Any) -> None:
         session._client.stop_pinging()
         await anyio.sleep(SHORT_TTL * 1.5 + 1.0)
         with anyio.fail_after(5):
-            await session._client._ping_loop(0.01)
+            await session._client._ping_loop(session._client._link, 0.01)
         with pytest.raises(ConnectionExpired):
             await store.get_uri()
         await session.aclose()
