@@ -1189,6 +1189,87 @@ let
       };
 
     /*
+      eBGP between RouterOS and FRR. Each announces its LAN, and a host on
+      one LAN reaches a host on the other only through the routes BGP
+      gave the routers: two hops.
+    */
+    routeros-bgp =
+      let
+        host = segment: address: gateway: other: {
+          vivarium.interfaces.${segment} = {
+            inherit segment;
+            addresses = [ "${address}/24" ];
+          };
+          networking.interfaces.${segment}.ipv4.routes = [
+            {
+              address = other;
+              prefixLength = 24;
+              via = gateway;
+            }
+          ];
+        };
+      in
+      mkTest {
+        name = "routeros-bgp";
+        backend = "qemu";
+        nodes.r1 = {
+          vivarium.interfaces = {
+            core = {
+              segment = "core";
+              addresses = [ "10.0.0.1/30" ];
+            };
+            west = {
+              segment = "west";
+              addresses = [ "10.1.0.1/24" ];
+            };
+          };
+          vivarium.routeros = images.routeros-chr // {
+            config = ''
+              /ip firewall address-list add list=bgp-out address=10.1.0.0/24
+              /routing bgp instance add name=r1 as=65001 router-id=10.0.0.1
+              /routing bgp connection add name=f1 instance=r1 local.role=ebgp remote.address=10.0.0.2 remote.as=65002 output.network=bgp-out hold-time=3s keepalive-time=1s
+            '';
+          };
+        };
+        nodes.f1 = {
+          vivarium.interfaces = {
+            core = {
+              segment = "core";
+              addresses = [ "10.0.0.2/30" ];
+            };
+            east = {
+              segment = "east";
+              addresses = [ "10.2.0.1/24" ];
+            };
+          };
+          boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
+          networking.firewall.allowedTCPPorts = [ 179 ];
+          services.frr = {
+            bgpd.enable = true;
+            config = ''
+              frr defaults traditional
+              router bgp 65002
+               bgp router-id 10.0.0.2
+               no bgp ebgp-requires-policy
+               neighbor 10.0.0.1 remote-as 65001
+               neighbor 10.0.0.1 timers 1 3
+               neighbor 10.0.0.1 timers connect 1
+               address-family ipv4 unicast
+                network 10.2.0.0/24
+               exit-address-family
+              exit
+            '';
+          };
+        };
+        nodes.a = host "west" "10.1.0.2" "10.1.0.1" "10.2.0.0";
+        nodes.b = host "east" "10.2.0.2" "10.2.0.1" "10.1.0.0";
+        phases.bgp = {
+          script = ./tests/phases/routeros-bgp.py;
+          after = [ "boot" ];
+        };
+      };
+
+    /*
       Can an unprivileged, read-only reader open the guest's Nix
       database, as on a running host? harmonia's cache is one.
     */
