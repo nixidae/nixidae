@@ -77,6 +77,14 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    vyos-uml = {
+      # VyOS's own squashfs on the UML kernel: the kernel's squashfs,
+      # initrd and the netfilter options VyOS's boot asks for only
+      # matter here. 42 s once built.
+      description = "VyOS boots from its ISO's squashfs and applies config.boot";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
