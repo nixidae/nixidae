@@ -19,6 +19,7 @@ import asyncio
 import collections
 import contextlib
 import json
+import math
 import os
 import re
 import shlex
@@ -29,6 +30,9 @@ import subprocess as sync_subprocess
 import sys
 import tempfile
 import time
+# asyncio's subprocess, kept on purpose: its StreamReader gives the console
+# pump a readline that anyio's process stdout has no equivalent for. It runs
+# under anyio's asyncio backend unchanged.
 from asyncio import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -327,8 +331,15 @@ class Machine:
 
         self._rundir: Path | None = None
         self._process: subprocess.Process | None = None
-        self._monitor: asyncio.Task | None = None
-        self._console: asyncio.Queue[str] = asyncio.Queue()
+        # The console pump runs for this guest's whole life, across the
+        # separate boot/run/teardown calls that drive a session (even across
+        # processes, over the control socket) -- a span anyio's scoped task
+        # groups cannot own, so it is a held task, cancelled in shutdown().
+        # The agent's serve loop is the same kind of task, owned by arpyc.
+        self._monitor: asyncio.Task[None] | None = None
+        self._console_send, self._console_recv = anyio.create_memory_object_stream[str](
+            math.inf
+        )
         self._history: collections.deque[str] = collections.deque(
             maxlen=_CONSOLE_HISTORY
         )
@@ -483,14 +494,11 @@ class Machine:
             if appliance
             else re.compile(re.escape(AGENT_READY))
         )
-        loop = asyncio.get_running_loop()
-        started = loop.time()
+        started = time.monotonic()
         try:
-            await asyncio.wait_for(
-                self._wait_for_line(ready),
-                timeout=self.boot_timeout,
-            )
-            elapsed = loop.time() - started
+            with anyio.fail_after(self.boot_timeout):
+                await self._wait_for_line(ready)
+            elapsed = time.monotonic() - started
             self._log(f"up in {elapsed:.1f}s")
             self.recorder.booted(
                 self.name,
@@ -501,7 +509,7 @@ class Machine:
                     "memory": self.spec.memory,
                 },
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise MachineError(
                 f"[{self.name}] "
                 + (f"console never matched {appliance['ready']!r}" if appliance else "agent did not come up")
@@ -580,8 +588,11 @@ class Machine:
         await self._stop_process()
         # A second boot must not match the first boot's ready line.
         self._history.clear()
-        while not self._console.empty():
-            self._console.get_nowait()
+        while True:
+            try:
+                self._console_recv.receive_nowait()
+            except anyio.WouldBlock:
+                break
         self._process = None
         self.lan_fds = dict(self._lan_kept)
         await self._boot(boot)
@@ -655,8 +666,9 @@ class Machine:
             # agent down before it answers.
             asked = True
             try:
-                await asyncio.wait_for(self.execute("systemctl poweroff"), timeout=15)
-            except (MachineError, OSError, EOFError, asyncio.TimeoutError):
+                with anyio.fail_after(15):
+                    await self.execute("systemctl poweroff")
+            except (MachineError, OSError, EOFError, TimeoutError):
                 pass
             self._conn.close()
             self._conn = None
@@ -701,10 +713,8 @@ class Machine:
 
         if self._monitor is not None:
             self._monitor.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor
-            except asyncio.CancelledError:
-                pass
             self._monitor = None
 
         if self._memory is not None:
@@ -731,16 +741,18 @@ class Machine:
         # QEMU guest was SIGTERMed right after the request.
         if grace:
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=grace)
+                with anyio.fail_after(grace):
+                    await self._process.wait()
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
         for sig, wait in ((signal.SIGTERM, 30), (signal.SIGKILL, 5)):
             self._signal(sig)
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=wait)
+                with anyio.fail_after(wait):
+                    await self._process.wait()
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
         self._log("process would not die")
 
@@ -791,7 +803,7 @@ class Machine:
         for _ in range(50):
             if not self.alive():
                 return
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
         raise MachineError(f"[{self.name}] pid {pid} survived SIGKILL")
 
     async def wait(self, timeout: float | None = 90) -> int:
@@ -799,8 +811,9 @@ class Machine:
         if self._process is None:
             raise MachineError(f"[{self.name}] not started")
         try:
-            await asyncio.wait_for(self._process.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+            with anyio.fail_after(timeout):
+                await self._process.wait()
+        except TimeoutError:
             self._signal(signal.SIGTERM)
             return -1
         return self._process.returncode or 0
@@ -834,7 +847,7 @@ class Machine:
                 continue
             self._log(line)
             self._history.append(line)
-            self._console.put_nowait(line)
+            self._console_send.send_nowait(line)
 
     async def _wait_for_line(self, pattern: re.Pattern) -> str:
         """Match *pattern* against console output, past or future."""
@@ -843,8 +856,9 @@ class Machine:
                 return line
         while True:
             try:
-                line = await asyncio.wait_for(self._console.get(), timeout=0.5)
-            except asyncio.TimeoutError:
+                with anyio.fail_after(0.5):
+                    line = await self._console_recv.receive()
+            except TimeoutError:
                 if self._process is not None and self._process.returncode is not None:
                     raise MachineError(
                         f"[{self.name}] guest exited while waiting for "
@@ -858,10 +872,8 @@ class Machine:
         self, pattern: str, timeout: float | None = None
     ) -> str:
         """Wait for a regex to appear on the guest's console."""
-        return await asyncio.wait_for(
-            self._wait_for_line(re.compile(pattern)),
-            timeout=timeout or self.command_timeout,
-        )
+        with anyio.fail_after(timeout or self.command_timeout):
+            return await self._wait_for_line(re.compile(pattern))
 
     # ── commands ───────────────────────────────────────────────────
 
@@ -904,11 +916,12 @@ class Machine:
         started = time.monotonic()
         data: dict[str, Any] = {}
         try:
-            result = await asyncio.wait_for(call, timeout=timeout)
+            with anyio.fail_after(timeout):
+                result = await call
             if outcome is not None:
                 data = outcome(result)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             data = {"error": "the guest stopped answering"}
             raise MachineError(
                 f"[{self.name}] guest stopped answering during: {what}\n"
@@ -1415,22 +1428,21 @@ class Machine:
         a screenshot of it, because OCR misreads and the reason is usually
         visible in what it read instead.
         """
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+        deadline = time.monotonic() + timeout
         with self.recorder.waiting(self.name, f"text {pattern!s}"):
             while True:
                 screens = await self.read_screen()
                 for screen in screens:
                     if found := screen.find(pattern):
                         return found[0]
-                if loop.time() > deadline:
+                if time.monotonic() > deadline:
                     shot = await self.screenshot()
                     read = "\n---\n".join(screen.text for screen in screens)
                     raise MachineError(
                         f"[{self.name}] timed out waiting for {pattern!s} on the screen "
                         f"({shot}); OCR read:\n{read}"
                     )
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
 
     async def send_key(self, *keys: str, delay: float = 0.01) -> None:
         """Press and release each of *keys* in turn.
@@ -1440,7 +1452,7 @@ class Machine:
         """
         for key in keys:
             await self._qmp(lambda monitor: monitor.sendkey(key))
-            await asyncio.sleep(delay)
+            await anyio.sleep(delay)
 
     async def send_chars(self, text: str, delay: float = 0.01) -> None:
         r"""Type *text* on a US layout; ``"\n"`` is Enter."""
@@ -1469,7 +1481,7 @@ class Machine:
         for _ in range(count):
             await self.press(button)
             await self.release(button)
-            await asyncio.sleep(0.05)
+            await anyio.sleep(0.05)
 
     async def drag(
         self,
@@ -1486,7 +1498,7 @@ class Machine:
                 round(start[0] + (end[0] - start[0]) * step / steps),
                 round(start[1] + (end[1] - start[1]) * step / steps),
             )
-            await asyncio.sleep(0.01)
+            await anyio.sleep(0.01)
         await self.release(button)
 
     async def scroll(self, x: int, y: int, clicks: int) -> None:
@@ -1527,7 +1539,7 @@ class Machine:
             await self._wait_for_unit(unit, timeout)
 
     async def _wait_for_unit(self, unit: str, timeout: float) -> None:
-        deadline = asyncio.get_running_loop().time() + timeout
+        deadline = time.monotonic() + timeout
         while True:
             state = await self.unit_state(unit)
             if state == "active":
@@ -1537,7 +1549,7 @@ class Machine:
                     f"[{self.name}] unit {unit} failed:\n"
                     f"{await self.journal(unit)}"
                 )
-            if asyncio.get_running_loop().time() > deadline:
+            if time.monotonic() > deadline:
                 # With the journal, like the `failed` branch above: an
                 # `inactive` unit says only that nothing happened, and why
                 # is in the log of whatever was to pull it in.
@@ -1545,7 +1557,7 @@ class Machine:
                     f"[{self.name}] timed out waiting for unit {unit} "
                     f"(state: {state})\n{await self.journal(unit)}"
                 )
-            await asyncio.sleep(0.5)
+            await anyio.sleep(0.5)
 
     async def wait_until_succeeds(
         self, command: str, timeout: float = 120, poll: float = 1.0

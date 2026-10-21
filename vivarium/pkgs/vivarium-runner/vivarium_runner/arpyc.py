@@ -23,6 +23,7 @@ import tty
 import zlib
 from typing import Any
 
+import anyio
 from rpyc.core import brine, consts, vinegar
 
 HANDLE_METHOD = 100
@@ -66,6 +67,12 @@ class Service:
 
 class FdStream:
     """Async byte stream over a bidirectional fd.
+
+    This is the one part that stays on asyncio, deliberately: anyio has no
+    async stream over a raw fd (a socketpair end, ``/dev/ttyS0``), and
+    ``StreamReader`` fed from ``loop.add_reader`` with ``readexactly`` is
+    the idiomatic way to frame one. It runs under anyio's asyncio backend
+    unchanged.
 
     Reads are fed into a ``StreamReader`` from the event loop's reader
     callback; writes go straight to ``os.write`` (rpyc frames are small
@@ -181,6 +188,18 @@ class _RemoteRoot:
         return _RemoteMethod(self._conn, name)
 
 
+class _Pending:
+    """One in-flight call, waiting for its reply. anyio's answer to a
+    Future: the serve task fills `result` or `exc` and sets the event."""
+
+    __slots__ = ("event", "result", "exc")
+
+    def __init__(self) -> None:
+        self.event = anyio.Event()
+        self.result: Any = None
+        self.exc: BaseException | None = None
+
+
 class AsyncConnection:
     """A symmetric arpyc endpoint: serves *service* and calls the peer's."""
 
@@ -188,9 +207,9 @@ class AsyncConnection:
         self._channel = channel
         self._service = service
         self._seq = 0
-        self._pending: dict[int, asyncio.Future] = {}
+        self._pending: dict[int, _Pending] = {}
         self._closed = False
-        self._serving: asyncio.Task | None = None
+        self._serving: asyncio.Task[None] | None = None
         self.root = _RemoteRoot(self)
         service.on_connect(self)
 
@@ -248,13 +267,14 @@ class AsyncConnection:
             await self._dispatch(seq, args)
             return
 
-        fut = self._pending.pop(seq, None)
-        if fut is None or fut.done():
+        pending = self._pending.pop(seq, None)
+        if pending is None or pending.event.is_set():
             return
         if msg == consts.MSG_REPLY:
-            fut.set_result(self._unbox(args))
+            pending.result = self._unbox(args)
         elif msg == consts.MSG_EXCEPTION:
-            fut.set_exception(_load_exc(args))
+            pending.exc = _load_exc(args)
+        pending.event.set()
 
     async def serve_forever(self) -> None:
         """Serve until the peer goes away."""
@@ -267,9 +287,16 @@ class AsyncConnection:
             self.close()
 
     def start_serving(self) -> None:
-        """Serve in the background, for a side that mostly calls out."""
+        """Serve in the background, for a side that mostly calls out.
+
+        A held task on the backend loop, not an anyio task group: the
+        connection outlives the call that made it (a session is driven
+        across separate boot/run/teardown calls), which anyio's scoped
+        groups cannot own. It ends on its own when the channel closes.
+        Started here, not left to the caller, so a `call` never waits on a
+        reply loop that is not running yet.
+        """
         if self._serving is None:
-            # Kept on the connection: a bare task may be collected.
             self._serving = asyncio.ensure_future(self.serve_forever())
 
     # ── calling ────────────────────────────────────────────────────
@@ -278,11 +305,14 @@ class AsyncConnection:
         """Invoke ``exposed_<method>`` on the peer and await its result."""
         seq = self._seq
         self._seq += 1
-        fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._pending[seq] = fut
+        pending = _Pending()
+        self._pending[seq] = pending
         boxed = self._box((method, args, tuple(kwargs.items())))
         await self._send(consts.MSG_REQUEST, seq, (HANDLE_METHOD, boxed))
-        return await fut
+        await pending.event.wait()
+        if pending.exc is not None:
+            raise pending.exc
+        return pending.result
 
     # ── lifecycle ──────────────────────────────────────────────────
 
@@ -291,9 +321,10 @@ class AsyncConnection:
             return
         self._closed = True
         self._service.on_disconnect(self)
-        for fut in self._pending.values():
-            if not fut.done():
-                fut.set_exception(EOFError("arpyc connection closed"))
+        for pending in self._pending.values():
+            if not pending.event.is_set():
+                pending.exc = EOFError("arpyc connection closed")
+                pending.event.set()
         self._pending.clear()
         self._channel.close()
 
