@@ -1,0 +1,103 @@
+[1;1H[H[JcMikroTik 7.24.5 (stable)
+CHR Login: admin+c512w9999h
+Password: 
+[9999B[9999BZ  [6n
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  MMM      MMM       KKK                          TTTTTTTTTTT      KKK
+  MMMM    MMMM       KKK                          TTTTTTTTTTT      KKK
+  MMM MMMM MMM  III  KKK  KKK  RRRRRR     OOOOOO      TTT     III  KKK  KKK
+  MMM  MM  MMM  III  KKKKK     RRR  RRR  OOO  OOO     TTT     III  KKKKK
+  MMM      MMM  III  KKK KKK   RRRRRR    OOO  OOO     TTT     III  KKK KKK
+  MMM      MMM  III  KKK  KKK  RRR  RRR   OOOOOO      TTT     III  KKK  KKK
+
+  MikroTik RouterOS 7.24.5 (c) 1999-2026       https://www.mikrotik.com/
+
+
+
+Do you want to see the software license? [Y/n]: n
+
+Press F1 for help
+
+
+
+Change your password (Ctrl-C to skip)
+**************                                                                 new password> ********new password> ********
+*********************                                                          repeat new password> ********repeat new password> ********
+
+Password changed
+[admin@CHR] >                                                                  [admin@CHR] > :put [/system resource get version][admin@CHR] > :put [/system resource get version]
+7.24.5 (stable)
+[admin@CHR] >                                                                  [admin@CHR] > :put "A-B"; :do { [:parse "/bogus"] } on-error={ :put "A-E" }; :p[admin@CHR] > :put "A-B"; :do { [:parse "/bogus"] } on-error={ :put "A-E" }; :><"/bogus"] } on-error={ :put "A-E" }; :pu                                      <"/bogus"] } on-error={ :put "A-E" }; :put "A-D"<"/bogus"] } on-error={ :put "A-E" }; :put "A-D"
+A-B
+A-E
+A-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "B-B"; :do { [[:parse "/bogus"]] } on-error={ :put "B-E" }; [admin@CHR] > :put "B-B"; :do { [[:parse "/bogus"]] } on-error={ :put "B-E" };>< "/bogus"]] } on-error={ :put "B-E" }; :                                      < "/bogus"]] } on-error={ :put "B-E" }; :put "B-D"< "/bogus"]] } on-error={ :put "B-E" }; :put "B-D"
+B-B
+B-E
+B-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "C-B"; :do { [[:parse "/ip address print"]] } on-error={ :pu[admin@CHR] > :put "C-B"; :do { [[:parse "/ip address print"]] } on-error={ :p>< "/ip address print"]] } on-error={ :put                                      < "/ip address print"]] } on-error={ :put "C-E" }; :put "C-D"< "/ip address print"]] } on-error={ :put "C-E" }; :put "C-D"
+C-B
+Flags: D - DYNAMIC
+Columns: ADDRESS, NETWORK, INTERFACE, VRF
+#   ADDRESS       NETWORK   INTERFACE  VRF 
+0 D 10.0.2.15/24  10.0.2.0  ether1     main
+C-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "D-B"; :do { :local c [:parse "/ip address print"]; $c } on-[admin@CHR] > :put "D-B"; :do { :local c [:parse "/ip address print"]; $c } on>< [:parse "/ip address print"]; $c } on-e                                      < [:parse "/ip address print"]; $c } on-error={ :put "D-E" }; :put "D-D"< [:parse "/ip address print"]; $c } on-error={ :put "D-E" }; :put "D-D"
+D-B
+Flags: D - DYNAMIC
+Columns: ADDRESS, NETWORK, INTERFACE, VRF
+#   ADDRESS       NETWORK   INTERFACE  VRF 
+0 D 10.0.2.15/24  10.0.2.0  ether1     main
+D-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "E-B"; :do { [[:parse "/interface set nosuch mtu=1400"]] } o[admin@CHR] > :put "E-B"; :do { [[:parse "/interface set nosuch mtu=1400"]] } >< "/interface set nosuch mtu=1400"]] } on                                      < "/interface set nosuch mtu=1400"]] } on-error={ :put "E-E" }; :put "E-D"< "/interface set nosuch mtu=1400"]] } on-error={ :put "E-E" }; :put "E-D"
+E-B
+E-E
+E-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "F-B"; :do { [[:parse "/ip address add address=bad interface[admin@CHR] > :put "F-B"; :do { [[:parse "/ip address add address=bad interfac>< "/ip address add address=bad interface=                                      < "/ip address add address=bad interface=ether2"]] } on-error={ :put "F-E" }; :< "/ip address add address=bad interface=ether2"]] } on-error={ :put "F-E" }; ><=ether2"]] } on-error={ :put "F-E" }; :p                                      <=ether2"]] } on-error={ :put "F-E" }; :put "F-D"<=ether2"]] } on-error={ :put "F-E" }; :put "F-D"
+F-B
+F-E
+F-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "G-B"; :do { [[:parse "/ip address add address=10.9.0.1/24 i[admin@CHR] > :put "G-B"; :do { [[:parse "/ip address add address=10.9.0.1/24 >< "/ip address add address=10.9.0.1/24 in                                      < "/ip address add address=10.9.0.1/24 interface=ether2"]] } on-error={ :put "G< "/ip address add address=10.9.0.1/24 interface=ether2"]] } on-error={ :put "><nterface=ether2"]] } on-error={ :put "G-                                      <nterface=ether2"]] } on-error={ :put "G-E" }; :put "G-D"<nterface=ether2"]] } on-error={ :put "G-E" }; :put "G-D"
+G-B
+G-D
+[admin@CHR] >                                                                  [admin@CHR] > :put "H-B"; :do { [[:parse "/system identity set name=\"r one\""][admin@CHR] > :put "H-B"; :do { [[:parse "/system identity set name=\"r one\"">< "/system identity set name=\"r one\""]]                                      < "/system identity set name=\"r one\""]] } on-error={ :put "H-E" }; :put "H-D"< "/system identity set name=\"r one\""]] } on-error={ :put "H-E" }; :put "H-D"
+H-B
+H-D
+[admin@r one] >                                                                [admin@r one] > /interface print[admin@r one] > /interface print
+Flags: R - RUNNING
+Columns: NAME, TYPE, ACTUAL-MTU, MAC-ADDRESS
+#   NAME    TYPE      ACTUAL-MTU  MAC-ADDRESS      
+0 R ether1  ether           1500  52:54:00:12:34:56
+1 R ether2  ether           1500  52:54:00:12:34:57
+2 R lo      loopback       65536  00:00:00:00:00:00
+[admin@r one] >                                                                [admin@r one] > /disk print terse[admin@r one] > /disk print terse
+0 B comment=mount failed: Permission denied type=hardware slot=pcie1 slot-default
+=pcie1 parent= fs-label=VIVCFG fs-uuid=f0ba91d8-b57a-4151-9f68-81b16e839c97 fs=e
+xt4 model=virtio serial=vdb size=8 388 608 mount-filesystem=yes mount-read-only=
+no compress=no sector-size=512 interface=PCIe smb-sharing=no media-sharing=no me
+dia-interface=none swap=no
+
+[admin@r one] > 
