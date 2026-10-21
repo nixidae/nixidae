@@ -255,16 +255,24 @@ async def test_local_capture_collects_evaluation_logs() -> None:
     assert caught.dropped == 0
 
 
-async def test_forward_hands_over_the_tail() -> None:
+async def test_forward_hands_over_the_tail(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """The record raised last still reaches the callback.
 
-    The poll is an hour, so no drain runs while the block does: the
+    The pump never wakes, so no drain runs while the block does: the
     only way the trace arrives is the drain on the way out, which a
     `logs()` consumer cannot have once it stops iterating."""
+    from huggorm.logbus import Reader
+
+    async def never(self: Reader) -> list[Any]:
+        await anyio.sleep_forever()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(Reader, "next", never)
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         seen: list[str] = []
-        async with session.forward(state, lambda r: seen.append(r.text()), poll=3600):
+        async with session.forward(state, lambda r: seen.append(r.text())):
             await state.eval_expr(TRACE % "the-tail")
     assert any("trace: the-tail" in s for s in seen), seen
 
@@ -311,7 +319,7 @@ async def test_a_nested_capture_silences_no_outer_reader() -> None:
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         seen: list[str] = []
-        outer = session.logs(state, poll=0.01)
+        outer = session.logs(state)
         assert await anext(outer) == ([], 0)
 
         async def read_until(text: str) -> None:

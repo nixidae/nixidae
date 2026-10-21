@@ -116,7 +116,6 @@ class AsyncSessionLike(Protocol):
         state: AsyncEvalState,
         capacity: int = LOG_CAPACITY,
         level: int = LOG_LEVEL,
-        poll: float = 0.05,
     ) -> AsyncGenerator[LogBatch]:
         """Records raised on this state's thread, as they arrive."""
         ...
@@ -182,16 +181,13 @@ class AsyncSession:
         state: AsyncEvalState,
         capacity: int = LOG_CAPACITY,
         level: int = LOG_LEVEL,
-        poll: float = 0.05,
     ) -> AsyncGenerator[LogBatch]:
         """Records raised on this state's thread, as they arrive.
 
-        Polls the subscription's queue: a drain never blocks, so
-        there is nothing to wait on, only a queue to re-read.
         `capacity` and `level` mean what `subscribe_logs` says.
         The FIRST batch is empty and says the subscription is
         installed, as on the remote stream: start the work after
-        reading it. After that, empty polls yield nothing.
+        reading it. Every batch after it holds at least one record.
 
         Any state's records read here, not only one this session
         made. Watching creates no lease, so there is nothing to own.
@@ -203,10 +199,8 @@ class AsyncSession:
         try:
             yield ([], await reader.dropped())
             while True:
-                records = await reader.drain()
-                if records:
-                    yield (records, await reader.dropped())
-                await anyio.sleep(poll)
+                records = await reader.next()
+                yield (records, await reader.dropped())
         finally:
             # Shielded: a cancelled consumer is the usual way out of
             # this loop, and anyio re-delivers the cancel at each await
@@ -222,7 +216,6 @@ class AsyncSession:
         callback: Callable[[LogRecord], None],
         capacity: int = LOG_CAPACITY,
         level: int = LOG_LEVEL,
-        poll: float = 0.05,
     ) -> AsyncIterator[None]:
         """Hand each record this state raises to `callback`, while the
         block runs.
@@ -233,7 +226,7 @@ class AsyncSession:
         generator yields nothing more, and the record lost is the one
         raised last - often the warning a caller most needs.
 
-        `callback` runs on the event loop, between polls, and must not
+        `callback` runs on the event loop, between batches, and must not
         block. An error in the block reaches the caller as itself, not
         wrapped in the task group's `ExceptionGroup`.
         """
@@ -241,9 +234,8 @@ class AsyncSession:
 
         async def pump() -> None:
             while True:
-                for record in await reader.drain():
+                for record in await reader.next():
                     callback(record)
-                await anyio.sleep(poll)
 
         failure: Exception | None = None
         try:

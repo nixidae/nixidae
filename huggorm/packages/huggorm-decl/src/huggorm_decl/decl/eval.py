@@ -1226,6 +1226,12 @@ class LogStream:
         number grow. A reader wanting the per-drain figure
         subtracts."""
 
+    def fileno(self) -> I64:
+        """An fd that is readable while records wait.
+
+        Wait on it, then `drain`. The queue owns it: never close it,
+        and stop waiting before the queue goes."""
+
     def close(self) -> None:
         """Stop recording and let go of what is waiting.
 

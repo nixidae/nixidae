@@ -16,6 +16,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstdint>
@@ -27,10 +28,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <variant>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "huggorm_bindings/path_records.hpp"
 #include "huggorm_decl/cpp/error_info.hpp"
@@ -152,6 +157,13 @@ struct LogRecord
  * of them owns it. Keeping both hid a gate: removing the tap's test
  * left `test_the_same_work_at_the_default_says_nothing` PASSING,
  * because this filter caught what the tap let through.
+ *
+ * A reader WAITS on `fileno()`, the read end of a pipe. `push` writes
+ * one byte when the queue stops being empty, and `drain` reads the
+ * pipe dry, so the fd is readable exactly while records wait. One
+ * byte per wake and not one per record: the push path runs inside
+ * evaluation. A pipe and not an eventfd, because eventfd is Linux
+ * only.
  */
 class LogQueue
 {
@@ -159,10 +171,31 @@ public:
     explicit LogQueue(std::size_t capacity)
         : capacity_(capacity)
     {
+        int fds[2];
+        if (::pipe(fds) != 0)
+            throw std::system_error(errno, std::generic_category(), "pipe");
+        for (int fd : fds) {
+            ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL) | O_NONBLOCK);
+            ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+        }
+        wake_read_ = fds[0];
+        wake_write_ = fds[1];
+    }
+
+    ~LogQueue()
+    {
+        ::close(wake_read_);
+        ::close(wake_write_);
     }
 
     LogQueue(const LogQueue &) = delete;
     LogQueue & operator=(const LogQueue &) = delete;
+
+    /** Readable while records wait. The queue owns it. */
+    int64_t fileno() const
+    {
+        return wake_read_;
+    }
 
     /** Any thread. Never touches Python. */
     void push(LogRecord && r)
@@ -176,6 +209,13 @@ public:
             return;
         }
         records_.push_back(std::move(r));
+        if (!signalled_) {
+            signalled_ = true;
+            const char byte = 0;
+            // At most one byte is ever in the pipe, so this cannot fail
+            // for want of room.
+            (void) !::write(wake_write_, &byte, 1);
+        }
     }
 
     /** Everything waiting, and the queue is empty afterwards. */
@@ -186,6 +226,12 @@ public:
             std::make_move_iterator(records_.begin()),
             std::make_move_iterator(records_.end()));
         records_.clear();
+        if (signalled_) {
+            char sink[64];
+            while (::read(wake_read_, sink, sizeof sink) > 0) {
+            }
+            signalled_ = false;
+        }
         return out;
     }
 
@@ -216,6 +262,10 @@ private:
     std::size_t capacity_;
     uint64_t dropped_ = 0;
     bool open_ = true;
+    int wake_read_ = -1;
+    int wake_write_ = -1;
+    // A byte is in the pipe. Under `mutex_`.
+    bool signalled_ = false;
 };
 
 /**
