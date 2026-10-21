@@ -234,7 +234,7 @@ class Peer:
         self._ids = itertools.count(1)
         self._waiting: dict[int, _Waiting] = {}
         self._answering: dict[int, anyio.CancelScope] = {}
-        self._closed = False
+        self.closed = anyio.Event()
 
     async def ask(self, op: Op, *body: Any) -> Any:
         """Send one request and answer the value of its RESULT, or
@@ -243,7 +243,7 @@ class Peer:
         An asker that stops waiting for any reason sends CANCEL, so
         the other end stops work nobody will read. The answer may still
         arrive, and `deliver` drops it."""
-        if self._closed:
+        if self.closed.is_set():
             raise ConnectionLost("the connection is closed")
         n = next(self._ids)
         waiting = self._waiting[n] = _Waiting()
@@ -319,7 +319,7 @@ class Peer:
 
         In this order: an answer can be a thread that waits on one of
         this end's requests, and it ends only once that request fails."""
-        self._closed = True
+        self.closed.set()
         for waiting in self._waiting.values():
             waiting.done.set()
         for scope in self._answering.values():

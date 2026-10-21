@@ -178,6 +178,18 @@ async def test_an_answer_reaches_its_asker(
 
 
 @pytest.mark.anyio
+async def test_a_closed_peer_says_so_and_refuses_to_ask(
+        pair: tuple[Channel, Channel]) -> None:
+    peer = Peer(pair[0], Faults())
+    assert not peer.closed.is_set()
+    peer.close()
+    with anyio.fail_after(1):
+        await peer.closed.wait()
+    with pytest.raises(ConnectionLost):
+        await peer.ask(Op.CONTROL, Control.PING, [])
+
+
+@pytest.mark.anyio
 async def test_an_asker_that_stops_waiting_sends_cancel(
         pair: tuple[Channel, Channel]) -> None:
     left, right = pair

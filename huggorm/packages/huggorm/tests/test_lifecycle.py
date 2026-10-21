@@ -327,8 +327,8 @@ async def test_the_context_stops_the_ping_loop(ttl_server: Server) -> None:
     three-minute wait."""
     with anyio.fail_after(20):
         async with remote.connect(ttl_server.path) as c:
-            assert c._link is not None and not c._link.closed
-        assert c._link.closed, "leaving ended the link"
+            assert c._link is not None and not c._link.peer.closed.is_set()
+        assert c._link.peer.closed.is_set(), "leaving ended the link"
 
 
 async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
@@ -360,8 +360,7 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
                 tg.start_soon(ask)
                 await asked.wait()
                 old.scope.cancel()
-                while not old.closed:
-                    await anyio.sleep(0.01)
+                await old.peer.closed.wait()
             assert answer == [True]
 
 

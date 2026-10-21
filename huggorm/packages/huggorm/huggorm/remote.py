@@ -123,7 +123,6 @@ class _Link:
     # the server sweeps it, which is what a lifecycle test wants.
     pinger: anyio.CancelScope = field(default_factory=anyio.CancelScope)
     expired: bool = False
-    closed: bool = False
 
 
 class NixClient:
@@ -251,7 +250,7 @@ class NixClient:
         link = self._link
         if link is not None and link.expired:
             raise _swept(link.token)
-        if link is None or link.closed:
+        if link is None or link.peer.closed.is_set():
             raise ConnectionLost(f"no connection to {self.path}")
         return link
 
@@ -314,7 +313,6 @@ class NixClient:
                     tasks.start_soon(self._read, link, tasks)
                     tasks.start_soon(ping)
         finally:
-            link.closed = True
             link.peer.close()
             with anyio.CancelScope(shield=True):
                 await link.peer.channel.aclose()
