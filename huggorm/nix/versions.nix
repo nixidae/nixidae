@@ -51,6 +51,9 @@ let
   # A state frees its primops; each dropped state leaked 84.5 KiB
   # (nixidae/nixidae#755).
   ownsPrimOps = patch "nix-evalstate-owns-primops";
+  # 2.34 caches an lstat miss for the whole process, so a file created
+  # after a miss stayed missing (nixidae/nixidae#940). 2.35 caches no stat.
+  lstatMiss234 = patch "nix-2.34-lstat-miss-not-cached";
 in
 {
   nix_2_34 = {
@@ -72,6 +75,7 @@ in
       parseFile
       callChecksInterrupt
       ownsPrimOps
+      lstatMiss234
     ];
   };
   nix_2_35 = {

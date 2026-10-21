@@ -421,27 +421,36 @@ async def test_forgetting_a_closure_picks_up_an_edited_import(
     assert await call(again, "integer") == 2, "the edit was not picked up"
 
 
-async def test_forgetting_a_missing_file_sees_it_once_it_exists(
-        state: Any, tmp_path: Any) -> None:
-    """Nix caches `lstat` for the whole process
-    (`PosixSourceAccessor::cachedLstat`), and a path it found missing
-    stays missing for every state after, until the process ends.
-    Measured in havsorm: a salt-master worker that looked for the
-    pillar file before it was written never saw it.
-
-    So forgetting a path also drops its `lstat` entry. The first half
-    is the negative control: without the forget, a file written after
-    the miss is still missing."""
+async def test_a_file_written_after_a_miss_is_seen(state: Any, tmp_path: Any) -> None:
+    """Nix 2.34 caches `lstat` for the whole process
+    (`PosixSourceAccessor::cachedLstat`), misses included, so a path
+    found missing stayed missing for every state after. Measured in
+    havsorm: a salt-master worker that looked for the pillar file
+    before it was written never saw it (nixidae/nixidae#940).
+    `nix-2.34-lstat-miss-not-cached.patch` keeps misses out of the
+    cache; without it this fails at the second `eval_file`."""
     late = tmp_path / "late.nix"
     with pytest.raises(Exception, match="does not exist"):
         await call(state, "eval_file", str(late))
     late.write_text("7\n")
-    with pytest.raises(Exception, match="does not exist"):
-        await call(state, "eval_file", str(late))
-
-    await call(state, "forget_file", str(late))
     again = await call(state, "eval_file", str(late))
     assert await call(again, "integer") == 7
+
+
+async def test_forgetting_a_path_drops_its_cached_stat(state: Any, tmp_path: Any) -> None:
+    """A hit stays cached, so a path that turns from a file into a
+    directory is still a file to Nix. Forgetting it drops that entry
+    too, and `import` then reads the directory's `default.nix`."""
+    target = tmp_path / "turns"
+    target.write_text("1\n")
+    first = await call(state, "eval_file", str(target))
+    assert await call(first, "integer") == 1
+    target.unlink()
+    target.mkdir()
+    (target / "default.nix").write_text("2\n")
+    await call(state, "forget_file", str(target))
+    again = await call(state, "eval_file", str(target))
+    assert await call(again, "integer") == 2
 
 
 async def test_forgetting_only_the_edited_file_leaves_the_importer_stale(

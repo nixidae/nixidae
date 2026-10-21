@@ -1,0 +1,33 @@
+Do not cache an lstat miss: a file created after the miss stays missing.
+
+`PosixSourceAccessor::cachedLstat` (src/libutil/posix-source-accessor.cc)
+keeps every lstat result in one static map for the whole process, misses
+included, and nothing but `invalidateCache` of that path drops an entry.
+`nix` the command evaluates once and exits. A process that evaluates for
+days does not: havsorm's salt-master workers looked for a pillar file at
+minion start, before it was written, and no later EvalState in those
+processes saw it until the master restarted (nixidae/nixidae#903,
+nixidae/nixidae#940). Measured in one process: miss, write the file, a
+fresh EvalState still says "does not exist".
+
+A hit stays cached, as before: an edit is read through `readFile`, which
+does not use this cache. A miss costs one lstat each time. 2.35 replaced
+this cache with directory file descriptors and caches no stat, so the
+patch is 2.34's only.
+
+diff -ruN a/src/libutil/posix-source-accessor.cc b/src/libutil/posix-source-accessor.cc
+--- a/src/libutil/posix-source-accessor.cc	2026-10-21 03:58:05.937328174 +0200
++++ b/src/libutil/posix-source-accessor.cc	2026-10-21 03:58:27.389483837 +0200
+@@ -83,6 +83,12 @@
+ 
+     auto st = nix::maybeLstat(absPath.c_str());
+ 
++    /* A miss is not cached: the cache is process-wide, and a path that
++       is created after its first lookup would stay missing for every
++       evaluator after. */
++    if (!st)
++        return st;
++
+     if (cache.size() >= 16384)
+         cache.clear();
+     cache.emplace(std::move(absPath), st);
