@@ -156,6 +156,14 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    vyos-oob-vrf = {
+      # Functional management VRF, the VyOS analogue of oob-routeros: eth0
+      # leases in a mgmt VRF, isolated from the dataplane. VyOS under UML
+      # plus two NixOS guests.
+      description = "VyOS keeps its management in a VRF, isolated from the dataplane";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
