@@ -140,6 +140,14 @@ let
       description = "the services guest is the single forwarding point to an out-of-band guest";
       timeoutMinutes = 20;
     };
+    oob-uml = {
+      # The oob lease over UML processes: proves a UML guest's uplink
+      # joins a management segment (vec0 on a segment fd, not the passt
+      # bridge), which VyOS needs. Needs the UML kernel job.
+      description = "a UML guest's uplink joins a management segment";
+      timeoutMinutes = 20;
+      backend = "uml";
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
