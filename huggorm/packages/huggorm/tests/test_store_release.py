@@ -17,6 +17,7 @@ import os
 import pathlib
 
 import pytest
+from nixversion import needs_collector
 
 from huggorm import AsyncSession
 
@@ -39,8 +40,9 @@ def _open_under(root: pathlib.Path) -> int:
     "(import {source}).x",
     # An error a file raises and `tryEval` catches: a finalizable Boehm
     # block that holds the error's position, released by the collection
-    # `aclose` runs.
-    "(import {source}).caught",
+    # `aclose` runs. A Nix without the collector frees no such block, so
+    # every round keeps its store: 4, 7, 10 descriptors under ASAN.
+    pytest.param("(import {source}).caught", marks=needs_collector),
 ])
 async def test_a_closed_evaluator_releases_its_store(
         tmp_path: pathlib.Path, expr: str) -> None:

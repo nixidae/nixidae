@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, overload, runtime_chec
 
 import anyio
 
+from huggorm_bindings import boehm_gc
 from huggorm_generated import AsyncEvalState, AsyncStore, collect_garbage
 from huggorm_generated._runtime import Remote
 
@@ -304,7 +305,9 @@ class AsyncSession:
             except Exception as exc:
                 errors.append(exc)
         self._evals.clear()
-        if closed_any:
+        # Without Boehm nothing is finalized, so there is nothing to
+        # collect, and `collect_garbage` refuses.
+        if closed_any and boehm_gc():
             # A closed evaluator's Store is not free yet. A caught
             # evaluation error lives in a finalizable Boehm block whose
             # position holds rootFS, and rootFS mounts the Store, so the

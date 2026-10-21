@@ -78,6 +78,24 @@ async def test_close_is_idempotent() -> None:
     assert calls == 1
 
 
+async def test_close_asks_for_no_collection_without_a_collector(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Nix without Boehm refuses `collect_garbage`, and it finalizes
+    nothing a collection could free. Closing a session that evaluated
+    therefore asks for none. The base lane has the collector, so this
+    stands in for the build that has none."""
+    import huggorm.session
+
+    async def refuse() -> None:
+        raise AssertionError("collect_garbage without a collector")
+
+    monkeypatch.setattr(huggorm.session, "boehm_gc", lambda: False)
+    monkeypatch.setattr(huggorm.session, "collect_garbage", refuse)
+    session = AsyncSession("dummy://")
+    await session.eval(session.store()).eval_expr("1 + 1")
+    await session.aclose()
+
+
 def _params(fn: Callable[..., Any], drop: int) -> list[tuple[str, object]]:
     return [
         (name, param.default)
