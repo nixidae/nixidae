@@ -26,6 +26,7 @@ from huggorm_dsl.declare import (
     Cxx,
     Local,
     Opt,
+    Std,
     Str,
     Vec,
     binding,
@@ -97,7 +98,7 @@ new (self) nix::GCOptions::SpecificPaths{
 
 
 @header(Local("nix/store/gc-store.hh"))
-@needs(Local("limits"))
+@needs(Std("limits"))
 @binding(
     cxx="nix::GCOptions",
     # Four members the object owns. Nothing here talks to a store.

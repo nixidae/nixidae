@@ -17,6 +17,7 @@ from huggorm_dsl.declare import (
     Local,
     Opt,
     Path,
+    Std,
     Str,
     Vec,
     binding,
@@ -77,7 +78,7 @@ def current_generation(profile: Path) -> Opt[U64]:
     Cxx("return nix::findGenerations(profile).second;")
 
 
-@needs(Local("nix/store/profiles.hh"), Local("nix/store/local-fs-store.hh"), Local("filesystem"))
+@needs(Local("nix/store/profiles.hh"), Local("nix/store/local-fs-store.hh"), Std("filesystem"))
 @threading("pool")
 @blocks
 def set_profile(store: Store, profile: Path, path: StorePath) -> Path:

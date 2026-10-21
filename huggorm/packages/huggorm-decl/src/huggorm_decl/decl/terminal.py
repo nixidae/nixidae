@@ -12,12 +12,13 @@ from huggorm_dsl.declare import (
     Cxx,
     Local,
     Opt,
+    Std,
     Str,
     needs,
 )
 
 
-@needs(Local("nix/util/terminal.hh"), Local("limits"))
+@needs(Local("nix/util/terminal.hh"), Std("limits"))
 def filter_ansi_escapes(text: Str, filter_all: Bint = False,
                         width: Opt[U64] = None) -> Str:
     """Filter the ANSI escape sequences out of `text`, as Nix does.

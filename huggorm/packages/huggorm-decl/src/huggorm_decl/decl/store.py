@@ -36,6 +36,7 @@ from huggorm_dsl.declare import (
     Map,
     Opt,
     Path,
+    Std,
     Str,
     StrView,
     Vec,
@@ -1158,7 +1159,7 @@ if (indirect == nullptr)
         self.config.getHumanReadableURI());
 indirect->addIndirectRoot(path);
         """)
-    @needs(Local("algorithm"))
+    @needs(Std("algorithm"))
     def find_roots(self, censor: Bint) -> Vec[GcRoot]:
         """Every root the collector would keep, sorted by link.
         `nix-store --gc --print-roots`.

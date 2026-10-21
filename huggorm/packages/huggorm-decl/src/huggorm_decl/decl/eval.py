@@ -44,6 +44,7 @@ from huggorm_dsl.declare import (
     Null,
     Opt,
     PyFunc,
+    Std,
     Str,
     StrView,
     Subscription,
@@ -388,7 +389,7 @@ return nix::rewriteStrings(text, rewrites);
         """)
 
     @blocks
-    @needs(Local("functional"))
+    @needs(Std("functional"))
     def string_context(self) -> Vec[Str]:
         """The string context of every string this value holds, each
         element in Nix's own encoding (`NixStringContextElem`), sorted.
@@ -2521,7 +2522,7 @@ nix::loadConfFile(nix::globalConfig);
     """)
 
 
-@needs(Local("nix/main/plugin.hh"), Local("atomic"))
+@needs(Local("nix/main/plugin.hh"), Std("atomic"))
 def init_plugins() -> None:
     """Load the plugins that `plugin-files` names, as `nix` does at startup.
 
