@@ -97,7 +97,11 @@ system is never built. It sets `system.build.vivariumImageGuest` to
 spec gives the guest no store view and no `qemuBoot`.
 
 `config` is RouterOS script. The module writes it as
-`vivarium-config.rsc` onto a bare ext4 image (`mkfs.ext4 -d`).
+`vivarium-config.rsc` onto a bare ext4 image (`mkfs.ext4 -d`), after a
+preamble that keeps vivarium's naming promise: each of
+`vivarium.interfaces` is renamed, by the MAC vivarium gave it, from
+CHR's `etherN` to its attribute name, and gets its `addresses`. The
+uplink stays `ether1`.
 
 ### 3. Backend: QEMU disk boot (`Qemu._launch_disk`)
 
@@ -194,8 +198,10 @@ output (179 KB, 2.9 s) all come back exact.
   chunked command, timeout recovery, a looping login); and every frame
   of a real run's `console.raw` (`tests/fixtures/`) parsed again.
 - `routeros` (`default.nix`): CHR under QEMU, config disk, a command, a
-  failing command's message, 3000 lines of output, an agent call
-  refused. 20 s, 19.4 of it the boot.
+  failing command's message, 3000 lines of output, a 36 KB chunked
+  script, an agent call refused. 20 s, 19.4 of it the boot.
+- `routeros-route`: two NixOS guests through the CHR.
+- `routeros-bgp`: eBGP with FRR, and two LANs joined only by it.
 
 ## Rules for a phase on a console guest
 
@@ -229,6 +235,11 @@ output (179 KB, 2.9 s) all come back exact.
 
 1. **Done.** Image, module, config disk, QEMU disk boot, `Control`, the
    RouterOS dialect and its tests, the `routeros` test.
-2. Two NixOS guests route through the CHR.
-3. BGP between the CHR and an FRR guest (#945's done line).
+2. **Done.** Two NixOS guests route through the CHR (`routeros-route`).
+   The config disk starts by renaming each NIC by its MAC to its
+   vivarium name and adding its addresses.
+3. **Done.** eBGP between the CHR and an FRR guest (`routeros-bgp`):
+   each learns the other's LAN, and hosts on them meet at TTL 62. In
+   7.24 the AS and router ID live on `/routing bgp instance`;
+   `connection` takes `instance=`.
 4. `RestControl`.
