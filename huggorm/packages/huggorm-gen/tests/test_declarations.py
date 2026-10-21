@@ -2104,6 +2104,26 @@ def test_a_marker_is_checked_by_what_it_recorded(
                 "METHOD_MARKER", method_marker)))
 
 
+@pytest.mark.parametrize(("stray", "refusal"), [
+    ('@typing.final\nclass Broken(Exception):\n    """."""\n\n'
+     '    cxx = "x::Broken"\n    header = "x.hpp"\n',
+     "Broken: a decorator here is not a marker"),
+    ('@typing.final\ndef stray() -> Str:\n    """."""\n',
+     r"stray \(function\) reaches no output"),
+])
+def test_a_foreign_decorator_alone_is_refused(
+        tmp_path: pathlib.Path, stray: str, refusal: str) -> None:
+    """The marks decide whether a definition is bound, not the
+    decorators. A decorator that records no mark is still refused, on
+    an exception and on a free function (nixidae/nixidae#900)."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    with pytest.raises(DeclarationError, match=refusal):
+        read(_declaration(tmp_path, SPELLED.replace(
+            "CLASS_MARKER", '@binding(cxx="x::Stream")').replace(
+                "METHOD_MARKER", "") + "\n\n" + stray))
+
+
 def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
     """`@needs` is repeatable, so a second one adds headers. It does not
     replace the first."""

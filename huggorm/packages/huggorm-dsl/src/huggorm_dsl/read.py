@@ -1939,7 +1939,7 @@ def _read(path: str) -> Module:
             if isinstance(value, type) and value.__module__ == mod.__name__:
                 node = nodes[value.__firstlineno__]
                 assert isinstance(node, ast.ClassDef)
-                if node.decorator_list:
+                if declare.marks(value):
                     cls = _class(node, vocab, stem, here, fns, diag, made)
                     classes.append(cls)
                 else:
@@ -1947,7 +1947,7 @@ def _read(path: str) -> Module:
             elif fn is not None:
                 _one_definition(fn, nodes)
                 functions.append(_free(nodes[fn.__code__.co_firstlineno],
-                                       vocab, fns))
+                                       fn, vocab, fns))
             elif _union(value) is not None and name in assigned:
                 unions.append(_union_class(name, value, stem,
                                            *assigned[name]))
@@ -2038,17 +2038,18 @@ def _holds_the_gil(node: DefinitionNode, fn: Method, *,
                   f"value, and @blocks releases the GIL around it.")
 
 
-def _free(node: DefinitionNode, vocab: dict[str, str],
+def _free(node: DefinitionNode, fn: object, vocab: dict[str, str],
           fns: dict[int, Any]) -> Method:
-    """One module-level function: a FREE binding, if it is decorated.
+    """One module-level function: a FREE binding, if it is marked.
 
     nanopynix has 72 of them, `m.def("open_store", &open_store_uri,
-    "uri"_a)` and its kind. An undecorated one is refused: nothing
-    reads it."""
-    if isinstance(node, ast.ClassDef) or not node.decorator_list:
+    "uri"_a)` and its kind. An unmarked one is refused: nothing reads
+    it."""
+    if isinstance(node, ast.ClassDef) or not declare.marks(fn):
         raise DeclarationError(
             node, f"{node.name} (function) reaches no output. A free "
-                  f"binding is decorated; a declaration holds no helpers.")
+                  f"binding carries a marker from {VOCABULARY}; a "
+                  f"declaration holds no helpers.")
     if isinstance(node, ast.AsyncFunctionDef):
         # As in a class body, and for the same reason.
         raise DeclarationError(
@@ -2263,15 +2264,20 @@ def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
            stem: str) -> Class:
     """One EXCEPTION class this file declares.
 
-    An error declaration wears no decorator - `cxx = "nix::Error"` is
+    An error declaration carries no marker - `cxx = "nix::Error"` is
     a bare assignment, because there is no behaviour to mark. So an
-    undecorated class IS an exception, and one that derives from none
+    unmarked class IS an exception, and one that derives from none
     is refused: the module transform would copy it through, and no
-    model entry and no catch clause would know it.
+    model entry and no catch clause would know it. Any decorator on
+    it records no mark, so nothing reads what it says.
 
     The IMPORT says what the class derives from: `Interrupted` is a
     BaseException, as upstream's is, and a match on base names
     skipped it."""
+    if node.decorator_list:
+        raise DeclarationError(
+            node, f"{node.name}: a decorator here is not a marker from "
+                  f"{VOCABULARY}, so nothing reads what it says")
     if not issubclass(kls, BaseException):
         raise DeclarationError(
             node, f"{node.name}: a class with no decorator declares "
