@@ -97,6 +97,13 @@ let
       description = "RouterOS and FRR exchange routes over eBGP";
       timeoutMinutes = 20;
     };
+    vyos-bgp = {
+      # The VyOS analogue under UML, and the only test of the ethtool
+      # kernel fix: VyOS runs ethtool on a down interface at boot.
+      description = "VyOS and FRR exchange routes over eBGP";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
