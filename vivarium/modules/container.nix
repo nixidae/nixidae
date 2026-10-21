@@ -39,6 +39,18 @@ lib.mkIf (cfg.backend == "container") {
   # file is absent and the wrappers are made as usual.
   systemd.services.suid-sgid-wrappers.unitConfig.ConditionPathExists = "!/run/host/agent/no-setuid";
 
+  # Every container maps root to the same host user, so every guest's
+  # keys count against one quota of 200 (kernel.keys.maxkeys). A system
+  # service gets a private session keyring by default, so 30 guests
+  # used it up during boot (nixidae/nixidae#903). `inherit` shares the
+  # manager's keyring and makes no key per service.
+  systemd.packages = [
+    (pkgs.writeTextDir "etc/systemd/system/service.d/10-vivarium-keyring.conf" ''
+      [Service]
+      KeyringMode=inherit
+    '')
+  ];
+
   # isContainer's login prompt, on the console the runner reads.
   systemd.services.console-getty.enable = false;
 

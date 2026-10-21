@@ -985,8 +985,13 @@ def main(argv: list[str] | None = None) -> int:
     listener.bind(str(console))
     listener.listen(1)
 
+    # --no-new-keyring: a session keyring per container is charged to
+    # the user every container maps root to, whose quota is 200 keys
+    # (kernel.keys.maxkeys). The 21st of 30 containers failed with "join
+    # keyctl: Disk quota exceeded" (nixidae/nixidae#903).
     proc = subprocess.Popen(
-        [*crun, "run", "--bundle", bundle, "--console-socket", str(console), name],
+        [*crun, "run", "--no-new-keyring", "--bundle", bundle,
+         "--console-socket", str(console), name],
         stdin=subprocess.DEVNULL,
         # Its own group, so a signal to the runner's group reaches this
         # process and not crun: crun would pass SIGTERM to systemd, which
