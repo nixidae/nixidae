@@ -85,21 +85,27 @@ def _twinned(call: str, t: ir.TypeRef) -> str:
     anyio.Path takes any path-like, so the wrapper constructs one
     rather than casting: a cast would claim the awaitable methods
     without adding them."""
-    twin = t.leaf.twin
-    if not t.origin:
-        return f"return {twin}(await {call})"
-    if t.inner.origin:
-        raise TypeError(f"{t.spelling}: an async twin is spelled under one "
-                        f"`| None` or `list[...]`, and this nests deeper")
+    if t.origin is ir.Origin.OPTIONAL:
+        return f"result = await {call}\nreturn {_built(t, 'result')}"
+    return f"return {_built(t, f'(await {call})')}"
+
+
+def _built(t: ir.TypeRef, value: str, depth: int = 0) -> str:
+    """`value` with every twin leaf built, walked as `Spelling` walks
+    `t`, so every return the signature spells as a twin is one. A
+    `| None` names `value` twice, so it is a name there."""
+    n = str(depth or "")
     match t.origin:
+        case None:
+            return f"{t.twin}({value})"
         case ir.Origin.OPTIONAL:
-            return (f"result = await {call}\n"
-                    f"return None if result is None else {twin}(result)")
+            return f"None if {value} is None else {_built(t.inner, value, depth)}"
         case ir.Origin.LIST:
-            return f"return [{twin}(item) for item in await {call}]"
+            return (f"[{_built(t.inner, f'item{n}', depth + 1)} "
+                    f"for item{n} in {value}]")
         case ir.Origin.DICT:
-            raise TypeError(f"{t.spelling}: an async twin has no spelling "
-                            f"inside a dict")
+            return (f"{{key{n}: {_built(t.inner, f'item{n}', depth + 1)} "
+                    f"for key{n}, item{n} in {value}.items()}}")
         case _:
             assert_never(t.origin)
 

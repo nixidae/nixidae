@@ -74,6 +74,58 @@ def test_a_container_of_wrapped_types_is_refused() -> None:
     assert all("attrs" in b or "items" in b for b in bad), bad
 
 
+class _Twin:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+
+def _untwinned(x: object) -> object:
+    """`x` with each twin as `("twin", value)`, to compare by value."""
+    if isinstance(x, _Twin):
+        return ("twin", x.value)
+    if isinstance(x, list):
+        return [_untwinned(v) for v in x]
+    if isinstance(x, dict):
+        return {k: _untwinned(v) for k, v in x.items()}
+    return x
+
+
+@pytest.mark.parametrize(("shape", "answer", "built"), [
+    ("leaf", "p", ("twin", "p")),
+    ("opt", None, None),
+    ("opt", "p", ("twin", "p")),
+    ("list", ["p", "q"], [("twin", "p"), ("twin", "q")]),
+    ("dict", {"a": "p"}, {"a": ("twin", "p")}),
+    ("dict_of_lists", {"a": ["p"], "b": []}, {"a": [("twin", "p")], "b": []}),
+    ("list_of_opts", ["p", None], [("twin", "p"), None]),
+])
+def test_a_twin_is_built_wherever_the_signature_spells_one(
+        shape: str, answer: object, built: object) -> None:
+    """The body builds the twin under every nesting `Spelling` spells
+    it under, so the signature and the value agree."""
+    from huggorm_gen import ir
+    from huggorm_gen.pygen.emitter import _twinned
+
+    leaf = ir.TypeRef("Path", None, (), ir.Kind.SCALAR, "Path", twin="_Twin")
+    t = {"leaf": leaf,
+         "opt": ir.TypeRef.optional_of(leaf),
+         "list": ir.TypeRef.list_of(leaf),
+         "dict": ir.TypeRef.dict_of(leaf),
+         "dict_of_lists": ir.TypeRef.dict_of(ir.TypeRef.list_of(leaf)),
+         "list_of_opts": ir.TypeRef.list_of(ir.TypeRef.optional_of(leaf)),
+         }[shape]
+
+    async def call() -> object:
+        return answer
+
+    body = _twinned("call()", t).replace("\n", "\n    ")
+    scope: dict[str, Any] = {"_Twin": _Twin, "call": call}
+    exec(f"async def f():\n    {body}", scope)
+    with pytest.raises(StopIteration) as done:
+        scope["f"]().send(None)
+    assert _untwinned(done.value.value) == built
+
+
 def test_an_unwrapped_class_hands_back_nothing_wrapped() -> None:
     """A pool class that cannot block is not wrapped, so a caller holds
     its sync object - and a wrapped return would arrive with no
