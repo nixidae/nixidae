@@ -1091,14 +1091,17 @@ class Remote:
 Backend = BaseRunner | Remote
 
 
-async def call_function(fn: Callable[..., Any], args: list[Any]) -> Any:
+async def call_function(spec: Call | Local, fn: Callable[..., Any],
+                        args: list[Any]) -> Any:
     """Run a module-level binding function on the shared pool.
 
     Free functions have no instance, so there is no runner to own them
     and no lazy construction to do - only the executor hop and the same
     error policy every wrapped call gets. Arguments still go through
     unwrap_arg: a caller holding an async wrapper passes it here exactly
-    as it would to a method."""
+    as it would to a method. `spec` adapts the arguments and adopts the
+    return as a method's does, with the pool as the producer."""
+    args = BaseRunner._adapted_args(spec, args)
     await _materialize_args(args)
     loop = asyncio.get_running_loop()
     request = _next_request()
@@ -1113,6 +1116,6 @@ async def call_function(fn: Callable[..., Any], args: list[Any]) -> Any:
                 raise  # typed wrapper error - pass through untouched
             raise InternalError(f"{fn.__name__} failed", cause=e) from e
 
-    return await _until_done(
-        loop.run_in_executor(_shared_pool(), invoke), request, hooks)
+    return PoolRunner(None)._adopted(spec.returns, await _until_done(
+        loop.run_in_executor(_shared_pool(), invoke), request, hooks))
 

@@ -510,13 +510,16 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
         "no method declares a default; this gate now proves nothing")
 
 
-def test_a_free_function_adopts_its_proxy(out: pathlib.Path) -> None:
-    """A free function hands back the Async form of a proxy it makes.
+def test_a_free_function_returns_what_a_method_would(out: pathlib.Path) -> None:
+    """A free function hands back the Async form of a proxy it makes,
+    and the async twin of a type that declares one.
 
     `test_conformance` walks classes, so it never sees a free
     function. A coroutine annotated with the sync proxy hands a sync
     object to an async caller, and the server leases that object as a
-    handle whose methods it then awaits."""
+    handle whose methods it then awaits. One that returns
+    `pathlib.Path` where a method returns `anyio.Path` makes the two
+    surfaces disagree about one declared type."""
     from huggorm_gen import ir
     from huggorm_gen.cppgen.generate import declared_model
 
@@ -527,7 +530,7 @@ def test_a_free_function_adopts_its_proxy(out: pathlib.Path) -> None:
             (out / "free_functions.py").read_text()).body
         if isinstance(node, ast.AsyncFunctionDef)
     }
-    failures, adopted = [], 0
+    failures, adopted, twinned = [], 0, 0
     for name, fn in model.functions.items():
         if not fn.wrapped:
             continue
@@ -537,8 +540,12 @@ def test_a_free_function_adopts_its_proxy(out: pathlib.Path) -> None:
                 and rt.kind == ir.Kind.PROXY:
             adopted += 1
             expected = expected.replace(rt.name, f"Async{rt.name}")
+        if rt is not None and rt.leaf.twin:
+            twinned += 1
+            expected = expected.replace(rt.leaf.spelling, rt.leaf.twin)
         if _expr(emitted[name]) != _expr(expected):
             failures.append(f"{name}: emitted {emitted[name]}, "
                             f"expected {expected}")
     assert not failures, "\n  ".join(failures)
     assert adopted, "no free function returns a proxy; this gate is vacuous"
+    assert twinned, "no free function returns a twinned type; this gate is vacuous"

@@ -8,7 +8,7 @@ import ast
 import dataclasses
 import enum
 import textwrap
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from string import Template
 from typing import assert_never
 
@@ -78,15 +78,6 @@ def _forwarded(call: str, returns: str) -> str:
     return f"return cast({returns}, await {call})"
 
 
-def _adopting(call: str, async_name: str, runner: str, optional: bool) -> str:
-    """The body that adopts what a call hands back into its async form,
-    and passes None through when the return may be None."""
-    adopt = f"{async_name}._adopt(result, {runner})"
-    if optional:
-        adopt = f"None if result is None else {adopt}"
-    return f"result = await {call}\nreturn {adopt}"
-
-
 def _twinned(call: str, t: ir.TypeRef) -> str:
     """The body that hands back a forward in its async spelling.
 
@@ -112,17 +103,17 @@ def _twinned(call: str, t: ir.TypeRef) -> str:
             assert_never(t.origin)
 
 
-def _adapted(t: ir.TypeRef) -> bool:
-    """A `@calls_back` argument, which may be an async object."""
-    return not t.container and t.leaf.kind == ir.Kind.CLIENT
+def _handing_back(call: str, r: ir.TypeRef | None, returns: str) -> str:
+    """The body of an async call: its twin built, or its answer cast.
+    The runner has already adopted a returned served class."""
+    if r is not None and r.leaf.twin:
+        return _twinned(call, r)
+    return _forwarded(call, returns)
 
 
-def _passed(params: Sequence[ir.ParamModel]) -> str:
-    """The arguments a call hands its runner. A `@calls_back` one goes
-    through `adapt`, which wraps an async object in a stub Nix can
-    call (nixidae/nixidae#740)."""
-    return ", ".join(f"adapt({p.type.leaf.name}, {p.name})"
-                     if _adapted(p.type) else p.name for p in params)
+def _casts(returns: Iterable[ir.TypeRef | None]) -> bool:
+    """Whether a `_handing_back` body among `returns` names `cast`."""
+    return any(r is not None and not r.leaf.twin for r in returns)
 
 
 def _client_rename(source: Source | None) -> Rename:
@@ -517,6 +508,15 @@ def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef,
     return spell(t, _as_binding, client=client)
 
 
+def _returning(spell: Spelling, model: ir.Model, r: ir.TypeRef | None) -> str:
+    """How an async surface spells a call's return. A served class is
+    its async class, a type with an async twin is the twin, and
+    everything else is itself."""
+    if model.adopted(r) is not None:
+        return spell.returns(r, _as_async)
+    return spell.returns(r, _as_binding, twin=True)
+
+
 def _async_spelling(model: ir.Model, c: ir.ClassModel
                     ) -> tuple[Spelling, list[str],
                                dict[str, tuple[list[str], str]]]:
@@ -537,13 +537,7 @@ def _async_spelling(model: ir.Model, c: ir.ClassModel
     methods: dict[str, tuple[list[str], str]] = {}
     for m in c.methods:
         params = [spell(p.type, client=True) for p in m.params]
-        if model.adopted(m.returns) is not None:
-            ret = spell.returns(m.returns, _as_async)
-        elif m.returns is not None:
-            ret = spell(m.returns, _as_binding, twin=True)
-        else:
-            ret = "None"
-        methods[m.name] = (params, ret)
+        methods[m.name] = (params, _returning(spell, model, m.returns))
         spell.defaults(m.params)
     return spell, ctor, methods
 
@@ -556,12 +550,9 @@ def _hop_method(cls: ast.ClassDef, model: ir.Model,
     params, returns = signature
     call = (f"self._backend.call({_spec_name(svc, m.name)}, "
             f"[{', '.join(p.name for p in m.params)}])")
-    if m.returns is not None and m.returns.leaf.twin:
-        body = _twinned(call, m.returns)
-    else:
-        body = _forwarded(call, returns)
     cls.body.append(_def(
-        f"async def {m.name}() -> {returns}", body, m.doc,
+        f"async def {m.name}() -> {returns}",
+        _handing_back(call, m.returns, returns), m.doc,
         _arguments([ast.arg(arg="self")], m.params, params, f"{svc}.{m.name}")))
 
 
@@ -608,8 +599,7 @@ def _async_module(model: ir.Model, c: ir.ClassModel, doc: str,
     # A call hands back Any, and cast is where the declared type is
     # claimed. A twin is built instead, and a None return does not
     # return.
-    if any(m.returns is not None and not m.returns.leaf.twin
-           for m in c.methods):
+    if _casts(m.returns for m in c.methods):
         typing_names = typing_names | {"cast"}
     # Docstring FIRST: anything before it demotes it to a dead
     # expression and leaves the module with no __doc__.
@@ -794,9 +784,16 @@ def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
         sum(1 for p in c.ctor if p.default is None))))
         for c in model.acquirable]
     functions = [model.functions[n] for n in sorted(model.functions)]
-    free = [(fn.name, specs.add(f"_fn_{fn.name}", _spec(
+    free = [(fn.name, specs.add(_function_spec(fn.name), _spec(
         specs.next, fn.name, fn.params, fn.returns, fn.subscription)))
         for fn in functions if not model.function_blockers(fn)]
+    # Every other coroutine still hands its runner a spec, which says
+    # how to adapt its arguments and adopt its return.
+    offered = {name for name, _ in free}
+    local = [ast.Assign(
+        targets=[ast.Name(id=_function_spec(fn.name))],
+        value=_literal(cs.Local(fn.name, _wire(fn.returns), _refusal(model, fn))))
+        for fn in async_functions(model) if fn.name not in offered]
     # ...and the ones the wire cannot carry, with the reason.
     #
     # A separate table rather than absence, because the two answers
@@ -805,9 +802,23 @@ def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
     # is a policy the build decided and printed.
     blocked = [(fn.name, "; ".join(model.function_blockers(fn)))
                for fn in functions if model.function_blockers(fn)]
-    return [_table("ACQUIRE", "dict[str, Acquire]", acquires),
+    return [*local,
+            _table("ACQUIRE", "dict[str, Acquire]", acquires),
             _table("FREE", "dict[str, Call]", free),
             _table("NO_RPC", "dict[str, str]", blocked)]
+
+
+def _refusal(model: ir.Model, fn: ir.FunctionModel) -> str:
+    """Why a module-level coroutine has no RPC."""
+    if fn.calls is not None:
+        return (f"the async form of {fn.calls.cls}.{fn.calls.method}, and "
+                f"a value's method runs where the value is")
+    return "; ".join(model.function_blockers(fn))
+
+
+def _function_spec(name: str) -> str:
+    """What a free function's spec constant is called."""
+    return f"_fn_{name}"
 
 
 def _spec_name(cls: str, method: str) -> str:
@@ -864,10 +875,10 @@ def free_function_module(model: ir.Model) -> ast.Module:
     sync function is imported under an underscore alias so the
     coroutine can take its plain name.
 
-    A returned served class is adopted through `_adopt`, as a method's
-    return is. `contracts.free_functions` refuses one that cannot be."""
+    Each hands `call_function` its spec, so its return is adopted and
+    twinned as a method's is. `contracts.free_functions` refuses a
+    return that cannot be adopted."""
     fns = async_functions(model)
-    pool_parent = any(model.adopted(fn.returns) is not None for fn in fns)
 
     spell = Spelling(client=_client_rename(PROTOCOLS))
     signatures = {}
@@ -876,11 +887,7 @@ def free_function_module(model: ir.Model) -> ast.Module:
             spell.need(fn.calls.cls, BINDINGS)
         params = [_widened(spell, model, p.type, client=True)
                   for p in fn.params]
-        r = fn.returns
-        ret = (spell.returns(r, _as_async)
-               if model.adopted(r) is not None
-               else spell.returns(r, _as_binding))
-        signatures[fn.name] = (params, ret)
+        signatures[fn.name] = (params, _returning(spell, model, fn.returns))
         spell.defaults(fn.params)
 
     mod = ast.Module(body=[], type_ignores=[])
@@ -890,33 +897,26 @@ def free_function_module(model: ir.Model) -> ast.Module:
     mod.body.append(_future_annotations())
     mod.body.append(import_from("collections.abc", "Awaitable", "Callable"))
     mod.body.append(import_from("typing", "Any", *(
-        ["cast"] if any(f.returns is not None and model.adopted(f.returns) is None
-                        for f in fns) else [])))
+        ["cast"] if _casts(f.returns for f in fns) else [])))
     mod.body.extend(spell.imports())
     mod.body.append(ast.ImportFrom(
         module="huggorm_bindings",
         names=[ast.alias(name=f.name, asname="_" + f.name)
                for f in fns if f.calls is None],
         level=0))
-    runtime_names = (["call_function"] + (["PoolRunner"] if pool_parent else [])
-                     + (["adapt"] if any(_adapted(p.type) for fn in fns
-                                         for p in fn.params) else []))
-    mod.body.append(import_from("_runtime", *runtime_names, level=1))
+    mod.body.append(import_from("_runtime", "call_function", level=1))
+    if fns:
+        mod.body.append(import_from(
+            "_policy", *(_function_spec(fn.name) for fn in fns), level=1))
 
     for fn in fns:
         params, ret = signatures[fn.name]
         target = ("_" + fn.name if fn.calls is None
                   else f"{fn.calls.cls}.{fn.calls.method}")
-        call = f"call_function({target}, [{_passed(fn.params)}])"
-        r = fn.returns
-        if (adopted := model.adopted(r)) is not None:
-            # A pool policy ignores the parent, so a fresh PoolRunner
-            # stands in for the producer a method would pass.
-            body = _adopting(call, f"{ASYNC}{adopted.name}",
-                             "PoolRunner(None)", r is not None and r.optional)
-        else:
-            body = _forwarded(call, r.spelling if r is not None else "None")
-        mod.body.append(_def(f"async def {fn.name}() -> {ret}", body, fn.doc,
+        call = (f"call_function({_function_spec(fn.name)}, {target}, "
+                f"[{', '.join(p.name for p in fn.params)}])")
+        mod.body.append(_def(f"async def {fn.name}() -> {ret}",
+                             _handing_back(call, fn.returns, ret), fn.doc,
                              _arguments([], fn.params, params, fn.name)))
 
     # The server finds the coroutine a wire call names here, not by an

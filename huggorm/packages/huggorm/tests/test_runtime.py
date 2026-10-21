@@ -280,6 +280,13 @@ def test_a_pool_thread_that_waits_does_not_count() -> None:
         pool.shutdown()
 
 
+def _own(name: str) -> Any:
+    """The spec of a function a test defines, which no declaration names."""
+    from huggorm_generated._callspec import Local
+
+    return Local(name, None, "a test's own function")
+
+
 async def test_a_worker_goes_on_while_a_posted_hook_waits() -> None:
     """The worker queues posted hooks up to the window while the loop
     runs the first, and its call ends only once all have run
@@ -302,7 +309,7 @@ async def test_a_worker_goes_on_while_a_posted_hook_waits() -> None:
             posted.append(i)
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(_runtime.call_function, work, [])
+        tg.start_soon(_runtime.call_function, _own("work"), work, [])
         with anyio.fail_after(10):
             while len(posted) < window:
                 await anyio.sleep(0.01)
@@ -329,7 +336,7 @@ async def test_a_failed_posted_hook_stops_the_ones_after_it() -> None:
             hooks.post(functools.partial(write, i))
 
     with anyio.fail_after(10), pytest.raises(Exception) as caught:
-        await _runtime.call_function(work, [])
+        await _runtime.call_function(_own("work"), work, [])
     assert "the disk is full" in str(caught.value.__cause__)
     assert ran == [0, 1, 2]
 
