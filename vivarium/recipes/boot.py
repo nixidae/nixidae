@@ -8,6 +8,7 @@ what -- so this asks for the failed units and puts them in the error.
 """
 
 from vivarium_runner import Machines
+from vivarium_runner.control import ControlKind
 
 
 async def test(vms: Machines) -> None:
@@ -15,6 +16,10 @@ async def test(vms: Machines) -> None:
         if vm.appliance:
             # Its console said it was up; there is no systemd to ask.
             print(f"[boot] {name} is an appliance, up")
+            continue
+        if vm.control_kind != ControlKind.AGENT:
+            # No systemd to ask. Its start logged in and applied its config.
+            print(f"[boot] {name} is up on its {vm.control_kind} console")
             continue
         state = (await vm.execute("systemctl is-system-running --wait", timeout=180))[1]
         state = state.strip()

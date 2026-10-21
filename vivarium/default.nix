@@ -1126,6 +1126,25 @@ let
     };
 
     /*
+      Does RouterOS boot under QEMU, apply its config disk, and answer
+      through its serial console? See docs/design/console-guests.md.
+    */
+    routeros = mkTest {
+      name = "routeros";
+      backend = "qemu";
+      nodes.r1.vivarium.routeros = images.routeros-chr // {
+        config = ''
+          /system identity set name=r1
+          /ip address add address=10.255.0.1/32 interface=lo
+        '';
+      };
+      phases.routeros = {
+        script = ./tests/phases/routeros.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
       Can an unprivileged, read-only reader open the guest's Nix
       database, as on a running host? harmonia's cache is one.
     */

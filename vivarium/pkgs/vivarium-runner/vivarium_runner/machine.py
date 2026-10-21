@@ -33,9 +33,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+import anyio
+from anyio.abc import UNIXSocketStream
+
 from .agent import AGENT_READY
 from .arpyc import AsyncConnection, connect
+from .control import ConsoleControl, ConsoleError, Control, ControlKind, Dialect
 from . import backend as backends
+from . import routeros
 from . import container
 from . import display
 from . import forward
@@ -243,6 +248,24 @@ OUTPUT_LIMIT = 2000
 error usually is. The whole output still reaches the caller."""
 
 
+DIALECTS: dict[ControlKind, Dialect] = {ControlKind.ROUTEROS: routeros.DIALECT}
+
+
+@dataclass(frozen=True)
+class AgentControl:
+    """`Control` through the vivarium agent: a shell, with its exit status."""
+
+    conn: AsyncConnection
+
+    async def execute(
+        self, command: str, timeout: float, env: dict[str, str] | None = None
+    ) -> tuple[int, str]:
+        return await self.conn.root.run(command, timeout=timeout, env=env)
+
+    async def aclose(self) -> None:
+        self.conn.close()
+
+
 def _command_outcome(result: tuple[int, str]) -> dict[str, Any]:
     rc, out = result
     return {"exit": rc, "output": out[-OUTPUT_LIMIT:]}
@@ -313,10 +336,18 @@ class Machine:
         self._watcher: asyncio.Task | None = None
         self._stopping = False
         self._reboot_error: str | None = None
+        self._control: Control | None = None
+        self._transcript: anyio.AsyncFile[bytes] | None = None
 
     @property
     def name(self) -> str:
         return self.spec.name
+
+    @property
+    def control_kind(self) -> ControlKind:
+        """How the host drives this guest: the agent, or a console dialect.
+        A console guest's `execute` runs its own command language."""
+        return ControlKind(self.spec.boot.get("image", {}).get("control", ControlKind.AGENT))
 
     @property
     def ip(self) -> str | None:
@@ -433,6 +464,10 @@ class Machine:
         self._spare_fds = []
         self._monitor = asyncio.ensure_future(self._pump_console())
 
+        if self.control_kind != ControlKind.AGENT:
+            await self._start_console(DIALECTS[self.control_kind])
+            return
+
         appliance = self.spec.boot.get("appliance") if self.appliance else None
         ready = (
             re.compile(appliance["ready"])
@@ -478,6 +513,7 @@ class Machine:
             self._agent_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._agent_sock.connect(str(launch.agent_path))
         self._conn = connect(self._agent_sock.detach())
+        self._control = AgentControl(self._conn)
         self._agent_sock = None
         # Drop our copy of the guest's end, so the connection reports EOF
         # when the guest goes away rather than hanging on our own fd.
@@ -542,6 +578,49 @@ class Machine:
         await self._boot(boot)
 
 
+    async def _start_console(self, dialect: Dialect) -> None:
+        """Log in on the guest's console and apply its config disk.
+
+        The serial port carries the socketpair the agent would get. Every
+        byte read goes to `console.raw` among the guest's artifacts.
+        """
+        if self._agent_sock is None or self._guest_sock is None:
+            raise MachineError(f"[{self.name}] no console socket")
+        sock, self._agent_sock = self._agent_sock, None
+        self._guest_sock.close()
+        self._guest_sock = None
+        if self.artifacts is not None:
+            await anyio.Path(self.artifacts).mkdir(parents=True, exist_ok=True)
+            self._transcript = await anyio.open_file(self.artifacts / "console.raw", "ab")
+        console = ConsoleControl(
+            await UNIXSocketStream.from_socket(sock),
+            dialect,
+            transcript=self._transcript.write if self._transcript is not None else None,
+        )
+        self._control = console
+        started = time.monotonic()
+        try:
+            await console.login(timeout=self.boot_timeout)
+        except (TimeoutError, ConsoleError) as error:
+            raise MachineError(
+                f"[{self.name}] no {dialect.name} prompt within {self.boot_timeout:g}s"
+                f" ({error or 'timed out'}); the console is in console.raw"
+            ) from None
+        self._log(f"logged in on the {dialect.name} console")
+        if dialect.configure is not None and self.spec.boot["image"].get("configDisk"):
+            rc, out = await self.execute(
+                dialect.configure, timeout=self.boot_timeout, label="apply the config disk"
+            )
+            if rc != 0:
+                raise MachineError(f"[{self.name}] the config disk failed:\n{out}")
+        elapsed = time.monotonic() - started
+        self._log(f"up in {elapsed:.1f}s")
+        self.recorder.booted(
+            self.name,
+            elapsed,
+            {"backend": self.spec.backend, "cpus": self.spec.cpus, "memory": self.spec.memory},
+        )
+
     async def shutdown(self) -> None:
         """Ask the guest to power off, then make sure nothing is left."""
         self._stopping = True
@@ -550,6 +629,15 @@ class Machine:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._watcher
             self._watcher = None
+        # A console guest keeps nothing, so it is not asked: QEMU is
+        # stopped below.
+        if isinstance(self._control, ConsoleControl):
+            with contextlib.suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+                await self._control.aclose()
+            self._control = None
+        if self._transcript is not None:
+            await self._transcript.aclose()
+            self._transcript = None
         # `alive` first: a dead guest's agent does not refuse, it hangs,
         # and the request below waited out its full timeout after `crash`.
         asked = False
@@ -563,6 +651,7 @@ class Machine:
                 pass
             self._conn.close()
             self._conn = None
+        self._control = None
 
         for sock in (self._agent_sock, self._guest_sock):
             if sock is not None:
@@ -773,6 +862,11 @@ class Machine:
             raise MachineError(
                 f"[{self.name}] is an appliance: it has no agent, reach it over the network"
             )
+        if self.control_kind != ControlKind.AGENT:
+            raise MachineError(
+                f"[{self.name}] is driven through its {self.control_kind} console,"
+                " and has no agent for this call"
+            )
         if self._conn is None:
             raise MachineError(f"[{self.name}] agent is not connected")
         return self._conn.root
@@ -853,14 +947,24 @@ class Machine:
         chosen by the script, and never the whole host environment.
         """
         timeout = timeout or self.command_timeout
+        if self._control is None:
+            raise MachineError(f"[{self.name}] not connected")
         # The guest kills the command at `timeout`; give the round trip
         # longer, so its error is what we report, not ours.
         return await self._ask(
             label or command,
-            self._agent.run(command, timeout=timeout, env=env),
+            self._execute(self._control, command, timeout, env),
             timeout + 10,
             outcome=_command_outcome,
         )
+
+    async def _execute(
+        self, control: Control, command: str, timeout: float, env: dict[str, str] | None
+    ) -> tuple[int, str]:
+        try:
+            return await control.execute(command, timeout, env)
+        except ConsoleError as error:
+            raise MachineError(f"[{self.name}] {error}") from None
 
     async def succeed(
         self,
@@ -908,6 +1012,8 @@ class Machine:
         runs it: the switch may restart the unit that started it, and here
         that is the agent. Exit 4 means a unit failed; *check* raises on any
         nonzero exit."""
+        if self.control_kind != ControlKind.AGENT:
+            raise MachineError(f"[{self.name}] runs {self.control_kind}, and has no NixOS to switch")
         if self.spec.boot.get("image"):
             raise MachineError(
                 f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch"
@@ -960,6 +1066,8 @@ class Machine:
         paths become visible under its /nix, and that is all, which is
         enough to run a tool the host built.
         """
+        if self.control_kind != ControlKind.AGENT:
+            raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
         paths = [*storeview.read_paths(Path(info) / "store-paths"), info]
         is_container = self.spec.backend == "container"
         added: list[str] = []

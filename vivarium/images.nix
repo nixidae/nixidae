@@ -14,6 +14,7 @@
 */
 {
   fetchurl,
+  fetchzip,
   runCommand,
   unzip,
   xorriso,
@@ -198,5 +199,20 @@ in
       } ''
         bsdtar -xOf ${iso} live/filesystem.squashfs > $out
       '';
+  };
+
+  /**
+    MikroTik RouterOS CHR 7.24.5, for `vivarium.routeros`: the raw disk
+    image, 128 MiB. MikroTik keeps every version at its URL, so the pin
+    holds. Unlicensed, each interface carries 1 Mbit/s.
+  */
+  routeros-chr = {
+    disk =
+      (fetchzip {
+        url = "https://download.mikrotik.com/routeros/7.24.5/chr-7.24.5.img.zip";
+        hash = "sha256-EoBfTQahvZ2PVMz/EwKKhbo6QACJtl3gnp9lyHMRC1U=";
+        stripRoot = false;
+      })
+      + "/chr-7.24.5.img";
   };
 }

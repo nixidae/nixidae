@@ -420,10 +420,11 @@ class Qemu:
         boot: dict | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
+        disk_boot = "image" in machine.spec.boot
         # virtiofsd serves a file as the guest user that made it, so a
         # guest user outside the namespace's ids gets EINVAL on its first
         # write to /artifacts, minutes in. Fail here instead.
-        if not container.owns_ids():
+        if not disk_boot and not container.owns_ids():
             raise BackendError(
                 f"{machine.spec.name}: a QEMU guest needs {container.SUBORDINATE_IDS} ids "
                 "in the run's namespace, and it maps fewer\n"
@@ -433,6 +434,10 @@ class Qemu:
         helpers: list[subprocess.Popen] = []
         opened: list[int] = []
         try:
+            if disk_boot:
+                return self._launch_disk(
+                    machine, rundir, agent_fd, lan_fds, helpers, opened
+                )
             return self._launch(
                 machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds
             )
@@ -619,6 +624,71 @@ class Qemu:
             memory=sockets / "qmp",
             cleanup=cleanup,
             disk_fds=disk_fds,
+        )
+
+    def _launch_disk(
+        self,
+        machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        helpers: list[subprocess.Popen],
+        opened: list[int],
+    ) -> Launch:
+        """Another operating system from its own disk: its own bootloader
+        and kernel, and none of the store, the agent or virtiofs.
+
+        The serial port is the control channel, the end of the socketpair
+        the agent would get: `control.ConsoleControl` drives it. The
+        uplink is the first NIC, so it is the OS's first interface.
+        """
+        spec, tools = machine.spec, machine.tools
+        image = spec.boot["image"]
+        sockets, cleanup = socket_dir(rundir, "qmp", None)
+
+        disk_fds = self._scratch_disk(tools, rundir, spec.image)
+        opened.extend(disk_fds)
+
+        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+        helpers.append(passt_proc)
+        opened.append(passt_fd)
+
+        argv = [
+            str(tools.qemu),
+            "-machine", "q35,accel=kvm",
+            "-cpu", "host,-vmx,-svm",
+            "-smp", str(spec.cpus),
+            "-m", spec.memory,
+            "-nodefaults", "-no-reboot", "-display", "none",
+            "-add-fd", f"fd={disk_fds[0]},set=1",
+            "-add-fd", f"fd={disk_fds[1]},set=1",
+            "-drive", "file=/dev/fdset/1,if=none,id=root,format=qcow2",
+            # Pinned: a second disk otherwise competes for the boot.
+            "-device", "virtio-blk-pci,drive=root,bootindex=0",
+            "-chardev", f"socket,id=control,fd={agent_fd}",
+            "-serial", "chardev:control",
+            "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
+            "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+            "-qmp", f"unix:{sockets}/qmp,server=on,wait=off",
+        ]
+        if config := image.get("configDisk"):
+            # A copy, writable: RouterOS does not mount a read-only disk.
+            disk = rundir / "config.img"
+            shutil.copyfile(config, disk)
+            disk.chmod(0o600)
+            argv += ["-drive", f"file={disk},if=virtio,format=raw"]
+        for nic in spec.interfaces:
+            argv += [
+                "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+                "-device", f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
+            ]
+        pass_fds = (agent_fd, passt_fd, *lan_fds.values(), *disk_fds)
+        return Launch(
+            argv=argv,
+            pass_fds=pass_fds,
+            helpers=helpers,
+            memory=sockets / "qmp",
+            cleanup=cleanup,
         )
 
     @staticmethod

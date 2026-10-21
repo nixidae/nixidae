@@ -160,6 +160,7 @@ in
     ./image-guest.nix
     ./nftables.nix
     ./qemu.nix
+    ./routeros-guest.nix
     ./store.nix
     ./vyos-guest.nix
   ];

@@ -53,8 +53,7 @@ rec {
 
         nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0;
   */
-
-  images = pkgs.callPackage ./images.nix {};
+  images = pkgs.callPackage ./images.nix { };
 
   /*
     pyright over a caller's test scripts, against this library.
@@ -199,9 +198,10 @@ rec {
           configurations = lib.mapAttrs (_: system: "${system}") machine.system.build.vivariumConfigurations;
         }
     )
-    // lib.optionalAttrs (lib.elem machine.vivarium.backend [ "qemu" "krun" ]) {
-      boot = machine.system.build.qemuBoot;
-    }
+    // lib.optionalAttrs (
+      lib.elem machine.vivarium.backend [ "qemu" "krun" ]
+      && !(machine.system.build ? vivariumImageGuest)
+    ) { boot = machine.system.build.qemuBoot; }
     // lib.optionalAttrs (machine.vivarium.backend == "container") {
       boot = machine.system.build.containerBoot;
     };
@@ -534,11 +534,18 @@ rec {
             # Each guest's closure, which the runner turns into its store
             # view. The same closureInfo its Nix database is loaded from.
             # Not for `vivarium.hostStore`, whose point is the host's whole
-            # store and its database under the guest's own.
+            # store and its database under the guest's own. Nor for a
+            # guest that never sees the store (`vivarium.routeros`).
             machines = map (
               machine:
+              let
+                build = machine.system.build;
+                seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
+              in
               machineSpec machine
-              // lib.optionalAttrs (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null) {
+              // lib.optionalAttrs (
+                !machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore
+              ) {
                 storePaths =
                   if machine.system.build ? vivariumImageGuest then
                     "${machine.system.build.vivariumImageClosure}/store-paths"
