@@ -620,6 +620,18 @@ in
       description = "`interfaces` in NIC order, each with its NIC number and MAC.";
     };
 
+    uplinkMac = lib.mkOption {
+      internal = true;
+      readOnly = true;
+      type = lib.types.str;
+      description = ''
+        The uplink's (`vec0`) MAC, matching the runner's `spec.mac(0)`
+        (lowercase). A peer that must name this guest by its uplink MAC --
+        a DHCP reservation, a VyOS link rename -- reads it here rather than
+        spelling the scheme out again.
+      '';
+    };
+
     lan = {
       network = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -653,6 +665,7 @@ in
       addresses = lib.optional (config.vivarium.lan.address != null) config.vivarium.lan.address;
     };
     vivarium.nics = nicsOf config.vivarium.interfaces config.vivarium.index;
+    vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
 
     vivarium.nixDatabase.extraRoots = map toString (
       lib.attrValues config.system.build.vivariumConfigurations

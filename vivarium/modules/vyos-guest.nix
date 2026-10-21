@@ -23,9 +23,8 @@ let
   # vec0 is the uplink. On the out-of-band fabric (nixidae/nixidae#958) it
   # joins a management segment and leases there, so rename it eth0 and let
   # VyOS DHCP it. Otherwise VyOS does not manage it: the agent is on ttyS0,
-  # not the network. Its MAC is the runner's `spec.mac(0)`, lowercase.
-  hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
-  uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
+  # not the network.
+  uplinkMac = config.vivarium.uplinkMac;
   onOob = config.vivarium.uplink.segment != null;
   uplinkLink = lib.optional onOob {
     name = "05-vivarium-eth0.link";

@@ -1452,35 +1452,35 @@ let
     oob-gateway = mkTest {
       name = "oob-gateway";
       backend = "qemu";
-      nodes.svc = {
-        imports = [
-          (servicesNode {
-            segment = "mgmt";
-            gateway = true;
-            # `sw`'s uplink (vec0) MAC is 52:54:00:12:00:<index>, and index
-            # is the node's place in name order: svc, sw -> sw is 1. The
-            # reservation pins it to 10.42.0.10, outside the pool, so the
-            # DNAT target is stable. A wrong MAC leaves `sw` on a pool
-            # address and the phase's wait for .10 fails -- it is not silent.
-            reservations = [
-              {
-                hw-address = "52:54:00:12:00:01";
-                ip-address = "10.42.0.10";
-              }
-            ];
-            forwardPorts = [
-              {
-                sourcePort = 8080;
-                destination = "10.42.0.10:8080";
-                proto = "tcp";
-              }
-            ];
-          })
-        ];
-        # passt must forward 8080 for the DNAT to have anything to rewrite;
-        # its forwards are fixed before boot.
-        vivarium.forward = [ { ports = [ 8080 ]; } ];
-      };
+      nodes.svc =
+        { nodes, ... }:
+        {
+          imports = [
+            (servicesNode {
+              segment = "mgmt";
+              gateway = true;
+              # Pin `sw` to 10.42.0.10, outside the pool, by its uplink MAC,
+              # so the DNAT target is stable. Read from the node, so it stays
+              # right whatever order the nodes evaluate in.
+              reservations = [
+                {
+                  hw-address = nodes.sw.vivarium.uplinkMac;
+                  ip-address = "10.42.0.10";
+                }
+              ];
+              forwardPorts = [
+                {
+                  sourcePort = 8080;
+                  destination = "10.42.0.10:8080";
+                  proto = "tcp";
+                }
+              ];
+            })
+          ];
+          # passt must forward 8080 for the DNAT to have anything to rewrite;
+          # its forwards are fixed before boot.
+          vivarium.forward = [ { ports = [ 8080 ]; } ];
+        };
       nodes.sw = {
         vivarium.uplink.segment = "mgmt";
         environment.systemPackages = [ pkgs.python3 ];
