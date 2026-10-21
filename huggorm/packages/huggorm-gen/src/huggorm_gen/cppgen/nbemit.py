@@ -504,54 +504,20 @@ def _virtuals(cls: ir.ClassModel) -> tuple[ir.MethodModel, ...]:
     return tuple(m for m in cls.bound if m.virtual)
 
 
-def _plain(cls: ir.ClassModel, m: ir.MethodModel,
-           model: ir.Model | None) -> None:
-    """Refuse a parameter an override cannot take as declared. The
-    trampoline's signature must match the C++ virtual exactly. A
-    vocabulary is the enum it parses to, so it needs one."""
-    for pr in m.params:
-        if (pr.type.bytes_list
-                or (pr.parsed_by and _word_enum(pr, model) is None)):
-            raise TypeError(
-                f"{cls.name}.{m.name}({pr.name}): a @virtual takes each "
-                f"parameter as the C++ virtual does, and this one arrives "
-                f"converted.")
-    if m.returns is not None and (
-            m.returns.bytes_list
-            or (m.returns.required.kind == ir.Kind.ENUM
-                and _word_answer(m.returns, model) is None
-                and _word_values(m.returns, model) is None)):
-        raise TypeError(
-            f"{cls.name}.{m.name}: a @virtual cannot answer a list of bytes "
-            f"or a vocabulary with no C++ enum.")
+def _enum(t: ir.TypeRef) -> tuple[str, str]:
+    """A vocabulary's C++ enum, and the call that parses its word."""
+    words = t.words
+    enum = words.decl.enumerated if words is not None else None
+    if words is None or enum is None:
+        raise TypeError(f"`{t.spelling}` has no C++ enum")
+    return enum.held, words.decl.parsed_by or f"from_word<{enum.held}>"
 
 
-def _word_answer(t: ir.TypeRef | None, model: ir.Model | None
-                 ) -> ir.EnumModel | None:
-    """The vocabulary a @virtual answers, maybe None, when it has a C++
-    enum."""
-    if t is None or model is None or t.required.origin:
-        return None
-    held = model.declared(t.required)
-    if not isinstance(held, ir.EnumModel) or held.cxx is None:
-        return None
-    return held
-
-
-def _word_values(t: ir.TypeRef | None, model: ir.Model | None
-                 ) -> ir.EnumModel | None:
-    """The vocabulary a @virtual's `dict[str, W]` answer holds as its
-    values, maybe None, when it has a C++ enum."""
-    if t is None or t.origin is not ir.Origin.DICT:
-        return None
-    return _word_answer(t.inner, model)
-
-
-def _word_map_cxx(t: ir.TypeRef, words: ir.EnumModel) -> str:
+def _word_map_cxx(t: ir.TypeRef) -> str:
     """The C++ map a `dict[str, W]` answer is: the enum, maybe absent."""
-    assert words.cxx is not None
-    held = (_container(t.inner).of(words.cxx.held) if t.inner.optional
-            else words.cxx.held)
+    held, _ = _enum(t.inner)
+    if t.inner.optional:
+        held = _container(t.inner).of(held)
     return _container(t).of(held)
 
 
@@ -560,103 +526,139 @@ def _container(t: ir.TypeRef) -> Cxx:
     return fact(t.spelling, t.spelled)
 
 
-def _answer_cxx(t: ir.TypeRef, model: ir.Model | None) -> str:
-    """A @virtual's C++ return type: a vocabulary is its enum."""
-    if (values := _word_values(t, model)) is not None:
-        return _word_map_cxx(t, values)
-    words = _word_answer(t, model)
-    if words is None or words.cxx is None:
-        return _virtual_cxx(t)
-    return (_container(t).of(words.cxx.held) if t.optional
-            else words.cxx.held)
+def _answer_cxx(m: ir.MethodModel) -> str:
+    """A @virtual's C++ return type. A vocabulary is its enum, and bytes
+    are a `std::string`: the C++ side of the trampoline runs without the
+    GIL, and an `nb::bytes` needs it. The trampoline converts at the
+    boundary."""
+    t = m.returns
+    match m.answer:
+        case ir.Answer.NOTHING:
+            return "void"
+        case ir.Answer.WORD_MAP:
+            assert t is not None
+            return _word_map_cxx(t)
+        case ir.Answer.WORD:
+            assert t is not None
+            held, _ = _enum(t)
+            return _container(t).of(held) if t.optional else held
+        case ir.Answer.BYTES:
+            return "std::string"
+        case (ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST
+              | ir.Answer.MAP | ir.Answer.WIDTH):
+            assert t is not None
+            return t.cxx
+        case _:
+            assert_never(m.answer)
 
 
-def _taken(t: ir.TypeRef | None, model: ir.Model | None) -> list[str]:
+def _taken(m: ir.MethodModel) -> list[str]:
     """How the trampoline turns an override's `answer` into the C++
     return: bytes and a vocabulary convert, and the rest casts."""
-    if t is None:
-        return ["return;"]
-    if t.is_bytes:
-        return ["return from_bytes(nb::cast<nb::bytes>(answer));"]
-    if (values := _word_values(t, model)) is not None:
-        assert values.cxx is not None
-        parser = values.parsed_by or f"from_word<{values.cxx.held}>"
-        word = f"{parser}(nb::cast<std::string>(item.second))"
-        if t.inner.optional:
-            held = _container(t.inner).of(values.cxx.held)
-            word = (f"item.second.is_none() ? {held}{{}}"
-                    f" : {held}{{{word}}}")
-        return [f"{_word_map_cxx(t, values)} out;",
-                "for (auto item : nb::cast<nb::dict>(answer))",
-                f"{INDENT}out.emplace(nb::cast<std::string>(item.first), {word});",
-                "return out;"]
-    words = _word_answer(t, model)
-    if words is None or words.cxx is None:
-        return [f"return nb::cast<{_virtual_cxx(t)}>(answer);"]
-    parser = words.parsed_by or f"from_word<{words.cxx.held}>"
-    parsed = [f"return {parser}(nb::cast<std::string>(answer));"]
-    if t.optional:
-        return ["if (answer.is_none())", f"{INDENT}return std::nullopt;",
-                *parsed]
-    return parsed
+    t = m.returns
+    match m.answer:
+        case ir.Answer.NOTHING:
+            return ["return;"]
+        case ir.Answer.BYTES:
+            return ["return from_bytes(nb::cast<nb::bytes>(answer));"]
+        case ir.Answer.WORD_MAP:
+            assert t is not None
+            held, parser = _enum(t.inner)
+            word = f"{parser}(nb::cast<std::string>(item.second))"
+            if t.inner.optional:
+                held = _container(t.inner).of(held)
+                word = (f"item.second.is_none() ? {held}{{}}"
+                        f" : {held}{{{word}}}")
+            return [f"{_word_map_cxx(t)} out;",
+                    "for (auto item : nb::cast<nb::dict>(answer))",
+                    f"{INDENT}out.emplace(nb::cast<std::string>(item.first), {word});",
+                    "return out;"]
+        case ir.Answer.WORD:
+            assert t is not None
+            _, parser = _enum(t)
+            parsed = [f"return {parser}(nb::cast<std::string>(answer));"]
+            if t.optional:
+                return ["if (answer.is_none())",
+                        f"{INDENT}return std::nullopt;", *parsed]
+            return parsed
+        case (ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST
+              | ir.Answer.MAP | ir.Answer.WIDTH):
+            return [f"return nb::cast<{_answer_cxx(m)}>(answer);"]
+        case _:
+            assert_never(m.answer)
 
 
-def _word_enum(pr: ir.ParamModel, model: ir.Model | None
-               ) -> ir.EnumModel | None:
-    """The vocabulary a parameter parses, when it has a C++ enum."""
-    if not pr.parsed_by or model is None:
-        return None
-    held = model.declared(pr.type)
-    if not isinstance(held, ir.EnumModel) or held.cxx is None:
-        return None
-    return held
-
-
-def _virtual_param(pr: ir.ParamModel, model: ir.Model | None) -> str:
+def _virtual_param(pr: ir.ParamModel) -> str:
     """A @virtual parameter's C++ type: a vocabulary is its enum, and a
-    container that may be None is the container, opened by the binding."""
-    words = _word_enum(pr, model)
-    if words is not None and words.cxx is not None:
-        return words.cxx.held
-    if pr.absent:
-        return f"const {pr.type.required.cxx} &"
-    if pr.type.is_bytes:
-        return "const std::string &"
-    return pr.cxx
+    container that may be None is the container, opened by the binding.
+    The rest is as declared, which the C++ virtual takes."""
+    match pr.arrives:
+        case ir.Arrives.WORD:
+            return _enum(pr.type)[0]
+        case ir.Arrives.ABSENT:
+            return f"const {pr.type.required.cxx} &"
+        case ir.Arrives.CAST:
+            pass
+        case _:
+            assert_never(pr.arrives)
+    match pr.passes:
+        case ir.Passes.BYTES:
+            return "const std::string &"
+        case ir.Passes.AS_IS | ir.Passes.SET | ir.Passes.VIA:
+            return pr.cxx
+        case _:
+            assert_never(pr.passes)
 
 
 def _handed(pr: ir.ParamModel, model: ir.Model | None) -> str:
     """How the trampoline hands one argument to a Python override: as the
     type the override is annotated with. A vocabulary is its member."""
-    if pr.type.is_bytes:
+    if pr.passes is ir.Passes.BYTES:
         return f"to_bytes({pr.name})"
-    if (words := _word_enum(pr, model)) is not None:
-        return (f'nb::module_::import_("{words.module}")'
-                f'.attr("{words.name}")(as_word({pr.name}))')
-    return pr.name
+    match pr.arrives:
+        case ir.Arrives.WORD:
+            words = model.declared(pr.type) if model is not None else None
+            if not isinstance(words, ir.EnumModel):
+                raise TypeError(f"{pr.name}: a vocabulary needs the model "
+                                f"to name its Python enum")
+            return (f'nb::module_::import_("{words.module}")'
+                    f'.attr("{words.name}")(as_word({pr.name}))')
+        case ir.Arrives.ABSENT | ir.Arrives.CAST:
+            return pr.name
+        case _:
+            assert_never(pr.arrives)
 
 
-def _virtual_cxx(t: ir.TypeRef) -> str:
-    """A @virtual's C++ spelling of a type. Bytes are a `std::string`:
-    the C++ side of the trampoline runs without the GIL, and an
-    `nb::bytes` needs it. The trampoline converts at the boundary."""
-    return "std::string" if t.is_bytes else t.cxx
+def _passed(pr: ir.ParamModel) -> str:
+    """One argument of a derived body's C++ call."""
+    match pr.passes:
+        case ir.Passes.SET:
+            # libstore holds a collection of T some other way. The wire
+            # carries a list either way: this is two type systems
+            # disagreeing, not a decision.
+            return f"as_set<{pr.collection}>({pr.name})"
+        case ir.Passes.BYTES:
+            return f"from_bytes({pr.name})"
+        case ir.Passes.VIA:
+            return f"{pr.name}.{pr.via}"
+        case ir.Passes.AS_IS:
+            return pr.name
+        case _:
+            assert_never(pr.passes)
 
 
 def _holds_bytes(t: ir.TypeRef | None) -> bool:
     return t is not None and t.holds_bytes
 
 
-def _bytes_shapes(where: str, params: Sequence[ir.ParamModel],
-                  returns: ir.TypeRef | None) -> None:
+def _bytes_shapes(where: str, m: ir.MethodModel) -> None:
     """Refuse a bytes shape `_derived` has no conversion for. Bound as
     the C++ spells it, a string crosses as `str` where the declaration
     says `bytes`."""
     shapes: list[tuple[str, ir.TypeRef | None, bool]] = [
-        (f"parameter {pr.name!r}", pr.type, pr.type.is_bytes)
-        for pr in params]
-    shapes.append(("return", returns, returns is not None
-                   and (returns.is_bytes or returns.bytes_list)))
+        (f"parameter {pr.name!r}", pr.type, pr.passes is ir.Passes.BYTES)
+        for pr in m.params]
+    shapes.append(("return", m.returns, m.answer is ir.Answer.BYTES))
     for what, t, converted in shapes:
         if _holds_bytes(t) and not converted:
             assert t is not None
@@ -712,16 +714,13 @@ def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
     methods = _virtuals(cls)
     if not methods:
         return []
-    for m in methods:
-        _plain(cls, m, model)
     out = [f"namespace {NAMESPACE} {{", "",
            f"struct Py{cls.name} : public {cls.held}",
            "{",
            f"{INDENT}NB_TRAMPOLINE({cls.held}, {len(methods)});"]
     for m in methods:
-        ret = (_answer_cxx(m.returns, model) if m.returns is not None
-               else "void")
-        params = ", ".join(f"{_virtual_param(pr, model)} {pr.name}"
+        ret = _answer_cxx(m)
+        params = ", ".join(f"{_virtual_param(pr)} {pr.name}"
                            for pr in m.params)
         args = ", ".join(pr.name for pr in m.params)
         handed = ", ".join(_handed(pr, model) for pr in m.params)
@@ -739,7 +738,7 @@ def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
                 f"{INDENT * 4}}} catch (nb::python_error & e) {{",
                 f"{INDENT * 5}rethrow_as_nix(e);",
                 f"{INDENT * 4}}}",
-                *[f"{INDENT * 4}{line}" for line in _taken(m.returns, model)],
+                *[f"{INDENT * 4}{line}" for line in _taken(m)],
                 f"{INDENT * 3}}}",
                 f"{INDENT * 2}}}",
                 f"{INDENT * 2}return NBBase::{m.cxx_name or m.name}({args});",
@@ -834,7 +833,7 @@ class Emitter:
             # only place that can know it will. Missed until a module had
             # one and nothing else optional in it - `store` had returns
             # to hide it, `derived_path` had not.
-            if pr is not None and pr.absent:
+            if pr is not None and pr.arrives is ir.Arrives.ABSENT:
                 note(ir.TypeRef.optional_of(pr.type))
         # A hook has no signature worth casting, and it still names the
         # header its C++ lives in. `wanted` below is where that lands.
@@ -938,28 +937,26 @@ class Emitter:
                 f"{cls.name}.{m.name}: a `{m.returns.spelling}` return has "
                 f"no conversion. Declare the container alone: an absent one "
                 f"is an empty one.")
-        # A guarded accessor reaches through the union pair rather than
-        # through `via`, so the two are read separately and `call` below
-        # is rebuilt after the guard picks its reach.
-        # A `list[T]` return needs a body too: the conversion below is
-        # what makes a C++ set answer the list the declaration promised,
-        # and a pointer binding has nowhere to put it.
-        wants_list = (m.returns is not None
-                      and m.returns.origin in (ir.Origin.LIST, ir.Origin.DICT))
-        if not (cls.via or m.returns_handle or m.reads or m.guard
-                or m.names or m.produces or wants_list or m.returns_word
-                or _holds_bytes(m.returns)
-                or any(pr.converts for pr in m.params)):
-            return None
-        _bytes_shapes(f"{cls.name}.{m.name}", m.params, m.returns)
+        _bytes_shapes(f"{cls.name}.{m.name}", m)
         for pr in m.params:
-            if pr.collection and pr.type.optional:
+            if pr.passes is ir.Passes.SET and pr.type.optional:
                 # `as_set` converts a vector, not an optional one.
                 raise TypeError(
                     f"{cls.name}.{m.name}: parameter {pr.name!r} is a "
                     f"`{pr.type.spelling}` over `{pr.collection}`, which "
                     f"has no conversion. Default it to None, so an absent "
                     f"one is an empty one, or carry a body.")
+        # A guarded accessor reaches through the union pair rather than
+        # through `via`, so the two are read separately and `call` below
+        # is rebuilt after the guard picks its reach.
+        # A converted answer needs a body too: a pointer binding has
+        # nowhere to put the conversion. A width does not, because
+        # nanobind casts the integer either way.
+        if not (cls.via or m.reads or m.guard or m.names or m.produces
+                or m.answer not in (ir.Answer.NOTHING, ir.Answer.CAST,
+                                    ir.Answer.WIDTH)
+                or any(pr.converts for pr in m.params)):
+            return None
         obj = SELF
         reach = f"{obj}.{cls.via}->" if cls.via else f"{obj}."
         # The GUARD, for an accessor on a tagged union.
@@ -997,67 +994,55 @@ class Emitter:
             # a return past the switch.
             lines.append(f'{INDENT * 4}return "unknown";')
             return lines
-        # A declared `list[T]` PARAMETER, where T's class says libstore
-        # holds a collection of them some other way. The wire carries a
-        # list either way; this is the two type systems disagreeing, not a
-        # decision, so `as_set` is written here rather than at each site.
-        passed = ", ".join(
-            f"as_set<{pr.collection}>({pr.name})" if pr.collection else
-            f"from_bytes({pr.name})" if pr.type.is_bytes else
-            (f"{pr.name}.{pr.via}" if pr.via else pr.name)
-            for pr in m.params)
+        passed = ", ".join(_passed(pr) for pr in m.params)
         # A member is reached, not called. The declaration says which by
         # writing @reads, and an accessor that reads one takes no
         # parameters - so there is no argument list to spell either.
         call = (f"{reach}{m.reads}" if m.reads
                 else f"{reach}{m.cxx_name or m.name}({passed})")
-        if m.returns is None:
-            return [*head, f"{INDENT * 4}{call};"]
-        if m.returns_handle:
-            return [*head, f"{INDENT * 4}return {m.returns_handle}({call});"]
-        # A declared `Bytes` over a string, and the list of each. A string
-        # is not one implicitly - `nb::bytes` takes only explicit
-        # constructors - so the conversion is written here, once.
-        if m.returns.is_bytes or m.returns.bytes_list:
-            return [*head, f"{INDENT * 4}return to_bytes({call});"]
-        # A declared `list[T]` RETURN over a C++ collection that is not
-        # a vector. libstore answers with a set almost everywhere, and the
-        # declaration already said `list` - so nothing needs to say it
-        # twice. `as_list` is a template over any range, so wrapping is
-        # right whether the call answered a set or a vector.
-        match m.returns.origin:
-            case ir.Origin.LIST:
+        t = m.returns
+        match m.answer:
+            case ir.Answer.NOTHING:
+                return [*head, f"{INDENT * 4}{call};"]
+            case ir.Answer.HANDLE:
+                return [*head, f"{INDENT * 4}return {m.returns_handle}({call});"]
+            # A string is not a `Bytes` implicitly: `nb::bytes` takes
+            # only explicit constructors.
+            case ir.Answer.BYTES:
+                return [*head, f"{INDENT * 4}return to_bytes({call});"]
+            # libstore answers with a set almost everywhere, and the
+            # declaration already said `list`. `as_list` is a template
+            # over any range, so it is right for a vector too.
+            case ir.Answer.LIST:
                 return [*head, f"{INDENT * 4}return as_list({call});"]
-            # The same for a `dict[str, V]`: libstore keys many maps
-            # with a transparent `std::less<>`, and nanobind casts only
-            # the plain one.
-            case ir.Origin.DICT:
+            # nanobind casts only a map with the plain `std::less`.
+            case ir.Answer.MAP:
                 return [*head, f"{INDENT * 4}return as_map({call});"]
-            # An optional container is refused above.
-            case ir.Origin.OPTIONAL | None:
-                pass
+            # The enumerator libstore answers with is not the word Python
+            # has, and `as_word` is the emitted switch that says which.
+            case ir.Answer.WORD:
+                assert t is not None
+                if t.optional:
+                    return [*head, f"{INDENT * 4}auto answer = {call};",
+                            f"{INDENT * 4}if (!answer)",
+                            f"{INDENT * 5}return std::nullopt;",
+                            f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
+                return [*head, f"{INDENT * 4}return {NAMESPACE}::as_word({call});"]
+            # `size()` answers a size_t where the declaration says I64,
+            # and the emitted C++ says what the declaration says.
+            case ir.Answer.WIDTH:
+                assert t is not None
+                return [*head, f"{INDENT * 4}return "
+                               f"static_cast<{t.cxx}>({call});"]
+            case ir.Answer.CAST:
+                return [*head, f"{INDENT * 4}return {call};"]
+            # `ir._unconverted` refuses a container of vocabulary words.
+            case ir.Answer.WORD_MAP:
+                raise TypeError(f"{cls.name}.{m.name}: a `dict` of "
+                                f"vocabulary words converts only in a "
+                                f"@virtual")
             case _:
-                assert_never(m.returns.origin)
-        # A declared VOCABULARY return. The enumerator libstore answers
-        # with is not the word Python has, and `as_word` is the switch
-        # that says which - emitted beside this, not written by hand.
-        # Before this, `Hash.algorithm` carried the conversion as a `Cxx`
-        # body, which is a MAPPING written into a declaration.
-        if m.returns_word and m.returns.optional:
-            return [*head, f"{INDENT * 4}auto answer = {call};",
-                    f"{INDENT * 4}if (!answer)",
-                    f"{INDENT * 5}return std::nullopt;",
-                    f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
-        if m.returns_word:
-            return [*head, f"{INDENT * 4}return {NAMESPACE}::as_word({call});"]
-        # A width the DECLARATION spells. `size()` answers a size_t and
-        # the declaration says I64, so the cast is what makes the emitted
-        # C++ say what the declaration says rather than what this
-        # library's version of the call happens to return.
-        if m.returns.fixed_int:
-            return [*head, f"{INDENT * 4}return "
-                           f"static_cast<{m.returns.cxx}>({call});"]
-        return [*head, f"{INDENT * 4}return {call};"]
+                assert_never(m.answer)
 
     def _guard_head(self, cls: ir.ClassModel,
                     m: ir.MethodModel) -> list[str]:
@@ -1199,48 +1184,53 @@ class Emitter:
         me, held = self._self(cls)
         body = [*held, *opening] + [f"{INDENT * 4}const std::string {pr.name}_ = "
                 f"from_bytes({pr.name});"
-                for pr in m.params if pr.type.is_bytes]
-        names = ", ".join(f"{pr.name}_" if pr.type.is_bytes else pr.name
-                          for pr in m.params)
+                for pr in m.params if pr.passes is ir.Passes.BYTES]
+        names = ", ".join(f"{pr.name}_" if pr.passes is ir.Passes.BYTES
+                          else pr.name for pr in m.params)
         call = f"{SELF}.{cls.held}::{m.cxx_name or m.name}({names})"
         release = ([f"{INDENT * 5}nb::gil_scoped_release nb_released;"]
                    if waits(cls, m) else [])
-        words = _word_answer(m.returns, self.model)
-        values = _word_values(m.returns, self.model)
-        if m.returns is not None and values is not None:
-            word = f"{NAMESPACE}::as_word(item.second)"
-            if m.returns.inner.optional:
-                word = (f"item.second ? {m.returns.inner.cxx}{{"
-                        f"{NAMESPACE}::as_word(*item.second)}} : std::nullopt")
-            body += [f"{INDENT * 4}{_answer_cxx(m.returns, self.model)} answer;",
-                     f"{INDENT * 4}{{", *release,
-                     f"{INDENT * 5}answer = {call};",
-                     f"{INDENT * 4}}}",
-                     f"{INDENT * 4}{m.returns.cxx} out;",
-                     f"{INDENT * 4}for (auto & item : answer)",
-                     f"{INDENT * 5}out.emplace(item.first, {word});",
-                     f"{INDENT * 4}return out;"]
-        elif m.returns is not None and m.returns.is_bytes:
-            body += [f"{INDENT * 4}std::string answer;",
-                     f"{INDENT * 4}{{", *release,
-                     f"{INDENT * 5}answer = {call};",
-                     f"{INDENT * 4}}}",
-                     f"{INDENT * 4}return to_bytes(answer);"]
-        elif m.returns is not None and words is not None:
-            body += [f"{INDENT * 4}{_answer_cxx(m.returns, self.model)} answer;",
-                     f"{INDENT * 4}{{", *release,
-                     f"{INDENT * 5}answer = {call};",
-                     f"{INDENT * 4}}}"]
-            if m.returns.optional:
-                body += [f"{INDENT * 4}if (!answer)",
-                         f"{INDENT * 5}return std::nullopt;",
-                         f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
-            else:
-                body += [f"{INDENT * 4}return {NAMESPACE}::as_word(answer);"]
-        else:
-            body += [f"{INDENT * 4}{{", *release,
-                     f"{INDENT * 5}return {call};",
-                     f"{INDENT * 4}}}"]
+        t = m.returns
+        match m.answer:
+            case ir.Answer.WORD_MAP:
+                assert t is not None
+                word = f"{NAMESPACE}::as_word(item.second)"
+                if t.inner.optional:
+                    word = (f"item.second ? {t.inner.cxx}{{"
+                            f"{NAMESPACE}::as_word(*item.second)}} : std::nullopt")
+                body += [f"{INDENT * 4}{_answer_cxx(m)} answer;",
+                         f"{INDENT * 4}{{", *release,
+                         f"{INDENT * 5}answer = {call};",
+                         f"{INDENT * 4}}}",
+                         f"{INDENT * 4}{t.cxx} out;",
+                         f"{INDENT * 4}for (auto & item : answer)",
+                         f"{INDENT * 5}out.emplace(item.first, {word});",
+                         f"{INDENT * 4}return out;"]
+            case ir.Answer.BYTES:
+                body += [f"{INDENT * 4}std::string answer;",
+                         f"{INDENT * 4}{{", *release,
+                         f"{INDENT * 5}answer = {call};",
+                         f"{INDENT * 4}}}",
+                         f"{INDENT * 4}return to_bytes(answer);"]
+            case ir.Answer.WORD:
+                assert t is not None
+                body += [f"{INDENT * 4}{_answer_cxx(m)} answer;",
+                         f"{INDENT * 4}{{", *release,
+                         f"{INDENT * 5}answer = {call};",
+                         f"{INDENT * 4}}}"]
+                if t.optional:
+                    body += [f"{INDENT * 4}if (!answer)",
+                             f"{INDENT * 5}return std::nullopt;",
+                             f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
+                else:
+                    body += [f"{INDENT * 4}return {NAMESPACE}::as_word(answer);"]
+            case (ir.Answer.NOTHING | ir.Answer.CAST | ir.Answer.HANDLE
+                  | ir.Answer.LIST | ir.Answer.MAP | ir.Answer.WIDTH):
+                body += [f"{INDENT * 4}{{", *release,
+                         f"{INDENT * 5}return {call};",
+                         f"{INDENT * 4}}}"]
+            case _:
+                assert_never(m.answer)
         extras = self._extras(False, m.params)
         return [f'{INDENT * 2}.def("{m.name}", '
                 f"[]({me}{args}){self._returns(m)} {{",
@@ -1260,34 +1250,35 @@ class Emitter:
         The body then reads exactly what the declaration wrote."""
         args, opening = "", []
         for pr in params:
-            spelled = pr.cxx
-            parser = pr.parsed_by
-            if parser:
+            match pr.arrives:
+                case ir.Arrives.CAST:
+                    args += f", {pr.cxx} {pr.name}"
                 # A VOCABULARY arrives as the string libstore's parser
                 # takes, and one call turns it into the C++ type. The
                 # spelling of that call is declared once, by `@words`, so
                 # a body writes the parameter name and gets the parsed
                 # value - and a second method taking the same vocabulary
                 # cannot spell the parse differently.
-                args += f", {spelled} {pr.name}_"
-                if pr.type.optional:
-                    opening += [
-                        f"{INDENT * depth}"
-                        f"{_container(pr.type).of(f'decltype({parser}(*{pr.name}_))')}"
-                        f" {pr.name};",
-                        f"{INDENT * depth}if ({pr.name}_)",
-                        f"{INDENT * (depth + 1)}{pr.name} = {parser}(*{pr.name}_);"]
-                    continue
-                opening.append(f"{INDENT * depth}const auto {pr.name} = "
-                               f"{parser}({pr.name}_);")
-                continue
-            if not pr.absent:
-                args += f", {spelled} {pr.name}"
-                continue
-            held = pr.type.required.cxx
-            args += f", const {OPT.of(held)} & {pr.name}_"
-            opening.append(f"{INDENT * depth}const {held} {pr.name} = "
-                           f"{pr.name}_.value_or({held}{{}});")
+                case ir.Arrives.WORD:
+                    parser = pr.parsed_by
+                    args += f", {pr.cxx} {pr.name}_"
+                    if pr.type.optional:
+                        opening += [
+                            f"{INDENT * depth}"
+                            f"{_container(pr.type).of(f'decltype({parser}(*{pr.name}_))')}"
+                            f" {pr.name};",
+                            f"{INDENT * depth}if ({pr.name}_)",
+                            f"{INDENT * (depth + 1)}{pr.name} = {parser}(*{pr.name}_);"]
+                    else:
+                        opening.append(f"{INDENT * depth}const auto {pr.name} = "
+                                       f"{parser}({pr.name}_);")
+                case ir.Arrives.ABSENT:
+                    held = pr.type.required.cxx
+                    args += f", const {OPT.of(held)} & {pr.name}_"
+                    opening.append(f"{INDENT * depth}const {held} {pr.name} = "
+                                   f"{pr.name}_.value_or({held}{{}});")
+                case _:
+                    assert_never(pr.arrives)
         return args, opening
 
     def _identity_semantics(self, cls: ir.ClassModel,

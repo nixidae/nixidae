@@ -453,6 +453,50 @@ def _snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
+class Arrives(StrEnum):
+    """How a binding's lambda takes a parameter."""
+
+    # As nanobind casts it.
+    CAST = "cast"
+    # A vocabulary's string, parsed by the lambda's opening lines.
+    WORD = "word"
+    # An optional container, opened to an empty one.
+    ABSENT = "absent"
+
+
+class Passes(StrEnum):
+    """How a derived body hands a parameter to the C++ call."""
+
+    AS_IS = "as_is"
+    # `as_set`: the C++ holds the `list[T]` as another collection.
+    SET = "set"
+    # `from_bytes`: a `Bytes` over a `std::string`.
+    BYTES = "bytes"
+    # Unwrapped through the handle's member.
+    VIA = "via"
+
+
+class Answer(StrEnum):
+    """How a binding turns what the C++ answers into the declared return."""
+
+    NOTHING = "nothing"
+    CAST = "cast"
+    # Wrapped in the handle class.
+    HANDLE = "handle"
+    # `to_bytes`: a `Bytes`, or a list of them.
+    BYTES = "bytes"
+    # `as_list`: any C++ range.
+    LIST = "list"
+    # `as_map`: libstore keys many maps with a transparent `std::less<>`.
+    MAP = "map"
+    # `as_word`: a vocabulary with a C++ enum behind it.
+    WORD = "word"
+    # A `dict[str, W]` of such a vocabulary.
+    WORD_MAP = "word_map"
+    # A `static_cast` to the integer width the declaration spells.
+    WIDTH = "width"
+
+
 @dataclass(frozen=True)
 class ParamModel:
     name: str
@@ -486,13 +530,33 @@ class ParamModel:
     defaults_to_none: bool = False
 
     @property
+    def arrives(self) -> Arrives:
+        if self.parsed_by:
+            return Arrives.WORD
+        if self.absent:
+            return Arrives.ABSENT
+        return Arrives.CAST
+
+    @property
+    def passes(self) -> Passes:
+        if self.collection:
+            return Passes.SET
+        if self.type.is_bytes:
+            return Passes.BYTES
+        if self.via:
+            return Passes.VIA
+        return Passes.AS_IS
+
+    @property
     def converts(self) -> bool:
         """Whether the binding converts this argument before the C++
         takes it. A binding by pointer hands the C++ what nanobind cast,
         so every branch that may bind by pointer asks this one question
-        (nixidae/nixidae#874)."""
-        return bool(self.via or self.parsed_by or self.collection
-                    or self.absent or self.type.holds_bytes)
+        (nixidae/nixidae#874). Bytes in any shape count, so that the
+        shapes with no conversion reach a refusal."""
+        return (self.arrives is not Arrives.CAST
+                or self.passes is not Passes.AS_IS
+                or self.type.holds_bytes)
 
     @classmethod
     def of(cls, p: Param, resolver: Resolver) -> ParamModel:
@@ -708,8 +772,6 @@ class MethodModel:
     subscription: shapes.Subscription | None = None
     # The C++ type of the HANDLE class it returns, or "".
     returns_handle: str = ""
-    # It returns a vocabulary with a C++ enum behind it.
-    returns_word: bool = False
     # Headers its body needs (`@needs`), and the vocabularies its body
     # converts that no signature names (`@spells`).
     headers: tuple[Include, ...] = ()
@@ -730,7 +792,7 @@ class MethodModel:
         where = f'{owner.name}.{m.name}: @guard("{m.guard}")'
         guard = (tagged.test(m.guard, where)
                  if tagged is not None and m.guard else None)
-        return cls(m.name, params, returns,
+        made = cls(m.name, params, returns,
                    _clean(m.doc), m.blocks, instant=m.instant,
                    cxx_name=m.cxx_name, cxx_body=m.cxx_body, reads=m.reads,
                    guard=guard, names=tagged if m.names else None,
@@ -740,10 +802,36 @@ class MethodModel:
                    posted=_posted(owner, m),
                    subscription=_subscription(f"{owner.name}.{m.name}", m),
                    returns_handle=cxx.held(handle) if handle else "",
-                   returns_word=(returns is not None
-                                 and returns.words is not None),
                    headers=m.headers,
                    spells=_spells(m, f"{owner.name}.{m.name}", resolver))
+        if virtual:
+            _overridable(made, f"{owner.name}.{m.name}")
+        return made
+
+    @property
+    def answer(self) -> Answer:
+        t = self.returns
+        if t is None:
+            return Answer.NOTHING
+        if self.returns_handle:
+            return Answer.HANDLE
+        if t.is_bytes or t.bytes_list:
+            return Answer.BYTES
+        match t.origin:
+            case Origin.LIST:
+                return Answer.LIST
+            case Origin.DICT:
+                return (Answer.WORD_MAP if t.inner.words is not None
+                        else Answer.MAP)
+            case Origin.OPTIONAL | None:
+                pass
+            case _:
+                assert_never(t.origin)
+        if t.words is not None:
+            return Answer.WORD
+        if t.fixed_int:
+            return Answer.WIDTH
+        return Answer.CAST
 
     @property
     def return_spelling(self) -> str:
@@ -1113,6 +1201,27 @@ def _virtual(owner: Class, m: Method) -> bool:
             f"{owner.name}.{m.name}: @virtual overrides the C++ member of "
             f"that name, so it carries no body and reads no member.")
     return True
+
+
+def _overridable(m: MethodModel, where: str) -> None:
+    """Refuse a @virtual shape the trampoline has no conversion for. Its
+    signature must match the C++ virtual exactly, and a vocabulary
+    crosses as its C++ enum, so it needs one. Every other shape crosses
+    as declared, and the compiler checks it against the C++ virtual."""
+    for pr in m.params:
+        if (pr.type.bytes_list
+                or (pr.arrives is Arrives.WORD
+                    and (pr.type.optional or pr.type.words is None))):
+            raise TypeError(
+                f"{where}({pr.name}): a @virtual takes each parameter as "
+                f"the C++ virtual does, and this one arrives converted.")
+    if m.returns is not None and (
+            m.returns.bytes_list
+            or (m.returns.required.kind == Kind.ENUM
+                and m.answer not in (Answer.WORD, Answer.WORD_MAP))):
+        raise TypeError(
+            f"{where}: a @virtual cannot answer a list of bytes or a "
+            f"vocabulary with no C++ enum.")
 
 
 def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
