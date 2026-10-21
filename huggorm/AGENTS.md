@@ -81,7 +81,7 @@ In order:
    - The declaration DSL is not fixed. Change it when a simpler
      spelling removes emitter work.
    - Add decl TYPES where C++ needs a home to map to Python (as
-     `Path = Annotated[pathlib.Path, Cxx("string"), Async(...)]`
+     `Path = Annotated[pathlib.Path, Cxx("std::filesystem::path", ...), Async(...)]`
      does): the type carries the C++ spelling, the Python spelling
      and any surface twin, so no emitter keeps a mapping table.
    - Prefer typed structure over strings at every stage, the

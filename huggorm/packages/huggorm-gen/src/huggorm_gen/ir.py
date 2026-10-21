@@ -21,7 +21,7 @@ from functools import cached_property
 from typing import NamedTuple, assert_never
 
 from huggorm_dsl import shapes
-from huggorm_dsl.declare import Crossing, Decl, DeclKind, Subscription, Threading
+from huggorm_dsl.declare import Crossing, Cxx, Decl, DeclKind, Subscription, Threading
 from huggorm_dsl.read import (
     MESSAGE_PARTS,
     Body,
@@ -156,8 +156,9 @@ class TypeRef:
     # The declaration a leaf names, resolved once. Not compared: a
     # `Class` holds dicts, and a type is the same type whoever asks.
     declared: Class | None = field(default=None, compare=False, repr=False)
-    # The C++ alias the leaf carries, `Cxx("string")`, or "".
-    alias: str = field(default="", compare=False)
+    # The C++ fact a leaf's alias carries, or None for a container and
+    # a declared class.
+    spelled: Cxx | None = field(default=None, compare=False)
 
     @property
     def optional(self) -> bool:
@@ -264,8 +265,8 @@ class TypeRef:
     @property
     def fixed_int(self) -> bool:
         """An integer with a declared C++ width. Every `int` leaf is
-        one: `cxx.CXX_BUILTIN` has no plain `int`, so `I64` or `U64`
-        is the only way an `int` reaches here."""
+        one: a signature refuses a bare `int`, so `I64` or `U64` is the
+        only way an `int` reaches here."""
         return not self.origin and self.name == "int"
 
     @property
@@ -359,16 +360,19 @@ def enumerated(cls: Class | None) -> bool:
     return cls is not None and cls.is_words and bool(cls.decl.enumerated)
 
 
-def type_ref(t: Type, resolver: Resolver) -> TypeRef:
+def type_ref(t: Type, resolver: Resolver, *, spelled: bool = True) -> TypeRef:
     """`t`, resolved against the declaration set. Each leaf is looked
-    up here and nowhere after: every later stage reads `declared`."""
+    up here and nowhere after: every later stage reads `declared`.
+
+    `spelled=False` leaves the C++ spelling out, for a type no C++
+    signature names."""
     # The vocabulary already says the Python half: `Bint` is
-    # `Annotated[bool, Cxx("bint")]`, so `python` is `bool`.
+    # `Annotated[bool, Cxx("bool")]`, so `python` is `bool`.
     name = t.leaf.python
     ref = TypeRef(
         spelling=t.python,
         origin=t.origin,
-        args=tuple(type_ref(a, resolver) for a in t.args),
+        args=tuple(type_ref(a, resolver, spelled=spelled) for a in t.args),
         # `pathlib.Path`, `datetime.timedelta`: a type in a module,
         # imported as itself.
         kind=Kind.MODULE if t.leaf.module else resolver.kind(name),
@@ -376,10 +380,12 @@ def type_ref(t: Type, resolver: Resolver) -> TypeRef:
         width=t.cxx.width if t.cxx is not None and not t.origin else "",
         twin=t.twin,
         declared=None if t.origin else resolver.known.get(name),
-        alias="" if t.origin or t.cxx is None else t.cxx.spelling,
+        spelled=None if t.origin else t.cxx,
     )
-    spelled, caster = cxx.value(ref, resolver.known)
-    return replace(ref, cxx=spelled, caster=caster)
+    if not spelled:
+        return ref
+    value, caster = cxx.value(ref, resolver.known)
+    return replace(ref, cxx=value, caster=caster)
 
 
 @dataclass(frozen=True)
@@ -1336,7 +1342,9 @@ class ErrorModel:
         raised = error.raised
         if raised is None:
             raise TypeError(f"{error.name}: not an exception declaration")
-        parts = tuple(FieldModel(part, type_ref(t, resolver))
+        # Unspelled: a part crosses the wire and is read off the caught
+        # exception by its record type, and no C++ signature names it.
+        parts = tuple(FieldModel(part, type_ref(t, resolver, spelled=False))
                       for part, t in raised.parts)
         readers: tuple[str, ...] = ()
         if raised.cxx:

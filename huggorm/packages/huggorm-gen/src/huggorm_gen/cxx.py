@@ -9,85 +9,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, NamedTuple, Protocol, assert_never
+from typing import TYPE_CHECKING, Protocol, assert_never
 
-from huggorm_dsl.declare import Crossing, Decl, DeclKind
+from huggorm_dsl.declare import STRING, Crossing, Cxx, Decl, DeclKind
 from huggorm_dsl.read import Class, Origin, Param
 
 if TYPE_CHECKING:
     from huggorm_gen.ir import TypeRef
-
-
-class Spelled(NamedTuple):
-    """A C++ type by value, its caster, and whether a parameter takes
-    it by const reference."""
-
-    value: str
-    caster: str | None
-    by_ref: bool = False
-
-    @property
-    def param(self) -> tuple[str, str | None]:
-        return (f"const {self.value} &" if self.by_ref else self.value,
-                self.caster)
-
-
-# How a declared type is spelled in a C++ signature, and which caster
-# has to be included for it to cross. Nothing here is guessed from a
-# Python name: a type reaches this table only through an Annotated
-# alias that already carries its C++ spelling.
-CXX_PARAM = {
-    "string": Spelled("std::string", "string", by_ref=True),
-    "string_view": Spelled("std::string_view", "string_view"),
-    "bint": Spelled("bool", None),
-    "uint64_t": Spelled("std::uint64_t", None),
-    "int64_t": Spelled("std::int64_t", None),
-    "double": Spelled("double", None),
-    # A duration, which nanobind casts to a datetime.timedelta both
-    # ways - so the caster IS the whole binding and nothing here
-    # converts. `chrono` names <nanobind/stl/chrono.h>, like every
-    # other entry names its own header.
-    "microseconds": Spelled("std::chrono::microseconds", "chrono"),
-    # A Python callable the binding KEEPS. No caster header: nanobind
-    # itself defines `nb::object`, and there is nothing to convert -
-    # the point is to hold the reference, not to read a value out.
-    #
-    # BY VALUE, which is the opposite of every other entry, and the
-    # method carrying it must be `@instant`. A by-value Python handle
-    # is only safe while the GIL is HELD, and `@instant` is what keeps
-    # it: a method that released it would change a reference count
-    # without it and nanobind aborts the process. Registration waits
-    # for nothing, so it has no reason to release the GIL anyway.
-    "nb::object": Spelled("nb::object", None),
-}
-
-# A declared Python type with no C++ alias behind it, and the C++ it
-# crosses as. Each entry is a caster nanobind ships, so nothing here
-# is flattened on the way through.
-#
-# This is what decided the backend. The Cython route could declare
-# none of these - a pxd has no std::set, no std::optional and no
-# non-default-constructible member - so it turned every one of them
-# into a string and parsed it back. nanobind casts them, so a store
-# path stays a store path from libstore to Python.
-CXX_PYTHON = {
-    "bytes": Spelled("nb::bytes", None, by_ref=True),
-    "pathlib.Path": Spelled("std::filesystem::path", "filesystem", by_ref=True),
-}
-
-# The plain reading of a builtin, for a declaration that annotates
-# with the builtin and no alias. A LAST resort, unlike CXX_PYTHON
-# above: an alias is the declaration saying which C++ it means, and
-# `str` alone says only that Python sees a str.
-#
-# The difference is what `StrView` and `Path` need. Both are `str`-ish
-# to Python and both carry Cxx("string"), which is the coarsest of
-# the three answers - so a table that let either side win outright
-# would turn one of them into the wrong crossing.
-CXX_BUILTIN = {
-    "str": Spelled("std::string", "string", by_ref=True),
-    "bool": Spelled("bool", None),
-}
 
 
 # Where an emitted C++ type goes. The same namespace `errors.hpp`
@@ -145,7 +73,7 @@ def bare(cls: Class, known: Mapping[str, Class]) -> str:
         # A vocabulary. The member IS the string a Nix parser takes,
         # so it crosses as one - a fact about the words rather than
         # about either binding.
-        return "std::string"
+        return STRING.spelling
     if not cls.decl.cxx and not cls.decl.produced:
         raise TypeError(
             f"'{cls.name}' has no C++ type behind it. Only a class with "
@@ -167,29 +95,17 @@ def arm(cls: Class, name: str, known: Mapping[str, Class]) -> str:
     """One arm as Python has it, in C++: a builtin from the alias the
     declaration wrote, and a class through its own declaration."""
     if (scalar := cls.decl.scalars.get(name)) is not None:
-        return builtin(scalar.python,
-                       scalar.cxx.spelling if scalar.cxx else "").value
+        return leaf(scalar.python, scalar.cxx).spelling
     return bare(known[name], known)
 
 
-def builtin(python: str, alias: str) -> Spelled:
-    """A leaf no class declares, from the Python type and the C++ alias
-    it carries.
-
-    Three tables, in the order the declaration meant them. A Python
-    type nanobind casts natively wins outright - `pathlib.Path`
-    carries Cxx("string"), the coarse answer, and nanobind has a
-    filesystem caster. Then the alias, which is the declaration
-    naming a C++ spelling. Then the bare builtin, which names none."""
-    if python in CXX_PYTHON:
-        return CXX_PYTHON[python]
-    if alias in CXX_PARAM:
-        return CXX_PARAM[alias]
-    if python in CXX_BUILTIN:
-        return CXX_BUILTIN[python]
-    raise TypeError(
-        f"'{python}' has no C++ spelling. A bound class names types "
-        f"through an Annotated alias in declare.py.")
+def leaf(python: str, fact: Cxx | None) -> Cxx:
+    """The C++ a leaf no class declares carries, or a refusal."""
+    if fact is None:
+        raise TypeError(
+            f"'{python}' has no C++ spelling. A bound class names types "
+            f"through an Annotated alias in declare.py.")
+    return fact
 
 
 def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
@@ -255,12 +171,12 @@ def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # variant of bound classes needs none of its own, but one
             # holding a string or a vector does.
             return spelled, "variant"
-        return spelled, "string" if other.is_words else None
-    entry = builtin(t.name, t.alias)
+        return spelled, STRING.caster if other.is_words else None
+    entry = leaf(t.name, t.spelled)
     # The value, never the reference: a `const std::string &` member
     # of a struct is a dangling reference waiting to happen, and an
     # optional cannot hold one at all.
-    return entry.value, entry.caster
+    return entry.spelling, entry.caster
 
 
 def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
@@ -270,11 +186,11 @@ def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
     through that class's declaration. So `is_valid_path(path:
     StorePath)` becomes `const nix::StorePath &`, and neither
     declaration repeats the other's C++ name."""
-    if t.optional or t.origin or t.name in CXX_PYTHON:
+    if t.optional or t.origin:
         spelled, caster = value(t, known)
         # By const reference, because these are the types worth not
-        # copying - and, for `nb::bytes`, because a copy would be
-        # WRONG. A method that releases the GIL runs its whole body
+        # copying - and, for one holding `nb::bytes`, because a copy
+        # would be WRONG. A method that releases the GIL runs its whole body
         # with the guard held, so a by-value Python handle changes a
         # reference count without the GIL and nanobind aborts the
         # process: "attempted to change the reference count of a
@@ -288,7 +204,7 @@ def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # takes, so it crosses as one. That is a fact about the
             # words rather than about the binding, which is why the
             # emitted module is plain Python with no C++ at all.
-            return CXX_PARAM["string"].param
+            return STRING.param
         if other.decl.holder:
             # Its share, as `self` is: a Python-made object has
             # `shared_from_this()` only while a C++ share of it lives,
@@ -301,11 +217,7 @@ def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
         if other.decl.wire is Crossing.VALUE:
             return f"const {bare(other, known)} &", None
         return f"{bare(other, known)} &", None
-    if t.alias not in CXX_PARAM:
-        raise TypeError(
-            f"'{t.spelling}' has no C++ parameter spelling. A bound class "
-            f"names types through an Annotated alias in declare.py.")
-    return CXX_PARAM[t.alias].param
+    return leaf(t.spelling, t.spelled).param
 
 
 def absent(pr: Param) -> bool:

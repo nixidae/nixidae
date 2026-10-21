@@ -87,7 +87,7 @@ class StoreLocation:
     def path(self) -> StorePath:
         """The store path that holds the file."""
 
-    def sub_path(self) -> str:
+    def sub_path(self) -> Str:
         """Where the file sits inside it, leading slash included:
         `/bin/python3`.
 

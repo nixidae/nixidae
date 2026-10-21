@@ -7,7 +7,7 @@ arrives one of two ways, and the split is the point.
 
 **Annotated type aliases** carry facts about a TYPE. `StrView` is
 `std::string_view` wherever it appears, so the fact is written once
-and read by name. A per-method `Annotated[str, Cxx("string_view")]`
+and read by name. A per-method `Annotated[str, Cxx("std::string_view")]`
 would say the same thing and drown the signature it describes.
 
 **Decorators** carry facts about a METHOD or a CLASS: which header it
@@ -81,18 +81,25 @@ class DeclKind(StrEnum):
 class Cxx:
     """How a Python type is spelled in C++.
 
-    `copy` says what the boundary owes it. "view" means the value
-    points into storage this binding does not own, so it is copied
-    before it reaches Python - a view outliving its owner is a
-    dangling pointer, not an exception.
+    `spelling` is the C++ type by value. `caster` names the nanobind
+    caster header it needs, `<nanobind/stl/{caster}.h>`, or None when
+    nanobind casts it with no extra header. `by_ref` makes a parameter
+    take it by const reference.
 
     `width` is the wire scalar for an integer a sint64 cannot hold:
     `uint` for a uint64_t. Python has one `int`, so only the crossing
     needs it, and a service parameter cannot say it (nixidae/nixidae#616)."""
 
     spelling: str
-    copy: str = "value"
+    caster: str | None = None
+    by_ref: bool = False
     width: str = ""
+
+    @property
+    def param(self) -> tuple[str, str | None]:
+        """The parameter spelling and its caster."""
+        return (f"const {self.spelling} &" if self.by_ref else self.spelling,
+                self.caster)
 
 
 @dataclass(frozen=True)
@@ -166,14 +173,26 @@ NIX_2_36: bool = NIX_VERSION >= (2, 36)
 
 
 # The types a Nix binding actually names. Written once, read by name.
-Str = Annotated[str, Cxx("string")]
-StrView = Annotated[str, Cxx("string_view", copy="view")]
-Bint = Annotated[bool, Cxx("bint")]
-# Bytes, not text, and a std::string carries both. The difference is
-# above the boundary: a store holds FILES, and the hash that names a
-# store path is a hash of exactly these bytes - so a caller who has
-# text has to say which encoding made it a file.
-Bytes = Annotated[bytes, Cxx("string")]
+#
+# Each carries its whole C++ fact. No emitter keeps a table that maps a
+# Python type to C++, so the alias is the only place to say it.
+STRING = Cxx("std::string", "string", by_ref=True)
+Str = Annotated[str, STRING]
+# nanobind's string_view caster copies the text into a Python str, so
+# a view that outlives its owner never reaches Python.
+StrView = Annotated[str, Cxx("std::string_view", "string_view")]
+Bint = Annotated[bool, Cxx("bool")]
+# Bytes, not text. The difference is above the boundary: a store holds
+# FILES, and the hash that names a store path is a hash of exactly
+# these bytes - so a caller who has text has to say which encoding
+# made it a file.
+#
+# By const reference, and a copy would be WRONG: a method that releases
+# the GIL runs its whole body with the guard held, so a by-value Python
+# handle changes a reference count without the GIL and nanobind aborts
+# the process. A reference binds to the caster's own object, which
+# nanobind destroys after the guard.
+Bytes = Annotated[bytes, Cxx("nb::bytes", by_ref=True)]
 # Widths. Python has one integer type and C++ has many, so a plain
 # `int` says what a CALLER sees and nothing about what crosses. These
 # say both: `int` above the boundary, a fixed width at it.
@@ -182,16 +201,19 @@ Bytes = Annotated[bytes, Cxx("string")]
 # and `registration_time` is a time_t the shim narrows to int64_t, so
 # a declaration that said `int` for both would leave the emitter to
 # guess, and it would guess the same for two fields that differ.
-U64 = Annotated[int, Cxx("uint64_t", width="uint")]
-I64 = Annotated[int, Cxx("int64_t")]
+U64 = Annotated[int, Cxx("std::uint64_t", width="uint")]
+I64 = Annotated[int, Cxx("std::int64_t")]
 # A Nix float is a C++ double (`NixFloat`), and so is a Python float.
 F64 = Annotated[float, Cxx("double")]
-# A std::string at the boundary and a pathlib.Path above it. Not the
-# same as `Str`, and the difference is the whole point of the two:
+# A std::filesystem::path at the boundary and a pathlib.Path above it,
+# which nanobind's filesystem caster converts both ways. Not the same
+# as `Str`, and the difference is the whole point of the two:
 # `print_store_path` answers in the STORE's terms, which may name a
 # directory this machine does not have, and `real_path` answers where
 # the bytes are here. Only the second is a path a caller can open.
-Path = Annotated[pathlib.Path, Cxx("string"), Async("anyio.Path")]
+Path = Annotated[pathlib.Path,
+                 Cxx("std::filesystem::path", "filesystem", by_ref=True),
+                 Async("anyio.Path")]
 # A SPAN of time, and the resolution is the fact this states.
 # Upstream keeps a build's CPU time as `std::chrono::microseconds`, and
 # nanobind's own chrono caster hands one to Python as a
@@ -202,7 +224,8 @@ Path = Annotated[pathlib.Path, Cxx("string"), Async("anyio.Path")]
 # that shows why: a Unix time is a POINT, which is an integer and
 # means nothing without an epoch, while a span is a quantity a caller
 # can add up. Declaring both as `int` would have made them look alike.
-Duration = Annotated[datetime.timedelta, Cxx("microseconds")]
+Duration = Annotated[datetime.timedelta,
+                     Cxx("std::chrono::microseconds", "chrono")]
 # A Python callable the BINDING keeps and calls back.
 #
 # The only type here that does not describe a C++ value. `nb::object`
@@ -223,6 +246,14 @@ Duration = Annotated[datetime.timedelta, Cxx("microseconds")]
 # promise a check the binding does not make - and a declaration may
 # not be more permissive OR more specific than the C++ it binds. The
 # docstring is where "this must be callable" belongs.
+#
+# BY VALUE, unlike `Bytes`, and the method carrying it must be
+# `@instant`. A by-value Python handle is only safe while the GIL is
+# HELD, and `@instant` is what keeps it: a method that released it
+# would change a reference count without it and nanobind aborts the
+# process. Registration waits for nothing, so it has no reason to
+# release the GIL anyway. No caster header: nanobind itself defines
+# `nb::object`.
 PY_OBJECT = Cxx("nb::object")
 PyFunc = Annotated[object, PY_OBJECT]
 

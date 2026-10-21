@@ -856,7 +856,7 @@ def test_the_model_refuses_an_accessor_declared_as_an_attribute(
 
 TAGGED = '''"""A tagged union, and an accessor declared against it."""
 
-from huggorm_dsl.declare import I64, binding, fills, guard, header, names, tagged
+from huggorm_dsl.declare import I64, Str, binding, fills, guard, header, names, tagged
 
 
 @header("nix/expr/value.hh")
@@ -884,7 +884,7 @@ class State:
 @pytest.mark.parametrize(("method", "refusal"), [
     ('    @guard("int")\n    def integer(self) -> I64:\n        """."""',
      "needs @tagged"),
-    ('    @names\n    def kind(self) -> str:\n        """."""',
+    ('    @names\n    def kind(self) -> Str:\n        """."""',
      "needs @tagged"),
     ('    @fills("make", "list")\n    def append(self) -> None:\n'
      '        """."""', "@fills needs a target"),
@@ -1840,7 +1840,7 @@ def test_an_alias_is_resolved_at_any_depth(tmp_path: pathlib.Path) -> None:
         (Origin.OPTIONAL, Origin.DICT, Origin.LIST)
     leaf = t.leaf
     assert leaf.python == "str"
-    assert leaf.cxx is not None and leaf.cxx.spelling == "string"
+    assert leaf.cxx is not None and leaf.cxx.spelling == "std::string"
     assert t.python == "dict[str, list[str]] | None"
 
 
@@ -2649,3 +2649,65 @@ def test_a_python_handle_on_a_call_that_keeps_the_gil_is_read(
     mod = read(_declaration(tmp_path, source))
     assert [m.name for m in mod.classes[0].methods] == ["keep"]
     assert [f.name for f in mod.functions] == ["keep"]
+
+
+LEAF = '''"""One leaf type as a parameter and a return."""
+
+from huggorm_dsl.declare import ALIAS, Cxx, binding, header, instant
+
+
+@header("nix/store/store-api.hh")
+@binding(cxx="nix::Store", threading="pool", blocking=False)
+class Store:
+    """A store."""
+
+    @instant
+    def echo(self, it: ALIAS) -> ALIAS:
+        """It, back."""
+        Cxx("return it;")
+'''
+
+
+@pytest.mark.parametrize(("alias", "param", "value", "caster"), [
+    ("Str", "const std::string &", "std::string", "string"),
+    ("StrView", "std::string_view", "std::string_view", "string_view"),
+    ("Bint", "bool", "bool", None),
+    ("Bytes", "const nb::bytes &", "nb::bytes", None),
+    ("U64", "std::uint64_t", "std::uint64_t", None),
+    ("I64", "std::int64_t", "std::int64_t", None),
+    ("F64", "double", "double", None),
+    ("Path", "const std::filesystem::path &", "std::filesystem::path",
+     "filesystem"),
+    ("Duration", "std::chrono::microseconds", "std::chrono::microseconds",
+     "chrono"),
+    ("PyFunc", "nb::object", "nb::object", None)])
+def test_a_leaf_is_spelled_by_the_cxx_its_alias_carries(
+        tmp_path: pathlib.Path, alias: str, param: str, value: str,
+        caster: str | None) -> None:
+    """The alias states the whole C++ fact - spelling, caster and
+    whether a parameter takes it by reference - so no emitter table
+    can say otherwise. The expected spellings are written out, so an
+    override keyed by the Python type fails here."""
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+
+    unit = ir.ModuleModel.of(read(_declaration(
+        tmp_path, LEAF.replace("ALIAS", alias))), "")
+    echo = unit.classes[0].methods[0]
+    assert (echo.params[0].cxx, echo.params[0].caster) == (param, caster)
+    assert echo.returns is not None
+    assert (echo.returns.cxx, echo.returns.caster) == (value, caster)
+
+
+@pytest.mark.parametrize("signature", [
+    "def name(self) -> str:", "def take(self, flag: bool) -> None:"])
+def test_a_signature_refuses_a_bare_builtin(
+        tmp_path: pathlib.Path, signature: str) -> None:
+    """A builtin says what Python sees and nothing about the C++, so a
+    signature names a type from declare.py."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    source = (LEAF.replace("ALIAS", "Str")
+              .replace("def echo(self, it: Str) -> Str:", signature))
+    with pytest.raises(DeclarationError, match="a bare builtin"):
+        read(_declaration(tmp_path, source))

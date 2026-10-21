@@ -823,7 +823,7 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
 
     Nothing here reads text. Python 3.14 defers annotations, and
     `annotationlib` evaluates them once the declaration has run, so an
-    alias such as `Str` arrives as `Annotated[str, Cxx("string")]`, a
+    alias such as `Str` arrives as `Annotated[str, Cxx(...)]`, a
     declared class as the class, and `list[...]`, `dict[str, ...]` and
     `T | None` as the generics they are. `get_origin` and `get_args`
     say the structure; the reader never parses a spelling to find it.
@@ -899,6 +899,21 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
             return Type(python=ann.__name__, bound=True)
         return _undeclared(ann)
     raise DeclarationError(node, f"'{ann!r}' is not a type.")
+
+
+def _spelled(t: Type, node: ast.AST, where: str) -> Type:
+    """`t`, refused when a leaf of it is a bare builtin.
+
+    A builtin says what Python sees and nothing about the C++, so a
+    signature names a type from declare.py. An exception's parts are
+    read through `type_of` alone: no C++ signature names them."""
+    leaf = t.leaf
+    if not leaf.bound and leaf.cxx is None:
+        raise DeclarationError(
+            node, f"{where}: '{leaf.python}' is a bare builtin or class. "
+                  f"Name a type from declare.py - Str, Bint, I64, U64 - "
+                  f"which carries its C++ spelling.")
+    return t
 
 
 def _writable_default(value: object, node: ast.AST, where: str) -> None:
@@ -1202,7 +1217,8 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
                 arg, f"{node.name}({arg.arg}): every parameter states its "
                      f"type.")
         default = p.default
-        declared = type_of(anns[arg.arg], arg, fn.__globals__)
+        declared = _spelled(type_of(anns[arg.arg], arg, fn.__globals__),
+                            arg, f"{node.name}({arg.arg})")
         if default is None and not declared.optional:
             # An implicit Optional: every surface but the C++ then says
             # `| None` where the declaration did not (nixidae/nixidae#641).
@@ -1217,7 +1233,8 @@ def _method(node: ast.FunctionDef, vocab: dict[str, str],
 
     ret: Type | None = None
     if node.returns is not None and anns.get("return") is not None:
-        ret = type_of(anns["return"], node.returns, fn.__globals__)
+        ret = _spelled(type_of(anns["return"], node.returns, fn.__globals__),
+                       node.returns, f"{node.name}()")
 
     out = Method(
         name=node.name,
