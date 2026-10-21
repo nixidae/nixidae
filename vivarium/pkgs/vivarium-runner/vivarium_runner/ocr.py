@@ -13,10 +13,12 @@ of the two, so a match in any variant counts.
 
 from __future__ import annotations
 
-import asyncio
 import re
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from pathlib import Path
+
+import anyio
 
 __all__ = ["OcrError", "Text", "Word", "Screen", "parse_tsv", "ppm_size", "read"]
 
@@ -140,13 +142,13 @@ def ppm_size(data: bytes) -> tuple[int, int]:
 
 
 async def _run(*argv: str) -> bytes:
-    proc = await asyncio.create_subprocess_exec(
-        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    out, err = await proc.communicate()
-    if proc.returncode != 0:
-        raise OcrError(f"{Path(argv[0]).name} exited {proc.returncode}: {err.decode(errors='replace')[-500:]}")
-    return out
+    result = await anyio.run_process(list(argv), check=False)
+    if result.returncode != 0:
+        raise OcrError(
+            f"{Path(argv[0]).name} exited {result.returncode}: "
+            f"{result.stderr.decode(errors='replace')[-500:]}"
+        )
+    return result.stdout
 
 
 # nixos-test's, measured there.
@@ -187,4 +189,13 @@ async def read(ppm: Path, tesseract: Path, magick: Path | None = None) -> list[S
     jobs = [_tesseract(tesseract, ppm, 1.0)]
     if magick is not None:
         jobs += [_variant(tesseract, magick, ppm, negate, width) for negate in (False, True)]
-    return list(await asyncio.gather(*jobs))
+
+    screens: list[Screen | None] = [None] * len(jobs)
+
+    async def collect(index: int, job: Awaitable[Screen]) -> None:
+        screens[index] = await job
+
+    async with anyio.create_task_group() as group:
+        for index, job in enumerate(jobs):
+            group.start_soon(collect, index, job)
+    return [screen for screen in screens if screen is not None]

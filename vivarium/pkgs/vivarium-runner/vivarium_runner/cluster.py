@@ -20,8 +20,10 @@ objects, so nothing here assumes the guests came from this repository's
 ``flake.nix`` -- only that they run ``services.vivarium-k8s``.
 """
 
-import asyncio
 import json
+import time
+
+import anyio
 
 from .machine import MachineError
 
@@ -125,14 +127,13 @@ async def until(what, check, timeout, machine):
 
 
 async def _until(what, check, timeout, machine):
-    loop = asyncio.get_running_loop()
-    started = loop.time()
+    started = time.monotonic()
     deadline = started + timeout
     said = None
     seen = None
     changed = started
 
-    # `asyncio.timeout`, and not a deadline tested between polls.
+    # `anyio.fail_after`, and not a deadline tested between polls.
     #
     # A poll is two kubectl calls with timeouts of their own, so testing the
     # clock only after one completes lets a slow guest overshoot by minutes:
@@ -140,13 +141,13 @@ async def _until(what, check, timeout, machine):
     # and could have run to 540s had both calls hit their own limits. This
     # bounds `check` itself, so the deadline means what it says.
     try:
-        async with asyncio.timeout(timeout):
+        with anyio.fail_after(timeout):
             while True:
                 done, evidence = await check()
                 if done:
                     return evidence
 
-                now = loop.time()
+                now = time.monotonic()
                 if evidence != seen:
                     seen = evidence
                     changed = now
@@ -160,11 +161,11 @@ async def _until(what, check, timeout, machine):
                         + (f" -- {first[0]}" if first else ""),
                         flush=True,
                     )
-                await asyncio.sleep(POLL)
+                await anyio.sleep(POLL)
     except TimeoutError:
         # Outside the block above, so gathering the evidence is not itself
         # cancelled by the deadline that just fired.
-        now = loop.time()
+        now = time.monotonic()
         raise MachineError(
             f"[{machine.name}] gave up waiting for {what} after "
             f"{int(now - started)}s, the last {int(now - changed)}s of it "
@@ -265,12 +266,9 @@ async def wait_for_images(vms):
     a local disk and nothing else -- if it has not finished in five
     minutes it is not importing slowly, it is stuck.
     """
-    await asyncio.gather(
-        *(
-            vm.wait_for_unit("k8s-load-images.service", timeout=UNIT_TIMEOUT)
-            for vm in vms.values()
-        )
-    )
+    async with anyio.create_task_group() as group:
+        for vm in vms.values():
+            group.start_soon(vm.wait_for_unit, "k8s-load-images.service", UNIT_TIMEOUT)
 
 
 # Where kubeadm's own narration lands, so that a deadline does not throw it
@@ -432,7 +430,9 @@ async def join(cp, workers):
             )
         print(f"[k8s] {worker.name}: joined", flush=True)
 
-    await asyncio.gather(*(one(w) for w in workers))
+    async with anyio.create_task_group() as group:
+        for worker in workers:
+            group.start_soon(one, worker)
 
 
 async def wire_pod_network(cp, vms):
@@ -482,7 +482,9 @@ async def wire_pod_network(cp, vms):
                     f"ip route replace {cidrs[peer.name]} via {peer.ip} dev vec1"
                 )
 
-    await asyncio.gather(*(one(vm) for vm in vms.values()))
+    async with anyio.create_task_group() as group:
+        for vm in vms.values():
+            group.start_soon(one, vm)
 
 
 async def wait_for_ready_nodes(cp, expected):

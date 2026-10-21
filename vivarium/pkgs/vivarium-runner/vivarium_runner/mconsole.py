@@ -17,10 +17,11 @@ What this is for is ``config mem=``.  See :meth:`Machine.shrink`.
 
 from __future__ import annotations
 
-import asyncio
 import socket
 import struct
 from pathlib import Path
+
+import anyio
 
 MAGIC = 0xCAFEBABE
 VERSION = 2
@@ -103,16 +104,15 @@ class Mconsole:
             )
 
         sock = self._open()
-        loop = asyncio.get_running_loop()
         message = _REQUEST.pack(MAGIC, VERSION, len(payload)) + payload
-        await loop.sock_sendto(sock, message, str(self.path))
+        sock.sendto(message, str(self.path))
 
         parts: list[str] = []
         failed = False
         while True:
-            datagram, _ = await asyncio.wait_for(
-                loop.sock_recvfrom(sock, _REPLY.size + MAX_DATA), timeout
-            )
+            with anyio.fail_after(timeout):
+                await anyio.wait_socket_readable(sock)
+            datagram, _ = sock.recvfrom(_REPLY.size + MAX_DATA)
             err, more, length = _REPLY.unpack_from(datagram)
             # The reply's length counts the NUL the guest appends.
             text = datagram[_REPLY.size : _REPLY.size + length].rstrip(b"\0")

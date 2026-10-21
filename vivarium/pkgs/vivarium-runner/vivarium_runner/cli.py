@@ -10,10 +10,11 @@ The NixOS side generates a wrapper with every path already filled in
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
 from pathlib import Path
+
+import anyio
 
 from .forward import ForwardError, Rule
 from .machine import Machine, MachineError, MachineSpec, Toolchain
@@ -81,7 +82,7 @@ async def _watch(machine: Machine) -> None:
         if ports != seen:
             _report(machine, [port for port in ports if port not in seen])
             seen = ports
-        await asyncio.sleep(_WATCH_INTERVAL)
+        await anyio.sleep(_WATCH_INTERVAL)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -98,7 +99,6 @@ async def _run(args: argparse.Namespace) -> int:
     )
     machine.resolve_forward(set())
     await machine.start()
-    watcher: asyncio.Task | None = None
     try:
         if args.command:
             rc, out = await machine.execute(args.command, timeout=args.timeout)
@@ -115,19 +115,28 @@ async def _run(args: argparse.Namespace) -> int:
                 f"[vivarium] up; guest port {args.ssh_port} is not forwarded, ^C to stop",
                 flush=True,
             )
-        watcher = asyncio.ensure_future(_watch(machine))
-        return await machine.wait(timeout=None)
+        async with anyio.create_task_group() as group:
+            group.start_soon(_watch, machine)
+            result = await machine.wait(timeout=None)
+            group.cancel_scope.cancel()
+        return result
     finally:
-        if watcher is not None:
-            watcher.cancel()
         await machine.shutdown()
 
 
 def main(argv: list[str] | None = None) -> None:
     try:
-        raise SystemExit(asyncio.run(_run(_parse(argv))))
+        raise SystemExit(anyio.run(_run, _parse(argv)))
     except KeyboardInterrupt:
         raise SystemExit(130) from None
+    except BaseExceptionGroup as group:
+        # A task group may wrap a guest's error; unwrap the first one that
+        # is ours, so the message stays what it was.
+        match, _ = group.split((MachineError, ForwardError))
+        if match is None:
+            raise
+        print(f"[vivarium] {match.exceptions[0]}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from None
     except (MachineError, ForwardError) as error:
         print(f"[vivarium] {error}", file=sys.stderr, flush=True)
         raise SystemExit(1) from None

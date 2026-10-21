@@ -11,10 +11,11 @@ See :meth:`Machine.shrink` and :meth:`Machine.screenshot`.
 
 from __future__ import annotations
 
-import asyncio
+import time
 from pathlib import Path
 from typing import cast
 
+import anyio
 from qemu.qmp import QMPClient, QMPError
 
 __all__ = ["Qmp", "QmpError"]
@@ -43,7 +44,7 @@ class Qmp:
         self._client: QMPClient | None = None
         # Two first calls at once would open two connections, and the
         # socket serves one at a time.
-        self._connecting = asyncio.Lock()
+        self._connecting = anyio.Lock()
 
     async def _connected(self) -> QMPClient:
         async with self._connecting:
@@ -102,22 +103,22 @@ class Qmp:
         limit UML's console has. That is also why waiting has to give up
         quietly rather than raise -- the guest is already where it can be.
         """
-        client = await asyncio.wait_for(self._connected(), timeout)
+        with anyio.fail_after(timeout):
+            client = await self._connected()
         actual = await self._actual(client)
         target = max(0, actual + delta)
         await client.execute("balloon", {"value": target})
 
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        last, moved_at = actual, loop.time()
-        while loop.time() < deadline:
-            await asyncio.sleep(0.2)
+        deadline = time.monotonic() + timeout
+        last, moved_at = actual, time.monotonic()
+        while time.monotonic() < deadline:
+            await anyio.sleep(0.2)
             now = await self._actual(client)
             if abs(now - target) <= self.SLACK:
                 return
             if now != last:
-                last, moved_at = now, loop.time()
-            elif loop.time() - moved_at > self.STALL:
+                last, moved_at = now, time.monotonic()
+            elif time.monotonic() - moved_at > self.STALL:
                 # It has stopped short and is not coming: the target was
                 # above `-m`, or the guest cannot free any more. Either
                 # way the caller measures what happened rather than being

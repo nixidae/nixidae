@@ -13,11 +13,13 @@ a test that wants two things at once wants two guests.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import os
 import socket
 import subprocess
+
+import anyio
+import anyio.to_thread
 
 from .arpyc import Service, listen
 
@@ -196,7 +198,7 @@ def _accept_one(path: str) -> int:
 
 async def _serve() -> None:
     if TTY.startswith(UNIX_PREFIX):
-        fd = await asyncio.to_thread(_accept_one, TTY[len(UNIX_PREFIX) :])
+        fd = await anyio.to_thread.run_sync(_accept_one, TTY[len(UNIX_PREFIX) :])
         conn = listen(fd, Agent(), raw_tty=False)
     else:
         fd = os.open(TTY, os.O_RDWR)
@@ -208,7 +210,7 @@ async def _serve() -> None:
 
 
 def main() -> None:
-    asyncio.run(_serve())
+    anyio.run(_serve)
 
 
 if __name__ == "__main__":
