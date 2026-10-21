@@ -1028,11 +1028,12 @@ def test_a_populated_store_hands_over_every_path(ambient_store: Store) -> None:
 
     # Ask twice with everything from the first answer dropped in
     # between. A double free takes the process with it, so surviving
-    # this IS the assertion; the count is the cheap part.
-    del paths
+    # this IS the assertion. Not equality with the first answer: any
+    # build or collection on the machine between the two changes it.
+    del paths, names
     gc.collect()
-    assert [p.to_string() for p in ambient_store.query_all_valid_paths()] \
-        == names
+    again = [p.to_string() for p in ambient_store.query_all_valid_paths()]
+    assert again and all(again)
 
 
 @pytest.mark.live
