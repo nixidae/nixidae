@@ -308,6 +308,15 @@ let
     NLS_CODEPAGE_437 = yes;
     NLS_ISO8859_1 = yes;
 
+    # A live image's root, as VyOS boots it: a squashfs under an overlay,
+    # set up from an initramfs (UML's `initrd=` reads a host file). VyOS's
+    # squashfs is xz with the x86 BCJ filter; XZ_DEC_X86 needs EXPERT to
+    # answer, so it keeps its `default y`.
+    BLK_DEV_INITRD = yes;
+    SQUASHFS = yes;
+    SQUASHFS_XZ = yes;
+    SQUASHFS_XATTR = yes;
+
     # kubelet reads cgroup pressure, and containerd's cgroup v2 driver
     # wants the io controller as well as the ones NixOS already needs.
     BLK_DEV_THROTTLING = yes;
