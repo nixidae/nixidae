@@ -121,9 +121,14 @@ let
     };
     oob-sonic = {
       # The fabric end to end: SONiC's eth0 leases from the services
-      # guest's Kea, and the services guest provisions it over SSH. SONiC
-      # (4 GiB) plus a NixOS guest; the cap is the SONiC image fetch.
-      description = "the services guest provisions SONiC over SSH";
+      # guest's Kea, and the services guest provisions it over SSH -- a
+      # `config` command per setting, then a whole config_db.json pushed
+      # and applied with `config reload`. SONiC (4 GiB) plus a NixOS guest;
+      # the cap is the SONiC image fetch. The reload phase measures ~140 s
+      # (swss-ready wait plus the service restart) and retries the reload
+      # for up to 240 s, so size any timeout change above that, not just
+      # the boot.
+      description = "the services guest provisions SONiC over SSH, by command and by config_db.json";
       timeoutMinutes = 30;
     };
     oob-routeros = {

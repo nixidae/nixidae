@@ -788,7 +788,7 @@ jobs:
     - name: Let the runner user open /dev/kvm
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
-    - name: 'Run oob-sonic on qemu: the services guest provisions SONiC over SSH'
+    - name: 'Run oob-sonic on qemu: the services guest provisions SONiC over SSH, by command and by config_db.json'
       run: nix build --no-link --print-build-logs --keep-going --file . oob-sonic.qemu
       timeout-minutes: 20
     timeout-minutes: 30
