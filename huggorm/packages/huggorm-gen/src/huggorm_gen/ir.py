@@ -15,7 +15,7 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from functools import cached_property
 from typing import NamedTuple, assert_never
@@ -130,10 +130,60 @@ class TypeRef:
     caster: str | None = None
     # How an async surface spells this leaf: "anyio.Path".
     twin: str = ""
+    # The declaration a leaf names, resolved once. Not compared: a
+    # `Class` holds dicts, and a type is the same type whoever asks.
+    declared: Class | None = field(default=None, compare=False, repr=False)
+    # The C++ alias the leaf carries, `Cxx("string")`, or "".
+    alias: str = field(default="", compare=False)
 
     @property
     def optional(self) -> bool:
         return self.origin is Origin.OPTIONAL
+
+    @property
+    def words(self) -> Class | None:
+        """The vocabulary with a C++ enum behind it that this type is,
+        maybe None, or None."""
+        other = self.required.declared
+        return other if enumerated(other) else None
+
+    @property
+    def parsed_by(self) -> str:
+        """The C++ that turns this vocabulary's string into its type.
+
+        `@words(parsed_by=...)` names it. Empty for anything that is
+        not a vocabulary, and for a vocabulary that declares no parser
+        - which crosses as its string and is parsed by whatever it is
+        handed to."""
+        other = self.required.declared
+        if other is None or not other.is_words:
+            return ""
+        if not other.decl.parsed_by and other.decl.enumerated:
+            # Upstream has no parser for this enum, so the emitter wrote
+            # one. `from_word` is a template because a return type does
+            # not overload - `as_word` going the other way needs no such
+            # thing, which is why the two names are not symmetrical.
+            return (f"{cxx.NAMESPACE}::from_word"
+                    f"<{other.decl.enumerated.held}>")
+        return other.decl.parsed_by
+
+    @property
+    def collection(self) -> str:
+        """The C++ collection a `list[T]` becomes, when T names one.
+        Empty for everything else, which a vector holds."""
+        if self.origin is not Origin.LIST:
+            return ""
+        element = self.inner.declared
+        return element.decl.collection if element else ""
+
+    @property
+    def handle(self) -> Class | None:
+        """The declared class behind this type, maybe None, when it
+        binds a HANDLE: its `@binding` carries `via`, so the bound C++
+        type owns a lifetime and the object worth calling is one step
+        further in."""
+        other = self.required.declared
+        return other if other is not None and other.decl.via else None
 
     @property
     def scalar(self) -> str | None:
@@ -271,12 +321,18 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
     return None
 
 
+def enumerated(cls: Class | None) -> bool:
+    """Whether a declaration is a vocabulary with a C++ enum behind it."""
+    return cls is not None and cls.is_words and bool(cls.decl.enumerated)
+
+
 def type_ref(t: Type, resolver: Resolver) -> TypeRef:
+    """`t`, resolved against the declaration set. Each leaf is looked
+    up here and nowhere after: every later stage reads `declared`."""
     # The vocabulary already says the Python half: `Bint` is
     # `Annotated[bool, Cxx("bint")]`, so `python` is `bool`.
     name = t.leaf.python
-    spelled, caster = cxx.value(t, resolver.known)
-    return TypeRef(
+    ref = TypeRef(
         spelling=t.python,
         origin=t.origin,
         args=tuple(type_ref(a, resolver) for a in t.args),
@@ -285,9 +341,12 @@ def type_ref(t: Type, resolver: Resolver) -> TypeRef:
         kind=Kind.MODULE if t.leaf.module else resolver.kind(name),
         name=name,
         width=t.cxx.width if t.cxx is not None and not t.origin else "",
-        cxx=spelled, caster=caster,
         twin=t.twin,
+        declared=None if t.origin else resolver.known.get(name),
+        alias="" if t.origin or t.cxx is None else t.cxx.spelling,
     )
+    spelled, caster = cxx.value(ref, resolver.known)
+    return replace(ref, cxx=spelled, caster=caster)
 
 
 @dataclass(frozen=True)
@@ -312,8 +371,9 @@ class FieldModel:
     def of(cls, name: str, t: Type, resolver: Resolver, accessor: str = "",
            collection: str = "") -> FieldModel:
         crossable(t, name)
-        return cls(name, type_ref(t, resolver),
-                   "" if accessor == name else accessor, collection)
+        ref = type_ref(t, resolver)
+        return cls(name, ref, "" if accessor == name else accessor,
+                   collection or ref.collection)
 
 
 def crossable(t: Type | None, where: str) -> None:
@@ -382,25 +442,24 @@ class ParamModel:
 
     @classmethod
     def of(cls, p: Param, resolver: Resolver) -> ParamModel:
-        declared = p.type
-        # A container that defaults to None is the container: an absent
-        # one IS an empty one, so every surface spells it `list[X]` or
-        # `dict[str, X]` (nixidae/nixidae#641).
-        if cxx.absent(p):
-            declared = declared.required
+        written = type_ref(p.type, resolver)
+        absent = cxx.absent(p)
         if not p.has_default:
             default = None
         elif p.member:
             default = f"{p.type.python}.{p.member}"
         else:
             default = repr(p.default)
-        spelled, caster = cxx.param(p.type, resolver.known)
-        handle = cxx.handle(p.type, resolver.known)
-        return cls(p.name, type_ref(declared, resolver), default,
+        spelled, caster = cxx.param(written, resolver.known)
+        handle = written.handle
+        # A container that defaults to None is the container: an absent
+        # one IS an empty one, so every surface spells it `list[X]` or
+        # `dict[str, X]` (nixidae/nixidae#641).
+        return cls(p.name, written.required if absent else written, default,
                    p.type.python if p.member else "", cxx.default(p),
-                   spelled, caster, absent=cxx.absent(p),
-                   parsed_by=cxx.parsed_by(p.type, resolver.known),
-                   collection=cxx.collection(p.type.required, resolver.known),
+                   spelled, caster, absent=absent,
+                   parsed_by=written.parsed_by,
+                   collection=written.required.collection,
                    via=handle.decl.via if handle is not None else "",
                    defaults_to_none=p.has_default and p.default is None)
 
@@ -470,8 +529,7 @@ def _spells(m: Method, where: str, resolver: Resolver) -> tuple[str, ...]:
     so nothing else catches a typo - and a skipped name fails much
     later, as a missing `huggorm::as_word` overload in the C++."""
     for name in m.spells:
-        held = resolver.known.get(name)
-        if held is None or not (held.is_words and held.decl.enumerated):
+        if not enumerated(resolver.known.get(name)):
             raise TypeError(
                 f"{where}: @spells({name!r}) names no "
                 f"enum-backed vocabulary this declaration can see. "
@@ -479,7 +537,8 @@ def _spells(m: Method, where: str, resolver: Resolver) -> tuple[str, ...]:
     return m.spells
 
 
-def _unconverted(m: Method, where: str, resolver: Resolver, *,
+def _unconverted(m: Method, params: Sequence[ParamModel],
+                 returns: TypeRef | None, where: str, *,
                  scalars: bool) -> None:
     """Refuse a vocabulary or a handle no emitted line converts.
 
@@ -491,19 +550,18 @@ def _unconverted(m: Method, where: str, resolver: Resolver, *,
     declaration (nixidae/nixidae#711)."""
     if m.cxx_body is not None:
         return
-    for t, what in [*((p.type, f"parameter {p.name!r}") for p in m.params),
-                    (m.ret, "return")]:
+    for t, what, word in [
+            *((p.type, f"parameter {p.name!r}", p.type.leaf.parsed_by)
+              for p in params),
+            (returns, "return",
+             returns is not None and returns.leaf.words is not None)]:
         if t is None or not (scalars or t.required.container):
             continue
-        leaf = t.leaf
-        held = resolver.known.get(leaf.python)
-        word = (cxx.parsed_by(leaf, resolver.known) if what != "return"
-                else held is not None and held.is_words
-                and held.decl.enumerated)
-        if word or cxx.handle(leaf, resolver.known) is not None:
+        if word or t.leaf.handle is not None:
             raise TypeError(
-                f"{where}: {what} `{t.python}` holds a `{leaf.python}` "
-                f"that nothing converts here. Carry a Cxx body.")
+                f"{where}: {what} `{t.spelling}` holds a "
+                f"`{t.leaf.spelling}` that nothing converts here. Carry a "
+                f"Cxx body.")
 
 
 def _attribute(owner: Class, m: Method) -> TypeError:
@@ -553,7 +611,7 @@ def _fill(owner: Class, m: Method, params: Sequence[ParamModel],
     maker, arm = m.fills
     if not params:
         raise ValueError(f"{where}: @fills needs a target")
-    held = resolver.known.get(params[0].type.spelling)
+    held = params[0].type.required.declared
     tagged = Tagged.of(held.decl) if held is not None else None
     if tagged is None:
         raise ValueError(
@@ -605,22 +663,20 @@ class MethodModel:
 
     @classmethod
     def of(cls, m: Method, owner: Class, resolver: Resolver) -> MethodModel:
-        handle = cxx.handle(m.ret, resolver.known)
-        ret = m.ret.required if m.ret is not None else None
-        word = (None if ret is None or ret.origin
-                else resolver.known.get(ret.python))
         if m.prop:
             raise _attribute(owner, m)
+        returns = type_ref(m.ret, resolver) if m.ret is not None else None
+        handle = returns.handle if returns is not None else None
         params = tuple(ParamModel.of(p, resolver) for p in m.params)
         virtual = _virtual(owner, m)
         if not virtual:
-            _unconverted(m, f"{owner.name}.{m.name}", resolver, scalars=False)
+            _unconverted(m, params, returns, f"{owner.name}.{m.name}",
+                         scalars=False)
         tagged = _tagged(owner, m)
         where = f'{owner.name}.{m.name}: @guard("{m.guard}")'
         guard = (tagged.test(m.guard, where)
                  if tagged is not None and m.guard else None)
-        return cls(m.name, params,
-                   type_ref(m.ret, resolver) if m.ret is not None else None,
+        return cls(m.name, params, returns,
                    _clean(m.doc), m.blocks, instant=m.instant,
                    cxx_name=m.cxx_name, cxx_body=m.cxx_body, reads=m.reads,
                    guard=guard, names=tagged if m.names else None,
@@ -630,8 +686,8 @@ class MethodModel:
                    posted=_posted(owner, m),
                    subscription=_subscription(f"{owner.name}.{m.name}", m),
                    returns_handle=cxx.held(handle) if handle else "",
-                   returns_word=(word is not None and word.is_words
-                                 and bool(word.decl.enumerated)),
+                   returns_word=(returns is not None
+                                 and returns.words is not None),
                    headers=m.headers,
                    spells=_spells(m, f"{owner.name}.{m.name}", resolver))
 
@@ -691,10 +747,10 @@ class FunctionModel:
             for pr in fn.params:
                 crossable(pr.type, f"{fn.name}({pr.name})")
             crossable(fn.ret, f"{fn.name}'s return")
-        _unconverted(fn, fn.name, resolver, scalars=True)
-        return cls(fn.name, f"{package}.{module}", policy,
-                   tuple(ParamModel.of(p, resolver) for p in fn.params),
-                   type_ref(fn.ret, resolver) if fn.ret is not None else None,
+        params = tuple(ParamModel.of(p, resolver) for p in fn.params)
+        returns = type_ref(fn.ret, resolver) if fn.ret is not None else None
+        _unconverted(fn, params, returns, fn.name, scalars=True)
+        return cls(fn.name, f"{package}.{module}", policy, params, returns,
                    _clean(fn.doc), cxx_name=fn.binds, cxx_body=fn.cxx_body,
                    blocks=fn.blocks, instant=fn.instant, headers=fn.headers,
                    spells=_spells(fn, fn.name, resolver), startup=fn.startup,
@@ -845,8 +901,7 @@ class ClassModel:
             produced=c.is_produced, constructs=c.constructs,
             wire_fields=tuple(
                 FieldModel.of(f.name, m.ret, resolver, f.read,
-                              m.member_collection
-                              or cxx.collection(m.ret, resolver.known))
+                              m.member_collection)
                 for f, m in c.parts if m.ret is not None),
             ctor=tuple(ParamModel.of(p, resolver)
                        for p in _ctor_params(c, functions)),
@@ -1189,10 +1244,9 @@ class UnionModel:
         arms = []
         for a in u.decl.arms:
             held = u.decl.scalars.get(a) or Type(python=a, bound=True)
-            _, caster = cxx.value(held, resolver.known)
             arms.append(replace(TypeRef.named(a, resolver.kind(a)),
                                 cxx=cxx.arm(u, a, resolver.known),
-                                caster=caster))
+                                caster=type_ref(held, resolver).caster))
         v = u.decl.variant
         variant = None if v is None else CxxVariant(
             v.cxx, v.raw, v.header, v.bare,

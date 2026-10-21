@@ -5,12 +5,17 @@ as a parameter, and the caster each spelling needs. One answer for
 every stage that writes C++.
 """
 
+from __future__ import annotations
+
 import json
 from collections.abc import Mapping
-from typing import NamedTuple, Protocol, assert_never
+from typing import TYPE_CHECKING, NamedTuple, Protocol, assert_never
 
 from huggorm_dsl.declare import Crossing, Decl, DeclKind
-from huggorm_dsl.read import Class, Origin, Param, Type
+from huggorm_dsl.read import Class, Origin, Param
+
+if TYPE_CHECKING:
+    from huggorm_gen.ir import TypeRef
 
 
 class Spelled(NamedTuple):
@@ -162,19 +167,39 @@ def arm(cls: Class, name: str, known: Mapping[str, Class]) -> str:
     """One arm as Python has it, in C++: a builtin from the alias the
     declaration wrote, and a class through its own declaration."""
     if (scalar := cls.decl.scalars.get(name)) is not None:
-        return value(scalar, known)[0]
+        return builtin(scalar.python,
+                       scalar.cxx.spelling if scalar.cxx else "").value
     return bare(known[name], known)
 
 
-def value(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
+def builtin(python: str, alias: str) -> Spelled:
+    """A leaf no class declares, from the Python type and the C++ alias
+    it carries.
+
+    Three tables, in the order the declaration meant them. A Python
+    type nanobind casts natively wins outright - `pathlib.Path`
+    carries Cxx("string"), the coarse answer, and nanobind has a
+    filesystem caster. Then the alias, which is the declaration
+    naming a C++ spelling. Then the bare builtin, which names none."""
+    if python in CXX_PYTHON:
+        return CXX_PYTHON[python]
+    if alias in CXX_PARAM:
+        return CXX_PARAM[alias]
+    if python in CXX_BUILTIN:
+        return CXX_BUILTIN[python]
+    raise TypeError(
+        f"'{python}' has no C++ spelling. A bound class names types "
+        f"through an Annotated alias in declare.py.")
+
+
+def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
     """A declared type as C++ carries it BY VALUE, and its caster.
 
     The value form, not the parameter form. A return is a value, a
     vector's element is a value, and an optional's payload is a
     value - so this is the shape everything else is built from and
     `param` adds the reference where a parameter wants one."""
-    held_type = t.required
-    other = None if held_type.origin else known.get(held_type.python)
+    other = t.required.declared
     if other is not None and other.decl.kind is DeclKind.ERROR:
         # A live Python EXCEPTION, handed over rather than raised. A
         # BuildResult's failure arm is a nix::BuildError, and reading
@@ -189,17 +214,17 @@ def value(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
         return "nb::object", None
     match t.origin:
         case Origin.OPTIONAL:
-            held, _ = value(t.required, known)
+            held, _ = value(t.inner, known)
             return f"std::optional<{held}>", "optional"
         case Origin.LIST:
-            held, _ = value(t.element, known)
+            held, _ = value(t.inner, known)
             # A vector, not the std::set libstore keeps them in. A set
             # casts to a Python set, which has no order - and every one
             # of these answers is sorted, which is information a caller
             # can use.
             return f"std::vector<{held}>", "vector"
         case Origin.DICT:
-            held, _ = value(t.element, known)
+            held, _ = value(t.inner, known)
             # `std::map`, which is what libstore keeps every one of
             # these in - `OutputPathMap` and `SingleDrvOutputs` are both
             # one - and what nanobind's <nanobind/stl/map.h> casts.
@@ -215,13 +240,8 @@ def value(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
             pass
         case _:
             assert_never(t.origin)
-    inner = t.python
-    if t.bound or inner in known:
-        if inner not in known:
-            raise TypeError(
-                f"'{inner}' names a class this run has not read. Pass its "
-                f"declaration too, so the C++ spelling can be resolved.")
-        other = known[inner]
+    other = t.declared
+    if other is not None:
         spelled = bare(other, known)
         if other.decl.holder:
             # Held through something. `@binding(holder="shared_ptr")`
@@ -236,35 +256,21 @@ def value(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # holding a string or a vector does.
             return spelled, "variant"
         return spelled, "string" if other.is_words else None
-    # Three tables, in the order the declaration meant them. A Python
-    # type nanobind casts natively wins outright - `pathlib.Path`
-    # carries Cxx("string"), the coarse answer, and nanobind has a
-    # filesystem caster. Then the alias, which is the declaration
-    # naming a C++ spelling. Then the bare builtin, which names none.
-    if inner in CXX_PYTHON:
-        entry = CXX_PYTHON[inner]
-    elif t.cxx is not None and t.cxx.spelling in CXX_PARAM:
-        entry = CXX_PARAM[t.cxx.spelling]
-    elif inner in CXX_BUILTIN:
-        entry = CXX_BUILTIN[inner]
-    else:
-        raise TypeError(
-            f"'{t.python}' has no C++ spelling. A bound class names types "
-            f"through an Annotated alias in declare.py.")
+    entry = builtin(t.name, t.alias)
     # The value, never the reference: a `const std::string &` member
     # of a struct is a dangling reference waiting to happen, and an
     # optional cannot hold one at all.
     return entry.value, entry.caster
 
 
-def param(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
+def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
     """The C++ spelling of a declared type, and the caster it needs.
 
-    A BOUND type - one naming another declared class - resolves
-    through `known`, which maps a declared name to its C++ spelling.
-    So `is_valid_path(path: StorePath)` becomes `const nix::StorePath
-    &`, and neither declaration repeats the other's C++ name."""
-    if t.optional or t.origin or t.python in CXX_PYTHON:
+    A BOUND type - one naming another declared class - is spelled
+    through that class's declaration. So `is_valid_path(path:
+    StorePath)` becomes `const nix::StorePath &`, and neither
+    declaration repeats the other's C++ name."""
+    if t.optional or t.origin or t.name in CXX_PYTHON:
         spelled, caster = value(t, known)
         # By const reference, because these are the types worth not
         # copying - and, for `nb::bytes`, because a copy would be
@@ -276,12 +282,7 @@ def param(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
         # binds to the caster's own object, which nanobind destroys
         # after the guard.
         return f"const {spelled} &", caster
-    if t.bound:
-        if t.python not in known:
-            raise TypeError(
-                f"'{t.python}' names a class this run has not read. Pass its "
-                f"declaration too, so the C++ spelling can be resolved.")
-        other = known[t.python]
+    if (other := t.declared) is not None:
         if other.is_words:
             # A vocabulary. The member IS the string a Nix parser
             # takes, so it crosses as one. That is a fact about the
@@ -300,11 +301,11 @@ def param(t: Type, known: Mapping[str, Class]) -> tuple[str, str | None]:
         if other.decl.wire is Crossing.VALUE:
             return f"const {bare(other, known)} &", None
         return f"{bare(other, known)} &", None
-    if t.cxx is None or t.cxx.spelling not in CXX_PARAM:
+    if t.alias not in CXX_PARAM:
         raise TypeError(
-            f"'{t.python}' has no C++ parameter spelling. A bound class "
+            f"'{t.spelling}' has no C++ parameter spelling. A bound class "
             f"names types through an Annotated alias in declare.py.")
-    return CXX_PARAM[t.cxx.spelling].param
+    return CXX_PARAM[t.alias].param
 
 
 def absent(pr: Param) -> bool:
@@ -365,54 +366,3 @@ def default(pr: Param) -> str:
     if isinstance(value, int):
         return str(value)
     raise TypeError(f"{pr.name}: no C++ spelling for the default {value!r}")
-
-
-def parsed_by(t: Type | None, known: Mapping[str, Class]) -> str:
-    """The C++ that turns this vocabulary's string into its type.
-
-    `@words(parsed_by=...)` names it, and it was prose until this read
-    it: both `add_*` methods hand-wrote
-    `nix::ContentAddressMethod::parse(method)` in their bodies while
-    the declaration two files away already said what the parser is
-    called. Empty for anything that is not a vocabulary, and for a
-    vocabulary that declares no parser - which crosses as its string
-    and is parsed by whatever it is handed to."""
-    if t is None:
-        return ""
-    held = t.required
-    other = None if held.origin else known.get(held.python)
-    if other is None or not other.is_words:
-        return ""
-    if not other.decl.parsed_by and other.decl.enumerated:
-        # Upstream has no parser for this enum, so the emitter wrote
-        # one. `from_word` is a template because a return type does
-        # not overload - `as_word` going the other way needs no such
-        # thing, which is why the two names are not symmetrical.
-        return (f"{NAMESPACE}::from_word"
-                f"<{other.decl.enumerated.held}>")
-    return other.decl.parsed_by
-
-
-def collection(t: Type | None, known: Mapping[str, Class]) -> str:
-    """The C++ collection type for a declared `list[T]`, if T names one.
-
-    Empty for everything else, which is every list whose element type
-    is a primitive or whose class is happy with a vector."""
-    if t is None or t.origin is not Origin.LIST:
-        return ""
-    element = known.get(t.element.python)
-    return element.decl.collection if element else ""
-
-
-def handle(t: Type | None, known: Mapping[str, Class]) -> Class | None:
-    """The declared class behind this type, when it binds a HANDLE.
-
-    A handle is a class whose `@binding` carries `via`: the bound C++
-    type owns a lifetime and the object worth calling is one step
-    further in. `None` for everything else, which is almost every
-    type - a bound class that binds its own methods is not a handle,
-    and neither is a str."""
-    if t is None or not t.required.bound:
-        return None
-    other = known.get(t.required.python)
-    return other if other is not None and other.decl.via else None
