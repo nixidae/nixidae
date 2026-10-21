@@ -1196,6 +1196,21 @@ let
     };
 
     /*
+      Does SONiC VS boot under QEMU and answer a shell on its serial
+      console? Milestone 1 for a Linux-shell console guest. See
+      docs/design/console-guests.md.
+    */
+    sonic = mkTest {
+      name = "sonic";
+      backend = "qemu";
+      nodes.sw1.vivarium.sonic = images.sonic-vs;
+      phases.sonic = {
+        script = ./tests/phases/sonic.py;
+        after = [ "boot" ];
+      };
+    };
+
+    /*
       Two NixOS guests on two segments, routed through RouterOS. The
       router's interfaces carry their vivarium names and addresses.
     */

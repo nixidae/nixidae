@@ -161,6 +161,7 @@ in
     ./nftables.nix
     ./qemu.nix
     ./routeros-guest.nix
+    ./sonic-guest.nix
     ./store.nix
     ./vyos-guest.nix
   ];
