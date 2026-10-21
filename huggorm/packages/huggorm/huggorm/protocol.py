@@ -17,18 +17,18 @@ carries the build identity, and a server refuses any other
     RESULT    [Op, call_id, value]
     FAULT     [Op, call_id | None, fault]
 
-Three more, only with experimental callbacks on (nixidae/nixidae#738). The
-server calls an object the client keeps, and the client answers:
+With experimental callbacks on (nixidae/nixidae#738), the server
+calls an object the client keeps. It asks with a CALL of its own body,
+and the client answers with RESULT or FAULT:
 
-    CALLBACK  [Op, callback_id, client_id, method, [arg, ...]]
-    REPLY     [Op, callback_id, value]
-    REFUSE    [Op, callback_id, fault]
-    CANCEL    [Op, callback_id]                       server to client
+    CALL      [Op, call_id, client_id, method, [arg, ...]]
 
-The server sends CANCEL when the call that waits for a callback is
-cancelled. The client cancels that hook and answers nothing.
+Each end reads only the CALLs the other end sends, so the two bodies
+never meet one reader. The server sends CANCEL when the call that
+waits for a callback is cancelled. The client cancels that hook and
+answers nothing.
 
-`call_id` is the client's, and a RESULT or FAULT carries it back, so
+`call_id` is the asker's, and a RESULT or FAULT carries it back, so
 calls on one connection may finish in any order. A CALL names its call
 by its index in the emitted `CALLS`. A FAULT with no `call_id` answers
 the HELLO, and the server closes the connection after it.
@@ -80,9 +80,6 @@ class Op(enum.IntEnum):
     DROP = 5
     RESULT = 6
     FAULT = 7
-    CALLBACK = 8
-    REPLY = 9
-    REFUSE = 10
 
 
 class Control(enum.IntEnum):
@@ -227,7 +224,7 @@ class Peer:
     """One end's requests in flight, both ways, over one channel.
 
     The protocol is symmetric. Each end asks (CALL and CONTROL from the
-    client, CALLBACK from the server) and answers what the other asks.
+    client, CALL from the server) and answers what the other asks.
     The ids of each direction are the asker's own. Whoever reads the
     channel hands this object the answers and the CANCELs."""
 
@@ -240,8 +237,8 @@ class Peer:
         self._closed = False
 
     async def ask(self, op: Op, *body: Any) -> Any:
-        """Send one request and answer the value of its RESULT or
-        REPLY, or raise the fault of its FAULT or REFUSE.
+        """Send one request and answer the value of its RESULT, or
+        raise the fault of its FAULT.
 
         An asker that stops waiting for any reason sends CANCEL, so
         the other end stops work nobody will read. The answer may still
@@ -269,9 +266,9 @@ class Peer:
         finally:
             self._waiting.pop(n, None)
         match waiting.frame:
-            case [Op.RESULT | Op.REPLY, _, value]:
+            case [Op.RESULT, _, value]:
                 return value
-            case [Op.FAULT | Op.REFUSE, _, fault]:
+            case [Op.FAULT, _, fault]:
                 raise self.faults.decode(fault)
             case None:
                 raise ConnectionLost("the connection closed during the call")

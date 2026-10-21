@@ -277,7 +277,7 @@ class NixClient:
                 match frame:
                     case [Op.RESULT | Op.FAULT, int(), _]:
                         peer.deliver(frame)
-                    case [Op.CALLBACK, int(n), int(client_id), str(name),
+                    case [Op.CALL, int(n), int(client_id), str(name),
                           list(raw)] if self.experimental_callbacks:
                         peer.serve(tasks, n, functools.partial(
                             self._answer_callback, n, client_id, name, raw))
@@ -475,8 +475,8 @@ class NixClient:
 
     async def _answer_callback(self, n: int, client_id: int, name: str,
                                raw: list[Any]) -> list[Any]:
-        """Answer one CALLBACK with its REPLY or REFUSE. In its own task,
-        so the reader keeps reading. An async method (`AsyncSourceAccessor`)
+        """Answer one CALL from the server with its RESULT or FAULT. In
+        its own task, so the reader keeps reading. An async method (`AsyncSourceAccessor`)
         is awaited, and may call the server meanwhile. A sync one, such
         as a binding object, runs on the loop and blocks it while it
         runs (nixidae/nixidae#740)."""
@@ -490,12 +490,12 @@ class NixClient:
             answer = getattr(obj, name)(*args)
             if inspect.isawaitable(answer):
                 answer = await answer
-            return [Op.REPLY, n,
+            return [Op.RESULT, n,
                     self.codec.encode(spec.returns, answer, _no_handle)]
         except Exception as e:
             failure = (e if hasattr(e, "to_dict")
                        else InternalError(f"callback {name} failed", cause=e))
-            return [Op.REFUSE, n, self.faults.encode(failure)]
+            return [Op.FAULT, n, self.faults.encode(failure)]
 
     async def acquire(self, cls_name: str, *args: Any) -> Any:
         """Construct one instance remotely, from typed constructor

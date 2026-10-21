@@ -141,16 +141,24 @@ async def test_a_late_answer_is_dropped() -> None:
         tg.cancel_scope.cancel()
 
 
+def test_each_direction_asks_and_answers_with_the_same_ops() -> None:
+    """A callback from the server is a CALL, answered by RESULT or
+    FAULT, as a call from the client is."""
+    assert {op.name for op in Op} == {
+        "HELLO", "WELCOME", "CALL", "CONTROL", "CANCEL", "DROP",
+        "RESULT", "FAULT"}
+
+
 @pytest.mark.anyio
 async def test_an_answer_reaches_its_asker(
         pair: tuple[Channel, Channel]) -> None:
-    """A RESULT or REPLY answers its value, a FAULT or REFUSE raises."""
+    """A RESULT answers its value, a FAULT raises."""
     left, right = pair
     asker = Peer(left, Faults())
 
     async def server() -> None:
         call = await right.receive()
-        await right.send([Op.REPLY, call[1], "value"])
+        await right.send([Op.RESULT, call[1], "value"])
         call = await right.receive()
         await right.send([Op.FAULT, call[1], Faults().encode(
             Refused(Refusal.SWEPT, "gone"))])
@@ -163,7 +171,7 @@ async def test_an_answer_reaches_its_asker(
         async with anyio.create_task_group() as tg:
             tg.start_soon(server)
             tg.start_soon(reader)
-            assert await asker.ask(Op.CALLBACK, 1, "read", []) == "value"
+            assert await asker.ask(Op.CALL, 1, "read", []) == "value"
             with pytest.raises(Refused, match="gone"):
                 await asker.ask(Op.CONTROL, Control.PING, [])
             tg.cancel_scope.cancel()

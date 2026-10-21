@@ -860,7 +860,7 @@ class Dispatcher:
                 case [Op.DROP, list(hids)] if all(type(h) is str
                                                   for h in hids):
                     self.release_many(token, hids)
-                case [Op.REPLY | Op.REFUSE, int(), _] if back is not None:
+                case [Op.RESULT | Op.FAULT, int(), _] if back is not None:
                     peer.deliver(frame)
                 case _:
                     raise ProtocolError(f"a frame arrived as {frame!r:.80}")
