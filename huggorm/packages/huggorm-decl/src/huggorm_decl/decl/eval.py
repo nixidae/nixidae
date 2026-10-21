@@ -1760,12 +1760,19 @@ return at;
         argument is in `cpp/eval.hpp`, beside the code.
 
         A path that was never cached forgets nothing, which is what
-        makes feeding a whole closure in safe."""
+        makes feeding a whole closure in safe.
+
+        It also drops the path's `lstat` entry. Nix caches `lstat` for
+        the whole process, so a path found missing once stays missing
+        for every state after, even once the file exists."""
         # The closure: nixidae/nixidae#553. The diff: nixidae/nixidae#620.
+        # The lstat cache: nixidae/nixidae#903.
         Cxx("""
 if (path.empty())
     throw std::invalid_argument("empty path");
-huggorm::forget_file(self.state(), self.state().rootPath(path));
+auto root = self.state().rootPath(path);
+huggorm::forget_file(self.state(), root);
+huggorm::invalidate_cache(root);
         """)
 
     @instant

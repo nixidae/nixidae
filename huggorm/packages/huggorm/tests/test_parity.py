@@ -421,6 +421,29 @@ async def test_forgetting_a_closure_picks_up_an_edited_import(
     assert await call(again, "integer") == 2, "the edit was not picked up"
 
 
+async def test_forgetting_a_missing_file_sees_it_once_it_exists(
+        state: Any, tmp_path: Any) -> None:
+    """Nix caches `lstat` for the whole process
+    (`PosixSourceAccessor::cachedLstat`), and a path it found missing
+    stays missing for every state after, until the process ends.
+    Measured in havsorm: a salt-master worker that looked for the
+    pillar file before it was written never saw it.
+
+    So forgetting a path also drops its `lstat` entry. The first half
+    is the negative control: without the forget, a file written after
+    the miss is still missing."""
+    late = tmp_path / "late.nix"
+    with pytest.raises(Exception, match="does not exist"):
+        await call(state, "eval_file", str(late))
+    late.write_text("7\n")
+    with pytest.raises(Exception, match="does not exist"):
+        await call(state, "eval_file", str(late))
+
+    await call(state, "forget_file", str(late))
+    again = await call(state, "eval_file", str(late))
+    assert await call(again, "integer") == 7
+
+
 async def test_forgetting_only_the_edited_file_leaves_the_importer_stale(
         state: Any, tmp_path: Any) -> None:
     """The negative control for the test above, and a real limit.
