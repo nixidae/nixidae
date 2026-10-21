@@ -1,8 +1,8 @@
 """`forget_file` and the copy `"${./x}"` makes (nixidae/nixidae#940).
 
-Nix 2.34 keeps each path's copy in a private per-state map
-(`EvalState::srcToStore`), so after an edit the interpolation still
-named the old store path. 2.35 has no such map and copies again.
+Nix keeps each path's copy in a per-state map, so after an edit the
+interpolation names the old store path. 2.34 holds it on `EvalState`,
+2.35 on `fetchers::Settings` (nixidae/nixidae#997).
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import pathlib
 
 from huggorm_bindings import EvalState, Store
-from huggorm_dsl.declare import NIX_2_35
 
 
 def _store(tmp_path: pathlib.Path) -> Store:
@@ -30,9 +29,8 @@ def test_forgetting_a_path_copies_it_again(tmp_path: pathlib.Path) -> None:
 
     first = copy()
     src.write_text("two\n")
-    # The negative control: on 2.34 the edit alone leaves the old copy.
-    if not NIX_2_35:
-        assert copy() == first
+    # The negative control: the edit alone leaves the old copy.
+    assert copy() == first
     state.forget_file(str(src))
     second = copy()
     assert second != first

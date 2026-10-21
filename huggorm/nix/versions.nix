@@ -54,6 +54,9 @@ let
   # 2.34 caches an lstat miss for the whole process, so a file created
   # after a miss stayed missing (nixidae/nixidae#940). 2.35 caches no stat.
   lstatMiss234 = patch "nix-2.34-lstat-miss-not-cached";
+  # `fetchers::Settings::forgetSrcToStore`: an edited path copies again
+  # (nixidae/nixidae#997). 2.34 keeps that map on `EvalState`.
+  forgetSrcToStore = patch "nix-forget-src-to-store";
 in
 {
   nix_2_34 = {
@@ -93,6 +96,7 @@ in
       parseFile
       callChecksInterrupt
       ownsPrimOps
+      forgetSrcToStore
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -113,6 +117,7 @@ in
       parseFile
       callChecksInterrupt
       ownsPrimOps
+      forgetSrcToStore
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).

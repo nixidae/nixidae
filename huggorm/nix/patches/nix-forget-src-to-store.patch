@@ -1,0 +1,52 @@
+A public way to forget one path's copy in `srcToStore`.
+
+`fetchToStore2` (src/libfetchers/fetch-to-store.cc) keeps each source
+path's store copy in `fetchers::Settings::srcToStore`, and reads it
+before it copies. So after an edit, `"${./x}"` names the old copy for
+as long as the settings live. huggorm's `forget_file` makes the next
+evaluation read an edited file, and it cannot erase the entry: the
+header only forward-declares `SrcToStore` (nixidae/nixidae#997).
+Measured on 2.35 and 2.36pre: after an edit and `forget_file`, the
+interpolation still gave the old store path.
+
+2.34 keeps the map on `EvalState`, which huggorm reaches directly.
+
+diff -ruN a/src/libfetchers/fetch-to-store.cc b/src/libfetchers/fetch-to-store.cc
+--- a/src/libfetchers/fetch-to-store.cc	2026-10-21 11:39:49.628063906 +0200
++++ b/src/libfetchers/fetch-to-store.cc	2026-10-21 11:39:56.152104469 +0200
+@@ -20,6 +20,11 @@
+     return make_ref<SrcToStore>();
+ }
+ 
++void fetchers::Settings::forgetSrcToStore(const SourcePath & path) const
++{
++    srcToStore->cache.erase_if([&](const auto & entry) { return std::get<0>(entry.first) == path; });
++}
++
+ fetchers::Cache::Key
+ makeSourcePathToHashCacheKey(std::string_view fingerprint, ContentAddressMethod method, const CanonPath & path)
+ {
+diff -ruN a/src/libfetchers/include/nix/fetchers/fetch-settings.hh b/src/libfetchers/include/nix/fetchers/fetch-settings.hh
+--- a/src/libfetchers/include/nix/fetchers/fetch-settings.hh	2026-10-21 11:39:49.630063919 +0200
++++ b/src/libfetchers/include/nix/fetchers/fetch-settings.hh	2026-10-21 11:40:20.567256935 +0200
+@@ -5,6 +5,7 @@
+ #include "nix/util/configuration.hh"
+ #include "nix/util/ref.hh"
+ #include "nix/util/sync.hh"
++#include "nix/util/source-path.hh"
+ 
+ #include <map>
+ #include <limits>
+@@ -155,6 +156,12 @@
+     ref<GitRepo> getTarballCache() const;
+ 
+     /**
++     * Drop every `srcToStore` entry for `path`, so its next copy reads
++     * the disk again.
++     */
++    void forgetSrcToStore(const SourcePath & path) const;
++
++    /**
+      * In-memory cache for calls to fetchToStore(); maps source paths to their store
+      * paths / hashes.
+      */

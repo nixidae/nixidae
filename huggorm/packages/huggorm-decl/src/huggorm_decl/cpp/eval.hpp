@@ -146,10 +146,12 @@ auto get(ImportResolutionCache);
 
 template struct Reach<ImportResolutionCache, &nix::EvalState::importResolutionCache>;
 
-// 2.34 keeps what `"${./x}"` copied to the store in `srcToStore`, so an
-// edited file still interpolates to its old copy (nixidae/nixidae#940).
-// 2.35 has no such map; `fetch-tree.hh` is the header that tells them
-// apart, as 2.34 lacks it.
+// Nix keeps what `"${./x}"` copied to the store in a `srcToStore` map, so
+// an edited file still interpolates to its old copy (nixidae/nixidae#940).
+// 2.34 holds it on `EvalState`; 2.35 moved it to `fetchers::Settings`,
+// where huggorm's patch `nix-forget-src-to-store` erases one path
+// (nixidae/nixidae#997). `fetch-tree.hh` tells them apart, as 2.34
+// lacks it.
 #if !__has_include("nix/expr/fetch-tree.hh")
 #define HUGGORM_SRC_TO_STORE 1
 struct SrcToStore
@@ -239,6 +241,8 @@ inline void forget_file(nix::EvalState & state, const nix::SourcePath & given)
         (state.*get(ImportResolutionCache{}))->erase(key);
 #ifdef HUGGORM_SRC_TO_STORE
     (state.*get(SrcToStore{}))->erase(given);
+#else
+    state.fetchSettings.forgetSrcToStore(given);
 #endif
 }
 
