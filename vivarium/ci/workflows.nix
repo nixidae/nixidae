@@ -126,6 +126,13 @@ let
       description = "the services guest provisions SONiC over SSH";
       timeoutMinutes = 30;
     };
+    oob-routeros = {
+      # Functional management VRF: RouterOS's ether1 (the uplink) leases
+      # from Kea in a mgmt VRF, isolated from the dataplane. CHR under
+      # QEMU plus two NixOS guests.
+      description = "RouterOS keeps its management in a VRF, isolated from the dataplane";
+      timeoutMinutes = 20;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
