@@ -725,6 +725,43 @@ async def test_a_trace_reaches_a_remote_client(client: Any) -> None:
         await stream.aclose()
 
 
+async def test_an_idle_remote_stream_waits_on_the_server(
+        client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A quiet stream sends one request and waits for its answer.
+
+    A stream that polled asked every 50 ms, so half a second of quiet
+    sent about ten. A record raised after the quiet still arrives."""
+    from huggorm.protocol import Control, Op
+
+    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    stream = await opened(client, state)
+    channel = client._link.peer.channel
+    sent: list[Any] = []
+    send = channel.send
+
+    async def counted(frame: list[Any]) -> None:
+        if frame[:1] == [Op.CALL] or (frame[:1] == [Op.CONTROL]
+                                      and frame[2] != Control.PING):
+            sent.append(frame)
+        await send(frame)
+
+    monkeypatch.setattr(channel, "send", counted)
+    try:
+        got: list[Any] = []
+
+        async def read() -> None:
+            got.extend((await batch(stream))[0])
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(read)
+            await anyio.sleep(0.5)
+            assert len(sent) <= 1, sent
+            await state.eval_expr(TRACE % "after the quiet")
+        assert any("after the quiet" in r.text() for r in got), got
+    finally:
+        await stream.aclose()
+
+
 async def test_a_record_arrives_as_a_real_local_object(client: Any) -> None:
     """A LogRecord crosses as a VALUE, so the far side gets the class.
 
@@ -800,11 +837,11 @@ async def test_a_drop_crosses_rather_than_vanishing(client: Any) -> None:
     survives a batch the reader skipped.
 
     ONE expression, and that is the whole reason this reads the way it
-    does. The server drains every 50ms while the test runs, so five
-    sequential `eval_expr` round trips race the poll: a tick landing
+    does. A waiting reader drains as soon as a record lands, so five
+    sequential `eval_expr` round trips race the drain: one landing
     between two of them empties a capacity-1 queue, the next record is
     kept rather than refused, and `dropped` comes back short. Nested
-    traces push five records microseconds apart, so no tick fits
+    traces push five records microseconds apart, so no drain fits
     between them and the count is exact rather than likely.
 
     The OUTERMOST trace prints first, so "the earliest survives" is
@@ -967,7 +1004,7 @@ async def test_a_state_stream_takes_its_records_back(client: Any) -> None:
         await state.eval_expr(TRACE % "remote-claimed")
         records, _ = await batch(mine)
         assert any("remote-claimed" in r.text() for r in records), records
-        # The process stream is polled once. It cannot be waited on:
+        # The process stream gets a timeout, not an open wait:
         # a batch that never comes is what this asserts, so the test
         # would hang rather than fail.
         with pytest.raises(TimeoutError):
@@ -1073,8 +1110,8 @@ async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
     named failure mode, spelled as an absence of messages.
 
     So the server refuses every call on a swept connection, and the
-    reader's next poll raises. A poll is a call, and a call keeps the
-    connection alive, so the test stops pinging AND stops reading for
+    reader's next request raises. A request keeps the connection alive
+    when it arrives, so the test stops pinging AND stops reading for
     one sweep: a client that is suspended does both.
 
     It uses the short-TTL server, so it costs one sweep of wall time

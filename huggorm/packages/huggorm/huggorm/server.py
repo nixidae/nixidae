@@ -58,6 +58,7 @@ from .codec import Codec, Node
 from .lifecycle import HandleTable, ShareMode
 from .logbus import Fanout, Reader
 from .protocol import (
+    LOG_DRAIN,
     Channel,
     Control,
     Faults,
@@ -722,6 +723,25 @@ class Dispatcher:
         return self.put(await fan.join(capacity, level), token,
                         parents=[hid])
 
+    async def logs_next(self, token: str, hid: str) -> list[Any]:
+        """The next batch of the log reader `hid` names, and its drop
+        count, once it has one.
+
+        It waits on the reader, so an idle stream costs one request in
+        flight. A reader closed while this waits fails it: a stream
+        that ended in silence would look like a quiet evaluation."""
+        reader = self.resolve(hid, token)
+        if not isinstance(reader, Reader):
+            raise TypeError(f"handle {hid} is not a log reader")
+        records = await reader.next()
+        if not records:
+            if token not in self.table.connections:
+                raise _swept(token)
+            raise RuntimeError(f"log reader {hid} was closed")
+        return [self.codec.encode(LOG_DRAIN.returns, records,
+                                  lambda obj: self.put(obj, token)),
+                await reader.dropped()]
+
     async def logs_barrier(self, token: str, hid: str) -> int:
         """The request id whose "finalized" ends the records so far.
 
@@ -769,6 +789,8 @@ class Dispatcher:
                 return await self.logs_barrier(token, hid)
             case Control.LOGS, [str() | None as hid, int(capacity), int(level)]:
                 return await self.logs(token, hid, capacity, level)
+            case Control.LOGS_NEXT, [str(hid)]:
+                return await self.logs_next(token, hid)
         raise ProtocolError(f"{control.name} with arguments {args!r:.80}")
 
     # -- connections -----------------------------------------------------
@@ -875,13 +897,16 @@ class Dispatcher:
         which is how the client learns."""
         try:
             if not after_sweep and token not in self.table.connections:
-                raise Refused(
-                    Refusal.SWEPT,
-                    f"connection {token[:8]} was swept, and its handles "
-                    f"with it")
+                raise _swept(token)
             return [Op.RESULT, cid, await run()]
         except Exception as e:
             return [Op.FAULT, cid, self.faults.encode(self._failure(e, label))]
+
+
+def _swept(token: str) -> Refused:
+    return Refused(Refusal.SWEPT,
+                   f"connection {token[:8]} was swept, and its handles "
+                   f"with it")
 
 
 async def serve(path: str, lease_ttl: float = 120.0, *,

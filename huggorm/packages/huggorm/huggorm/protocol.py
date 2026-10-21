@@ -60,8 +60,8 @@ import anyio.lowlevel
 from anyio.abc import SocketAttribute, SocketStream, TaskGroup
 from anyio.streams.buffered import BufferedByteReceiveStream
 
-from huggorm_generated._callspec import Wire, WireKind
-from huggorm_generated._policy import ERROR_FIELDS, ERROR_MODULE
+from huggorm_generated._callspec import Call, Wire, WireKind
+from huggorm_generated._policy import ERROR_FIELDS, ERROR_MODULE, FREE, METHODS
 
 from .codec import Codec, pack, unpack
 
@@ -69,6 +69,18 @@ from .codec import Codec, pack, unpack
 # answer is a store's whole path list, far below it.
 MAX_FRAME = 256 << 20
 _LENGTH = struct.Struct(">I")
+
+
+def _log_calls() -> tuple[Wire, Call]:
+    reader = FREE["subscribe_process_logs"].returns
+    assert reader is not None
+    return reader, next(c for c in METHODS[reader.name] if c.name == "drain")
+
+
+# A log reader's class, and the drain whose batch LOGS_NEXT answers.
+# Read off the calls, because no layer above the bindings names a
+# domain type.
+LOG_READER, LOG_DRAIN = _log_calls()
 
 
 class Op(enum.IntEnum):
@@ -93,6 +105,7 @@ class Control(enum.IntEnum):
     LOGS_BARRIER = 5
     LOGS = 6
     BUILD = 7
+    LOGS_NEXT = 8
 
 
 class ProtocolError(Exception):

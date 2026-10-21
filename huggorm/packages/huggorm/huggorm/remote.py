@@ -43,6 +43,8 @@ from .codec import Codec
 from .lifecycle import ShareMode
 from .logbus import LOG_CAPACITY, LOG_LEVEL
 from .protocol import (
+    LOG_DRAIN,
+    LOG_READER,
     Channel,
     Control,
     Faults,
@@ -56,14 +58,6 @@ from .protocol import (
 from .protocol import ConnectionLost as ConnectionLost
 
 logger = logging.getLogger(__name__)
-
-# How often a log reader asks for records when the last ask answered
-# none. After a non-empty batch it asks again at once.
-LOG_POLL = 0.05
-
-# A log reader's class, read off the call that answers one: no layer
-# above the bindings names a domain type.
-_READER = FREE["subscribe_process_logs"].returns
 
 
 class ConnectionExpired(RuntimeError):
@@ -646,24 +640,23 @@ class NixClient:
     async def _log_batches(self, hid: str | None, capacity: int,
                            level: int | None) -> AsyncGenerator[
                                tuple[list[Any], int]]:
-        """Open a reader, poll it until the caller stops, then release
-        it.
+        """Open a reader, wait on it until the caller stops, then
+        release it. Each LOGS_NEXT waits on the server until the reader
+        has records.
 
         Shielded on the way out, because a caller that stops by
         cancellation still owes the server the release."""
-        assert _READER is not None
-        reader = self.proxy(_READER.name, await self._ask(
+        reader = self.proxy(LOG_READER.name, await self._ask(
             Op.CONTROL, Control.LOGS,
             [hid, capacity or LOG_CAPACITY,
              LOG_LEVEL if level is None else level]))
         try:
             yield [], 0
             while True:
-                records = await reader.drain()
-                if not records:
-                    await anyio.sleep(LOG_POLL)
-                    continue
-                yield records, await reader.dropped()
+                raw, dropped = await self._ask(
+                    Op.CONTROL, Control.LOGS_NEXT, [handle_of(reader)])
+                yield (self.codec.decode(LOG_DRAIN.returns, raw, _no_handle),
+                       dropped)
         finally:
             with anyio.CancelScope(shield=True), contextlib.suppress(
                     ConnectionExpired, ConnectionLost):
