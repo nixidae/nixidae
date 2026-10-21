@@ -1771,43 +1771,56 @@ def test_emitting_the_module_leaves_the_declaration_alone() -> None:
     assert "nix::InvalidPath" in before
 
 
-def test_a_body_brings_its_own_standard_header() -> None:
-    """What a `Cxx` body SPELLS decides what the emitted file
-    includes.
+# Where each standard name a body spells is declared. The check of the
+# runtime header's fixed set, not a table any emitter reads.
+BODY_STD = {
+    "std::invalid_argument": "stdexcept", "std::runtime_error": "stdexcept",
+    "std::out_of_range": "stdexcept", "std::string": "string",
+    "std::string_view": "string_view", "std::nullopt": "optional",
+    "std::optional": "optional", "std::int64_t": "cstdint",
+    "std::uint64_t": "cstdint", "std::uint32_t": "cstdint",
+    "std::uint8_t": "cstdint", "std::size_t": "cstddef",
+    "std::filesystem": "filesystem", "std::vector": "vector",
+    "std::set": "set", "std::map": "map", "std::variant": "variant",
+    "std::get_if": "variant", "std::holds_alternative": "variant",
+    "std::move": "utility", "std::to_underlying": "utility",
+    "std::pair": "utility", "std::less": "functional",
+    "std::function": "functional", "std::numeric_limits": "limits",
+    "std::sort": "algorithm", "std::ranges": "algorithm",
+    "std::memory_order_relaxed": "atomic",
+    "std::memory_order_acquire": "atomic", "std::atomic": "atomic",
+    "std::make_shared": "memory", "std::shared_ptr": "memory",
+    "std::dynamic_pointer_cast": "memory", "std::tie": "tuple",
+}
 
-    `eval.py`'s bodies throw `std::invalid_argument` 54 times, and
-    the emitted `eval.cpp` includes `<stdexcept>` because of that -
-    not because a hand-written header carries one on its behalf.
-    That was the arrangement nixidae/nixidae#627 found: `eval.hpp` held a
-    `<stdexcept>` it never used, a fact about generated code living
-    in a file a person maintains.
 
-    NOT load-bearing, and that is measured rather than hoped. With
-    both the header's include AND this derivation removed, the build
-    still compiles - nix's own headers reach `<stdexcept>` somewhere
-    along the chain. So the compiler cannot gate this, and asserting
-    on the emitted TEXT is what can: the question is whether the
-    emitter derives the include, not whether the build tolerates its
-    absence.
+def test_the_runtime_header_declares_what_the_bodies_spell() -> None:
+    """A hand-written body is text no type speaks for, so every unit
+    includes one fixed set through the runtime header.
 
-    `pathinfo.py` is the control. Its bodies spell `std::uint64_t`
-    and `std::move` and throw nothing, so it gets `<cstdint>` and
-    `<utility>` and NOT `<stdexcept>` - which is what says the
-    derivation reads the body rather than adding a fixed list."""
+    The compiler cannot gate this. Measured for nixidae/nixidae#627:
+    with `<stdexcept>` removed from every file, the build still
+    compiles, because Nix's own headers reach it. So this reads the
+    TEXT. A name `BODY_STD` does not know fails here, and that is the
+    point: its header is added on purpose, never found by accident."""
+    from huggorm_gen.cppgen import nbemit
     from huggorm_gen.cppgen.generate import declared_model
-    from huggorm_gen.cppgen.nbemit import extension
 
-    text = extension(declared_model().module("eval"), "huggorm_bindings.eval",
-                     declared_model(), chain=[], errors="", prelude=PRELUDE)
-    assert "#include <stdexcept>" in text
-    assert "std::invalid_argument" in text, "the body that needs it"
-
-    other = extension(declared_model().module("pathinfo"),
-                      "huggorm_bindings.pathinfo", declared_model(),
-                      chain=[], errors="", prelude=PRELUDE)
-    assert "#include <cstdint>" in other
-    assert "#include <stdexcept>" not in other, \
-        "nothing in pathinfo throws, so nothing asks for it"
+    model = declared_model()
+    bodies = [b.text for cls in model.classes.values()
+              for m in cls.callables if (b := m.cxx_body) is not None]
+    bodies += [b.text for fn in model.functions.values()
+               if (b := fn.cxx_body) is not None]
+    bodies += [t for cls in model.classes.values() for t in cls.custom]
+    spelled = set(re.findall(r"std::\w+", "\n".join(bodies)))
+    assert "std::invalid_argument" in spelled, "the control"
+    unknown = spelled - BODY_STD.keys()
+    assert not unknown, f"no header known for {sorted(unknown)}"
+    runtime = (pathlib.Path(nbemit.__file__).parent
+               / nbemit.RUNTIME_HEADER).read_text()
+    missing = {BODY_STD[n] for n in spelled} - set(
+        re.findall(r"#include <(\w+)>", runtime))
+    assert not missing, f"the runtime header lacks {sorted(missing)}"
 
 
 NESTED = '''"""An alias two containers down."""
@@ -2697,6 +2710,38 @@ def test_a_leaf_is_spelled_by_the_cxx_its_alias_carries(
     assert (echo.params[0].cxx, echo.params[0].caster) == (param, caster)
     assert echo.returns is not None
     assert (echo.returns.cxx, echo.returns.caster) == (value, caster)
+
+
+@pytest.mark.parametrize(("alias", "include"), [
+    ("Str", "#include <string>"),
+    ("StrView", "#include <string_view>"),
+    ("U64", "#include <cstdint>"),
+    ("I64", "#include <cstdint>"),
+    ("Path", "#include <filesystem>"),
+    ("Duration", "#include <chrono>"),
+    ("Thing", '#include "nix/util/thing.hh"')])
+def test_a_unit_includes_the_header_each_leaf_names(
+        tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+        alias: str, include: str) -> None:
+    """The alias names its header and how it is included, so a unit
+    includes what its signatures spell and no emitter picks one.
+    `Thing` stands for a DSL type a Nix header declares."""
+    import typing
+
+    from huggorm_dsl import declare
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    monkeypatch.setattr(declare, "Thing", typing.Annotated[int, declare.Cxx(
+        "nix::Thing", includes=(declare.Local("nix/util/thing.hh"),))],
+        raising=False)
+    unit = ir.ModuleModel.of(read(_declaration(
+        tmp_path, LEAF.replace("ALIAS", alias))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
+                     {}, ir.Errors("", {}), (unit,))
+    lines = nbemit.Emitter(model, unit).includes(unit.classes, ())
+    assert lines.count(include) == 1, lines
 
 
 @pytest.mark.parametrize("signature", [

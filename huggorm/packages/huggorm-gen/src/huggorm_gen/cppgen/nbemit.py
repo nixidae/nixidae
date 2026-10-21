@@ -54,7 +54,7 @@ becomes the place the real code lives.
 from collections.abc import Iterator, Sequence
 from typing import assert_never
 
-from huggorm_dsl.declare import Crossing
+from huggorm_dsl.declare import Crossing, Include, Local, Std
 from huggorm_dsl.read import Body
 from huggorm_gen import ir
 from huggorm_gen.cxx import NAMESPACE
@@ -136,42 +136,6 @@ def _sites(classes: Sequence[ir.ClassModel],
         yield None, fn.returns
 
 
-# What a `Cxx` body spells, and the standard header that defines it.
-#
-# A body is TEXT the declaration carries, so which headers it needs is
-# DERIVED here rather than carried by a hand-written one on the
-# emitted file's behalf. That was the arrangement nixidae/nixidae#627 found:
-# `eval.hpp` held a `<stdexcept>` it never used, for bodies that throw
-# `std::invalid_argument` 54 times - a fact about generated code,
-# living in a file a person maintains.
-#
-# Only what a caster does NOT already bring. `<string>` and `<vector>`
-# arrive with `nanobind/stl/string.h` and its kind, so listing them
-# here would add a line that is already there.
-#
-# It GROWS when a body spells something new. That is the point of a
-# table over a guess: a body reaching for `std::filesystem` gets its
-# header the day somebody adds the row, and until then the build fails
-# loudly at compile time rather than quietly at run time.
-BODY_HEADERS = {
-    "std::invalid_argument": "stdexcept",
-    "std::runtime_error": "stdexcept",
-    "std::logic_error": "stdexcept",
-    "std::out_of_range": "stdexcept",
-    "std::domain_error": "stdexcept",
-    "std::int64_t": "cstdint",
-    "std::uint64_t": "cstdint",
-    "std::int32_t": "cstdint",
-    "std::uint32_t": "cstdint",
-    "std::uintptr_t": "cstdint",
-    "std::size_t": "cstddef",
-    "std::sort": "algorithm",
-    "std::move": "utility",
-    "std::exchange": "utility",
-    "std::forward": "utility",
-}
-
-
 # Where a carried body ends. `placed_lines` replaces each with a
 # `#line` back to the emitted file, which only the finished text can
 # number.
@@ -197,20 +161,6 @@ def placed_lines(text: str, name: str) -> str:
             # `#line N` names the line AFTER it, and lines count from 1.
             lines[i] = f'#line {i + 2} "{name}"'
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
-
-
-def _bodies(classes: Sequence[ir.ClassModel],
-            functions: Sequence[ir.FunctionModel] = ()) -> Iterator[str]:
-    """Every piece of hand-written C++ this translation unit carries.
-
-    One walk, like `_sites`, and for the same reason. A body reaches
-    the emitted file from five places and a header it needs is a
-    header it needs from any of them."""
-    carried = [*(m.cxx_body for cls in classes for m in cls.callables),
-               *(fn.cxx_body for fn in functions)]
-    yield from (b.text for b in carried if b is not None)
-    for cls in classes:
-        yield from cls.custom
 
 
 def waits(cls: ir.ClassModel,
@@ -388,16 +338,10 @@ def records_header(unit: ir.ModuleModel, package: str,
     others = [m for m in emit.records_named(values, ())
               if m != unit.name]
     structs = emit.records(values)
-    # What the fields SPELL, read off the structs as `includes` reads
-    # a body: `std::int64_t` needs <cstdint>, and no caster names it.
-    text = "\n".join(structs)
-    spelled = sorted({h for spelling, h in BODY_HEADERS.items()
-                      if spelling in text})
     return "\n".join([
         "#pragma once", "",
         *emit.includes(values, ()),
-        *[f"#include <{h}>" for h in spelled],
-        *[f'#include "{records_include(m, package)}"' for m in others],
+        *[Local(records_include(m, package)).line for m in others],
         "",
         *structs,
     ])
@@ -849,12 +793,15 @@ class Emitter:
         only return was a string_view and stopped the moment one was a
         vector."""
         casters: set[str] = set()
+        declared: set[Include] = set()
 
         def note(t: ir.TypeRef | None) -> None:
             if t is None:
                 return
             if t.caster:
                 casters.add(t.caster)
+            if t.spelled is not None:
+                declared.update(t.spelled.includes)
             # A container or an optional needs what it HOLDS cast too:
             # `list[StorePath]` needs <vector>, and a `list[str]` needs
             # <string> beneath it. Every argument, so no container kind is
@@ -881,13 +828,6 @@ class Emitter:
         # A hook has no signature worth casting, and it still names the
         # header its C++ lives in. `wanted` below is where that lands.
 
-        # What the hand-written BODIES spell, which no signature says.
-        # Derived from the text the declaration carries - see
-        # BODY_HEADERS for why this is not a header's job.
-        body = " ".join(b for b in _bodies(classes, functions) if b)
-        standard = {h for spelling, h in BODY_HEADERS.items()
-                    if spelling in body}
-
         out = ["#include <nanobind/nanobind.h>"]
         if any(_virtuals(cls) for cls in classes):
             out.append("#include <nanobind/trampoline.h>")
@@ -896,14 +836,18 @@ class Emitter:
                for cls in classes):
             # std::hash lives in <functional>, and the value hash uses it.
             out.append("#include <functional>")
-        out += [f"#include <{h}>" for h in sorted(standard)]
+        # What each leaf's alias says declares it. A hand-written body
+        # is text no type speaks for: the runtime header includes the
+        # standard headers a body may use, for every unit.
+        out += [h.line for h in sorted(h for h in declared
+                                       if isinstance(h, Std))]
         # The headers that declare the types the CATCH CHAIN names. The
         # chain is emitted, so the includes it needs are emitted too - the
         # three of them lived in `cpp/errors.hpp` until now, which is a
         # fact about generated code stated in a hand-written helper
         # (nixidae/nixidae#627). `decl/errors.py` says which header each class is
         # in, beside the `cxx` that names the class.
-        out += [f'#include "{h}"' for h in errors]
+        out += [Local(h).line for h in errors]
         # Each class's header, then whatever the bodies reach past it.
         # Sorted and de-duplicated, because two methods needing one
         # header is normal and the order of a declaration's methods is
@@ -929,7 +873,9 @@ class Emitter:
         wanted |= {h for cls in classes for m in cls.callables
                    for h in m.headers}
         wanted |= {h for fn in functions for h in fn.headers}
-        out += [f'#include "{h}"' for h in sorted(wanted - {""})]
+        local = {Local(h) for h in wanted - {""}}
+        local |= {h for h in declared if isinstance(h, Local)}
+        out += [h.line for h in sorted(local)]
         return out
 
     def _extras(self, wait: bool, params: Sequence[ir.ParamModel]) -> str:

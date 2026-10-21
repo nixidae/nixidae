@@ -77,14 +77,40 @@ class DeclKind(StrEnum):
     ERROR = "error"
 
 
+@dataclass(frozen=True, order=True)
+class Std:
+    """A standard library header, included as `<name>`."""
+
+    name: str
+
+    @property
+    def line(self) -> str:
+        return f"#include <{self.name}>"
+
+
+@dataclass(frozen=True, order=True)
+class Local:
+    """A Nix or huggorm header, included as `"name"`."""
+
+    name: str
+
+    @property
+    def line(self) -> str:
+        return f'#include "{self.name}"'
+
+
+type Include = Std | Local
+
+
 @dataclass(frozen=True)
 class Cxx:
     """How a Python type is spelled in C++.
 
-    `spelling` is the C++ type by value. `caster` names the nanobind
-    caster header it needs, `<nanobind/stl/{caster}.h>`, or None when
-    nanobind casts it with no extra header. `by_ref` makes a parameter
-    take it by const reference.
+    `spelling` is the C++ type by value, and `includes` the headers
+    that declare it. `caster` names the nanobind caster header it
+    needs, `<nanobind/stl/{caster}.h>`, or None when nanobind casts it
+    with no extra header. `by_ref` makes a parameter take it by const
+    reference.
 
     `width` is the wire scalar for an integer a sint64 cannot hold:
     `uint` for a uint64_t. Python has one `int`, so only the crossing
@@ -94,6 +120,7 @@ class Cxx:
     caster: str | None = None
     by_ref: bool = False
     width: str = ""
+    includes: tuple[Include, ...] = ()
 
     @property
     def param(self) -> tuple[str, str | None]:
@@ -176,11 +203,12 @@ NIX_2_36: bool = NIX_VERSION >= (2, 36)
 #
 # Each carries its whole C++ fact. No emitter keeps a table that maps a
 # Python type to C++, so the alias is the only place to say it.
-STRING = Cxx("std::string", "string", by_ref=True)
+STRING = Cxx("std::string", "string", by_ref=True, includes=(Std("string"),))
 Str = Annotated[str, STRING]
 # nanobind's string_view caster copies the text into a Python str, so
 # a view that outlives its owner never reaches Python.
-StrView = Annotated[str, Cxx("std::string_view", "string_view")]
+StrView = Annotated[str, Cxx("std::string_view", "string_view",
+                             includes=(Std("string_view"),))]
 Bint = Annotated[bool, Cxx("bool")]
 # Bytes, not text. The difference is above the boundary: a store holds
 # FILES, and the hash that names a store path is a hash of exactly
@@ -201,8 +229,9 @@ Bytes = Annotated[bytes, Cxx("nb::bytes", by_ref=True)]
 # and `registration_time` is a time_t the shim narrows to int64_t, so
 # a declaration that said `int` for both would leave the emitter to
 # guess, and it would guess the same for two fields that differ.
-U64 = Annotated[int, Cxx("std::uint64_t", width="uint")]
-I64 = Annotated[int, Cxx("std::int64_t")]
+U64 = Annotated[int, Cxx("std::uint64_t", width="uint",
+                         includes=(Std("cstdint"),))]
+I64 = Annotated[int, Cxx("std::int64_t", includes=(Std("cstdint"),))]
 # A Nix float is a C++ double (`NixFloat`), and so is a Python float.
 F64 = Annotated[float, Cxx("double")]
 # A std::filesystem::path at the boundary and a pathlib.Path above it,
@@ -212,7 +241,8 @@ F64 = Annotated[float, Cxx("double")]
 # directory this machine does not have, and `real_path` answers where
 # the bytes are here. Only the second is a path a caller can open.
 Path = Annotated[pathlib.Path,
-                 Cxx("std::filesystem::path", "filesystem", by_ref=True),
+                 Cxx("std::filesystem::path", "filesystem", by_ref=True,
+                     includes=(Std("filesystem"),)),
                  Async("anyio.Path")]
 # A SPAN of time, and the resolution is the fact this states.
 # Upstream keeps a build's CPU time as `std::chrono::microseconds`, and
@@ -225,7 +255,8 @@ Path = Annotated[pathlib.Path,
 # means nothing without an epoch, while a span is a quantity a caller
 # can add up. Declaring both as `int` would have made them look alike.
 Duration = Annotated[datetime.timedelta,
-                     Cxx("std::chrono::microseconds", "chrono")]
+                     Cxx("std::chrono::microseconds", "chrono",
+                         includes=(Std("chrono"),))]
 # A Python callable the BINDING keeps and calls back.
 #
 # The only type here that does not describe a C++ value. `nb::object`

@@ -5,9 +5,27 @@
 // them pays nothing. Nothing here names a Nix type: a helper that does
 // belongs in `huggorm_decl/cpp/`, where a Nix version can branch.
 
+// The standard headers a declaration's hand-written body may use, too.
+// A body is text, so no type names what it spells: every unit gets
+// this one set. A body that needs another standard header adds it
+// here; a Nix header goes on the method, with `@needs`.
+#include <algorithm>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <limits>
 #include <map>
+#include <memory>
+#include <optional>
+#include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include <nanobind/nanobind.h>
