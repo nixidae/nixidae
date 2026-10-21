@@ -20,11 +20,40 @@ let
 
   runner = config.system.build.vivariumRunnerPackage;
   units = import ./foreign-units.nix { inherit lib pkgs runner; };
-  configBoot = pkgs.writeText "config.boot" cfg.config;
+  # vivarium names an interface by its attribute on every backend. UML
+  # names NICs vecN, which VyOS's own naming rule (65-vyos-net.rules,
+  # eth*/wlan*/e* only) never touches, so a .link file renames each by
+  # the MAC vivarium gave it.
+  links = pkgs.linkFarm "vivarium-vyos-links" (
+    map (nic: {
+      name = "10-vivarium-${nic.name}.link";
+      path = pkgs.writeText "${nic.name}.link" ''
+        [Match]
+        MACAddress=${nic.mac}
+
+        [Link]
+        Name=${nic.name}
+      '';
+    }) config.vivarium.nics
+  );
+
+  # The interfaces' hw-id and addresses, in a block of their own after the
+  # user's config.
+  interfaceBlock = lib.optionalString (config.vivarium.nics != [ ]) ''
+    interfaces {
+    ${lib.concatMapStrings (nic: ''
+          ethernet ${nic.name} {
+      ${lib.concatMapStrings (address: "        address \"${address}\"\n") nic.addresses}        hw-id "${nic.mac}"
+          }
+    '') config.vivarium.nics}}
+  '';
+
+  configBoot = pkgs.writeText "config.boot" (cfg.config + interfaceBlock);
   roots = [
     runner
     units
     configBoot
+    links
   ];
 
   # VyOS's own default, without its serial console: ttyS0 is the agent's
@@ -79,6 +108,10 @@ let
     cp /root${units}/* $system/
     mkdir -p $system/multi-user.target.wants
     ln -sf ../vivarium-agent.service ../vivarium-journal.service $system/multi-user.target.wants/
+    mkdir -p /root/etc/systemd/network
+    for link in /root${links}/*; do
+      if [ -e "$link" ]; then cp "$link" /root/etc/systemd/network/; fi
+    done
 
     # vyos-router owns the file: it changes its group and mode, and the
     # migration rewrites it, so it is a copy and not the store path.
@@ -154,6 +187,10 @@ in
       {
         assertion = config.vivarium.image == null;
         message = "vivarium.vyos and vivarium.image both name the guest's root.";
+      }
+      {
+        assertion = lib.all (nic: builtins.match "eth[0-9]+" nic.name != null) config.vivarium.nics;
+        message = "VyOS configures ethernet interfaces named ethN only; name vivarium.interfaces eth1, eth2, ...";
       }
     ];
     system.build.vivariumImageGuest = {
