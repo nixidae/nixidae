@@ -40,7 +40,7 @@ from .agent import AGENT_READY
 from .arpyc import AsyncConnection, connect
 from .control import ConsoleControl, ConsoleError, Control, ControlKind, Dialect
 from . import backend as backends
-from . import routeros
+from . import routeros, sonic
 from . import container
 from . import display
 from . import forward
@@ -248,7 +248,10 @@ OUTPUT_LIMIT = 2000
 error usually is. The whole output still reaches the caller."""
 
 
-DIALECTS: dict[ControlKind, Dialect] = {ControlKind.ROUTEROS: routeros.DIALECT}
+DIALECTS: dict[ControlKind, Dialect] = {
+    ControlKind.ROUTEROS: routeros.DIALECT,
+    ControlKind.SONIC: sonic.DIALECT,
+}
 
 
 @dataclass(frozen=True)

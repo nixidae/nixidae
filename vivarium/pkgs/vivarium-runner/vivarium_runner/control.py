@@ -27,6 +27,7 @@ class ControlKind(StrEnum):
 
     AGENT = "agent"
     ROUTEROS = "routeros"
+    SONIC = "sonic"
 
 
 class Control(Protocol):
