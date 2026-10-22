@@ -22,7 +22,9 @@
 # caller with its own guests and its own script needs nothing else.
 {
   sources ? import ./nix/sources.nix,
-  pkgs ? import sources.nixpkgs { },
+  # Another system's derivations build on a builder of it.
+  system ? builtins.currentSystem,
+  pkgs ? import sources.nixpkgs { inherit system; },
 }:
 let
   inherit (pkgs) lib;

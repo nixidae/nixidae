@@ -2,7 +2,9 @@
   # Where every dependency lives. nix/sources.nix says how it finds them:
   # the umbrella's lock, so huggorm builds the Nix nanopynix builds.
   sources ? import ./nix/sources.nix,
-  pkgs ? import sources.nixpkgs { },
+  # Another system's derivations build on a builder of it.
+  system ? builtins.currentSystem,
+  pkgs ? import sources.nixpkgs { inherit system; },
   # The interpreter everything here builds for. The generator needs
   # 3.14, and a release nixpkgs can default to an older one.
   python3 ? pkgs.python3,
@@ -560,7 +562,7 @@ rec {
   byNixpkgs = lib.optionalAttrs (!pin) {
     release =
       let
-        release = import sources.nixpkgs-release { };
+        release = import sources.nixpkgs-release { inherit (pkgs.stdenv.hostPlatform) system; };
       in
       import ./. {
         inherit sources;

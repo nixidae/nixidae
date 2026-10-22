@@ -1,8 +1,10 @@
 {
   sources ? import ./nix/sources.nix,
+  # Another system's derivations build on a builder of it.
+  system ? builtins.currentSystem,
   # huggorm brings the nixpkgs and the Python every package here builds
   # on, so the bindings and havsorm share one interpreter.
-  huggorm ? import sources.huggorm { inherit sources; },
+  huggorm ? import sources.huggorm { inherit sources system; },
 }:
 let
   pkgs = huggorm.pkgs.extend (
