@@ -13,7 +13,7 @@ Two halves, kept apart on purpose:
   drives it with no sleeps.
 - **Noticing.** A source of change events calls `changed()` or
   `rescan()`. `rescan()` is here because it needs nothing but
-  `os.stat`; an inotify source is a separate module over the same
+  `os.stat`; a file-change source is a separate module over the same
   step.
 
 Written against `AsyncEvalState`, so one watcher serves a state in

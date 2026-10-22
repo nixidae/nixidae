@@ -195,7 +195,7 @@ async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
         state: Any, tmp_path: Any) -> None:
     """The destination, in one test.
 
-    Nobody calls anything after the save. An inotify event reaches the
+    Nobody calls anything after the save. A file event reaches the
     notifier, the watcher forgets the root, the warmer re-evaluates
     it, and the answer is the new one before any caller asks.
 

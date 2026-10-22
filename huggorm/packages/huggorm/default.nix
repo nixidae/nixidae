@@ -50,11 +50,9 @@ python3Packages.buildPythonPackage {
 
   # generated is propagated so anyone writing code in/downstream of
   # huggorm sees huggorm_generated in their environment.
-  # asyncinotify: the kernel telling the watcher a file moved, instead
-  # of the watcher stat-ing for it (nixidae/nixidae#620). Linux only, which is
-  # what let it beat watchdog - Carl ruled Darwin out for now, so
-  # cross-platform bought nothing and cost a thread pool. It
-  # propagates nothing but python3 itself.
+  # watchdog: the OS telling the watcher a file moved, instead of the
+  # watcher stat-ing for it - inotify on Linux, FSEvents on macOS.
+  # `huggorm/notify.py` says why it replaced asyncinotify.
   # msgpack: the value format of the Unix socket transport (nixidae/nixidae#714).
   # The front door and the suite read the declarations for the Nix the
   # bindings link (nixidae/nixidae#592).
@@ -68,7 +66,7 @@ python3Packages.buildPythonPackage {
   propagatedBuildInputs = [
     huggorm-bindings
     huggorm-generated
-    python3Packages.asyncinotify
+    python3Packages.watchdog
     python3Packages.msgpack
   ];
 

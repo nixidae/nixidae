@@ -1,4 +1,4 @@
-"""The inotify source: what it watches, and what it wakes for.
+"""The file-change source: what it watches, and what it wakes for.
 
 `test_watch.py` gates the BOOKKEEPING with no timing at all, because
 `changed()` and `rescan()` are explicit steps. This file gates the
@@ -15,9 +15,10 @@ the clock: `next_change()` returns the moment the kernel delivers, and
 named failure instead of a hang. A sleep would be the thing that makes
 a suite slow and flaky at once.
 
-Linux only, and unmarked. inotify is a kernel interface, not a
-daemon, so a build sandbox has it - which is what separates this from
-the `live` marker: those tests need a store this one does not.
+Unmarked. watchdog uses inotify on Linux and FSEvents on macOS, both
+kernel interfaces rather than daemons, so a build sandbox has them -
+which is what separates this from the `live` marker: those tests need a
+store this one does not.
 """
 
 from pathlib import Path
@@ -25,6 +26,14 @@ from typing import Any
 
 import anyio
 import pytest
+from watchdog.events import (
+    DirDeletedEvent,
+    DirModifiedEvent,
+    FileClosedNoWriteEvent,
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileOpenedEvent,
+)
 
 from huggorm.notify import Notifier
 from huggorm.watch import Watcher
@@ -33,7 +42,7 @@ URI = "dummy://"
 
 # Long enough that a loaded machine does not lose, short enough that a
 # BROKEN adapter fails the suite in seconds rather than hanging it.
-# inotify delivers in microseconds when it delivers at all.
+# The kernel delivers in microseconds when it delivers at all.
 DEADLINE = 20.0
 
 
@@ -227,7 +236,7 @@ async def test_an_unrelated_file_wakes_nothing(
     """The control, and the one a too-eager adapter fails.
 
     A file in a watched directory that no root depends on raises real
-    inotify events. They are dropped here, so `changed()` is never
+    file events. They are dropped here, so `changed()` is never
     called and no root is forgotten.
 
     Nothing waits for a non-event, which cannot be asserted without a
@@ -246,3 +255,36 @@ async def test_an_unrelated_file_wakes_nothing(
 
         with anyio.fail_after(DEADLINE):
             assert await source.next_change() == [outer]
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        # The save itself, in place and by rename.
+        (FileModifiedEvent("/d/inner.nix"), ["/d/inner.nix"]),
+        (FileMovedEvent("/d/inner.nix.tmp", "/d/inner.nix"), ["/d/inner.nix"]),
+        # watchdog sends one for the parent beside every file event.
+        # Taken as a change, every save would forget every root in /d.
+        (DirModifiedEvent("/d"), []),
+        # An evaluation reads; a read is not a change.
+        (FileOpenedEvent("/d/inner.nix"), []),
+        (FileClosedNoWriteEvent("/d/inner.nix"), []),
+        # The directory itself went away, so everything in it did.
+        (DirDeletedEvent("/d"), ["/d/inner.nix", "/d/outer.nix"]),
+        (FileModifiedEvent("/d/notes.txt"), []),
+    ],
+)
+def test_which_events_are_changes(event: Any, expected: list[str]) -> None:
+    """The filter, with no thread and no kernel: watchdog's own event
+    classes, as its inotify and FSEvents backends build them."""
+
+    class Watching:
+        @staticmethod
+        def watching() -> list[str]:
+            return ["/d/inner.nix", "/d/outer.nix"]
+
+    source = Notifier(Watching())  # type: ignore[arg-type]
+    try:
+        assert sorted(source._paths(event)) == expected
+    finally:
+        source.close()

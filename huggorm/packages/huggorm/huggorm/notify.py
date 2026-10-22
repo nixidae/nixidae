@@ -25,16 +25,25 @@ depends on already answers nothing, but it takes the watcher's lock
 to say so, and a directory holding a checkout raises thousands of
 them.
 
-## Linux only
+## watchdog, on a thread of its own
 
-inotify is a Linux interface. `asyncinotify` is the binding, chosen in
-nixidae/nixidae#620: it is asyncio-native, so an adapter is a task that
-iterates events, and it propagates nothing but `python3`. Darwin was
-ruled out by Carl for the project's stage, which is what let a
-cross-platform library lose to a smaller one.
+`watchdog` is the engine: inotify on Linux, FSEvents on macOS. It
+replaced `asyncinotify`, which nixidae/nixidae#620 chose for being
+asyncio-native and which is Linux only; Carl asked for macOS, and for
+nothing past "this path changed". pynixd made the same move for the
+same reason (nixidae/nixidae#719).
 
-`Watcher.rescan()` is still a complete change source and needs no
-dependency at all, so nothing here is required to use a watcher.
+The observer runs on its own thread. Its handler hands each event to
+the event loop with `anyio.from_thread.run_sync`, into a memory stream
+that `next_change()` receives from, so nothing polls. That call blocks
+the observer thread until the loop takes the event, so `close()` stops
+the observer and never joins it: a join from the loop would wait on a
+thread that waits on the loop.
+
+One gap against inotify: a watched directory that is RENAMED away gives
+no event, because watchdog emits nothing for a non-recursive watch's
+`MOVE_SELF`. A deleted one does. `Watcher.rescan()` finds the rename,
+and it is still a complete change source that needs no dependency.
 
 ## What it inherits, and what it adds
 
@@ -63,37 +72,63 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from asyncinotify import Inotify, Mask
+import anyio
+from anyio import from_thread
+from anyio.lowlevel import current_token
+from watchdog.events import (
+    EVENT_TYPE_CREATED,
+    EVENT_TYPE_DELETED,
+    EVENT_TYPE_MODIFIED,
+    EVENT_TYPE_MOVED,
+    FileSystemEvent,
+    FileSystemEventHandler,
+)
+from watchdog.observers import Observer
 
 if TYPE_CHECKING:
+    from anyio.lowlevel import EventLoopToken
+    from anyio.streams.memory import MemoryObjectSendStream
+
     from huggorm_generated import AsyncValue
 
     from .watch import Watcher
 
-# What counts as "this file is not what it was".
+# What counts as "this file is not what it was": a write, a file
+# appearing or leaving, and the rename an editor saves with, which a
+# file watch cannot see at all.
 #
-# MODIFY is the in-place write. MOVED_TO is the editor save, which is
-# the case a file watch cannot see at all. CREATE and MOVED_FROM and
-# DELETE cover a file appearing and leaving, both of which are
-# different answers than the one an evaluation cached.
-#
-# DELETE_SELF and MOVE_SELF are about the DIRECTORY: it went away, so
-# everything under it did.
-#
-# CLOSE_WRITE is deliberately absent. It would be one event per save
-# where MODIFY is one per write(2), which is fewer calls - and a
-# writer using mmap never closes anything, so it would also be zero
-# events for a real change. Over-reporting costs a call that forgets
-# nothing; under-reporting is silent staleness.
-WATCH_MASK = (Mask.MODIFY | Mask.MOVED_TO | Mask.MOVED_FROM
-              | Mask.CREATE | Mask.DELETE
-              | Mask.DELETE_SELF | Mask.MOVE_SELF)
+# `closed` (close-after-write) is deliberately absent. It is one event
+# per save where a modify is one per write(2) - and a writer using mmap
+# never closes anything, so it would also be zero events for a real
+# change. Over-reporting costs a call that forgets nothing;
+# under-reporting is silent staleness. `opened` and `closed_no_write`
+# are reads, and an evaluation reads.
+CHANGES = frozenset({EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED,
+                     EVENT_TYPE_DELETED, EVENT_TYPE_MOVED})
+
+
+class _Forward(FileSystemEventHandler):
+    """Runs on the observer's thread, and only hands events over."""
+
+    def __init__(self, send: MemoryObjectSendStream[FileSystemEvent],
+                 token: EventLoopToken) -> None:
+        self._send = send
+        self._token = token
+
+    def on_any_event(self, event: FileSystemEvent) -> None:
+        # The loop has ended, or the notifier closed its stream: either
+        # way nobody will receive this event, and the thread just ends.
+        with contextlib.suppress(anyio.RunFinishedError,
+                                 anyio.ClosedResourceError,
+                                 anyio.BrokenResourceError):
+            from_thread.run_sync(self._send.send_nowait, event,
+                                 token=self._token)
 
 
 class Notifier:
-    """An inotify source over one `Watcher`.
+    """A file-change source over one `Watcher`.
 
-    Owns the inotify handle, so it is a context manager:
+    Owns the observer thread, so it is a context manager:
 
         async with Notifier(watcher) as source:
             await source.eval_file("/path/to/root.nix")
@@ -107,9 +142,14 @@ class Notifier:
 
     def __init__(self, watcher: Watcher) -> None:
         self._watcher = watcher
-        self._inotify = Inotify()
+        # Unbounded: a bound would drop an event when full, and a
+        # dropped event is silent staleness. An event is a few paths.
+        self._send, self._receive = anyio.create_memory_object_stream[
+            FileSystemEvent](float("inf"))
+        self._observer: Any = None
+        self._handler: _Forward | None = None
         # directory -> the watch on it. The key is what `sync` diffs,
-        # and the value is what `rm_watch` needs.
+        # and the value is what `unschedule` needs.
         self._watches: dict[str, Any] = {}
 
     # -- lifetime ---------------------------------------------------------
@@ -121,9 +161,15 @@ class Notifier:
         self.close()
 
     def close(self) -> None:
-        """Drop the inotify handle. The watcher is untouched."""
+        """Stop the observer. The watcher is untouched.
+
+        No join: the module docstring says why."""
         self._watches.clear()
-        self._inotify.close()
+        self._send.close()
+        self._receive.close()
+        if self._observer is not None:
+            self._observer.stop()
+            self._observer = None
 
     # -- the watch set ----------------------------------------------------
     def directories(self) -> list[str]:
@@ -143,22 +189,35 @@ class Notifier:
         """
         wanted = _parents(self._watcher.watching())
         for gone in sorted(set(self._watches) - wanted):
-            # rm_watch on a directory the kernel already dropped -
+            # Unscheduling a directory the kernel already dropped -
             # deleted, unmounted - raises, and the watch is gone
             # either way. There is nothing to report and nothing to
             # do.
-            with contextlib.suppress(OSError):
-                self._inotify.rm_watch(self._watches[gone])
+            with contextlib.suppress(OSError, KeyError):
+                self._observer.unschedule(self._watches[gone])
             del self._watches[gone]
         return await self._add(wanted)
+
+    def _started(self) -> Any:
+        """The observer, started on first use, from inside the loop:
+        the handler needs the loop's token to reach it."""
+        if self._observer is None:
+            self._handler = _Forward(self._send, current_token())
+            self._observer = Observer()
+            self._observer.start()
+        return self._observer
 
     async def _add(self, wanted: set[str]) -> list[str]:
         """Watch every directory in `wanted` not yet watched."""
         forgotten: list[str] = []
         for new in sorted(wanted - set(self._watches)):
             try:
-                self._watches[new] = self._inotify.add_watch(
-                    new, WATCH_MASK)
+                # Checked first: a started observer raises for a missing
+                # directory, but the check does not depend on that.
+                if not os.path.isdir(new):
+                    raise FileNotFoundError(new)
+                self._watches[new] = self._started().schedule(
+                    self._handler, new, recursive=False)
             except OSError:
                 # The directory is not there. Every file the watcher
                 # holds under it is therefore gone, which is a change
@@ -197,7 +256,7 @@ class Notifier:
         if forgotten:
             return forgotten
         while True:
-            event = await self._inotify.get()
+            event = await self._receive.receive()
             paths = self._paths(event)
             if not paths:
                 continue
@@ -211,29 +270,32 @@ class Notifier:
             await self.next_change()
 
     # -- events -----------------------------------------------------------
-    def _paths(self, event: Any) -> list[str]:
+    def _paths(self, event: FileSystemEvent) -> list[str]:
         """Which watched files this event is about. Often none.
 
-        An event names a directory and, usually, a file in it. Two
-        shapes, and the second is easy to miss:
+        Two shapes, and the second is easy to miss:
 
-        - a NAMED event is about one file, and it matters only if some
-          root depends on that file;
-        - an UNNAMED event - DELETE_SELF, MOVE_SELF - is about the
-          directory itself, so every watched file under it is
-          implicated at once.
+        - a FILE event is about one file, or two for a rename, and it
+          matters only if some root depends on one of them;
+        - a DIRECTORY that was deleted or moved takes every watched
+          file under it at once.
 
-        `event.path` is None once its watch is gone, which happens for
-        the IGNORED that follows a removal. Nothing to report: the
-        removal already was.
+        A directory that was only MODIFIED is not a change: watchdog
+        sends one for the parent beside every file event, and taking it
+        as "everything in here changed" would forget every root in the
+        directory on each save.
         """
-        watched = self._watcher.watching()
-        if event.path is None:
+        if event.event_type not in CHANGES:
             return []
-        path = str(event.path)
-        if event.name is None:
-            return [p for p in watched if os.path.dirname(p) == path]
-        return [p for p in watched if p == path]
+        named = {os.fsdecode(event.src_path)}
+        if event.event_type == EVENT_TYPE_MOVED:
+            named.add(os.fsdecode(event.dest_path))
+        watched = self._watcher.watching()
+        if event.is_directory:
+            if event.event_type == EVENT_TYPE_MODIFIED:
+                return []
+            return [p for p in watched if os.path.dirname(p) in named]
+        return [p for p in watched if p in named]
 
 
 def _parents(files: list[str]) -> set[str]:
