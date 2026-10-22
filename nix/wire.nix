@@ -1,4 +1,4 @@
-# Every source, as a directory: the nine in this tree, and each pin of
+# Every source, as a directory: the ten in this tree, and each pin of
 # `flake.lock`.
 #
 # A source's own `nix/sources.nix` calls this, here and in its exported

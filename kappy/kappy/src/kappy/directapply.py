@@ -3,7 +3,7 @@
 `converge` names its steps as Protocols and takes them injected, so every
 decision it makes is testable without an API server. This module is the
 other end of those seams -- the real `Api`-backed implementations, and the
-one entry point `ekn kubeapply --converge` calls.
+one entry point a caller converges a set through.
 
 Split out rather than put in `converge` so that module keeps no `Api` of its
 own, and rather than put in `apply` so the barrier apply and the converging
@@ -35,8 +35,7 @@ if TYPE_CHECKING:
     from kr8s.asyncio import Api
     from kr8s.asyncio.objects import APIObject
 
-    from .apply import Manifest
-    from .fastcache import ApplyCache
+    from .apply import ApplyCache, Manifest
 
 _log = structlog.get_logger()
 

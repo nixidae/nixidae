@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
 
 import anyio
 import kr8s
 import structlog
-from huggorm.jsonprimop import JsonValue
 from kr8s.asyncio.objects import APIObject, get_class, new_class
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping
+    from collections.abc import Awaitable, Collection, Mapping
 
     from kr8s.asyncio import Api  # kr8s.asyncio.api() returns this, not kr8s.Api
 
-    from .fastcache import ApplyCache
+type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 
 _log = structlog.get_logger()
 
@@ -93,6 +92,28 @@ environment label then, because only a bootstrap unit had been applied by
 type Manifest = dict[str, JsonValue]
 
 
+def raw_metadata(obj: APIObject) -> dict[str, JsonValue]:
+    """`obj.raw["metadata"]`, typed. kr8s leaves `raw` untyped; `{}` when it holds no object."""
+    raw = cast("JsonValue", obj.raw)
+    metadata = raw.get("metadata") if isinstance(raw, dict) else None
+    return metadata if isinstance(metadata, dict) else {}
+
+
+class ApplyCache(Protocol):
+    """A caller's record of what was last applied, which lets an apply skip an object.
+
+    `ekn.fastcache` is the implementation `ekn kubeapply` passes.
+    """
+
+    assume_unchanged: bool
+
+    def may_skip(self, spec: Manifest, *, field_manager: str) -> bool: ...
+
+    def unchanged(self, spec: Manifest, *, field_manager: str, key: tuple[str, str, str]) -> bool: ...
+
+    def record(self, spec: Manifest, *, field_manager: str, resource_version: str | None) -> None: ...
+
+
 def barriers(
     objects: list[Manifest],
     resource_priority: dict[str, int],
@@ -132,6 +153,26 @@ class KindNotServedError(ValueError):
     """
 
 
+class Resource(TypedDict):
+    """One entry of the API server's discovery document, as `discover` reads it."""
+
+    version: str
+    kind: str
+    name: str
+    singularName: str
+    namespaced: bool
+
+
+async def _discovery(api: Api, *, uncached: bool) -> list[Resource]:
+    # kr8s's discovery methods have no upstream return annotation, so the cast is
+    # the boundary: everything past it is typed.
+    fetch = cast(
+        "Awaitable[list[Resource]]",
+        api.async_api_resources_uncached() if uncached else api.async_api_resources(),  # pyright: ignore[reportUnknownMemberType] -- unannotated upstream
+    )
+    return await fetch
+
+
 async def discover(api: Api, kind: str, api_version: str) -> tuple[str, bool]:
     """The plural name and the namespaced-ness of one kind, from the API
     server's own discovery document.
@@ -160,9 +201,9 @@ async def discover(api: Api, kind: str, api_version: str) -> tuple[str, bool]:
     happens when the cached answer misses, so an apply that introduces no new
     kind still costs one discovery.
     """
-    for fetch in (api.async_api_resources, api.async_api_resources_uncached):
-        # kr8s.Api's discovery methods have no upstream return annotation.
-        for resource in await fetch():  # pyright: ignore[reportUnknownVariableType] -- kr8s Api discovery methods are unannotated upstream
+    for uncached in (False, True):
+        resources = await _discovery(api, uncached=uncached)
+        for resource in resources:
             if resource.get("kind") == kind and resource.get("version") == api_version:
                 return resource["name"], resource["namespaced"]
     msg = (
@@ -218,12 +259,15 @@ async def ssa_apply(
     what the hand-built PATCH got; the upstream default is `"strict"` and
     would start rejecting manifests that deploy today.
     """
-    result: JsonValue = await obj.async_apply(
-        server_side=True,
-        field_manager=field_manager,
-        force_conflicts=force,
-        dry_run=dry_run,
-        validate="warn",
+    result = cast(
+        "JsonValue",
+        await obj.async_apply(  # pyright: ignore[reportUnknownMemberType] -- unannotated upstream
+            server_side=True,
+            field_manager=field_manager,
+            force_conflicts=force,
+            dry_run=dry_run,
+            validate="warn",
+        ),
     )
     if not isinstance(result, dict):
         raise TypeError(f"server-side apply response must be an object, got {type(result).__name__}")
@@ -247,7 +291,7 @@ async def apply_one(spec: Manifest, api: Api, *, field_manager: str) -> APIObjec
     return obj
 
 
-def _object_key(obj: APIObject) -> tuple[str, str, str]:
+def api_object_key(obj: APIObject) -> tuple[str, str, str]:
     return (obj.namespace or "none", obj.kind, obj.name)
 
 
@@ -262,8 +306,7 @@ def resource_version(obj: APIObject) -> str | None:
     entry it will never skip on, which is the only safe reading of "this run
     does not know where the object is".
     """
-    metadata = obj.raw.get("metadata")
-    version = metadata.get("resourceVersion") if isinstance(metadata, dict) else None
+    version = raw_metadata(obj).get("resourceVersion")
     return version if isinstance(version, str) else None
 
 
@@ -458,7 +501,7 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
             # it -- a manifest naming no namespace resolves to the API's
             # default one here. Both branches built it anyway.
             obj = await build_object(labeled, api)
-            key = _object_key(obj)
+            key = api_object_key(obj)
             if cache is not None and cache.unchanged(spec, field_manager=field_manager, key=key):
                 # Kept out of `applied`: a skipped CustomResourceDefinition was
                 # applied by an earlier run, so it is Established already and
@@ -666,16 +709,14 @@ def _delivered_by(obj: APIObject, delivery_managers: Collection[str]) -> bool:
     whatever labels it carries, so removing it from the configuration cannot
     be what its presence means.
     """
-    metadata = obj.raw.get("metadata")
-    entries = metadata.get("managedFields") if isinstance(metadata, dict) else None
+    entries = raw_metadata(obj).get("managedFields")
     if not isinstance(entries, list):
         return False
     return any(isinstance(entry, dict) and entry.get("manager") in delivery_managers for entry in entries)
 
 
 def _unit_of(obj: APIObject, unit_label: str) -> str | None:
-    metadata = obj.raw.get("metadata")
-    labels = metadata.get("labels") if isinstance(metadata, dict) else None
+    labels = raw_metadata(obj).get("labels")
     unit = labels.get(unit_label) if isinstance(labels, dict) else None
     return unit if isinstance(unit, str) else None
 
@@ -703,8 +744,7 @@ def _owner(obj: APIObject) -> str | None:
     delivery manager, that a controller later adopted with an
     ownerReference. Plausible; that cluster does not contain one.
     """
-    metadata = obj.raw.get("metadata")
-    refs = metadata.get("ownerReferences") if isinstance(metadata, dict) else None
+    refs = raw_metadata(obj).get("ownerReferences")
     if not isinstance(refs, list) or not refs:
         return None
     first = refs[0]
@@ -799,7 +839,7 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
         # stays as the safe default for a caller that built `classes` itself.
         target: str | type[APIObject] = classes.get(kind, kind)
         for obj in await _list_for_prune(api, target, selector=selector, kind=kind):
-            # Not `_object_key(obj)`. Passing the class above keeps `.kind`
+            # Not `api_object_key(obj)`. Passing the class above keeps `.kind`
             # right for every kind this apply touched, but a `prune_kinds`
             # name still goes through `async_lookup_kind`, which reassigns its
             # `kind` param to a `"singular.group/version"` string that
@@ -808,7 +848,7 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
             # "verticalpodautoscaler"), not the PascalCase Kind (e.g.
             # "VerticalPodAutoscaler") `desired_keys` was built from
             # while applying. Use the loop's own `kind` (identical to what
-            # `_object_key` used at apply time) instead of trusting the
+            # `api_object_key` used at apply time) instead of trusting the
             # listed object's mangled one -- otherwise every CRD-based
             # object's key mismatches and everything gets "pruned".
             key = (obj.namespace or "none", kind, obj.name)
@@ -848,7 +888,10 @@ __all__ = [
     "DEFAULT_ENVIRONMENT_LABEL",
     "DEFAULT_FIELD_MANAGER",
     "DEFAULT_UNIT_LABEL",
+    "ApplyCache",
     "Manifest",
+    "Resource",
+    "api_object_key",
     "apply_and_prune",
     "apply_one",
     "barriers",
@@ -857,6 +900,7 @@ __all__ = [
     "field_manager_for",
     "prune_generation",
     "prune_selector",
+    "raw_metadata",
     "resource_version",
     "ssa_apply",
     "with_environment_label",

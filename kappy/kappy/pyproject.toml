@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kappy"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "Apply a set of Kubernetes objects with server-side apply, prune what was dropped, and wait for the set to converge"
+requires-python = ">=3.13"
+dependencies = [
+  "anyio",
+  "httpx",
+  "kr8s",
+  "structlog",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kappy"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+# `../tests` is the suite that exercises these modules. It lives beside the
+# project directory, not inside it.
+include = ["src", "../tests"]
+extraPaths = ["src"]

@@ -16,7 +16,7 @@ ladder cannot see at all. Issue nixidae/nixidae#450.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import anyio
 import anyio.lowlevel
@@ -25,11 +25,11 @@ import kr8s
 import pytest
 from structlog.testing import capture_logs
 
-from ekn.apply import KindNotServedError
-from ekn.converge import (
+from kappy.apply import KindNotServedError
+from kappy.converge import (
     RECREATE_OPT_OUT_ANNOTATION,
     Disposition,
-    _wait_before_retrying,
+    _wait_before_retrying,  # pyright: ignore[reportPrivateUsage]
     classify,
     converge_barrier,
     converge_objects,
@@ -42,7 +42,11 @@ from ekn.converge import (
 )
 
 if TYPE_CHECKING:
-    from ekn.apply import Manifest
+    from collections.abc import Sequence
+
+    from kr8s.asyncio.objects import APIObject
+
+    from kappy.apply import JsonValue, Manifest
 
 
 @pytest.fixture(scope="module")
@@ -50,11 +54,14 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def applied_object(**metadata: Any) -> Any:
+def applied_object(**metadata: JsonValue) -> APIObject:
     """What a successful apply hands back: the object as the server returned
     it. Only `metadata` is read, and only to see whether the object this run
-    just "applied" is on its way out -- see `_applied_but_terminating`."""
-    return SimpleNamespace(raw={"metadata": metadata})
+    just "applied" is on its way out -- see `_applied_but_terminating`.
+
+    The stand-in is not an `APIObject`, and the cast is the one place a test
+    says so."""
+    return cast("APIObject", SimpleNamespace(raw={"metadata": metadata}))
 
 
 async def _no_sleep(_seconds: float) -> None:
@@ -64,7 +71,7 @@ async def _no_sleep(_seconds: float) -> None:
 
 def server_error(status: int, message: str = "nope", causes: list[str] | None = None) -> kr8s.ServerError:
     """A `kr8s.ServerError` carrying the `Status` body the API server sends."""
-    body: dict[str, Any] = {"kind": "Status", "message": message}
+    body: dict[str, JsonValue] = {"kind": "Status", "message": message}
     if causes is not None:
         body["details"] = {"causes": [{"message": cause} for cause in causes]}
     return kr8s.ServerError(
@@ -76,7 +83,7 @@ def server_error(status: int, message: str = "nope", causes: list[str] | None = 
 def server_error_with_reasons(status: int, message: str, causes: list[tuple[str, str]]) -> kr8s.ServerError:
     """A `Status` whose causes carry a `reason`, which is how an immutable
     StatefulSet update arrives -- its message holds no telling phrase."""
-    body: dict[str, Any] = {
+    body: dict[str, JsonValue] = {
         "kind": "Status",
         "message": message,
         "details": {"causes": [{"reason": reason, "message": text} for reason, text in causes]},
@@ -98,14 +105,14 @@ def server_error_with_fields(
     """A `Status` with everything the API server can attach to a failure:
     its machine-readable reason, per-cause field paths, and how long it is
     asking us to wait."""
-    details: dict[str, Any] = {}
+    details: dict[str, JsonValue] = {}
     if causes is not None:
         details["causes"] = [
             {"reason": cause_reason, "field": field_path, "message": text} for cause_reason, field_path, text in causes
         ]
     if retry_after is not None:
         details["retryAfterSeconds"] = retry_after
-    body: dict[str, Any] = {"kind": "Status", "status": "Failure", "message": message, "details": details}
+    body: dict[str, JsonValue] = {"kind": "Status", "status": "Failure", "message": message, "details": details}
     if reason is not None:
         body["reason"] = reason
     return kr8s.ServerError(
@@ -114,7 +121,7 @@ def server_error_with_fields(
     )
 
 
-def manifest(kind: str = "ConfigMap", name: str = "a", namespace: str = "default", **metadata: Any) -> Manifest:
+def manifest(kind: str = "ConfigMap", name: str = "a", namespace: str = "default", **metadata: JsonValue) -> Manifest:
     return {
         "apiVersion": "v1",
         "kind": kind,
@@ -197,7 +204,7 @@ class TestTheSettleTimer:
         remaining = [manifest(name=f"cm{i}") for i in range(5)]
         applied: list[str] = []
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             # One succeeds per pass; the rest report the cluster catching up.
             if spec is remaining[len(applied)]:
                 applied.append(object_key(spec)[2])
@@ -221,7 +228,7 @@ class TestTheSettleTimer:
     async def test_a_barrier_that_never_progresses_gives_up(self) -> None:
         now = [0.0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(503, "still starting")
 
         async def sleep(seconds: float) -> None:
@@ -246,7 +253,7 @@ class TestTheReport:
         report is a half-applied cluster called green."""
         good, bad = manifest(name="good"), manifest(name="bad")
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             if object_key(spec)[2] == "bad":
                 raise server_error(403, "forbidden")
             return applied_object()
@@ -257,7 +264,7 @@ class TestTheReport:
         assert failures[0].disposition is Disposition.TERMINAL
 
     async def test_a_clean_barrier_reports_nothing(self) -> None:
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             return applied_object()
 
         assert await converge_barrier([manifest()], apply=apply) == []
@@ -266,7 +273,7 @@ class TestTheReport:
         """A 403 costs exactly one call, however long the barrier runs."""
         calls = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             calls[0] += 1
             raise server_error(403)
 
@@ -283,7 +290,7 @@ class TestRecreate:
     async def test_it_is_refused_without_the_flag(self) -> None:
         deleted: list[str] = []
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(422, causes=[self.IMMUTABLE])
 
         async def delete(spec: Manifest) -> None:
@@ -304,7 +311,7 @@ class TestRecreate:
         deleted: list[str] = []
         calls = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             calls[0] += 1
             if calls[0] == 1:
                 raise server_error(422, causes=[self.IMMUTABLE])
@@ -333,7 +340,7 @@ class TestRecreate:
         back, so an immutable-field error on one is a fault to report."""
         deleted: list[str] = []
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(422, causes=[self.IMMUTABLE])
 
         async def delete(spec: Manifest) -> None:
@@ -365,7 +372,7 @@ class TestBarrierWalking:
         failures says nothing about the first."""
         attempted: list[str] = []
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             name = object_key(spec)[2]
             attempted.append(name)
             if name == "first":
@@ -384,7 +391,7 @@ class TestBarrierWalking:
     async def test_keep_going_reaches_the_later_barriers(self) -> None:
         attempted: list[str] = []
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             name = object_key(spec)[2]
             attempted.append(name)
             if name == "first":
@@ -407,10 +414,10 @@ class TestBarrierWalking:
         seen: list[int] = []
         sentinel = applied_object()
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             return sentinel
 
-        async def after_barrier(applied: Any) -> None:
+        async def after_barrier(applied: Sequence[APIObject]) -> None:
             seen.append(len(applied))
 
         await converge_objects(
@@ -437,7 +444,7 @@ class TestTheRecreateRace:
     async def test_a_409_after_the_delete_names_the_race(self) -> None:
         calls = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             calls[0] += 1
             if calls[0] == 1:
                 raise server_error(422, causes=[self.IMMUTABLE])
@@ -459,7 +466,7 @@ class TestTheRecreateRace:
         assert "poll until the object is absent" in failures[0].error
 
     async def test_a_failed_delete_says_so(self) -> None:
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(422, causes=[self.IMMUTABLE])
 
         async def delete(_spec: Manifest) -> None:
@@ -554,7 +561,7 @@ class TestStatefulSetVolumes:
     """A StatefulSet's PVCs outlive it only if something says so."""
 
     def statefulset(self, *, templates: bool, when_deleted: str | None = None) -> Manifest:
-        spec: dict[str, Any] = {}
+        spec: dict[str, JsonValue] = {}
         if templates:
             spec["volumeClaimTemplates"] = [{"metadata": {"name": "data"}}]
         if when_deleted is not None:
@@ -582,7 +589,7 @@ class TestStatefulSetVolumes:
         assert not may_recreate(self.statefulset(templates=True, when_deleted="Delete"))
 
     async def test_the_refusal_says_what_to_do(self) -> None:
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(422, causes=["spec: field is immutable"])
 
         async def delete(_spec: Manifest) -> None:
@@ -633,7 +640,7 @@ class TestTheQueue:
         in_flight = [0]
         peak = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             in_flight[0] += 1
             peak[0] = max(peak[0], in_flight[0])
             await anyio.lowlevel.checkpoint()
@@ -655,7 +662,7 @@ class TestTheQueue:
         peak = [0]
         in_flight = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             in_flight[0] += 1
             peak[0] = max(peak[0], in_flight[0])
             await anyio.lowlevel.checkpoint()
@@ -676,7 +683,7 @@ class TestTheQueue:
         of it there are.
         """
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             return applied_object()
 
         specs = [
@@ -700,7 +707,7 @@ class TestFastMode:
     async def test_an_unchanged_object_is_not_applied(self) -> None:
         applied: list[str] = []
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             applied.append(object_key(spec)[2])
             return applied_object()
 
@@ -720,7 +727,7 @@ class TestFastMode:
     async def test_without_a_skip_check_everything_is_applied(self) -> None:
         applied: list[str] = []
 
-        async def apply(spec: Manifest) -> Any:
+        async def apply(spec: Manifest) -> APIObject:
             applied.append(object_key(spec)[2])
             return applied_object()
 
@@ -766,7 +773,7 @@ class TestTheDiagnosis:
         assert found.causes == ()
 
     async def test_the_failure_carries_it(self) -> None:
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error_with_fields(
                 422,
                 'Deployment.apps "web" is invalid',
@@ -786,7 +793,7 @@ class TestTheDiagnosis:
         eleven times are different reports."""
         now = [0.0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             raise server_error(503, "still starting")
 
         async def sleep(seconds: float) -> None:
@@ -815,7 +822,7 @@ class TestAnApplyThatSucceedsAndDoesNotConverge:
     async def test_it_is_re_queued_rather_than_counted_as_applied(self) -> None:
         attempts = [0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             attempts[0] += 1
             # Gone by the second attempt, which is what happens on a cluster:
             # the namespace finishes terminating and this run recreates it.
@@ -835,7 +842,7 @@ class TestAnApplyThatSucceedsAndDoesNotConverge:
         namespace whose apply "succeeded" and was undone."""
         now = [0.0]
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             return applied_object(name="ekn-term", deletionTimestamp="2026-09-17T10:25:19Z")
 
         async def sleep(seconds: float) -> None:
@@ -861,7 +868,7 @@ class TestAnApplyThatSucceedsAndDoesNotConverge:
         """Negative control: the check reads `deletionTimestamp` and nothing
         else, so an object without one must not be re-queued for ever."""
 
-        async def apply(_spec: Manifest) -> Any:
+        async def apply(_spec: Manifest) -> APIObject:
             return applied_object(name="ekn-term")
 
         report = await converge_queue([manifest(kind="Namespace", name="ekn-term")], apply=apply)

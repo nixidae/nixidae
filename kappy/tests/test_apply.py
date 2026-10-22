@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import anyio
-import httpx
-import kr8s
 import pytest
-from kr8s.asyncio.objects import new_class
 
-from ekn.apply import _wait_established, apply_and_prune, discover, field_manager_for, prune_selector
-from ekn.directapply import converge_direct
+from kappy.apply import (
+    JsonValue,
+    Manifest,
+    Resource,
+    _wait_established,  # pyright: ignore[reportPrivateUsage]
+    apply_and_prune,
+    discover,
+    field_manager_for,
+    prune_selector,
+)
+from kappy.directapply import converge_direct
+from kappy.testing import FakeApi
 
 
 @pytest.fixture(scope="module")
@@ -18,238 +24,10 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-class _FakeResponse:
-    # kr8s reads `Warning` off the headers of every apply response and logs
-    # each one, so a fake with no `headers` raises rather than applying.
-    def __init__(self, data: dict[str, Any], headers: dict[str, str] | None = None) -> None:
-        self._data = data
-        self.headers = headers or {}
-
-    def json(self) -> dict[str, Any]:
-        return self._data
-
-
-def _selected(metadata: dict[str, Any], selector: str | None) -> bool:
-    """One `key=value` clause, which is all the sweep sends."""
-    if not selector:
-        return True
-    key, _, value = selector.partition("=")
-    return (metadata.get("labels") or {}).get(key) == value
-
-
-class FakeApi:
-    """Stands in for kr8s's real Api for `apply_and_prune` tests.
-
-    Two pieces of surface, and both are there to reproduce something real.
-
-    `async_api_resources` is what `ekn.apply.discover` reads, so a test can
-    describe a kind exactly as an API server would -- including one whose
-    singular is not the lowercased Kind, which is the case kr8s' own lookup
-    cannot resolve at all.
-
-    `async_get` is implemented directly rather than going through kr8s's list
-    machinery, so a test controls exactly what kind string comes back on a
-    listed object. That reproduces kr8s' other quirk (see apply.py's comment
-    on the prune loop): asked for a kind *by name*, `async_get_kind` reassigns
-    its argument to `async_lookup_kind`'s `"singular.group/version"` string,
-    which `new_class` mis-splits on the first ".", so listed objects report a
-    lowercase `.kind` that differs from the PascalCase Kind used when
-    applying. `apply_and_prune` passes the class instead, which is why the
-    double accepts either.
-    """
-
-    namespace = "default"
-
-    def __init__(
-        self,
-        *,
-        namespaced: bool = True,
-        listed: list[tuple[str, str, str]] | None = None,
-        resources: list[dict[str, Any]] | None = None,
-        extra_metadata: dict[str, dict[str, Any]] | None = None,
-        deny: dict[str, int] | None = None,
-    ) -> None:
-        self.namespaced = namespaced
-        # Kinds whose LIST answers an error rather than a list, by status:
-        # 403 for RBAC that covers writing a kind but not listing it, 405 for
-        # the built-in kinds that have no list verb at all.
-        self._deny = deny or {}
-        # Merged into a listed object's `metadata`, keyed by its name. What
-        # the prune guards read -- `ownerReferences` and the unit label --
-        # lives there and nowhere else.
-        self._extra_metadata = extra_metadata or {}
-        # (namespace, kind-as-reported-by-list, name) triples "already on
-        # the cluster" under the environment label before this apply.
-        self._listed = listed or []
-        # What the API server serves, in the shape `ekn.apply.discover` reads:
-        # one entry per (Kind, groupVersion), carrying the plural and whether
-        # the kind is namespaced. The default answers for the kind these tests
-        # apply; a test about a hyphenated singular passes its own.
-        self._resources = (
-            resources
-            if resources is not None
-            else [
-                {
-                    "version": "autoscaling.k8s.io/v1",
-                    "kind": "VerticalPodAutoscaler",
-                    "name": "verticalpodautoscalers",
-                    "singularName": "verticalpodautoscaler",
-                    "namespaced": namespaced,
-                }
-            ]
-        )
-        self.uncached_reads = 0
-        self.deleted: list[tuple[str, str, str]] = []
-        self.patched: list[tuple[str, str, str]] = []
-        self.managers: dict[str, str] = {}
-        self.swept: list[str] = []
-        # Every object "on the cluster", keyed as the prune scan keys them and
-        # holding the metadata a sweep would return. An apply adds one; the
-        # `listed` objects were there before this run.
-        self.live: dict[tuple[str, str, str], dict[str, Any]] = {}
-        for ns, kind, name in self._listed:
-            self.live[(ns or "none", kind, name)] = {
-                "name": name,
-                "namespace": ns,
-                "resourceVersion": "1",
-                "managedFields": [{"manager": "ekn"}],
-            } | self._extra_metadata.get(name, {})
-
-    @asynccontextmanager
-    async def call_api(
-        self,
-        method: str,
-        *,
-        version: str | None = None,
-        url: str | None = None,
-        namespace: str | None = None,
-        content: str | None = None,
-        headers: dict[str, str] | None = None,
-        params: dict[str, str] | None = None,
-    ):
-        if method == "GET":
-            yield _FakeResponse(self._metadata_list(version, url, params or {}, headers or {}))
-            return
-        assert method == "PATCH"
-        import json as _json
-
-        body = _json.loads(content or "{}")
-        key = (namespace or "none", body["kind"], body["metadata"]["name"])
-        self.patched.append(key)
-        # Which manager each object was applied as. SSA sends it as a query
-        # parameter, so this is the only place a test can see it.
-        self.managers[body["metadata"]["name"]] = (params or {}).get("fieldManager", "")
-        # A real server answers an apply with the stored object, and only
-        # *moves* the resourceVersion when the apply changed something. The
-        # `--assume-unchanged` gate is exactly that behaviour, so a fake that
-        # bumped on every apply would make the gate untestable.
-        stored = self.live.setdefault(
-            key,
-            {
-                "name": key[2],
-                "namespace": body["metadata"].get("namespace"),
-                "resourceVersion": str(len(self.live) + 1),
-            },
-        )
-        stored["labels"] = body["metadata"].get("labels", {})
-        stored["managedFields"] = [{"manager": self.managers[body["metadata"]["name"]] or "ekn"}]
-        yield _FakeResponse(body | {"metadata": body["metadata"] | {"resourceVersion": stored["resourceVersion"]}})
-
-    def write(self, key: tuple[str, str, str]) -> None:
-        """Somebody other than this apply wrote the object: a `kubectl edit`.
-
-        Only the resourceVersion moves, which is the whole of what the gate
-        reads and the whole of what such an edit is guaranteed to leave.
-        """
-        self.live[key]["resourceVersion"] = f"{self.live[key]['resourceVersion']}0"
-
-    def _metadata_list(
-        self,
-        version: str | None,
-        url: str | None,
-        params: dict[str, str],
-        headers: dict[str, str],
-    ) -> dict[str, Any]:
-        """What `livestate.sweep` asks for: one kind's `ObjectMeta`, no more.
-
-        The two assertions are the measurement the sweep exists for -- whole
-        objects are 18 times the bytes, and a LIST without
-        `resourceVersion=0` is a quorum read against etcd per kind.
-        """
-        from ekn.livestate import ACCEPT_METADATA
-
-        assert headers.get("Accept") == ACCEPT_METADATA
-        assert params.get("resourceVersion") == "0"
-        kind = next(
-            (r["kind"] for r in self._resources if r["name"] == url and r["version"] == version),
-            None,
-        )
-        self.swept.append(str(kind))
-        if kind in self._deny:
-            raise kr8s.ServerError(
-                f"cannot list {kind}",
-                response=httpx.Response(self._deny[str(kind)], request=httpx.Request("GET", str(url))),
-            )
-        selector = params.get("labelSelector")
-        items = [
-            {"kind": "PartialObjectMetadata", "metadata": metadata}
-            for (_ns, listed_kind, _name), metadata in self.live.items()
-            if listed_kind == kind and _selected(metadata, selector)
-        ]
-        return {"kind": "PartialObjectMetadataList", "items": items}
-
-    async def async_api_resources(self) -> list[dict[str, Any]]:
-        return self._resources
-
-    async def async_api_resources_uncached(self) -> list[dict[str, Any]]:
-        self.uncached_reads += 1
-        return self._resources
-
-    def async_get(self, kind: str | type, *, namespace: Any, label_selector: Any):
-        # `apply_and_prune` passes a class for every kind: the ones it applied,
-        # and the `prune_kinds` entries `_extra_classes` resolved. A string
-        # would go through `async_lookup_kind` and mangle `.kind`.
-        wanted = kind.kind if isinstance(kind, type) else kind
-
-        async def _gen():
-            reported_kind = wanted.lower() if wanted[0].isupper() else wanted
-            for ns, listed_kind, name in self._listed:
-                if listed_kind.lower() != reported_kind.lower():
-                    continue
-                cls = new_class(listed_kind, "example.com/v1", namespaced=True)
-                obj = cls(
-                    {
-                        "kind": listed_kind,
-                        # `managedFields` naming `ekn` by default: a listed
-                        # object stands for one a previous run applied, which
-                        # is the only kind a prune is entitled to delete. A
-                        # test about the manager guard overrides it.
-                        "metadata": {
-                            "name": name,
-                            "namespace": ns,
-                            "managedFields": [{"manager": "ekn"}],
-                        }
-                        | self._extra_metadata.get(name, {}),
-                    },
-                    api=self,  # type: ignore[arg-type]
-                )
-
-                # `k` bound as a default for the same reason `o` is: both are
-                # loop variables, and a closure over either would report the
-                # last iteration's value for every object the generator yields.
-                async def _delete(o: Any = obj, k: str = listed_kind) -> None:
-                    self.deleted.append((o.namespace or "none", k, o.name))
-
-                obj.delete = _delete  # type: ignore[method-assign]
-                yield obj
-
-        return _gen()
-
-
 class TestDiscover:
     """Resolving a custom kind against the API server's discovery document.
 
-    The whole reason `ekn.apply.discover` exists rather than calling kr8s'
+    The whole reason `kappy.apply.discover` exists rather than calling kr8s'
     `Api.async_lookup_kind`: that lowercases the Kind and then compares it to a
     resource's plural, Kind, singular and short names, so a CRD whose singular
     is not the lowercased Kind matches nothing at all.
@@ -258,7 +36,7 @@ class TestDiscover:
     # The multus CRD, which is where this was found. Its singular carries
     # hyphens, so the lowercased Kind -- "networkattachmentdefinition" --
     # equals neither the plural, nor the Kind, nor the singular.
-    MULTUS: ClassVar[dict[str, Any]] = {
+    MULTUS: ClassVar[Resource] = {
         "version": "k8s.cni.cncf.io/v1",
         "kind": "NetworkAttachmentDefinition",
         "name": "network-attachment-definitions",
@@ -270,7 +48,7 @@ class TestDiscover:
     # resolved under the old lookup and still has to resolve under this one.
     # The pair is the point: the fix identifies a kind exactly, rather than
     # widening a match until the broken case slips through.
-    KUBEVIRT: ClassVar[dict[str, Any]] = {
+    KUBEVIRT: ClassVar[Resource] = {
         "version": "kubevirt.io/v1",
         "kind": "VirtualMachineInstance",
         "name": "virtualmachineinstances",
@@ -374,7 +152,7 @@ class TestPruneLeavesOwnedObjects:
     template. This guard does not depend on that one holding.
     """
 
-    SPEC: ClassVar[dict[str, Any]] = {
+    SPEC: ClassVar[Manifest] = {
         "apiVersion": "autoscaling.k8s.io/v1",
         "kind": "VerticalPodAutoscaler",
         "metadata": {"name": "argocd-server", "namespace": "argocd"},
@@ -424,7 +202,7 @@ class TestPruneLeavesObjectsItNeverApplied:
     of the six is `kube-system/coredns`.
     """
 
-    SPEC: ClassVar[dict[str, Any]] = {
+    SPEC: ClassVar[Manifest] = {
         "apiVersion": "autoscaling.k8s.io/v1",
         "kind": "VerticalPodAutoscaler",
         "metadata": {"name": "argocd-server", "namespace": "argocd"},
@@ -469,7 +247,7 @@ class TestPruneLeavesObjectsItNeverApplied:
         """A unit applies as the controller that takes its objects over, so a
         prune that only knew `ekn` would refuse to delete anything that unit
         had ever applied."""
-        spec = {
+        spec: Manifest = {
             "apiVersion": "autoscaling.k8s.io/v1",
             "kind": "VerticalPodAutoscaler",
             "metadata": {
@@ -486,9 +264,9 @@ class TestPruneLeavesObjectsItNeverApplied:
             extra_metadata={"gone": {"managedFields": [{"manager": "argocd-controller"}]}},
         )
 
-        await apply_and_prune(  # type: ignore[arg-type]
+        await apply_and_prune(
             [spec],
-            api=api,
+            api=api,  # type: ignore[arg-type]
             environment="full",
             unit="bootstrap",
             field_manager="argocd-controller",
@@ -503,7 +281,7 @@ class TestPruneWarnsAboutUndeclaredUnits:
     CNI. Before the set-based selector the not-exists clause hid the case.
     """
 
-    SPEC: ClassVar[dict[str, Any]] = {
+    SPEC: ClassVar[Manifest] = {
         "apiVersion": "autoscaling.k8s.io/v1",
         "kind": "VerticalPodAutoscaler",
         "metadata": {"name": "argocd-server", "namespace": "argocd"},
@@ -518,9 +296,9 @@ class TestPruneWarnsAboutUndeclaredUnits:
             extra_metadata={"orphan": {"labels": {"ekn.dev/deployment-unit": "retired"}}},
         )
 
-        await apply_and_prune(  # type: ignore[arg-type]
+        await apply_and_prune(
             [self.SPEC],
-            api=api,
+            api=api,  # type: ignore[arg-type]
             environment="full",
             declared_units=["bootstrap"],
         )
@@ -539,9 +317,9 @@ class TestPruneWarnsAboutUndeclaredUnits:
             extra_metadata={"orphan": {"labels": {"ekn.dev/deployment-unit": "routed"}}},
         )
 
-        await apply_and_prune(  # type: ignore[arg-type]
+        await apply_and_prune(
             [self.SPEC],
-            api=api,
+            api=api,  # type: ignore[arg-type]
             environment="full",
             declared_units=["routed"],
         )
@@ -563,8 +341,8 @@ class TestFieldManagerPerUnit:
     UNITS: ClassVar[dict[str, str]] = {"vm-logs": "argocd-controller", "plain": "ekn"}
 
     @staticmethod
-    def _spec(unit: str | None) -> dict[str, Any]:
-        labels = {"ekn.dev/deployment-unit": unit} if unit else {}
+    def _spec(unit: str | None) -> Manifest:
+        labels: dict[str, JsonValue] = {"ekn.dev/deployment-unit": unit} if unit else {}
         return {"kind": "ConfigMap", "metadata": {"name": "a", "labels": labels}}
 
     def test_an_object_applies_as_its_own_units_manager(self) -> None:

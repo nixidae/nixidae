@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 from kr8s._api import Api
 from kr8s.asyncio.objects import APIObject, get_class
 
-from ekn.apply import apply_and_prune
+from kappy.apply import apply_and_prune
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
+    from kappy.apply import JsonValue
 
 
 def _fake_configmap(name: str, namespace: str = "ns") -> APIObject:
@@ -57,10 +59,10 @@ class _FakeApi(Api):
     # An empty discovery document: every kind kr8s has no builtin class for is
     # unserved. That is what makes the "skipped rather than fatal" test a test
     # of `_extra_classes` and not of `discover`.
-    async def async_api_resources(self) -> list[dict[str, Any]]:
+    async def async_api_resources(self) -> list[dict[str, JsonValue]]:
         return []
 
-    async def async_api_resources_uncached(self) -> list[dict[str, Any]]:
+    async def async_api_resources_uncached(self) -> list[dict[str, JsonValue]]:
         return []
 
     # Mirrors kr8s.asyncio.Api.async_get exactly. The double subclasses Api so
@@ -79,13 +81,13 @@ class _FakeApi(Api):
         allow_unknown_type: bool = True,
         raw: bool = False,
         **kwargs: object,
-    ) -> AsyncGenerator[APIObject | dict[Any, Any]]:
+    ) -> AsyncGenerator[APIObject]:
         # A resolved class, not a name. `_extra_classes` puts every
         # `prune_kinds` entry through `build_object`, so the prune loop never
         # hands `async_get` a bare string -- which is the point, because a
         # string goes through `async_lookup_kind` and mangles `.kind` for
         # every CRD-backed object.
-        name = kind if isinstance(kind, str) else kind.kind
+        name = kind if isinstance(kind, str) else cast("type[APIObject]", kind).kind
         self.queried_kinds.append(name)
         for obj in self.objects_by_kind.get(name, []):
             yield obj

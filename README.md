@@ -1,6 +1,6 @@
 # nixidae
 
-One repository that holds nine projects, and the organisation's `.github`
+One repository that holds ten projects, and the organisation's `.github`
 repository. A change that crosses two of them
 lands in one commit, and one lock pins everything they use from outside.
 
@@ -9,6 +9,7 @@ lands in one commit, and one lock pins everything they use from outside.
 | `nanopynix` | Drive Nix from Python, batteries included |
 | `pynixd` | The Nix daemon protocol in Python |
 | `easykubenix` | Like kubenix, but easier |
+| `kappy` | The kr8s apply engine: server-side apply, prune and converge |
 | `nixkube` | A CSI driver for Nixxing Kubernetes |
 | `vivarium` | NixOS integration tests without KVM: UML, QEMU and container guests |
 | `huggorm` | Nix C++ bindings generated from a Python DSL |

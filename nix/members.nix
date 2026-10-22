@@ -38,6 +38,13 @@
       root = "huggorm.huggorm";
     };
   };
+  kappy = {
+    repo = "nixidae/kappy";
+    package = {
+      flake = "default";
+      root = "kappy.kappy";
+    };
+  };
   nanopynix = {
     repo = "nixidae/nanopynix";
     package = {

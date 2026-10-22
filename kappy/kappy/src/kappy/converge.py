@@ -30,7 +30,7 @@ import structlog
 
 # `Manifest` is a runtime import, not a type-only one: the memory object
 # stream is parameterised with it, and that subscript is evaluated.
-from .apply import DEFAULT_BARRIER_PRIORITY, KindNotServedError, Manifest
+from .apply import DEFAULT_BARRIER_PRIORITY, JsonValue, KindNotServedError, Manifest, raw_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -174,7 +174,7 @@ class ApplyOne(Protocol):
     `_applied_but_terminating`.
     """
 
-    def __call__(self, spec: Manifest) -> Awaitable[APIObject]: ...
+    def __call__(self, spec: Manifest, /) -> Awaitable[APIObject]: ...
 
 
 class SkipCheck(Protocol):
@@ -187,7 +187,7 @@ class SkipCheck(Protocol):
     the decision made from live state instead.
     """
 
-    def __call__(self, spec: Manifest) -> Awaitable[bool]: ...
+    def __call__(self, spec: Manifest, /) -> Awaitable[bool]: ...
 
 
 class DeleteOne(Protocol):
@@ -204,7 +204,7 @@ class DeleteOne(Protocol):
     because a contract nothing checks is a comment.
     """
 
-    def __call__(self, spec: Manifest) -> Awaitable[None]: ...
+    def __call__(self, spec: Manifest, /) -> Awaitable[None]: ...
 
 
 def object_key(spec: Manifest) -> tuple[str, str, str]:
@@ -328,7 +328,7 @@ def diagnose(exc: BaseException) -> Diagnosis:
     response = exc.response
     if response is None:
         return Diagnosis(message=str(exc))
-    body: object
+    body: JsonValue
     try:
         body = response.json()
     except ValueError:
@@ -403,8 +403,7 @@ def _applied_but_terminating(applied: APIObject) -> Diagnosis | None:
     every 5s) all finished in 10-11s -- so the object goes back on the retry
     queue and the ordinary backoff spaces the attempts.
     """
-    metadata = applied.raw.get("metadata")
-    stamp = metadata.get("deletionTimestamp") if isinstance(metadata, dict) else None
+    stamp = raw_metadata(applied).get("deletionTimestamp")
     if not stamp:
         return None
     return Diagnosis(
@@ -567,10 +566,10 @@ class _Pass:
     last_progress: float
     applied: int = 0
     skipped: int = 0
-    retry: list[Manifest] = field(default_factory=list)
-    terminal: dict[tuple[str, str, str], Failure] = field(default_factory=dict)
-    last_error: dict[tuple[str, str, str], str] = field(default_factory=dict)
-    diagnoses: dict[tuple[str, str, str], Diagnosis] = field(default_factory=dict)
+    retry: list[Manifest] = field(default_factory=list[Manifest])
+    terminal: dict[tuple[str, str, str], Failure] = field(default_factory=dict[tuple[str, str, str], Failure])
+    last_error: dict[tuple[str, str, str], str] = field(default_factory=dict[tuple[str, str, str], str])
+    diagnoses: dict[tuple[str, str, str], Diagnosis] = field(default_factory=dict[tuple[str, str, str], Diagnosis])
     retry_after: float | None = None
     """The longest `retryAfterSeconds` any object of this sweep was given.
 
@@ -579,9 +578,9 @@ class _Pass:
     coming back before the API server said to is what it is asking us not
     to do.
     """
-    remaining: Counter[str] = field(default_factory=Counter)
+    remaining: Counter[str] = field(default_factory=Counter[str])
     """How many objects of each kind this sweep has left to reach."""
-    announced: set[str] = field(default_factory=set)
+    announced: set[str] = field(default_factory=set[str])
     """Kinds `announce` has already logged, so each is said once."""
 
     async def announce(self, kind: str) -> None:

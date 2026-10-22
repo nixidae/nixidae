@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ekn.apply import barriers
+from kappy.apply import Manifest, barriers
 
 # A slice of the `ekn.resourcePriority` default (Helm's InstallOrder numbered
 # in tens), with the same numbers the real option uses -- the relationship
@@ -19,7 +19,7 @@ RESOURCE_PRIORITY = {
 
 
 def _kinds_per_barrier(kinds: list[str], priority: dict[str, int]) -> list[list[str]]:
-    objects = [{"kind": kind} for kind in kinds]
+    objects: list[Manifest] = [{"kind": kind} for kind in kinds]
     return [[str(obj["kind"]) for obj in tier] for tier in barriers(objects, priority)]
 
 

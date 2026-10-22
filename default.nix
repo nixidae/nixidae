@@ -43,6 +43,9 @@ rec {
 
   easykubenix = import sources.easykubenix { inherit pkgs sources system; };
 
+  # The kr8s apply engine easykubenix's `ekn` builds on.
+  kappy = import sources.kappy { inherit pkgs sources system; };
+
   # It builds its own package set, because it applies an overlay of its own,
   # so it takes the sources rather than the set.
   nixkube = import sources.nixkube { inherit sources system; };
@@ -83,6 +86,7 @@ rec {
         easykubenix
         havsorm
         huggorm
+        kappy
         nanopynix
         nixkube
         pydd

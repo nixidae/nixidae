@@ -1,0 +1,11 @@
+extend = "ruff-anyio.toml"
+
+target-version = "py313"
+line-length = 120
+
+[lint]
+select = ["E", "W", "F", "I", "TID251"]
+ignore = ["E501"]
+
+[lint.isort]
+known-first-party = ["kappy"]
