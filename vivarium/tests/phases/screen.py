@@ -11,8 +11,9 @@ wait for text that never comes fails with what OCR read, and `blind`,
 with no display, refuses.
 """
 
-import asyncio
 import struct
+
+import anyio
 
 from vivarium_runner import Machine, MachineError, Machines
 
@@ -60,13 +61,29 @@ async def test(vms: Machines) -> None:
         raise AssertionError("waiting for text that is not there passed")
     print("[test] a wait for text that never comes fails, with what OCR read")
 
+    # The tablet's evdev node appears a moment after boot, so wait for its
+    # own Handlers line to carry an event before reading, or the parse
+    # below is a race. awk keeps to the tablet's block (reset at the blank
+    # line), so it does not match a neighbour's event node.
+    await desk.wait_until_succeeds(
+        "awk '/Virtio Tablet/{f=1} /^$/{f=0} f&&/Handlers=.*event/' "
+        "/proc/bus/input/devices | grep -q event"
+    )
     devices = await desk.succeed("cat /proc/bus/input/devices")
     block = next(b for b in devices.split("\n\n") if "Virtio Tablet" in b)
     tablet = next(w for w in block.split() if w.startswith("event"))
-    reading = asyncio.ensure_future(evdev(desk, tablet, 7))
-    await asyncio.sleep(1)
-    await desk.click(width - 1, height - 1)
-    events = await reading
+
+    # Read the tablet's events while the click happens.
+    captured: list[list[tuple[int, int, int]]] = []
+
+    async def read() -> None:
+        captured.append(await evdev(desk, tablet, 7))
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(read)
+        await anyio.sleep(1)
+        await desk.click(width - 1, height - 1)
+    events = captured[0]
     wanted = [(EV_ABS, 0, 0x7FFF), (EV_ABS, 1, 0x7FFF), (EV_KEY, BTN_LEFT, 1), (EV_KEY, BTN_LEFT, 0)]
     seen = [event for event in events if event[0] != 0]
     if seen != wanted:
