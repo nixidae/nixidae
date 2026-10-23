@@ -76,6 +76,8 @@ rec {
 
   ghanix = import sources.ghanix { inherit (pkgs) lib; };
 
+  nixvenv = import sources.nixvenv { inherit pkgs; };
+
   # The test workflows of every source, rendered for this repository.
   # nix/ci.nix says how.
   ci = import ./nix/ci.nix {
@@ -89,6 +91,7 @@ rec {
         kappy
         nanopynix
         nixkube
+        nixvenv
         pydd
         pynixd
         vivarium

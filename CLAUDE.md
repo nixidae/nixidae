@@ -1,6 +1,6 @@
 # nixidae
 
-One repository, eleven sources (`nix/members.nix`): ten projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
+One repository, twelve sources (`nix/members.nix`): eleven projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
 
 ## Rules
 

@@ -59,6 +59,10 @@
       root = "nixkube.nixkube-docs";
     };
   };
+  nixvenv = {
+    repo = "nixidae/nixvenv";
+    package = null;
+  };
   pydd = {
     repo = "nixidae/pydd";
     package = {
