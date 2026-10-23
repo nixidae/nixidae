@@ -306,6 +306,16 @@ async def test_forward_raises_the_block_error_as_itself() -> None:
                 await state.eval_expr('throw "no such thing"')
 
 
+async def test_forward_raises_a_system_exit_as_itself() -> None:
+    """A `SystemExit` too, which is not an `Exception`: a CLI raises one
+    from inside the block to report a failure."""
+    async with AsyncSession("dummy://") as session:
+        state = session.eval(session.store())
+        with pytest.raises(SystemExit):
+            async with session.forward(state, lambda _r: None):
+                raise SystemExit(1)
+
+
 async def test_local_logs_streams_while_work_runs() -> None:
     """The live stream, locally.
 

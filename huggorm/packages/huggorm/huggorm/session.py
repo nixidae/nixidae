@@ -229,7 +229,9 @@ class AsyncSession:
 
         `callback` runs on the event loop, between batches, and must not
         block. An error in the block reaches the caller as itself, not
-        wrapped in the task group's `ExceptionGroup`.
+        wrapped in the task group's `ExceptionGroup`. That holds for a
+        `SystemExit` too, which a CLI raises from inside the block;
+        wrapped, it reaches no `except SystemExit`.
         """
         reader = await _fanout(state).join(capacity, level)
 
@@ -238,13 +240,17 @@ class AsyncSession:
                 for record in await reader.next():
                     callback(record)
 
-        failure: Exception | None = None
+        failure: BaseException | None = None
         try:
             async with anyio.create_task_group() as group:
                 group.start_soon(pump)
                 try:
                     yield
-                except Exception as e:
+                except anyio.get_cancelled_exc_class():
+                    # The scope that cancelled owns this; it must pass
+                    # through the task group, not around it.
+                    raise
+                except BaseException as e:
                     failure = e
                 finally:
                     group.cancel_scope.cancel()
