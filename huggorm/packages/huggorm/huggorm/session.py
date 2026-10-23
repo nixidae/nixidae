@@ -175,7 +175,7 @@ class AsyncSessionLike(Protocol):
         self,
         store: AsyncStore,
         settings: dict[str, str] | None = None,
-        build_store: Store | None = None,
+        build_store: AsyncStore | None = None,
     ) -> AsyncEvalState:
         """An evaluator bound to `store`, not yet opened."""
         ...
@@ -232,7 +232,7 @@ class AsyncSession:
         self,
         store: AsyncStore,
         settings: dict[str, str] | None = None,
-        build_store: Store | None = None,
+        build_store: Store | AsyncStore | None = None,
     ) -> AsyncEvalState:
         """Make an evaluator on a store this session made.
 

@@ -499,6 +499,9 @@ def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef,
     """A constructor's or a free function's parameter: a bare proxy
     takes the sync object or its async wrapper.
     `client` widens a `@calls_back` class where the call adapts it."""
+    if (t.optional and t.required.kind == ir.Kind.PROXY and not t.required.origin
+            and t.required.name in model.served):
+        return union(_widened(spell, model, t.required, client), NONE)
     if t.kind == ir.Kind.PROXY and not t.origin and t.name in model.served:
         spell.need(t.name, BINDINGS)
         spell.need(f"{ASYNC}{t.name}", sibling(t.name))

@@ -323,6 +323,41 @@ def test_each_wrapper_constructor_is_the_declared_one(out: pathlib.Path) -> None
     assert not_wrapped, "expected at least one unwrapped class in the surface"
 
 
+def test_a_constructor_takes_a_served_object_in_either_form(out: pathlib.Path) -> None:
+    """A wrapper constructor unwraps each argument, so it takes the
+    async form of a served class wherever it takes the sync one. An
+    optional parameter is no exception: `EvalState`'s `build_store`
+    took `Store | None` and refused an `AsyncStore` to a type checker
+    alone."""
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen.generate import declared_model
+
+    model = declared_model()
+    checked = []
+    for c in model.constructed:
+        if c.wire is not Crossing.PROXY or not c.constructs:
+            continue
+        py = out / f"async_{c.name.lower()}.py"
+        init = next(
+            n for n in ast.walk(ast.parse(py.read_text()))
+            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
+        )
+        hints = {a.arg: ast.unparse(a.annotation) for a in init.args.args[1:]
+                 if a.annotation is not None}
+        for p in c.ctor:
+            leaf = p.type.required
+            if (leaf.kind is not ir.Kind.PROXY or leaf.origin
+                    or leaf.name not in model.served):
+                continue
+            arms = hints[p.name].split(" | ")
+            assert {leaf.name, f"Async{leaf.name}"} <= set(arms), (
+                f"{py.name}: {p.name} is {hints[p.name]}")
+            assert ("None" in arms) is p.type.optional, (
+                f"{py.name}: {p.name} is {hints[p.name]}")
+            checked.append(f"{c.name}.{p.name}")
+    assert "EvalState.build_store" in checked, checked
+
+
 def test_the_wire_refuses_what_it_cannot_carry() -> None:
     """Every declared function is representable, so the corpus no longer
     exercises the blocker path. Exercised directly, or the mechanism
