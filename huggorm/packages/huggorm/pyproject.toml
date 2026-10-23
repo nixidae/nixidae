@@ -21,6 +21,10 @@ dependencies = [
     "msgpack>=1",
 ]
 
+[project.optional-dependencies]
+# `huggorm.fod` reads the hash binding out of Nix source.
+fod = ["tree-sitter", "tree-sitter-nix"]
+
 [tool.setuptools.packages.find]
 # tests/ is not shipped: it is a suite, not a module anyone imports.
 include = ["huggorm*"]

@@ -337,6 +337,14 @@ rec {
           };
         });
         huggorm-generated = self.callPackage ./packages/huggorm-generated { };
+        # The `fod` extra of huggorm reads Nix source with it.
+        tree-sitter-nix = self.callPackage ./nix/tree-sitter-nix.nix {
+          pythonPackages = python3.pkgs;
+          # `path` and `tree-sitter` in a Python set are PyPI packages.
+          nixpkgsPath = pkgs.path;
+          treeSitterCli = pkgs.tree-sitter;
+          treeSitterNixSrc = sources.tree-sitter-nix-numtide;
+        };
         nix-tcp-store = self.callPackage ./packages/nix-tcp-store {
           inherit (self.nixComponents) nix-util nix-store;
         };
@@ -348,24 +356,29 @@ rec {
         };
         ourPython = nixvenv {
           python = python3;
-          packages = ps: [
-            self.huggorm-bindings
-            self.huggorm-generated
-            self.huggorm
-            # The generator imports them, so the interpreter every check
-            # runs against has to have them.
-            huggorm-gen
-            huggorm-decl
-            huggorm-dsl
-            # pytest-timeout because a hung test is the failure this
-            # suite is most exposed to - a server that never came up, or
-            # a native crash that took a thread with it.
-            ps.pytest
-            ps.anyio
-            ps.pytest-timeout
-            # For `check`, which types the two `setup.py` files too.
-            ps.types-setuptools
-          ];
+          packages =
+            ps:
+            [
+              self.huggorm-bindings
+              self.huggorm-generated
+              self.huggorm
+              # The generator imports them, so the interpreter every check
+              # runs against has to have them.
+              huggorm-gen
+              huggorm-decl
+              huggorm-dsl
+              # pytest-timeout because a hung test is the failure this
+              # suite is most exposed to - a server that never came up, or
+              # a native crash that took a thread with it.
+              ps.pytest
+              ps.anyio
+              ps.pytest-timeout
+            ]
+            ++ self.huggorm.optional-dependencies.fod
+            ++ [
+              # For `check`, which types the two `setup.py` files too.
+              ps.types-setuptools
+            ];
           executables = [
             "python3"
             "pytest"

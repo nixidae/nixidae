@@ -37,19 +37,22 @@
 let
   venv = nixvenv {
     python = python3;
-    packages = ps: [
-      huggorm
-      huggorm-bindings
-      huggorm-generated
-      # Several tests hold an artifact against the model the generator
-      # builds (`declared_model()`), so the suite imports it.
-      huggorm-gen
-      huggorm-decl
-      huggorm-dsl
-      ps.pytest
-      ps.anyio
-      ps.pytest-timeout
-    ];
+    packages =
+      ps:
+      [
+        huggorm
+        huggorm-bindings
+        huggorm-generated
+        # Several tests hold an artifact against the model the generator
+        # builds (`declared_model()`), so the suite imports it.
+        huggorm-gen
+        huggorm-decl
+        huggorm-dsl
+        ps.pytest
+        ps.anyio
+        ps.pytest-timeout
+      ]
+      ++ huggorm.optional-dependencies.fod;
     executables = [ "pytest" ];
   };
   python = "${venv}/lib/venv/bin/python";

@@ -377,13 +377,14 @@ lib.makeScope pkgs.newScope (
     );
 
     # The hermetic suite against the cp314 wheel. It imports the
-    # generator, which needs 3.14.
+    # generator, which needs 3.14. Not `test_fod.py`: the `fod` extra is
+    # tree-sitter, a nixpkgs C extension, which does not load here.
     suite = self.wheelCheck {
       pname = "huggorm-wheel-suite-cp314";
       py = "cp314";
       extraPythonPackages = [ huggorm-gen ];
       script = ''
-        ${interpreter "cp314"} -m pytest -p no:cacheprovider -m "not live" tests 2>&1 | tee "$out/pytest.log"
+        ${interpreter "cp314"} -m pytest -p no:cacheprovider -m "not live" --ignore=tests/test_fod.py tests 2>&1 | tee "$out/pytest.log"
       '';
     };
 

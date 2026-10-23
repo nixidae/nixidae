@@ -6,6 +6,7 @@
   huggorm-gen,
   huggorm-decl,
   huggorm-dsl,
+  tree-sitter-nix,
   ruff,
   ...
 }:
@@ -56,5 +57,11 @@ python3Packages.buildPythonPackage {
     huggorm-generated
     python3Packages.watchdog
     python3Packages.msgpack
+  ];
+
+  # `huggorm.fod` reads the hash binding out of Nix source.
+  optional-dependencies.fod = [
+    python3Packages.tree-sitter
+    tree-sitter-nix
   ];
 }
