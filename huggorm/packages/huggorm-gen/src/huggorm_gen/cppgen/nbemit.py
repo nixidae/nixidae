@@ -1532,15 +1532,25 @@ class Emitter:
         been ruled out the last one is what is there - and `std::get`
         says that, where a fourth `if` would leave a fall-through with
         nothing to return.
+
+        That holds only while the declaration names EVERY alternative,
+        so the compiler checks the count. Nix 2.35 added `LazyAttr` to
+        `fetchers::Attr`, `std::get` met it, and the throw left a
+        `noexcept` caster: the process aborted (nixidae/nixidae#1048).
         """
         variant = cls.variant
         assert variant is not None
         *alts, last = variant.alternatives
         held = _arms_type(cls)
         reach = f"p.{variant.raw}" if variant.raw else "p"
+        count = len(variant.alternatives)
         out = [f"/** The arms of a {cls.name}, as Python has them. */",
                f"inline {held} as_arms(const {variant.cxx} & p)",
-               "{"]
+               "{",
+               f"{INDENT}static_assert(decltype({NAMESPACE}::arm_count("
+               f"{reach}))::value == {count},",
+               f'{INDENT * 2}"{cls.name} declares {count} arms, and '
+               f'{variant.cxx} has a different count: declare each one");']
         for alt in alts:
             out += [f"{INDENT}if (auto * arm = std::get_if<{alt.cxx}>(&{reach}))",
                     f"{INDENT * 2}return "

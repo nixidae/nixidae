@@ -5,11 +5,23 @@
 // Nix API it reaches through a name here can change in one place, and
 // a version branch (`__has_include`, `requires`) goes here, not there.
 
+#include <cstddef>
 #include <string>
+#include <type_traits>
+#include <variant>
 
 #include "nix/util/error.hh"
 
 namespace huggorm {
+
+/**
+ * How many alternatives the std::variant under `v` has, for `decltype`
+ * only. Not `std::variant_size`: that refuses a union which inherits
+ * its variant, as `nix::SingleDerivedPath` does, and this deduces
+ * through the base.
+ */
+template <typename... T>
+std::integral_constant<std::size_t, sizeof...(T)> arm_count(const std::variant<T...> & v);
 
 /**
  * Refuses a word a vocabulary does not hold, as upstream's own parsers

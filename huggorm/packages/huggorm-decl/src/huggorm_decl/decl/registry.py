@@ -25,6 +25,7 @@ from typing import Annotated
 from huggorm_decl.decl.store import Store
 from huggorm_decl.decl.words import RegistryType
 from huggorm_dsl.declare import (
+    NIX_2_35,
     U64,
     Bint,
     Cxx,
@@ -37,24 +38,85 @@ from huggorm_dsl.declare import (
     Wrap,
     binding,
     blocks,
+    header,
     needs,
     produced,
     threading,
     wire_value,
 )
 
-Attr = Annotated[
-    Str | U64 | Bint,
-    Variant(
-        "nix::fetchers::Attr",
-        header=Local("nix/fetchers/attrs.hh"),
-        # Upstream keeps a bool as `Explicit<bool>`, so that a bool
-        # never converts to the integer arm by accident. Python's
-        # `bool` is already its own type.
-        wraps={"bool": Wrap("nix::Explicit<bool>", holds="t")},
-    ),
-]
-"""One fetcher attribute: a string, a count, or a flag."""
+if NIX_2_35:
+    ResolvedAttr = Annotated[
+        Str | U64 | Bint,
+        Variant(
+            "nix::fetchers::ResolvedAttr",
+            header=Local("nix/fetchers/attrs.hh"),
+            wraps={"bool": Wrap("nix::Explicit<bool>", holds="t")},
+        ),
+    ]
+    """A fetcher attribute with its value: a string, a count, or a flag."""
+
+    @produced
+    @header(Local("nix/fetchers/attrs.hh"))
+    @binding(
+        cxx="nix::fetchers::LazyAttrComputation",
+        # A share of upstream's `ref`: two lazy attributes are equal
+        # only as the same computation, so a copy is a different one.
+        holder="shared_ptr",
+        threading="pool",
+        # The git fetcher's `revCount` walks the history.
+        blocking=True,
+    )
+    # Its value crosses, as `attrsToJSON` writes one: a computation
+    # cannot, and a union arm may not be a proxy (nixidae/nixidae#568).
+    # Equality forces both sides. Upstream compares the `ref`, and the
+    # computation has no `operator==` for `compare="cxx"` to name.
+    @wire_value(fields=("force",))
+    class LazyAttr:
+        """A fetcher attribute that is computed when it is read.
+
+        Nix 2.35's git fetcher gives `revCount` as one, and Nix
+        forces it only where it needs the value. So does this: an
+        attribute set holds it unforced."""
+
+        def force(self) -> ResolvedAttr:
+            """The value. Each call computes it again, as
+            `fetchers::forceAttr` does; a fetcher may cache it."""
+            Cxx("return self.compute();")
+
+        @staticmethod
+        def _from_parts() -> LazyAttr:
+            """One that answers the value that crossed."""
+            Cxx("""
+return std::make_shared<nix::fetchers::LazyAttrComputation>(
+    nix::fetchers::LazyAttrComputation{[force] { return force; }});
+            """)
+
+    Attr = Annotated[
+        Str | U64 | Bint | LazyAttr,
+        Variant(
+            "nix::fetchers::Attr",
+            header=Local("nix/fetchers/attrs.hh"),
+            wraps={
+                "bool": Wrap("nix::Explicit<bool>", holds="t"),
+                "LazyAttr": Wrap("nix::fetchers::LazyAttr", holds="get_ptr()"),
+            },
+        ),
+    ]
+else:
+    Attr = Annotated[
+        Str | U64 | Bint,
+        Variant(
+            "nix::fetchers::Attr",
+            header=Local("nix/fetchers/attrs.hh"),
+            # Upstream keeps a bool as `Explicit<bool>`, so that a bool
+            # never converts to the integer arm by accident. Python's
+            # `bool` is already its own type.
+            wraps={"bool": Wrap("nix::Explicit<bool>", holds="t")},
+        ),
+    ]
+"""One fetcher attribute: a string, a count, or a flag, and on Nix
+2.35 a `LazyAttr`."""
 
 
 @produced

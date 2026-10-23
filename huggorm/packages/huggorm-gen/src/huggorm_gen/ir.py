@@ -1364,7 +1364,8 @@ class CxxVariant:
 class UnionModel:
     """One sum type. Each arm is named as the wire names it, a scalar
     by its wire spelling, and carries the C++ the arms' variant holds
-    it as - the bare type, never a holder - with the caster it needs."""
+    it as - the bare type, or the holder of a class held through one -
+    with the caster it needs."""
 
     name: str
     arms: tuple[TypeRef, ...]
@@ -1682,18 +1683,26 @@ class Model:
         A call makes the class at the leaf of its return type, inside
         any container: `X | None`, `list[X]` and `dict[str, X]` all
         make an `X`. Read off the return types so no declaration names
-        it twice."""
-        def made(t: TypeRef | None) -> str | None:
-            return None if t is None else t.leaf.name
+        it twice.
+
+        A union at the leaf makes each of its arms too: `to_attrs`
+        answers `dict[str, Attr]`, and on Nix 2.35 that makes a
+        `LazyAttr`."""
+        def made(t: TypeRef | None) -> list[str]:
+            if t is None:
+                return []
+            name = t.leaf.name
+            union = self.unions.get(name)
+            return [name, *(a.name for a in union.arms)] if union else [name]
 
         out: dict[str, list[str]] = {}
         for unit in self.modules:
             for c in unit.classes:
                 for m in c.bound:
-                    if (name := made(m.returns)) is not None:
+                    for name in made(m.returns):
                         out.setdefault(name, []).append(f"{c.name}.{m.name}")
             for fn in unit.functions:
-                if (name := made(fn.returns)) is not None:
+                for name in made(fn.returns):
                     out.setdefault(name, []).append(fn.name)
         return {name: tuple(sorted(calls)) for name, calls in out.items()}
 

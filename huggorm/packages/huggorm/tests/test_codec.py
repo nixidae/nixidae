@@ -129,7 +129,8 @@ def test_a_tree_crosses() -> None:
 def test_a_malformed_union_is_refused() -> None:
     codec = Codec()
     w = Wire(WireKind.UNION, "Attr")
-    for raw in ([3, "x"], ["0", "x"], [0], "x"):
+    # 99, past every arm: Nix 2.35's `Attr` has an arm at 3.
+    for raw in ([99, "x"], ["0", "x"], [0], "x"):
         with pytest.raises(TypeError, match="arm index"):
             codec.decode(w, raw, _no_proxy)
     # A value arm holding the union again, past any real depth.

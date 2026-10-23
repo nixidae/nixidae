@@ -16,6 +16,10 @@ import pytest
 
 from huggorm_bindings import EvalState, Store, parse_flake_ref
 from huggorm_bindings.errors import UsageError
+from huggorm_dsl.declare import NIX_2_35
+
+if NIX_2_35:
+    from huggorm_bindings import LazyAttr
 
 pytestmark = pytest.mark.usefixtures("flakes")
 
@@ -166,6 +170,36 @@ def test_a_second_lock_sees_a_new_commit(
     assert dep_node.locked_ref().to_attrs()["rev"] == moved
     written = json.loads((root / "flake.lock").read_text())
     assert written["nodes"]["dep"]["locked"]["rev"] == moved
+
+
+def _locked_dep(tmp_path: pathlib.Path) -> Any:
+    """A root flake with a git input of two commits, locked: the
+    input's locked reference."""
+    dep = tmp_path / "dep"
+    _commit(dep, "{ outputs = _: { }; }")
+    _commit(dep, "{ outputs = _: { y = 2; }; }")
+    root = tmp_path / "root-flake"
+    _commit(root, f"""{{
+  inputs.dep.url = "git+file://{dep}";
+  outputs = _: {{ }};
+}}""")
+    state = EvalState(Store(str(tmp_path / "store")), NO_GLOBAL)
+    locked = state.lock_flake(parse_flake_ref(f"git+file://{root}"))
+    node = locked.find_input(["dep"])
+    assert node is not None
+    return node.locked_ref()
+
+
+def test_a_git_input_counts_its_revisions(tmp_path: pathlib.Path) -> None:
+    """Nix 2.35's git fetcher gives `revCount` unforced, and the
+    binding aborted the process on it (nixidae/nixidae#1048)."""
+    ref = _locked_dep(tmp_path)
+    count = ref.to_attrs()["revCount"]
+    if NIX_2_35:
+        assert isinstance(count, LazyAttr)
+        assert count.force() == 2
+    else:
+        assert count == 2
 
 
 def test_a_probe_flake_is_got(state: EvalState, probe: pathlib.Path) -> None:

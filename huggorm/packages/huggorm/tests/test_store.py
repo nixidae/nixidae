@@ -98,7 +98,7 @@ from huggorm_bindings.errors import (
 from huggorm_dsl.declare import NIX_2_35, NIX_2_36
 
 if NIX_2_35:
-    from huggorm_bindings import GCSpecificPaths, GCWholeStore, UnkeyedRealisation
+    from huggorm_bindings import GCSpecificPaths, GCWholeStore, LazyAttr, UnkeyedRealisation
 
 HELLO = "7rjjfrn5w3z1kb2v9v0ilxmvmb2n5k1y-hello-2.12.1"
 
@@ -1961,7 +1961,8 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
 
     if NIX_2_35:
         # What 2.35 declares and 2.34 does not: the key-less realisation
-        # a build answers with, and the two places a collection looks.
+        # a build answers with, the two places a collection looks, and
+        # a fetcher attribute computed when it is read.
         samples.update({
             "UnkeyedRealisation": (
                 _rebuild(UnkeyedRealisation, held, []),
@@ -1969,6 +1970,7 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
             "GCWholeStore": (GCWholeStore(), []),
             "GCSpecificPaths": (GCSpecificPaths([held]),
                                 [([held, other], True)]),
+            "LazyAttr": (_rebuild(LazyAttr, 7), [(8,), ("7",), (True,)]),
         })
     return samples
 

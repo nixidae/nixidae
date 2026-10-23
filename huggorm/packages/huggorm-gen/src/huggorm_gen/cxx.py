@@ -96,7 +96,12 @@ def arm(cls: Class, name: str, known: Mapping[str, Class]) -> str:
     declaration wrote, and a class through its own declaration."""
     if (scalar := cls.decl.scalars.get(name)) is not None:
         return fact(scalar.python, scalar.cxx).spelling
-    return bare(known[name], known)
+    other = known[name]
+    if other.decl.holder:
+        # Its share, not a copy: `fetchers::LazyAttr` is a `ref`, and
+        # two lazy attributes are equal only as the same computation.
+        return f"std::{other.decl.holder}<{bare(other, known)}>"
+    return bare(other, known)
 
 
 def fact(python: str, said: Cxx | None) -> Cxx:
