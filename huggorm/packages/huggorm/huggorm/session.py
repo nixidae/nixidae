@@ -29,11 +29,17 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, overload, runtime_chec
 import anyio
 
 from huggorm_bindings import boehm_gc
-from huggorm_generated import AsyncEvalState, AsyncStore, collect_garbage
+from huggorm_generated import (
+    AsyncEvalState,
+    AsyncStore,
+    collect_garbage,
+    subscribe_process_logs,
+    unsubscribe_process_logs,
+)
 from huggorm_generated._runtime import Remote
 
 from .lifecycle import ShareMode
-from .logbus import LOG_CAPACITY, LOG_LEVEL, Fanout
+from .logbus import LOG_CAPACITY, LOG_LEVEL, Fanout, Reader
 from .remote import NixClient, connect
 
 if TYPE_CHECKING:
@@ -87,6 +93,56 @@ def _fanout(state: AsyncEvalState) -> Fanout:
 
         fan = _FANOUTS[state] = Fanout(open_sub, drop_sub)
     return fan
+
+
+_PROCESS_FANOUT: Fanout | None = None
+
+
+def _process_fanout() -> Fanout:
+    """The fan-out of the process stream, made on first use.
+
+    One per process, because `subscribe_process_logs` REPLACES the
+    queue that was there and closes it. Two direct subscribers would
+    silence each other; two readers of one fan-out do not."""
+    global _PROCESS_FANOUT
+    if _PROCESS_FANOUT is None:
+        _PROCESS_FANOUT = Fanout(subscribe_process_logs, unsubscribe_process_logs)
+    return _PROCESS_FANOUT
+
+
+@contextlib.asynccontextmanager
+async def _forward(reader: Reader, callback: Callable[[LogRecord], None]) -> AsyncIterator[None]:
+    """Pump `reader` into `callback` while the block runs. `forward`
+    says what this promises."""
+
+    async def pump() -> None:
+        while True:
+            for record in await reader.next():
+                callback(record)
+
+    failure: BaseException | None = None
+    try:
+        async with anyio.create_task_group() as group:
+            group.start_soon(pump)
+            try:
+                yield
+            except anyio.get_cancelled_exc_class():
+                # The scope that cancelled owns this; it must pass
+                # through the task group, not around it.
+                raise
+            except BaseException as e:
+                failure = e
+            finally:
+                group.cancel_scope.cancel()
+    finally:
+        # Shielded, as in `logs`: a cancelled block still hands
+        # over its tail and still unsubscribes.
+        with anyio.CancelScope(shield=True):
+            for record in await reader.drain():
+                callback(record)
+            await reader.close()
+    if failure is not None:
+        raise failure
 
 
 @runtime_checkable
@@ -233,36 +289,25 @@ class AsyncSession:
         `SystemExit` too, which a CLI raises from inside the block;
         wrapped, it reaches no `except SystemExit`.
         """
-        reader = await _fanout(state).join(capacity, level)
+        async with _forward(await _fanout(state).join(capacity, level), callback):
+            yield
 
-        async def pump() -> None:
-            while True:
-                for record in await reader.next():
-                    callback(record)
+    @contextlib.asynccontextmanager
+    async def forward_process(
+        self,
+        callback: Callable[[LogRecord], None],
+        capacity: int = LOG_CAPACITY,
+        level: int = LOG_LEVEL,
+    ) -> AsyncIterator[None]:
+        """`forward` for the records no evaluator's thread claims: a
+        build, a fetch, a download.
 
-        failure: BaseException | None = None
-        try:
-            async with anyio.create_task_group() as group:
-                group.start_soon(pump)
-                try:
-                    yield
-                except anyio.get_cancelled_exc_class():
-                    # The scope that cancelled owns this; it must pass
-                    # through the task group, not around it.
-                    raise
-                except BaseException as e:
-                    failure = e
-                finally:
-                    group.cancel_scope.cancel()
-        finally:
-            # Shielded, as in `logs`: a cancelled block still hands
-            # over its tail and still unsubscribes.
-            with anyio.CancelScope(shield=True):
-                for record in await reader.drain():
-                    callback(record)
-                await reader.close()
-        if failure is not None:
-            raise failure
+        `level` raises the process default while the block runs, as
+        `subscribe_process_logs` says. The last reader out unsubscribes,
+        which puts the default back.
+        """
+        async with _forward(await _process_fanout().join(capacity, level), callback):
+            yield
 
     @contextlib.asynccontextmanager
     async def capture(

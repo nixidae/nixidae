@@ -316,6 +316,20 @@ async def test_forward_raises_a_system_exit_as_itself() -> None:
                 raise SystemExit(1)
 
 
+async def test_forward_process_takes_what_no_state_claims() -> None:
+    """The process stream, locally: a build or a fetch in real use.
+
+    Here an evaluator with no subscription of its own stands in for
+    those threads, because its records are unclaimed the same way. With
+    a `forward` on the state, the record would go there instead."""
+    async with AsyncSession("dummy://") as session:
+        state = session.eval(session.store())
+        seen: list[str] = []
+        async with session.forward_process(lambda r: seen.append(r.text())):
+            await state.eval_expr(TRACE % "unclaimed")
+    assert any("trace: unclaimed" in s for s in seen), seen
+
+
 async def test_local_logs_streams_while_work_runs() -> None:
     """The live stream, locally.
 
