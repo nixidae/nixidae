@@ -12,10 +12,11 @@ read from a store path keeps the dependency on it.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 from huggorm_bindings.errors import EvalError
 from huggorm_generated._runtime import BaseRunner
+from typing_extensions import TypeAliasType
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,8 +24,12 @@ if TYPE_CHECKING:
     from huggorm_bindings import EvalState, Value
     from huggorm_generated import AsyncEvalState
 
-# A string: 3.11 has no `type` statement, and the alias names itself.
-JsonValue: TypeAlias ="bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None"
+# A named recursive alias, as the `type` statement makes on 3.12. A plain
+# `TypeAlias` string is not one: pydantic's `TypeAdapter(JsonValue)` recursed
+# until the stack ran out, and ekn builds one at import.
+JsonValue = TypeAliasType(
+    "JsonValue", "bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None"
+)
 
 
 def _value(state: EvalState, obj: object, context: list[str]) -> Value:

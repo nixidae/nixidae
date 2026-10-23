@@ -52,11 +52,13 @@ python3Packages.buildPythonPackage {
   # watcher stat-ing for it - inotify on Linux, FSEvents on macOS.
   # `huggorm/notify.py` says why it replaced asyncinotify.
   # msgpack: the value format of the Unix socket transport (nixidae/nixidae#714).
+  # typing-extensions: `TypeAliasType`, for `JsonValue` on 3.11.
   propagatedBuildInputs = [
     huggorm-bindings
     huggorm-generated
     python3Packages.watchdog
     python3Packages.msgpack
+    python3Packages.typing-extensions
   ];
 
   # `huggorm.fod` reads the hash binding out of Nix source.

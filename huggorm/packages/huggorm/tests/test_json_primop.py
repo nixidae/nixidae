@@ -17,6 +17,17 @@ async def state() -> Any:
         yield session.eval(session.store())
 
 
+def test_json_value_is_a_named_recursive_alias() -> None:
+    """A plain `TypeAlias` string names itself, and pydantic recursed on it
+    without end when ekn built a `TypeAdapter` of it."""
+    from typing_extensions import TypeAliasType
+
+    from huggorm.jsonprimop import JsonValue
+
+    assert isinstance(JsonValue, TypeAliasType)
+    assert JsonValue.__name__ == "JsonValue"
+
+
 async def test_plain_data_crosses_both_ways(state: Any) -> None:
     """Attrs, lists and every scalar reach `fn` as Python data, and its
     answer comes back as the same Nix structure."""

@@ -19,6 +19,8 @@ dependencies = [
     "anyio>=4.11",
     "watchdog>=6",
     "msgpack>=1",
+    # `TypeAliasType`, for a recursive alias on 3.11 (`huggorm.jsonprimop`).
+    "typing-extensions>=4.6",
 ]
 
 [project.optional-dependencies]
