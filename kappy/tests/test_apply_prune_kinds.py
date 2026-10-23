@@ -4,10 +4,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
+from conventions import apply_and_prune
 from kr8s._api import Api
 from kr8s.asyncio.objects import APIObject, get_class
-
-from kappy.apply import apply_and_prune
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

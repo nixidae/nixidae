@@ -164,6 +164,10 @@ class FakeApi:
         stored["managedFields"] = [{"manager": self.managers[body["metadata"]["name"]] or "ekn"}]
         yield _FakeResponse(body | {"metadata": body["metadata"] | {"resourceVersion": stored["resourceVersion"]}})
 
+    def as_api(self) -> Api:
+        """This double where an `Api` is wanted. It implements the surface the engine touches, not all of `Api`."""
+        return cast("Api", self)
+
     def write(self, key: tuple[str, str, str]) -> None:
         """Somebody other than this apply wrote the object: a `kubectl edit`.
 

@@ -16,17 +16,6 @@ type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValu
 
 _log = structlog.get_logger()
 
-# Stamped by `ekn` at apply time, on every object it applies. Its value is
-# `ekn.environment`. Deliberately not rendered into the manifests: an object a
-# GitOps engine synced from the committed YAML must not carry it, or `ekn` and
-# that engine both consider it theirs to prune.
-DEFAULT_ENVIRONMENT_LABEL = "ekn.dev/environment"
-
-# Rendered by easykubenix onto every object in a deployment unit (see
-# gitops.nix), so it is on the object whoever applies it. `ekn` never writes
-# it, and only reads it to scope a prune.
-DEFAULT_UNIT_LABEL = "ekn.dev/deployment-unit"
-
 # Where a kind with no configured priority sorts -- in practice, every custom
 # resource, since `ekn.resourcePriority` lists only built-in kinds.
 #
@@ -53,41 +42,32 @@ DEFAULT_UNIT_LABEL = "ekn.dev/deployment-unit"
 # silently reintroducing the stall.
 DEFAULT_BARRIER_PRIORITY = 1000
 
-# Server-side-apply field manager, unless a caller names another. A GitOps
-# target can (`gitOps.targets.<name>.fieldManager`), so that a bootstrap apply
-# can hand its objects to the controller that takes them over rather than
-# leaving every field it set owned by `ekn` forever -- SSA only releases a
-# field when its owning manager stops declaring it, and a bootstrap apply
-# never runs again.
-DEFAULT_FIELD_MANAGER = "ekn"
-
-DEFAULT_DELIVERY_MANAGERS = frozenset({DEFAULT_FIELD_MANAGER})
-"""Field managers whose objects a prune may delete.
-
-**Deliberately not the engine-manager set, and the difference is the whole
-point.** That set decides what is *not* worth reporting as a foreign owner,
-and `kube-controller-manager` belongs in it because it owns a field on
-nearly everything. It must never gate a delete: the endpoints controller
-*is* `kube-controller-manager`, so a prune that trusted that set would
-delete every Endpoints object it could see.
-
-Measured on nixlab2 (2026-09-17), read-only. Of 111 objects inside the
-selector this module builds, **14 would have been deleted by a prune that
-checked labels alone**, and none had ever been touched by `ekn` or by the
-GitOps engine. They are controller-generated children that *inherit their
-parent's labels*: the endpoints controller copies a Service's
-`metadata.labels` onto its Endpoints and EndpointSlice, and cert-manager
-copies a Certificate's onto its CertificateRequest.
-
-Six of those fourteen carry no `ownerReferences` at all -- the legacy
-endpoints controller sets none -- and one of the six is
-`kube-system/coredns`. So this check is the load-bearing one and `_owner`
-cannot stand in for it.
-
-The number grows with what this mode does. Only 6 Services carried the
-environment label then, because only a bootstrap unit had been applied by
-`ekn`; a full apply stamps it on all 57, and every child inherits it.
-"""
+# `delivery_managers` is the set of field managers whose objects a prune may
+# delete.
+#
+# **Deliberately not an engine-manager set, and the difference is the whole
+# point.** That set decides what is *not* worth reporting as a foreign owner,
+# and `kube-controller-manager` belongs in it because it owns a field on
+# nearly everything. It must never gate a delete: the endpoints controller
+# *is* `kube-controller-manager`, so a prune that trusted that set would
+# delete every Endpoints object it could see.
+#
+# Measured on nixlab2 (2026-09-17), read-only. Of 111 objects inside the
+# selector this module builds, **14 would have been deleted by a prune that
+# checked labels alone**, and none had ever been touched by the caller or by
+# the GitOps engine. They are controller-generated children that *inherit
+# their parent's labels*: the endpoints controller copies a Service's
+# `metadata.labels` onto its Endpoints and EndpointSlice, and cert-manager
+# copies a Certificate's onto its CertificateRequest.
+#
+# Six of those fourteen carry no `ownerReferences` at all -- the legacy
+# endpoints controller sets none -- and one of the six is
+# `kube-system/coredns`. So this check is the load-bearing one and `_owner`
+# cannot stand in for it.
+#
+# The number grows with what this mode does. Only 6 Services carried the
+# environment label then, because only a bootstrap unit had been applied by
+# the caller; a full apply stamps it on all 57, and every child inherits it.
 
 type Manifest = dict[str, JsonValue]
 
@@ -315,7 +295,7 @@ def field_manager_for(
     *,
     default: str,
     unit_managers: Mapping[str, str] | None,
-    unit_label: str = DEFAULT_UNIT_LABEL,
+    unit_label: str,
 ) -> str:
     """Which manager to apply one object as.
 
@@ -406,10 +386,11 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
     api: Api,
     environment: str,
     unit: str | None = None,
-    environment_label: str = DEFAULT_ENVIRONMENT_LABEL,
-    unit_label: str = DEFAULT_UNIT_LABEL,
+    environment_label: str,
+    unit_label: str,
     resource_priority: dict[str, int] | None = None,
-    field_manager: str = DEFAULT_FIELD_MANAGER,
+    field_manager: str,
+    delivery_managers: Collection[str] = (),
     crd_establish_timeout: int = 60,
     prune: bool = True,
     prune_kinds: Mapping[str, str] | None = None,
@@ -536,10 +517,11 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
         protect=protected,
         environment_label=environment_label,
         unit_label=unit_label,
-        # This apply's own manager as well as the default. A unit applies as
+        # This apply's own manager as well as the caller's. A unit applies as
         # the controller that takes its objects over, so a prune that only
-        # knew `ekn` would refuse to delete anything that unit ever applied.
-        delivery_managers={*DEFAULT_DELIVERY_MANAGERS, field_manager},
+        # knew the caller's manager would refuse to delete anything that unit
+        # ever applied.
+        delivery_managers={*delivery_managers, field_manager},
     )
 
 
@@ -553,9 +535,9 @@ async def prune_generation(  # noqa: PLR0913 -- every argument names part of a d
     declared_units: Collection[str] | None = None,
     prune_kinds: Mapping[str, str] | None = None,
     protect: Collection[tuple[str, str, str]] = (),
-    environment_label: str = DEFAULT_ENVIRONMENT_LABEL,
-    unit_label: str = DEFAULT_UNIT_LABEL,
-    delivery_managers: Collection[str] = DEFAULT_DELIVERY_MANAGERS,
+    environment_label: str,
+    unit_label: str,
+    delivery_managers: Collection[str],
 ) -> None:
     """Delete what this environment holds and this generation does not.
 
@@ -631,8 +613,8 @@ def prune_selector(
     environment: str,
     unit: str | None,
     hand_applied: Collection[str] = (),
-    environment_label: str = DEFAULT_ENVIRONMENT_LABEL,
-    unit_label: str = DEFAULT_UNIT_LABEL,
+    environment_label: str,
+    unit_label: str,
 ) -> str:
     """The label selector naming everything one apply is allowed to prune.
 
@@ -809,8 +791,8 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
     desired_keys: set[tuple[str, str, str]],
     protected: set[tuple[str, str, str]],
     declared_units: Collection[str] | None = None,
-    unit_label: str = DEFAULT_UNIT_LABEL,
-    delivery_managers: Collection[str] = DEFAULT_DELIVERY_MANAGERS,
+    unit_label: str,
+    delivery_managers: Collection[str],
 ) -> None:
     """Delete objects in this run's prune scope that it did not produce.
 
@@ -866,7 +848,7 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
             if not _delivered_by(obj, delivery_managers):
                 # Carries our labels and was never applied by us: a
                 # controller-generated child that inherited them from its
-                # parent. See DEFAULT_DELIVERY_MANAGERS.
+                # parent. See the note on `delivery_managers` above.
                 _log.info("keeping object we never applied", kind=kind, namespace=obj.namespace, name=obj.name)
                 continue
             unit = _unit_of(obj, unit_label)
@@ -884,10 +866,6 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
 
 __all__ = [
     "DEFAULT_BARRIER_PRIORITY",
-    "DEFAULT_DELIVERY_MANAGERS",
-    "DEFAULT_ENVIRONMENT_LABEL",
-    "DEFAULT_FIELD_MANAGER",
-    "DEFAULT_UNIT_LABEL",
     "ApplyCache",
     "Manifest",
     "Resource",

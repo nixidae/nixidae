@@ -4,18 +4,15 @@ from typing import ClassVar
 
 import anyio
 import pytest
+from conventions import apply_and_prune, converge_direct, field_manager_for, prune_selector
 
 from kappy.apply import (
     JsonValue,
     Manifest,
     Resource,
     _wait_established,  # pyright: ignore[reportPrivateUsage]
-    apply_and_prune,
     discover,
-    field_manager_for,
-    prune_selector,
 )
-from kappy.directapply import converge_direct
 from kappy.testing import FakeApi
 
 
@@ -95,14 +92,14 @@ class TestDiscover:
     async def test_applies_a_custom_resource_of_a_hyphenated_kind(self) -> None:
         """End to end through `apply_and_prune`, which is where it failed:
         the apply died on the CR seconds after waiting for its own CRD."""
-        spec = {
+        spec: Manifest = {
             "apiVersion": "k8s.cni.cncf.io/v1",
             "kind": "NetworkAttachmentDefinition",
             "metadata": {"name": "dynhetz", "namespace": "kube-system"},
         }
         api = FakeApi(resources=[self.MULTUS])
 
-        await apply_and_prune([spec], api=api, environment="full", prune=False)  # type: ignore[arg-type]
+        await apply_and_prune([spec], api=api.as_api(), environment="full", prune=False)
 
         assert api.patched == [("kube-system", "NetworkAttachmentDefinition", "dynhetz")]
 
@@ -112,19 +109,19 @@ class TestApplyAndPrune:
         """Regression test for the exact bug this fixes: kr8s reports a
         just-applied CRD object's kind in a different case when listing it
         back for the prune scan -- that must not cause it to be pruned."""
-        spec = {
+        spec: Manifest = {
             "apiVersion": "autoscaling.k8s.io/v1",
             "kind": "VerticalPodAutoscaler",
             "metadata": {"name": "argocd-server", "namespace": "argocd"},
         }
         api = FakeApi(listed=[("argocd", "verticalpodautoscaler", "argocd-server")])
 
-        await apply_and_prune([spec], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([spec], api=api.as_api(), environment="full")
 
         assert api.deleted == []
 
     async def test_prunes_genuinely_stale_object(self) -> None:
-        spec = {
+        spec: Manifest = {
             "apiVersion": "autoscaling.k8s.io/v1",
             "kind": "VerticalPodAutoscaler",
             "metadata": {"name": "argocd-server", "namespace": "argocd"},
@@ -136,7 +133,7 @@ class TestApplyAndPrune:
             ]
         )
 
-        await apply_and_prune([spec], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([spec], api=api.as_api(), environment="full")
 
         assert api.deleted == [("argocd", "verticalpodautoscaler", "long-gone")]
 
@@ -169,7 +166,7 @@ class TestPruneLeavesOwnedObjects:
             },
         )
 
-        await apply_and_prune([self.SPEC], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
         assert api.deleted == []
 
@@ -185,7 +182,7 @@ class TestPruneLeavesOwnedObjects:
             extra_metadata={"long-gone": {"ownerReferences": []}},
         )
 
-        await apply_and_prune([self.SPEC], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
         assert api.deleted == [("argocd", "verticalpodautoscaler", "long-gone")]
 
@@ -221,7 +218,7 @@ class TestPruneLeavesObjectsItNeverApplied:
             },
         )
 
-        await apply_and_prune([self.SPEC], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
         assert api.deleted == []
 
@@ -239,7 +236,7 @@ class TestPruneLeavesObjectsItNeverApplied:
             },
         )
 
-        await apply_and_prune([self.SPEC], api=api, environment="full")  # type: ignore[arg-type]
+        await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
         assert api.deleted == [("argocd", "verticalpodautoscaler", "removed-from-config")]
 
@@ -266,7 +263,7 @@ class TestPruneLeavesObjectsItNeverApplied:
 
         await apply_and_prune(
             [spec],
-            api=api,  # type: ignore[arg-type]
+            api=api.as_api(),
             environment="full",
             unit="bootstrap",
             field_manager="argocd-controller",
@@ -298,7 +295,7 @@ class TestPruneWarnsAboutUndeclaredUnits:
 
         await apply_and_prune(
             [self.SPEC],
-            api=api,  # type: ignore[arg-type]
+            api=api.as_api(),
             environment="full",
             declared_units=["bootstrap"],
         )
@@ -319,7 +316,7 @@ class TestPruneWarnsAboutUndeclaredUnits:
 
         await apply_and_prune(
             [self.SPEC],
-            api=api,  # type: ignore[arg-type]
+            api=api.as_api(),
             environment="full",
             declared_units=["routed"],
         )
@@ -367,7 +364,7 @@ class TestFieldManagerPerUnit:
     async def test_the_converging_apply_uses_it_per_object(self) -> None:
         """End to end: two objects in one apply, two different managers."""
         api = FakeApi()
-        specs = [
+        specs: list[Manifest] = [
             {
                 "apiVersion": "autoscaling.k8s.io/v1",
                 "kind": "VerticalPodAutoscaler",
@@ -381,8 +378,8 @@ class TestFieldManagerPerUnit:
         ]
 
         report, _desired = await converge_direct(
-            specs,  # type: ignore[arg-type]
-            api=api,  # type: ignore[arg-type]
+            specs,
+            api=api.as_api(),
             environment="full",
             unit_managers=self.UNITS,
         )
@@ -436,7 +433,7 @@ class TestUnitLabelGuard:
     """
 
     async def test_an_unlabelled_object_is_refused(self) -> None:
-        spec = {
+        spec: Manifest = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
             "metadata": {"name": "raw", "namespace": "argocd"},
@@ -444,12 +441,12 @@ class TestUnitLabelGuard:
         api = FakeApi()
 
         with pytest.raises(ValueError, match=r"ConfigMap/raw: None"):
-            await apply_and_prune([spec], api=api, environment="full", unit="bootstrap")  # type: ignore[arg-type]
+            await apply_and_prune([spec], api=api.as_api(), environment="full", unit="bootstrap")
 
         assert api.patched == []
 
     async def test_an_object_of_another_unit_is_refused(self) -> None:
-        spec = {
+        spec: Manifest = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
             "metadata": {
@@ -461,10 +458,10 @@ class TestUnitLabelGuard:
         api = FakeApi()
 
         with pytest.raises(ValueError, match=r"ConfigMap/stray: 'apps'"):
-            await apply_and_prune([spec], api=api, environment="full", unit="bootstrap")  # type: ignore[arg-type]
+            await apply_and_prune([spec], api=api.as_api(), environment="full", unit="bootstrap")
 
     async def test_a_correctly_labelled_object_applies(self) -> None:
-        spec = {
+        spec: Manifest = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
             "metadata": {
@@ -475,7 +472,7 @@ class TestUnitLabelGuard:
         }
         api = FakeApi()
 
-        await apply_and_prune([spec], api=api, environment="full", unit="bootstrap", prune=False)  # type: ignore[arg-type]
+        await apply_and_prune([spec], api=api.as_api(), environment="full", unit="bootstrap", prune=False)
 
         assert api.patched == [("argocd", "ConfigMap", "root")]
 

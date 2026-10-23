@@ -18,8 +18,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 from .apply import (
-    DEFAULT_ENVIRONMENT_LABEL,
-    DEFAULT_FIELD_MANAGER,
     KindNotServedError,
     build_object,
     field_manager_for,
@@ -54,6 +52,7 @@ def _applier(  # noqa: PLR0913 -- one caller, and each argument is a piece of wh
     environment: str,
     field_manager: str,
     environment_label: str,
+    unit_label: str,
     desired: dict[tuple[str, str, str], type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
@@ -75,7 +74,7 @@ def _applier(  # noqa: PLR0913 -- one caller, and each argument is a piece of wh
             api,
         )
         desired[(obj.namespace or "none", obj.kind, obj.name)] = type(obj)
-        manager = field_manager_for(spec, default=field_manager, unit_managers=unit_managers)
+        manager = field_manager_for(spec, default=field_manager, unit_managers=unit_managers, unit_label=unit_label)
         await ssa_apply(obj, field_manager=manager)
         if cache is not None:
             # After the apply and never before it. A recorded object that was
@@ -93,6 +92,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     environment: str,
     field_manager: str,
     environment_label: str,
+    unit_label: str,
     desired: dict[tuple[str, str, str], type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
 ):
@@ -117,7 +117,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     """
 
     async def should_skip(spec: Manifest) -> bool:
-        manager = field_manager_for(spec, default=field_manager, unit_managers=unit_managers)
+        manager = field_manager_for(spec, default=field_manager, unit_managers=unit_managers, unit_label=unit_label)
         if not cache.may_skip(spec, field_manager=manager):
             return False
         try:
@@ -177,8 +177,9 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
     api: Api,
     environment: str,
     resource_priority: Mapping[str, int] | None = None,
-    field_manager: str = DEFAULT_FIELD_MANAGER,
-    environment_label: str = DEFAULT_ENVIRONMENT_LABEL,
+    field_manager: str,
+    environment_label: str,
+    unit_label: str,
     concurrency: int = DEFAULT_CONCURRENCY,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
     allow_recreate: bool = False,
@@ -213,6 +214,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
             environment=environment,
             field_manager=field_manager,
             environment_label=environment_label,
+            unit_label=unit_label,
             desired=desired,
             unit_managers=unit_managers,
             cache=cache,
@@ -223,6 +225,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
             environment=environment,
             field_manager=field_manager,
             environment_label=environment_label,
+            unit_label=unit_label,
             desired=desired,
             unit_managers=unit_managers,
         )

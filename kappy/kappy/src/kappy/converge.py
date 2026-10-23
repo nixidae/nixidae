@@ -70,7 +70,7 @@ object a CRD serves. An immutable-field error on one of these is a fault to
 report, not a delete to perform.
 """
 
-RECREATE_OPT_OUT_ANNOTATION = "ekn.dev/no-recreate"
+RECREATE_OPT_OUT_ANNOTATION = "kappy.dev/no-recreate"
 """Set on an object to keep `--allow-recreate` away from it by name."""
 
 

@@ -28,4 +28,4 @@ typeCheckingMode = "strict"
 # `../tests` is the suite that exercises these modules. It lives beside the
 # project directory, not inside it.
 include = ["src", "../tests"]
-extraPaths = ["src"]
+extraPaths = ["src", "../tests"]
