@@ -17,7 +17,7 @@
         uses = "cachix/install-nix-action@master";
         "with".extra_nix_config = ''
           access-tokens = github.com=''${{ github.token }}
-          experimental-features = nix-command
+          experimental-features = nix-command flakes
           trusted-users = root runner
         '';
       }
