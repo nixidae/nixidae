@@ -9,6 +9,7 @@ global one is a URL.
 
 import json
 import pathlib
+import subprocess
 from typing import Any
 
 import pytest
@@ -118,6 +119,53 @@ def test_the_flake_builtins_are_there(state: EvalState) -> None:
         '"github:NixOS/nixpkgs/nixos-unstable")', "/")
     assert ref.string_value() == "github:NixOS/nixpkgs/nixos-unstable"
     assert state.eval_expr("builtins ? getFlake", "/").boolean()
+
+
+def _commit(repo: pathlib.Path, text: str) -> str:
+    """Commit *text* as the `flake.nix` of *repo*, and return the revision."""
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-c", "user.name=huggorm",
+                               "-c", "user.email=huggorm@invalid", *args],
+                              cwd=repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "flake.nix").write_text(text)
+    if not (repo / ".git").exists():
+        git("init", "--quiet")
+    git("add", "flake.nix")
+    git("commit", "--quiet", "--message", text)
+    return git("rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("same_state", [False, True], ids=["new-state", "same-state"])
+def test_a_second_lock_sees_a_new_commit(
+        tmp_path: pathlib.Path, same_state: bool) -> None:
+    """Nix keeps each git work tree's HEAD for the whole process
+    (`getCachedWorkdirInfo`), and each fetched input for the life of a
+    state (`inputCache`). So a second lock locked the old revision and
+    read no `flake.lock` from the first. Each lock fetches anew."""
+    dep = tmp_path / "dep"
+    _commit(dep, "{ outputs = _: { y = 1; }; }")
+    root = tmp_path / "root-flake"
+    _commit(root, f"""{{
+  inputs.dep.url = "git+file://{dep}";
+  outputs = _: {{ }};
+}}""")
+    ref = parse_flake_ref(f"git+file://{root}")
+    store = Store(str(tmp_path / "store"))
+    first = EvalState(store, NO_GLOBAL)
+    first.lock_flake(ref)
+    moved = _commit(dep, "{ outputs = _: { y = 2; }; }")
+
+    second = first if same_state else EvalState(store, NO_GLOBAL)
+    locked = second.lock_flake(ref, update=["dep"])
+
+    dep_node = locked.find_input(["dep"])
+    assert dep_node is not None
+    assert dep_node.locked_ref().to_attrs()["rev"] == moved
+    written = json.loads((root / "flake.lock").read_text())
+    assert written["nodes"]["dep"]["locked"]["rev"] == moved
 
 
 def test_a_probe_flake_is_got(state: EvalState, probe: pathlib.Path) -> None:

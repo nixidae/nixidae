@@ -1,0 +1,75 @@
+Backport `GitRepo::invalidateWorkdirInfoCache()` from Nix 2.35.
+
+`GitRepo::getCachedWorkdirInfo` (src/libfetchers/git-utils.cc) keeps the
+HEAD revision and the file list of each local git work tree in a
+function-static map, and 2.34 has no way to clear it. So a process sees
+a work tree as it was on the first read. Measured with pynix in one
+process: a second `flake lock` read the flake source with no
+`flake.lock` in it and added every input again, and `flake update leaf`
+locked the old revision of `leaf` after a new commit.
+
+2.35 moves the map to file scope, adds the function, and calls it from
+`InputCache::clear()`. This patch is that code, byte for byte, so the
+2.34 lane has the same API as the later lanes.
+
+diff -ruN a/src/libfetchers/git-utils.cc b/src/libfetchers/git-utils.cc
+--- a/src/libfetchers/git-utils.cc	2026-10-23 04:03:31.652396807 +0200
++++ b/src/libfetchers/git-utils.cc	2026-10-23 04:03:43.125503300 +0200
+@@ -1498,9 +1498,11 @@
+
+ } // namespace fetchers
+
++static Sync<std::map<std::filesystem::path, GitRepo::WorkdirInfo>> workdirInfoCache_;
++
+ GitRepo::WorkdirInfo GitRepo::getCachedWorkdirInfo(const std::filesystem::path & path)
+ {
+-    static Sync<std::map<std::filesystem::path, WorkdirInfo>> _cache;
++    auto & _cache = workdirInfoCache_;
+     {
+         auto cache(_cache.lock());
+         auto i = cache->find(path);
+@@ -1512,6 +1514,11 @@
+     return workdirInfo;
+ }
+
++void GitRepo::invalidateWorkdirInfoCache()
++{
++    workdirInfoCache_.lock()->clear();
++}
++
+ bool isLegalRefName(const std::string & refName)
+ {
+     initLibGit2();
+diff -ruN a/src/libfetchers/include/nix/fetchers/git-utils.hh b/src/libfetchers/include/nix/fetchers/git-utils.hh
+--- a/src/libfetchers/include/nix/fetchers/git-utils.hh	2026-10-23 04:03:31.654396826 +0200
++++ b/src/libfetchers/include/nix/fetchers/git-utils.hh	2026-10-23 04:03:37.844454343 +0200
+@@ -88,6 +88,9 @@
+
+     static WorkdirInfo getCachedWorkdirInfo(const std::filesystem::path & path);
+
++    /* Drop all entries from the getCachedWorkdirInfo() cache. */
++    static void invalidateWorkdirInfoCache();
++
+     /* Get the ref that HEAD points to. */
+     virtual std::optional<std::string> getWorkdirRef() = 0;
+
+diff -ruN a/src/libfetchers/input-cache.cc b/src/libfetchers/input-cache.cc
+--- a/src/libfetchers/input-cache.cc	2026-10-23 04:03:31.653396816 +0200
++++ b/src/libfetchers/input-cache.cc	2026-10-23 04:03:47.786546415 +0200
+@@ -1,4 +1,5 @@
+ #include "nix/fetchers/input-cache.hh"
++#include "nix/fetchers/git-utils.hh"
+ #include "nix/fetchers/registry.hh"
+ #include "nix/util/sync.hh"
+ #include "nix/util/source-path.hh"
+@@ -66,6 +67,10 @@
+     void clear() override
+     {
+         cache_.lock()->clear();
++        /* The workdir info cache has the same "per evaluation" lifetime
++           as the input cache, so flush it here as well so that e.g.
++           `:reload` in `nix repl` picks up changes in git work trees. */
++        GitRepo::invalidateWorkdirInfoCache();
+     }
+ };
+

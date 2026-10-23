@@ -54,6 +54,9 @@ let
   # 2.34 caches an lstat miss for the whole process, so a file created
   # after a miss stayed missing (nixidae/nixidae#940). 2.35 caches no stat.
   lstatMiss234 = patch "nix-2.34-lstat-miss-not-cached";
+  # 2.35's `GitRepo::invalidateWorkdirInfoCache`: a git work tree read
+  # once stayed as it was for the whole process.
+  workdirInfo234 = patch "nix-2.34-invalidate-workdir-info-cache";
   # `fetchers::Settings::forgetSrcToStore`: an edited path copies again
   # (nixidae/nixidae#997). 2.34 keeps that map on `EvalState`.
   forgetSrcToStore = patch "nix-forget-src-to-store";
@@ -79,6 +82,7 @@ in
       callChecksInterrupt
       ownsPrimOps
       lstatMiss234
+      workdirInfo234
     ];
   };
   nix_2_35 = {

@@ -2037,7 +2037,8 @@ return self.wrap_builder(made);
         set built by assignment."""
         Cxx("return target.stage_attr(name, item.get());")
 
-    @needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/flake/settings.hh"))
+    @needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/flake/settings.hh"),
+           Local("nix/fetchers/input-cache.hh"))
     def lock_flake(self, ref: FlakeRef, recreate: Bint = False,
                    update: Opt[Vec[Str]] = None,
                    write_lock_file: Bint = True,
@@ -2048,8 +2049,16 @@ return self.wrap_builder(made);
         refresh, `nixpkgs` or `a/b`. `settings` are flake settings over
         the process's, such as `accept-flake-config`.
 
+        Each call fetches its inputs anew, as one `nix` command does: it
+        clears this state's input cache, and with it the process-wide
+        cache of git work trees. Otherwise a second lock would not see a
+        new commit, or the `flake.lock` that the first one wrote. A
+        locked input comes back from the store; an unlocked one is
+        resolved again.
+
         THIS FETCHES what is not locked yet, into this state's store."""
         Cxx("""
+self.state().inputCache->clear();
 auto flake_settings = huggorm::call_settings<nix::flake::Settings>(settings);
 nix::flake::LockFlags flags;
 flags.recreateLockFile = recreate;
@@ -2076,11 +2085,15 @@ nix::flake::callFlake(self.state(), locked.locked, *made);
 return self.wrap(made);
         """)
 
+    @needs(Local("nix/fetchers/input-cache.hh"))
     def get_flake(self, ref: FlakeRef, use_registries: Bint = True) -> FlakeRef:
         """What `ref` resolves to through the registries, fetched.
 
+        Fetches anew, as `lock_flake` does.
+
         THIS FETCHES the flake, into this state's store."""
         Cxx("""
+self.state().inputCache->clear();
 auto flake = nix::flake::getFlake(
     self.state(), ref,
     use_registries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
