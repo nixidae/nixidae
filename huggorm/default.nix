@@ -81,6 +81,8 @@ rec {
     pythonImportsCheck = [ "huggorm_gen.cppgen" ];
   };
   versions = import ./nix/versions.nix { inherit pkgs; };
+  # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
+  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
   # The Nixes this nixpkgs gets lanes for. A pin skips the master lane:
   # a release holds an older master than the minor the lane states.
   nixes = lib.filterAttrs (_: v: v ? components && !(pin && v.master or false)) versions;
@@ -192,6 +194,7 @@ rec {
           huggorm-dsl
           huggorm-decl
           huggorm-gen
+          nixvenv
           ;
         inherit python3;
         python3Packages = python3.pkgs;
@@ -268,12 +271,16 @@ rec {
               };
               nativeBuildInputs = [
                 pkgs.ruff
-                (python3.withPackages (ps: [
-                  huggorm-gen
-                  huggorm-decl
-                  huggorm-dsl
-                  ps.pytest
-                ]))
+                (nixvenv {
+                  python = python3;
+                  packages = ps: [
+                    huggorm-gen
+                    huggorm-decl
+                    huggorm-dsl
+                    ps.pytest
+                  ];
+                  executables = [ "pytest" ];
+                })
               ];
               HUGGORM_NIX_VERSION = self.version;
               # `test_versions.py` holds `declare.py` to these.
@@ -334,58 +341,36 @@ rec {
           inherit (self.nixComponents) nix-util nix-store;
         };
         nix-tcp-store-check = self.callPackage ./packages/nix-tcp-store/check.nix { };
-        # HUGGORM_SKIP_SUITE=1 drops the in-build suite. `test` and
-        # `check` need this package for the front door only, so a red
-        # suite would otherwise block the loop that debugs it.
-        huggorm =
-          let
-            plain = self.callPackage ./packages/huggorm { };
-            sanitized =
-              if sanitizer == null then
-                plain
-              else
-                # The suite and the import check load the bindings, and
-                # run after fixup. Earlier phases run ruff, and under a
-                # preloaded TSAN runtime the uninstrumented ruff reports
-                # races in itself and exits 66. So the preload starts
-                # after fixup, and the check is the suite alone: the base
-                # lane runs ruff and zuban.
-                plain.overridePythonAttrs (old: {
-                  postFixup = (old.postFixup or "") + sanitizer.testEnv;
-                  checkPhase = ''
-                    runHook preCheck
-                    export HOME=$TMPDIR
-                    pytest -m "not live"
-                    runHook postCheck
-                  '';
-                });
-          in
-          if builtins.getEnv "HUGGORM_SKIP_SUITE" == "1" then
-            sanitized.overridePythonAttrs { doCheck = false; }
-          else
-            sanitized;
-        ourPython = python3.withPackages (ps: [
-          self.huggorm-bindings
-          self.huggorm-generated
-          self.huggorm
-          # The generator imports them, so the interpreter every check
-          # runs against has to have them.
-          huggorm-gen
-          huggorm-decl
-          huggorm-dsl
-          # The suites run under pytest, in the devshell and in the build
-          # alike. pytest-timeout because a hung test is the failure this
-          # suite is most exposed to - a server that never came up, or a
-          # native crash that took a thread with it.
-          ps.pytest
-          ps.anyio
-          ps.pytest-timeout
-          # The file change source. A propagated dependency of huggorm,
-          # so the interpreter check and test run against needs it too.
-          ps.watchdog
-          # For `check`, which types the two `setup.py` files too.
-          ps.types-setuptools
-        ]);
+        huggorm = self.callPackage ./packages/huggorm { };
+        # nix build --file . suite, or 'lanes."nix_2_34-tsan".suite'
+        suite = self.callPackage ./packages/huggorm/suite.nix {
+          ruffConfig = ./ruff.toml;
+        };
+        ourPython = nixvenv {
+          python = python3;
+          packages = ps: [
+            self.huggorm-bindings
+            self.huggorm-generated
+            self.huggorm
+            # The generator imports them, so the interpreter every check
+            # runs against has to have them.
+            huggorm-gen
+            huggorm-decl
+            huggorm-dsl
+            # pytest-timeout because a hung test is the failure this
+            # suite is most exposed to - a server that never came up, or
+            # a native crash that took a thread with it.
+            ps.pytest
+            ps.anyio
+            ps.pytest-timeout
+            # For `check`, which types the two `setup.py` files too.
+            ps.types-setuptools
+          ];
+          executables = [
+            "python3"
+            "pytest"
+          ];
+        };
         # The emitted front door, into the working tree.
         #
         # `huggorm/__init__.py` is generated (nixidae/nixidae#601) and the tree keeps
@@ -408,19 +393,18 @@ rec {
           ${self.ourPython}/bin/python3 -P -c 'import huggorm, shutil; shutil.copyfile(huggorm.__file__, "packages/huggorm/huggorm/__init__.py")'
         '';
         # nix run --file . test -- [pytest args]
-        # HUGGORM_SKIP_SUITE=1 nix run --file . 'lanes."nix_2_34-tsan".test' -- [pytest args]
+        # nix run --file . 'lanes."nix_2_34-tsan".test' -- [pytest args]
         #
         # The WHOLE suite, outside the sandbox. A build has no daemon, no db
         # and no writable store, so anything that touches a real store cannot
-        # be a build check - and that half will only grow (nixidae/nixidae#574). The
-        # build runs `pytest -m "not live"`; this runs everything.
+        # be a build check - and that half will only grow (nixidae/nixidae#574).
+        # `suite` runs `pytest -m "not live"`; this runs everything.
         #
         # A sanitizer lane runs it under that sanitizer's `testEnv`.
-        # HUGGORM_SKIP_SUITE=1 skips the lane's sandboxed suite, which
-        # runs before this otherwise.
         #
-        # PYTHONPATH puts the working tree's huggorm ahead of the installed
-        # copy, so an edit is testable without a rebuild. huggorm_bindings
+        # `python -m` puts the working directory first on sys.path, so the
+        # tree's huggorm wins over the installed copy, and an edit is
+        # testable without a rebuild. huggorm_bindings
         # and huggorm_generated still come from the store: one is compiled
         # and the other is generated, so neither exists in the tree.
         #
@@ -458,7 +442,6 @@ rec {
             cd "''${HUGGORM_ROOT:-.}"
             ${self.frontDoor}
             cd packages/huggorm
-            export PYTHONPATH="$PWD''${PYTHONPATH:+:$PYTHONPATH}"
             # The oracle the devshell's live test runs: the CLI of the Nix the
             # bindings link, and a `bash` for its derivation's builder.
             export HUGGORM_ORACLE_NIX="${self.nix}/bin/nix"
@@ -476,7 +459,7 @@ rec {
             # breaks is this repo's named failure mode. One line names the
             # root instead, and a run that lost it says so.
             echo "temp: $PYTEST_DEBUG_TEMPROOT/pytest-of-$(id -un)"
-            exec pytest "$@"
+            exec python3 -m pytest "$@"
           '';
         };
       }
@@ -528,6 +511,7 @@ rec {
     nix-tcp-store-check
     ourPython
     frontDoor
+    suite
     test
     ;
 
@@ -703,17 +687,23 @@ rec {
     pkgs.runCommand "huggorm-bindings-src"
       {
         nativeBuildInputs = [
-          (python3.withPackages (_: [
-            huggorm-gen
-            huggorm-decl
-            huggorm-dsl
-          ]))
+          (nixvenv {
+            python = python3;
+            packages = _: [
+              huggorm-gen
+              huggorm-decl
+              huggorm-dsl
+            ];
+            executables = [ "python3" ];
+          })
         ];
       }
       ''
         mkdir -p "$out"
         python3 -m huggorm_gen.cppgen.generate "$out"
       '';
+
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix { lanes = lib.attrNames lanes; };
 
   shell = pkgs.mkShell {
     packages = [
@@ -722,7 +712,7 @@ rec {
     ];
     shellHook = # bash
       ''
-        export PYBIN="${lib.getExe ourPython}"
+        export PYBIN="${ourPython}/bin/python3"
       '';
   };
 }

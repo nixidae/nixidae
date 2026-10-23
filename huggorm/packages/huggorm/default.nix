@@ -6,22 +6,15 @@
   huggorm-gen,
   huggorm-decl,
   huggorm-dsl,
-  gitMinimal,
-  nix-tcp-store,
-  # The CLI of the Nix the bindings link, which `private_daemon` runs.
-  nix,
   ruff,
-  zuban,
-  # The suite branches on the `NIX_2_3x` names, and a type checker holds
-  # a name constant only when told to.
-  checkerFlags,
   ...
 }:
+# The suite runs against this package in `suite.nix`, not in a check phase
+# here, where only PYTHONPATH reaches the package (nixidae/nixidae#1046).
 python3Packages.buildPythonPackage {
   pname = "huggorm";
   version = "0.1.0";
   pyproject = true;
-  # `tests/` too: the check phase runs the suite.
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
@@ -29,7 +22,6 @@ python3Packages.buildPythonPackage {
       ./pyproject.toml
       ./setup.py
       ./huggorm
-      ./tests
     ];
   };
 
@@ -48,84 +40,21 @@ python3Packages.buildPythonPackage {
     huggorm-dsl
   ];
 
+  # The front door reads the declarations for the Nix the bindings link
+  # (nixidae/nixidae#592).
+  env.HUGGORM_NIX_VERSION = huggorm-bindings.nixVersion;
+  env.HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
+
   # generated is propagated so anyone writing code in/downstream of
   # huggorm sees huggorm_generated in their environment.
   # watchdog: the OS telling the watcher a file moved, instead of the
   # watcher stat-ing for it - inotify on Linux, FSEvents on macOS.
   # `huggorm/notify.py` says why it replaced asyncinotify.
   # msgpack: the value format of the Unix socket transport (nixidae/nixidae#714).
-  # The front door and the suite read the declarations for the Nix the
-  # bindings link (nixidae/nixidae#592).
-  env.HUGGORM_NIX_VERSION = huggorm-bindings.nixVersion;
-  env.HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
-  # The plugin `test_plugins.py` loads: built against this lane's Nix,
-  # as a plugin must be.
-  env.HUGGORM_TCP_STORE_PLUGINS = "${nix-tcp-store}/lib/nix/plugins";
-  env.HUGGORM_ORACLE_NIX = "${nix}/bin/nix";
-
   propagatedBuildInputs = [
     huggorm-bindings
     huggorm-generated
     python3Packages.watchdog
     python3Packages.msgpack
-  ];
-
-  # The integration suites run here, over a real Unix socket, under
-  # pytest. They used to be scripts with a hand-rolled
-  # check() and one giant main(), which meant no isolation, no way to
-  # run one of them, and a failure that stopped everything after it.
-  # That was survivable against a mock; against real Nix, where a
-  # failure can be a native crash, it is not.
-
-  # zuban is a mypy-compatible checker in Rust. Same flags, same
-  # diagnostics on this codebase, about thirty times faster - which is
-  # what makes it reasonable to run on every build rather than by hand.
-  #
-  # --python-executable, not MYPYPATH: a PEP 561 <pkg>-stubs package is
-  # only found through an interpreter's search path, never through
-  # MYPYPATH. Without it every binding type reads as Any and the check
-  # passes while proving nothing (nixidae/nixidae#564).
-  nativeCheckInputs = [
-    # The suite builds a git work tree for the git fetcher to read.
-    gitMinimal
-    ruff
-    zuban
-    python3Packages.pytest
-    python3Packages.anyio
-    python3Packages.pytest-timeout
-    # The generator, for the suite alone. Several tests hold an
-    # artifact - the descriptor set, the front door's __all__, the
-    # stubs - against what the build decided, and they get that by
-    # building the model (`declared_model()`) rather than by reading a
-    # dump of it (065). Not a runtime dependency: nothing in
-    # `huggorm/` imports it.
-    huggorm-gen
-    huggorm-decl
-    huggorm-dsl
-  ];
-
-  checkPhase = ''
-    runHook preCheck
-    export HOME=$TMPDIR
-    echo "--- lint ---"
-    ruff check --no-cache --config ${../../ruff.toml} .
-    echo "--- typecheck ---"
-    zuban mypy --strict \
-      --python-executable ${python3Packages.python.interpreter} \
-      ${checkerFlags} \
-      huggorm tests
-    echo "--- pytest (hermetic only) ---"
-    # -m "not live": a build sandbox has no daemon, no db and no
-    # writable store, so a test that needs one cannot run here. The
-    # rest of the suite runs on every build, as it always has. The
-    # live half runs from the devshell: nix run --file . test
-    # (nixidae/nixidae#574).
-    pytest -m "not live"
-    runHook postCheck
-  '';
-
-  pythonImportsCheck = [
-    "huggorm"
-    "huggorm_generated"
   ];
 }

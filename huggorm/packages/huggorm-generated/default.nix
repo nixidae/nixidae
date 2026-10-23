@@ -3,7 +3,6 @@
   python3Packages,
   # The Nix the surface describes (nixidae/nixidae#592).
   version,
-  zuban,
   ruff,
   # The declarations, and the reader that turns them into the model.
   # A build input: pygen imports it and calls it instead of reflecting
@@ -41,7 +40,6 @@ python3Packages.buildPythonPackage {
     python3Packages.anyio
   ];
 
-
   # anyio because a generated wrapper hands back the async spelling of
   # a type when the bindings declare one: Store.real_path returns a
   # pathlib.Path in process and an anyio.Path from the wrapper, so the
@@ -56,22 +54,6 @@ python3Packages.buildPythonPackage {
 
   env.HUGGORM_NIX_VERSION = version;
 
-  # The emitted package and the stubs, checked as a pair. This is the
-  # claim nixidae/nixidae#554 and nixidae/nixidae#564 make - that a consumer can be
-  # typechecked against the generated protocols - so it is worth
-  # holding rather than asserting.
-  #
-  # PYTHONPATH carries the build directory because the stub package is
-  # not installed yet, and a PEP 561 <pkg>-stubs directory is found
-  # only through an interpreter's search path (nixidae/nixidae#564).
-  nativeCheckInputs = [ zuban ];
-
-  checkPhase = ''
-    runHook preCheck
-    export PYTHONPATH="$PWD''${PYTHONPATH:+:$PYTHONPATH}"
-    zuban mypy --strict \
-      --python-executable ${python3Packages.python.interpreter} \
-      huggorm_generated
-    runHook postCheck
-  '';
+  # The emitted package and its stubs are typechecked as a pair by the
+  # lane's `suite`, against this package installed in a venv.
 }
