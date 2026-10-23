@@ -7,6 +7,7 @@ consumer (nixidae/nixidae#1041).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from huggorm_bindings.errors import NixTypeError
@@ -111,6 +112,86 @@ async def select_attr_path(
 async def select_attr(state: AsyncEvalState, value: AsyncValue, attrpath: str) -> AsyncValue:
     """`select_attr_path` over a dotted path, quoted components and all."""
     return await select_attr_path(state, value, parse_attr_path(attrpath))
+
+
+async def flake_outputs(state: AsyncEvalState, flake: AsyncValue) -> AsyncValue:
+    """The `outputs` of a called flake: what every `nix` command resolves against.
+
+    `call_flake` answers the outputs merged with the flake's metadata
+    (`inputs`, `narHash`, `outPath`, `sourceInfo`...). `openEvalCache` of
+    `flake.cc` selects `outputs` first; skipping it accepts `#outPath`
+    where `nix` reports the flake does not provide it.
+    """
+    return await select_attr(state, flake, "outputs")
+
+
+def show_attr_paths(paths: Sequence[str]) -> str:
+    """Quote and join `paths` as `showAttrPaths` of `installable-flake.cc` does.
+
+    `'a'`, `'a' or 'b'`, `'a', 'b' or 'c'`.
+    """
+    quoted = [f"'{path}'" for path in paths]
+    if len(quoted) <= 1:
+        return "".join(quoted)
+    return ", ".join(quoted[:-1]) + " or " + quoted[-1]
+
+
+@dataclass(frozen=True, slots=True)
+class AttrPathSearch:
+    """The attribute paths one command tries, in order.
+
+    These are `getDefaultFlakeAttrPathPrefixes` and `getDefaultFlakeAttrPaths`
+    of `SourceExprCommand`; `nix develop` puts `devShells` first, `nix run`
+    puts `apps` first. `prefixes` apply to a fragment, `defaults` to none.
+    Both empty means a fragment selects exactly what it says.
+    """
+
+    prefixes: tuple[str, ...] = ()
+    defaults: tuple[str, ...] = ()
+
+    def candidates(self, fragment: str | None) -> tuple[str, ...]:
+        """Every path to try for `fragment`, best first.
+
+        `InstallableFlake::getActualAttrPaths`: no fragment gives the
+        defaults; a leading `.` is stripped and the rest is the only
+        candidate; any other fragment goes under each prefix, then bare.
+        """
+        if not fragment:
+            return self.defaults
+        if fragment.startswith("."):
+            return (fragment[1:],)
+        return (*(f"{prefix}{fragment}" for prefix in self.prefixes), fragment)
+
+
+async def select_flake_attr(
+    state: AsyncEvalState,
+    outputs: AsyncValue,
+    search: AttrPathSearch,
+    fragment: str | None,
+    *,
+    flake_ref: str,
+) -> tuple[AsyncValue, str]:
+    """The first candidate of `search` that resolves, and its path.
+
+    None resolving raises `AttrPathError` with the message of
+    `InstallableFlake::getCursors`, plus the names where the furthest
+    candidate stopped: a list of paths alone does not say what the
+    flake does provide.
+    """
+    candidates = search.candidates(fragment)
+    if not candidates:
+        return outputs, ""
+    furthest: AttrPathNotFoundError | None = None
+    for candidate in candidates:
+        try:
+            return await select_attr(state, outputs, candidate), candidate
+        except AttrPathNotFoundError as exc:
+            if furthest is None or exc.depth > furthest.depth:
+                furthest = exc
+    message = f"flake {flake_ref!r} does not provide attribute {show_attr_paths(candidates)}"
+    if furthest is not None and furthest.available:
+        message = f"{message}; available attributes: {_describe(furthest.available)}"
+    raise AttrPathError(message)
 
 
 async def auto_call(state: AsyncEvalState, value: AsyncValue) -> AsyncValue:

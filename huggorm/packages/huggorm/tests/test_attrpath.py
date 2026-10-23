@@ -12,10 +12,14 @@ import pytest
 from huggorm.attrpath import (
     AttrPathError,
     AttrPathNotFoundError,
+    AttrPathSearch,
     auto_call,
+    flake_outputs,
     parse_attr_path,
     select_attr,
     select_attr_path,
+    select_flake_attr,
+    show_attr_paths,
 )
 from huggorm.session import AsyncSession
 from huggorm_generated import AsyncEvalState, AsyncValue
@@ -102,3 +106,64 @@ async def test_auto_call_follows_a_functor(state: Any) -> None:
 async def test_auto_call_answers_anything_else_as_it_is(state: Any, expr: str) -> None:
     value = await state.eval_expr(expr)
     assert await auto_call(state, value) is value
+
+
+def test_show_attr_paths_joins_as_nix_does() -> None:
+    assert show_attr_paths([]) == ""
+    assert show_attr_paths(["a"]) == "'a'"
+    assert show_attr_paths(["a", "b"]) == "'a' or 'b'"
+    assert show_attr_paths(["a", "b", "c"]) == "'a', 'b' or 'c'"
+
+
+BUILD = AttrPathSearch(
+    prefixes=("packages.x.", "legacyPackages.x."), defaults=("packages.x.default",)
+)
+
+
+@pytest.mark.parametrize(
+    ("fragment", "candidates"),
+    [
+        (None, ("packages.x.default",)),
+        ("", ("packages.x.default",)),
+        ("hello", ("packages.x.hello", "legacyPackages.x.hello", "hello")),
+        (".hello", ("hello",)),
+        (".", ("",)),
+    ],
+)
+def test_candidates_follow_get_actual_attr_paths(
+    fragment: str | None, candidates: tuple[str, ...]
+) -> None:
+    assert BUILD.candidates(fragment) == candidates
+
+
+async def test_flake_outputs_drops_the_metadata(state: Any) -> None:
+    flake = await state.eval_expr('{ outPath = "/x"; outputs = { a = "o"; }; }')
+    outputs = await flake_outputs(state, flake)
+    await state.force(outputs)
+    assert await outputs.names() == ["a"]
+
+
+async def test_select_flake_attr_takes_the_first_that_resolves(state: Any) -> None:
+    outputs = await state.eval_expr('{ legacyPackages.x.hello = "l"; hello = "b"; }')
+    value, path = await select_flake_attr(state, outputs, BUILD, "hello", flake_ref=".")
+    assert path == "legacyPackages.x.hello"
+    assert await text(state, value) == "l"
+
+
+async def test_select_flake_attr_with_no_candidates_answers_the_outputs(state: Any) -> None:
+    outputs = await state.eval_expr("{ }")
+    assert await select_flake_attr(state, outputs, AttrPathSearch(), None, flake_ref=".") == (
+        outputs,
+        "",
+    )
+
+
+async def test_select_flake_attr_names_every_candidate_and_the_furthest_names(state: Any) -> None:
+    outputs = await state.eval_expr("{ packages.x = { cowsay = 1; }; }")
+    message = (
+        r"flake '\.' does not provide attribute "
+        r"'packages\.x\.hello', 'legacyPackages\.x\.hello' or 'hello'; "
+        r"available attributes: cowsay"
+    )
+    with pytest.raises(AttrPathError, match=message):
+        await select_flake_attr(state, outputs, BUILD, "hello", flake_ref=".")
