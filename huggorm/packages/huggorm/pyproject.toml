@@ -32,6 +32,10 @@ fod = ["tree-sitter", "tree-sitter-nix"]
 include = ["huggorm*"]
 exclude = ["tests*"]
 
+[tool.setuptools.package-data]
+# PEP 561: a type checker reads this package's own annotations.
+huggorm = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # anyio's runner, not pytest-asyncio's. auto: every async test runs
