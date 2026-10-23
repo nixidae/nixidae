@@ -5,7 +5,7 @@ One repository, twelve sources (`nix/members.nix`): eleven projects and `dotgith
 ## Rules
 
 - Commit here only. A push straight to an exported repository is not brought back, and the next export refuses to overwrite it.
-- One tracker: nixidae/nixidae. Every issue of the exported repositories moved here on 2026-10-19, and they have issues turned off. An old `nixidae/<source>#N` URL redirects, but `gh issue view` on it fails: use `gh api repos/nixidae/<source>/issues/N --jq .html_url`, or `nix/issue-migration/map.jsonl`.
+- One tracker: nixidae/nixidae. Every issue of the exported repositories moved here on 2026-10-19. Every exported repository has issues and pull requests turned off; a new source's repository is created that way (`gh api -X PATCH repos/nixidae/<source> -F has_issues=false -F has_pull_requests=false`). An old `nixidae/<source>#N` URL redirects, but `gh issue view` on it fails: use `gh api repos/nixidae/<source>/issues/N --jq .html_url`, or `nix/issue-migration/map.jsonl`.
 - Labels: one `source: <name>` per issue (`source: monorepo` for josh, lock-subtrees, shared CI and pins), plus `upstream` or `needs decision` when they apply. The kind is the issue type (Bug, Feature, Task), not a label.
 - `user-initiated`: Agent never starts it; User does. Sub-items the issue marks for agents are open (#866: nanopynix to huggorm).
 - `off-main`: work on its own bookmark in its own workspace; nothing lands on `main` (#868: fix).
