@@ -396,7 +396,10 @@ in
     {
       installTargets = [ ];
       preInstall = "";
+      # buildLinux builds out of tree, in $buildRoot, and newer nixpkgs no
+      # longer leaves installPhase standing in it.
       installPhase = ''
+        cd "$buildRoot"
         mkdir -p $out $dev $modules
         cp -v linux $out/
         cp -v System.map $out/
