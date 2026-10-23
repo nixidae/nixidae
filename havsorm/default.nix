@@ -19,14 +19,22 @@ let
   python3 = huggorm.python;
   # nixpkgs builds Salt as an application. The tests import it.
   salt = python3.pkgs.toPythonModule pkgs.salt;
+  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  saltExecutables = [
+    "salt"
+    "salt-call"
+    "salt-key"
+    "salt-master"
+    "salt-minion"
+    "salt-run"
+  ];
 in
 rec {
   inherit huggorm pkgs salt;
 
   # nix build --file . havsorm
   #
-  # Lints, then runs the suite: the loader finds the renderer through
-  # the installed entry point, and `salt-call --local` renders an SLS.
+  # The package alone. `suite` tests it.
   havsorm = python3.pkgs.buildPythonPackage {
     pname = "havsorm";
     version = "0.1.0";
@@ -38,23 +46,38 @@ rec {
         ./README.md
         ./LICENSE
         ./src
-        ./tests
       ];
     };
     build-system = [ python3.pkgs.setuptools ];
     dependencies = [ huggorm.huggorm ];
-    nativeCheckInputs = [
-      python3.pkgs.pytestCheckHook
-      salt
-      pkgs.ruff
-    ];
-    preCheck = ''
-      ruff check --no-cache src tests
-    '';
-    # Not the renderer: it imports Salt, which runs havsorm and is not
-    # one of its dependencies.
-    pythonImportsCheck = [ "havsorm" ];
   };
+
+  # nix build --file . suite
+  #
+  # Lints, then runs the suite against the installed package in a venv:
+  # the loader finds the renderer through the installed entry point, and
+  # `salt-call --local` renders an SLS.
+  suite =
+    let
+      src = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./pyproject.toml
+          ./src
+          ./tests
+        ];
+      };
+    in
+    pkgs.runCommand "havsorm-suite" { nativeBuildInputs = [ pkgs.ruff ]; } ''
+      cp -r --no-preserve=mode ${src} source
+      cd source
+      export HOME=$TMPDIR
+      ruff check --no-cache src tests
+      # The `pytest` script, not `python -m`, so `src/` stays off sys.path
+      # and the installed package is tested.
+      ${python}/bin/pytest -p no:cacheprovider tests
+      touch $out
+    '';
 
   # The Salt bundle Uyuni and SUSE Multi-Linux Manager put on a client:
   # Salt 3006.0 on its own Python 3.11. The EL8 build, for PyPA's
@@ -89,8 +112,7 @@ rec {
   bundle =
     let
       manylinux = huggorm.lanes.nix_2_34.manylinux;
-      # The wheel without the suite: this gate and the suite each judge.
-      wheel = (havsorm.overridePythonAttrs { doCheck = false; }).dist;
+      wheel = havsorm.dist;
       venv = "${venvSaltMinion}/usr/lib/venv-salt-minion";
     in
     manylinux.build {
@@ -148,10 +170,14 @@ rec {
 
   # Salt with havsorm, for a minion or a master: bin/salt-minion and the
   # rest run on this Python.
-  saltEnv = python3.withPackages (_: [
-    (havsorm.overridePythonAttrs { doCheck = false; })
-    salt
-  ]);
+  saltEnv = nixvenv {
+    python = python3;
+    packages = _: [
+      havsorm
+      salt
+    ];
+    executables = [ "python" ] ++ saltExecutables;
+  };
 
   # The NixOS module that runs nixpkgs' Salt services from `saltEnv`.
   nixosModule = ./nix/nixos.nix;
@@ -165,12 +191,17 @@ rec {
   };
 
   # nix run --file . python -- -m pytest
-  #
-  # Without the suite, so a red suite does not block the loop that
-  # debugs it.
-  python = python3.withPackages (_: [
-    (havsorm.overridePythonAttrs { doCheck = false; })
-    salt
-    python3.pkgs.pytest
-  ]);
+  python = nixvenv {
+    python = python3;
+    packages = ps: [
+      havsorm
+      salt
+      ps.pytest
+    ];
+    executables = [
+      "python"
+      "pytest"
+    ]
+    ++ saltExecutables;
+  };
 }
