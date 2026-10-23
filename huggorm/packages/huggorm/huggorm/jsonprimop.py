@@ -14,9 +14,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import TypeAliasType
+
 from huggorm_bindings.errors import EvalError
 from huggorm_generated._runtime import BaseRunner
-from typing_extensions import TypeAliasType
 
 if TYPE_CHECKING:
     from collections.abc import Callable

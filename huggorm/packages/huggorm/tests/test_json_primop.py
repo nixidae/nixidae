@@ -20,7 +20,7 @@ async def state() -> Any:
 def test_json_value_is_a_named_recursive_alias() -> None:
     """A plain `TypeAlias` string names itself, and pydantic recursed on it
     without end when ekn built a `TypeAdapter` of it."""
-    from typing_extensions import TypeAliasType
+    from typing_extensions import TypeAliasType  # noqa: UP035 -- jsonprimop's class
 
     from huggorm.jsonprimop import JsonValue
 
