@@ -111,6 +111,22 @@ def _process_fanout() -> Fanout:
 
 
 @contextlib.asynccontextmanager
+async def _capture(reader: Reader) -> AsyncIterator[CapturedLogs]:
+    """Collect what `reader` gets while the block runs. `capture` says
+    what this promises."""
+    out = CapturedLogs(records=[])
+    try:
+        yield out
+    finally:
+        # Shielded, as in `logs`: a cancelled block still drains
+        # and still unsubscribes.
+        with anyio.CancelScope(shield=True):
+            out.records.extend(await reader.drain())
+            out.dropped = max(out.dropped, await reader.dropped())
+            await reader.close()
+
+
+@contextlib.asynccontextmanager
 async def _forward(reader: Reader, callback: Callable[[LogRecord], None]) -> AsyncIterator[None]:
     """Pump `reader` into `callback` while the block runs. `forward`
     says what this promises."""
@@ -324,17 +340,20 @@ class AsyncSession:
         the way out however the block ends, and leaves the shared
         subscription, as `logs` does.
         """
-        reader = await _fanout(state).join(capacity, level)
-        out = CapturedLogs(records=[])
-        try:
+        async with _capture(await _fanout(state).join(capacity, level)) as out:
             yield out
-        finally:
-            # Shielded, as in `logs`: a cancelled block still drains
-            # and still unsubscribes.
-            with anyio.CancelScope(shield=True):
-                out.records.extend(await reader.drain())
-                out.dropped = max(out.dropped, await reader.dropped())
-                await reader.close()
+
+    @contextlib.asynccontextmanager
+    async def capture_process(
+        self,
+        capacity: int = LOG_CAPACITY,
+        level: int = LOG_LEVEL,
+    ) -> AsyncIterator[CapturedLogs]:
+        """`capture` for the process stream, as `forward_process` is
+        `forward` for it. A build that fails reports the cause of a
+        failed dependency here, not in its own error."""
+        async with _capture(await _process_fanout().join(capacity, level)) as out:
+            yield out
 
     async def aclose(self) -> None:
         """Close the evaluators, then the stores, and report together.
