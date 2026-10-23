@@ -105,6 +105,14 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       # be typechecked against the generated protocols.
       zuban mypy --strict --python-executable ${python} \
         ${huggorm-generated}/${python3.sitePackages}/huggorm_generated
+      echo "--- syntax: what ships parses on the floor, 3.11 ---"
+      # The packages' `requires-python`, held against what was installed:
+      # pygen copies into `huggorm_generated`, past the tree's lint
+      # (nixidae/nixidae#1047).
+      ruff check --no-cache --isolated --target-version py311 --select E9 \
+        ${huggorm}/${python3.sitePackages}/huggorm \
+        ${huggorm-generated}/${python3.sitePackages}/huggorm_generated \
+        ${huggorm-bindings}/${python3.sitePackages}/huggorm_bindings
     ''
     + lib.optionalString (sanitizer != null) sanitizer.testEnv
     + ''

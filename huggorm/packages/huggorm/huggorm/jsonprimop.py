@@ -12,7 +12,7 @@ read from a store path keeps the dependency on it.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from huggorm_bindings.errors import EvalError
 from huggorm_generated._runtime import BaseRunner
@@ -23,7 +23,8 @@ if TYPE_CHECKING:
     from huggorm_bindings import EvalState, Value
     from huggorm_generated import AsyncEvalState
 
-type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
+# A string: 3.11 has no `type` statement, and the alias names itself.
+JsonValue: TypeAlias ="bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None"
 
 
 def _value(state: EvalState, obj: object, context: list[str]) -> Value:

@@ -6,13 +6,17 @@ writes the same classes into `_policy`, and the server builds
 into the generated package as `_shapes.py`, so the generated package
 never imports huggorm-dsl at run time.
 
-The standard library only: this file runs in both places.
+The standard library only, and Python 3.11 syntax: this file runs in
+both places, and the generated package runs on 3.11.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Generic, TypeVar
+
+A = TypeVar("A")
 
 
 # nixidae/nixidae#622.
@@ -53,7 +57,7 @@ class Scalar(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class Leaf[A]:
+class Leaf(Generic[A]):
     """A node that crosses as one scalar. `wire` is its declared type,
     which picks the arm of the value message; `read` answers it."""
 
@@ -67,7 +71,7 @@ class Null:
 
 
 @dataclass(frozen=True, slots=True)
-class Items[A]:
+class Items(Generic[A]):
     """A node that holds values by position: `size` counts them and
     `item(i)` reads one."""
 
@@ -76,7 +80,7 @@ class Items[A]:
 
 
 @dataclass(frozen=True, slots=True)
-class Entries[A]:
+class Entries(Generic[A]):
     """A node that holds values by name: `size` counts them, and
     `name(i)` and `value(i)` read one."""
 
@@ -86,7 +90,7 @@ class Entries[A]:
 
 
 @dataclass(frozen=True, slots=True)
-class Tree[A]:
+class Tree(Generic[A]):
     """How a value that HOLDS other values is walked.
 
     Declared next to the binding, because only the declaration knows
@@ -116,7 +120,7 @@ class Tree[A]:
 
 
 @dataclass(frozen=True, slots=True)
-class Builds[A]:
+class Builds(Generic[A]):
     """How Python data becomes a value, by the methods of the type that
     makes values.
 

@@ -66,9 +66,13 @@ select = [
 # anchored path matches in only one of the two.
 "**/decl/*.py" = ["F821", "UP037", "PIE790"]
 
-# UP046: the payload ships into `huggorm_generated`, which runs on
-# 3.11, and PEP 695 type parameters arrived in 3.12.
-"**/payload/*.py" = ["UP046"]
+# What ships to Python 3.11: huggorm itself, and what pygen copies into
+# `huggorm_generated`. ruff reports newer syntax there as an error, and
+# pyupgrade stops asking for it (nixidae/nixidae#1047).
+[per-file-target-version]
+"**/huggorm/*.py" = "py311"
+"**/payload/*.py" = "py311"
+"**/huggorm_dsl/shapes.py" = "py311"
 
 [lint.isort]
 # test_remote holds the shared harness the other suites import. Left
