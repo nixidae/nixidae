@@ -1,6 +1,6 @@
 # The checks of the root itself: every rendered `<source>-*.yml` is what its
-# source says, calling a flake we do not own uses our pins, and every source
-# is Apache-2.0. Each source's
+# source says, calling a flake we do not own uses our pins, every source
+# is Apache-2.0, and no source sets PYTHONPATH. Each source's
 # own tests run in its `<source>-*.yml`.
 name: checks
 
@@ -20,4 +20,4 @@ jobs:
             access-tokens = github.com=${{ github.token }}
         timeout-minutes: 15
       - name: Root checks
-        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses --no-link --print-build-logs
+        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath --no-link --print-build-logs

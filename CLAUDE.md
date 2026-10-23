@@ -32,7 +32,7 @@ Landing from a secondary workspace: then advance the default workspace, `~/Code/
 ## Gates
 
 ```sh
-nix build --file . checks.ciWorkflows checks.callFlake checks.licenses
+nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath
 nix run --file . lock-subtrees -- --check
 ```
 
