@@ -852,9 +852,6 @@ class Container:
                 ),
             ],
             pass_fds=tuple(lan_fds.values()),
-            # A Nix-wrapped program carries its imports in the script, not
-            # the environment, so the launcher gets this process's path.
-            env=dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, sys.path))),
             agent_path=agent_dir / "sock",
             cleanup=cleanup,
         )

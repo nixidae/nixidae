@@ -454,7 +454,6 @@ def tap_fails() -> str | None:
         [sys.executable, "-c", _TAP_PROBE],
         capture_output=True,
         text=True,
-        env=dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, sys.path))),
     )
     if done.returncode == 0:
         return None

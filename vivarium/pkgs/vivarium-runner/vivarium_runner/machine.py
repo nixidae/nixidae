@@ -844,9 +844,6 @@ class Machine:
             sys.executable, "-m", "vivarium_runner.crun_launch", "attach", "--pid", pid, *paths,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            # As the launcher gets it: the runner's interpreter alone does
-            # not find this package.
-            env=dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, sys.path))),
         )
         out, _ = await proc.communicate()
         if proc.returncode != 0:

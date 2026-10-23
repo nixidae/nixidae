@@ -5,22 +5,27 @@
 # is the point of the exercise -- easykubenix drives `ekn kubeapply` against a
 # cluster this builds -- so they are a file that takes a package set.
 #
-#     let vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+#     let vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
 #     in vivarium.mkTest { name = "..."; script = ./mine.py; nodes = { ... }; }
 #
 # Nothing here is specific to the tests in this repository. `flake.nix` and
 # `default.nix` both call it, so the two doors cannot drift apart.
 {
+  # A caller passes its own, so nixvenv comes from the same nixidae as it.
+  sources ? import ./nix/sources.nix,
   pkgs,
   lib ? pkgs.lib,
 }:
+let
+  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+in
 rec {
   /*
     The library a test script imports, reachable without evaluating a
     guest: a caller puts it in the Python it type checks with.  It carries
     `py.typed`, so pyright reads `vms.node` as a `Machine`.
 
-        python3.withPackages (_: [ vivarium.runner ])
+        nixvenv { python = pkgs.python3; packages = _: [ vivarium.runner ]; }
   */
   runner = pkgs.callPackage ./pkgs/vivarium-runner { };
 
@@ -31,6 +36,17 @@ rec {
     is not going away. See `docs/design/history/running-anywhere.md`.
   */
   session = pkgs.callPackage ./pkgs/vivarium { vivarium-runner = runner; };
+
+  /**
+    The `vivarium` program, in a venv that holds `session`. A child of
+    `sys.executable` then imports what the program imports, with no
+    PYTHONPATH: the runner starts its launcher and its probes that way.
+  */
+  cli = nixvenv {
+    python = pkgs.python3;
+    packages = _: [ session ];
+    executables = [ "vivarium" ];
+  };
 
   /**
     Other distributions' cloud images, for `vivarium.image`:
@@ -61,14 +77,16 @@ rec {
     let
       # `session` brings pytest with it, so a pytest phase's tests and
       # conftest check against the same pytest that runs them.
-      python = pkgs.python3.withPackages (
-        _:
-        [
-          runner
-          session
-        ]
-        ++ extraPackages
-      );
+      python = nixvenv {
+        python = pkgs.python3;
+        packages =
+          _:
+          [
+            runner
+            session
+          ]
+          ++ extraPackages;
+      };
 
       # pyright's rule names, the way `writePython3Bin`'s `flakeIgnore`
       # is flake8's codes.
@@ -258,7 +276,12 @@ rec {
     }:
     pkgs.runCommand "vivarium-container-probe${lib.optionalString tun "-tun"}"
       {
-        nativeBuildInputs = [ (runner.pythonModule.withPackages (_: [ runner ])) ];
+        nativeBuildInputs = [
+          (nixvenv {
+            python = runner.pythonModule;
+            packages = _: [ runner ];
+          })
+        ];
         requiredSystemFeatures = [ "uid-range" ];
       }
       ''
@@ -450,7 +473,7 @@ rec {
             unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
             # The runner that knows every field below. No cycle: the
             # package does not depend on any spec.
-            vivarium = "${session}";
+            vivarium = "${cli}";
             pythonPath = map (path: "${path}") checkedConfig.pythonPath;
             knobs = checkedConfig.resolved;
             phases = map (
@@ -494,7 +517,7 @@ rec {
         )
       );
 
-      vivarium = lib.getExe session;
+      vivarium = lib.getExe cli;
 
       /*
         The run outside the sandbox.

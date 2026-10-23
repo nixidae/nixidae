@@ -28,14 +28,16 @@
 }:
 let
   inherit (pkgs) lib;
+  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
 
-  vivarium = import ./lib.nix { inherit pkgs lib; };
+  vivarium = import ./lib.nix { inherit pkgs lib sources; };
   inherit (vivarium)
     mkNode
     mkTest
     fromNixosTest
     runner
     session
+    cli
     typeCheck
     images
     ;
@@ -894,7 +896,11 @@ let
       # plain python3: the agent runs on it, so the guest has it already.
       settings.python =
         let
-          env = pkgs.python3.withPackages (ps: [ ps.requests ]);
+          env = nixvenv {
+            python = pkgs.python3;
+            packages = ps: [ ps.requests ];
+            executables = [ "python3" ];
+          };
         in
         {
           closure = "${pkgs.closureInfo { rootPaths = [ env ]; }}";
@@ -1282,7 +1288,7 @@ let
         };
       in
       pkgs.runCommand "vivarium-check-cleanup" { passthru.session = run; } ''
-        ${pkgs.python3.interpreter} ${./tests/cleanup.py} ${lib.getExe session} ${run.spec} "$TMPDIR"
+        ${pkgs.python3.interpreter} ${./tests/cleanup.py} ${lib.getExe cli} ${run.spec} "$TMPDIR"
         touch $out
       '';
 
@@ -1299,7 +1305,7 @@ let
         };
       in
       pkgs.runCommand "vivarium-check-live-exec" { passthru.session = run; } ''
-        ${pkgs.python3.interpreter} ${./tests/live-exec.py} ${lib.getExe session} ${run.spec} "$TMPDIR"
+        ${pkgs.python3.interpreter} ${./tests/live-exec.py} ${lib.getExe cli} ${run.spec} "$TMPDIR"
         touch $out
       '';
 
@@ -1320,7 +1326,7 @@ let
         };
       in
       pkgs.runCommand "vivarium-check-copy-commands" { passthru.session = run; } ''
-        ${pkgs.python3.interpreter} ${./tests/copy-commands.py} ${lib.getExe session} ${run.spec} "$TMPDIR"
+        ${pkgs.python3.interpreter} ${./tests/copy-commands.py} ${lib.getExe cli} ${run.spec} "$TMPDIR"
         touch $out
       '';
 
@@ -1493,7 +1499,7 @@ let
         ''
           export HOME="$TMPDIR"
           o="$TMPDIR/run"
-          ctl() { ${lib.getExe session} ctl --out "$o" "$@"; }
+          ctl() { ${lib.getExe cli} ctl --out "$o" "$@"; }
           fail() { echo "$*" >&2; kill "$pid" 2>/dev/null; exit 1; }
 
           ${lib.getExe run.driver} --out "$o" --break later > run.log 2>&1 &
@@ -1875,8 +1881,8 @@ in
 tests
 // {
   # The library, for a caller that writes its own test.
-  inherit mkNode mkTest fromNixosTest runner session typeCheck images;
-  lib = { inherit mkNode mkTest fromNixosTest runner session typeCheck images; };
+  inherit mkNode mkTest fromNixosTest runner session cli typeCheck images;
+  lib = { inherit mkNode mkTest fromNixosTest runner session cli typeCheck images; };
 
   inherit demo store k8s-pull uplink incr;
   inherit (demo.config.system.build) vivariumRunner vivariumRootImage toplevel;

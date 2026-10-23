@@ -187,7 +187,7 @@ rec {
   # A master, a NixOS minion and an openSUSE minion on vivarium.
   fleet = import ./nix/fleet.nix {
     inherit pkgs saltEnv;
-    vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+    vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
   };
 
   # nix run --file . python -- -m pytest

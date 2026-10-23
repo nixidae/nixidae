@@ -479,7 +479,7 @@ rec {
       # nix build --file . lanes.nix_2_35.manylinux.checks
       // lib.optionalAttrs (wheels && gc && sanitizer == null) {
         manylinux = self.callPackage ./nix/manylinux {
-          vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+          vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
         };
       }
     );
