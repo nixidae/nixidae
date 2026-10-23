@@ -287,6 +287,11 @@ rec {
         # `-e`. An expression belongs in `if:`; the rule about a `run:` body
         # does not reach here.
         "if" = "runner.os == 'Linux'";
+        # The step reads nothing of the tree, and a job may run it before the
+        # checkout. A workflow-wide `working-directory` names a directory that
+        # does not exist yet then, and the runner fails the step before bash
+        # starts.
+        working-directory = "/";
         run = lib.concatStringsSep "; " [
           "df -h /"
           "sudo rm -rf ${lib.concatStringsSep " " removable}"
