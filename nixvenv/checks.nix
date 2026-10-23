@@ -17,6 +17,12 @@ let
       pytest = "venv-pytest";
     };
   };
+  # The sandbox's own build directory, so the check can write into it.
+  live = "/build/live";
+  editableVenv = nixvenv {
+    python = python3;
+    editable = [ live ];
+  };
 in
 {
   # What a venv promises, measured from inside it and from a child of it.
@@ -43,6 +49,15 @@ in
     check(child.stdout.strip() == venv, f"a child of sys.executable starts in {child.stdout.strip()}")
     EOF
     ${venv}/bin/venv-pytest --version
+    touch $out
+  '';
+
+  # A module written after the build imports from the editable directory.
+  editable = runCommand "nixvenv-check-editable" { } ''
+    set -eu
+    mkdir -p ${live}
+    echo 'WHERE = __file__' > ${live}/livemod.py
+    ${editableVenv}/bin/python -c 'import livemod; assert livemod.WHERE == "${live}/livemod.py", livemod.WHERE'
     touch $out
   '';
 }

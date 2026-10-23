@@ -3,6 +3,7 @@
   buildEnv,
   makeBinaryWrapper,
   runCommand,
+  writeTextDir,
 }:
 /**
   A Python interpreter that starts as a real venv: `sys.prefix` is the venv,
@@ -27,6 +28,12 @@
     `null` keeps the name. Default `{ python = null; }`. A list of names is
     shorthand for every one mapped to `null`.
 
+  `editable`
+  : Source directories the venv imports from in place, through a `.pth` file:
+    an edit there reaches the next import with no rebuild. Each one is a path
+    or an absolute string outside the store; a path is not copied. Default
+    `[ ]`.
+
   # Example
 
   ```nix
@@ -43,12 +50,19 @@
   executables ? {
     python = null;
   },
+  editable ? [ ],
 }:
 let
   modules = python.pkgs.requiredPythonModules (packages python.pkgs);
+  editableDirs = map toString editable;
+  inStore = lib.filter (d: lib.hasPrefix builtins.storeDir d || !lib.hasPrefix "/" d) editableDirs;
   site = buildEnv {
     name = "${python.name}-venv-site";
-    paths = modules;
+    paths =
+      modules
+      ++ lib.optional (editable != [ ]) (
+        writeTextDir "${python.sitePackages}/nixvenv-editable.pth" (lib.concatLines editableDirs)
+      );
     pathsToLink = [ "/${python.sitePackages}" ];
   };
   interpreter = "${python}/bin/${python.executable}";
@@ -88,6 +102,8 @@ in
 assert lib.assertMsg (
   duplicates == [ ]
 ) "nixvenv: executables maps several names to ${lib.concatStringsSep ", " duplicates}";
+assert lib.assertMsg (inStore == [ ])
+  "nixvenv: editable takes absolute paths outside the store, not ${lib.concatStringsSep ", " inStore}";
 runCommand "${python.name}-venv"
   {
     nativeBuildInputs = [ makeBinaryWrapper ];
