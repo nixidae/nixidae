@@ -19,12 +19,6 @@ let
     "nanopynix/nanopynix-testing/src/nanopynix_testing/beartype_hook.py" = "#866";
     # pytest-agent supports a run from PYTHONPATH with no install metadata.
     "nanopynix/pytest-agent/tests/conftest.py" = "a supported install mode";
-    # The planner's build steps, until #1046 decides their shape.
-    "pydd/lib/core/planner.nix" = "#1046";
-    "pydd/src/pydd/python/_hook.py" = "#1046";
-    "pydd/src/pydd/python/scripts/build-local.py" = "#1046";
-    "pydd/src/pydd/python/scripts/build-sdist.sh" = "#1046";
-    "pydd/src/pydd/python/scripts/install-wheel.sh" = "#1046";
   };
   pattern = ''(^|[^A-Za-z0-9_])PYTHONPATH("\]?)?[[:space:]]*=[^=]|(^|[^A-Za-z0-9_])PYTHONPATH"[[:space:]]*:|setenv\("PYTHONPATH"'';
 in
