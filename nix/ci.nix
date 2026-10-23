@@ -12,6 +12,7 @@
   lib,
   pkgs,
   ghanix,
+  nixvenv,
   sets,
 }:
 let
@@ -68,7 +69,13 @@ let
     name: workflow:
     pkgs.runCommand "${name}.yml"
       {
-        nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyyaml ])) ];
+        nativeBuildInputs = [
+          (nixvenv {
+            python = pkgs.python3;
+            packages = ps: [ ps.pyyaml ];
+            executables = [ "python3" ];
+          })
+        ];
         value = builtins.toJSON workflow;
         passAsFile = [ "value" ];
       }

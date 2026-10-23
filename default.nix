@@ -83,6 +83,7 @@ rec {
   ci = import ./nix/ci.nix {
     inherit (pkgs) lib;
     inherit pkgs ghanix;
+    inherit (nixvenv) nixvenv;
     sets = {
       inherit
         easykubenix
