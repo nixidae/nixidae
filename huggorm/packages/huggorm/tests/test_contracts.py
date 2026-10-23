@@ -174,6 +174,29 @@ Everything behind the front door
     assert all(hasattr(huggorm, n) for n in huggorm.__all__)
 
 
+def test_every_object_behind_the_front_door_reaches_a_caller() -> None:
+    """The test above compares NAMES, and a name can hide an object.
+
+    `collect_garbage` is a binding in `huggorm_bindings` and a coroutine
+    in `huggorm_generated`. The front door keeps the binding, so the
+    name test passes even when no module a caller imports holds the
+    coroutine. So this asks for each OBJECT: the one at `huggorm.X` or
+    the one at `huggorm.aio.X` must be it."""
+    import huggorm
+    import huggorm.aio
+    import huggorm_bindings
+    import huggorm_generated
+
+    lost = sorted(
+        f"{pkg.__name__}.{name}"
+        for pkg in (huggorm_bindings, huggorm_generated)
+        for name in pkg.__all__
+        if getattr(pkg, name) is not getattr(huggorm, name, None)
+        and getattr(pkg, name) is not getattr(huggorm.aio, name, None)
+    )
+    assert not lost, f"no front door carries these objects: {lost}"
+
+
 def test_every_name_the_model_DECLARES_reaches_the_front_door() -> None:
     """The same question as above, asked of the model instead.
 

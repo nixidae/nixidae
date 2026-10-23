@@ -403,7 +403,7 @@ rec {
         #
         # Run from the repository root.
         frontDoor = ''
-          ${self.ourPython}/bin/python3 -P -c 'import huggorm, shutil; shutil.copyfile(huggorm.__file__, "packages/huggorm/huggorm/__init__.py")'
+          ${self.ourPython}/bin/python3 -P -c 'import huggorm, huggorm.aio, shutil; shutil.copyfile(huggorm.__file__, "packages/huggorm/huggorm/__init__.py"); shutil.copyfile(huggorm.aio.__file__, "packages/huggorm/huggorm/aio.py")'
         '';
         # nix run --file . test -- [pytest args]
         # nix run --file . 'lanes."nix_2_34-tsan".test' -- [pytest args]

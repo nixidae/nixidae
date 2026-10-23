@@ -39,6 +39,8 @@ packages/huggorm-generated/huggorm_generated/
 # no `__init__.py` here Python prefers the store's regular package
 # and the dev loop would lose every other file in the directory too.
 packages/huggorm/huggorm/__init__.py
+# Its async twin, written beside it for the same reason.
+packages/huggorm/huggorm/aio.py
 packages/huggorm-generated/huggorm_bindings-stubs/
 
 # generated C++

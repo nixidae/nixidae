@@ -93,8 +93,8 @@ LOCAL: dict[str, list[str]] = {
 # Imported as a MODULE rather than for the names in it. `huggorm.errors`
 # is how a caller writes `except huggorm.errors.BadStorePath`, and the
 # classes in it are the emitted hierarchy rather than a list this could
-# carry.
-LOCAL_MODULES: list[str] = ["errors"]
+# carry. `huggorm.aio` is the second front door, below.
+LOCAL_MODULES: list[str] = ["aio", "errors"]
 
 # Where the union aliases live. Not `huggorm_generated` itself: the
 # package re-exports classes and functions, and an alias is neither.
@@ -158,10 +158,11 @@ def exports(bindings: list[str], generated: list[str],
     }
     for module, names in LOCAL.items():
         out.setdefault(module, []).extend(names)
-    # A name in both packages reaches the caller once, from the one
-    # that DEFINES it. `collect_garbage` is bound in the bindings and
-    # wrapped in the generated package under the same name, and two
-    # imports of one name is the later one silently winning.
+    # A name in both packages reaches the caller once here, from the
+    # one that DEFINES it. `collect_garbage` is bound in the bindings
+    # and wrapped in the generated package under the same name, and
+    # two imports of one name is the later one silently winning. The
+    # coroutine reaches the caller through `huggorm.aio` instead.
     seen: set[str] = set()
     for module in list(out):
         keep = [n for n in sorted(set(out[module])) if n not in seen]
@@ -206,17 +207,51 @@ def module(bindings: list[str], generated: list[str],
     return ast.unparse(out)
 
 
-def emit(out_dir: str, model: ir.Model) -> str:
-    """Write `__init__.py` into the package directory, and say where."""
+AIO_DOC = '''
+The async free functions, under the names of the sync ones.
+
+    from huggorm import aio
+
+    entries = await aio.registry_entries(store)
+
+`huggorm.registry_entries` is the binding, which blocks and takes a
+`Store`. `huggorm.aio.registry_entries` is the coroutine over it,
+which takes a `Store` or an `AsyncStore` and runs the call on the
+shared pool. One name cannot hold both, so the front door keeps the
+binding and this module keeps the coroutine.
+'''
+
+
+def aio_module(coroutines: list[str]) -> str:
+    """`huggorm/aio.py`, as source: each coroutine by its plain name."""
+    names = sorted(coroutines)
+    body: list[ast.stmt] = [
+        ast.Expr(value=ast.Constant(value=AIO_DOC)),
+        ast.ImportFrom(module=GENERATED,
+                       names=[ast.alias(name=n, asname=n) for n in names],
+                       level=0),
+        ast.Assign(targets=[ast.Name(id="__all__")],
+                   value=ast.List(elts=[ast.Constant(value=n) for n in names])),
+    ]
+    out = ast.Module(body=body, type_ignores=[])
+    ast.fix_missing_locations(out)
+    return ast.unparse(out)
+
+
+def emit(out_dir: str, model: ir.Model) -> list[str]:
+    """Write `__init__.py` and `aio.py` into the package directory, and
+    say where."""
     import pathlib
 
-    from huggorm_gen.pygen.emitter import package_exports
+    from huggorm_gen.pygen.emitter import package_exports, wrapped_functions
 
     bindings = [n for names in model.exports.values() for n in names]
     generated = package_exports(model)
     unions = sorted(model.unions)
 
-    target = pathlib.Path(out_dir) / "__init__.py"
-    target.write_text(module(bindings, generated, unions) + "\n")
-    format_paths(target)
-    return str(target)
+    front = pathlib.Path(out_dir) / "__init__.py"
+    front.write_text(module(bindings, generated, unions) + "\n")
+    aio = pathlib.Path(out_dir) / "aio.py"
+    aio.write_text(aio_module(wrapped_functions(model)) + "\n")
+    format_paths(front, aio)
+    return [str(front), str(aio)]
