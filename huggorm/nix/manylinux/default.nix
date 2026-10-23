@@ -67,7 +67,84 @@ let
   # Only a package has `pythonModule`.
   pythonClosure =
     packages: lib.filter (p: p ? pythonModule) (python3.pkgs.requiredPythonModules packages);
-  pythonPath = lib.concatMapStringsSep ":" (p: "${p}/${python3.sitePackages}");
+
+  # A venv on an image interpreter, holding these wheels and nothing else.
+  # pip installs them offline and does not resolve, so the list is the
+  # whole environment.
+  mkVenv = py: dir: wheels: ''
+    ${interpreter py} -m venv ${dir}
+    ${dir}/bin/python -m pip install --quiet --no-index --no-deps ${lib.concatStringsSep " " wheels}
+  '';
+  distWheels = map (p: "${p.dist}/*.whl");
+
+  /**
+    Wheels from PyPI, for a package whose nixpkgs `dist` does not
+    install on every image CPython.
+
+    nixpkgs builds msgpack with its C extension, for 3.14 alone, and
+    PyPI publishes no pure wheel of it. So this pins the manylinux
+    wheel for each CPython this lane builds for. The pins are for an
+    offline install alone; the packages' metadata declares floors.
+  */
+  fromPyPI = {
+    msgpack = [
+      {
+        url = "https://files.pythonhosted.org/packages/03/8d/671d81534ea0e2b0e8a121be100020da09eb78861fe3aa8f3ef7dcd3bed1/msgpack-1.2.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
+        sha256 = "a28d076ca7c82b9c8728ad90b7147489449557038bed50e4241eb832395169b4";
+      }
+      {
+        url = "https://files.pythonhosted.org/packages/6a/fd/6adabd4f6d5e686f97dd02ce7fce3fe4cf672cbac36b8f67ff4040e8ad8b/msgpack-1.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
+        sha256 = "020e881a764b20d8d7ca1a54fc01b8175519d108e3c3f194fddc200bda95951a";
+      }
+      {
+        url = "https://files.pythonhosted.org/packages/79/d3/36a46a8ed992b781acbc05928bd5bee3c810cb0c3563bf81a7b0c04a1a76/msgpack-1.2.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
+        sha256 = "787c9bebb5833e8f6fc8abca3c0597683d8d87f56a8842b6b89c75a5f3176e2d";
+      }
+      {
+        url = "https://files.pythonhosted.org/packages/19/03/8c63e8cf52958534ef688625965ab04c269a6cadd8caef16758b380a821a/msgpack-1.2.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
+        sha256 = "0e2bf9280bceb5efca998435904b5d3e9fdbcc11d90dc9df30aec7973252b720";
+      }
+    ];
+  };
+  pinned = lib.concatLists (
+    lib.mapAttrsToList (
+      name: wheels:
+      let
+        inherit (python3.pkgs.${name}) version;
+      in
+      map (
+        wheel:
+        if lib.hasInfix "-${version}-" wheel.url then
+          pkgs.fetchurl wheel
+        else
+          throw "nixpkgs' ${name} is ${version}; pin its wheels from PyPI in nix/manylinux"
+      ) wheels
+    ) fromPyPI
+  );
+  # The nixpkgs `dist` of each package in the closure of `packages`,
+  # except the pinned ones and the bindings, which the lane builds.
+  nixpkgsWheels =
+    packages:
+    distWheels (
+      lib.filter (p: !lib.elem p.pname ([ "huggorm-bindings" ] ++ lib.attrNames fromPyPI)) (
+        pythonClosure packages
+      )
+    );
+  installWheels =
+    py: packages:
+    nixpkgsWheels packages
+    ++ [
+      # pip reads a wheel's name and tags from its file name, which a
+      # store path starts with a hash.
+      "${
+        pkgs.linkFarm "pinned-wheels-${py}" (
+          map (w: {
+            inherit (w) name;
+            path = w;
+          }) (lib.filter (w: lib.hasInfix "-${py}-" w.name) pinned)
+        )
+      }/*.whl"
+    ];
 
   libs = import ./libs.nix {
     inherit
@@ -232,12 +309,12 @@ lib.makeScope pkgs.newScope (
         };
         deps = [ self.nixLibs ];
         script = ''
-          export PYTHONPATH=${
-            pythonPath (pythonClosure [
+          ${mkVenv py "/tmp/venv" (
+            distWheels (pythonClosure [
               python3.pkgs.setuptools
               python3.pkgs.nanobind
             ])
-          }
+          )}
           export HUGGORM_BINDINGS_EMITTED=${bindings-src}
           export HUGGORM_DECL_INCLUDE=${huggorm-decl}/${python3.sitePackages}
           mkdir -p huggorm_bindings
@@ -245,7 +322,7 @@ lib.makeScope pkgs.newScope (
           cp ${nixComponents.nix-store.src}/COPYING huggorm_bindings/COPYING.nix
           cp ${../../packages/huggorm-bindings/NOTICE} huggorm_bindings/NOTICE
           cp -r ${licenses} huggorm_bindings/licenses
-          ${interpreter py} -m pip wheel --no-build-isolation \
+          /tmp/venv/bin/python -m pip wheel --no-build-isolation \
             --no-deps --no-index --wheel-dir dist .
           auditwheel repair --plat ${platform} --wheel-dir "$out" dist/*.whl
         '';
@@ -310,11 +387,10 @@ lib.makeScope pkgs.newScope (
       Runs `script` against one wheel, under its own interpreter, inside
       the image.
 
-      The wheel is the only compiled code under test: pip installs it
-      into the image's CPython, and the pure Python around it comes from
-      nixpkgs with nixpkgs' bindings filtered out. A nixpkgs C extension
-      built against glibc 2.42 would fail to load here, so msgpack
-      takes its pure Python implementation.
+      pip installs the wheel into a venv on the image's CPython, with the
+      pure Python around it from nixpkgs' `dist` wheels and msgpack from
+      its pinned PyPI wheel. A nixpkgs C extension, built against glibc
+      2.42, does not load here.
     */
     wheelCheck =
       {
@@ -323,21 +399,6 @@ lib.makeScope pkgs.newScope (
         script,
         extraPythonPackages ? [ ],
       }:
-      let
-        # The wheel's bindings are under test, so nixpkgs' are left out.
-        pure = lib.filter (p: p.pname != "huggorm-bindings") (
-          pythonClosure (
-            [
-              huggorm
-              python3.pkgs.pytest
-              python3.pkgs.pytest-timeout
-              # anyio needs it below 3.13, and nixpkgs' 3.14 build drops it.
-              python3.pkgs.typing-extensions
-            ]
-            ++ extraPythonPackages
-          )
-        );
-      in
       self.build {
         inherit pname;
         inherit (nixComponents) version;
@@ -354,9 +415,19 @@ lib.makeScope pkgs.newScope (
           ]) (lib.fileset.maybeMissing ../../packages/huggorm/tests/__pycache__);
         };
         script = ''
-          ${interpreter py} -m pip install --no-index --no-deps --target /tmp/site ${self.wheels.${py}}/*.whl
-          export PYTHONPATH=/tmp/site:${pythonPath pure}
-          export MSGPACK_PUREPYTHON=1
+          ${mkVenv py "/tmp/venv" (
+            [ "${self.wheels.${py}}/*.whl" ]
+            ++ installWheels py (
+              [
+                huggorm
+                python3.pkgs.pytest
+                python3.pkgs.pytest-timeout
+                # anyio needs it below 3.13, and nixpkgs' 3.14 build drops it.
+                python3.pkgs.typing-extensions
+              ]
+              ++ extraPythonPackages
+            )
+          )}
           export HUGGORM_NIX_VERSION=${lib.escapeShellArg nixComponents.version} HUGGORM_NIX_GC=1
           export HUGGORM_TCP_STORE_PLUGINS=${self.tcpStore.${py}}/lib/nix/plugins
           export HUGGORM_ORACLE_NIX=${nix}/bin/nix
@@ -371,7 +442,7 @@ lib.makeScope pkgs.newScope (
         pname = "huggorm-wheel-check-${py}";
         inherit py;
         script = ''
-          ${interpreter py} ${./smoke.py} ${self.modules} | tee "$out/smoke.log"
+          /tmp/venv/bin/python ${./smoke.py} ${self.modules} | tee "$out/smoke.log"
         '';
       }
     );
@@ -384,72 +455,29 @@ lib.makeScope pkgs.newScope (
       py = "cp314";
       extraPythonPackages = [ huggorm-gen ];
       script = ''
-        ${interpreter "cp314"} -m pytest -p no:cacheprovider -m "not live" --ignore=tests/test_fod.py tests 2>&1 | tee "$out/pytest.log"
+        /tmp/venv/bin/python -m pytest -p no:cacheprovider -m "not live" --ignore=tests/test_fod.py tests 2>&1 | tee "$out/pytest.log"
       '';
     };
 
     /**
       Every wheel `pip install --no-index --find-links` needs for huggorm:
-      the bindings for each CPython, and a pure wheel of each Python
-      dependency, from nixpkgs' `dist` output.
-
-      nixpkgs builds msgpack with its C extension, for 3.14 alone, and
-      PyPI publishes no pure wheel of it. So this pins the manylinux
-      wheel for each CPython this lane builds for. The pins are for
-      this offline install alone; the packages' metadata declares
-      floors.
+      the bindings for each CPython, a pure wheel of each Python
+      dependency from nixpkgs' `dist` output, and the PyPI pins.
     */
-    wheelhouse =
-      let
-        fromPyPI = {
-          msgpack = [
-            {
-              url = "https://files.pythonhosted.org/packages/03/8d/671d81534ea0e2b0e8a121be100020da09eb78861fe3aa8f3ef7dcd3bed1/msgpack-1.2.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
-              sha256 = "a28d076ca7c82b9c8728ad90b7147489449557038bed50e4241eb832395169b4";
-            }
-            {
-              url = "https://files.pythonhosted.org/packages/6a/fd/6adabd4f6d5e686f97dd02ce7fce3fe4cf672cbac36b8f67ff4040e8ad8b/msgpack-1.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
-              sha256 = "020e881a764b20d8d7ca1a54fc01b8175519d108e3c3f194fddc200bda95951a";
-            }
-            {
-              url = "https://files.pythonhosted.org/packages/79/d3/36a46a8ed992b781acbc05928bd5bee3c810cb0c3563bf81a7b0c04a1a76/msgpack-1.2.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
-              sha256 = "787c9bebb5833e8f6fc8abca3c0597683d8d87f56a8842b6b89c75a5f3176e2d";
-            }
-            {
-              url = "https://files.pythonhosted.org/packages/19/03/8c63e8cf52958534ef688625965ab04c269a6cadd8caef16758b380a821a/msgpack-1.2.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl";
-              sha256 = "0e2bf9280bceb5efca998435904b5d3e9fdbcc11d90dc9df30aec7973252b720";
-            }
-          ];
-        };
-        pinned = lib.concatLists (
-          lib.mapAttrsToList (
-            name: wheels:
-            let
-              inherit (python3.pkgs.${name}) version;
-            in
-            map (
-              wheel:
-              if lib.hasInfix "-${version}-" wheel.url then
-                pkgs.fetchurl wheel
-              else
-                throw "nixpkgs' ${name} is ${version}; pin its wheels from PyPI in nix/manylinux"
-            ) wheels
-          ) fromPyPI
-        );
-        dists = map (p: p.dist) (
-          lib.filter (p: !lib.elem p.pname ([ "huggorm-bindings" ] ++ lib.attrNames fromPyPI))
-            (pythonClosure [
-              huggorm
-              # anyio needs it below 3.13.
-              python3.pkgs.typing-extensions
-            ])
-        );
-      in
-      pkgs.runCommand "huggorm-wheelhouse" { } ''
-        mkdir $out
-        cp ${lib.concatMapStringsSep " " (w: "${w}/*.whl") (lib.attrValues self.wheels ++ dists)} $out/
-        ${lib.concatMapStrings (w: "cp ${w} $out/${w.name}\n") pinned}
-      '';
+    wheelhouse = pkgs.runCommand "huggorm-wheelhouse" { } ''
+      mkdir $out
+      cp ${
+        lib.concatStringsSep " " (
+          map (w: "${w}/*.whl") (lib.attrValues self.wheels)
+          ++ nixpkgsWheels [
+            huggorm
+            # anyio needs it below 3.13.
+            python3.pkgs.typing-extensions
+          ]
+        )
+      } $out/
+      ${lib.concatMapStrings (w: "cp ${w} $out/${w.name}\n") pinned}
+    '';
 
     /**
       huggorm on openSUSE Leap 16.0's own Python, from the wheelhouse.
