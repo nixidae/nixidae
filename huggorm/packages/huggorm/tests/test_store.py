@@ -1047,11 +1047,10 @@ def test_a_built_path_names_what_built_it(ambient_store: Store) -> None:
     the surface exists to give.
 
     The environment running this is such a path, which is what makes
-    the test need no fixture and no name written down. sys.prefix
-    rather than sys.executable: the executable lives INSIDE a store
-    path and parse_store_path takes the path itself. to_store_path is
-    the call for the other question, and the test below asks it."""
-    path = ambient_store.parse_store_path(sys.prefix)
+    the test need no fixture and no name written down. sys.prefix lives
+    INSIDE that store path - a venv puts it at `<path>/lib/venv` - so
+    to_store_path splits it, and parse_store_path would refuse it."""
+    path = ambient_store.to_store_path(sys.prefix).path()
     info = ambient_store.query_path_info(path)
 
     assert info.nar_size() > 0
@@ -1099,7 +1098,7 @@ def test_a_built_path_names_the_derivations_that_make_it(
     So the second assertion is conditional, and that is not a hedge:
     an unconditional one would fail on a machine that has run a
     garbage collection, which is most of them."""
-    path = ambient_store.parse_store_path(sys.prefix)
+    path = ambient_store.to_store_path(sys.prefix).path()
     derivers = ambient_store.query_valid_derivers(path)
 
     assert all(d.is_derivation() for d in derivers), [
@@ -1117,15 +1116,16 @@ def test_a_real_file_names_the_path_that_holds_it(
     """The question sys.executable asks and parse_store_path cannot
     answer.
 
-    The interpreter running this lives at `<store path>/bin/python3.x`
+    The interpreter running this lives at `<store path>/.../bin/python3.x`
     - a file in a store object, not a store object. The ambient store
     is what makes this real: its store directory is the machine's, so
     the split lands on a path that exists."""
     where = ambient_store.to_store_path(sys.executable)
 
-    assert where.sub_path().startswith("/bin/")
-    assert where.path().to_string().endswith(
-        pathlib.Path(sys.prefix).name), where.path().to_string()
+    assert where.sub_path().endswith(
+        "/bin/" + pathlib.Path(sys.executable).name), where.sub_path()
+    assert sys.prefix.startswith(
+        ambient_store.print_store_path(where.path()) + "/"), sys.prefix
 
     # And it round-trips against the other direction: the store path
     # plus the sub-path is where the file really is.
@@ -2142,7 +2142,7 @@ def test_a_real_store_object_survives_its_own_round_trip(
     on purpose: drop a field from `_from_parts` and the sandbox gate
     fails first, because the cheaper gate should. What is left over is
     the part only this one has - the object is real."""
-    path = ambient_store.parse_store_path(sys.prefix)
+    path = ambient_store.to_store_path(sys.prefix).path()
     built: Any = ambient_store.query_path_info(path)
 
     # The states a hermetic store cannot make. Without these the test
