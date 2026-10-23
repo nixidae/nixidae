@@ -5,11 +5,11 @@
     vivarium-eval switch switch --out ./out --node one --module ./more.nix
 
 `nix run --file . <attr>.run` with the evaluation and the build moved
-inside it: nanopynix evaluates `--file`, selects the attribute, builds
+inside it: huggorm evaluates `--file`, selects the attribute, builds
 its `.run` (which pulls in the spec and the phase type check) and execs
 it. There is no `nix build` first and no store path to paste.
 
-**A separate package from `vivarium`, on purpose.** nanopynix links Nix, and
+**A separate package from `vivarium`, on purpose.** huggorm links Nix, and
 `vivarium` is what every sandboxed check runs. A sandboxed check must not
 evaluate -- everything is decided by the time it runs -- so it never
 needs this, and a consumer of `mkTest` never builds it.
@@ -25,17 +25,21 @@ import os
 import re
 import sys
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
 import anyio
-import nanopynix
-from nanopynix.exceptions import NixError
+import huggorm
+from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
+from huggorm.errors import NixError
 from vivarium import control
 
 if TYPE_CHECKING:
-    from nanopynix.rpc import EvalSession, ValueProxy
+    from collections.abc import AsyncIterator
+
+    from huggorm import AsyncEvalState, AsyncValue
 
 
 @dataclass(frozen=True)
@@ -104,26 +108,31 @@ async def resolve(file: Path, attr: list[str], command: str) -> str:
     of the spec. Building `.run` also runs the type check of every phase
     script, exactly as `nix run --file . <attr>.run` does.
     """
-    async with (
-        nanopynix.rpc.Session() as session,
-        session.store() as store,
-        session.eval(store) as evaluator,
-    ):
-        target = await session_of(evaluator, file, attr)
+    async with evaluator() as state:
+        target = await session_of(state, file, attr)
         # `vivarium-eval run` runs the session's `.driver`; `phases` its `.phases`.
-        built = Path(await target.attr({"run": "driver"}.get(command, command)).realise_string())
+        member = await select_attr_path(state, target, [{"run": "driver"}.get(command, command)])
+        built = Path(await member.realise_string())
     [program] = sorted((built / "bin").iterdir())
     return str(program)
 
 
-async def session_of(evaluator: EvalSession, file: Path, attr: list[str]) -> ValueProxy:
-    target = await (await evaluator.file(str(entry(file).resolve()))).auto_call()
-    for name in attr:
-        target = target.attr(name)
+@asynccontextmanager
+async def evaluator() -> AsyncIterator[AsyncEvalState]:
+    """An evaluator on the ambient store, with nix.conf read as `nix` reads it."""
+    huggorm.load_config()
+    async with huggorm.AsyncSession() as session:
+        yield session.eval(session.store())
+
+
+async def session_of(state: AsyncEvalState, file: Path, attr: list[str]) -> AsyncValue:
+    target = await auto_call(state, await state.eval_file(str(entry(file).resolve())))
+    target = await select_attr_path(state, target, attr)
+    await state.force(target)
     # A check that asserts on a session carries it as `.session`, so
     # the name of the check runs the session it checks.
-    if not await target.has_attr("spec") and await target.has_attr("session"):
-        target = target.attr("session")
+    if not await target.has("spec") and await target.has("session"):
+        target = await select_attr_path(state, target, ["session"])
     return target
 
 
@@ -147,15 +156,14 @@ Action = Literal["switch", "boot", "test", "dry-activate"]
 
 async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str]:
     """The node's system with *module* added, and its closure's registration."""
-    async with (
-        nanopynix.rpc.Session() as session,
-        session.store() as store,
-        session.eval(store) as evaluator,
-    ):
-        target = await session_of(evaluator, file, attr)
-        extended = await (await target.apply(EXTENDED)).call(node, str(module.resolve()))
-        system = await extended.attr("system").realise_string()
-        registration = await extended.attr("registration").realise_string()
+    async with evaluator() as state:
+        target = await session_of(state, file, attr)
+        extend = await state.eval_expr(EXTENDED)
+        extended = await (await (await extend(target))(await state.make_string(node)))(
+            await state.make_string(str(module.resolve()))
+        )
+        system = await (await select_attr_path(state, extended, ["system"])).realise_string()
+        registration = await (await select_attr_path(state, extended, ["registration"])).realise_string()
     return system, registration
 
 
@@ -193,7 +201,7 @@ def switch(argv: list[str]) -> int:
     say(f"evaluating {args.attr} with {args.module} on {args.node}")
     try:
         system, registration = anyio.run(build_extended, args.file, attr, args.node, args.module)
-    except NixError as error:
+    except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
         return 1
     say(f"built {system} in {time.monotonic() - started:.1f}s")
@@ -242,7 +250,7 @@ def main(argv: list[str] | None = None) -> None:
     say(f"evaluating {'.'.join(request.attr)} from {entry(request.file)}")
     try:
         program = anyio.run(resolve, request.file, request.attr, request.command)
-    except NixError as error:
+    except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
         raise SystemExit(1) from None
     say(f"evaluated and built in {time.monotonic() - started:.1f}s")

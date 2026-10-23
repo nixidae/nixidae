@@ -1,13 +1,15 @@
-# `vivarium-eval`: the evaluating front door, built on nanopynix.
+# `vivarium-eval`: the evaluating front door, built on huggorm.
 #
-# On nanopynix's own Python set rather than nixpkgs' python3Packages,
-# because nanopynix is built there and one interpreter has to hold it,
-# `vivarium` and `vivarium_runner` together. `vivarium` and `vivarium-runner` are lifted into
-# that set from their own pyproject.toml, as easykubenix does for `ekn`.
+# On nanopynix's Python set rather than nixpkgs' python3Packages,
+# because huggorm is built there and one interpreter has to hold it,
+# `vivarium` and `vivarium_runner` together. `vivarium` and
+# `vivarium-runner` are lifted into that set from their own
+# pyproject.toml, as easykubenix does for `ekn`. The set moves out of
+# nanopynix with the rest of its packaging (nixidae/nixidae#866).
 #
 # Nothing else in this repository depends on this. `mkTest` and every
 # check use the nixpkgs build of `vivarium`, so a consumer never
-# builds nanopynix -- the sandboxed path must not evaluate anyway.
+# builds huggorm -- the sandboxed path must not evaluate anyway.
 {
   pkgs,
   sources,

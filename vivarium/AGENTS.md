@@ -34,7 +34,7 @@ nix run --file . vivarium-eval -- run pytest-phase --out ./out -- -k hostname
 nix run --file . vivarium-eval -- phases recipes
 ```
 
-`vivarium-eval` evaluates with nanopynix, builds the attribute's `.driver` (so
+`vivarium-eval` evaluates with huggorm, builds the attribute's `.driver` (so
 the phase type check runs) and hands the spec to `vivarium run`. A check that
 wraps a session carries it as `.session`, and `vivarium-eval` steps into it,
 so the check's name works. Evaluation is impure, like `nix build
@@ -42,7 +42,7 @@ so the check's name works. Evaluation is impure, like `nix build
 
 It is its own package on nanopynix's Python set (`pkgs/vivarium-eval`), and
 nothing a consumer uses depends on it: the sandboxed check never
-evaluates. Not a CI check yet, because CI would have to build nanopynix.
+evaluates. Not a CI check yet, because CI would have to build huggorm.
 Its unit tests are `nix build --file . vivarium-eval.tests`.
 
 ## Reaching into a paused run
