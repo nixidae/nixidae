@@ -53,7 +53,7 @@ from huggorm_generated._shapes import (
 )
 from huggorm_generated.free_functions import FUNCTIONS
 
-from . import tree
+from . import namespace, tree
 from .callbacks import Callbacks
 from .codec import Codec, Node
 from .lifecycle import HandleTable, ShareMode
@@ -980,11 +980,20 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
 def main(argv: list[str] | None = None) -> None:
     """`python -m huggorm.server PATH [TTL] [--option NAME VALUE]...`
 
-    `--option` sets a process setting as `nix --option` does. The
-    server reads no nix.conf: the caller says what differs."""
+    `--option` sets a process setting as `nix --option` does, after
+    everything else. The server reads nix.conf only with
+    `--load-config`; without it the caller says what differs.
+
+    `--overlay ROOT` serves from a private user namespace over an
+    overlay store laid out under ROOT; a client opens
+    `OverlayNamespace.under(ROOT, ...).store_uri()`."""
     import argparse
 
-    from huggorm_bindings import set_setting
+    from huggorm_bindings import (
+        enable_experimental_feature,
+        load_config,
+        set_setting,
+    )
 
     parser = argparse.ArgumentParser(prog="huggorm.server")
     parser.add_argument("path")
@@ -996,7 +1005,28 @@ def main(argv: list[str] | None = None) -> None:
         help="let a client hand over objects this server calls back, "
              "such as a SourceAccessor (nixidae/nixidae#738). EXPERIMENTAL and "
              "unsafe for a state that several clients share")
+    parser.add_argument("--load-config", action="store_true",
+                        help="read nix.conf and NIX_CONFIG as nix does")
+    parser.add_argument("--overlay", metavar="ROOT",
+                        help="serve in a user namespace over an overlay "
+                             "store under ROOT (nixidae/nixidae#1060)")
+    parser.add_argument("--lower-store", default="daemon",
+                        help="the overlay's lower store")
+    parser.add_argument("--lower-dir", default=namespace.STORE_DIR,
+                        help="the directory of the lower store's paths. "
+                             "It must hold this server's own closure: the "
+                             "overlay hides the rest of /nix/store")
     args = parser.parse_args(argv)
+    if args.overlay is not None:
+        namespace.enter_overlay_namespace(namespace.OverlayNamespace.under(
+            args.overlay, lower_store=args.lower_store,
+            lower_dir=args.lower_dir))
+    if args.load_config:
+        load_config()
+    if args.overlay is not None:
+        enable_experimental_feature(namespace.EXPERIMENTAL_FEATURE)
+        for name, value in namespace.REQUIRED_SETTINGS.items():
+            set_setting(name, value)
     for name, value in args.option:
         set_setting(name, value)
     anyio.run(_until_signalled, functools.partial(
