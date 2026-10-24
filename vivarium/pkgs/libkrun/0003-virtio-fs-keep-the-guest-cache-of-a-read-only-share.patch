@@ -1,0 +1,30 @@
+From: Carl Andersson <carl.andersson@dynamist.se>
+Subject: [PATCH] virtio/fs: keep the guest's cache of a read-only share
+
+libkrun answers every open with the Auto cache policy, which never sets
+FOPEN_KEEP_CACHE, and the C API has no way to choose another. So the
+guest drops its cache of a file each time any process opens it. On a
+DAX mount that also drops the mappings of running processes, and since
+Linux 6.15 those processes then get SIGBUS (smol-machines/smolvm#1741).
+
+vivarium shares the host's /nix/store read-only, and nothing changes a
+store path once it exists, so a guest's cache of it never goes stale.
+A read-only share now uses the Always policy, as virtiofsd's
+--cache=always does. The trap: a host that changes files below a
+read-only share has its guest read the old contents until a lookup
+sees the new attributes.
+---
+--- a/src/devices/src/virtio/fs/device.rs
++++ b/src/devices/src/virtio/fs/device.rs
+@@ -88,6 +88,11 @@
+             root_dir,
+             semantics,
+             attr_timeout,
++            cache_policy: if read_only {
++                passthrough::CachePolicy::Always
++            } else {
++                Default::default()
++            },
+             ..Default::default()
+         });
+
