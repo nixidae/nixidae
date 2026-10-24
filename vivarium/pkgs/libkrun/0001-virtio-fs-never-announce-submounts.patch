@@ -1,0 +1,34 @@
+From: Carl Andersson <carl.andersson@dynamist.se>
+Subject: [PATCH] virtio/fs: never announce submounts
+
+A guest that receives FUSE_ATTR_SUBMOUNT makes the submount an automount
+dentry, and overlayfs refuses one as a lower layer: ovl_dentry_weird
+rejects DCACHE_NEED_AUTOMOUNT, and every lookup below it fails with
+EREMOTE.
+
+vivarium shares the host's /nix, where /nix/store is a bind of itself,
+and the guest mounts an overlay over it as its own /nix. Announced, the
+NixOS initrd fails at "Find NixOS closure".
+
+virtiofsd has --no-announce-submounts for this. libkrun has no switch,
+so this turns the announcement off. The cost is the same as virtiofsd's:
+the guest sees one inode number space across the host filesystems below
+the share.
+---
+--- a/src/devices/src/virtio/fs/linux/passthrough.rs	2026-10-24 17:53:41.118013000 +0200
++++ b/src/devices/src/virtio/fs/linux/passthrough.rs	2026-10-24 17:53:51.190121575 +0200
+@@ -914,10 +914,10 @@
+             self.writeback.store(true, Ordering::Relaxed);
+         }
+ 
+-        if capable.contains(FsOptions::SUBMOUNTS) {
+-            opts |= FsOptions::SUBMOUNTS;
+-            self.announce_submounts.store(true, Ordering::Relaxed);
+-        }
++        // Submounts are never announced, as virtiofsd's
++        // --no-announce-submounts: overlayfs refuses an automount dentry
++        // as a lower layer, so a share with a submount below it could not
++        // be one.
+ 
+         Ok(opts)
+     }
