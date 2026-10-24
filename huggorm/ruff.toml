@@ -73,6 +73,11 @@ select = [
 "**/huggorm/*.py" = "py311"
 "**/payload/*.py" = "py311"
 "**/huggorm_dsl/shapes.py" = "py311"
+# The suite runs on the build's Python. A glob's `*` crosses `/`, so from
+# the repo root `**/huggorm/*.py` also matches `packages/huggorm/tests/`,
+# and from the package root in the build it does not. Measured: this
+# entry wins in either order, and both runs then agree.
+"**/tests/*.py" = "py314"
 
 [lint.isort]
 # test_remote holds the shared harness the other suites import. Left
