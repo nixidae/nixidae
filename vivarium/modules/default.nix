@@ -225,9 +225,9 @@ in
         agent while systemd and Python are both resident.
 
         A QEMU guest needs more for the same work, which is why the
-        default is not one number. Its root is a tmpfs and its initrd is
-        unpacked into another, so two filesystems are charged to the same
-        RAM the guest is running in. Measured: at 256M the agent reaches
+        default is not one number. It boots a stock NixOS kernel with its
+        modules and a systemd initrd, where UML boots one kernel with
+        everything built in. Measured: at 256M the agent reaches
         its ready line and is OOM-killed seconds later, inside the build
         sandbox, on a guest that passes the same test outside it.
       '';
