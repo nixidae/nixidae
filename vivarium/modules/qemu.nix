@@ -50,18 +50,32 @@ lib.mkIf (lib.elem cfg.backend [
   # never becomes hvc0, and udev links it by the name the launcher gave it.
   vivarium.agentDevice = if krun then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
 
-  boot.kernelParams = [
-    "console=ttyS0,115200"
-    # What the balloon reports as free, in pages: 2^5 is 128 KiB.
-    #
-    # The default is `pageblock_order`, 2 MiB here, and a guest that has
-    # just dropped its page cache holds most of its free memory in
-    # smaller pieces than that -- measured, 254 MB of 552 MB came back at
-    # the default. `mm/page_reporting.c` exposes this as a parameter of
-    # the built-in `page_reporting` "module", and it overrides whatever
-    # virtio-balloon asks for.
-    "page_reporting.page_reporting_order=5"
-  ];
+  # libkrun's x86 machine has no ACPI, so a poweroff only halts the CPU,
+  # and the libkrun process stays up at 100% of a core until something
+  # kills it (measured: `reboot: Power off not available: System halted
+  # instead`). What ends libkrun is a reset through its i8042, the way
+  # Firecracker's guests stop. So a krun guest resets where it would power
+  # off or halt, and on a panic, which `panic=-1` turns into a reset too.
+  systemd.services.systemd-poweroff.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
+  systemd.services.systemd-halt.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
+
+  boot.kernelParams =
+    lib.optionals krun [
+      "reboot=k"
+      "panic=-1"
+    ]
+    ++ [
+      "console=ttyS0,115200"
+      # What the balloon reports as free, in pages: 2^5 is 128 KiB.
+      #
+      # The default is `pageblock_order`, 2 MiB here, and a guest that has
+      # just dropped its page cache holds most of its free memory in
+      # smaller pieces than that -- measured, 254 MB of 552 MB came back at
+      # the default. `mm/page_reporting.c` exposes this as a parameter of
+      # the built-in `page_reporting` "module", and it overrides whatever
+      # virtio-balloon asks for.
+      "page_reporting.page_reporting_order=5"
+    ];
 
   # systemd in the initrd, so the overlay below gets its upperdir and
   # workdir created and its ordering worked out for it.
