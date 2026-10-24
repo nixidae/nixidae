@@ -99,6 +99,12 @@ lib.mkIf (lib.elem cfg.backend [
   # libkrun appends, and the module reads them when it loads.
   ++ lib.optional krun "virtio_mmio";
 
+  # The stock fuse drops DAX mappings that are still in use, and a guest
+  # process gets SIGBUS: pkgs/fuse-dax says how.
+  boot.extraModulePackages = lib.mkIf krun [
+    (config.boot.kernelPackages.callPackage ../pkgs/fuse-dax/package.nix { })
+  ];
+
   # The balloon, for free page reporting: the guest tells QEMU which
   # pages it has freed and QEMU madvises them out of the memfd its RAM
   # lives in.  Named rather than left to udev's PCI autoload, so that a
