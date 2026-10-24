@@ -2554,14 +2554,16 @@ nix::loadConfFile(nix::globalConfig);
 
 
 @needs(Local("nix/main/plugin.hh"), Std("atomic"))
-def init_plugins() -> None:
+def init_plugins() -> Bint:
     """Load the plugins that `plugin-files` names, as `nix` does at startup.
 
     Call it after `load_config` and before the first store opens: a
-    plugin registers its store types and settings as it loads. Once per
-    process, because `initPlugins` asserts that, and a second call
-    raises `UsageError` instead of aborting. A failed load counts, as
-    its plugins may already have registered what they carry.
+    plugin registers its store types and settings as it loads. Nix loads
+    once per process, because `initPlugins` asserts that. So a later call
+    loads nothing and returns False, and the first returns True. Two
+    callers in one process each need the answer, and only this flag
+    holds it for the process. A failed load counts, as its plugins may
+    already have registered what they carry.
 
     A plugin must link the same Nix libraries as these bindings, as
     huggorm's `nix-tcp-store` does. Another build of Nix loads a second
@@ -2569,8 +2571,9 @@ def init_plugins() -> None:
     Cxx("""
 static std::atomic<bool> loaded{false};
 if (loaded.exchange(true))
-    throw nix::UsageError("plugins are already loaded: Nix loads plugin-files once per process");
+    return false;
 nix::initPlugins();
+return true;
     """)
 
 
