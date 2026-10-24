@@ -39,6 +39,9 @@ def _changes(old: dict[str, str], new: dict[str, str]) -> list[str]:
 
 @pytest.fixture(scope="session", autouse=True)
 def nix_base_settings() -> None:
+    # The guard reads the settings, and the first evaluator copies
+    # `NIX_PATH` into `nix-path`. That copy lands here, not in a later test.
+    huggorm.start_collector()
     for name, value in BASE_SETTINGS.items():
         huggorm.set_setting(name, value)
     for feature in EXPERIMENTAL_FEATURES:
@@ -50,7 +53,8 @@ def no_process_wide_nix_setting_survives_a_test(request: pytest.FixtureRequest) 
     """Fail the test that leaves a Nix setting changed in this process.
 
     The first test is exempt: the first session of a process applies its own
-    settings (`nix-path` from `NIX_PATH`, for one), and those stay for the run.
+    settings, and those stay for the run. `nix_base_settings` starts the
+    collector, so `nix-path` from `NIX_PATH` is in place before any test.
     A `forked` test is exempt, because its writes end with its child.
     A change made by a wider-scoped fixture shows at the setup of the next
     test, once, until the settings come back.
