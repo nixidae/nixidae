@@ -100,12 +100,13 @@ in
       type = types.enum [
         "uml"
         "qemu"
+        "krun"
         "container"
       ];
       default = "uml";
       description = ''
         What the guests become. `uml` needs nothing of the host; `qemu`
-        needs /dev/kvm and is much faster. A phase script never knows
+        and `krun` need /dev/kvm and are much faster. A phase script never knows
         which it got, and neither does a node configuration.
       '';
     };

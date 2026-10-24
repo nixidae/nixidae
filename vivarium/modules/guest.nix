@@ -4,6 +4,7 @@
   config,
   lib,
   pkgs,
+  utils,
   ...
 }:
 let
@@ -34,7 +35,7 @@ in
   system.build.installBootLoader = lib.getExe' pkgs.coreutils "true";
   # A container has no modules either, and NixOS defines no modprobe
   # script under `boot.isContainer`, so the entry must still get a text.
-  system.activationScripts.modprobe.text = lib.mkIf (cfg.backend != "qemu") (
+  system.activationScripts.modprobe.text = lib.mkIf (!lib.elem cfg.backend [ "qemu" "krun" ]) (
     lib.mkForce ""
   );
 
@@ -287,8 +288,7 @@ in
   # A container's agent listens on a socket and has no device unit to wait
   # for; one named anyway never appears, and the agent never starts.
   systemd.services.vivarium-agent = let
-    device = lib.removePrefix "/dev/" cfg.agentDevice;
-    units = lib.optional (lib.hasPrefix "/dev/" cfg.agentDevice) "dev-${device}.device";
+    units = lib.optional (lib.hasPrefix "/dev/" cfg.agentDevice) "${utils.escapeSystemdPath cfg.agentDevice}.device";
   in {
     description = "Host control channel on ${cfg.agentDevice}";
     wantedBy = [ "multi-user.target" ];

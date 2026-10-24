@@ -1,10 +1,17 @@
-# The guest, when the backend is QEMU.
+# The guest, when the backend is QEMU or libkrun.
 #
 # UML compiles a kernel with everything built in and boots straight into
 # /init on a disk image.  QEMU boots a stock NixOS kernel with its normal
 # initrd, because every driver it needs -- virtio_pci, virtio_console,
 # virtiofs, overlay -- is a module in the host's kernel package and
 # nothing here is worth a second kernel build.
+#
+# libkrun boots the same kernel, initrd and disk.  Its devices are
+# virtio-mmio instead of PCI, and it serves the store from inside its own
+# process with a DAX window: the guest maps the host's page cache of the
+# store instead of keeping a copy of it.  Measured, three guests reading
+# their 362 MiB closure: 2459 MiB of host memory under QEMU, 980 MiB
+# under libkrun (nixidae/nixidae#1077).
 #
 # Two things stay the same as the UML guest on purpose:
 #
@@ -20,15 +27,28 @@
 }:
 let
   cfg = config.vivarium;
+  krun = cfg.backend == "krun";
 
   hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
+
+  kernel = config.boot.kernelPackages.kernel;
+
+  # libkrun loads an ELF kernel and no bzImage. The dev output's vmlinux
+  # is 433 MB of debug info; stripped, the run's closure holds only this.
+  vmlinux = pkgs.runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ pkgs.binutils ]; } ''
+    objcopy --strip-all ${kernel.dev}/vmlinux $out
+  '';
 in
-lib.mkIf (cfg.backend == "qemu") {
+lib.mkIf (lib.elem cfg.backend [
+  "qemu"
+  "krun"
+]) {
   # ttyS0 is the console here, not the control channel.  A stock kernel
   # prints to it from the first line, and a virtio console does not exist
   # until its driver loads -- so a panic before that would be invisible.
-  # The agent takes hvc0 instead.
-  vivarium.agentDevice = "/dev/hvc0";
+  # The agent takes hvc0 instead. libkrun's port is not a console, so it
+  # never becomes hvc0, and udev links it by the name the launcher gave it.
+  vivarium.agentDevice = if krun then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
 
   boot.kernelParams = [
     "console=ttyS0,115200"
@@ -60,7 +80,10 @@ lib.mkIf (cfg.backend == "qemu") {
     "virtio_console"
     "virtiofs"
     "overlay"
-  ];
+  ]
+  # The devices come from `virtio_mmio.device=` on the kernel line, which
+  # libkrun appends, and the module reads them when it loads.
+  ++ lib.optional krun "virtio_mmio";
 
   # The balloon, for free page reporting: the guest tells QEMU which
   # pages it has freed and QEMU madvises them out of the memfd its RAM
@@ -123,7 +146,9 @@ lib.mkIf (cfg.backend == "qemu") {
     device = "nix";
     fsType = "virtiofs";
     neededForBoot = true;
-    options = [ "ro" ];
+    # QEMU's vhost-user-fs has no DAX window, and `dax=always` without one
+    # refuses to mount.
+    options = [ "ro" ] ++ lib.optional krun "dax=always";
   };
 
   fileSystems."/nix" = {
@@ -155,10 +180,20 @@ lib.mkIf (cfg.backend == "qemu") {
     MAC and the guest renames by it.  guest.nix does the same for each
     segment interface, on every backend.
   */
-  systemd.network.links."10-vec0" = {
-    matchConfig.MACAddress = "52:54:00:12:00:${hex cfg.index}";
-    linkConfig.Name = "vec0";
-  };
+  systemd.network.links = {
+    "10-vec0" = {
+      matchConfig.MACAddress = "52:54:00:12:00:${hex cfg.index}";
+      linkConfig.Name = "vec0";
+    };
+  }
+  # QEMU hands each segment interface its MTU as `host_mtu`. libkrun has
+  # no such field, so the guest sets it; with no `VIRTIO_NET_F_MTU` the
+  # driver allows up to 65535.
+  // lib.optionalAttrs krun (
+    lib.listToAttrs (
+      map (nic: lib.nameValuePair "10-${nic.name}" { linkConfig.MTUBytes = toString cfg.mtu; }) cfg.nics
+    )
+  );
 
   /*
     `/dev/kvm` in the guest, for its own virtual machines.
@@ -207,7 +242,8 @@ lib.mkIf (cfg.backend == "qemu") {
     cmdline = lib.concatStringsSep " " config.boot.kernelParams;
     nested = cfg.nestedVirtualization;
     display = if cfg.display.enable then { inherit (cfg.display) width height; } else null;
-  };
+  }
+  // lib.optionalAttrs krun { vmlinux = "${vmlinux}"; };
 
   # guest.nix turns the template off, which also takes logind's autovt@.
   # A screen with nothing on it is a screen nothing can be read from.

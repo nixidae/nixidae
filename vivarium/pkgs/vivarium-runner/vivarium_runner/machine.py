@@ -75,6 +75,7 @@ class Toolchain:
     qemu: Path | None = None
     qemu_img: Path | None = None
     virtiofsd: Path | None = None
+    libkrun: Path | None = None
     crun: Path | None = None
     setpriv: Path | None = None
     tesseract: Path | None = None
@@ -93,6 +94,7 @@ class Toolchain:
             qemu=maybe("qemu"),
             qemu_img=maybe("qemuImg"),
             virtiofsd=maybe("virtiofsd"),
+            libkrun=maybe("libkrun"),
             crun=maybe("crun"),
             setpriv=maybe("setpriv"),
             tesseract=maybe("tesseract"),
@@ -968,6 +970,14 @@ class Machine:
                 return container.tree_pss_kib(self._process.pid)
             except RuntimeError as error:
                 raise MachineError(f"[{self.name}] {error}") from error
+        if self.spec.backend == "krun":
+            # libkrun's RAM is anonymous, so there is no file to count. PSS
+            # also holds this guest's share of the host page cache it maps
+            # through the DAX window, which is the store pages it reads.
+            try:
+                return container.tree_pss_kib(self._process.pid)
+            except RuntimeError as error:
+                raise MachineError(f"[{self.name}] {error}") from error
         if self._pid_file is None:
             pid = str(self._process.pid)
         else:
@@ -1043,6 +1053,15 @@ class Machine:
         rather than failing.
         """
         await self._balloon(backends.memory_bytes(amount))
+
+    @property
+    def can_resize(self) -> bool:
+        """Whether :meth:`shrink` and :meth:`grow` work on this guest.
+
+        UML and QEMU have a control channel for it; krun and a container
+        do not.
+        """
+        return self._memory is not None
 
     async def _balloon(self, delta: int) -> None:
         if self._memory is None:

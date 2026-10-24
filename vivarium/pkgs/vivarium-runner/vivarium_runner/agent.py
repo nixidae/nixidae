@@ -199,7 +199,10 @@ async def _serve() -> None:
         fd = await asyncio.to_thread(_accept_one, TTY[len(UNIX_PREFIX) :])
         conn = listen(fd, Agent(), raw_tty=False)
     else:
-        conn = listen(os.open(TTY, os.O_RDWR), Agent())
+        fd = os.open(TTY, os.O_RDWR)
+        # A krun guest's channel is a virtio-console port that is not a
+        # console, so it has no line discipline to make raw.
+        conn = listen(fd, Agent(), raw_tty=os.isatty(fd))
         print(AGENT_READY, flush=True)
     await conn.serve_forever()
 

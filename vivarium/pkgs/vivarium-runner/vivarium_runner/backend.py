@@ -739,6 +739,89 @@ class Qemu:
         return qemu_end.detach(), proc
 
 
+DAX_WINDOW = 512 << 20
+"""Bytes of guest physical address space the store is mapped through.
+
+Address space, not RAM: the host pays for the page cache the guest maps,
+whatever the window's size. A window smaller than what a guest reads
+makes the guest unmap and remap ranges; 512 MiB held a whole 362 MiB
+closure without that (nixidae/nixidae#1077).
+
+Not larger without a measurement: at 4 GiB the guest booted, read its
+closure, and then took SIGBUS on its next exec (`memory.krun`). Cause not
+found."""
+
+
+class Krun:
+    """A guest as a libkrun microVM, with KVM.
+
+    The kernel, initrd and disk are QEMU's, so is the passt uplink. The
+    store is served from inside the guest's own process, with a DAX window,
+    so the guest maps the host's page cache of it instead of reading it
+    into its own RAM. No monitor: no screen, and no balloon to resize.
+    """
+
+    name = "krun"
+
+    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+        # libkrun's virtio-fs serves a file as the guest user that made it,
+        # the same as virtiofsd: see Qemu.launch.
+        if not container.owns_ids():
+            raise BackendError(
+                f"{machine.spec.name}: a krun guest needs {container.SUBORDINATE_IDS} ids "
+                "in the run's namespace, and it maps fewer\n"
+                "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
+                "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
+            )
+        spec, tools = machine.spec, machine.tools
+        opened: list[int] = []
+        helpers: list[subprocess.Popen] = []
+        try:
+            disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
+            opened += [disk_rw, disk_ro]
+            passt_fd, passt_proc = Qemu._passt(tools, rundir, machine.forward, machine.offline)
+            helpers.append(passt_proc)
+            opened.append(passt_fd)
+        except BaseException:
+            for helper in helpers:
+                helper.kill()
+                helper.wait()
+            for fd in opened:
+                os.close(fd)
+            raise
+        # libkrun opens the disk by path, and only the fd keeps the unlinked
+        # file alive. It opens it read-write and needs no read-only twin.
+        os.close(disk_ro)
+
+        boot = spec.boot
+        launch_spec = {
+            "libkrun": str(tools.libkrun),
+            "cpus": spec.cpus,
+            "memory_mib": memory_bytes(spec.memory) >> 20,
+            "vmlinux": boot["vmlinux"],
+            "initrd": boot["initrd"],
+            "cmdline": f"{boot['cmdline']} init={boot['toplevel']}/init",
+            "nested": bool(boot.get("nested")),
+            "disk": f"/proc/self/fd/{disk_rw}",
+            "store": spec.store,
+            "dax_window": DAX_WINDOW,
+            "agent_fd": agent_fd,
+            "uplink": {"fd": passt_fd, "mac": spec.mac(0)},
+            "lan": [{"fd": lan_fds[nic.name], "mac": nic.mac} for nic in spec.interfaces],
+            "artifacts": None if machine.artifacts is None else str(machine.artifacts),
+        }
+        return Launch(
+            argv=[
+                sys.executable,
+                "-m",
+                "vivarium_runner.krun_launch",
+                json.dumps(launch_spec),
+            ],
+            pass_fds=(agent_fd, passt_fd, disk_rw, *lan_fds.values()),
+            helpers=helpers,
+        )
+
+
 class Container:
     """A guest as a rootless container: no kernel boot, the host's own.
 
@@ -872,7 +955,7 @@ class Container:
         return [*args, *extra]
 
 
-BACKENDS = {backend.name: backend() for backend in (Uml, Qemu, Container)}
+BACKENDS = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container)}
 
 
 def get(name: str):

@@ -164,14 +164,18 @@ in
 
   options.vivarium = {
     backend = lib.mkOption {
-      type = lib.types.enum [ "uml" "qemu" "container" ];
+      type = lib.types.enum [ "uml" "qemu" "krun" "container" ];
       default = "uml";
       description = ''
         Which machine a guest becomes.
 
         `uml` is a process: no KVM, no root, no tap device, nothing asked
         of the host. `qemu` needs `/dev/kvm` to be worth running, and is
-        then multiprocessor and much faster. `container` runs the system
+        then multiprocessor and much faster. `krun` is a libkrun microVM
+        with the same kernel, initrd and disk as `qemu`. It serves the store
+        through a DAX window, so a guest keeps no copy of the store pages it
+        reads, but it has no monitor: no screen, and no `shrink` or `grow`.
+        `container` runs the system
         under rootless crun on the host's own kernel: no kernel boot, but
         no kernel of its own either, and the host needs user namespaces,
         subordinate ids and a writable cgroup. Its uplink and forwards
@@ -209,8 +213,8 @@ in
 
     memory = lib.mkOption {
       type = lib.types.str;
-      default = if config.vivarium.backend == "qemu" then "512M" else "256M";
-      defaultText = lib.literalExpression ''if backend == "qemu" then "512M" else "256M"'';
+      default = if lib.elem config.vivarium.backend [ "qemu" "krun" ] then "512M" else "256M";
+      defaultText = lib.literalExpression ''if backend is "qemu" or "krun" then "512M" else "256M"'';
       example = "1024M";
       description = ''
         Guest RAM, as UML's `mem=` and QEMU's `-m` both take it.
@@ -654,10 +658,16 @@ in
         '';
       }
       {
-        assertion = config.vivarium.nestedVirtualization -> config.vivarium.backend == "qemu";
+        assertion =
+          config.vivarium.nestedVirtualization
+          -> lib.elem config.vivarium.backend [
+            "qemu"
+            "krun"
+          ];
         message = ''
-          vivarium.nestedVirtualization needs `backend = "qemu"`: a UML guest
-          has no virtual CPU to expose vmx or svm on.
+          vivarium.nestedVirtualization needs `backend = "qemu"` or "krun": a
+          ${config.vivarium.backend} guest has no virtual CPU to expose vmx or
+          svm on.
         '';
       }
       {

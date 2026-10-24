@@ -183,7 +183,7 @@ rec {
           configurations = lib.mapAttrs (_: system: "${system}") machine.system.build.vivariumConfigurations;
         }
     )
-    // lib.optionalAttrs (machine.vivarium.backend == "qemu") {
+    // lib.optionalAttrs (lib.elem machine.vivarium.backend [ "qemu" "krun" ]) {
       boot = machine.system.build.qemuBoot;
     }
     // lib.optionalAttrs (machine.vivarium.backend == "container") {
@@ -227,6 +227,10 @@ rec {
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
       virtiofsd = "${pkgs.virtiofsd}/bin/virtiofsd";
     }
+    // lib.optionalAttrs (on "krun" != [ ]) {
+      libkrun = "${pkgs.callPackage ./pkgs/libkrun/package.nix { }}/lib/libkrun.so";
+      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
+    }
     # nixos-test's OCR packages, for the same reading of the same screens.
     // lib.optionalAttrs (lib.any (machine: machine.vivarium.display.enable) machines) {
       tesseract = "${pkgs.tesseract4}/bin/tesseract";
@@ -255,8 +259,8 @@ rec {
     let
       any = backend: lib.any (machine: machine.vivarium.backend == backend) machines;
     in
-    lib.optional (any "qemu") "kvm"
-    ++ lib.optional (any "qemu" || any "container") "uid-range";
+    lib.optional (any "qemu" || any "krun") "kvm"
+    ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range";
 
   /**
     Whether this sandbox can run a container guest, answered in seconds.
@@ -614,6 +618,7 @@ rec {
           driverInteractive = (extend { modules = [ checkedConfig.interactive ]; }).driverInteractiveHere;
           uml = onBackend "uml";
           qemu = onBackend "qemu";
+          krun = onBackend "krun";
           container = onBackend "container";
           phases = lister;
           config = checkedConfig;
