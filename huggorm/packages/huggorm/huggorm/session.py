@@ -38,6 +38,7 @@ from huggorm_generated import (
 )
 from huggorm_generated._runtime import Remote
 
+from . import transport
 from .lifecycle import ShareMode
 from .logbus import LOG_CAPACITY, LOG_LEVEL, Fanout, Reader
 from .remote import NixClient, connect
@@ -581,16 +582,19 @@ class AsyncRemoteSession:
     @contextlib.asynccontextmanager
     async def connect(
         cls,
-        path: str | os.PathLike[str],
+        server: str | os.PathLike[str] | transport.Dialer,
         claim: str | None = None,
         store_uri: str = "auto",
     ) -> AsyncIterator[AsyncRemoteSession]:
         """Connect, bind (claiming escrow with `claim`), and scope one session.
 
+        `server` is a Unix socket's path, or a dialer from
+        `huggorm.transport` for a server on a pipe.
+
         `claim` is a token a previous session detached under: the
         server adopts its escrowed leases onto this connection.
         """
-        async with connect(path, claim=claim) as client:
+        async with connect(server, claim=claim) as client:
             session = cls(client, store_uri)
             try:
                 yield session

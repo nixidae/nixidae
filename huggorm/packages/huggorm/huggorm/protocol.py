@@ -57,7 +57,7 @@ from typing import Any
 
 import anyio
 import anyio.lowlevel
-from anyio.abc import SocketAttribute, SocketStream, TaskGroup
+from anyio.abc import ByteStream, SocketAttribute, TaskGroup
 from anyio.streams.buffered import BufferedByteReceiveStream
 
 from huggorm_generated._callspec import Call, Wire, WireKind
@@ -157,7 +157,7 @@ def build_identity() -> str:
     return digest.hexdigest()
 
 
-def peer_uid(stream: SocketStream) -> int:
+def peer_uid(stream: ByteStream) -> int:
     """The uid of the process on the other end of a Unix socket, as
     the kernel recorded it at connect time."""
     sock: socket.socket = stream.extra(SocketAttribute.raw_socket)
@@ -171,7 +171,7 @@ class Channel:
     """Frames over one connected stream. Sends are serialised, because
     calls on one connection answer from many tasks."""
 
-    def __init__(self, stream: SocketStream) -> None:
+    def __init__(self, stream: ByteStream) -> None:
         self.stream = stream
         self._reader = BufferedByteReceiveStream(stream)
         self._send_lock = anyio.Lock()

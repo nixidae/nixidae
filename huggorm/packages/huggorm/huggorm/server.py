@@ -22,12 +22,12 @@ import logging
 import os
 import signal
 import weakref
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from typing import Any
 
 import anyio
-from anyio.abc import SocketStream, TaskGroup
+from anyio.abc import ByteStream, TaskGroup
 
 from huggorm_bindings.errors import NixError
 from huggorm_generated._callspec import Accessor, Acquire, Call
@@ -53,7 +53,7 @@ from huggorm_generated._shapes import (
 )
 from huggorm_generated.free_functions import FUNCTIONS
 
-from . import namespace, tree
+from . import namespace, transport, tree
 from .callbacks import Callbacks
 from .codec import Codec, Node
 from .lifecycle import HandleTable, ShareMode
@@ -788,8 +788,12 @@ class Dispatcher:
         raise ProtocolError(f"{control.name} with arguments {args!r:.80}")
 
     # -- connections -----------------------------------------------------
-    async def connection(self, stream: SocketStream) -> None:
+    async def connection(self, stream: ByteStream, *, trusted: bool = False) -> None:
         """Serve one connection until the peer closes it.
+
+        `trusted` skips the uid check, for a stream whose other end
+        started this process: a pipe pair has no peer credentials, and
+        whoever holds the pipes spawned the server.
 
         Never raises: one broken peer must not stop the listener. EOF
         cancels the connection's running calls, because nobody can
@@ -798,18 +802,19 @@ class Dispatcher:
         that detached claims them back. A token that holds no lease
         and no other stream is forgotten."""
         try:
-            await self._connection(stream)
+            await self._connection(stream, trusted)
         except Exception:
             logger.warning("a connection failed", exc_info=True)
         finally:
             with anyio.CancelScope(shield=True):
                 await stream.aclose()
 
-    async def _connection(self, stream: SocketStream) -> None:
-        uid = peer_uid(stream)
-        if uid != os.geteuid():
-            logger.warning("refused a connection from uid %d", uid)
-            return
+    async def _connection(self, stream: ByteStream, trusted: bool) -> None:
+        if not trusted:
+            uid = peer_uid(stream)
+            if uid != os.geteuid():
+                logger.warning("refused a connection from uid %d", uid)
+                return
         channel = Channel(stream)
         with anyio.fail_after(HELLO_TIMEOUT):
             hello = await channel.receive()
@@ -903,12 +908,12 @@ def _swept(token: str) -> Refused:
                    f"with it")
 
 
-async def serve(path: str, lease_ttl: float = 120.0, *,
-                escrow_ttl: float | None = 300.0,
-                callbacks: bool = False,
-                task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
-    """The server on the Unix socket at `path`, and the two scopes every
-    background task lives in.
+@contextlib.asynccontextmanager
+async def dispatching(lease_ttl: float = 120.0, *,
+                      escrow_ttl: float | None = 300.0,
+                      callbacks: bool = False) -> AsyncIterator[Dispatcher]:
+    """A dispatcher, and the two scopes every background task lives in.
+    A connection source serves its connections through it.
 
     TWO task groups, nested, because the tasks divide into two kinds
     and one exit rule does not fit both.
@@ -926,10 +931,7 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
     afterwards.
 
     That split is the trap nixidae/nixidae#572 names first: a task group does
-    not cancel its children on exit, it waits for them.
-
-    The socket is mode 0600, and a connection checks the peer's uid
-    as well: only this uid may connect."""
+    not cancel its children on exit, it waits for them."""
     # One `with`, two groups, and the ORDER inside it is the whole
     # point: `loops` is entered second, so it exits first. Ruff asks
     # for the combined form and it says the same thing.
@@ -962,6 +964,25 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
         if ttls:
             loops.start_soon(sweeper)
 
+        try:
+            yield dispatcher
+        finally:
+            loops.cancel_scope.cancel()
+            # Every state closes on its own thread, which `work` awaits.
+            dropped = dispatcher.table.close()
+            logger.info("stopping: closing %d handle(s)", len(dropped))
+
+
+async def serve(path: str, lease_ttl: float = 120.0, *,
+                escrow_ttl: float | None = 300.0,
+                callbacks: bool = False,
+                task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+    """The server on the Unix socket at `path`.
+
+    The socket is mode 0600, and a connection checks the peer's uid
+    as well: only this uid may connect."""
+    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl,
+                           callbacks=callbacks) as dispatcher:
         listener = await anyio.create_unix_listener(path, mode=0o600)
         logger.info("listening on %s (lease ttl: %s)", path,
                     lease_ttl if lease_ttl else "off")
@@ -971,10 +992,22 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(path)
-            loops.cancel_scope.cancel()
-            # Every state closes on its own thread, which `work` awaits.
-            dropped = dispatcher.table.close()
-            logger.info("stopping: closing %d handle(s)", len(dropped))
+
+
+async def serve_stream(stream: ByteStream, lease_ttl: float = 120.0, *,
+                       escrow_ttl: float | None = 300.0,
+                       callbacks: bool = False,
+                       task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+    """The server on one stream whose other end started this process,
+    until that end closes it: the stdin and stdout of a spawned server,
+    or the channel of an SSH session.
+
+    One connection, so a client cannot detach and claim it back over
+    another. No `--ready-fd`: WELCOME is the ready signal."""
+    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl,
+                           callbacks=callbacks) as dispatcher:
+        task_status.started()
+        await dispatcher.connection(stream, trusted=True)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -996,7 +1029,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     parser = argparse.ArgumentParser(prog="huggorm.server")
-    parser.add_argument("path")
+    parser.add_argument("path", nargs="?")
     parser.add_argument("ttl", nargs="?", type=float, default=120.0)
     parser.add_argument("--option", nargs=2, action="append", default=[],
                         metavar=("NAME", "VALUE"))
@@ -1019,7 +1052,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--ready-fd", type=int, metavar="FD",
                         help="write one line to FD once listening, and "
                              "close it")
+    parser.add_argument("--stdio", action="store_true",
+                        help="serve one connection on stdin and stdout, "
+                             "and exit when it ends")
     args = parser.parse_args(argv)
+    if (args.path is None) == (not args.stdio):
+        parser.error("give one of a socket PATH and --stdio")
     if args.overlay is not None:
         namespace.enter_overlay_namespace(namespace.OverlayNamespace.under(
             args.overlay, lower_store=args.lower_store,
@@ -1032,9 +1070,28 @@ def main(argv: list[str] | None = None) -> None:
             set_setting(name, value)
     for name, value in args.option:
         set_setting(name, value)
-    anyio.run(_until_signalled, functools.partial(
-        serve, args.path, args.ttl, callbacks=args.experimental_callbacks),
-        args.ready_fd)
+    if args.stdio:
+        serving = functools.partial(serve_stream, _stdio_stream(), args.ttl,
+                                    callbacks=args.experimental_callbacks)
+    else:
+        serving = functools.partial(serve, args.path, args.ttl,
+                                    callbacks=args.experimental_callbacks)
+    anyio.run(_until_signalled, serving, args.ready_fd)
+
+
+def _stdio_stream() -> transport.FdStream:
+    """stdin and stdout as the connection, moved off fd 0 and fd 1.
+
+    A frame is the only thing that may reach the client, so fd 1 is
+    pointed at stderr: anything else that writes to stdout - a print,
+    a library - lands in the log instead of in the middle of a frame.
+    fd 0 reads /dev/null for the same reason."""
+    read_fd, write_fd = os.dup(0), os.dup(1)
+    os.dup2(2, 1)
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    return transport.FdStream(read_fd, write_fd)
 
 
 async def _until_signalled(
@@ -1050,10 +1107,16 @@ async def _until_signalled(
     at once. Closing the receiver is not enough: it puts back asyncio's
     SIGINT handler, which only cancels again."""
     async with anyio.create_task_group() as tg:
+
+        async def serve_then_stop(*, task_status: anyio.abc.TaskStatus[None]) -> None:
+            # A stdio server ends with its one connection.
+            await serving(task_status=task_status)
+            tg.cancel_scope.cancel()
+
         # The receiver first: a caller told "listening" may signal at once.
         with anyio.open_signal_receiver(signal.SIGTERM,
                                         signal.SIGINT) as signals:
-            await tg.start(serving)
+            await tg.start(serve_then_stop)
             if ready_fd is not None:
                 os.write(ready_fd, b"listening\n")
                 os.close(ready_fd)

@@ -38,7 +38,7 @@ from huggorm_generated._classes import CLASSES
 from huggorm_generated._policy import ACQUIRE, CALLBACKS, FREE, NO_RPC
 from huggorm_generated._runtime import Remote, typed_or_internal
 
-from . import views
+from . import transport, views
 from .codec import Codec
 from .lifecycle import ShareMode
 from .logbus import LOG_CAPACITY, LOG_LEVEL
@@ -122,9 +122,16 @@ class _Link:
 
 
 class NixClient:
-    def __init__(self, path: str | os.PathLike[str], *,
+    def __init__(self, server: str | os.PathLike[str] | transport.Dialer, *,
                  experimental_callbacks: bool = False) -> None:
-        self.path = os.fspath(path)
+        """`server` is a Unix socket's path, or a dialer for any other
+        transport (`huggorm.transport`)."""
+        if callable(server):
+            self.address = getattr(server, "__qualname__", "a dialer")
+            self._dial: transport.Dialer = server
+        else:
+            self.address = os.fspath(server)
+            self._dial = transport.unix(server)
         # EXPERIMENTAL (nixidae/nixidae#738): whether this client may hand the
         # server an object it calls back. Each one is kept, by its id,
         # until the client closes: the server may call it at any time.
@@ -247,7 +254,7 @@ class NixClient:
         if link is not None and link.expired:
             raise _swept(link.token)
         if link is None or link.peer.closed.is_set():
-            raise ConnectionLost(f"no connection to {self.path}")
+            raise ConnectionLost(f"no connection to {self.address}")
         return link
 
     async def _ask(self, op: Op, *body: Any) -> Any:
@@ -285,7 +292,7 @@ class NixClient:
                 anyio.ClosedResourceError):
             pass
         except ProtocolError:
-            logger.warning("closing the connection to %s", self.path,
+            logger.warning("closing the connection to %s", self.address,
                            exc_info=True)
         link.scope.cancel()
 
@@ -381,7 +388,7 @@ class NixClient:
                 "`async with remote.connect(path) as client:` - or "
                 "`async with NixClient(path)` if you are binding by hand.")
         await self._end()
-        stream = await anyio.connect_unix(self.path)
+        stream = await self._dial()
         channel = Channel(stream)
         try:
             await channel.send([Op.HELLO, build_identity(), claim_token])
@@ -745,7 +752,7 @@ class NixClient:
 
 
 @contextlib.asynccontextmanager
-async def connect(path: str | os.PathLike[str],
+async def connect(server: str | os.PathLike[str] | transport.Dialer,
                   claim: str | None = None, *,
                   experimental_callbacks: bool = False
                   ) -> AsyncIterator[NixClient]:
@@ -758,6 +765,6 @@ async def connect(path: str | os.PathLike[str],
     thing with the right lifetime (nixidae/nixidae#572). The loops cannot
     outlive the client and cannot be forgotten."""
     async with NixClient(
-            path, experimental_callbacks=experimental_callbacks) as client:
+            server, experimental_callbacks=experimental_callbacks) as client:
         await client.bind(claim)
         yield client
