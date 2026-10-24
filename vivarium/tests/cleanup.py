@@ -1,11 +1,11 @@
 """Does a run leave nothing behind, however it ends?
 
-Each case starts `vivarium run` on one UML guest, signals the runner once a
+Each case starts `vivarium run` on one guest, signals the runner once a
 phase has started, and looks for what is left: a run root, or a process
 by its exact name. SIGKILL: the cleaner removes the root. SIGTERM: the
 run exits 143 after the guest has powered itself off.
 
-    cleanup VIVARIUM SPEC WORKDIR
+    cleanup VIVARIUM SPEC WORKDIR BACKEND
 """
 
 import os
@@ -18,8 +18,21 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-LEFT_BEHIND = ("linux", "uml-passt-bridge", "passt")
-"""The runner's own children under UML, by the name the kernel keeps."""
+LEFT_BEHIND = {
+    "uml": ("linux", "uml-passt-bridge", "passt"),
+    "qemu": ("qemu-system-x86", "virtiofsd", "passt"),
+    "krun": ("vivarium-krun", "passt"),
+}
+"""The runner's own children per backend, by the name the kernel keeps:
+`comm`, cut at 15 bytes."""
+
+POWERED_OFF = {
+    "uml": "the kernel exited (0)",
+    "qemu": "reboot: Power down",
+    "krun": "reboot: Restarting system",
+}
+"""What a guest's console says when it powered itself off. A krun guest
+resets instead, which is what ends libkrun (modules/qemu.nix)."""
 
 
 def roots() -> list[Path]:
@@ -48,7 +61,15 @@ def until(check: Callable[[], bool], seconds: float, step: float = 0.1) -> bool:
     return check()
 
 
-def case(vivarium: str, spec: str, work: Path, sig: signal.Signals, *, keep: bool = False) -> int:
+def case(
+    vivarium: str,
+    spec: str,
+    work: Path,
+    sig: signal.Signals,
+    left_behind: tuple[str, ...],
+    *,
+    keep: bool = False,
+) -> int:
     name = f"{sig.name}{'-keep' if keep else ''}"
     out = work / f"run-{name}"
     log = work / f"run-{name}.log"
@@ -70,6 +91,9 @@ def case(vivarium: str, spec: str, work: Path, sig: signal.Signals, *, keep: boo
         sys.exit(f"{sig.name}: no phase started")
     runner.send_signal(sig)
     status = runner.wait()
+    # Keeping the root keeps files, never processes.
+    if until(lambda: not running(left_behind), 5) is False:
+        sys.exit(f"{name}: left {', '.join(running(left_behind))}")
     if keep:
         # The negative control: with removal off, this check must see
         # the root, or its "nothing left" means nothing.
@@ -82,24 +106,23 @@ def case(vivarium: str, spec: str, work: Path, sig: signal.Signals, *, keep: boo
     # The cleaner removes the root just after the runner is gone.
     if not until(lambda: not roots(), 5):
         sys.exit(f"{sig.name}: left {roots()}")
-    if left := running(LEFT_BEHIND):
-        sys.exit(f"{sig.name}: left {', '.join(left)}")
     print(f"ok: {sig.name}, exit {status}, nothing left")
     return status
 
 
 def main() -> None:
-    vivarium, spec, work = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    vivarium, spec, work, backend = sys.argv[1], sys.argv[2], Path(sys.argv[3]), sys.argv[4]
     os.environ.setdefault("HOME", str(work))
-    case(vivarium, spec, work, signal.SIGKILL, keep=True)
-    case(vivarium, spec, work, signal.SIGKILL)
-    status = case(vivarium, spec, work, signal.SIGTERM)
+    left_behind = LEFT_BEHIND[backend]
+    case(vivarium, spec, work, signal.SIGKILL, left_behind, keep=True)
+    case(vivarium, spec, work, signal.SIGKILL, left_behind)
+    status = case(vivarium, spec, work, signal.SIGTERM, left_behind)
     # The runner catches SIGTERM and exits 128 + 15. Uncaught, Popen
     # would report -15.
     if status != 128 + signal.SIGTERM:
         sys.exit(f"SIGTERM: exit {status}, not 143")
     console = (work / "run-SIGTERM" / "console" / "one.log").read_text()
-    if "the kernel exited (0)" not in console:
+    if POWERED_OFF[backend] not in console:
         sys.exit("SIGTERM: the guest did not power itself off")
     print("ok: SIGTERM powered the guest off before the run ended")
 

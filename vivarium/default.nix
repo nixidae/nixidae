@@ -1276,6 +1276,7 @@ let
       '';
 
     # Does a run leave nothing behind, however it ends? tests/cleanup.py.
+    # `.qemu` and `.krun` ask for KVM, as every test's variants do.
     cleanup =
       let
         run = mkTest {
@@ -1286,11 +1287,26 @@ let
             after = [ "boot" ];
           };
         };
+        on =
+          backend:
+          let
+            session = if backend == "uml" then run else run.${backend};
+          in
+          pkgs.runCommand "vivarium-check-cleanup-${backend}"
+            {
+              passthru.session = session;
+              inherit (session.attempt) requiredSystemFeatures;
+            }
+            ''
+              ${pkgs.python3.interpreter} ${./tests/cleanup.py} ${lib.getExe cli} ${session.spec} "$TMPDIR" ${backend}
+              touch $out
+            '';
       in
-      pkgs.runCommand "vivarium-check-cleanup" { passthru.session = run; } ''
-        ${pkgs.python3.interpreter} ${./tests/cleanup.py} ${lib.getExe cli} ${run.spec} "$TMPDIR"
-        touch $out
-      '';
+      on "uml"
+      // {
+        qemu = on "qemu";
+        krun = on "krun";
+      };
 
     # Can `exec` reach a run that is not paused? tests/live-exec.py.
     live-exec =
