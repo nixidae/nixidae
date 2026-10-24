@@ -1016,6 +1016,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="the directory of the lower store's paths. "
                              "It must hold this server's own closure: the "
                              "overlay hides the rest of /nix/store")
+    parser.add_argument("--ready-fd", type=int, metavar="FD",
+                        help="write one line to FD once listening, and "
+                             "close it")
     args = parser.parse_args(argv)
     if args.overlay is not None:
         namespace.enter_overlay_namespace(namespace.OverlayNamespace.under(
@@ -1030,11 +1033,13 @@ def main(argv: list[str] | None = None) -> None:
     for name, value in args.option:
         set_setting(name, value)
     anyio.run(_until_signalled, functools.partial(
-        serve, args.path, args.ttl, callbacks=args.experimental_callbacks))
+        serve, args.path, args.ttl, callbacks=args.experimental_callbacks),
+        args.ready_fd)
 
 
 async def _until_signalled(
-        serving: Callable[[], Coroutine[Any, Any, None]]) -> None:
+        serving: Callable[..., Coroutine[Any, Any, None]],
+        ready_fd: int | None = None) -> None:
     """Serve until SIGTERM or SIGINT, then stop as a cancel does: the
     calls in flight are interrupted, and every state is closed on its
     own thread.
@@ -1045,9 +1050,13 @@ async def _until_signalled(
     at once. Closing the receiver is not enough: it puts back asyncio's
     SIGINT handler, which only cancels again."""
     async with anyio.create_task_group() as tg:
-        tg.start_soon(serving)
+        # The receiver first: a caller told "listening" may signal at once.
         with anyio.open_signal_receiver(signal.SIGTERM,
                                         signal.SIGINT) as signals:
+            await tg.start(serving)
+            if ready_fd is not None:
+                os.write(ready_fd, b"listening\n")
+                os.close(ready_fd)
             async for signum in signals:
                 logger.info("stopping on %s", signal.Signals(signum).name)
                 break

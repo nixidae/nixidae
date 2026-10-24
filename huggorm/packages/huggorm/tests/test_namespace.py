@@ -10,10 +10,10 @@ from collections.abc import AsyncIterator
 
 import anyio
 import pytest
-from conftest import socket_path, wait_socket
 
 from huggorm import remote
 from huggorm.namespace import OverlayNamespace, remove_layers
+from huggorm.spawn import spawned
 from huggorm_dsl.declare import NIX_2_35
 
 PROBE = """
@@ -96,29 +96,18 @@ async def test_an_overlay_server_builds_into_its_upper_layer_alone(
                                 .parts[:4]))
     root = layers / "overlay"
     spec = OverlayNamespace.under(root)
-    path = socket_path()
-    async with await anyio.open_process(
-            [sys.executable, "-m", "huggorm.server", str(path),
-             "--overlay", str(root), "--load-config"],
-            stdout=None, stderr=None) as process:
-        try:
-            await wait_socket(path)
-            async with remote.connect(path) as client:
-                store = await client.acquire("Store", spec.store_uri())
-                assert await store.is_valid_path(
-                    await store.parse_store_path(held))
-                state = await client.acquire("EvalState", store)
-                drv = await (await state.eval_expr(_derivation(layers))
-                             ).drv_path()
-                derived = await store.parse_derived_path(
-                    f"{await store.print_store_path(drv)}^*")
-                [result] = await store.build_paths_with_results([derived])
-                assert result.error() is None
-                [built] = result.success().built_outputs().values()
-                added = await store.print_store_path(built.out_path())
-        finally:
-            process.terminate()
-            await process.wait()
+    async with (spawned("--overlay", str(root), "--load-config") as path,
+                remote.connect(path) as client):
+        store = await client.acquire("Store", spec.store_uri())
+        assert await store.is_valid_path(await store.parse_store_path(held))
+        state = await client.acquire("EvalState", store)
+        drv = await (await state.eval_expr(_derivation(layers))).drv_path()
+        derived = await store.parse_derived_path(
+            f"{await store.print_store_path(drv)}^*")
+        [result] = await store.build_paths_with_results([derived])
+        assert result.error() is None
+        [built] = result.success().built_outputs().values()
+        added = await store.print_store_path(built.out_path())
     name = pathlib.PurePath(added).name
     assert await anyio.Path(root / "upper" / name).exists()
     assert not await anyio.Path(added).exists()
