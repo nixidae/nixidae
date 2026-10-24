@@ -332,14 +332,19 @@ having, since it needs a reboot to fix.
 itself. Nothing above that line changes: the same `tests/lan.py` and the
 same two node configurations run as `lan` and as `lan.qemu`.
 
-|  | `uml` (default) | `qemu` |
-| --- | --- | --- |
-| needs | nothing | `/dev/kvm` |
-| processors | one | `vivarium.cpus` |
-| kernel | built for `ARCH=um`, all built in | the host's, with an initrd |
-| the store | hostfs | virtiofs |
-| default RAM | 256M | 512M |
-| `vec1` carrier | `UNKNOWN` | `UP` |
+|  | `uml` (default) | `qemu` | `krun` |
+| --- | --- | --- | --- |
+| needs | nothing | `/dev/kvm` | `/dev/kvm` |
+| processors | one | `vivarium.cpus` | `vivarium.cpus` |
+| kernel | built for `ARCH=um`, all built in | the host's, with an initrd | the same as `qemu` |
+| the store | hostfs | virtiofs | virtiofs with a DAX window |
+| default RAM | 256M | 512M | 512M |
+| screen, `shrink`, `grow` | `shrink`, `grow` | all three | none |
+
+`krun` is a libkrun microVM booting `qemu`'s kernel, initrd and disk. Its
+virtio-fs runs inside the guest's own process and maps the host's page
+cache of the store into the guest, so a guest keeps no copy of the store
+pages it reads. libkrun is carried with two patches, in `pkgs/libkrun`.
 
 The last row is not cosmetic if you write a test that waits on a link:
 UML's vector driver reports no carrier, so `ip` says `UNKNOWN` on an
@@ -451,6 +456,11 @@ alternating, on an idle host:
 | `qemu`, 2 cpus | 33.69 / 34.37 | — |
 
 Gbit/s, server→client / client→server.
+
+`krun` on another day and host, beside `qemu` on that same host: 8.20 /
+8.53 for `krun` against 53.80 / 54.89 for `qemu`, one processor each.
+libkrun's segment path is about six times slower, and is not yet looked
+into.
 
 Two things worth keeping:
 
@@ -603,6 +613,15 @@ miss on a store file is a host `read()` that hits the host's own page
 cache — a memcpy, not disk I/O. Measured on one guest, host cache hot:
 1.3-1.5 GB/s for a miss against 5.1-6.5 GB/s for a hit. A smaller
 `memory` therefore costs memcpys, not seeks.
+
+**A krun guest does not copy the store at all.** Its store is mapped from
+the host's page cache, so the same read costs the guest no cache and the
+host almost nothing. Measured by `memory.krun` at `memory = "1024M"`: 315M
+at boot, 362M after reading the closure, with the guest's `Cached` at 93M
+throughout. Three guests reading the same closure cost the host 980 MiB
+under `krun` and 2459 MiB under `qemu` (nixidae/nixidae#1077). Its RAM is
+anonymous memory, so `host_memory_kib()` there is the process's PSS, the
+mapped store pages included.
 
 Different machinery under each backend, and a test never sees which.
 QEMU gets `virtio-balloon-pci,free-page-reporting=on` and its monitor;

@@ -293,14 +293,16 @@ This project uses jj (Jujutsu), not git. Do not use git commands.
 Flake entry points only see tracked files, so run `jj st` after adding a
 file and before building.
 
-## Two backends
+## Backends
 
-`vivarium.backend` is `uml` or `qemu`, and `mkTest` takes it. A test
+`vivarium.backend` is `uml`, `qemu`, `krun` or `container`, and `mkTest`
+takes it. `krun` shares `modules/qemu.nix` with `qemu`; its deltas there
+are under `krun`. A test
 script never knows which it got, and neither does a node configuration --
 keep it that way. Anything that has to differ belongs in
 `modules/qemu.nix` or in `vivarium_runner/backend.py`, not in a test.
 
-Every test carries `.uml` and `.qemu`, so do not add a second attribute
+Every test carries `.uml`, `.qemu`, `.krun` and `.container`, so do not add a second attribute
 to run a test on the other backend. `mkTest` builds both variants from
 one set of arguments; the one `backend` names keeps the bare derivation
 name.

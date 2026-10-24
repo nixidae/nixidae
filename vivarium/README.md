@@ -13,8 +13,8 @@ vivarium is where the nixidae keep their guests.
   kernel, which runs as an ordinary process. It needs no `/dev/kvm`, no
   root and no tap device, so tests run in a Nix build sandbox, in CI, or
   in a container.
-- **Three backends, one test.** A guest can also be a QEMU virtual
-  machine or a container. One run can mix all three on one network, and
+- **Four backends, one test.** A guest can also be a QEMU or libkrun
+  virtual machine, or a container. One run can mix them on one network, and
   a test script never knows which kind it got.
 - **Each guest sees only its own closure.** The runner gives each guest
   a view of the Nix store with its own paths and nothing else, in the
@@ -111,7 +111,7 @@ attribute is one way to run the same test.
 | `.driverDebug` | Runs by hand, and pauses at the first failure with the guests still up. |
 | `.driverInteractive` | Runs by hand, and gives you a Python prompt before the first phase. |
 | `.phases` | Lists the phases in order, and boots nothing. |
-| `.uml`, `.qemu`, `.container` | The same test with every guest on that backend. |
+| `.uml`, `.qemu`, `.krun`, `.container` | The same test with every guest on that backend. |
 | `.extend { modules = [ ... ]; }` | The same test with more modules. |
 | `.nodes`, `.config` | The evaluated guests and the evaluated test. |
 
@@ -164,11 +164,15 @@ $ jq -r 'select(.kind=="rpc") | "\(.phase)\t\(.seconds)\t\(.text)"' out/events.j
 
 ## Backends
 
-| | `uml` (default) | `qemu` | `container` |
-| --- | --- | --- | --- |
-| needs | user namespaces | `/dev/kvm` | subordinate ids, a cgroup |
-| processors | one | `vivarium.cpus` | the host's |
-| kernel | its own, built for `ARCH=um` | its own | the host's |
+| | `uml` (default) | `qemu` | `krun` | `container` |
+| --- | --- | --- | --- | --- |
+| needs | user namespaces | `/dev/kvm` | `/dev/kvm` | subordinate ids, a cgroup |
+| processors | one | `vivarium.cpus` | `vivarium.cpus` | the host's |
+| kernel | its own, built for `ARCH=um` | its own | its own | the host's |
+
+`krun` boots the same guest as `qemu` under libkrun, and maps the host's
+page cache of the store instead of copying it into the guest. It has no
+screen and no `shrink` or `grow`.
 
 A guest chooses with `vivarium.backend`, and `mkTest`'s `backend` sets
 the default for every guest.
