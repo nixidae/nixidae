@@ -22,7 +22,7 @@ import contextlib
 import logging
 import os
 import weakref
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, overload, runtime_checkable
 
@@ -159,6 +159,68 @@ async def _forward(reader: Reader, callback: Callable[[LogRecord], None]) -> Asy
             await reader.close()
     if failure is not None:
         raise failure
+
+
+class _Pump:
+    """Hands a remote stream's records to `callback` until it meets the
+    "finalized" record of `barrier`, which is not a record of the block.
+
+    `seen` keeps every other marker's request: the barrier's marker can
+    pass before the caller learns its id, and then the tail is already
+    handed over."""
+
+    def __init__(self, it: AsyncIterator[LogBatch],
+                 callback: Callable[[LogRecord], None]) -> None:
+        self.it = it
+        self.callback = callback
+        self.barrier: int | None = None
+        self.seen: set[int] = set()
+        self.reached = False
+
+    async def run(self) -> None:
+        async for records, _ in self.it:
+            for record in records:
+                if record.action() == "finalized":
+                    if record.request() == self.barrier:
+                        self.reached = True
+                        return
+                    self.seen.add(record.request())
+                self.callback(record)
+
+
+@contextlib.asynccontextmanager
+async def _forward_remote(
+        stream: AsyncGenerator[LogBatch],
+        callback: Callable[[LogRecord], None],
+        finish: Callable[[_Pump, anyio.CancelScope], Awaitable[None]],
+) -> AsyncIterator[None]:
+    """Pump a remote stream into `callback` while the block runs, then
+    let `finish` decide when the tail is in. Errors as `_forward`."""
+    it = stream.__aiter__()
+    try:
+        await anext(it)
+        pump = _Pump(it, callback)
+        failure: BaseException | None = None
+        async with anyio.create_task_group() as group:
+            group.start_soon(pump.run)
+            try:
+                yield
+            except anyio.get_cancelled_exc_class():
+                group.cancel_scope.cancel()
+                raise
+            except BaseException as e:
+                failure = e
+            # After a failure too: its cause is often the last record.
+            try:
+                await finish(pump, group.cancel_scope)
+            except Exception as e:
+                failure = failure or e
+                group.cancel_scope.cancel()
+        if failure is not None:
+            raise failure
+    finally:
+        with anyio.CancelScope(shield=True):
+            await stream.aclose()
 
 
 @runtime_checkable
@@ -460,6 +522,35 @@ class AsyncRemoteSessionLike(Protocol):
         """Collect what the server says while the block runs."""
         ...
 
+    def capture_process(
+        self,
+        capacity: int = 0,
+        level: int | None = None,
+        settle: float = 1.0,
+    ) -> contextlib.AbstractAsyncContextManager[CapturedLogs]:
+        """Collect what the process stream says while the block runs."""
+        ...
+
+    def forward(
+        self,
+        state: AsyncEvalState,
+        callback: Callable[[LogRecord], None],
+        capacity: int = 0,
+        level: int | None = None,
+    ) -> contextlib.AbstractAsyncContextManager[None]:
+        """Hand each record this state raises to `callback`."""
+        ...
+
+    def forward_process(
+        self,
+        callback: Callable[[LogRecord], None],
+        capacity: int = 0,
+        level: int | None = None,
+        settle: float = 1.0,
+    ) -> contextlib.AbstractAsyncContextManager[None]:
+        """Hand each process-stream record to `callback`."""
+        ...
+
 
 class AsyncRemoteSession:
     """A scope onto one connection, and the handles it holds.
@@ -685,6 +776,61 @@ class AsyncRemoteSession:
                 "the log stream ended before the barrier's marker arrived")
         finally:
             await stream.aclose()
+
+    @contextlib.asynccontextmanager
+    async def capture_process(
+        self,
+        capacity: int = 0,
+        level: int | None = None,
+        settle: float = 1.0,
+    ) -> AsyncIterator[CapturedLogs]:
+        """`capture(None, ...)`, by the local session's name."""
+        async with self.capture(None, capacity, level, settle) as out:
+            yield out
+
+    @contextlib.asynccontextmanager
+    async def forward(
+        self,
+        state: AsyncEvalState,
+        callback: Callable[[LogRecord], None],
+        capacity: int = 0,
+        level: int | None = None,
+    ) -> AsyncIterator[None]:
+        """Hand each record this state raises to `callback`, while the
+        block runs, and the tail after it: complete, as `capture` is,
+        through the same barrier. Errors as the local `forward`.
+
+        "finalized" markers pass through, as they do locally. The
+        barrier's own marker passes too when it arrives before the
+        barrier call answers."""
+
+        async def finish(pump: _Pump, scope: anyio.CancelScope) -> None:
+            pump.barrier = await self._client.logs_barrier(state)
+            if pump.barrier in pump.seen:
+                scope.cancel()
+
+        async with _forward_remote(self._client.logs(state, capacity, level),
+                                   callback, finish):
+            yield
+
+    @contextlib.asynccontextmanager
+    async def forward_process(
+        self,
+        callback: Callable[[LogRecord], None],
+        capacity: int = 0,
+        level: int | None = None,
+        settle: float = 1.0,
+    ) -> AsyncIterator[None]:
+        """`forward` for the process stream. It has no barrier, so the
+        tail is what arrives within `settle` seconds of the block."""
+
+        async def finish(_pump: _Pump, scope: anyio.CancelScope) -> None:
+            await anyio.sleep(settle)
+            scope.cancel()
+
+        async with _forward_remote(self._client.process_logs(capacity, level),
+                                   callback, finish):
+            yield
 
     async def aclose(self) -> None:
         """Release the evaluators, then the stores, and report together.

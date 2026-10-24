@@ -7,14 +7,14 @@ hermetic.
 """
 
 import inspect
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import anyio
 import pytest
 from conftest import SHORT_TTL
 
-from huggorm.remote import ConnectionExpired, handle_of
+from huggorm.remote import ConnectionExpired, NixClient, handle_of
 from huggorm.session import (
     AsyncRemoteSession,
     AsyncRemoteSessionLike,
@@ -475,6 +475,67 @@ async def test_a_remote_warning_crosses_with_its_error_info(
     info = warned[0].info()
     assert info is not None, "the parts did not cross"
     assert info.msg() == "careful"
+
+
+def _late(monkeypatch: pytest.MonkeyPatch, stream: str) -> None:
+    """Every batch of `NixClient.<stream>` after the installed one lands
+    half a second late, so a record raised in a block arrives after it."""
+    real = getattr(NixClient, stream)
+
+    async def late(self: NixClient, *args: Any) -> AsyncIterator[Any]:
+        first = True
+        async for batch in real(self, *args):
+            if not first:
+                await anyio.sleep(0.5)
+            first = False
+            yield batch
+
+    monkeypatch.setattr(NixClient, stream, late)
+
+
+async def test_remote_forward_hands_over_the_tail(
+        server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Records cross a socket, so the block ending is not the last one
+    landing: the barrier is what brings the trace in."""
+    _late(monkeypatch, "logs")
+    async with _connect(server) as session:
+        state = await session.eval(await session.store())
+        seen: list[str] = []
+        async with session.forward(state, lambda r: seen.append(r.text())):
+            await state.eval_expr(TRACE % "remote-tail")
+    assert any("trace: remote-tail" in s for s in seen), seen
+
+
+async def test_remote_forward_raises_the_block_error_as_itself(
+        server: Any) -> None:
+    from huggorm.errors import NixError
+
+    async with _connect(server) as session:
+        state = await session.eval(await session.store())
+        with pytest.raises(NixError, match="no such thing"):
+            async with session.forward(state, lambda _r: None):
+                await state.eval_expr('throw "no such thing"')
+
+
+async def test_remote_forward_process_takes_what_no_state_claims(
+        server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """As locally: a state nobody subscribed stands in for a build. The
+    process stream has no barrier, so `settle` brings the late tail in."""
+    _late(monkeypatch, "process_logs")
+    async with _connect(server) as session:
+        state = await session.eval(await session.store())
+        seen: list[str] = []
+        async with session.forward_process(lambda r: seen.append(r.text())):
+            await state.eval_expr(TRACE % "remote-unclaimed")
+    assert any("trace: remote-unclaimed" in s for s in seen), seen
+
+
+async def test_remote_capture_process_collects(server: Any) -> None:
+    async with _connect(server) as session:
+        state = await session.eval(await session.store())
+        async with session.capture_process() as logs:
+            await state.eval_expr(TRACE % "remote-captured")
+    assert any("trace: remote-captured" in r.text() for r in logs.records)
 
 
 async def test_remote_process_logs_opens(server: Any) -> None:
