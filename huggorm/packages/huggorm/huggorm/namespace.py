@@ -14,23 +14,40 @@ daemon's sandbox settings do not reach it (nixidae/nixidae#1060).
 one thread. So `enter_overlay_namespace` runs in `main()`, before the
 event loop and before any Nix thread starts. Measured: the process has
 one thread after `import huggorm_bindings` and `huggorm.server`.
+
+A temporary overlay (`TEMPORARY`) leaves nothing behind, whatever
+ends it. Each process that uses its root holds a shared `flock` on
+`OWNER_FILE`, and the kernel drops that lock however the process
+ends, SIGKILL too. The server removes the root when it exits, the
+worker that made it removes it after the server exits, and `sweep`
+removes a root that no live process holds (nixidae/nixidae#1066).
 """
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import ctypes.util
+import enum
+import fcntl
+import logging
 import os
 import pathlib
 import shutil
 import sys
+import tempfile
 import threading
+import time
 import urllib.parse
+from collections.abc import Iterator
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 # mount(2) flags; Python has no binding for mount.
 _MS_REC = 0x4000
 _MS_PRIVATE = 1 << 18
+_MNT_DETACH = 2
 
 #: Where the overlay mounts. Anywhere else makes a relocated store,
 #: whose paths do not run where they are.
@@ -53,6 +70,29 @@ REQUIRED_SETTINGS: dict[str, str] = {
     "auto-allocate-uids": "false",
     "use-cgroups": "false",
 }
+
+#: A temporary root is a directory with this prefix in the system's
+#: temporary directory.
+TEMPORARY_PREFIX = "huggorm-overlay-"
+
+#: The file in a temporary root that its users hold a lock on.
+OWNER_FILE = "owner.lock"
+
+#: `sweep` leaves a root younger than this, in seconds: its maker may
+#: not hold the lock yet.
+SWEEP_MIN_AGE = 60.0
+
+
+class Temporary(enum.Enum):
+    OVERLAY = "temporary"
+
+
+#: `ServerOptions(overlay=TEMPORARY)`: the worker makes the layers in a
+#: temporary root, and they go when the worker ends.
+TEMPORARY = Temporary.OVERLAY
+
+#: Where this process mounted an overlay, once it has.
+_mounted_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,12 +152,127 @@ def remove_layers(root: str | os.PathLike[str]) -> None:
     shutil.rmtree(root)
 
 
-def _mount(source: str, target: str, fstype: str | None, flags: int,
-           data: str | None) -> None:
+def hold(root: str | os.PathLike[str]) -> int:
+    """Take a shared lock on the temporary `root`, and return its fd.
+    The lock lasts until the fd closes or the process ends."""
+    path = os.path.join(root, OWNER_FILE)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        # A sweep that held the lock first has removed the file now.
+        if os.stat(path).st_ino != os.fstat(fd).st_ino:
+            raise FileNotFoundError(path)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def make_temporary_root() -> tuple[str, int]:
+    """Sweep, then make a temporary root and hold it. Returns the root
+    and the fd of its lock."""
+    sweep()
+    root = tempfile.mkdtemp(prefix=TEMPORARY_PREFIX)
+    return root, hold(root)
+
+
+def release(root: str | os.PathLike[str], fd: int | None) -> None:
+    """Remove the temporary `root`, then close the lock `fd`. A
+    failure is logged and not raised, so it cannot hide the error that
+    ended the work; `sweep` tries again later."""
+    try:
+        if os.path.lexists(root):
+            remove_layers(root)
+    except OSError:
+        logger.warning("cannot remove the overlay layers at %s", root,
+                       exc_info=True)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+@contextlib.contextmanager
+def owning(root: str | os.PathLike[str]) -> Iterator[None]:
+    """Hold the temporary `root` while the block runs, then remove it.
+    An overlay this process mounted is unmounted first: OverlayFS does
+    not define a change to a mounted layer."""
+    fd = hold(root)
+    try:
+        yield
+    finally:
+        if _mounted_at is not None:
+            try:
+                _umount(_mounted_at)
+            except OSError:
+                logger.warning("cannot unmount the overlay at %s",
+                               _mounted_at, exc_info=True)
+        release(root, fd)
+
+
+def sweep(parent: str | os.PathLike[str] | None = None, *,
+          min_age: float = SWEEP_MIN_AGE) -> list[str]:
+    """Remove each temporary root of this user under `parent` (the
+    system's temporary directory by default) that no live process
+    holds, and return the roots it removed."""
+    base = tempfile.gettempdir() if parent is None else os.fspath(parent)
+    removed: list[str] = []
+    now = time.time()
+    with os.scandir(base) as entries:
+        for entry in entries:
+            if not entry.name.startswith(TEMPORARY_PREFIX):
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if (not entry.is_dir(follow_symlinks=False)
+                    or info.st_uid != os.getuid()
+                    or now - info.st_mtime < min_age):
+                continue
+            if _sweep_one(entry.path):
+                removed.append(entry.path)
+    return removed
+
+
+def _sweep_one(root: str) -> bool:
+    try:
+        fd = os.open(os.path.join(root, OWNER_FILE), os.O_RDONLY | os.O_CLOEXEC)
+    except FileNotFoundError:
+        # Its maker ended between `mkdtemp` and `hold`.
+        fd = None
+    except OSError:
+        logger.warning("cannot read the lock of %s", root, exc_info=True)
+        return False
+    try:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+        logger.info("removing the stale overlay layers at %s", root)
+        release(root, None)
+        return not os.path.lexists(root)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _libc() -> ctypes.CDLL:
     name = ctypes.util.find_library("c")
     if name is None:
         raise RuntimeError("cannot find libc, so no overlay mount")
-    libc = ctypes.CDLL(name, use_errno=True)
+    return ctypes.CDLL(name, use_errno=True)
+
+
+def _umount(target: str) -> None:
+    if _libc().umount2(target.encode(), _MNT_DETACH) != 0:
+        errno = ctypes.get_errno()
+        raise OSError(errno, f"umount2({target!r}): {os.strerror(errno)}")
+
+
+def _mount(source: str, target: str, fstype: str | None, flags: int,
+           data: str | None) -> None:
+    libc = _libc()
 
     def encode(value: str | None) -> bytes | None:
         return None if value is None else value.encode()
@@ -181,3 +336,5 @@ def enter_overlay_namespace(spec: OverlayNamespace, *,
             f"({exc.strerror}). {spec.work_dir} must be on the filesystem "
             f"of {spec.upper_dir}, and that filesystem must support user "
             f"extended attributes") from exc
+    global _mounted_at
+    _mounted_at = mount_at

@@ -1022,33 +1022,36 @@ def main(argv: list[str] | None = None) -> None:
 
     `--overlay ROOT` serves from a private user namespace over an
     overlay store laid out under ROOT; a client opens
-    `OverlayNamespace.under(ROOT, ...).store_uri()`."""
+    `OverlayNamespace.under(ROOT, ...).store_uri()`. With
+    `--remove-overlay` the server holds ROOT and removes it at exit."""
     parser = _parser()
     args = parser.parse_args(argv)
     if (args.path is None) == (not args.stdio):
         parser.error("give one of a socket PATH and --stdio")
     options = _options(args)
-    _configure(options)
-    if args.stdio:
-        serving = functools.partial(serve_stream, _stdio_stream(), options.ttl,
-                                    callbacks=options.callbacks)
-    else:
-        serving = functools.partial(serve, args.path, options.ttl,
-                                    callbacks=options.callbacks)
-    anyio.run(_until_signalled, serving, args.ready_fd)
+    with _owned(options):
+        _configure(options)
+        if args.stdio:
+            serving = functools.partial(serve_stream, _stdio_stream(), options.ttl,
+                                        callbacks=options.callbacks)
+        else:
+            serving = functools.partial(serve, args.path, options.ttl,
+                                        callbacks=options.callbacks)
+        anyio.run(_until_signalled, serving, args.ready_fd)
 
 
 def serve_on_socket(sock: socket.socket, options: ServerOptions) -> None:
     """A `multiprocessing` child's server: set up as `options` says,
     with one connection on `sock`."""
-    _configure(options)
 
     async def serving(*, task_status: anyio.abc.TaskStatus[None]) -> None:
         stream = await anyio.abc.SocketStream.from_socket(sock)
         await serve_stream(stream, options.ttl, callbacks=options.callbacks,
                            task_status=task_status)
 
-    anyio.run(_until_signalled, serving, None)
+    with _owned(options):
+        _configure(options)
+        anyio.run(_until_signalled, serving, None)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1075,6 +1078,8 @@ def _parser() -> argparse.ArgumentParser:
                         help="the directory of the lower store's paths. "
                              "It must hold this server's own closure: the "
                              "overlay hides the rest of /nix/store")
+    parser.add_argument("--remove-overlay", action="store_true",
+                        help="hold the overlay ROOT, and remove it at exit")
     parser.add_argument("--ready-fd", type=int, metavar="FD",
                         help="write one line to FD once listening, and "
                              "close it")
@@ -1088,8 +1093,16 @@ def _options(args: argparse.Namespace) -> ServerOptions:
     return ServerOptions(
         settings=dict(args.option), load_config=args.load_config,
         overlay=args.overlay, lower_store=args.lower_store,
-        lower_dir=args.lower_dir, ttl=args.ttl,
-        callbacks=args.experimental_callbacks)
+        lower_dir=args.lower_dir, remove_overlay=args.remove_overlay,
+        ttl=args.ttl, callbacks=args.experimental_callbacks)
+
+
+def _owned(options: ServerOptions) -> contextlib.AbstractContextManager[None]:
+    """Hold the temporary overlay root a worker made, and remove it at
+    exit: a worker killed with SIGKILL removes nothing itself."""
+    if options.remove_overlay and isinstance(options.overlay, (str, os.PathLike)):
+        return namespace.owning(options.overlay)
+    return contextlib.nullcontext()
 
 
 def _configure(options: ServerOptions) -> None:

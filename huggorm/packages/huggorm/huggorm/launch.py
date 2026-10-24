@@ -34,6 +34,7 @@ below, for a caller that manages the process or the connection itself.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import multiprocessing.forkserver
 import os
 import sys
@@ -42,7 +43,9 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from . import spawn, transport
+import anyio
+
+from . import namespace, spawn, transport
 from .server_options import ServerOptions
 from .session import AsyncRemoteSession
 
@@ -106,12 +109,37 @@ async def worker(
 ) -> AsyncIterator[AsyncRemoteSession]:
     """Start a server `via` a transport (`Stdio()` unless given), set up
     as `options` says, and yield a session on it. The server stops with
-    the block."""
-    async with (
-        (via or Stdio()).launch(options or ServerOptions()) as dial,
-        AsyncRemoteSession.connect(dial, store_uri=store_uri) as session,
-    ):
-        yield session
+    the block.
+
+    With an overlay, the session's default store is the overlay store.
+    `overlay=TEMPORARY` makes the root in this host's temporary
+    directory, so a `via` to another host cannot use it. The root goes
+    when the server exits, after this block, or at the next worker's
+    sweep, whatever ends the work."""
+    async with _resolved(options or ServerOptions()) as resolved:
+        layout = resolved.overlay_namespace()
+        if layout is not None and store_uri == "auto":
+            store_uri = layout.store_uri()
+        # The launch block ends only after the server exits, so nothing
+        # writes to the layers when `_resolved` removes them.
+        async with (
+            (via or Stdio()).launch(resolved) as dial,
+            AsyncRemoteSession.connect(dial, store_uri=store_uri) as session,
+        ):
+            yield session
+
+
+@contextlib.asynccontextmanager
+async def _resolved(options: ServerOptions) -> AsyncIterator[ServerOptions]:
+    if options.overlay is not namespace.TEMPORARY:
+        yield options
+        return
+    root, fd = await anyio.to_thread.run_sync(namespace.make_temporary_root)
+    try:
+        yield dataclasses.replace(options, overlay=root, remove_overlay=True)
+    finally:
+        with anyio.CancelScope(shield=True):
+            await anyio.to_thread.run_sync(namespace.release, root, fd)
 
 
 def attach(

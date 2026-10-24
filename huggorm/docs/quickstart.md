@@ -171,6 +171,12 @@ how the worker starts:
 - `huggorm.ssh.Ssh("host")` starts the worker on another host. It
   needs the `ssh` extra and the same huggorm build on that host.
 
+`ServerOptions(overlay=huggorm.TEMPORARY)` gives the worker overlay
+layers of its own, in the temporary directory of this host. With an
+overlay, `session.store()` opens the overlay store. The layers go when
+the worker ends, also when a process is killed. If no process removes
+them, the next temporary worker does.
+
 `huggorm.attach(path)` connects to a server that something else
 started. `huggorm.spawn` and `huggorm.ssh` hold the lower layer, for
 a caller that manages the process or the connection itself.

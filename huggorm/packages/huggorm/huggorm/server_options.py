@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from . import namespace
+from .namespace import TEMPORARY, Temporary
 
 #: How long a silent connection lives before the server sweeps it.
 DEFAULT_TTL = 120.0
@@ -29,8 +30,13 @@ class ServerOptions:
     load_config: bool = False
     #: Serve in a user namespace over an overlay store laid out under
     #: this directory (nixidae/nixidae#1060). `overlay_namespace()`
-    #: gives the store a client opens there.
-    overlay: str | os.PathLike[str] | None = None
+    #: gives the store a client opens there. `TEMPORARY` asks
+    #: `huggorm.worker` for a root of its own, made on this host, which
+    #: goes when the worker ends (nixidae/nixidae#1066).
+    overlay: str | os.PathLike[str] | Temporary | None = None
+    #: The server holds the temporary root `overlay` and removes it at
+    #: exit. `huggorm.worker` sets it for `TEMPORARY`.
+    remove_overlay: bool = False
     #: The overlay's lower store.
     lower_store: str = "daemon"
     #: The directory of the lower store's paths. It must hold the
@@ -46,6 +52,9 @@ class ServerOptions:
         """The overlay the server enters, or None without one."""
         if self.overlay is None:
             return None
+        if self.overlay is TEMPORARY:
+            raise ValueError("a TEMPORARY overlay has no layout until "
+                             "huggorm.worker makes its root")
         return namespace.OverlayNamespace.under(
             self.overlay, lower_store=self.lower_store, lower_dir=self.lower_dir
         )
@@ -56,6 +65,9 @@ class ServerOptions:
         arguments = ["--ttl", repr(self.ttl)]
         if self.load_config:
             arguments.append("--load-config")
+        if self.overlay is TEMPORARY:
+            raise ValueError("a TEMPORARY overlay has no command line until "
+                             "huggorm.worker makes its root")
         if self.overlay is not None:
             arguments += [
                 "--overlay",
@@ -65,6 +77,8 @@ class ServerOptions:
                 "--lower-dir",
                 self.lower_dir,
             ]
+        if self.remove_overlay:
+            arguments.append("--remove-overlay")
         if self.callbacks:
             arguments.append("--experimental-callbacks")
         for name, value in self.settings.items():
