@@ -78,6 +78,15 @@ async def test_close_is_idempotent() -> None:
     assert calls == 1
 
 
+async def test_a_state_its_caller_closed_closes_again_with_the_session() -> None:
+    session = AsyncSession("dummy://")
+    state = session.eval(session.store())
+    await state.eval_expr("1 + 1")
+    await state.aclose()
+    await state.aclose()
+    await session.aclose()
+
+
 async def test_close_asks_for_no_collection_without_a_collector(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """A Nix without Boehm refuses `collect_garbage`, and it finalizes

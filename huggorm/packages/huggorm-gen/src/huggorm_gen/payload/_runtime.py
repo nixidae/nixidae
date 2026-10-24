@@ -980,6 +980,7 @@ class AffineRunner(BaseRunner):
                  name: str = "huggorm-affine") -> None:
         super().__init__(factory)
         self._pool = _Home(name)
+        self._closed = False
 
     def _executor(self) -> concurrent.futures.Executor:
         return self._pool
@@ -1005,6 +1006,12 @@ class AffineRunner(BaseRunner):
         # Submitted BEFORE shutdown, so it is the last work this
         # single-worker executor accepts and runs. It drops the object
         # first, so a C++ destructor runs on its own thread too.
+        # A second close returns: a session closes every state it made,
+        # also one its caller closed first, and a pool that is shut down
+        # refuses the submit.
+        if self._closed:
+            return
+        self._closed = True
         self._pool.submit(self._retire)
         # The wait lasts as long as the work still queued, which is an
         # evaluation when a server closes a dropped state. On the loop
