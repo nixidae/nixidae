@@ -14,7 +14,7 @@ import anyio
 import pytest
 from conftest import SHORT_TTL
 
-from huggorm.remote import ConnectionExpired, NixClient, handle_of
+from huggorm.remote import ConnectionExpired, NixClient, connect, handle_of
 from huggorm.session import (
     AsyncRemoteSession,
     AsyncRemoteSessionLike,
@@ -536,6 +536,17 @@ async def test_remote_capture_process_collects(server: Any) -> None:
         async with session.capture_process() as logs:
             await state.eval_expr(TRACE % "remote-captured")
     assert any("trace: remote-captured" in r.text() for r in logs.records)
+
+
+@pytest.mark.parametrize("error", [ValueError("mine"), SystemExit(3)])
+async def test_a_block_error_leaves_the_client_as_itself(
+        server: Any, error: BaseException) -> None:
+    """Not in the ping loop's ExceptionGroup, which `except NixError`
+    and `except SystemExit` around the block would miss."""
+    with pytest.raises(type(error)) as caught:
+        async with connect(server.path):
+            raise error
+    assert caught.value is error
 
 
 async def test_remote_process_logs_opens(server: Any) -> None:

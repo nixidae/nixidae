@@ -339,10 +339,19 @@ class NixClient:
         return self
 
     async def __aexit__(self, *exc: Any) -> bool | None:
+        """The block's own error leaves as itself. anyio's task group
+        wraps it in an ExceptionGroup, which no `except NixError` and
+        no `except SystemExit` around the block would catch."""
         try:
             return await self._exit.__aexit__(*exc)
+        except BaseExceptionGroup as group:
+            if exc[1] is None or list(group.exceptions) != [exc[1]]:
+                raise
         finally:
             self._tasks = None
+        # Outside the `except`, so the group does not become its context
+        # and its own cause stays as it was.
+        raise exc[1]
 
     def _close(self) -> None:
         if self._link is not None:
