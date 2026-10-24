@@ -1,0 +1,36 @@
+From: Carl Andersson <carl.andersson@dynamist.se>
+Subject: [PATCH] virtio/fs: retry an open without O_NOATIME on EPERM
+
+overlayfs opens its lower files with O_NOATIME. do_open keeps the flag
+when the process holds CAP_FOWNER, but inside a user namespace that
+capability covers only files whose owner is mapped into the namespace.
+A host store owned by the unmapped root then fails every open with
+EPERM, and the guest's first exec from its /nix overlay fails with
+"Operation not permitted".
+
+This retries such an open without O_NOATIME, and that is all the flag
+costs: an atime update on a read-only store does nothing. virtiofsd
+serves the same store in the same namespace without the failure.
+---
+--- a/src/devices/src/virtio/fs/linux/passthrough.rs
++++ b/src/devices/src/virtio/fs/linux/passthrough.rs
+@@ -699,7 +699,18 @@
+             } else {
+                 None
+             };
+-            RwLock::new(self.open_inode(inode, flags as i32)?)
++            // CAP_FOWNER in a user namespace covers only files whose owner
++            // is mapped into it, so O_NOATIME can still fail with EPERM.
++            let file = match self.open_inode(inode, flags as i32) {
++                Err(e)
++                    if e.raw_os_error() == Some(libc::EPERM)
++                        && flags & (libc::O_NOATIME as u32) != 0 =>
++                {
++                    self.open_inode(inode, (flags & !(libc::O_NOATIME as u32)) as i32)?
++                }
++                result => result?,
++            };
++            RwLock::new(file)
+         };
+ 
+         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
