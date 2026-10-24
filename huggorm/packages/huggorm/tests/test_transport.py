@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 import anyio
 import pytest
 
-from huggorm import transport
+from huggorm import spawn, transport
 from huggorm.protocol import ConnectionLost
 from huggorm.remote import NixClient
 from huggorm.server import serve_stream
@@ -45,3 +45,19 @@ async def test_a_pipe_refuses_a_second_connection(pipe_server: transport.Dialer)
         await client.bind()
         with pytest.raises(ConnectionLost, match="carries one connection"):
             await client.bind()
+
+
+async def test_a_stdio_server_evaluates_and_exits_with_its_connection() -> None:
+    """The server ends at EOF on its stdin. A server that waited for a
+    signal instead would hold the block open for `STOP_GRACE`: the stop
+    is shielded, so a deadline cannot cut it short, and the time is the
+    measure."""
+    started = anyio.current_time()
+    async with (
+        spawn.spawned_stdio() as dial,
+        AsyncRemoteSession.connect(dial, store_uri="dummy://") as session,
+    ):
+        state = await session.eval(await session.store())
+        value = await state.eval_expr("1 + 1")
+        assert await value.integer() == 2
+    assert anyio.current_time() - started < spawn.STOP_GRACE

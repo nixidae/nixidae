@@ -1,10 +1,15 @@
 """
 A server this process starts, and stops with the block.
 
-The server says when it listens on a pipe (`--ready-fd`), so the caller
-waits on that rather than trying the socket until it answers. A server
-that dies first closes the pipe, and the caller reads its exit status
-instead of a timeout.
+`spawned` runs a server on a Unix socket. The server says when it
+listens on a pipe (`--ready-fd`), so the caller waits on that rather
+than trying the socket until it answers. A server that dies first
+closes the pipe, and the caller reads its exit status instead of a
+timeout.
+
+`spawned_stdio` runs a server on its own stdin and stdout, for one
+connection. WELCOME is the ready signal, and the server exits when the
+caller closes its stdin.
 """
 
 from __future__ import annotations
@@ -18,10 +23,19 @@ import tempfile
 from collections.abc import AsyncIterator
 
 import anyio
+from anyio.streams.stapled import StapledByteStream
+
+from . import transport
 
 #: How long a stopped server may take to close its states before it is
 #: killed. A call blocked in a system call holds the stop open.
 STOP_GRACE = 5.0
+
+
+#: The server's entry point. Not `-m huggorm.server`: the package
+#: imports that module, so runpy warns on every start, into the
+#: caller's stderr.
+_MAIN = "from huggorm.server import main; main()"
 
 
 class ServerExited(RuntimeError):
@@ -41,10 +55,8 @@ async def spawned(*args: str) -> AsyncIterator[str]:
     read_fd, write_fd = os.pipe()
     try:
         try:
-            # Not `-m huggorm.server`: the package imports that module, so
-            # runpy warns on every start, into the caller's stderr.
             process = await anyio.open_process(
-                [sys.executable, "-c", "from huggorm.server import main; main()", path, *args,
+                [sys.executable, "-c", _MAIN, path, *args,
                  "--ready-fd", str(write_fd)],
                 stdin=subprocess.DEVNULL, stdout=None, stderr=None,
                 pass_fds=(write_fd,))
@@ -70,3 +82,33 @@ async def spawned(*args: str) -> AsyncIterator[str]:
     finally:
         os.close(read_fd)
         await anyio.to_thread.run_sync(lambda: shutil.rmtree(directory))
+
+
+@contextlib.asynccontextmanager
+async def spawned_stdio(*args: str) -> AsyncIterator[transport.Dialer]:
+    """Run `huggorm.server --stdio` with `args`, and yield a dialer for
+    its one connection.
+
+    The server inherits stderr. Leaving the block closes its stdin; the
+    server ends its connection at EOF and exits. One that has not exited
+    after `STOP_GRACE` seconds is terminated, then killed."""
+    process = await anyio.open_process(
+        [sys.executable, "-c", _MAIN, "--stdio", *args], stderr=None)
+    async with process:
+        if process.stdin is None or process.stdout is None:
+            raise RuntimeError("open_process gave no stdin or stdout pipe")
+        try:
+            yield transport.once(StapledByteStream(process.stdin, process.stdout),
+                                 "a stdio server")
+        finally:
+            with anyio.CancelScope(shield=True):
+                await process.stdin.aclose()
+                with anyio.move_on_after(STOP_GRACE):
+                    await process.wait()
+                if process.returncode is None:
+                    process.terminate()
+                    with anyio.move_on_after(STOP_GRACE):
+                        await process.wait()
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
