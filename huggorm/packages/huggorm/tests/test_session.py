@@ -336,9 +336,9 @@ async def test_capture_process_is_complete_beside_a_forward() -> None:
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         seen: list[str] = []
-        async with session.forward_process(lambda r: seen.append(r.text())):
-            async with session.capture_process() as logs:
-                await state.eval_expr(TRACE % "captured")
+        async with (session.forward_process(lambda r: seen.append(r.text())),
+                    session.capture_process() as logs):
+            await state.eval_expr(TRACE % "captured")
     assert any("trace: captured" in r.text() for r in logs.records), logs.records
     assert any("trace: captured" in s for s in seen), seen
 
