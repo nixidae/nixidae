@@ -138,6 +138,13 @@ class Resolver:
                 f"and it is not a builtin")
         if cls.decl.kind is DeclKind.ERROR:
             return Kind.ERROR
+        if cls.numeric:
+            # Nothing converts one at a crossing: no caster, no wire
+            # form. Typed as the vocabulary it would take the string
+            # route, silently.
+            raise TypeError(
+                f"'{name}' is an IntEnum vocabulary, and it does not cross. "
+                f"Type the value as I64: an IntEnum compares equal to it.")
         if cls.is_words:
             return Kind.ENUM
         if cls.is_union:
@@ -1393,11 +1400,12 @@ class UnionModel:
 
 @dataclass(frozen=True)
 class WordModel:
-    """One vocabulary member: its Python name, the word it is, and its
-    C++ enumerator ("" when no C++ enum stands behind the words)."""
+    """One vocabulary member: its Python name, the word or number it
+    is, and its C++ enumerator ("" when no C++ enum stands behind the
+    words)."""
 
     name: str
-    value: str
+    value: str | int
     enumerator: str = ""
     # RAW, as written under the word, or "".
     doc: str = ""
@@ -1415,7 +1423,9 @@ class CxxEnum:
 
 @dataclass(frozen=True)
 class EnumModel:
-    """One string vocabulary. A member is a str, so it crosses as one."""
+    """One vocabulary. A StrEnum member is a str, so it crosses as
+    one. An IntEnum member is Nix's number, and crosses nowhere: a
+    signature names it as an `I64`."""
 
     name: str
     module: str
@@ -1428,6 +1438,12 @@ class EnumModel:
     # The C++ parser upstream has for a word, or "": then the binding
     # writes `from_word` itself.
     parsed_by: str = ""
+    numeric: bool = False
+
+    @property
+    def base(self) -> str:
+        """The `enum` class the emitted module subclasses."""
+        return "IntEnum" if self.numeric else "StrEnum"
 
     @classmethod
     def of(cls, c: Class, package: str, module: str) -> EnumModel:
@@ -1439,7 +1455,7 @@ class EnumModel:
                          for m in c.members),
                    c.doc, c.decl.header,
                    CxxEnum(enum.held, enum.reach) if enum else None,
-                   c.decl.parsed_by)
+                   c.decl.parsed_by, c.numeric)
 
 @dataclass(frozen=True)
 class VocabularyModel:

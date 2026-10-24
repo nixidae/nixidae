@@ -466,6 +466,24 @@ def census_gc_slots(have: Any) -> None:
             print(f"    {line}")
 
 
+def census_checked(units: Sequence[str]) -> None:
+    """Every enum-backed vocabulary is converted in some unit.
+
+    The conversion IS the check against upstream's enum, and a unit
+    emits one only for a vocabulary it names. An IntEnum is named by
+    no signature, only by `@spells`, so a vocabulary that nothing
+    names is a check that never ran. Read from the emitted text, as
+    `census_written` is."""
+    unchecked = [e.name for e in declared_model().enums.values()
+                 if e.cxx is not None
+                 and not any(nbemit.conversion_signature(e) in u for u in units)]
+    if unchecked:
+        raise SystemExit(
+            f"no unit converts {', '.join(sorted(unchecked))}, so nothing "
+            f"checks it against its C++ enum. Name it with @spells on the "
+            f"method that reads one.")
+
+
 def main(out_dir: str) -> int:
     out = pathlib.Path(out_dir).resolve()
     # The package directory is EMPTY in the checkout - every file in
@@ -483,6 +501,7 @@ def main(out_dir: str) -> int:
     for mod in have.modules:
         target = out / f"{mod.name}.cpp"
         emit_module(mod, f"{PACKAGE}.{mod.name}", str(target), chain, headers)
+    census_checked([(out / f"{mod.name}.cpp").read_text() for mod in have.modules])
     tree = have.resolved(have.errors)
     doc = ast.get_docstring(tree, clean=False) or ""
     # Named after the declaration, not "errors.py". `errors_module()`

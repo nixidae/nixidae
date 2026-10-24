@@ -37,8 +37,8 @@ def _text(value: str) -> ast.Expr:
 
 
 def class_def(enum: ir.EnumModel) -> ast.ClassDef:
-    """One vocabulary, as the StrEnum it is: its docstring, then each
-    word and the docstring under it."""
+    """One vocabulary, as the StrEnum or IntEnum it is: its
+    docstring, then each member and the docstring under it."""
     body: list[ast.stmt] = [_text(enum.doc)] if enum.doc else []
     for word in enum.members:
         body.append(ast.Assign(targets=[ast.Name(id=word.name, ctx=ast.Store())],
@@ -47,7 +47,7 @@ def class_def(enum: ir.EnumModel) -> ast.ClassDef:
             body.append(_text(word.doc))
     return ast.ClassDef(
         name=enum.name,
-        bases=[ast.Name(id="StrEnum", ctx=ast.Load())],
+        bases=[ast.Name(id=enum.base, ctx=ast.Load())],
         keywords=[],
         body=body,
         decorator_list=[],
@@ -59,11 +59,13 @@ def module(vocab: ir.VocabularyModel) -> str:
     """Every vocabulary in one declaration, as a module.
 
     A module docstring, one import, and the classes. The import is
-    the only line here that no declaration wrote, and it is the same
-    line for every vocabulary there will ever be."""
+    the only line here that no declaration wrote: the bases the
+    classes use, from `enum`."""
+    bases = sorted({enum.base for enum in vocab.enums})
     out: list[ast.stmt] = [
         _text(_doc(vocab)),
-        ast.ImportFrom(module="enum", names=[ast.alias(name="StrEnum")],
+        ast.ImportFrom(module="enum",
+                       names=[ast.alias(name=base) for base in bases],
                        level=0),
         *(class_def(enum) for enum in vocab.enums),
     ]

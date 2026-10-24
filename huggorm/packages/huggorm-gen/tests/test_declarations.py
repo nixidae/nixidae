@@ -2533,6 +2533,103 @@ def test_a_vocabulary_nothing_converts_is_refused(
         _vocabulary(tmp_path, declared)
 
 
+NUMBERS = '''"""A vocabulary of numbers."""
+
+from enum import IntEnum
+
+from huggorm_dsl.declare import Enumerated, Local, header, words
+
+
+@header(Local("nix/util/error.hh"))
+@words(enumerated=Enumerated("nix::Verbosity",
+                             spelled={{"ERROR": "lvlError", "WARN": "lvlWarn"}}))
+class Verbosity(IntEnum):
+    """How much Nix says."""
+
+    ERROR = 0
+    """Errors only."""
+
+    {extra}
+'''
+
+
+def _numbers(tmp_path: pathlib.Path, extra: str) -> object:
+    from huggorm_dsl.read import read
+
+    (cls,) = read(_declaration(tmp_path, NUMBERS.format(extra=extra))).classes
+    return cls
+
+
+def test_an_intenum_vocabulary_reads_its_numbers(tmp_path: pathlib.Path) -> None:
+    """The import decides which members exist, so a member behind a
+    false `if` is absent, and the tree gives each one's docstring."""
+    from huggorm_gen import ir
+
+    cls = _numbers(tmp_path, 'WARN = 1\n    if False:\n        NOTICE = 2\n'
+                             '        """Not on this Nix."""')
+    enum = ir.EnumModel.of(cls, "", "probe")  # type: ignore[arg-type]
+    assert (enum.numeric, enum.base) == (True, "IntEnum")
+    assert [(m.name, m.value, m.doc) for m in enum.members] == [
+        ("ERROR", 0, "Errors only."), ("WARN", 1, "")]
+
+
+@pytest.mark.parametrize(("extra", "match"), [
+    ("WARN = 0", "share a value"),
+    # IntEnum takes 1.0 as 1, so only the tree sees it.
+    ("WARN = 1.0", "written as an int"),
+])
+def test_an_intenum_vocabulary_refuses(
+        tmp_path: pathlib.Path, extra: str, match: str) -> None:
+    """An alias would put one value in the switch twice, and a float
+    member is not Nix's number."""
+    from huggorm_dsl.read import DeclarationError
+
+    with pytest.raises(DeclarationError, match=match):
+        _numbers(tmp_path, extra)
+
+
+def test_an_intenum_vocabulary_is_checked_against_its_enum(
+        tmp_path: pathlib.Path) -> None:
+    """A `static_assert` per member, with a cast because an `enum
+    class` does not compare with an int, and a switch with no
+    `default` (nixidae/nixidae#1052)."""
+    from huggorm_gen import ir
+    from huggorm_gen.cppgen import nbemit
+
+    cls = _numbers(tmp_path, "WARN = 1")
+    emitted = "\n".join(nbemit.words_conversion(
+        ir.EnumModel.of(cls, "", "probe")))  # type: ignore[arg-type]
+    assert ("static_assert(static_cast<std::int64_t>(nix::Verbosity::lvlWarn) == 1,"
+            in emitted), emitted
+    assert "case nix::Verbosity::lvlWarn: return 1;" in emitted, emitted
+    assert "default" not in emitted, emitted
+
+
+def test_an_intenum_vocabulary_in_a_signature_is_refused(
+        tmp_path: pathlib.Path) -> None:
+    """Nothing converts one at a crossing, and the vocabulary route
+    would hand it over as a string."""
+    from huggorm_dsl.corpus import Corpus
+    from huggorm_gen import ir
+
+    source = (NUMBERS.format(extra="WARN = 1")
+              .replace("import Enumerated, Local, header, words",
+                       "import Enumerated, Local, binding, header, words")
+              + '''
+
+@header(Local("nix/store/store-api.hh"))
+@binding(cxx="nix::Store", threading="pool", blocking=False)
+class Store:
+    """A store."""
+
+    def level(self) -> Verbosity:
+        """A level."""
+''')
+    (tmp_path / "probe.py").write_text(source)
+    with pytest.raises(TypeError, match="IntEnum vocabulary, and it does not cross"):
+        ir.ModuleModel.of(Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
+
+
 HANDLES = '''"""A store that takes and answers handles."""
 
 from huggorm_dsl.declare import Local, Map, Opt, Vec, binding, header

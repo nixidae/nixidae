@@ -530,14 +530,16 @@ class Method:
 
 @dataclass(frozen=True)
 class Member:
-    """One word of a vocabulary: the name, the string, and why.
+    """One member of a vocabulary: the name, the value, and why.
+
+    The value is the word for a StrEnum and the number for an IntEnum.
 
     `doc` is the docstring written UNDER the assignment, which is
     where Python puts an attribute's own documentation. Empty for a
     member whose name says the whole of it."""
 
     name: str
-    value: str
+    value: str | int
     doc: str = ""
 
 
@@ -590,6 +592,12 @@ class Class:
         A StrEnum with no C++ object behind it. It crosses as the
         string a member already IS, so nothing about it compiles."""
         return self.decl.kind is DeclKind.WORDS
+
+    @property
+    def numeric(self) -> bool:
+        """Whether this vocabulary is an IntEnum: members are Nix's
+        numbers, and nothing upstream parses one from a string."""
+        return self.is_words and isinstance(self.members[0].value, int)
 
     @property
     def is_union(self) -> bool:
@@ -1261,37 +1269,63 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
     return out
 
 
-def _members(node: ast.ClassDef) -> tuple[Member, ...]:
-    """The words of a vocabulary, in the order it lists them.
+def _members(node: ast.ClassDef, holder: type) -> tuple[Member, ...]:
+    """The members of a vocabulary, in the order it lists them.
 
-    `NAME = "value"`, and the docstring that may follow it. Python
-    puts an attribute's documentation under the assignment rather
-    than inside it, so the two are read as one pair here."""
-    out: list[Member] = []
-    for i, item in enumerate(node.body):
-        if not isinstance(item, ast.Assign):
-            # The class's docstring, or a word's. Anything else would be
-            # dropped by every stage that reads the words, silently.
-            if (_is_docstring(item)
-                    and (i == 0 or isinstance(node.body[i - 1], ast.Assign))):
+    The IMPORT says which members exist and what each one is, with
+    any `NIX_VERSION` branch already chosen, as it does for a bound
+    class's methods. The tree gives each one's docstring: Python puts
+    an attribute's documentation under the assignment rather than
+    inside it, so the two are read as one pair here.
+
+    `NAME = "word"` in a StrEnum and `NAME = 3` in an IntEnum. A body
+    node that is neither, nor a docstring, nor an `if` holding them,
+    is refused: every stage that reads the members would drop it
+    silently."""
+    numeric = issubclass(holder, enum.IntEnum)
+    docs: dict[str, str] = {}
+
+    def walk(body: Sequence[ast.stmt], top: bool) -> None:
+        for i, item in enumerate(body):
+            if isinstance(item, ast.If):
+                walk(item.body, False)
+                walk(item.orelse, False)
                 continue
-            raise DeclarationError(
-                item, f"{node.name}: a vocabulary holds words and their "
-                      f"docstrings, and nothing else")
-        if len(item.targets) != 1 or not isinstance(item.targets[0], ast.Name):
-            raise DeclarationError(item, "a word is one plain assignment")
-        if not (isinstance(item.value, ast.Constant)
-                and isinstance(item.value.value, str)):
-            raise DeclarationError(
-                item, "a word IS a string. Nothing else crosses as one.")
-        doc = ""
-        nxt = node.body[i + 1] if i + 1 < len(node.body) else None
-        if (isinstance(nxt, ast.Expr) and isinstance(nxt.value, ast.Constant)
-                and isinstance(nxt.value.value, str)):
-            doc = nxt.value.value
-        out.append(Member(targets_name(item), item.value.value, doc))
+            if not isinstance(item, ast.Assign):
+                if _is_docstring(item) and (
+                        (top and i == 0) or (i > 0 and isinstance(body[i - 1], ast.Assign))):
+                    continue
+                raise DeclarationError(
+                    item, f"{node.name}: a vocabulary holds members and their "
+                          f"docstrings, and nothing else")
+            if len(item.targets) != 1 or not isinstance(item.targets[0], ast.Name):
+                raise DeclarationError(item, "a member is one plain assignment")
+            want = int if numeric else str
+            if not (isinstance(item.value, ast.Constant)
+                    and type(item.value.value) is want):
+                raise DeclarationError(
+                    item, "an IntEnum member IS Nix's number, written as an int"
+                    if numeric else
+                    "a word IS a string. Nothing else crosses as one.")
+            nxt = body[i + 1] if i + 1 < len(body) else None
+            docs[targets_name(item)] = (
+                nxt.value.value
+                if (isinstance(nxt, ast.Expr) and isinstance(nxt.value, ast.Constant)
+                    and isinstance(nxt.value.value, str))
+                else "")
+
+    walk(node.body, True)
+    members = typing.cast("Mapping[str, enum.Enum]", holder.__members__)
+    out = [Member(name, member.value, docs[name])
+           for name, member in members.items()]
+    if len({m.value for m in out}) != len(out):
+        # An alias is a second name for a value, and an emitted switch
+        # would name that value twice. Upstream's `actLast` is one.
+        raise DeclarationError(
+            node, f"{node.name}: two members share a value. Declare each "
+                  f"value once.")
     if not out:
-        raise DeclarationError(node, f"{node.name}: a vocabulary with no words")
+        raise DeclarationError(node, f"{node.name}: a vocabulary with no members")
     return tuple(out)
 
 
@@ -1328,9 +1362,16 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
     # word and not as `str` (nixidae/nixidae#641). The base is Python's, not a
     # declared class, so it is checked here and never becomes `base`.
     if decl.kind is DeclKind.WORDS:
-        if holder.__bases__ != (enum.StrEnum,):
+        if holder.__bases__ == (enum.IntEnum,):
+            if decl.parsed_by or not decl.enumerated:
+                raise DeclarationError(
+                    node, f"{node.name}: an IntEnum vocabulary holds the "
+                          f"numbers of a C++ enum, so it names that enum "
+                          f"with `enumerated=` and has no `parsed_by`.")
+        elif holder.__bases__ != (enum.StrEnum,):
             raise DeclarationError(
-                node, f"{node.name}: a vocabulary is a StrEnum. Write "
+                node, f"{node.name}: a vocabulary is a StrEnum, or an "
+                      f"IntEnum for a C++ enum Nix numbers. Write "
                       f"`class {node.name}(StrEnum)`.")
     elif holder.__bases__ != (object,):
         # One base, and only on an @in_process class. Nix hands a
@@ -1353,7 +1394,7 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
             doc=ast.get_docstring(node, clean=False) or "",
             decl=decl,
             ctor=None,
-            members=_members(node),
+            members=_members(node, holder),
             module=where,
         )
 

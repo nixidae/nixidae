@@ -389,19 +389,61 @@ def words_conversion(cls: ir.EnumModel) -> list[str]:
     The throw past the switch is unreachable and a compiler still
     wants it: every enumerator returns above, and control falling off
     the end of a non-void function is what `-Wreturn-type` is for."""
+    if cls.numeric:
+        return numbers_conversion(cls)
     enum = cls.cxx
     assert enum is not None
     out = [f"/** A {cls.name}, as the word Python has. */",
-           f"inline std::string as_word({enum.held} value)",
+           conversion_signature(cls),
            "{",
            f"{INDENT}switch (value{enum.reach}) {{"]
     for word in cls.members:
         out.append(f"{INDENT}case {word.enumerator}: "
                    f'return "{word.value}";')
-    out += [f"{INDENT}}}",
+    return out + _conversion_end(cls)
+
+
+def conversion_signature(cls: ir.EnumModel) -> str:
+    """The read-back conversion's signature. `generate` looks for it in
+    every unit, so an enum-backed vocabulary no unit converts is an
+    error rather than a check that never ran."""
+    enum = cls.cxx
+    assert enum is not None
+    if cls.numeric:
+        return f"inline std::int64_t as_number({enum.held} value)"
+    return f"inline std::string as_word({enum.held} value)"
+
+
+def _conversion_end(cls: ir.EnumModel) -> list[str]:
+    enum = cls.cxx
+    assert enum is not None
+    return [f"{INDENT}}}",
             f'{INDENT}huggorm::unknown_enumerator("{enum.held}");',
             "}", ""]
-    return out
+
+
+def numbers_conversion(cls: ir.EnumModel) -> list[str]:
+    """An IntEnum vocabulary, checked against the C++ enum it copies.
+
+    Two checks, because a number can be wrong in two ways. A
+    `static_assert` per member refuses a value that differs from
+    upstream's. The switch with no `default` refuses the day upstream
+    adds an enumerator, as `words_conversion`'s does.
+
+    The cast is not optional. `nix::Verbosity` is a plain enum in 2.34
+    and an `enum class` in 2.36, and only a cast compares both with an
+    integer."""
+    enum = cls.cxx
+    assert enum is not None
+    out = [f"/** One {cls.name}, as the number Python has. */"]
+    out += [f"static_assert(static_cast<std::int64_t>({m.enumerator}) == {m.value},"
+            f' "{cls.name}.{m.name} is {m.value} in the declaration");'
+            for m in cls.members]
+    out += [conversion_signature(cls), "{",
+            f"{INDENT}switch (value{enum.reach}) {{"]
+    out += [f"{INDENT}case {m.enumerator}: return {m.value};"
+            for m in cls.members]
+    return out + _conversion_end(cls)
 
 
 
@@ -2143,7 +2185,7 @@ class Emitter:
             head += [f"namespace {NAMESPACE} {{", ""]
             for v in vocabularies:
                 head += words_conversion(v)
-                if not v.parsed_by:
+                if not v.parsed_by and not v.numeric:
                     head += words_from_word(v)
             for u in unions:
                 head += (self.bare_check(u) if _is_bare(u)

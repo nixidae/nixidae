@@ -27,6 +27,11 @@ in this binding a declaration could not have written, and
 """
 
 from huggorm_decl.decl.flakeref import FlakeRef
+from huggorm_decl.decl.log import (  # noqa: F401 -- named by `@spells` on LogRecord
+    ActivityType,
+    ResultType,
+    Verbosity,
+)
 from huggorm_decl.decl.path import ErrorInfo, StorePath
 from huggorm_decl.decl.source_accessor import SourceAccessor
 from huggorm_decl.decl.store import Store
@@ -66,6 +71,7 @@ from huggorm_dsl.declare import (
     produced,
     produces,
     reads,
+    spells,
     startup,
     subscription,
     tagged,
@@ -1108,6 +1114,7 @@ class LogRecord:
         """
 
     @reads("level")
+    @spells("Verbosity")
     def level(self) -> I64:
         """`nix::Verbosity`: 0 error, 1 warn, 2 notice, 3 info, 4
         talkative, 5 chatty, 6 debug, 7 vomit.
@@ -1131,6 +1138,7 @@ class LogRecord:
         # logging.cc:23
 
     @reads("type")
+    @spells("ActivityType", "ResultType")
     def type(self) -> I64:
         """`nix::ActivityType` for a `"start"`, `nix::ResultType` for
         a `"result"`, and 0 otherwise."""

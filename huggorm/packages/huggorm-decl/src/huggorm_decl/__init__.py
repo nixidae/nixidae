@@ -72,6 +72,7 @@ NANOBIND = (
 # module is plain Python and the build writes it whole, the way it
 # writes a NANOBIND entry.
 VOCABULARIES = (
+    "log.py",
     "words.py",
 )
 
