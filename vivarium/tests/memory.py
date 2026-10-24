@@ -37,6 +37,14 @@ READ = (
     "| xargs -r cat 2>/dev/null > /dev/null || true"
 )
 
+#: Page cache from the guest's own disk, for a guest whose store read
+#: caches nothing. Random bytes, so no layer below can store them as
+#: zero pages.
+FILL = (
+    "dd if=/dev/urandom of=/var/tmp/fill bs=1M count=400 status=none "
+    "&& sync && cat /var/tmp/fill > /dev/null"
+)
+
 #: How much page cache the read has to produce for the rest to mean
 #: anything, in kibibytes. Measured: 79 MB before, 441 MB after.
 GREW_KIB = 200 * 1024
@@ -97,6 +105,15 @@ async def test(vms: Machines) -> None:
     cached = (await vm.meminfo())["Cached"]
     filled = vm.host_memory_kib()
     print(f"[test] after reading: guest cached {cached // 1024}M, host {filled // 1024}M")
+    if cached <= GREW_KIB:
+        # The guest maps the store from the host's page cache (krun's DAX
+        # window), so reading it costs the guest no cache. Its own disk
+        # still goes through its page cache.
+        print("[test] the store read cached nothing: filling from the guest's disk")
+        await vm.succeed(FILL, timeout=300)
+        cached = (await vm.meminfo())["Cached"]
+        filled = vm.host_memory_kib()
+        print(f"[test] after filling: guest cached {cached // 1024}M, host {filled // 1024}M")
     assert cached > GREW_KIB, (
         f"the guest cached {cached}kB, so the read did not land in its page "
         "cache and nothing after this measures anything"
@@ -115,6 +132,10 @@ async def test(vms: Machines) -> None:
         f"[test] the host stopped paying by itself: {filled // 1024}M -> "
         f"{settled // 1024}M, of {(filled - booted) // 1024}M the read cost it"
     )
+
+    if not vm.can_resize:
+        print("[test] this guest has no memory control channel: no shrink or grow")
+        return
 
     # The console, measured in the guest. Nothing is asked of the host
     # here: reporting has already taken those pages, and asking again
