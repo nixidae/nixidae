@@ -35,6 +35,7 @@ import anyio.abc
 from anyio.streams.stapled import StapledByteStream
 
 from . import server, transport
+from .server_options import ServerOptions
 
 #: How long a stopped server may take to close its states before it is
 #: killed. A call blocked in a system call holds the stop open.
@@ -47,13 +48,17 @@ STOP_GRACE = 5.0
 _MAIN = "from huggorm.server import main; main()"
 
 
+#: What a forkserver imports once, so that its children start warm.
+FORKSERVER_PRELOAD = ["huggorm.server"]
+
+
 class ServerExited(RuntimeError):
     """The server exited before it listened. Its own stderr says why."""
 
 
 @contextlib.asynccontextmanager
-async def spawned(*args: str) -> AsyncIterator[str]:
-    """Run `huggorm.server` with `args` on a socket in a
+async def spawned(options: ServerOptions | None = None) -> AsyncIterator[str]:
+    """Run `huggorm.server` set up as `options` says, on a socket in a
     private directory, and yield the socket's path once it listens.
 
     The server inherits stderr, so its reason for failing reaches the
@@ -65,7 +70,7 @@ async def spawned(*args: str) -> AsyncIterator[str]:
     try:
         try:
             process = await anyio.open_process(
-                [sys.executable, "-c", _MAIN, path, *args,
+                [sys.executable, "-c", _MAIN, path, *_argv(options),
                  "--ready-fd", str(write_fd)],
                 stdin=subprocess.DEVNULL, stdout=None, stderr=None,
                 pass_fds=(write_fd,))
@@ -94,15 +99,17 @@ async def spawned(*args: str) -> AsyncIterator[str]:
 
 
 @contextlib.asynccontextmanager
-async def spawned_stdio(*args: str) -> AsyncIterator[transport.Dialer]:
-    """Run `huggorm.server --stdio` with `args`, and yield a dialer for
-    its one connection.
+async def spawned_stdio(options: ServerOptions | None = None, *,
+                        python: str = sys.executable
+                        ) -> AsyncIterator[transport.Dialer]:
+    """Run `huggorm.server --stdio` under `python`, set up as `options`
+    says, and yield a dialer for its one connection.
 
     The server inherits stderr. Leaving the block closes its stdin; the
     server ends its connection at EOF and exits. One that has not exited
     after `STOP_GRACE` seconds is terminated, then killed."""
     process = await anyio.open_process(
-        [sys.executable, "-c", _MAIN, "--stdio", *args], stderr=None)
+        [python, "-c", _MAIN, "--stdio", *_argv(options)], stderr=None)
     async with process:
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("open_process gave no stdin or stdout pipe")
@@ -124,11 +131,11 @@ async def spawned_stdio(*args: str) -> AsyncIterator[transport.Dialer]:
 
 
 @contextlib.asynccontextmanager
-async def spawned_process(*args: str, method: str = "forkserver"
+async def spawned_process(options: ServerOptions | None = None, *,
+                          method: str = "forkserver"
                           ) -> AsyncIterator[transport.Dialer]:
     """Run a server in a `multiprocessing` child started by `method`,
-    with the server options `args` as the command line takes them, and
-    yield a dialer for its one connection.
+    set up as `options` says, and yield a dialer for its one connection.
 
     A forkserver imports `huggorm.server` once, and each child is a fork
     of it. `spawn` imports it in every child; it is the method that works
@@ -141,10 +148,11 @@ async def spawned_process(*args: str, method: str = "forkserver"
     # no `Process` and no `set_forkserver_preload`.
     context: Any = multiprocessing.get_context(method)
     if method == "forkserver":
-        context.set_forkserver_preload(["huggorm.server"])
+        context.set_forkserver_preload(FORKSERVER_PRELOAD)
     ours, theirs = socket.socketpair()
     process = context.Process(target=server.serve_on_socket,
-                              args=(theirs, list(args)), daemon=True)
+                              args=(theirs, options or ServerOptions()),
+                              daemon=True)
     try:
         await anyio.to_thread.run_sync(process.start)
     finally:
@@ -162,3 +170,7 @@ async def spawned_process(*args: str, method: str = "forkserver"
             if process.exitcode is None:
                 process.kill()
                 await anyio.to_thread.run_sync(process.join)
+
+
+def _argv(options: ServerOptions | None) -> list[str]:
+    return (options or ServerOptions()).argv()

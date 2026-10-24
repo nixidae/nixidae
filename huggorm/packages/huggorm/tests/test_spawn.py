@@ -5,7 +5,7 @@ import os
 import anyio
 import pytest
 
-from huggorm import remote
+from huggorm import ServerOptions, remote
 from huggorm.spawn import ServerExited, spawned
 
 
@@ -30,5 +30,5 @@ async def test_a_quiet_server_writes_nothing_to_stderr(
 async def test_a_server_that_dies_first_is_reported() -> None:
     """Its exit status, and not a timeout: the pipe closes with it."""
     with anyio.fail_after(30), pytest.raises(ServerExited, match="status"):
-        async with spawned("--option", "no-such-setting", "1"):
+        async with spawned(ServerOptions(settings={"no-such-setting": "1"})):
             pass

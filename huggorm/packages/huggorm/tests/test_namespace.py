@@ -11,9 +11,8 @@ from collections.abc import AsyncIterator
 import anyio
 import pytest
 
-from huggorm import remote
+from huggorm import Multiprocessing, ServerOptions, Stdio, UnixSocket, Via, worker
 from huggorm.namespace import OverlayNamespace, remove_layers
-from huggorm.spawn import spawned
 from huggorm_dsl.declare import NIX_2_35
 
 PROBE = """
@@ -80,12 +79,17 @@ def _derivation(unique: pathlib.Path) -> str:
 
 
 @pytest.mark.live
+@pytest.mark.parametrize("via", [UnixSocket(), Stdio(), Multiprocessing("forkserver"),
+                                 Multiprocessing("spawn")], ids=repr)
 async def test_an_overlay_server_builds_into_its_upper_layer_alone(
-        layers: pathlib.Path) -> None:
+        layers: pathlib.Path, via: Via) -> None:
     """A path the host store holds is valid through the overlay, and a
     path the server builds lands in the upper layer, not in the host
     store. `--load-config` reads the host's nix.conf, so the build
     shows that `REQUIRED_SETTINGS` overrides what needs the host's root.
+
+    `unshare` needs a process with one thread. A forkserver child has
+    one: a fork copies only the thread that forked.
 
     The lower layer is the host store: any other hides the server's own
     closure under /nix/store, and the server then fails its first lazy
@@ -95,18 +99,21 @@ async def test_an_overlay_server_builds_into_its_upper_layer_alone(
     held = str(pathlib.PurePath(*pathlib.Path(sys.executable).resolve()
                                 .parts[:4]))
     root = layers / "overlay"
+    options = ServerOptions(overlay=root, load_config=True)
     spec = OverlayNamespace.under(root)
-    async with (spawned("--overlay", str(root), "--load-config") as path,
-                remote.connect(path) as client):
-        store = await client.acquire("Store", spec.store_uri())
+    assert options.overlay_namespace() == spec
+    async with worker(options, via=via) as session:
+        store = await session.store(spec.store_uri())
         assert await store.is_valid_path(await store.parse_store_path(held))
-        state = await client.acquire("EvalState", store)
+        state = await session.eval(store)
         drv = await (await state.eval_expr(_derivation(layers))).drv_path()
         derived = await store.parse_derived_path(
             f"{await store.print_store_path(drv)}^*")
         [result] = await store.build_paths_with_results([derived])
         assert result.error() is None
-        [built] = result.success().built_outputs().values()
+        success = result.success()
+        assert success is not None
+        [built] = success.built_outputs().values()
         added = await store.print_store_path(built.out_path())
     name = pathlib.PurePath(added).name
     assert await anyio.Path(root / "upper" / name).exists()

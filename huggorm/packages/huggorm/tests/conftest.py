@@ -165,7 +165,7 @@ async def _serve(ttl: float | None, *extra: str) -> AsyncIterator[Server]:
     path = socket_path()
     argv = [sys.executable, "-m", "huggorm.server", str(path)]
     if ttl is not None:
-        argv.append(str(ttl))
+        argv += ["--ttl", str(ttl)]
     # The `flakes` fixture turns the feature on in THIS process only.
     argv += ["--option", "extra-experimental-features", "flakes", *extra]
     logs: list[str] = []

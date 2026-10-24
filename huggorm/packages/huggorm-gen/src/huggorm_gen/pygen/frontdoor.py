@@ -64,6 +64,16 @@ LOCAL: dict[str, list[str]] = {
     "huggorm_generated._runtime": ["set_pool_size"],
     ".remote": ["ConnectionExpired", "NixClient", "connect"],
     ".server": ["serve"],
+    ".server_options": ["ServerOptions"],
+    ".launch": [
+        "Multiprocessing",
+        "Stdio",
+        "UnixSocket",
+        "Via",
+        "attach",
+        "start_forkserver",
+        "worker",
+    ],
     ".session": [
         "AsyncSession",
         "AsyncSessionLike",

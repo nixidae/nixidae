@@ -2,10 +2,14 @@
 A server over SSH: `huggorm.server --stdio` on another host, and the
 SSH channel as its one connection (nixidae/nixidae#551).
 
-`connected(host)` opens the connection the way asyncssh does by default,
-which follows the OpenSSH client: `~/.ssh/config`, the agent, the
-default keys and `~/.ssh/known_hosts`. `spawned(connection, command)`
-takes a connection the caller opened and manages itself.
+`Ssh(host)` is the `via` for `huggorm.worker`, and `SshConnection` the
+one over a connection the caller opened and manages itself.
+`connected(host)` and `spawned(connection, command)` are the layer
+below them.
+
+asyncssh opens a connection the way the OpenSSH client does by
+default: `~/.ssh/config`, the agent, the default keys and
+`~/.ssh/known_hosts`.
 
 HELLO compares build identities, so the remote huggorm must be the
 same build: the same store path on a host of the same platform.
@@ -20,7 +24,9 @@ import contextlib
 import os
 import shlex
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
@@ -28,6 +34,7 @@ import anyio.abc
 import asyncssh
 
 from . import transport
+from .server_options import ServerOptions
 from .spawn import STOP_GRACE
 
 _READ_SIZE = 65536
@@ -69,11 +76,14 @@ class SshStream(anyio.abc.ByteStream):
             await self.send_eof()
 
 
-def server_command(*args: str, python: str = sys.executable) -> str:
-    """The shell command that runs `huggorm.server --stdio` with `args`
-    under `python`, this process's interpreter unless given."""
+def server_command(options: ServerOptions | None = None, *,
+                   python: str = sys.executable) -> str:
+    """The shell command that runs `huggorm.server --stdio` set up as
+    `options` says, under `python`, this process's interpreter unless
+    given."""
     main = "from huggorm.server import main; main()"
-    return shlex.join([python, "-c", main, "--stdio", *args])
+    argv = (options or ServerOptions()).argv()
+    return shlex.join([python, "-c", main, "--stdio", *argv])
 
 
 @contextlib.asynccontextmanager
@@ -131,3 +141,40 @@ async def connected(
         spawned(connection, command or server_command()) as dial,
     ):
         yield dial
+
+
+@dataclass(frozen=True, slots=True)
+class Ssh:
+    """A server on `host`, over a connection this opens with asyncssh's
+    defaults and closes with the block.
+
+    `python` is the remote interpreter: this process's, which the host
+    has when it holds the same store paths. `connect_options` go to
+    `asyncssh.connect` as they are."""
+
+    host: str
+    username: str | None = None
+    port: int | None = None
+    password: str | None = None
+    python: str = sys.executable
+    # Any: asyncssh's option names, passed through unread.
+    connect_options: Mapping[str, Any] = field(default_factory=dict)
+
+    def launch(self, options: ServerOptions
+               ) -> AbstractAsyncContextManager[transport.Dialer]:
+        return connected(self.host, username=self.username, port=self.port,
+                         password=self.password,
+                         command=server_command(options, python=self.python),
+                         **self.connect_options)
+
+
+@dataclass(frozen=True, slots=True)
+class SshConnection:
+    """A server over `connection`, which the caller opened and closes."""
+
+    connection: asyncssh.SSHClientConnection
+    python: str = sys.executable
+
+    def launch(self, options: ServerOptions
+               ) -> AbstractAsyncContextManager[transport.Dialer]:
+        return spawned(self.connection, server_command(options, python=self.python))

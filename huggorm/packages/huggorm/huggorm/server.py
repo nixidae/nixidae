@@ -73,6 +73,7 @@ from .protocol import (
     build_identity,
     peer_uid,
 )
+from .server_options import DEFAULT_TTL, ServerOptions
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ def _function(fn: Any) -> Callable[..., Awaitable[Any]]:
 
 class Dispatcher:
     def __init__(self, tasks: Any,
-                 lease_ttl: float = 120.0,
+                 lease_ttl: float = DEFAULT_TTL,
                  escrow_ttl: float | None = 300.0,
                  callbacks: bool = False) -> None:
         """Every table it reads is emitted, in
@@ -911,7 +912,7 @@ def _swept(token: str) -> Refused:
 
 
 @contextlib.asynccontextmanager
-async def dispatching(lease_ttl: float = 120.0, *,
+async def dispatching(lease_ttl: float = DEFAULT_TTL, *,
                       escrow_ttl: float | None = 300.0,
                       callbacks: bool = False) -> AsyncIterator[Dispatcher]:
     """A dispatcher, and the two scopes every background task lives in.
@@ -975,7 +976,7 @@ async def dispatching(lease_ttl: float = 120.0, *,
             logger.info("stopping: closing %d handle(s)", len(dropped))
 
 
-async def serve(path: str, lease_ttl: float = 120.0, *,
+async def serve(path: str, lease_ttl: float = DEFAULT_TTL, *,
                 escrow_ttl: float | None = 300.0,
                 callbacks: bool = False,
                 task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
@@ -996,7 +997,7 @@ async def serve(path: str, lease_ttl: float = 120.0, *,
                 os.unlink(path)
 
 
-async def serve_stream(stream: ByteStream, lease_ttl: float = 120.0, *,
+async def serve_stream(stream: ByteStream, lease_ttl: float = DEFAULT_TTL, *,
                        escrow_ttl: float | None = 300.0,
                        callbacks: bool = False,
                        task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
@@ -1013,7 +1014,7 @@ async def serve_stream(stream: ByteStream, lease_ttl: float = 120.0, *,
 
 
 def main(argv: list[str] | None = None) -> None:
-    """`python -m huggorm.server PATH [TTL] [--option NAME VALUE]...`
+    """`python -m huggorm.server (PATH | --stdio) [--option NAME VALUE]...`
 
     `--option` sets a process setting as `nix --option` does, after
     everything else. The server reads nix.conf only with
@@ -1026,25 +1027,25 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if (args.path is None) == (not args.stdio):
         parser.error("give one of a socket PATH and --stdio")
-    _configure(args)
+    options = _options(args)
+    _configure(options)
     if args.stdio:
-        serving = functools.partial(serve_stream, _stdio_stream(), args.ttl,
-                                    callbacks=args.experimental_callbacks)
+        serving = functools.partial(serve_stream, _stdio_stream(), options.ttl,
+                                    callbacks=options.callbacks)
     else:
-        serving = functools.partial(serve, args.path, args.ttl,
-                                    callbacks=args.experimental_callbacks)
+        serving = functools.partial(serve, args.path, options.ttl,
+                                    callbacks=options.callbacks)
     anyio.run(_until_signalled, serving, args.ready_fd)
 
 
-def serve_on_socket(sock: socket.socket, argv: list[str]) -> None:
-    """A `multiprocessing` child's server: the options in `argv`, as the
-    command line takes them, and one connection on `sock`."""
-    args = _parser().parse_args(argv)
-    _configure(args)
+def serve_on_socket(sock: socket.socket, options: ServerOptions) -> None:
+    """A `multiprocessing` child's server: set up as `options` says,
+    with one connection on `sock`."""
+    _configure(options)
 
     async def serving(*, task_status: anyio.abc.TaskStatus[None]) -> None:
         stream = await anyio.abc.SocketStream.from_socket(sock)
-        await serve_stream(stream, args.ttl, callbacks=args.experimental_callbacks,
+        await serve_stream(stream, options.ttl, callbacks=options.callbacks,
                            task_status=task_status)
 
     anyio.run(_until_signalled, serving, None)
@@ -1053,7 +1054,9 @@ def serve_on_socket(sock: socket.socket, argv: list[str]) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="huggorm.server")
     parser.add_argument("path", nargs="?")
-    parser.add_argument("ttl", nargs="?", type=float, default=120.0)
+    parser.add_argument("--ttl", type=float, default=DEFAULT_TTL,
+                        help="seconds a silent connection lives before "
+                             "the server sweeps it")
     parser.add_argument("--option", nargs=2, action="append", default=[],
                         metavar=("NAME", "VALUE"))
     parser.add_argument(
@@ -1081,25 +1084,32 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _configure(args: argparse.Namespace) -> None:
-    """Apply the process settings `args` names, in the order Nix needs."""
+def _options(args: argparse.Namespace) -> ServerOptions:
+    return ServerOptions(
+        settings=dict(args.option), load_config=args.load_config,
+        overlay=args.overlay, lower_store=args.lower_store,
+        lower_dir=args.lower_dir, ttl=args.ttl,
+        callbacks=args.experimental_callbacks)
+
+
+def _configure(options: ServerOptions) -> None:
+    """Apply the process settings `options` names, in the order Nix needs."""
     from huggorm_bindings import (
         enable_experimental_feature,
         load_config,
         set_setting,
     )
 
-    if args.overlay is not None:
-        namespace.enter_overlay_namespace(namespace.OverlayNamespace.under(
-            args.overlay, lower_store=args.lower_store,
-            lower_dir=args.lower_dir))
-    if args.load_config:
+    overlay = options.overlay_namespace()
+    if overlay is not None:
+        namespace.enter_overlay_namespace(overlay)
+    if options.load_config:
         load_config()
-    if args.overlay is not None:
+    if overlay is not None:
         enable_experimental_feature(namespace.EXPERIMENTAL_FEATURE)
         for name, value in namespace.REQUIRED_SETTINGS.items():
             set_setting(name, value)
-    for name, value in args.option:
+    for name, value in options.settings.items():
         set_setting(name, value)
 
 

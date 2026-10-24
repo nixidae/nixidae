@@ -143,6 +143,38 @@ raises `huggorm.ConnectionExpired` rather than failing later as an
 unknown handle. Recovery is a fresh `connect()` and re-acquiring what
 you held.
 
+## Workers
+
+A worker is a server for one session. huggorm starts it, connects,
+and stops it when the block ends:
+
+    async with huggorm.worker() as session:
+        state = await session.eval(await session.store())
+
+`huggorm.ServerOptions` sets the worker up: Nix settings, nix.conf,
+an overlay store in a user namespace, the sweep TTL. `via` selects
+how the worker starts:
+
+    options = huggorm.ServerOptions(settings={"cores": "4"}, load_config=True)
+    async with huggorm.worker(options, via=huggorm.Multiprocessing()) as session:
+        ...
+
+- `Stdio()` is the default. It starts a new interpreter on a pipe
+  pair, in about 0.2 s, and needs no setup.
+- `Multiprocessing()` forks a forkserver that has the server imported
+  already, in about 26 ms. Use it when the program starts workers
+  often. It is not free: call `huggorm.start_forkserver()` early,
+  before the program starts threads. Otherwise the first worker pays
+  the full start.
+- `UnixSocket()` starts a server on a socket. A client can reconnect
+  to it.
+- `huggorm.ssh.Ssh("host")` starts the worker on another host. It
+  needs the `ssh` extra and the same huggorm build on that host.
+
+`huggorm.attach(path)` connects to a server that something else
+started. `huggorm.spawn` and `huggorm.ssh` hold the lower layer, for
+a caller that manages the process or the connection itself.
+
 ## Errors
 
     try:
