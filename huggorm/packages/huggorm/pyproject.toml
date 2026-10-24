@@ -58,4 +58,6 @@ addopts = "-q --strict-markers --strict-config"
 # and the sandboxed build passes `-m "not live"` (nixidae/nixidae#574).
 markers = [
     "live: needs the machine's own Nix store - a daemon, a db, or a path that exists. Cannot run in a build sandbox",
+    # Made when tests/test_testing.py imports huggorm.testing.environment.
+    "nix_platform(name): run only on the named `sys.platform`",
 ]
