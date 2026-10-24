@@ -747,9 +747,9 @@ whatever the window's size. A window smaller than what a guest reads
 makes the guest unmap and remap ranges; 512 MiB held a whole 362 MiB
 closure without that (nixidae/nixidae#1077).
 
-Not larger without a measurement: at 4 GiB the guest booted, read its
-closure, and then took SIGBUS on its next exec (`memory.krun`). Cause not
-found."""
+Not larger for free: the guest builds a page struct for every page of
+the window in its own RAM, 1/64 of the window's size. That is 8 MiB at
+512 MiB and 64 MiB at 4 GiB."""
 
 
 class Krun:
