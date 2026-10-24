@@ -1,0 +1,21 @@
+From: Carl Andersson <carl.andersson@dynamist.se>
+Subject: [PATCH] x86_64: load the initrd at a page-aligned address
+
+The initrd ends at the top of low RAM, so it starts at that address
+minus its size. An initrd whose size is not a multiple of the page size
+then starts inside a page. The guest frees the initrd page by page and
+warns on every boot (arch/x86/mm/init.c, free_init_pages), which taints
+the kernel and hides the next real warning. Firecracker rounds the
+address down to a page for the same reason.
+---
+--- a/src/arch/src/x86_64/mod.rs
++++ b/src/arch/src/x86_64/mod.rs
+@@ -162,7 +162,7 @@
+         // To be filled later using GuestMemory.
+         guest_last_addr: 0,
+         page_size,
+-        initrd_addr: ram_last_addr.min(MMIO_MEM_START) - initrd_size,
++        initrd_addr: (ram_last_addr.min(MMIO_MEM_START) - initrd_size) & !(page_size as u64 - 1),
+         firmware_addr,
+     };
+     (info, regions)

@@ -14,5 +14,6 @@
       ./0001-virtio-fs-never-announce-submounts.patch
       ./0002-virtio-fs-retry-an-open-without-O_NOATIME.patch
       ./0003-virtio-fs-keep-the-guest-cache-of-a-read-only-share.patch
+      ./0004-x86_64-load-the-initrd-at-a-page-aligned-address.patch
     ];
   })
