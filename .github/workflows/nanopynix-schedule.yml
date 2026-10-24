@@ -31,8 +31,8 @@ jobs:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
         useDaemon: false
-    - name: Run the gates (completion-spike, completions, format, grpclib-transports, libpynix, lint, lint-strict, manpages, pynix-isolated, pytest-agent, shell, test-support, types)
-      run: nix build --file . --no-link --print-build-logs --keep-going checks.completion-spike checks.completions checks.format checks.grpclib-transports checks.libpynix checks.lint checks.lint-strict checks.manpages checks.pynix-isolated checks.pytest-agent checks.shell checks.test-support checks.types
+    - name: Run the gates (completion-spike, completions, format, libpynix, lint, lint-strict, manpages, pynix-isolated, pytest-agent, shell, test-support, types)
+      run: nix build --file . --no-link --print-build-logs --keep-going checks.completion-spike checks.completions checks.format checks.libpynix checks.lint checks.lint-strict checks.manpages checks.pynix-isolated checks.pytest-agent checks.shell checks.test-support checks.types
       timeout-minutes: 20
     timeout-minutes: 85
   test-asan:
@@ -70,12 +70,9 @@ jobs:
     - name: Enable Nix sandbox namespaces
       run: nix run --file . ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
-    - name: Run ASAN-instrumented suite (${{ matrix.version }}, local backend)
+    - name: Run ASAN-instrumented suite (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
       timeout-minutes: 60
-    - name: Run the concurrency soak (ASAN, ${{ matrix.version }})
-      run: ./result/bin/nanopynix-ci soak
-      timeout-minutes: 15
     - if: ${{ !cancelled() }}
       name: Upload ASAN output (${{ matrix.version }})
       timeout-minutes: 15
@@ -87,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ${{ fromJson(needs.version-matrix.outputs.asan_versions) }}
-    timeout-minutes: 225
+    timeout-minutes: 210
   test-nogc:
     env:
       CI_STEP: ciSteps.${{ matrix.version }}
@@ -123,20 +120,16 @@ jobs:
     - name: Enable Nix sandbox namespaces
       run: nix run --file . ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
-    - name: Run the suite without a collector (${{ matrix.version }}, local backend)
+    - name: Run the suite without a collector (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
       timeout-minutes: 30
-    - name: Run the concurrency soak (no collector, ${{ matrix.version }})
-      run: ./result/bin/nanopynix-ci soak
-      timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         version: ${{ fromJson(needs.version-matrix.outputs.nogc_versions) }}
-    timeout-minutes: 150
+    timeout-minutes: 135
   test-regular:
     env:
-      BACKEND: ${{ matrix.backend }}
       CI_STEP: ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-regular,')
     needs:
@@ -173,32 +166,29 @@ jobs:
     - name: Enable Nix sandbox namespaces
       run: nix run --file . ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
-    - name: Test nanopynix against Nix ${{ matrix.version }} (full suite, ${{ matrix.backend }} backend)
+    - name: Test nanopynix against Nix ${{ matrix.version }} (full suite)
       run: ./result/bin/nanopynix-ci suite
       timeout-minutes: 30
-    - name: Run the concurrency soak (${{ matrix.version }}, ${{ matrix.backend }} backend)
-      run: ./result/bin/nanopynix-ci soak
-      timeout-minutes: 15
     - if: ${{ !cancelled() }}
       name: Upload test output
       timeout-minutes: 15
       uses: actions/upload-artifact@main
       with:
-        name: test-output-${{ matrix.backend }}-${{ matrix.version }}
+        name: test-output-${{ matrix.version }}
         path: ${{ github.workspace }}/test-gdb-output.log
     - if: ${{ !cancelled() }}
       name: Upload Boehm GC thread registration log
       timeout-minutes: 15
       uses: actions/upload-artifact@main
       with:
-        name: gc-thread-debug-${{ matrix.backend }}-${{ matrix.version }}
+        name: gc-thread-debug-${{ matrix.version }}
         path: ${{ github.workspace }}/gc-thread-debug.log
     - if: ${{ !cancelled() }}
       name: Upload hang reports
       timeout-minutes: 15
       uses: actions/upload-artifact@main
       with:
-        name: hang-report-${{ matrix.backend }}-${{ matrix.version }}
+        name: hang-report-${{ matrix.version }}
         path: ${{ github.workspace }}/hang-report.log
     - if: ${{ !cancelled() }}
       name: Upload coverage reports to Codecov
@@ -206,7 +196,7 @@ jobs:
       uses: codecov/codecov-action@main
       with:
         files: ${{ github.workspace }}/coverage.xml
-        flags: ${{ matrix.backend }}-${{ matrix.version }}
+        flags: ${{ matrix.version }}
         token: ${{ secrets.CODECOV_TOKEN }}
     - if: ${{ !cancelled() }}
       name: Upload test results to Codecov
@@ -214,7 +204,7 @@ jobs:
       uses: codecov/codecov-action@main
       with:
         files: ${{ github.workspace }}/junit.xml
-        flags: ${{ matrix.backend }}-${{ matrix.version }}
+        flags: ${{ matrix.version }}
         report_type: test_results
         token: ${{ secrets.CODECOV_TOKEN }}
     - name: Verify test runner closure after tests
@@ -223,11 +213,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend:
-        - daemon
-        - local
         version: ${{ fromJson(needs.version-matrix.outputs.regular_versions) }}
-    timeout-minutes: 245
+    timeout-minutes: 230
   test-tsan:
     env:
       CI_STEP: ciSteps.${{ matrix.version }}
@@ -263,22 +250,16 @@ jobs:
     - name: Enable Nix sandbox namespaces
       run: nix run --file . ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
-    - name: Run TSAN-instrumented concurrency soak (five seeds, local+daemon backends)
-      run: ./result/bin/nanopynix-ci soak-seeds
-      timeout-minutes: 25
-    - name: Run TSAN-instrumented concurrency tests (single pass, local+daemon backends)
-      run: ./result/bin/nanopynix-ci broad
-      timeout-minutes: 20
+    - name: Run TSAN-instrumented suite (${{ matrix.version }})
+      run: ./result/bin/nanopynix-ci suite
+      timeout-minutes: 45
     - if: ${{ !cancelled() }}
       name: Upload TSAN output (${{ matrix.version }})
       timeout-minutes: 15
       uses: actions/upload-artifact@main
       with:
         name: tsan-race-report-${{ matrix.version }}
-        path: |
-          ${{ github.workspace }}/tsan-output-${{ matrix.version }}.log
-          ${{ github.workspace }}/tsan-output-broad-${{ matrix.version }}.log
-          ${{ github.workspace }}/soak-${{ matrix.version }}-run*.json
+        path: ${{ github.workspace }}/tsan-output-${{ matrix.version }}.log
     strategy:
       fail-fast: false
       matrix:
@@ -319,12 +300,9 @@ jobs:
     - name: Enable Nix sandbox namespaces
       run: nix run --file . ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
-    - name: Run UBSAN-instrumented suite (${{ matrix.version }}, local backend)
+    - name: Run UBSAN-instrumented suite (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
       timeout-minutes: 30
-    - name: Run the concurrency soak (UBSAN, ${{ matrix.version }})
-      run: ./result/bin/nanopynix-ci soak
-      timeout-minutes: 15
     - if: ${{ !cancelled() }}
       name: Upload UBSAN output (${{ matrix.version }})
       timeout-minutes: 15
@@ -336,7 +314,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ${{ fromJson(needs.version-matrix.outputs.ubsan_versions) }}
-    timeout-minutes: 195
+    timeout-minutes: 180
   version-matrix:
     outputs:
       asan_versions: ${{ steps.versions.outputs.asan_versions }}

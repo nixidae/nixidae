@@ -49,7 +49,7 @@
     repo = "nixidae/nanopynix";
     package = {
       flake = "default";
-      root = "nanopynix.nanopynix";
+      root = "nanopynix.pynix";
     };
   };
   nixkube = {
