@@ -33,6 +33,10 @@
       url = "github:Lillecarl/containerd";
       flake = false;
     };
+    deferimport = {
+      url = "github:Lillecarl/deferimport";
+      flake = false;
+    };
     dinix = {
       url = "github:lillecarl/dinix";
       flake = false;

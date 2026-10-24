@@ -32,6 +32,22 @@
         "type": "github"
       }
     },
+    "deferimport": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792839966,
+        "narHash": "sha256-6MYovhUDQwYaOnVfbdk9karHjO+76xYZncvlPbAHcCY=",
+        "owner": "Lillecarl",
+        "repo": "deferimport",
+        "rev": "9f59f8986709ff44e0ec44804badda97e9df7ea6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Lillecarl",
+        "repo": "deferimport",
+        "type": "github"
+      }
+    },
     "dinix": {
       "flake": false,
       "locked": {
@@ -167,6 +183,7 @@
       "inputs": {
         "adios": "adios",
         "containerd": "containerd",
+        "deferimport": "deferimport",
         "dinix": "dinix",
         "flake-compatish": "flake-compatish",
         "kr8s": "kr8s",
