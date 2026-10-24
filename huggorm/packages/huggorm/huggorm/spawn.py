@@ -10,22 +10,31 @@ timeout.
 `spawned_stdio` runs a server on its own stdin and stdout, for one
 connection. WELCOME is the ready signal, and the server exits when the
 caller closes its stdin.
+
+`spawned_process` runs a server in a `multiprocessing` child on one
+end of a socket pair. From a forkserver that has imported the server
+already, a child starts without importing it again (measured on
+nixidae/nixidae#551).
 """
 
 from __future__ import annotations
 
 import contextlib
+import multiprocessing
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 from collections.abc import AsyncIterator
+from typing import Any
 
 import anyio
+import anyio.abc
 from anyio.streams.stapled import StapledByteStream
 
-from . import transport
+from . import server, transport
 
 #: How long a stopped server may take to close its states before it is
 #: killed. A call blocked in a system call holds the stop open.
@@ -112,3 +121,44 @@ async def spawned_stdio(*args: str) -> AsyncIterator[transport.Dialer]:
                 if process.returncode is None:
                     process.kill()
                     await process.wait()
+
+
+@contextlib.asynccontextmanager
+async def spawned_process(*args: str, method: str = "forkserver"
+                          ) -> AsyncIterator[transport.Dialer]:
+    """Run a server in a `multiprocessing` child started by `method`,
+    with the server options `args` as the command line takes them, and
+    yield a dialer for its one connection.
+
+    A forkserver imports `huggorm.server` once, and each child is a fork
+    of it. `spawn` imports it in every child; it is the method that works
+    from a process that was itself forked from one with a forkserver.
+
+    Leaving the block closes the socket; the child ends its connection
+    and exits. One that has not exited after `STOP_GRACE` seconds is
+    terminated, then killed."""
+    # Any: typeshed gives `BaseContext`, for a method named at run time,
+    # no `Process` and no `set_forkserver_preload`.
+    context: Any = multiprocessing.get_context(method)
+    if method == "forkserver":
+        context.set_forkserver_preload(["huggorm.server"])
+    ours, theirs = socket.socketpair()
+    process = context.Process(target=server.serve_on_socket,
+                              args=(theirs, list(args)), daemon=True)
+    try:
+        await anyio.to_thread.run_sync(process.start)
+    finally:
+        theirs.close()
+    stream = await anyio.abc.SocketStream.from_socket(ours)
+    try:
+        yield transport.once(stream, "a multiprocessing server")
+    finally:
+        with anyio.CancelScope(shield=True):
+            await stream.aclose()
+            await anyio.to_thread.run_sync(process.join, STOP_GRACE)
+            if process.exitcode is None:
+                process.terminate()
+                await anyio.to_thread.run_sync(process.join, STOP_GRACE)
+            if process.exitcode is None:
+                process.kill()
+                await anyio.to_thread.run_sync(process.join)

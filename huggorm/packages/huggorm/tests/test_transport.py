@@ -61,3 +61,18 @@ async def test_a_stdio_server_evaluates_and_exits_with_its_connection() -> None:
         value = await state.eval_expr("1 + 1")
         assert await value.integer() == 2
     assert anyio.current_time() - started < spawn.STOP_GRACE
+
+
+@pytest.mark.parametrize("method", ["forkserver", "spawn"])
+async def test_a_multiprocessing_server_evaluates_and_exits_with_its_connection(
+    method: str,
+) -> None:
+    started = anyio.current_time()
+    async with (
+        spawn.spawned_process(method=method) as dial,
+        AsyncRemoteSession.connect(dial, store_uri="dummy://") as session,
+    ):
+        state = await session.eval(await session.store())
+        value = await state.eval_expr("1 + 1")
+        assert await value.integer() == 2
+    assert anyio.current_time() - started < spawn.STOP_GRACE

@@ -15,12 +15,14 @@ binds it, and every call on the connection runs under it.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import enum
 import functools
 import logging
 import os
 import signal
+import socket
 import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
 from dataclasses import dataclass
@@ -1020,14 +1022,35 @@ def main(argv: list[str] | None = None) -> None:
     `--overlay ROOT` serves from a private user namespace over an
     overlay store laid out under ROOT; a client opens
     `OverlayNamespace.under(ROOT, ...).store_uri()`."""
-    import argparse
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if (args.path is None) == (not args.stdio):
+        parser.error("give one of a socket PATH and --stdio")
+    _configure(args)
+    if args.stdio:
+        serving = functools.partial(serve_stream, _stdio_stream(), args.ttl,
+                                    callbacks=args.experimental_callbacks)
+    else:
+        serving = functools.partial(serve, args.path, args.ttl,
+                                    callbacks=args.experimental_callbacks)
+    anyio.run(_until_signalled, serving, args.ready_fd)
 
-    from huggorm_bindings import (
-        enable_experimental_feature,
-        load_config,
-        set_setting,
-    )
 
+def serve_on_socket(sock: socket.socket, argv: list[str]) -> None:
+    """A `multiprocessing` child's server: the options in `argv`, as the
+    command line takes them, and one connection on `sock`."""
+    args = _parser().parse_args(argv)
+    _configure(args)
+
+    async def serving(*, task_status: anyio.abc.TaskStatus[None]) -> None:
+        stream = await anyio.abc.SocketStream.from_socket(sock)
+        await serve_stream(stream, args.ttl, callbacks=args.experimental_callbacks,
+                           task_status=task_status)
+
+    anyio.run(_until_signalled, serving, None)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="huggorm.server")
     parser.add_argument("path", nargs="?")
     parser.add_argument("ttl", nargs="?", type=float, default=120.0)
@@ -1055,9 +1078,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--stdio", action="store_true",
                         help="serve one connection on stdin and stdout, "
                              "and exit when it ends")
-    args = parser.parse_args(argv)
-    if (args.path is None) == (not args.stdio):
-        parser.error("give one of a socket PATH and --stdio")
+    return parser
+
+
+def _configure(args: argparse.Namespace) -> None:
+    """Apply the process settings `args` names, in the order Nix needs."""
+    from huggorm_bindings import (
+        enable_experimental_feature,
+        load_config,
+        set_setting,
+    )
+
     if args.overlay is not None:
         namespace.enter_overlay_namespace(namespace.OverlayNamespace.under(
             args.overlay, lower_store=args.lower_store,
@@ -1070,13 +1101,6 @@ def main(argv: list[str] | None = None) -> None:
             set_setting(name, value)
     for name, value in args.option:
         set_setting(name, value)
-    if args.stdio:
-        serving = functools.partial(serve_stream, _stdio_stream(), args.ttl,
-                                    callbacks=args.experimental_callbacks)
-    else:
-        serving = functools.partial(serve, args.path, args.ttl,
-                                    callbacks=args.experimental_callbacks)
-    anyio.run(_until_signalled, serving, args.ready_fd)
 
 
 def _stdio_stream() -> transport.FdStream:
