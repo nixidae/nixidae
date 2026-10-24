@@ -22,6 +22,9 @@ DISK_FORMAT_QCOW2: Final = 1
 KERNEL_FORMAT_ELF: Final = 1
 SEMANTICS_LINUX_COMPLETE: Final = 0
 AGENT_PORT: Final = b"vivarium-agent"
+LOG_LEVEL_ENV: Final = "VIVARIUM_KRUN_LOG_LEVEL"
+PR_SET_NAME: Final = 15
+PROCESS_NAME: Final = b"vivarium-krun"
 
 NET_FEATURE_GUEST_CSUM: Final = 1 << 1
 NET_FEATURE_GUEST_TSO4: Final = 1 << 7
@@ -119,6 +122,9 @@ class KrunError(Exception):
 
 
 def run(spec: KrunSpec) -> None:
+    # A name of its own, not `python`, so a guest is found by name in
+    # `top` and in tests/cleanup.py. libkrun's threads inherit it.
+    ctypes.CDLL(None, use_errno=True).prctl(PR_SET_NAME, PROCESS_NAME, 0, 0, 0)
     lib = ctypes.CDLL(spec.libkrun)
     _bind(lib)
 
@@ -129,8 +135,9 @@ def run(spec: KrunSpec) -> None:
         return result
 
     enc = str.encode
-    # Errors only: libkrun logs each guest request at its default level.
-    call("krun_set_log_level", 1)
+    # Errors only by default: libkrun logs each guest request at its own
+    # default. 0 off, 1 error, 2 warn, 3 info, 4 debug, 5 trace.
+    call("krun_set_log_level", int(os.environ.get(LOG_LEVEL_ENV, "1")))
     ctx = call("krun_create_ctx")
     call("krun_set_vm_config", ctx, spec.cpus, spec.memory_mib)
     call("krun_disable_implicit_console", ctx)
