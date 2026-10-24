@@ -30,7 +30,7 @@ class ServerExited(RuntimeError):
 
 @contextlib.asynccontextmanager
 async def spawned(*args: str) -> AsyncIterator[str]:
-    """Run `python -m huggorm.server` with `args` on a socket in a
+    """Run `huggorm.server` with `args` on a socket in a
     private directory, and yield the socket's path once it listens.
 
     The server inherits stderr, so its reason for failing reaches the
@@ -41,8 +41,10 @@ async def spawned(*args: str) -> AsyncIterator[str]:
     read_fd, write_fd = os.pipe()
     try:
         try:
+            # Not `-m huggorm.server`: the package imports that module, so
+            # runpy warns on every start, into the caller's stderr.
             process = await anyio.open_process(
-                [sys.executable, "-m", "huggorm.server", path, *args,
+                [sys.executable, "-c", "from huggorm.server import main; main()", path, *args,
                  "--ready-fd", str(write_fd)],
                 stdin=subprocess.DEVNULL, stdout=None, stderr=None,
                 pass_fds=(write_fd,))
