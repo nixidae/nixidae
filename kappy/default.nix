@@ -11,11 +11,12 @@
 let
   # nanopynix resolves `kr8s` to the fork this tree builds against.
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
+  inherit (import sources.nixvenv { inherit pkgs sources; }) ps;
 
   pythonSet = nanopynix.pythonSetWith {
     projectRoots = [ ./kappy ];
     overlay = pySelf: _pyPrev: {
-      kappy = pySelf.callPackage (nanopynix.ps.mkProject {
+      kappy = pySelf.callPackage (ps.mkProject {
         projectRoot = ./kappy;
         inherit (nanopynix.pythonSet) python;
         extra = rendered: {

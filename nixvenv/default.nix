@@ -8,12 +8,26 @@
 # Usage:
 #   inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
 #   nixvenv { python = pkgs.python3; packages = ps: [ ps.anyio ]; }
-{ pkgs }:
+#
+# `ps` builds pyproject.nix package sets from nixpkgs (python-set.nix), and
+# needs `sources` for pyproject.nix:
+#   inherit (import sources.nixvenv { inherit pkgs sources; }) ps;
+{
+  pkgs,
+  sources ? null,
+}:
 let
   nixvenv = pkgs.callPackage ./nixvenv.nix { };
 in
 {
   inherit nixvenv;
+  ps =
+    if sources == null then
+      throw "nixvenv: `ps` needs `sources`, for pyproject.nix"
+    else
+      pkgs.callPackage ./python-set.nix {
+        pyproject-nix = import sources.pyproject-nix { inherit (pkgs) lib; };
+      };
   checks = pkgs.callPackages ./checks.nix { inherit nixvenv; };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
 }

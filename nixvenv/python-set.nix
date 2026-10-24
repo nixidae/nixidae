@@ -1,5 +1,5 @@
-# A pyproject.nix *builders* package set for this repo, sourcing every
-# third-party dependency from nixpkgs rather than from a lock file.
+# A pyproject.nix *builders* package set, sourcing every third-party
+# dependency from nixpkgs rather than from a lock file.
 #
 # Why the builders at all: nixpkgs' Python infrastructure works by dependency
 # propagation, and `withPackages` keeps only derivations that are importable
@@ -137,7 +137,24 @@ let
         '';
       });
 
-  cleanSource = import ./clean-source.nix { inherit lib; };
+  # The caches a local run writes inside a project's own files: `__pycache__`
+  # under a package directory, for one. The allowlist below keeps everything
+  # else out already.
+  cacheDirs = [
+    ".hypothesis"
+    ".pytest-agent"
+    ".pytest_cache"
+    ".ruff_cache"
+    "__pycache__"
+  ];
+
+  cleanSource =
+    { src, name }:
+    lib.cleanSourceWith {
+      inherit name;
+      src = lib.cleanSource src;
+      filter = path: type: !(type == "directory" && builtins.elem (baseNameOf path) cacheDirs);
+    };
 
   /*
     The files of a project that its own `pyproject.toml` names.
@@ -208,8 +225,8 @@ in
     `tests/` was 1.3 MB over 86, so an edit to a test file rebuilt everything
     downstream of the package.
 
-    `buildInputsOf` is the allowlist. The denylist of `clean-source.nix` still
-    runs over it, for the `__pycache__` directories that live inside `src/`.
+    `buildInputsOf` is the allowlist. `cacheDirs` still runs over it, for the
+    `__pycache__` directories that live inside `src/`.
 
     An editable install must point at the real checkout, so it takes the
     unfiltered path: a store path there would stop the install being live.
