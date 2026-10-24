@@ -26,6 +26,8 @@ dependencies = [
 [project.optional-dependencies]
 # `huggorm.fod` reads the hash binding out of Nix source.
 fod = ["tree-sitter", "tree-sitter-nix"]
+# `huggorm.ssh` runs a server over an SSH session.
+ssh = ["asyncssh"]
 
 [tool.setuptools.packages.find]
 # tests/ is not shipped: it is a suite, not a module anyone imports.

@@ -66,4 +66,6 @@ python3Packages.buildPythonPackage {
     python3Packages.tree-sitter
     tree-sitter-nix
   ];
+  # `huggorm.ssh` runs a server over an SSH session.
+  optional-dependencies.ssh = [ python3Packages.asyncssh ];
 }

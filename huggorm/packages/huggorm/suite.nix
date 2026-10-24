@@ -52,7 +52,8 @@ let
         ps.anyio
         ps.pytest-timeout
       ]
-      ++ huggorm.optional-dependencies.fod;
+      ++ huggorm.optional-dependencies.fod
+      ++ huggorm.optional-dependencies.ssh;
     executables = [ "pytest" ];
   };
   python = "${venv}/lib/venv/bin/python";
