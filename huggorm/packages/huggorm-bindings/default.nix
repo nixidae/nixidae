@@ -27,6 +27,8 @@
   # The licence texts of the libraries a wheel bundles, as
   # `licenses/<name>/<files>`, from the pinned sources.
   licenses,
+  # The lane's `version`.
+  version,
   pkg-config,
   ...
 }:
@@ -87,7 +89,9 @@ python3Packages.buildPythonPackage {
   # (nixidae/nixidae#939).
   buildInputs = lib.optional (boehmgc != null) boehmgc ++ nixLibs;
 
-  passthru.nixVersion = nix-store.version;
+  # The lane's NixOS/nix release, which the declaration gates read. A
+  # fork's `nix-store.version` is the fork's own.
+  passthru.nixVersion = version;
   # Whether libexpr allocates through the collector: its tests ask
   # the build, never the binding they test.
   passthru.hasCollector = boehmgc != null;

@@ -16,6 +16,23 @@
         "type": "github"
       }
     },
+    "bdwgc-determinate": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791890853,
+        "narHash": "sha256-Wip2gE+2EJGC6trYxO9Pl36rkgA3BJJkAsiWTVGXFBc=",
+        "owner": "DeterminateSystems",
+        "repo": "bdwgc",
+        "rev": "d569c29c479acb44bcf4e992acfc776fb88fb857",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DeterminateSystems",
+        "repo": "bdwgc",
+        "rev": "d569c29c479acb44bcf4e992acfc776fb88fb857",
+        "type": "github"
+      }
+    },
     "containerd": {
       "flake": false,
       "locked": {
@@ -94,6 +111,23 @@
         "owner": "Lillecarl",
         "ref": "develop",
         "repo": "kr8s",
+        "type": "github"
+      }
+    },
+    "nix-determinate": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792697051,
+        "narHash": "sha256-wBbomknnynmW74SjD4xRgpymGxJx96aUtYr3Dnyi4/Y=",
+        "owner": "DeterminateSystems",
+        "repo": "nix-src",
+        "rev": "9993a12bd434f653d5081b9b35f50900412fece8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DeterminateSystems",
+        "ref": "v3.24.0",
+        "repo": "nix-src",
         "type": "github"
       }
     },
@@ -182,11 +216,13 @@
     "root": {
       "inputs": {
         "adios": "adios",
+        "bdwgc-determinate": "bdwgc-determinate",
         "containerd": "containerd",
         "deferimport": "deferimport",
         "dinix": "dinix",
         "flake-compatish": "flake-compatish",
         "kr8s": "kr8s",
+        "nix-determinate": "nix-determinate",
         "nix2container": "nix2container",
         "nixpkgs": "nixpkgs",
         "nixpkgs-release": "nixpkgs-release",

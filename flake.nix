@@ -65,6 +65,17 @@
       url = "github:opentofu/registry";
       flake = false;
     };
+    # Determinate Nix, and the collector its flake pins. huggorm builds a lane
+    # on it (nixidae/nixidae#1054). Move both together: the fork's flake.lock
+    # names the bdwgc revision.
+    nix-determinate = {
+      url = "github:DeterminateSystems/nix-src/v3.24.0";
+      flake = false;
+    };
+    bdwgc-determinate = {
+      url = "github:DeterminateSystems/bdwgc/d569c29c479acb44bcf4e992acfc776fb88fb857";
+      flake = false;
+    };
   };
 
   outputs =

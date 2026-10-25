@@ -80,7 +80,7 @@ rec {
     ];
     pythonImportsCheck = [ "huggorm_gen.cppgen" ];
   };
-  versions = import ./nix/versions.nix { inherit pkgs; };
+  versions = import ./nix/versions.nix { inherit pkgs sources; };
   # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
   inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
   # The Nixes this nixpkgs gets lanes for. A pin skips the master lane:
@@ -93,7 +93,8 @@ rec {
   # The oldest is the BASE: the default lane, and the version a reader
   # with no `HUGGORM_NIX_VERSION` sees. Every later one is a GATE, a
   # `NIX_2_3x` name a declaration branches on. A gate means "this
-  # version or later", so the base cannot be any but the oldest.
+  # version or later", so the base cannot be any but the oldest. Two
+  # lanes can share a minor, and a gate is stated once.
   minors =
     let
       sorted = lib.sort (a: b: lib.versionOlder a.minor b.minor) (
@@ -105,7 +106,7 @@ rec {
     in
     {
       base = lib.head sorted;
-      gates = map (v: v.minor) (lib.tail sorted);
+      gates = lib.remove (lib.head sorted).minor (lib.unique (map (v: v.minor) sorted));
     };
   gateName = at: "NIX_${lib.replaceStrings [ "." ] [ "_" ] at}";
 
@@ -155,6 +156,14 @@ rec {
 
     `master`
     : True for the lane that follows Nix master. `nixes` reads it.
+
+    `upstreamVersion`
+    : The NixOS/nix release `components` is. A fork states its base here,
+      because its components carry the fork's own version.
+
+    `boehmgc`, `boehmgcPatches`
+    : The collector libexpr and the bindings link, and huggorm's patches
+      for it. A fork that pins its own collector states both.
   */
   mkLane =
     {
@@ -162,15 +171,18 @@ rec {
       patches,
       minor,
       master ? false,
+      upstreamVersion ? components.version,
+      boehmgc ? pkgs.nixDependencies.boehmgc,
+      boehmgcPatches ? versions.boehmgcPatches,
       gc ? true,
       sanitizer ? null,
       wheels ? true,
     }:
     # `majorMinor`, because `2.36pre...` sorts BEFORE `2.36` in
     # `versionAtLeast` (nixidae/nixidae#592).
-    assert lib.assertMsg (lib.versions.majorMinor components.version == minor) ''
+    assert lib.assertMsg (lib.versions.majorMinor upstreamVersion == minor) ''
       nix/versions.nix states ${minor}, and this nixpkgs gives
-      ${components.version}. A master that moved to a new minor needs
+      ${upstreamVersion}. A master that moved to a new minor needs
       its `NIX_2_3x` name in declare.py and mypy.ini, and a new minor
       here.
     '';
@@ -220,7 +232,8 @@ rec {
             patched
           else
             patched.overrideAllMesonComponents sanitizer.mesonComponentOverrides;
-        inherit (self.nixComponents) version;
+        # What every declaration gate reads.
+        version = upstreamVersion;
         checkerFlags = checkerFlags minor;
         # The CLI. nixpkgs' `nix_2_34` is `nix-everything`, which also
         # builds the manual and runs Nix's functional tests.
@@ -229,8 +242,8 @@ rec {
         # because a process loads one `libgc.so.1`.
         boehmgc =
           let
-            patched = pkgs.nixDependencies.boehmgc.overrideAttrs (old: {
-              patches = (old.patches or [ ]) ++ versions.boehmgcPatches;
+            patched = boehmgc.overrideAttrs (old: {
+              patches = (old.patches or [ ]) ++ boehmgcPatches;
             });
           in
           if !gc then

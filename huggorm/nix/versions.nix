@@ -9,8 +9,13 @@
 
   The order of a list is part of the derivation. A reordered list builds
   the same Nix under a different store path.
+
+  A lane on a fork of Nix states `upstreamVersion`, the NixOS/nix release
+  the fork builds on. The minor and every declaration gate read it, not
+  the fork's own version. It states its `boehmgc` too, when the fork pins
+  its own collector, and the `boehmgcPatches` for that collector.
 */
-{ pkgs }:
+{ pkgs, sources }:
 let
   patch = name: ./patches + "/${name}.patch";
 
@@ -32,6 +37,7 @@ let
   # (nixidae/nixidae#639).
   remoteVerbosity = patch "nix-remote-verbosity";
   remoteVerbosity236 = patch "nix-2.36-remote-verbosity";
+  remoteVerbosityDeterminate = patch "nix-determinate-remote-verbosity";
   # `statisticsJSON`, the `count-calls` setting, and concurrent call
   # counts.
   countCalls234 = patch "nix-2.34-count-calls";
@@ -60,6 +66,8 @@ let
   # `fetchers::Settings::forgetSrcToStore`: an edited path copies again
   # (nixidae/nixidae#997). 2.34 keeps that map on `EvalState`.
   forgetSrcToStore = patch "nix-forget-src-to-store";
+
+  determinate = import ./determinate.nix { inherit pkgs sources; };
 in
 {
   nix_2_34 = {
@@ -127,9 +135,39 @@ in
     # ships gcc-toolset-14 (nixidae/nixidae#660).
     wheels = false;
   };
+  # Determinate Nix (nixidae/nixidae#1054). Not `tempRoots`: each
+  # LocalStore creates its own file with O_EXCL and deletes none
+  # (`createTempRootsFile`). Not `parseFile`: `ExprParseFile` is a stack
+  # object that holds a reference, so it pins no accessor.
+  determinate = {
+    minor = "2.35";
+    inherit (determinate) components upstreamVersion boehmgc;
+    patches = [
+      emptyBindings
+      baseEnvSize
+      gmtime234
+      remoteVerbosityDeterminate
+      countCalls236
+      atRecursive
+      exprPath
+      callChecksInterrupt
+      ownsPrimOps
+      forgetSrcToStore
+    ];
+    # The fork's collector is newer bdwgc: the same three changes as
+    # `boehmgcPatches` below, where its code moved.
+    boehmgcPatches = [
+      (patch "bdwgc-determinate-tolerate-suspend-thread-exit-race")
+      (patch "bdwgc-determinate-log-file-pid")
+      (patch "bdwgc-determinate-late-interior-pointers")
+    ];
+    # libexpr links wasmtime, which `nix/manylinux` does not build.
+    wheels = false;
+  };
 
-  # On every collector a lane links, after nixpkgs' own `nixDependencies`
-  # configuration: the large config and a 1 MiB initial mark stack.
+  # On the collector a lane links when it states none of its own, after
+  # nixpkgs' own `nixDependencies` configuration: the large config and a
+  # 1 MiB initial mark stack.
   boehmgcPatches = [
     # `pthread_kill` gives EINVAL, not ESRCH, for a thread that exits
     # during a stop-the-world.
