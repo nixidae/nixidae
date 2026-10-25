@@ -52,6 +52,13 @@
 #  include "nix/store/build.hh"
 #endif
 
+// Determinate Nix passes a write's provenance to `writeDerivation` and
+// `addToStoreFromDump`.
+#if __has_include("nix/util/provenance.hh")
+#  include "nix/util/provenance.hh"
+#  define HUGGORM_PROVENANCE 1
+#endif
+
 namespace huggorm {
 
 namespace nb = nanobind;
@@ -186,6 +193,11 @@ struct Probe : nix::Store
     template<typename Self = Probe>
     static constexpr bool unchecked =
         requires(Self & self, const nix::Realisation & output) { self.registerDrvOutputUnchecked(output); };
+
+    /** Determinate Nix makes `addTempRoots` the virtual, for a set. */
+    template<typename Self = Probe>
+    static constexpr bool batched_temp_roots =
+        requires(Self & self, const nix::StorePathSet & paths) { self.addTempRoots(paths, false); };
 };
 
 /** The pure registration this Nix has, as the checked one without checks. */
@@ -214,8 +226,53 @@ struct RegistersOne : Base
     }
 };
 
+/** The temp-root virtual this Nix has, as one hook call per path. */
+template<typename Base>
+struct TempRoots : Base
+{
+    using Base::Base;
+
+    virtual void add_temp_root(const nix::StorePath & path) = 0;
+
+    void addTempRoot(const nix::StorePath & path) override
+    {
+        add_temp_root(path);
+    }
+
+protected:
+    /** Nix's own answer, which holds no root. */
+    void store_temp_root(const nix::StorePath & path)
+    {
+        Base::addTempRoot(path);
+    }
+};
+
+template<typename Base>
+struct TempRootsBatched : Base
+{
+    using Base::Base;
+
+    virtual void add_temp_root(const nix::StorePath & path) = 0;
+
+    // `skipIfSlow` is a hint: `LocalStore` ignores it too.
+    void addTempRoots(const nix::StorePathSet & paths, bool) override
+    {
+        for (const auto & path : paths)
+            add_temp_root(path);
+    }
+
+protected:
+    /** Nix's own answer, which holds no root. Qualified, because the
+     * unqualified `addTempRoot` calls back into `addTempRoots`. */
+    void store_temp_root(const nix::StorePath & path)
+    {
+        Base::addTempRoots({path}, false);
+    }
+};
+
 using Anchor = std::conditional_t<LayeredStoreConfig::has_path_type<>, Anchored<nix::Store>, nix::Store>;
-using StoreBase = std::conditional_t<Probe::unchecked<>, Registers<Anchor>, RegistersOne<Anchor>>;
+using Registered = std::conditional_t<Probe::unchecked<>, Registers<Anchor>, RegistersOne<Anchor>>;
+using StoreBase = std::conditional_t<Probe::batched_temp_roots<>, TempRootsBatched<Registered>, TempRoots<Registered>>;
 
 /**
  * The whole store as one tree, as Nix's `RemoteFSAccessor` shows it:
@@ -347,14 +404,19 @@ public:
         return listed(referrers);
     }
 
-    virtual void add_temp_root(const nix::StorePath & path)
-    {
-        below("addTempRoot").addTempRoot(path);
-    }
-
     // With nothing below, each hook from here down runs `nix::Store`'s
     // own default, which Nix builds on the hooks above: a store that
     // answers `query_path_info` answers a closure too.
+
+    // Nix's default holds no root. Determinate Nix's `copyPaths` asks
+    // the destination for one.
+    void add_temp_root(const nix::StorePath & path) override
+    {
+        if (underlying_)
+            underlying_->addTempRoot(path);
+        else
+            store_temp_root(path);
+    }
 
     virtual std::vector<nix::StorePath> query_valid_derivers(const nix::StorePath & path)
     {
@@ -566,11 +628,6 @@ public:
         referrers.insert(found.begin(), found.end());
     }
 
-    void addTempRoot(const nix::StorePath & path) override
-    {
-        add_temp_root(path);
-    }
-
     nix::StorePathSet queryValidDerivers(const nix::StorePath & path) override
     {
         auto found = query_valid_derivers(path);
@@ -625,7 +682,13 @@ public:
         return read_derivation(path);
     }
 
+    // The hook sees no provenance (nixidae/nixidae#1079).
+#ifdef HUGGORM_PROVENANCE
+    nix::StorePath writeDerivation(
+        const nix::Derivation & drv, nix::RepairFlag repair, std::shared_ptr<const nix::Provenance>) override
+#else
     nix::StorePath writeDerivation(const nix::Derivation & drv, nix::RepairFlag repair) override
+#endif
     {
         // The emitter spells a bound parameter without `const`. Nothing
         // writes through it: the trampoline hands Python a copy.
@@ -661,7 +724,12 @@ public:
         nix::ContentAddressMethod hashMethod,
         nix::HashAlgorithm hashAlgo,
         const nix::StorePathSet & references,
+#ifdef HUGGORM_PROVENANCE
+        nix::RepairFlag repair,
+        std::shared_ptr<const nix::Provenance>) override
+#else
         nix::RepairFlag repair) override
+#endif
     {
         Source wrapped{dump};
         Ended ended{wrapped};
