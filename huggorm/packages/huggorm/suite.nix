@@ -91,7 +91,9 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       cd source
       export HOME=$TMPDIR
       # The front door is emitted at build time; the tree keeps none of it.
+      # Both files, as `frontDoor` copies them: a clean checkout has neither.
       cp ${huggorm}/${python3.sitePackages}/huggorm/__init__.py huggorm/__init__.py
+      cp ${huggorm}/${python3.sitePackages}/huggorm/aio.py huggorm/aio.py
     ''
     + lib.optionalString (sanitizer == null) ''
       echo "--- lint ---"
