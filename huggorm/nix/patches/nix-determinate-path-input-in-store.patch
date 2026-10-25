@@ -1,0 +1,52 @@
+Read a `path:` input that is a valid store path through the store.
+
+Determinate Nix's path fetcher opens every input with
+`makeFSSourceAccessor(absPath)`, the host's file system. A store path
+names a LOGICAL location: a chroot store (`local?root=...`) or a
+relocated one keeps the object under its real directory, so the open
+fails. Measured on huggorm's test_the_server_locks_a_flake_on_the_client,
+which locks `path:/nix/store/<hash>-source` on a chroot store:
+
+    error: opening file "/nix/store/2bgsi8s93fgq8gwy9ll06mznzgq1d0pn-source": No such file or directory
+
+Upstream reads the input through `requireStoreObjectAccessor`. This
+does that for a valid store path and keeps the host file system for
+every other path.
+
+--- a/src/libfetchers/path.cc
++++ b/src/libfetchers/path.cc
+@@ -149,26 +149,29 @@
+ 
+         // FIXME: check whether access to 'path' is allowed.
+ 
+-        auto accessor = makeFSSourceAccessor(absPath);
+-
+         auto storePath = store.maybeParseStorePath(absPath.string());
+ 
+         if (storePath) {
+             store.addTempRoot(*storePath);
+ 
+-            // To prevent `fetchToStore()` copying the path again to Nix
+-            // store, pre-create an entry in the fetcher cache.
+             auto info = store.maybeQueryPathInfo(*storePath);
+             if (info) {
++                // Through the store: a chroot or relocated store keeps
++                // the path somewhere other than its logical name.
++                auto accessor = store.requireStoreObjectAccessor(*storePath);
++
++                // To prevent `fetchToStore()` copying the path again to Nix
++                // store, pre-create an entry in the fetcher cache.
+                 accessor->fingerprint = fmt("path:%s", info->narHash.to_string(HashFormat::SRI, true));
+                 settings.getCache()->upsert(
+                     makeSourcePathToHashCacheKey(
+                         *accessor->fingerprint, ContentAddressMethod::Raw::NixArchive, CanonPath::root),
+                     {{"hash", info->narHash.to_string(HashFormat::SRI, true)}});
++                return {{accessor, std::move(input)}};
+             }
+         }
+ 
+-        return {{accessor, std::move(input)}};
++        return {{makeFSSourceAccessor(absPath), std::move(input)}};
+     }
+ };
+ 

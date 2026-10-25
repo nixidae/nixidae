@@ -1,0 +1,56 @@
+Release the exception a failed thunk holds.
+
+Determinate Nix stores a thrown exception in the thunk, as
+`Value::Failed`, which derives from `gc`. Boehm frees a `gc` object
+without running its destructor, so the `std::exception_ptr` in it was
+never released: every error a thunk caught lived for the life of the
+process. An `EvalError` carries positions, a position holds its source
+accessor, and the accessor holds the Store. Measured with huggorm's
+test_a_closed_evaluator_releases_its_store, `(import f).caught` where
+`caught = (builtins.tryEval (throw "no")).success`: a closed evaluator
+kept its store's descriptors open, 5, 9 and 13 after three rounds.
+
+Upstream keeps the exception in an `ExceptionRef : gc_cleanup`, whose
+destructor the collector runs. `Failed` derives from `gc_cleanup` here.
+
+--- a/src/libexpr/include/nix/expr/eval-inline.hh
++++ b/src/libexpr/include/nix/expr/eval-inline.hh
+@@ -158,7 +158,7 @@
+             }
+         } catch (...) {
+             state.tryFixupBlackHolePos((Value &) *this, pos);
+-            setStorage(new Value::Failed{.ex = std::current_exception()});
++            setStorage(new Value::Failed(std::current_exception()));
+             throw;
+         }
+     }
+--- a/src/libexpr/include/nix/expr/value.hh
++++ b/src/libexpr/include/nix/expr/value.hh
+@@ -460,8 +460,17 @@
+         Value * const * elems;
+     };
+ 
+-    struct Failed : gc
++    /* `gc_cleanup`, so a collection runs the destructor and releases
++       `ex`. With `gc`, an error a thunk caught lived as long as the
++       process, and the positions in it kept their source accessors and
++       the store alive. */
++    struct Failed : gc_cleanup
+     {
++        explicit Failed(std::exception_ptr ex)
++            : ex(std::move(ex))
++        {
++        }
++
+         std::exception_ptr ex;
+     };
+ };
+@@ -1414,7 +1423,7 @@
+ 
+     inline void mkFailed() noexcept
+     {
+-        setStorage(new Value::Failed{.ex = std::current_exception()});
++        setStorage(new Value::Failed(std::current_exception()));
+     }
+ 
+     bool isList() const noexcept

@@ -1,0 +1,69 @@
+Let an interrupted thunk be forced again on Determinate Nix.
+
+Upstream 5c4f498d3 (in 2.35) restores a thunk that an `Interrupted`
+stopped, so a later force evaluates it again (nixidae/nixidae#634).
+Determinate Nix forces a thunk through its own concurrent state
+machine, which stores every exception as `Value::Failed`, an interrupt
+included. So a cancelled huggorm call poisoned the value for good:
+test_an_interrupted_value_evaluates_again raised `Interrupted` again.
+
+The thunk is restored when this thread owns it and no other thread
+waits on it: the pending word swaps back to the thunk. A waiter needs a
+final value, so a thunk another thread awaits fails as before.
+
+Applies after nix-determinate-failed-value-releases-its-error.
+--- a/src/libexpr/include/nix/expr/eval-inline.hh
++++ b/src/libexpr/include/nix/expr/eval-inline.hh
+@@ -5,6 +5,7 @@
+ #include "nix/expr/eval.hh"
+ #include "nix/expr/eval-error.hh"
+ #include "nix/expr/eval-settings.hh"
++#include "nix/util/signals.hh"
+ #include <exception>
+ 
+ namespace nix {
+@@ -123,10 +124,12 @@
+     auto pd = static_cast<PrimaryDiscriminator>(p0_ & discriminatorMask);
+ 
+     if (pd == pdThunk) {
++        PackedPointer p1_ = 0;
++        bool owned = false;
+         try {
+             // The value we get here is only valid if we can set the
+             // thunk to pending.
+-            auto p1_ = p1;
++            p1_ = p1;
+ 
+             // Atomically set the thunk to "pending".
+             if (!p0.compare_exchange_strong(
+@@ -146,6 +149,8 @@
+                 goto done;
+             }
+ 
++            owned = true;
++
+             bool isApp = p1_ & discriminatorMask;
+             if (isApp) {
+                 auto left = untagPointer<Value *>(p0_);
+@@ -156,6 +161,21 @@
+                 auto expr = untagPointer<Expr *>(p1_);
+                 expr->eval(state, *env, (Value &) *this);
+             }
++        } catch (const Interrupted &) {
++            /* As upstream's `handleEvalExceptionForThunk`: an interrupted
++               thunk can be forced again. Only a thunk this thread owns,
++               and only while no other thread waits on it: a waiter needs
++               a final value, so then it fails as any other error does. */
++            if (owned) {
++                PackedPointer pending = pdPending | (myEvalThreadId << discriminatorBits);
++                p1 = p1_;
++                if (p0.compare_exchange_strong(
++                        pending, p0_, std::memory_order_release, std::memory_order_relaxed))
++                    throw;
++            }
++            state.tryFixupBlackHolePos((Value &) *this, pos);
++            setStorage(new Value::Failed(std::current_exception()));
++            throw;
+         } catch (...) {
+             state.tryFixupBlackHolePos((Value &) *this, pos);
+             setStorage(new Value::Failed(std::current_exception()));

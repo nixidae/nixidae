@@ -146,6 +146,12 @@ in
       (patch "nix-determinate-dynamic-tls")
       # libnixutil aborts the process on any `std::logic_error` thrown.
       (patch "nix-determinate-no-cxa-throw-interposer")
+      # A `path:` store path opened from the host, not the store.
+      (patch "nix-determinate-path-input-in-store")
+      # A caught error kept its Store alive for the life of the process.
+      (patch "nix-determinate-failed-value-releases-its-error")
+      # An interrupted thunk evaluates again, as upstream's does.
+      (patch "nix-determinate-interrupted-thunk-recovers")
       emptyBindings
       baseEnvSize
       gmtime234
