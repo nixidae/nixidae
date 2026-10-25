@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from huggorm_bindings import is_experimental_feature
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
@@ -32,14 +34,20 @@ BACKENDS = ("local", "daemon")
 
 #: The features every store and daemon here runs with. The daemon gets them on
 #: its command line, because otherwise it reads the host's `nix.conf` and
-#: disagrees with the client on any host that enables a different set.
-EXPERIMENTAL_FEATURES = (
-    "ca-derivations",
-    "dynamic-derivations",
-    "fetch-tree",
-    "flakes",
-    "nix-command",
-    "recursive-nix",
+#: disagrees with the client on any host that enables a different set. Only
+#: those this Nix still calls experimental: Determinate Nix made `flakes`
+#: stable, and refuses to enable it.
+EXPERIMENTAL_FEATURES = tuple(
+    feature
+    for feature in (
+        "ca-derivations",
+        "dynamic-derivations",
+        "fetch-tree",
+        "flakes",
+        "nix-command",
+        "recursive-nix",
+    )
+    if is_experimental_feature(feature)
 )
 
 #: Puts the fixtures on the store of the machine, not a chroot store. A host
