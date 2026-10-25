@@ -55,7 +55,7 @@ goes in a helper the declaration names.
 from collections.abc import Iterator, Sequence
 from typing import assert_never
 
-from huggorm_dsl.declare import OPT, Crossing, Cxx, Holder, Include, Local, Std
+from huggorm_dsl.declare import OPT, Crossing, Cxx, Holder, Include, Local, Std, Threading
 from huggorm_dsl.read import Body
 from huggorm_gen import ir
 from huggorm_gen.cxx import NAMESPACE, fact
@@ -162,6 +162,12 @@ def placed_lines(text: str, name: str) -> str:
             # `#line N` names the line AFTER it, and lines count from 1.
             lines[i] = f'#line {i + 2} "{name}"'
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+def _settles(cls: ir.ClassModel) -> bool:
+    """Whether every call on `cls` waits for its state's writes. See
+    `Emitter._settled`."""
+    return cls.threading is Threading.AFFINE
 
 
 def waits(cls: ir.ClassModel,
@@ -1186,18 +1192,24 @@ class Emitter:
             # what to do once the arm is known; @guard says the arm is
             # known, and the two are separate decisions.
             extras = self._extras(waits(cls, m), m.params)
-            return [head, *held, *opening, *self._guard_head(cls, m), *body,
+            return [head, *held, *opening,
+                    *self._settled(cls, m, [*self._guard_head(cls, m), *body]),
                     f"{INDENT * 2}}}{extras}{tail})"]
         extras = self._extras(waits(cls, m), m.params)
         if m.virtual:
             return self._virtual_def(cls, m, tail)
         derived = self._derived(cls, m)
         me, held = self._self(cls)
+        if derived is None and _settles(cls):
+            # No pointer: the wait needs a body to follow.
+            spelled = m.cxx_name or m.name
+            names = ", ".join(pr.name for pr in m.params)
+            derived = [f"{INDENT * 4}return {SELF}.{spelled}({names});"]
         if derived is not None:
             args, opening = self._signature(m.params)
             return [f'{INDENT * 2}.def("{m.name}", '
                     f"[]({me}{args}){self._returns(m)} {{",
-                    *held, *opening, *derived,
+                    *held, *opening, *self._settled(cls, m, derived),
                     f"{INDENT * 2}}}{extras}{tail})"]
         spelled = m.cxx_name or m.name
         if held:
@@ -1211,6 +1223,22 @@ class Emitter:
                     f"{INDENT * 2}}}{extras}{tail})"]
         return [f'{INDENT * 2}.def("{m.name}", &{cls.held}::{spelled}'
                 f"{extras}{tail})"]
+
+    def _settled(self, cls: ir.ClassModel, m: ir.MethodModel,
+                 body: list[str]) -> list[str]:
+        """`body`, then the wait for the state's pending store writes.
+
+        Determinate Nix writes a derivation from a worker thread, and
+        its own C API waits after every call (`nix_api_expr.cc`). A call
+        on an affine class is a call on one state, so it waits the same
+        way. The body runs in a lambda, so each `return` in it stays a
+        return of the method. Not a guard: the wait rethrows a failed
+        write, and a destructor must not throw."""
+        if not _settles(cls):
+            return body
+        return [f"{INDENT * 4}return {NAMESPACE}::settled({SELF}, "
+                f"[&](){self._returns(m)} {{",
+                *body, f"{INDENT * 4}}});"]
 
     def _virtual_def(self, cls: ir.ClassModel, m: ir.MethodModel,
                      tail: str) -> list[str]:

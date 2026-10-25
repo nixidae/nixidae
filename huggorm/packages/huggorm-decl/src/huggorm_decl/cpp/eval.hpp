@@ -46,6 +46,7 @@
 #include <sstream>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -116,6 +117,34 @@ nix::ValueType value_type(const V & v)
         return v.template type<true>();
     else
         return v.type();
+}
+
+/**
+ * Runs `body`, then waits for the store writes the state has queued,
+ * and answers what `body` answered.
+ *
+ * Determinate Nix writes a derivation from a worker thread, so its path
+ * is not valid when the evaluation returns. Its own C API waits after
+ * every call (`nix_api_expr.cc`), and the emitted binding of every
+ * method on a state's objects calls this. A failed write raises here.
+ * Upstream writes in place, and has nothing to wait for.
+ */
+template <typename Self, typename Body>
+std::invoke_result_t<Body> settled(Self & self, Body && body)
+{
+    static_assert(requires { self.state(); }, "an affine class reaches its state with state()");
+    if constexpr (requires { self.state().waitForAllPaths(); }) {
+        if constexpr (std::is_void_v<std::invoke_result_t<Body>>) {
+            body();
+            self.state().waitForAllPaths();
+        } else {
+            std::invoke_result_t<Body> answer = body();
+            self.state().waitForAllPaths();
+            return answer;
+        }
+    } else {
+        return body();
+    }
 }
 
 /**
@@ -491,6 +520,8 @@ struct LockedFlake
 {
     std::shared_ptr<EvalCore> core;
     nix::flake::LockedFlake locked;
+
+    nix::EvalState & state() const;
 };
 
 class Evaluator
@@ -1208,7 +1239,14 @@ struct ReplSelection
 {
     std::string name;
     Bridge attrs;
+
+    nix::EvalState & state() const { return attrs.state(); }
 };
+
+inline nix::EvalState & LockedFlake::state() const
+{
+    return core->state();
+}
 
 inline Repl Evaluator::repl() const
 {
