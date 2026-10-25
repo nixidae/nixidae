@@ -17,7 +17,7 @@ from conftest import Server
 from huggorm import remote
 from huggorm.views import AttrsView, ListView
 from huggorm_bindings.errors import NixError
-from huggorm_generated import AsyncValue
+from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 from huggorm_generated._runtime import InternalError
 
 
@@ -33,7 +33,7 @@ async def state(server: Server) -> Any:
     """A fresh evaluator per test, on its own connection, so one test's
     handles never outlive it into another's assertions."""
     async with remote.connect(server.path) as c:
-        s = await c.acquire("EvalState", await c.acquire("Store", "dummy://"))
+        s = await c.acquire(AsyncEvalState, await c.acquire(AsyncStore, "dummy://"))
         yield s
         await s.aclose()
 
@@ -326,8 +326,8 @@ async def test_data_that_holds_itself_is_refused(state: Any) -> None:
 
 async def test_a_value_of_another_state_is_refused(state: Any) -> None:
     client = state._backend.client
-    other = await client.acquire("EvalState",
-                                 await client.acquire("Store", "dummy://"))
+    other = await client.acquire(AsyncEvalState,
+                                 await client.acquire(AsyncStore, "dummy://"))
     foreign = await other.make_int(1)
     with pytest.raises(InternalError) as refused:
         await client.value(state, [foreign])

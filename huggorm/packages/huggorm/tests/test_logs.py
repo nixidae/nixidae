@@ -34,6 +34,8 @@ import pytest
 from conftest import SHORT_TTL, Server
 from nixversion import EVALUATING_FILE, WORKER_OP
 
+from huggorm_generated import AsyncEvalState, AsyncStore
+
 URI = "dummy://"
 
 # builtins.trace goes through printError, which is lvlError - 0, and
@@ -596,7 +598,7 @@ async def test_a_remote_handle_drains(client: Any) -> None:
     pulls the shared queue. ONE drain: the trace is queued on the
     evaluation thread before `eval_expr` answers."""
     state = await client.acquire(
-        "EvalState", await client.acquire("Store", "dummy://"))
+        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await state.subscribe_logs()
     try:
         await state.eval_expr(TRACE % "through a handle")
@@ -618,7 +620,7 @@ async def test_a_remote_subscribe_silences_no_stream(client: Any) -> None:
     go through the state's fan-out instead, so the stream hears every
     record before, between and after them."""
     state = await client.acquire(
-        "EvalState", await client.acquire("Store", "dummy://"))
+        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     try:
         handle = await state.subscribe_logs()
@@ -659,7 +661,6 @@ async def test_the_loop_drains_while_the_evaluator_works() -> None:
     as a handle however cheap its methods are, and the pool policy
     runs the drain wherever the caller asks - still off the eval
     thread, which is the part a wrong design would fail."""
-    from huggorm_generated import AsyncEvalState, AsyncStore
 
     state = AsyncEvalState(AsyncStore(URI))
     stream = await state.subscribe_logs()
@@ -712,7 +713,7 @@ async def test_a_trace_reaches_a_remote_client(client: Any) -> None:
     Nix raises a record on the evaluation thread inside a server
     process, and a client in another process reads it while holding
     nothing but a handle."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     try:
         await state.eval_expr(TRACE % "over the wire")
@@ -731,7 +732,7 @@ async def test_an_idle_remote_stream_waits_on_the_server(
     sent about ten. A record raised after the quiet still arrives."""
     from huggorm.protocol import Control, Op
 
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     channel = client._link.peer.channel
     sent: list[Any] = []
@@ -769,7 +770,7 @@ async def test_a_record_arrives_as_a_real_local_object(client: Any) -> None:
     a list rather than as a shape this layer invented."""
     from huggorm_bindings import LogRecord
 
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     try:
         await state.eval_expr(TRACE % "typed")
@@ -793,7 +794,7 @@ async def test_a_message_in_no_encoding_crosses_as_bytes(
     """
     blob = tmp_path / "blob"
     blob.write_bytes(b"\xff\xfe")
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     try:
         await state.eval_expr(f'builtins.trace (builtins.readFile "{blob}") 1')
@@ -812,7 +813,7 @@ async def test_the_level_narrows_over_the_wire_too(client: Any) -> None:
     lvlError is 0, so "errors only" and "no level given" are different
     requests. This is the gate on that: a zero that arrived as unset
     would take the default of 3 and let the warning through."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state, level=0)
     try:
         await state.eval_expr(TRACE % "kept")
@@ -853,7 +854,7 @@ async def test_a_drop_crosses_rather_than_vanishing(client: Any) -> None:
     for i in reversed(range(5)):
         nest = f'builtins.trace "line{i}" ({nest})'
 
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state, capacity=1)
     try:
         await state.eval_expr(nest)
@@ -882,7 +883,7 @@ async def test_two_readers_on_one_state_both_see_it(client: Any) -> None:
 
     Drop the fan-out and this fails at the second `opened`, with the
     refusal it used to assert."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     first = await opened(client, state)
     second = await opened(client, state)
     try:
@@ -906,7 +907,7 @@ async def test_one_reader_leaving_does_not_stop_the_other(
     last one did - would leave this second stream connected and
     silent, which is the failure the old refusal existed to
     prevent."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     first = await opened(client, state)
     second = await opened(client, state)
     await first.aclose()
@@ -931,7 +932,7 @@ async def test_the_last_reader_out_unsubscribes(client: Any) -> None:
     Drop the `_drop` await from `Fanout._close` and this times out:
     the state's own queue would still be installed, claiming the
     record that this stream is waiting for."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     mine = await opened(client, state)
     await mine.aclose()
 
@@ -973,7 +974,7 @@ async def test_an_unclaimed_record_reaches_a_remote_client(
     branch: `route`'s fallback fires for any record on a thread with
     no queue. A build would add a store, a derivation and minutes to
     a gate whose subject is one `if`."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened_process(client)
     try:
         await state.eval_expr(TRACE % "remote-unclaimed")
@@ -995,7 +996,7 @@ async def test_a_state_stream_takes_its_records_back(client: Any) -> None:
     relationship. Asserting only that the state stream got it would
     pass under a broadcast, and asserting only that the process
     stream did not would pass if the record vanished."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     process = await opened_process(client)
     mine = await opened(client, state)
     try:
@@ -1018,7 +1019,7 @@ async def test_two_process_readers_both_see_it(client: Any) -> None:
     This is the reader Carl named - a CLI printing everything as it
     happens - and it must not cost the next connection its own view.
     One subscription in the binding, two readers in the server."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     first = await opened_process(client)
     second = await opened_process(client)
     try:
@@ -1080,7 +1081,7 @@ async def test_a_closed_stream_gives_the_state_back(client: Any) -> None:
     handler used to make about its `pop`, and two perturbations in
     nixidae/nixidae#569 refuted it there. A defence nothing tests is worth
     saying out loud."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     first = await opened(client, state)
     await first.aclose()
 
@@ -1117,7 +1118,7 @@ async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
     from huggorm import remote
 
     async with remote.connect(ttl_server.path) as c:
-        state = await c.acquire("EvalState", await c.acquire("Store", "dummy://"))
+        state = await c.acquire(AsyncEvalState, await c.acquire(AsyncStore, "dummy://"))
         stream = await opened(c, state)
         # Nothing keeps the connection alive now, so the next sweep takes
         # it - and the handle with it.
@@ -1204,7 +1205,6 @@ async def test_a_record_carries_the_call_it_was_raised_inside() -> None:
 
     Perturbation: delete `r.request = thread_request()` from `route`
     and every record here carries 0, so the first assert fails."""
-    from huggorm_generated import AsyncEvalState, AsyncStore
 
     state = AsyncEvalState(AsyncStore(URI))
     stream = await state.subscribe_logs()
@@ -1231,7 +1231,6 @@ async def test_two_calls_get_two_numbers() -> None:
     The allocator answers a fresh number every time, so two
     evaluations on one state are two groups. A reader that merged
     them would have no way back."""
-    from huggorm_generated import AsyncEvalState, AsyncStore
 
     state = AsyncEvalState(AsyncStore(URI))
     stream = await state.subscribe_logs()
@@ -1283,7 +1282,6 @@ async def test_the_marker_survives_a_queue_full_of_messages() -> None:
     and `Share.offer` both name what to DROP, so an action neither
     of them lists is kept. Perturbation: add "finalized" to either
     droppable set and this fails."""
-    from huggorm_generated import AsyncEvalState, AsyncStore
 
     state = AsyncEvalState(AsyncStore(URI))
     stream = await state.subscribe_logs(capacity=1)

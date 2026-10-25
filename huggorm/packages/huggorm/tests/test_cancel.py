@@ -24,6 +24,7 @@ import pytest
 from nixversion import INTERRUPTED
 
 from huggorm_dsl.declare import DETERMINATE
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 URI = "dummy://"
 STEP = 0.01
@@ -248,7 +249,6 @@ def test_a_scope_and_a_request_with_one_number_are_two_things(
 async def test_a_cancelled_await_stops_the_thread() -> None:
     """The await returning is not enough. The evaluator's thread has to
     stop too, or the next call queues behind the abandoned work."""
-    from huggorm_generated import AsyncEvalState, AsyncStore
 
     def spin(x: Any) -> Any:
         time.sleep(STEP)
@@ -284,7 +284,7 @@ async def test_a_dropped_remote_call_stops_its_work(client: Any) -> None:
     must answer in under half of it. A fast machine therefore cannot
     pass this by finishing the work before anyone waits on it."""
     state = await client.acquire(
-        "EvalState", await client.acquire("Store", URI))
+        AsyncEvalState, await client.acquire(AsyncStore, URI))
     started = time.monotonic()
     await state.eval_expr(REMOTE_SLOW)
     full = time.monotonic() - started

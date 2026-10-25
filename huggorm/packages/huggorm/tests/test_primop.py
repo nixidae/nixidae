@@ -20,6 +20,7 @@ import pytest
 from nixversion import ERROR_PREFIX, STRING_ORIGIN
 
 from huggorm_dsl.declare import DETERMINATE
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 URI = "dummy://"
 
@@ -219,7 +220,7 @@ async def test_a_remote_state_refuses_a_primop(client: Any) -> None:
     number, so a remote EvalState refuses `register_primop` and says
     why. An accidental rpc would make the evaluator call back over the
     socket once per invocation, on its evaluation thread."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     with pytest.raises(TypeError, match="runs only in process: parameter 'fn'"):
         await state.register_primop("f", 1, lambda x: x)
     await state.aclose()

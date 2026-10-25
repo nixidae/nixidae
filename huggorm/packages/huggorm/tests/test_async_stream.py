@@ -142,7 +142,7 @@ async def test_the_server_streams_a_nar_to_the_client(
     sync, path, nar = held()
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
+        store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
             await store.add_to_store_nar(sync.query_path_info(path),
                                          Chunks(nar, 4096), check_sigs=False)
@@ -156,7 +156,7 @@ async def test_the_server_reads_a_nar_from_an_async_client_source(
     sync, path, nar = held()
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
+        store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
             await store.add_to_store_nar(sync.query_path_info(path),
                                          Read(nar, 4096), check_sigs=False)

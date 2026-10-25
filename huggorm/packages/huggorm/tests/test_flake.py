@@ -17,6 +17,7 @@ import pytest
 from huggorm_bindings import EvalState, Store, parse_flake_ref
 from huggorm_bindings.errors import UsageError
 from huggorm_dsl.declare import NIX_2_35
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 if NIX_2_35:
     from huggorm_bindings import LazyAttr
@@ -211,8 +212,8 @@ async def test_a_flake_locks_over_the_socket(
         client: Any, tmp_path: pathlib.Path, probe: pathlib.Path) -> None:
     """`lock_flake` takes `settings: dict[str, str] | None`. None and a
     real mapping both cross (nixidae/nixidae#714)."""
-    store = await client.acquire("Store", str(tmp_path / "remote"))
-    state = await client.acquire("EvalState", store, NO_GLOBAL)
+    store = await client.acquire(AsyncStore, str(tmp_path / "remote"))
+    state = await client.acquire(AsyncEvalState, store, NO_GLOBAL)
     locked = await state.lock_flake(parse_flake_ref(f"path:{probe}"))
     assert await locked.description() == "probe"
     with pytest.raises(UsageError, match="not a setting this call takes"):

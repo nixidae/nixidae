@@ -16,6 +16,7 @@ from huggorm_bindings import (
     gc_stats,
 )
 from huggorm_bindings.errors import EvalError, NixError, NixTypeError, UndefinedVarError
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 
 @pytest.fixture
@@ -186,7 +187,7 @@ def test_a_held_scope_is_never_collected(state: EvalState) -> None:
 
 
 async def test_a_scope_serves_over_the_wire(client: Any) -> None:
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     repl = await state.repl()
     assert await repl.process_line('a = { b = 1; }') is None
     answer = await repl.process_line("a.b + 1")

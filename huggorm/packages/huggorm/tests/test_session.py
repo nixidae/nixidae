@@ -259,7 +259,7 @@ async def test_warm_state_survives_its_client(
     source.write_text("0")
     second_ctx = _connect(server, claim=token)
     async with second_ctx as second:
-        adopted = second.attach("EvalState", state_id)
+        adopted = second.attach(AsyncEvalState, state_id)
         value = await adopted.eval_file(str(source))
         assert await value.integer() == 42
         cold = await second.eval(await second.store())

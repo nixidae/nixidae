@@ -16,6 +16,7 @@ from test_source_accessor import SOURCE, Memory
 
 from huggorm import remote
 from huggorm_bindings import Stat, Store
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 DUMMY = "dummy://?read-only=false"
 
@@ -46,8 +47,8 @@ async def test_the_server_evaluates_the_clients_files(
     tree = Counted(SOURCE)
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
         path = local_path(SOURCE)
         assert await state.mount(tree, "source", path) == path
         assert tree.reads == []
@@ -62,8 +63,8 @@ async def test_mounting_without_a_path_hashes_through_the_client(
         callback_server: Server) -> None:
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
         with anyio.fail_after(30):
             path = await state.mount(Memory(SOURCE))
         assert path == local_path(SOURCE)
@@ -78,7 +79,7 @@ async def test_a_failing_client_hook_fails_the_call(
 
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
+        store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30), pytest.raises(Exception,
                                                  match="callback read_file"):
             await store.add_accessor_to_store("tree", Broken(SOURCE))
@@ -100,13 +101,13 @@ async def test_a_client_that_leaves_mid_callback_fails_the_call(
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
         tree.client = client
-        store = await client.acquire("Store", DUMMY)
+        store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30), pytest.raises(remote.ConnectionLost):
             await store.add_accessor_to_store("tree", tree)
 
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
+        store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
             assert await store.add_accessor_to_store(
                 "source", Memory(SOURCE)) == local_path(SOURCE)
@@ -114,8 +115,8 @@ async def test_a_client_that_leaves_mid_callback_fails_the_call(
 
 async def test_a_client_without_the_flag_refuses_before_sending(
         client: Any) -> None:
-    state = await client.acquire("EvalState",
-                                 await client.acquire("Store", DUMMY))
+    state = await client.acquire(AsyncEvalState,
+                                 await client.acquire(AsyncStore, DUMMY))
     with pytest.raises(TypeError, match="enables experimental callbacks"):
         await state.mount(Memory(SOURCE))
 
@@ -124,7 +125,7 @@ async def test_a_server_without_the_flag_refuses(server: Server) -> None:
     async with remote.connect(server.path,
                               experimental_callbacks=True) as client:
         state = await client.acquire(
-            "EvalState", await client.acquire("Store", DUMMY))
+            AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
         with anyio.fail_after(30), pytest.raises(Exception) as caught:
             await state.mount(Memory(SOURCE))
     assert "--experimental-callbacks" in str(caught.value.__cause__)
@@ -143,8 +144,8 @@ async def test_the_server_evaluates_a_directory_on_the_client(
     path = Store(DUMMY).compute_store_path("source", str(root))
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
         assert await state.mount(filesystem_accessor(root), "source",
                                  path) == path
         got = await evaluated(state, store, path)
@@ -160,8 +161,8 @@ async def test_an_async_client_tree_calls_the_server_back(
     answers: list[int] = []
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
 
         async def asks(path: str) -> None:
             answers.append(await (await state.eval_expr("1 + 1")).integer())
@@ -192,8 +193,8 @@ async def test_a_cancelled_call_frees_a_state_whose_client_hangs(
 
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", DUMMY)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
 
         async def mount() -> None:
             await state.mount(Tree(SOURCE, hangs))
@@ -222,8 +223,8 @@ async def test_the_server_locks_a_flake_on_the_client(
     (root / "x.nix").write_text("41 + 1")
     async with remote.connect(callback_server.path,
                               experimental_callbacks=True) as client:
-        store = await client.acquire("Store", str(tmp_path / "server"))
-        state = await client.acquire("EvalState", store,
+        store = await client.acquire(AsyncStore, str(tmp_path / "server"))
+        state = await client.acquire(AsyncEvalState, store,
                                      {"flake-registry": ""})
         with anyio.fail_after(30):
             path = await store.add_accessor_to_store(

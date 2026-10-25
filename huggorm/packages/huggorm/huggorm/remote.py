@@ -28,13 +28,13 @@ import threading
 import weakref
 from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import anyio
 import anyio.abc
 
 from huggorm_generated._callspec import Acquire, Call
-from huggorm_generated._classes import CLASSES
+from huggorm_generated._classes import CLASSES, DECLARED
 from huggorm_generated._policy import ACQUIRE, CALLBACKS, FREE, NO_RPC
 from huggorm_generated._runtime import Remote, typed_or_internal
 
@@ -58,6 +58,18 @@ from .protocol import (
 from .protocol import ConnectionLost as ConnectionLost
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def _declared(cls: type[Any]) -> str:
+    """The declared name the wire carries for a generated class."""
+    try:
+        return DECLARED[cls]
+    except (KeyError, TypeError):
+        raise TypeError(
+            f"{cls!r} is not a generated class; the build offers "
+            f"{sorted(c.__name__ for c in DECLARED)}") from None
 
 
 class ConnectionExpired(RuntimeError):
@@ -158,8 +170,14 @@ class NixClient:
         self._dropped: list[str] = []
         self._ref_lock = threading.Lock()
 
-    def proxy(self, cls_name: str, handle_id: str) -> Any:
-        """A client-side object for one remote handle.
+    def proxy(self, cls: type[T], handle_id: str) -> T:
+        """The object of class `cls` for one remote handle: a handle id
+        passed out of band, for example."""
+        return cast("T", self._proxy(_declared(cls), handle_id))
+
+    def _proxy(self, cls_name: str, handle_id: str) -> Any:
+        """A client-side object for one remote handle, by the declared
+        name the wire carries.
 
         The class is generated - one per declared class - so this is
         a lookup and a backend, and this module names nothing.
@@ -516,11 +534,12 @@ class NixClient:
             return [Op.FAULT, n, self.faults.encode(
                 typed_or_internal(f"callback {name}", e))]
 
-    async def acquire(self, cls_name: str, *args: Any) -> Any:
-        """Construct one instance remotely, from typed constructor
-        arguments. The arguments cross exactly like method arguments -
-        same codec, same wire policies - because they are declared the
-        same way."""
+    async def acquire(self, cls: type[T], *args: Any) -> T:
+        """Construct one instance of `cls` remotely, from typed
+        constructor arguments. The arguments cross exactly like method
+        arguments - same codec, same wire policies - because they are
+        declared the same way."""
+        cls_name = _declared(cls)
         spec = ACQUIRE.get(cls_name)
         if spec is None:
             # Not every constructible class is remotely constructible.
@@ -536,7 +555,7 @@ class NixClient:
                 f"got {len(args)}")
         hid = await self._ask(Op.CALL, spec.index, None,
                               self._encode_args(spec, args))
-        return self.proxy(cls_name, hid)
+        return cast("T", self._proxy(cls_name, hid))
 
     async def release(self, handle: Remote) -> None:
         if handle.handle_id is None:
@@ -574,7 +593,7 @@ class NixClient:
         error, so the rest of the tree still arrives (nixidae/nixidae#721)."""
         raw = await self._ask(Op.CONTROL, Control.REALIZE,
                               [handle_of(obj), depth, budget, force])
-        return self.codec.decode_tree(raw, self.proxy, self.view)
+        return self.codec.decode_tree(raw, self._proxy, self.view)
 
     async def value(self, state: Any, data: Any) -> Any:
         """A value `state` makes from Python data, in one round trip
@@ -602,7 +621,7 @@ class NixClient:
         return self.codec.decode_tree(
             # Not `passed.get(hid) or`: an empty view is falsy.
             raw, lambda cls, hid: (passed[hid] if hid in passed
-                                   else self.proxy(cls, hid)),
+                                   else self._proxy(cls, hid)),
             self.view)
 
     async def logs(self, obj: Any, capacity: int = 0,
@@ -673,7 +692,7 @@ class NixClient:
 
         Shielded on the way out, because a caller that stops by
         cancellation still owes the server the release."""
-        reader = self.proxy(LOG_READER.name, await self._ask(
+        reader = self._proxy(LOG_READER.name, await self._ask(
             Op.CONTROL, Control.LOGS,
             [hid, capacity or LOG_CAPACITY,
              LOG_LEVEL if level is None else level]))
@@ -748,7 +767,7 @@ class NixClient:
         returned = spec.returns
         return self.codec.decode(
             returned, raw,
-            lambda hid: self.proxy(returned.name if returned else "", hid))
+            lambda hid: self._proxy(returned.name if returned else "", hid))
 
 
 @contextlib.asynccontextmanager

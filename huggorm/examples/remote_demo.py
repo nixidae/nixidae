@@ -15,14 +15,15 @@ from pathlib import Path
 import anyio
 
 from huggorm import remote
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 
 async def main(path: str | Path) -> None:
     async with remote.connect(path) as client:
 
         root = tempfile.mkdtemp(prefix="huggorm-demo-")
-        store = await client.acquire("Store", root)
-        state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+        store = await client.acquire(AsyncStore, root)
+        state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
 
         print("=== wire-value returns are real local objects ===")
         from huggorm_bindings import ContentAddressMethod as CA
@@ -52,8 +53,6 @@ async def main(path: str | Path) -> None:
         # Typed against the async class. It never asks whether the
         # store answering is in this process or on the far side of the
         # socket - and a typechecker sees the whole surface either way.
-        from huggorm_generated import AsyncStore
-
         async def report(s: AsyncStore) -> str:
             path = await s.add_to_store("shared.txt", b"either location",
                                         CA.NAR, HashAlgorithm.SHA256)

@@ -758,12 +758,13 @@ def _spec(index: int, name: str, params: Sequence[ir.ParamModel],
 
 
 def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
-    """The three tables a caller reaches BY NAME.
+    """The three tables a caller reaches through a lookup.
 
-    `NixClient.acquire("Store", "auto")` and
-    `NixClient.call_function("gc_stats")` take a string, so neither
-    can be a generated method - the name is the argument. The lookup
-    is the API, so it is a table, emitted as Python a checker reads.
+    `NixClient.acquire(AsyncStore, "auto")` takes a class and
+    `NixClient.call_function("gc_stats")` a name, so neither can be a
+    generated method - the argument picks the entry. The lookup is the
+    API, so it is a table, emitted as Python a checker reads. The wire
+    still carries the declared name.
 
     Not every class is here. One that crosses as a VALUE has no handle
     to construct into - a caller builds it locally and passes it as an
@@ -831,10 +832,12 @@ def classes_module(model: ir.Model) -> ast.Module:
     name.
 
     `CLASSES` holds each served class's async form, which the runner
-    adopts a returned proxy into. `CALLED_BACK` holds each `@calls_back`
-    binding, which `adapt` subclasses for an argument that is a
-    program's own object. A module of its own, because it imports every
-    async class, and each of those imports `_policy`."""
+    adopts a returned proxy into, and `DECLARED` the same pairs from the
+    class: a caller names a class by the class (nixidae/nixidae#994).
+    `CALLED_BACK` holds each `@calls_back` binding, which `adapt`
+    subclasses for an argument that is a program's own object. A module
+    of its own, because it imports every async class, and each of those
+    imports `_policy`."""
     served = model.ordered_served
     hooked = [c.name for c in model.called_back]
     mod = ast.Module(type_ignores=[], body=[
@@ -847,6 +850,12 @@ def classes_module(model: ir.Model) -> ast.Module:
           for c in served),
         _table("CLASSES", "dict[str, type[Any]]",
                [(c.name, ast.Name(id=c.async_name)) for c in served]),
+        ast.AnnAssign(
+            target=ast.Name(id="DECLARED"),
+            annotation=_ann("dict[type[Any], str]", "DECLARED"),
+            value=ast.Dict(keys=[ast.Name(id=c.async_name) for c in served],
+                           values=[ast.Constant(value=c.name) for c in served]),
+            simple=1),
         _table("CALLED_BACK", "dict[str, type[Any]]",
                [(n, ast.Name(id=n)) for n in hooked]),
     ])

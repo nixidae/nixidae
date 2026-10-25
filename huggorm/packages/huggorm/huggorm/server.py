@@ -33,7 +33,7 @@ from anyio.abc import ByteStream, TaskGroup
 
 from huggorm_bindings.errors import NixError
 from huggorm_generated._callspec import Accessor, Acquire, Call
-from huggorm_generated._classes import CLASSES
+from huggorm_generated._classes import CLASSES, DECLARED
 from huggorm_generated._policy import (
     ACQUIRE,
     BUILDERS,
@@ -111,10 +111,6 @@ class CallHandler:
 # can say so.
 DEFAULT_DEPTH = 8
 DEFAULT_BUDGET = 1000
-
-# A wrapper's declared class: the emitted table read backwards, so no
-# naming convention is restated here.
-DECLARED = {cls: name for name, cls in CLASSES.items()}
 
 
 def _runner(obj: Any) -> BaseRunner:

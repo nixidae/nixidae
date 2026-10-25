@@ -12,6 +12,7 @@ import pytest
 from conftest import socket_path, wait_socket
 
 from huggorm import remote
+from huggorm_generated import AsyncEvalState, AsyncStore
 
 # Pure: Nix checks for an interrupt once per function call (nixidae/nixidae#744).
 PURE = ("let sum = builtins.foldl' (a: b: a + b) 0; "
@@ -40,8 +41,8 @@ async def test_a_signal_stops_the_server(signum: signal.Signals,
         try:
             await wait_socket(path)
             async with remote.connect(path) as client:
-                store = await client.acquire("Store", "dummy://")
-                state = await client.acquire("EvalState", store)
+                store = await client.acquire(AsyncStore, "dummy://")
+                state = await client.acquire(AsyncEvalState, store)
                 assert await (await state.eval_expr("1 + 1")).integer() == 2
 
                 async def spins(expression: str) -> None:

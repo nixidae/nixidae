@@ -17,9 +17,9 @@ from nixversion import NO_SUBSTITUTER, NOT_IN_STORE, drv_output, needs_collector
 import huggorm_bindings
 from huggorm.remote import handle_of
 from huggorm_bindings import ContentAddressMethod as CA
-from huggorm_bindings import HashAlgorithm
+from huggorm_bindings import HashAlgorithm, PathInfo
 from huggorm_bindings.errors import BadStorePath, NixError, NixTypeError
-from huggorm_generated import AsyncValue
+from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 from huggorm_generated._runtime import InternalError
 
 
@@ -37,7 +37,7 @@ async def typed_failure(coro: Any) -> dict[str, str]:
 # -- values and proxies ----------------------------------------------------
 
 async def test_acquire_returns_a_handle(client: Any) -> None:
-    store = await client.acquire("Store", "dummy://")
+    store = await client.acquire(AsyncStore, "dummy://")
     assert handle_of(store)
     await store.aclose()
     # aclose is the shared way to let an object go: locally it shuts the
@@ -49,7 +49,7 @@ async def test_acquire_returns_a_handle(client: Any) -> None:
 
 async def test_wire_value_arrives_as_a_local_object(
         client: Any, tmp_path: Any) -> None:
-    store = await client.acquire("Store", str(tmp_path))
+    store = await client.acquire(AsyncStore, str(tmp_path))
     with anyio.fail_after(10):
         p = await store.add_to_store("hello.txt", b"world")
     # A LOCAL object of the real bound class, not a handle: a wire
@@ -63,7 +63,7 @@ async def test_wire_value_arrives_as_a_local_object(
 
 async def test_a_value_argument_crosses_as_a_copy(
         client: Any, tmp_path: Any) -> None:
-    store = await client.acquire("Store", str(tmp_path))
+    store = await client.acquire(AsyncStore, str(tmp_path))
     held = await store.add_to_store("mysite", b"contents")
     # A wire value going the OTHER way: the StorePath was rebuilt
     # here, and passing it back encodes it as its parts again.
@@ -73,7 +73,7 @@ async def test_a_value_argument_crosses_as_a_copy(
 
 
 async def test_a_proxy_stays_remote(client: Any) -> None:
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     v = await state.make_int(7)
     assert isinstance(v, AsyncValue)
     assert handle_of(v)
@@ -99,7 +99,7 @@ async def test_backfilled_any_params_call_over_the_wire(client: Any) -> None:
     Its second parameter is a Value, so the call carries a HANDLE
     argument as well as a string: the server resolves it back to the
     object before the method runs."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     bag = await state.make_attrs()
     before = await bag.size()
     with anyio.fail_after(10):
@@ -111,7 +111,7 @@ async def test_backfilled_any_params_call_over_the_wire(client: Any) -> None:
 
 @needs_collector
 async def test_thunks_force_remotely(client: Any) -> None:
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     thunk = await state.parse_expr("42")
     # Nix's own type error is declared, so it crosses as itself.
     with pytest.raises(NixTypeError, match="found a thunk"):
@@ -134,7 +134,7 @@ async def test_a_decoded_cause_survives_the_wire(client: Any) -> None:
     """A C++ failure crosses as a rebuilt InternalError whose cause
     survives: __cause__ must be the original ValueError, not None -
     the regression guard for `raise ... from None`."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     with pytest.raises(InternalError) as caught:
         await state.parse_expr("")
     assert type(caught.value.__cause__) is ValueError
@@ -155,7 +155,7 @@ async def test_a_nix_error_keeps_its_type_and_its_colour(client: Any) -> None:
     The colour survives either way, which is the field that exists
     for the caller's terminal - and the caller with a terminal is
     usually the remote one."""
-    store = await client.acquire("Store", "dummy://")
+    store = await client.acquire(AsyncStore, "dummy://")
     with pytest.raises(BadStorePath) as caught:
         await store.parse_store_path("/somewhere/else/x")
 
@@ -183,7 +183,7 @@ async def test_a_nix_error_in_no_encoding_crosses_as_bytes(
 
     blob = tmp_path / "blob"
     blob.write_bytes(b"\xff\xfe")
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     with pytest.raises(ThrownError) as caught:
         await state.eval_expr(f'builtins.throw (builtins.readFile "{blob}")')
     assert "\ufffd" in str(caught.value)
@@ -200,7 +200,7 @@ async def test_an_undeclared_cause_still_approximates(client: Any) -> None:
     surfaces as a plain ValueError - not a nix error, so it carries no
     declared parts and comes back the way it always did. Failing to
     rebuild an error must never replace it with a different one."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     with pytest.raises(InternalError) as caught:
         await state.parse_expr("")
     assert type(caught.value.__cause__) is ValueError
@@ -209,16 +209,16 @@ async def test_an_undeclared_cause_still_approximates(client: Any) -> None:
 
 
 async def test_a_released_handle_fails_typed(client: Any) -> None:
-    tmp = await client.acquire("Store", "dummy://")
+    tmp = await client.acquire(AsyncStore, "dummy://")
     ghost_id = handle_of(tmp)
     await tmp.aclose()
-    threw = await typed_failure(client.proxy("Store", ghost_id).get_uri())
+    threw = await typed_failure(client.proxy(AsyncStore, ghost_id).get_uri())
     assert threw["cause_type"] == "KeyError", threw
 
 
 async def test_an_unknown_handle_fails_typed(client: Any) -> None:
     threw = await typed_failure(
-        client.proxy("Store", "0" * 32).get_uri())
+        client.proxy(AsyncStore, "0" * 32).get_uri())
     assert threw["cause_type"] == "KeyError", threw
 
 
@@ -229,28 +229,28 @@ async def test_a_produced_class_refuses_remote_construction(
     """A produced class has no constructor to construct with. It comes
     back from the method that makes it, and nowhere else.
 
-    Two names, and the pair is the point. `PathInfo` is DECLARED and
-    bound and still refused, because it crosses as a VALUE - there is
-    no handle to construct into. `Nonexistent` is the ordinary case.
-    A gate on either alone would not show that being declared is not
-    what decides this.
+    Two classes, and the pair is the point. `AsyncValue` is generated
+    and served and still refused: a Value comes from a method. `PathInfo`
+    is declared and bound, and has no async class, because it crosses as
+    a VALUE - there is no handle to construct into.
 
-    The message names what IS acquirable, so a caller who guessed
-    wrong does not have to go looking. Asserted, because a refusal
-    that only says no is one somebody has to debug - and `match=` on
-    the class name alone passed for a message that said nothing else.
+    Each message names what IS offered, so a caller who guessed wrong
+    does not have to go looking (nixidae/nixidae#549). A call crosses by
+    its number in the call table, so an unknown class has no number to
+    send: the CLIENT's check is the only one."""
+    with pytest.raises(ValueError) as refused:
+        await client.acquire(AsyncValue)
+    said = str(refused.value)
+    assert "Value" in said, said
+    assert "Store" in said and "EvalState" in said, \
+        "it names what a caller can construct instead"
 
-    nixidae/nixidae#549 lists "unknown CLASS on Acquire" as a blind spot and
-    describes a server-side check by class NAME. A call crosses by its
-    number in the call table, so an unknown class has no number to
-    send. What is left is the CLIENT's check, and this is it."""
-    for name in ("PathInfo", "Nonexistent"):
-        with pytest.raises(ValueError) as refused:
-            await client.acquire(name)
-        said = str(refused.value)
-        assert name in said, said
-        assert "Store" in said and "EvalState" in said, \
-            "it names what a caller can construct instead"
+    with pytest.raises(TypeError) as unknown:
+        await client.acquire(PathInfo)
+    said = str(unknown.value)
+    assert "PathInfo" in said, said
+    assert "AsyncStore" in said and "AsyncEvalState" in said, \
+        "it names the classes the build offers"
 
 
 # -- free functions --------------------------------------------------------
@@ -290,7 +290,7 @@ async def test_a_proxy_argument_resolves_against_another_object(
     proxies, so the argument still resolves against an object that is
     not itself - and both belong to one state, which is the only way
     two proxies can legally meet."""
-    state = await client.acquire("EvalState", await client.acquire("Store", "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     fn = await state.eval_expr("x: x + 1")
     arg = await state.eval_expr("7")
     assert await (await fn(arg)).integer() == 8
@@ -333,7 +333,7 @@ async def test_a_list_return_crosses_as_a_repeated_field(
         direct.add_to_store(name, name.encode())
     expected = [p.to_string() for p in direct.query_all_valid_paths()]
 
-    store = await client.acquire("Store", str(tmp_path / "wire"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "wire"))
     assert await store.query_all_valid_paths() == []
     for name in names:
         await store.add_to_store(name, name.encode())
@@ -358,7 +358,7 @@ async def test_bytes_cross_as_bytes(client: Any, tmp_path: Any) -> None:
     `data` crosses as msgpack bin, and the proof is
     a payload that is not valid utf-8 arriving byte for byte - which
     it does only if nothing tried to decode it on the way."""
-    store = await client.acquire("Store", str(tmp_path))
+    store = await client.acquire(AsyncStore, str(tmp_path))
     blob = bytes(range(256))
     path = await store.add_to_store(
         "blob", blob, CA.FLAT, HashAlgorithm.SHA256)
@@ -385,7 +385,7 @@ async def test_a_default_means_the_same_thing_remotely(
     Proven against a LOCAL call with nothing omitted, not against
     another remote one. Two remote calls that both dropped the
     arguments would agree with each other perfectly."""
-    store = await client.acquire("Store", str(tmp_path))
+    store = await client.acquire(AsyncStore, str(tmp_path))
     path = await store.add_to_store("greeting", b"hello world\n")
 
     local = huggorm_bindings.Store(str(tmp_path))
@@ -414,7 +414,7 @@ async def test_a_vocabulary_of_our_own_words_crosses_as_the_word(
 
     Compared against a LOCAL call, because two remote calls that both
     dropped the mode would agree with each other."""
-    store = await client.acquire("Store", str(tmp_path))
+    store = await client.acquire(AsyncStore, str(tmp_path))
     held = await store.add_to_store("moded", b"x")
 
     # `normal` is the no-op, the same as it is in process.
@@ -443,7 +443,7 @@ async def test_a_word_outside_the_vocabulary_stops_before_the_wire(
     assert codec.encode(mode, "repair", lambda _: "") == "repair"
     with pytest.raises(ValueError, match="not a valid"):
         codec.encode(mode, "rebuild", lambda _: "")
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     with pytest.raises(ValueError, match="not a valid"):
         await store.build_paths([], "rebuild")
 
@@ -467,7 +467,7 @@ async def test_a_path_is_read_on_the_store_side(
     (src / "a.txt").write_text("hello\n")
     (src / "sub" / "b.txt").write_text("world\n")
 
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     path = await store.add_path_to_store("tree", str(src))
 
     local = huggorm_bindings.Store(str(tmp_path / "store"))
@@ -494,7 +494,7 @@ async def test_a_path_info_crosses_as_a_value(
     src.mkdir()
     (src / "a.txt").write_text("hello\n")
 
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     path = await store.add_path_to_store("tree", str(src))
     info = await store.query_path_info(path)
 
@@ -539,7 +539,7 @@ async def test_a_store_location_crosses_as_a_value(
     src.mkdir()
     (src / "a.txt").write_text("hello\n")
 
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     path = await store.add_path_to_store("tree", str(src))
     printed = await store.print_store_path(path)
 
@@ -563,7 +563,7 @@ async def test_the_reference_graph_crosses_both_ways(
     repeated field of messages as a RETURN here, and as a wire-value's
     own field in query_path_info. Asserting them against each other is
     what proves they agree - one edge, read forwards and backwards."""
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     target = await store.add_to_store("target", b"pointed at\n")
     holder = await store.add_to_store(
         "holder", b"points at a target\n", references=[target])
@@ -592,7 +592,7 @@ async def test_a_closure_crosses_as_a_set(
     The bool defaults ride along: `flip_direction` is written by every
     surface, so the short call and the spelled-out one have to mean
     the same thing here as they do in process."""
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     a = await store.add_to_store("a", b"the end of the line\n")
     b = await store.add_to_store("b", b"points at a\n", references=[a])
 
@@ -631,7 +631,7 @@ async def test_absence_crosses_as_absence(
     src.mkdir()
     (src / "a.txt").write_text("hello\n")
 
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     path = await store.add_path_to_store("tree", str(src))
     hash_part = path.to_string().split("-", 1)[0]
 
@@ -657,7 +657,7 @@ async def test_a_link_is_followed_on_the_store_side(
     src.mkdir()
     (src / "a.txt").write_text("hello\n")
 
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     path = await store.add_path_to_store("tree", str(src))
     printed = await store.print_store_path(path)
 
@@ -684,7 +684,7 @@ async def test_a_filesystem_path_crosses_as_a_path(
     src.mkdir()
     (src / "a.txt").write_text("hello\n")
 
-    store = await client.acquire("Store", str(root))
+    store = await client.acquire(AsyncStore, str(root))
     path = await store.add_path_to_store("tree", str(src))
 
     real = await store.real_path(path)
@@ -718,7 +718,7 @@ async def test_a_reference_list_crosses_both_ways(
 
     The default proves the other half: `references` may be omitted,
     and an absent list is an empty one."""
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     target = await store.add_to_store("target", b"pointed at\n")
     holder = await store.add_to_store(
         "holder", b"points at a target\n", references=[target])
@@ -753,7 +753,7 @@ async def test_a_NESTED_value_crosses_as_an_argument(
     where the codec's fidelity is proven; this proves the RPC layer
     builds and accepts the nested message at all, which is the part
     that gate cannot see."""
-    store = await client.acquire("Store", str(tmp_path / "store"))
+    store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     key = drv_output(1, "out")
 
     assert await store.query_realisation(key) is None
@@ -786,10 +786,10 @@ async def test_acquire_refuses_the_wrong_number_of_arguments(
     The message names the parameters. A caller who passed two
     positional arguments needs to know which one was wanted."""
     with pytest.raises(TypeError, match=r"takes 0\.\.1"):
-        await client.acquire("Store", "dummy://", "extra")
+        await client.acquire(AsyncStore, "dummy://", "extra")
 
     with pytest.raises(TypeError) as short:
-        await client.acquire("EvalState")
+        await client.acquire(AsyncEvalState)
     assert "store" in str(short.value), str(short.value)
 
 
@@ -804,7 +804,7 @@ async def test_concurrent_first_calls_build_one_object(client: Any) -> None:
     A writable `dummy://` keeps its paths per instance, so a second
     store built by the race would hold some of these paths, and the
     handle would answer for the other one."""
-    store = await client.acquire("Store", "dummy://?read-only=false")
+    store = await client.acquire(AsyncStore, "dummy://?read-only=false")
     paths: list[Any] = [None] * 16
 
     async def first(i: int) -> None:

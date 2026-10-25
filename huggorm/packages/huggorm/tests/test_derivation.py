@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 from nixversion import FLOATING_OUTPUT
 
+from huggorm_generated import AsyncEvalState, AsyncStore
+
 LEAF = ('derivation { name = "leaf"; system = "x86_64-linux"; '
         'builder = "/bin/sh"; args = [ "-c" "echo" ]; '
         'outputs = [ "out" "dev" ]; FOO = "bar"; }')
@@ -138,8 +140,8 @@ async def test_output_paths_cross_the_socket(
     crosses as nil (nixidae/nixidae#714)."""
     from huggorm_bindings import EvalState, Store
 
-    store = await client.acquire("Store", str(tmp_path))
-    value = await (await client.acquire("EvalState", store)).eval_expr(
+    store = await client.acquire(AsyncStore, str(tmp_path))
+    value = await (await client.acquire(AsyncEvalState, store)).eval_expr(
         LEAF, str(tmp_path))
     local = EvalState(Store(str(tmp_path))).eval_expr(LEAF, str(tmp_path))
     assert await value.output_paths() == local.output_paths()
@@ -229,7 +231,6 @@ async def test_an_async_dev_shell_derivation_rewrites(
     """The async flavour, over a local `AsyncStore`."""
     from huggorm.devshell import awrite_dev_shell_derivation
     from huggorm_bindings import DerivationOutputInputAddressed
-    from huggorm_generated import AsyncStore
 
     path = instantiate(tmp_path, BASH_LEAF)
     shell_path = await awrite_dev_shell_derivation(

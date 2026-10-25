@@ -26,6 +26,7 @@ from nixversion import MISSING_FILE, MissingFileError
 from huggorm import remote
 from huggorm.lifecycle import ShareMode
 from huggorm.protocol import Control, Op
+from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 
 
 async def wrapper_error(coro: Any) -> dict[str, str]:
@@ -72,8 +73,8 @@ async def test_a_handle_is_a_capability(ttl_server: Server) -> None:
     """Anyone holding the id may call. Lifetime is what tokens govern."""
     async with (remote.connect(ttl_server.path) as a,
                 remote.connect(ttl_server.path) as b):
-        store = await a.acquire("Store", "dummy://")
-        cross = b.proxy("Store", remote.handle_of(store))
+        store = await a.acquire(AsyncStore, "dummy://")
+        cross = b.proxy(AsyncStore, remote.handle_of(store))
         assert await cross.get_uri() == "dummy://"
 
 
@@ -83,9 +84,9 @@ async def test_naming_a_handle_makes_you_a_holder(ttl_server: Server) -> None:
     it without the first arranging anything (nixidae/nixidae#568)."""
     async with (remote.connect(ttl_server.path) as a,
                 remote.connect(ttl_server.path) as b):
-        shared = await a.acquire("Store", "dummy://")
+        shared = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(shared)
-        borrowed = b.proxy("Store", hid)
+        borrowed = b.proxy(AsyncStore, hid)
         assert await borrowed.get_uri() == "dummy://"
 
         # Calling again owes no second release. A lease that counted calls
@@ -97,7 +98,7 @@ async def test_naming_a_handle_makes_you_a_holder(ttl_server: Server) -> None:
         assert await borrowed.get_uri() == "dummy://", "outlives its acquirer"
 
         await borrowed.aclose()
-        gone = await wrapper_error(b.proxy("Store", hid).get_uri())
+        gone = await wrapper_error(b.proxy(AsyncStore, hid).get_uri())
         assert gone["cause_type"] == "KeyError", gone
 
 
@@ -106,10 +107,10 @@ async def test_double_release_fails_typed(ttl_server: Server) -> None:
     time. Reusing the spent one sent an empty id, so the old test
     asserted that releasing handle "" fails - which proves nothing."""
     async with remote.connect(ttl_server.path) as a:
-        store = await a.acquire("Store", "dummy://")
+        store = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(store)
         await store.aclose()
-        again = a.proxy("Store", hid)
+        again = a.proxy(AsyncStore, hid)
         threw = await wrapper_error(again.aclose())
         assert threw["cause_type"] == "ValueError", threw
         assert hid[:8] in threw["cause_message"], threw
@@ -124,23 +125,23 @@ async def test_share_copy_survives_the_granter(ttl_server: Server) -> None:
     async with (remote.connect(ttl_server.path) as a,
                 remote.connect(ttl_server.path) as b):
         assert b.token is not None  # connect() binds
-        store = await a.acquire("Store", "dummy://")
+        store = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(store)
         await a.share(store, b.token, mode=ShareMode.COPY)
         await store.aclose()
-        assert await b.proxy("Store", hid).get_uri() == "dummy://"
+        assert await b.proxy(AsyncStore, hid).get_uri() == "dummy://"
 
 
 async def test_share_transfer_moves_ownership(ttl_server: Server) -> None:
     async with (remote.connect(ttl_server.path) as a,
                 remote.connect(ttl_server.path) as b):
         assert b.token is not None
-        store = await a.acquire("Store", "dummy://")
+        store = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(store)
         await a.share(store, b.token, mode=ShareMode.TRANSFER)
         threw = await wrapper_error(store.aclose())
         assert threw["cause_type"] == "ValueError", threw
-        assert await b.proxy("Store", hid).get_uri() == "dummy://"
+        assert await b.proxy(AsyncStore, hid).get_uri() == "dummy://"
 
 
 # -- producer pinning ------------------------------------------------------
@@ -156,7 +157,7 @@ async def test_producer_pinning_and_cascade_reap(ttl_server: Server) -> None:
     pinning at all - so this test is the only exercise the pinning,
     the cascade and the adopt path get."""
     async with remote.connect(ttl_server.path) as a:
-        state = await a.acquire("EvalState", await a.acquire("Store", "dummy://"))
+        state = await a.acquire(AsyncEvalState, await a.acquire(AsyncStore, "dummy://"))
         hid_state = remote.handle_of(state)
         v = await state.make_int(42)
         assert await v.integer() == 42
@@ -166,10 +167,10 @@ async def test_producer_pinning_and_cascade_reap(ttl_server: Server) -> None:
 
         hid_v = remote.handle_of(v)
         await v.aclose()
-        for cls, hid in (("Value", hid_v), ("EvalState", hid_state)):
-            gone = await wrapper_error(a.proxy(cls, hid).is_gc_managed()
-                                       if cls == "Value"
-                                       else a.proxy(cls, hid).get_store_uri())
+        for cls, hid in ((AsyncValue, hid_v), (AsyncEvalState, hid_state)):
+            gone = await wrapper_error(a.proxy(AsyncValue, hid).is_gc_managed()
+                                       if cls is AsyncValue
+                                       else a.proxy(AsyncEvalState, hid).get_store_uri())
             assert gone["cause_type"] == "KeyError", (cls, gone)
 
 
@@ -221,7 +222,7 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
 
         # 1. detached leases, whose owner then dies.
         a = await client()
-        state = await a.acquire("EvalState", await a.acquire("Store", "dummy://"))
+        state = await a.acquire(AsyncEvalState, await a.acquire(AsyncStore, "dummy://"))
         thunk = await state.parse_expr("42")
         await state.force(thunk)
         thunk_id = remote.handle_of(thunk)
@@ -233,7 +234,7 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
 
         # 2. an evaluation state, with work done, handed to a successor.
         maker = await client()
-        warm = await maker.acquire("EvalState", await maker.acquire("Store", "dummy://"))
+        warm = await maker.acquire(AsyncEvalState, await maker.acquire(AsyncStore, "dummy://"))
         bag = await warm.make_attrs()
         await warm.attrs_set(bag, "answer", await warm.eval_expr("42"))
         lazy = await warm.parse_expr("7")
@@ -254,13 +255,13 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
 
         # 3. a connection abandoned WITHOUT detaching: its handles go.
         d = await client()
-        doomed = await d.acquire("Store", "dummy://")
+        doomed = await d.acquire(AsyncStore, "dummy://")
         doomed_id = remote.handle_of(doomed)
         d.stop_pinging()
 
         # 4. the control: a client that keeps pinging is immune.
         live = await client()
-        alive = await live.acquire("Store", "dummy://")
+        alive = await live.acquire(AsyncStore, "dummy://")
 
         # connect() binds, so both tokens exist from that call onward.
         assert a.token is not None and maker.token is not None
@@ -415,12 +416,12 @@ async def test_a_swept_client_stops_rather_than_rebinding(
     assert c._link.expired is True
 
     with pytest.raises(remote.ConnectionExpired, match="swept"):
-        await c.acquire("Store", "dummy://")
+        await c.acquire(AsyncStore, "dummy://")
 
 
 async def test_abandoned_handles_are_reaped(swept: Swept) -> None:
     async with remote.connect(swept.path) as c:
-        gone = await wrapper_error(c.proxy("Store", swept.doomed_id).get_uri())
+        gone = await wrapper_error(c.proxy(AsyncStore, swept.doomed_id).get_uri())
         assert gone["cause_type"] == "KeyError", gone
 
 
@@ -430,7 +431,7 @@ async def test_escrow_survives_connection_death(swept: Swept) -> None:
     exit entirely while its objects wait for a claim."""
     async with remote.connect(swept.path, claim=swept.escrow_token) as c:
         assert c.token == swept.escrow_token, "claim adopts the detached token"
-        assert await c.proxy("Value", swept.thunk_id).integer() == 42
+        assert await c.proxy(AsyncValue, swept.thunk_id).integer() == 42
 
 
 async def test_a_claimed_lease_is_a_normal_lease(swept: Swept) -> None:
@@ -439,9 +440,9 @@ async def test_a_claimed_lease_is_a_normal_lease(swept: Swept) -> None:
     releases ever reached zero and every detach/claim round trip leaked
     its handle for good."""
     async with remote.connect(swept.path, claim=swept.escrow_token) as c:
-        claimed = c.proxy("Value", swept.thunk_id)
+        claimed = c.proxy(AsyncValue, swept.thunk_id)
         await claimed.aclose()
-        gone = await wrapper_error(c.proxy("Value", swept.thunk_id).integer())
+        gone = await wrapper_error(c.proxy(AsyncValue, swept.thunk_id).integer())
         assert gone["cause_type"] == "KeyError", gone
 
 
@@ -450,14 +451,14 @@ async def test_the_evaluator_outlives_its_creator(swept: Swept) -> None:
     EvalState serving many connections over time."""
     async with remote.connect(swept.path, claim=swept.maker_token) as heir:
         assert heir.token == swept.maker_token, "the successor adopts the identity"
-        same = heir.proxy("EvalState", swept.state_id)
+        same = heir.proxy(AsyncEvalState, swept.state_id)
         assert await same.get_store_uri() == "dummy://"
 
         # Warm, not rebuilt. Forcing is the proof: it mutates a value in
         # place, so a value that reads as an int on the far side of a
         # handover is the one that was forced before it.
-        assert await heir.proxy("Value", swept.lazy_id).type_name() == "int"
-        assert await heir.realize(heir.proxy("Value", swept.bag_id)) == {"answer": 42}
+        assert await heir.proxy(AsyncValue, swept.lazy_id).type_name() == "int"
+        assert await heir.realize(heir.proxy(AsyncValue, swept.bag_id)) == {"answer": 42}
         fresh = await same.eval_expr('"after the handover"')
         assert await fresh.string_value() == "after the handover"
 
@@ -479,12 +480,12 @@ async def test_a_claimed_state_answers_for_a_file_it_can_no_longer_read(
     moment. A FRESH EvalState asked for the same path goes to disk and
     says so."""
     async with remote.connect(swept.path, claim=swept.maker_token) as heir:
-        same = heir.proxy("EvalState", swept.state_id)
+        same = heir.proxy(AsyncEvalState, swept.state_id)
 
         warm = await same.eval_file(swept.warm_file)
         assert await warm.integer() == 42, "the claimed state still has it"
 
-        cold = await heir.acquire("EvalState", await heir.acquire("Store", "dummy://"))
+        cold = await heir.acquire(AsyncEvalState, await heir.acquire(AsyncStore, "dummy://"))
         # Nix's own error class, not the wrapper: a declared Nix error crosses as
         # ITSELF (nixidae/nixidae#603), so `wrapper_error` - which catches only
         # InternalError - does not see this one. Measured by writing it
@@ -505,8 +506,8 @@ async def test_a_claimed_state_answers_for_a_file_it_can_no_longer_read(
 
 async def test_dropping_the_last_reference_releases(client: Any) -> None:
     # Held, so the only drops the queue sees are the values below.
-    store = await client.acquire("Store", "dummy://")
-    state = await client.acquire("EvalState", store)
+    store = await client.acquire(AsyncStore, "dummy://")
+    state = await client.acquire(AsyncEvalState, store)
     ids = []
     for i in range(10):
         v = await state.eval_expr(f'"v{i}"')
@@ -516,7 +517,7 @@ async def test_dropping_the_last_reference_releases(client: Any) -> None:
     assert len(client._dropped) == 10, client._dropped
     assert await client.flush_dropped() == 10, "one rpc for the whole batch"
     for hid in ids:
-        await wrapper_error(client.proxy("Value", hid).string_value())
+        await wrapper_error(client.proxy(AsyncValue, hid).string_value())
     await state.aclose()
 
 
@@ -525,11 +526,11 @@ async def test_two_objects_one_handle(client: Any) -> None:
     second. Forging a proxy from a raw id is public API, and this file
     does it a dozen times."""
     # Held, so the only drops the queue sees are the values below.
-    store = await client.acquire("Store", "dummy://")
-    state = await client.acquire("EvalState", store)
+    store = await client.acquire(AsyncStore, "dummy://")
+    state = await client.acquire(AsyncEvalState, store)
     v = await state.eval_expr('"shared"')
     shared_id = remote.handle_of(v)
-    twin = client.proxy("Value", shared_id)
+    twin = client.proxy(AsyncValue, shared_id)
     del v
     gc.collect()
     await client.flush_dropped()
@@ -538,7 +539,7 @@ async def test_two_objects_one_handle(client: Any) -> None:
     del twin
     gc.collect()
     await client.flush_dropped()
-    await wrapper_error(client.proxy("Value", shared_id).string_value())
+    await wrapper_error(client.proxy(AsyncValue, shared_id).string_value())
     await state.aclose()
 
 
@@ -546,13 +547,13 @@ async def test_reacquired_before_the_flush_is_not_released(client: Any) -> None:
     """Releasing a queued handle that something started using again
     would take the lease from a live object."""
     # Held, so the only drops the queue sees are the values below.
-    store = await client.acquire("Store", "dummy://")
-    state = await client.acquire("EvalState", store)
+    store = await client.acquire(AsyncStore, "dummy://")
+    state = await client.acquire(AsyncEvalState, store)
     v = await state.eval_expr('"resurrected"')
     res_id = remote.handle_of(v)
     del v
     gc.collect()
-    again = client.proxy("Value", res_id)
+    again = client.proxy(AsyncValue, res_id)
     assert await client.flush_dropped() == 0
     assert await again.string_value() == "resurrected"
     await again.aclose()
@@ -561,8 +562,8 @@ async def test_reacquired_before_the_flush_is_not_released(client: Any) -> None:
 
 async def test_explicit_close_does_not_queue_twice(client: Any) -> None:
     # Held, so the only drops the queue sees are the values below.
-    store = await client.acquire("Store", "dummy://")
-    state = await client.acquire("EvalState", store)
+    store = await client.acquire(AsyncStore, "dummy://")
+    state = await client.acquire(AsyncEvalState, store)
     v = await state.eval_expr('"closed"')
     await v.aclose()
     del v

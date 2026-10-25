@@ -15,7 +15,7 @@ from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 
 async def _remote_value(client: Any) -> Any:
     state = await client.acquire(
-        "EvalState", await client.acquire("Store", "dummy://"))
+        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     return state, await state.eval_expr("1 + 1")
 
 

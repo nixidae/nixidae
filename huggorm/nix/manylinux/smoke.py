@@ -83,7 +83,7 @@ async def check_rpc() -> None:
         try:
             await wait_socket(path)
             async with remote.connect(path) as client:
-                store = await client.acquire("Store", URI)
+                store = await client.acquire(huggorm.AsyncStore, URI)
                 added = await store.add_to_store("hello", b"hello\n")
                 printed = await store.print_store_path(added)
         finally:

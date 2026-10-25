@@ -24,7 +24,7 @@ import os
 import weakref
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, overload, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 import anyio
 
@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from huggorm_bindings import LogRecord, Store
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 LogBatch = tuple[list["LogRecord"], int]
 """One drain: the records waiting, and how many the bound refused.
@@ -609,7 +611,7 @@ class AsyncRemoteSession:
     async def store(self, uri: str | None = None) -> AsyncStore:
         """Build a store on the server, tracked by this session."""
         chosen = uri if uri is not None else self._store_uri
-        proxy: AsyncStore = await self._client.acquire("Store", chosen)
+        proxy = await self._client.acquire(AsyncStore, chosen)
         self._stores.add(proxy)
         return proxy
 
@@ -630,8 +632,8 @@ class AsyncRemoteSession:
                 "this store belongs to another session; "
                 "make the evaluator where the store was made"
             )
-        proxy: AsyncEvalState = await self._client.acquire(
-            "EvalState", store, settings, build_store)
+        proxy = await self._client.acquire(
+            AsyncEvalState, store, settings, build_store)
         self._evals.add(proxy)
         return proxy
 
@@ -657,31 +659,27 @@ class AsyncRemoteSession:
         """Give another live connection a lease on `obj`."""
         await self._client.share(obj, to_token, mode)
 
-    @overload
-    def attach(self, cls_name: Literal["Store"], handle_id: str) -> AsyncStore: ...
-
-    @overload
-    def attach(self, cls_name: Literal["EvalState"], handle_id: str) -> AsyncEvalState: ...
-
-    def attach(self, cls_name: str, handle_id: str) -> AsyncStore | AsyncEvalState:
+    def attach(self, cls: type[T], handle_id: str) -> T:
         """Adopt a live handle onto this connection, tracked here.
 
         The other half of `share` and of detach-then-`claim`: a handle
         id passed out of band, or noted before its session closed,
         becomes a usable object here. Naming it makes this connection
         a holder, so the object stays alive. Only session-level
-        classes (`Store`, `EvalState`) attach here; anything else goes
-        through `client.proxy` directly.
+        classes (`AsyncStore`, `AsyncEvalState`) attach here; anything
+        else goes through `client.proxy` directly.
         """
-        if cls_name not in ("Store", "EvalState"):
-            raise ValueError(f"only Store and EvalState attach to a session, not {cls_name!r}")
-        if cls_name == "Store":
-            store: AsyncStore = self._client.proxy(cls_name, handle_id)
-            self._stores.add(store)
-            return store
-        state: AsyncEvalState = self._client.proxy(cls_name, handle_id)
-        self._evals.add(state)
-        return state
+        # Before `proxy`: an object made and dropped releases the handle.
+        kind: type[Any] = cls
+        if kind is not AsyncStore and kind is not AsyncEvalState:
+            raise ValueError(
+                f"only AsyncStore and AsyncEvalState attach to a session, not {cls!r}")
+        obj = self._client.proxy(cls, handle_id)
+        if isinstance(obj, AsyncStore):
+            self._stores.add(obj)
+        elif isinstance(obj, AsyncEvalState):
+            self._evals.add(obj)
+        return obj
 
     async def _release(self, obj: Any) -> None:
         backend = obj._backend

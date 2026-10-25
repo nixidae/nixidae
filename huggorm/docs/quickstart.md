@@ -122,14 +122,14 @@ listens on a Unix socket, and only its own uid may connect.
     server:  await huggorm.serve("/run/user/1000/huggorm.sock")
 
     client:  async with huggorm.connect("/run/user/1000/huggorm.sock") as client:
-                 store = await client.acquire("Store", "auto")
+                 store = await client.acquire(huggorm.AsyncStore, "auto")
                  path = await store.add_to_store("hello", b"hello\n")
 
-`store` here is an `RPCStore`, and the in-process one is an
-`AsyncStore`. Both satisfy `huggorm.StoreLike`, so code written
-against the protocol runs either way:
+`acquire` takes the class and returns that type. `store` is an
+`AsyncStore`, the class the in-process API gives, and its calls go to
+the server. So code written against `AsyncStore` runs either way:
 
-    async def total_size(store: huggorm.StoreLike, path) -> int:
+    async def total_size(store: huggorm.AsyncStore, path) -> int:
         info = await store.query_path_info(path)
         return info.nar_size()
 

@@ -30,6 +30,8 @@ from typing import Any
 import pytest
 from nixversion import MISSING_FILE
 
+from huggorm_generated import AsyncEvalState, AsyncStore
+
 # The store every surface opens. In-memory, so nothing here touches
 # the machine.
 URI = "dummy://"
@@ -72,10 +74,8 @@ async def store(request: Any, client: Any) -> Any:
 
         return Store(URI)
     if request.param == "async":
-        from huggorm_generated import AsyncStore
-
         return AsyncStore(URI)
-    return await client.acquire("Store", URI)
+    return await client.acquire(AsyncStore, URI)
 
 
 async def open_state(surface: str, client: Any,
@@ -91,10 +91,8 @@ async def open_state(surface: str, client: Any,
 
         return EvalState(Store(URI), settings)
     if surface == "async":
-        from huggorm_generated import AsyncEvalState, AsyncStore
-
         return AsyncEvalState(AsyncStore(URI), settings)
-    return await client.acquire("EvalState", await client.acquire("Store", URI), settings)
+    return await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, URI), settings)
 
 
 @pytest.fixture(params=SURFACES)
@@ -546,13 +544,12 @@ async def test_one_consumer_rewrites_a_derivation_everywhere(
         store: Any = Store(uri)
         state: Any = EvalState(store)
     elif surface == "async":
-        from huggorm_generated import AsyncEvalState, AsyncStore
 
         store = AsyncStore(uri)
         state = AsyncEvalState(store)
     else:
-        store = await client.acquire("Store", uri)
-        state = await client.acquire("EvalState", store)
+        store = await client.acquire(AsyncStore, uri)
+        state = await client.acquire(AsyncEvalState, store)
 
     value = await call(state, "eval_expr", BASH_LEAF)
     await call(state, "force", value)
