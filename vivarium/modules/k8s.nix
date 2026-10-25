@@ -959,7 +959,9 @@ in
     */
     system.extraDependencies = lib.mkIf (cfg.images == "nix") images.runtimeInputs;
 
-    systemd.services.k8s-load-images = lib.mkIf (cfg.images == "nix") {
+    # Also in "pull" mode when a test brings images of its own: a pulling
+    # node still has no registry for those.
+    systemd.services.k8s-load-images = lib.mkIf (cfg.images == "nix" || cfg.extraImages != [ ]) {
       description = "Import the kubeadm images into the container runtime";
       wantedBy = [ "multi-user.target" ];
       # Not `requires`, which would import again on every runtime restart:
@@ -1009,7 +1011,7 @@ in
             .${cfg.cri};
         in
         ''
-          for tarball in ${images.tarball} ${lib.escapeShellArgs cfg.extraImages}; do
+          for tarball in ${lib.optionalString (cfg.images == "nix") images.tarball} ${lib.escapeShellArgs cfg.extraImages}; do
             echo "importing $tarball"
             # `-f` so an uncompressed tarball passes straight through: a
             # caller's images need not be gzipped to be listed here.
