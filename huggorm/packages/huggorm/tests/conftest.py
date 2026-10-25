@@ -60,6 +60,26 @@ def flakes() -> Iterator[None]:
 
 
 @pytest.fixture
+def parallel_state() -> Any:
+    """A Determinate Nix state with two evaluator threads.
+
+    Two, not `eval-cores = 0`: that means every core, and a build
+    sandbox can have one, which turns parallel evaluation off. A state
+    reads the settings when it is made, so they are put back at once."""
+    from huggorm_bindings import EvalState, Store, get_setting, set_setting
+
+    saved = {name: get_setting(name) for name in ("eval-cores", "experimental-features")}
+    set_setting("eval-cores", "2")
+    set_setting("extra-experimental-features", "parallel-eval")
+    try:
+        return EvalState(Store("dummy://"))
+    finally:
+        for name, value in saved.items():
+            assert value is not None
+            set_setting(name, value)
+
+
+@pytest.fixture
 def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
     """A nix-daemon of this lane's Nix, on its own socket and store.
 
