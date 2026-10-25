@@ -1194,6 +1194,15 @@ class LogRecord:
         None for every other record, and for a message Nix raised as
         text."""
 
+    @reads("payload")
+    def payload(self) -> Str:
+        """A `"result"` Nix raised as JSON rather than as `fields`, as
+        that JSON's text. Empty for every other record.
+
+        Only Determinate Nix raises one, for `ResultType.HASH_MISMATCH`,
+        `BUILD_RESULT` and `HTTP_STATUS`. A string Nix put in it that
+        is not UTF-8 arrives with U+FFFD in its place."""
+
 
 @header(Local("huggorm_decl/cpp/logging.hpp"))
 @binding(

@@ -1945,14 +1945,15 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # number for one raised inside one.
         #
         # `info` too: None for a start, and the parts for a warning
-        # `logEI` raised.
+        # `logEI` raised. `payload`: empty, and a JSON result's text.
         "LogRecord": (
             _rebuild(LogRecord, "msg", 1, 0, 0, 0, 0, b"warning: hi", [],
                      _rebuild(ErrorInfo, 1, b"hi",
                               _rebuild(Position, b"/w.nix", 1, 1), True, 0,
-                              [], False, [])),
+                              [], False, []), ""),
             [("start", 3, 7, 2, 105, 41, b"copying '/tmp/x' to the store",
-              [_rebuild(LogField, False, 0, b"/tmp/x")], None)]),
+              [_rebuild(LogField, False, 0, b"/tmp/x")], None,
+              '{"httpStatus":200}')]),
         "Stat": (Stat(FileType.DIRECTORY), [(FileType.REGULAR, 7, True)]),
         # A generation's number, link and time all differ.
         "Generation": (_rebuild(Generation, 1, pathlib.Path("/p/salt-1-link"), 100),

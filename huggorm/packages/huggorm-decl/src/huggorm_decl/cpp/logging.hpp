@@ -37,6 +37,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <nlohmann/json.hpp>
+
 #include "huggorm_bindings/path_records.hpp"
 #include "huggorm_decl/cpp/error_info.hpp"
 #include "nix/store/remote-store.hh"
@@ -108,6 +110,9 @@ struct LogRecord
     std::vector<LogField> fields;
     // What `logEI` was given, beside `text`. Nothing else sets it.
     std::optional<ErrorInfo> info;
+    // A result Nix raised as JSON, as that JSON's text. `JSONLogger`
+    // names it `payload` too.
+    std::string payload;
 };
 
 /**
@@ -693,6 +698,39 @@ struct logger_fields<L>
  */
 using LoggerFields = detail::logger_fields<nix::Logger>::type;
 
+namespace detail {
+
+// Exactly this signature: `nlohmann::json` converts to almost anything,
+// so a call expression would also match upstream's `Fields` overload.
+template <typename L>
+concept json_results = requires {
+    static_cast<void (L::*)(nix::ActivityId, nix::ResultType, const nlohmann::json &) noexcept>(&L::result);
+};
+
+}  // namespace detail
+
+/**
+ * Determinate Nix's `Logger` has a second `result`, for a result raised
+ * as JSON, and its default drops the record. A base, because only a
+ * template can declare an override that one Nix lacks. `Base` is a
+ * parameter so the override is checked only where it is instantiated:
+ * clang checks it against a base that names no parameter at once.
+ */
+template <typename Tap, typename Base = nix::Logger, bool = detail::json_results<Base>>
+class JsonResults : public Base
+{
+};
+
+template <typename Tap, typename Base>
+class JsonResults<Tap, Base, true> : public Base
+{
+public:
+    void result(nix::ActivityId act, nix::ResultType type, const nlohmann::json & json) noexcept override
+    {
+        static_cast<Tap *>(this)->json_result(act, type, json);
+    }
+};
+
 /**
  * The `nix::Logger` that fills the queues.
  *
@@ -706,7 +744,7 @@ using LoggerFields = detail::logger_fields<nix::Logger>::type;
  * clean, and `isVerbose` keeps a failed build's message the shape it
  * had.
  */
-class LogTap : public nix::Logger
+class LogTap : public JsonResults<LogTap>
 {
 public:
     /**
@@ -790,6 +828,19 @@ public:
             fallback().result(act, type, fields);
     }
 
+    // `JsonResults`' override calls this. A template, so upstream never
+    // compiles the forward to an overload it does not have. `replace`,
+    // because `dump` throws on a string that is not UTF-8.
+    template <typename Json>
+    void json_result(nix::ActivityId act, nix::ResultType type, const Json & json) noexcept
+    {
+        if (!route({.action = "result",
+                    .id = act,
+                    .type = static_cast<uint64_t>(type),
+                    .payload = json.dump(-1, ' ', false, Json::error_handler_t::replace)}))
+            fallback().result(act, type, json);
+    }
+
     /**
      * Descriptor 1 is the protocol's, never a log's.
      *
@@ -838,6 +889,9 @@ private:
         if constexpr (requires { f.type; }) {
             return f.type == Field::tInt ? LogField{.is_int = true, .integer = f.i}
                                          : LogField{.is_int = false, .text = f.s};
+        } else if constexpr (requires { f.raw; }) {
+            // Determinate Nix: the 2.35 struct, holding a variant.
+            return field_of(f.raw);
         } else {
             if (const auto * i = std::get_if<uint64_t>(&f))
                 return LogField{.is_int = true, .integer = *i};
