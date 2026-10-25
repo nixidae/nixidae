@@ -50,6 +50,9 @@ class Input:
     @local
     def to_string(self) -> Str:
         """The input as a URL, as `nix flake metadata` prints it."""
+        # A call, not the member: Determinate Nix adds a defaulted
+        # `abbreviate`, which a member pointer would make a parameter.
+        Cxx("return self.to_string();")
 
     @local
     def to_url_string(self) -> Str:
