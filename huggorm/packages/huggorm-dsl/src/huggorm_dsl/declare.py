@@ -574,7 +574,8 @@ class Decl:
     # a Python-level union. This is one C++ object with a tag.
     #
     # (reach, ask, {enumerator: name}). `reach` hands the union over -
-    # `get()`. `ask` says which arm it holds - `type<true>()`. The map
+    # `get()`. `ask` names the function that says which arm the held
+    # object holds - `huggorm::value_type`, called as `ask(*held)`. The map
     # is every arm the union has, and the name each one answers to.
     #
     # Separate from `via`, and deliberately. `via` routes EVERY method

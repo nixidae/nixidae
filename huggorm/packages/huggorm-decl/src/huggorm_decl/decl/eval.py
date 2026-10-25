@@ -96,15 +96,15 @@ from huggorm_dsl.declare import (
     cxx="huggorm::Bridge",
 )
 # Bridge is a HANDLE over a TAGGED UNION. Reach the value with
-# `get()`, ask which arm it holds with `type<true>()`, and here is
-# every arm nix::ValueType has.
+# `get()`, ask which arm it holds with `huggorm::value_type`, and here
+# is every arm nix::ValueType has.
 #
 # ONE table, read two ways. `type_name` answers a caller with the
 # name; every `@guard` below checks against the enumerator. Adding an
 # arm is one line here rather than a switch case and a guard that
 # have to agree.
 @tagged(
-    "get()", "type<true>()",
+    "get()", "huggorm::value_type",
     thunk="nix::nThunk",
     int="nix::nInt",
     float="nix::nFloat",
@@ -265,9 +265,9 @@ return self.state().isDerivation(*self.get());
         No `@guard`: it takes ONE arm and this accepts two. Anything
         else raises the `TypeError` a guard raises, naming both."""
         Cxx("""
-if (self.get()->type<true>() == nix::nList)
+if (huggorm::value_type(*self.get()) == nix::nList)
     return static_cast<std::int64_t>(self.get()->listSize());
-if (self.get()->type<true>() == nix::nAttrs)
+if (huggorm::value_type(*self.get()) == nix::nAttrs)
     return static_cast<std::int64_t>(self.get()->attrs()->size());
 throw nix::TypeError(self.state(), "expected %s or %s but found %s",
                      nix::showType(nix::nList), nix::showType(nix::nAttrs),
@@ -597,7 +597,7 @@ if (!self.get()->isLambda()
         "apply_auto needs a lambda that declares formals; nix's "
         "autoCallFunction answers the function UNAPPLIED for anything "
         "else, which is indistinguishable from a call that did nothing");
-if (args.get()->type<true>() != nix::nAttrs)
+if (huggorm::value_type(*args.get()) != nix::nAttrs)
     throw std::invalid_argument(
         "apply_auto needs an attribute set of arguments");
 huggorm::gc_register_thread();

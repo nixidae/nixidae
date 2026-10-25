@@ -22,6 +22,8 @@
  * (value.hh:1444, eval.cc:105), which is the same trick a hand-rolled
  * `GC_malloc_uncollectable` cell used to do here. Ours is gone: a
  * hand root beside an upstream root is one fact declared twice.
+ * Determinate Nix's `RootValue` is a move-only slot, and `Root` below
+ * shares one, so a Bridge copies either the same way.
  *
  * EVERY Bridge takes its OWN root. A child never borrows its
  * parent's. The two lifetimes are different mechanisms - the server's
@@ -73,6 +75,12 @@ namespace nb = nanobind;
 #include "nix/store/store-api.hh"
 #include "nix/store/store-open.hh"
 
+// Determinate Nix's `RootValue` is a move-only handle from a slot pool;
+// upstream's is `allocRootValue`'s `shared_ptr<Value *>`.
+#if __has_include("nix/expr/root-value.hh")
+#include "nix/expr/root-value.hh"
+#endif
+
 // The log tap and the collector, each in a file of its own. Carl:
 // "there's no point in limiting the amount of files, separate as
 // appropriate."
@@ -92,6 +100,53 @@ namespace nb = nanobind;
 #include "huggorm_decl/cpp/settings.hpp"
 
 namespace huggorm {
+
+/**
+ * Which arm a value holds, and `nThunk` for one not yet initialised.
+ *
+ * Upstream spells that `type<true>()`; its plain `type()` is undefined
+ * on an uninitialised value, and a builder holds one. Determinate
+ * Nix's `type()` takes no argument and answers `nThunk` there itself.
+ * A template, so the spelling this Nix lacks is never looked up.
+ */
+template <typename V>
+nix::ValueType value_type(const V & v)
+{
+    if constexpr (requires { v.template type<true>(); })
+        return v.template type<true>();
+    else
+        return v.type();
+}
+
+/**
+ * A copyable root over one value: copies share one root, as a
+ * `shared_ptr` does. `*root` is the rooted `Value *`.
+ */
+#if __has_include("nix/expr/root-value.hh")
+using Root = std::shared_ptr<const nix::RootValue>;
+
+inline Root make_root(nix::Value * v)
+{
+    return std::make_shared<const nix::RootValue>(v);
+}
+
+inline nix::Value * rooted(const Root & root)
+{
+    return **root;
+}
+#else
+using Root = nix::RootValue;
+
+inline Root make_root(nix::Value * v)
+{
+    return nix::allocRootValue(v);
+}
+
+inline nix::Value * rooted(const Root & root)
+{
+    return *root;
+}
+#endif
 
 // `Evaluator::wrap` answers one and is declared before `Bridge` is
 // defined, so the name has to exist first. It sat in `gc.hpp` after
@@ -607,7 +662,7 @@ public:
            bool built = false)
         : built_(built)
         , core_(std::move(core))
-        , root_(nix::allocRootValue(value))
+        , root_(make_root(value))
     {
         live_roots().fetch_add(1, std::memory_order_relaxed);
     }
@@ -661,7 +716,7 @@ public:
     {
         if (!staged_.empty() || !staged_attrs_.empty())
             materialise();
-        return *root_;
+        return rooted(root_);
     }
 
     nix::EvalState & state() const { return core_->state(); }
@@ -689,9 +744,9 @@ public:
             // fresh `make_list()`, and not for a list that came from
             // anywhere else. Only on the first append of a run: after
             // it, `staged_` is non-empty and IS the list.
-            for (auto * elem : (*root_)->listView())
-                staged_.push_back(nix::allocRootValue(elem));
-        staged_.push_back(nix::allocRootValue(item));
+            for (auto * elem : rooted(root_)->listView())
+                staged_.push_back(make_root(elem));
+        staged_.push_back(make_root(item));
     }
 
     /**
@@ -704,7 +759,7 @@ public:
      */
     bool is_list() const
     {
-        return !staged_.empty() || (*root_)->type<true>() == nix::nList;
+        return !staged_.empty() || value_type(*rooted(root_)) == nix::nList;
     }
 
     /** Whether a caller may still fill this value. See the ctor. */
@@ -726,7 +781,7 @@ public:
     bool is_attrs() const
     {
         return !staged_attrs_.empty()
-               || (*root_)->type<true>() == nix::nAttrs;
+               || value_type(*rooted(root_)) == nix::nAttrs;
     }
 
     /**
@@ -744,11 +799,11 @@ public:
     {
         gc_register_thread();
         if (staged_attrs_.empty())
-            for (const auto & attr : *(*root_)->attrs())
+            for (const auto & attr : *rooted(root_)->attrs())
                 staged_attrs_.insert_or_assign(
                     std::string(state().symbols[attr.name]),
-                    nix::allocRootValue(attr.value));
-        staged_attrs_.insert_or_assign(name, nix::allocRootValue(item));
+                    make_root(attr.value));
+        staged_attrs_.insert_or_assign(name, make_root(item));
     }
 
     const std::shared_ptr<EvalCore> & core() const { return core_; }
@@ -764,14 +819,14 @@ public:
      */
     std::uintptr_t identity() const
     {
-        return reinterpret_cast<std::uintptr_t>(*root_);
+        return reinterpret_cast<std::uintptr_t>(rooted(root_));
     }
 
     /** Whether this value sits inside a GC-allocated block. */
     bool is_gc_managed() const
     {
 #if NIX_USE_BOEHMGC
-        return GC_base(*root_) != nullptr;
+        return GC_base(rooted(root_)) != nullptr;
 #else
         return false;
 #endif
@@ -845,20 +900,20 @@ private:
         if (!staged_.empty()) {
             auto builder = state().buildList(staged_.size());
             for (std::size_t i = 0; i < staged_.size(); ++i)
-                builder[i] = *staged_[i];
-            (*root_)->mkList(builder);
+                builder[i] = rooted(staged_[i]);
+            rooted(root_)->mkList(builder);
             staged_.clear();
             return;
         }
         auto builder = state().buildBindings(staged_attrs_.size());
         for (const auto & [name, value] : staged_attrs_)
-            builder.insert(state().symbols.create(name), *value);
-        (*root_)->mkAttrs(builder);
+            builder.insert(state().symbols.create(name), rooted(value));
+        rooted(root_)->mkAttrs(builder);
         staged_attrs_.clear();
     }
 
     std::shared_ptr<EvalCore> core_;
-    nix::RootValue root_;
+    Root root_;
     // Attributes in NAME order, built on first indexed access.
     //
     // nix::Bindings is sorted by Symbol ID, which is INTERNING order -
@@ -871,9 +926,9 @@ private:
     // a walk quadratic in the number of attributes.
     mutable std::vector<const nix::Attr *> by_name_;
     // Elements of a list still being built, each rooted. See `stage`.
-    mutable std::vector<nix::RootValue> staged_;
+    mutable std::vector<Root> staged_;
     // Attributes of a set still being built. See `stage_attr`.
-    mutable std::map<std::string, nix::RootValue> staged_attrs_;
+    mutable std::map<std::string, Root> staged_attrs_;
 };
 
 // ---- Evaluator, out of line ---------------------------------------

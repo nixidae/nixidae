@@ -615,11 +615,15 @@ def blockers(params: Sequence[ParamModel], returns: TypeRef | None,
 
 @dataclass(frozen=True)
 class ArmTest:
-    """The test that a tagged union holds one arm: `hold->ask == tag`."""
+    """The test that a tagged union holds one arm: `ask(*hold) == tag`."""
 
     hold: str
     ask: str
     tag: str
+
+    def asked(self, obj: str) -> str:
+        """Which arm `obj`'s union holds, as C++."""
+        return f"{self.ask}(*{obj}.{self.hold})"
 
 
 @dataclass(frozen=True)
@@ -631,6 +635,10 @@ class Tagged:
     hold: str
     ask: str
     arms: tuple[tuple[str, str], ...]
+
+    def asked(self, obj: str) -> str:
+        """Which arm `obj`'s union holds, as C++."""
+        return f"{self.ask}(*{obj}.{self.hold})"
 
     @classmethod
     def of(cls, decl: Decl) -> Tagged | None:

@@ -1027,8 +1027,7 @@ class Emitter:
         if m.names is not None:
             # The arm table, read the other way. One switch, so the names
             # a caller sees and the names @guard checks cannot drift.
-            lines = [f"{INDENT * 4}switch ({obj}.{m.names.hold}->"
-                     f"{m.names.ask}) {{"]
+            lines = [f"{INDENT * 4}switch ({m.names.asked(obj)}) {{"]
             for name, enum in m.names.arms:
                 lines.append(f'{INDENT * 4}case {enum}: return "{name}";')
             lines.append(f"{INDENT * 4}}}")
@@ -1104,7 +1103,7 @@ class Emitter:
                 # The arm FIRST. A builder of the wrong kind passes the
                 # builder test and then reads the wrong union member,
                 # which is undefined rather than an error.
-                f"{INDENT * 4}if ({target}.{arm.hold}->{arm.ask} != {arm.tag})",
+                f"{INDENT * 4}if ({arm.asked(target)} != {arm.tag})",
                 f"{INDENT * 5}{_wrong_arm(target, arm.hold, arm.tag)}",
                 f"{INDENT * 4}if (!{target}.is_builder())",
                 f"{INDENT * 5}throw std::invalid_argument(",
@@ -1116,7 +1115,7 @@ class Emitter:
             return []
         obj, arm = SELF, m.guard
         return [
-            f"{INDENT * 4}if ({obj}.{arm.hold}->{arm.ask} != {arm.tag})",
+            f"{INDENT * 4}if ({arm.asked(obj)} != {arm.tag})",
             f"{INDENT * 5}{_wrong_arm(obj, arm.hold, arm.tag)}",
         ]
 
