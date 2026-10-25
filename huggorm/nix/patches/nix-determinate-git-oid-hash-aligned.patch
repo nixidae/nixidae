@@ -1,0 +1,37 @@
+Hash a git_oid without a misaligned load.
+
+`std::hash<git_oid>` reads the first bytes of the object id with
+`*(size_t *) oid.id`. `git_oid` is `unsigned char id[20]`, aligned to 1,
+so that load is undefined on an object at an odd address. huggorm's
+determinate-ubsan lane caught one in CI, while
+test_the_metadata_is_what_nix locks a flake with a `path:` input:
+
+    src/libfetchers/git-utils.cc:60:32: runtime error: load of misaligned
+    address 0x7fffffff6fe1 for type 'size_t', which requires 8 byte alignment
+
+`std::memcpy` reads the same bytes into an aligned `size_t`; compilers
+emit one load for it. Upstream NixOS/nix has the same line, and its
+UBSan lanes here have not reached a misaligned oid.
+
+--- a/src/libfetchers/git-utils.cc
++++ b/src/libfetchers/git-utils.cc
+@@ -46,6 +46,7 @@
+ #include <boost/unordered/concurrent_flat_set.hpp>
+ #include <boost/unordered/unordered_flat_map.hpp>
+ #include <boost/unordered/unordered_flat_set.hpp>
++#include <cstring>
+ #include <iostream>
+ #include <regex>
+ #include <ranges>
+@@ -57,7 +58,10 @@
+ {
+     size_t operator()(const git_oid & oid) const
+     {
+-        return *(size_t *) oid.id;
++        // `git_oid` is a byte array, aligned to 1.
++        size_t hash;
++        std::memcpy(&hash, oid.id, sizeof(hash));
++        return hash;
+     }
+ };
+ 

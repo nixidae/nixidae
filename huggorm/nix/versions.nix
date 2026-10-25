@@ -152,6 +152,8 @@ in
       (patch "nix-determinate-failed-value-releases-its-error")
       # An interrupted thunk evaluates again, as upstream's does.
       (patch "nix-determinate-interrupted-thunk-recovers")
+      # `std::hash<git_oid>` loaded a size_t from a byte array.
+      (patch "nix-determinate-git-oid-hash-aligned")
       emptyBindings
       baseEnvSize
       gmtime234
