@@ -3,7 +3,7 @@
 import pathlib
 
 import pytest
-from nixversion import FLAKES_DISABLED
+from nixversion import FLAKES_DISABLED, FLAKES_EXPERIMENTAL
 
 from huggorm_bindings import parse_flake_ref, set_setting
 from huggorm_bindings.errors import NixError
@@ -41,5 +41,9 @@ def test_equal_references_compare_equal() -> None:
 
 def test_the_feature_is_required() -> None:
     set_setting("experimental-features", "")
+    if not FLAKES_EXPERIMENTAL:
+        # Stable flakes need no feature.
+        parse_flake_ref("github:o/r")
+        return
     with pytest.raises(NixError, match=FLAKES_DISABLED):
         parse_flake_ref("github:o/r")

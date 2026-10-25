@@ -15,7 +15,7 @@ import pytest
 
 from huggorm_bindings import DrvOutput, GCOptions, Hash, HashAlgorithm, StorePath
 from huggorm_bindings.errors import NixError, SysError
-from huggorm_dsl.declare import NIX_2_35
+from huggorm_dsl.declare import DETERMINATE, NIX_2_35
 
 if NIX_2_35:
     from huggorm_bindings import GCSpecificPaths, GCWholeStore, UnkeyedRealisation
@@ -116,12 +116,17 @@ PATH_DOES_NOT_EXIST = "does not exist"
 PURE_EVAL = "in pure evaluation mode"
 SHORT_STORE_PATH = "too short to be a valid store path"
 STACK_OVERFLOW = "stack overflow; max-call-depth exceeded"
-STILL_ALIVE = "since it is still alive"
 STRING_ORIGIN = "«string»"
 SUGGESTION = "Did you mean"
 UNDEFINED_VARIABLE = "undefined variable"
 UNKNOWN_HASH = "unknown hash algorithm"
 WORKER_OP = "performing daemon worker op"
+
+# Determinate Nix rewords a refused deletion and a floating output, and
+# its flakes are stable rather than an experimental feature.
+STILL_ALIVE = "because it's in use by" if DETERMINATE else "since it is still alive"
+FLOATING_OUTPUT = "is not a subpath of the Nix store" if DETERMINATE else NOT_IN_STORE
+FLAKES_EXPERIMENTAL = not DETERMINATE
 
 
 # Whether this build's libexpr has the collector, as the BUILD says:

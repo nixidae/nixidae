@@ -9,6 +9,8 @@ import sys
 
 from nixversion import needs_collector
 
+from huggorm_dsl.declare import DETERMINATE
+
 PROBE = """
 import os
 
@@ -84,5 +86,14 @@ def test_a_held_root_shows_in_the_uncollectable_bytes() -> None:
     gc.collect()
     collect_garbage()
     after = gc_stats()["non_gc_bytes"]
+    if DETERMINATE:
+        # A root is a slot in an uncollectable slab of 4096, and a
+        # dropped one returns to a free list. So the slab stays, and
+        # holding as many again takes nothing new.
+        assert after == holding
+        _held_again = [state.eval_expr(str(i)) for i in range(500)]
+        collect_garbage()
+        assert gc_stats()["non_gc_bytes"] == holding
+        return
     assert holding - before > 500 * 16
     assert after - before < (holding - before) // 10

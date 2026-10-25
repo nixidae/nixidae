@@ -95,7 +95,7 @@ from huggorm_bindings.errors import (
     Unsupported,
     UsageError,
 )
-from huggorm_dsl.declare import NIX_2_35, NIX_2_36
+from huggorm_dsl.declare import DETERMINATE, NIX_2_35, NIX_2_36
 
 if NIX_2_35:
     from huggorm_bindings import GCSpecificPaths, GCWholeStore, LazyAttr, UnkeyedRealisation
@@ -2294,9 +2294,12 @@ def test_censoring_hides_which_process_holds_a_temp_root(
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
 
     # 2.35 names the root by its file, which huggorm's Nix patch names
-    # `<pid>-<n>`; 2.34 names it by the pid alone.
+    # `<pid>-<n>`; 2.34 names it by the pid alone, and Determinate Nix
+    # by the pid as a process.
     names = [name for name, path in _roots(chroot, False) if path == held]
-    if NIX_2_35:
+    if DETERMINATE:
+        assert f"{{nix-process:{os.getpid()}}}" in names, names
+    elif NIX_2_35:
         assert any(name.startswith(f"{{temp:{os.getpid()}-") for name in names), names
     else:
         assert f"{{temp:{os.getpid()}}}" in names, names

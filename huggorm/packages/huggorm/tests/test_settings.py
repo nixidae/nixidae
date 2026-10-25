@@ -17,7 +17,7 @@ import sys
 from collections.abc import Callable, Iterator
 
 import pytest
-from nixversion import HAS_COLLECTOR, STACK_OVERFLOW
+from nixversion import FLAKES_EXPERIMENTAL, HAS_COLLECTOR, STACK_OVERFLOW
 
 PROBE = """
 import sys
@@ -401,7 +401,7 @@ def test_a_flake_setting_from_the_config_is_read() -> None:
 def test_a_feature_name_is_known_or_not() -> None:
     from huggorm_bindings import is_experimental_feature
 
-    assert is_experimental_feature("flakes") is True
+    assert is_experimental_feature("flakes") is FLAKES_EXPERIMENTAL
     assert is_experimental_feature("no-such-feature") is False
 
 
