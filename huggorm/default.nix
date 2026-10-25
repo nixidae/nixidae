@@ -402,6 +402,7 @@ rec {
               ps.pytest-timeout
             ]
             ++ self.huggorm.optional-dependencies.fod
+            ++ self.huggorm.optional-dependencies.ssh
             ++ [
               # For `check`, which types the two `setup.py` files too.
               ps.types-setuptools
@@ -634,6 +635,11 @@ rec {
   # path: a PEP 561 <pkg>-stubs package is found only through one, and
   # without it every binding type reads as Any and the check passes
   # while proving nothing (nixidae/nixidae#564).
+  #
+  # The venv's own interpreter, as suite.nix uses: zuban reads the
+  # `pyvenv.cfg` beside the path it is given and never runs it, and
+  # `${ourPython}/bin/python3` is a wrapper with none beside it. With
+  # that path no third-party module was found (nixidae/nixidae#1059).
   check = pkgs.writeShellApplication {
     name = "check";
     runtimeInputs = [
@@ -651,7 +657,7 @@ rec {
       # and the emitted package lives in the store, so each is its
       # own run under the same configuration.
       echo "--- typecheck: every tree mypy.ini names ---"
-      zuban mypy --python-executable "${ourPython}/bin/python3"
+      zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3"
       # An editor reads `mypy.ini`, so it names the gates itself. It
       # holds every one false: the base Nix.
       grep --quiet --line-regexp --fixed-strings \
@@ -666,7 +672,7 @@ rec {
       echo "--- typecheck: the declarations, for each other Nix ---"
       ${lib.concatMapStrings
         (flags: ''
-          zuban mypy --python-executable "${ourPython}/bin/python3" \
+          zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3" \
             ${flags} \
             packages/huggorm-dsl/src/huggorm_dsl packages/huggorm-decl/src/huggorm_decl
         '')
@@ -677,12 +683,12 @@ rec {
         )
       }
       echo "--- typecheck: the setup scripts ---"
-      zuban mypy --python-executable "${ourPython}/bin/python3" packages/huggorm-bindings/setup.py
-      zuban mypy --python-executable "${ourPython}/bin/python3" packages/huggorm-generated/setup.py
-      zuban mypy --python-executable "${ourPython}/bin/python3" \
+      zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3" packages/huggorm-bindings/setup.py
+      zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3" packages/huggorm-generated/setup.py
+      zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3" \
         packages/huggorm-bindings/_backend/huggorm_bindings_backend.py
       echo "--- typecheck: the emitted package ---"
-      zuban mypy --python-executable "${ourPython}/bin/python3" \
+      zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3" \
         "${huggorm-generated}/lib/python3.14/site-packages/huggorm_generated"
       # Built before this script runs, so a clang warning fails `check`.
       echo "--- clang -Werror: ${huggorm-bindings-clang} ---"
