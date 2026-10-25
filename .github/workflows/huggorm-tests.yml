@@ -26,6 +26,11 @@ jobs:
       fail-fast: false
       matrix:
         lane:
+        - determinate
+        - determinate-asan
+        - determinate-nogc
+        - determinate-tsan
+        - determinate-ubsan
         - git
         - git-asan
         - git-nogc
