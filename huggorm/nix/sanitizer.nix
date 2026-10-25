@@ -301,13 +301,28 @@ in
   # would be invisible if only one side were instrumented.
   mesonComponentOverrides =
     _finalAttrs: prevAttrs:
-    {
-      env = (prevAttrs.env or { }) // {
-        NIX_CFLAGS_COMPILE = toString [
-          (prevAttrs.env.NIX_CFLAGS_COMPILE or "")
-          sanitizerFlagsStr
-        ];
-      };
+    # Determinate Nix's libexpr and CLI pass `NIX_CFLAGS_COMPILE` as a
+    # derivation argument, and stdenv refuses the same name in `env` too.
+    # So the flags extend whichever one the component has.
+    (
+      if prevAttrs ? NIX_CFLAGS_COMPILE then
+        {
+          NIX_CFLAGS_COMPILE = toString [
+            prevAttrs.NIX_CFLAGS_COMPILE
+            sanitizerFlagsStr
+          ];
+        }
+      else
+        {
+          env = (prevAttrs.env or { }) // {
+            NIX_CFLAGS_COMPILE = toString [
+              (prevAttrs.env.NIX_CFLAGS_COMPILE or "")
+              sanitizerFlagsStr
+            ];
+          };
+        }
+    )
+    // {
       dontStrip = true;
       # "release"/"minsize" mesonBuildType auto-enables LTO (see nixpkgs'
       # nix modular packaging/components.nix), which both slows down TSAN's
