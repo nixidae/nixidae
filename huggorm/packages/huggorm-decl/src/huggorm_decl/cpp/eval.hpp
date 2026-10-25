@@ -182,6 +182,7 @@ inline nix::Value * rooted(const Root & root)
 // defined, so the name has to exist first. It sat in `gc.hpp` after
 // the split, where nothing used it.
 class Bridge;
+class Evaluator;
 struct Repl;
 
 // ---- the file cache, which libexpr keeps to itself ----------------
@@ -441,6 +442,11 @@ public:
             fn.reset();
     }
 
+    /** The `Evaluator` over this core while it lives. Read and written
+     * with the GIL held, as `primops_` is. */
+    const Evaluator * owner() const { return owner_; }
+    void set_owner(const Evaluator * owner) { owner_ = owner; }
+
     /**
      * Drops the callables with the GIL HELD, before anything else.
      *
@@ -484,6 +490,7 @@ private:
     std::shared_ptr<nix::Store> build_store_;
     nix::EvalState state_;
     std::vector<nb::object> primops_;
+    const Evaluator * owner_ = nullptr;
 };
 
 /**
@@ -536,6 +543,13 @@ public:
                           build_store.value_or(nullptr)))
     {
         gc_register_thread();
+        core_->set_owner(this);
+    }
+
+    ~Evaluator()
+    {
+        if (core_ && core_->owner() == this)
+            core_->set_owner(nullptr);
     }
 
     nix::EvalState & state() const { return core_->state(); }
@@ -914,7 +928,43 @@ public:
     /** A sibling value, sharing this one's root and state. */
     Bridge wrap(nix::Value * v) const { return Bridge(core_, v); }
 
+    /**
+     * Gives a Value that Python owns a reference to its Python
+     * `EvalState`, which `value_tp_traverse` reports.
+     *
+     * The collector must see the edge from a Value to the callables on
+     * its core (nixidae/nixidae#1084). The state stays the only one to
+     * report the callables: one report from each Value would count one
+     * reference many times, and the collector would then free a closure
+     * that is in use.
+     */
+    static void hold_state(nb::handle self)
+    {
+        if (!nb::inst_state(self).second)
+            return;
+        auto * bridge = nb::inst_ptr<Bridge>(self);
+        const Evaluator * owner = bridge->core_->owner();
+        if (bridge->state_.ptr || !owner)
+            return;
+        nb::object state = nb::find(*owner);
+        if (state.is_valid())
+            bridge->state_.ptr = state.release().ptr();
+    }
+
+    PyObject * py_state() const { return state_.ptr; }
+
 private:
+    // Set only on a Bridge that Python owns, whose destructor runs with
+    // the GIL. A copy does not take it, because a copy can run on any
+    // thread.
+    struct StateRef
+    {
+        PyObject * ptr = nullptr;
+        StateRef() = default;
+        StateRef(const StateRef &) {}
+        StateRef & operator=(const StateRef &) { return *this; }
+        ~StateRef() { Py_XDECREF(ptr); }
+    };
 
     // Whether this binding made the value for a caller to fill.
     bool built_ = false;
@@ -961,7 +1011,47 @@ private:
     mutable std::vector<Root> staged_;
     // Attributes of a set still being built. See `stage_attr`.
     mutable std::map<std::string, Root> staged_attrs_;
+    StateRef state_;
 };
+
+/** As `evaluator_tp_traverse`, for the state a Value holds. No
+ * `tp_clear`: the function and cell in such a cycle carry their own. */
+inline int value_tp_traverse(PyObject * self, visitproc visit, void * arg)
+{
+    Py_VISIT(Py_TYPE(self));
+    if (!nb::inst_ready(self))
+        return 0;
+    Py_VISIT(nb::inst_ptr<Bridge>(self)->py_state());
+    return 0;
+}
+
+inline PyType_Slot value_slots[] = {
+    {Py_tp_traverse, reinterpret_cast<void *>(value_tp_traverse)},
+    {0, nullptr},
+};
+
+}  // namespace huggorm
+
+namespace nanobind::detail {
+
+// Every Value that reaches Python passes here, whichever generated
+// binding or helper returns it.
+template <>
+struct type_caster<huggorm::Bridge> : type_caster_base<huggorm::Bridge>
+{
+    template <typename T>
+    static handle from_cpp(T && value, rv_policy policy, cleanup_list * cleanup) noexcept
+    {
+        handle self = type_caster_base<huggorm::Bridge>::from_cpp(std::forward<T>(value), policy, cleanup);
+        if (self.is_valid())
+            huggorm::Bridge::hold_state(self);
+        return self;
+    }
+};
+
+}  // namespace nanobind::detail
+
+namespace huggorm {
 
 // ---- Evaluator, out of line ---------------------------------------
 

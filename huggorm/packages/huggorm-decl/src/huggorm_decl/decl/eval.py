@@ -85,6 +85,10 @@ from huggorm_dsl.declare import (
 
 @produced
 @header(Local("huggorm_decl/cpp/eval.hpp"))
+# A Value holds its state, and the state holds the primops. A primop
+# that closes over a Value makes a cycle only this shows the collector
+# (nixidae/nixidae#1084).
+@gc_slots("huggorm::value_slots")
 @binding(
     # One state per thread, and its values belong to that thread. The
     # async layer inherits the runner rather than making a new one -

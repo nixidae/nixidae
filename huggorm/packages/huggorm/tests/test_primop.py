@@ -335,6 +335,34 @@ def test_a_primop_closing_over_its_state_does_not_leak_it() -> None:
         "the state and its callable survived a full collection"
 
 
+def test_a_primop_closing_over_a_value_of_its_state_does_not_leak_it() -> None:
+    """The closure holds a Value, the Value holds the core, and the core
+    holds the closure. Only `value_tp_traverse` shows the collector the
+    middle edge: without it nothing here was freed (nixidae/nixidae#1084)."""
+    from huggorm_bindings import EvalState, Store
+
+    died: list[str] = []
+
+    def build() -> None:
+        state = EvalState(Store(URI))
+        five = state.make_int(5)
+        canary = _Canary(died)
+
+        def keep(v: Any) -> Any:
+            assert canary is not None
+            return five
+
+        state.register_primop("keep", 1, keep)
+        assert state.eval_expr("builtins.keep 1").integer() == 5
+
+    build()
+    gc.collect()
+    gc.collect()
+
+    assert died == ["collected"], \
+        "the closure and the Value it holds survived a full collection"
+
+
 @pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
 def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(
         parallel_state: Any) -> None:
