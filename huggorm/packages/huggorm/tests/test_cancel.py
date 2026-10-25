@@ -23,6 +23,8 @@ import anyio
 import pytest
 from nixversion import INTERRUPTED
 
+from huggorm_dsl.declare import DETERMINATE
+
 URI = "dummy://"
 STEP = 0.01
 ELEMENTS = 1000  # 10s of work at STEP, uncancelled
@@ -152,6 +154,61 @@ def test_an_interrupted_value_evaluates_again(
     again = root.get("a")
     state.force(again)
     assert again.string_value().startswith("[0,1,2")
+
+
+# `a` starts itself on an evaluator thread, which then waits on this one.
+# A sum, not `toJSON`: that forces the list in parallel, and the primop
+# would run on the evaluator threads.
+AWAITED = ("rec { a = builtins.parallel [ a ] (builtins.foldl' "
+           f"(acc: x: acc + builtins.spin x) 0 (builtins.genList (x: x) {ELEMENTS})); }}")
+
+
+@pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
+def test_an_interrupted_value_another_thread_awaits_evaluates_again(
+        request_id: int) -> None:
+    """Determinate Nix's thunk that another thread waits on became
+    `Failed` on an interrupt, so the value was poisoned for good. The
+    waiting thread stops too: it does not finish the cancelled work
+    (nixidae/nixidae#1082)."""
+    from huggorm_bindings import (
+        EvalState,
+        Store,
+        cancel_request,
+        forget_request,
+        get_setting,
+        set_setting,
+    )
+    from huggorm_bindings.errors import Interrupted
+
+    saved = {name: get_setting(name) for name in ("eval-cores", "experimental-features")}
+    set_setting("eval-cores", "2")
+    set_setting("extra-experimental-features", "parallel-eval")
+    try:
+        state = EvalState(Store(URI))
+    finally:
+        for name, value in saved.items():
+            assert value is not None
+            set_setting(name, value)
+    spin = Spin(state)
+
+    def cancel() -> None:
+        # A waiter that took the thunk over would finish it within this
+        # test's time, and the call count would show it.
+        spin.delay = 0
+        cancel_request(request_id)
+
+    root = state.eval_expr(AWAITED)
+    threading.Timer(CANCEL_AFTER, cancel).start()
+    with pytest.raises(Interrupted, match=INTERRUPTED):
+        state.force(root.get("a"))
+    forget_request(request_id)
+    stopped_at = spin.calls
+    time.sleep(CANCEL_AFTER)
+    assert spin.calls == stopped_at < ELEMENTS, "the waiter ran the cancelled work"
+
+    again = root.get("a")
+    state.force(again)
+    assert again.integer() == ELEMENTS * (ELEMENTS - 1) // 2
 
 
 @pytest.fixture
