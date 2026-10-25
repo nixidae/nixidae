@@ -1345,6 +1345,8 @@ class ReplSelection:
 
 @produced
 @header(Local("huggorm_decl/cpp/eval.hpp"))
+# A Repl holds its state, as a Value does (nixidae/nixidae#1085).
+@gc_slots("huggorm::repl_slots")
 @binding(
     # The environment belongs to one state, and its thunks evaluate
     # there. The async layer keeps it on the state's runner.

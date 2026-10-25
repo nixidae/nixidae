@@ -689,6 +689,66 @@ inline PyType_Slot evaluator_slots[] = {
     {0, nullptr},
 };
 
+/**
+ * A reference to the Python `EvalState` over a core, for an object that
+ * shares the core: a Value, a `Repl`. Its traverse slot reports it.
+ *
+ * The collector must see the edge from such an object to the callables
+ * on its core (nixidae/nixidae#1084). The state stays the only one to
+ * report the callables: one report from each holder would count one
+ * reference many times, and the collector would then free a closure
+ * that is in use.
+ *
+ * Set only on an object that Python owns, whose destructor runs with
+ * the GIL. A copy does not take it, because a copy can run on any
+ * thread.
+ */
+struct PyStateRef
+{
+    PyObject * ptr = nullptr;
+    PyStateRef() = default;
+    PyStateRef(const PyStateRef &) {}
+    PyStateRef & operator=(const PyStateRef &) { return *this; }
+    ~PyStateRef() { Py_XDECREF(ptr); }
+
+    void take(const EvalCore & core)
+    {
+        const Evaluator * owner = core.owner();
+        if (ptr || !owner)
+            return;
+        nb::object state = nb::find(*owner);
+        if (state.is_valid())
+            ptr = state.release().ptr();
+    }
+};
+
+/** As `evaluator_tp_traverse`, for a `PyStateRef`. No `tp_clear`: the
+ * function and cell in such a cycle carry their own. */
+template <typename T>
+int state_holder_tp_traverse(PyObject * self, visitproc visit, void * arg)
+{
+    Py_VISIT(Py_TYPE(self));
+    if (!nb::inst_ready(self))
+        return 0;
+    Py_VISIT(nb::inst_ptr<T>(self)->state_ref().ptr);
+    return 0;
+}
+
+/** The caster of a `PyStateRef` holder: every one that reaches Python
+ * passes here, whichever generated binding or helper returns it. */
+template <typename T>
+struct StateHolderCaster : nb::detail::type_caster_base<T>
+{
+    template <typename U>
+    static nb::handle from_cpp(U && value, nb::rv_policy policy, nb::detail::cleanup_list * cleanup) noexcept
+    {
+        nb::handle self = nb::detail::type_caster_base<T>::from_cpp(std::forward<U>(value), policy, cleanup);
+        if (self.is_valid() && nb::inst_state(self).second)
+            nb::inst_ptr<T>(self)->hold_state();
+        return self;
+    }
+};
+
 // ---- one rooted value ---------------------------------------------
 
 class Bridge
@@ -928,43 +988,10 @@ public:
     /** A sibling value, sharing this one's root and state. */
     Bridge wrap(nix::Value * v) const { return Bridge(core_, v); }
 
-    /**
-     * Gives a Value that Python owns a reference to its Python
-     * `EvalState`, which `value_tp_traverse` reports.
-     *
-     * The collector must see the edge from a Value to the callables on
-     * its core (nixidae/nixidae#1084). The state stays the only one to
-     * report the callables: one report from each Value would count one
-     * reference many times, and the collector would then free a closure
-     * that is in use.
-     */
-    static void hold_state(nb::handle self)
-    {
-        if (!nb::inst_state(self).second)
-            return;
-        auto * bridge = nb::inst_ptr<Bridge>(self);
-        const Evaluator * owner = bridge->core_->owner();
-        if (bridge->state_.ptr || !owner)
-            return;
-        nb::object state = nb::find(*owner);
-        if (state.is_valid())
-            bridge->state_.ptr = state.release().ptr();
-    }
-
-    PyObject * py_state() const { return state_.ptr; }
+    void hold_state() { state_.take(*core_); }
+    const PyStateRef & state_ref() const { return state_; }
 
 private:
-    // Set only on a Bridge that Python owns, whose destructor runs with
-    // the GIL. A copy does not take it, because a copy can run on any
-    // thread.
-    struct StateRef
-    {
-        PyObject * ptr = nullptr;
-        StateRef() = default;
-        StateRef(const StateRef &) {}
-        StateRef & operator=(const StateRef &) { return *this; }
-        ~StateRef() { Py_XDECREF(ptr); }
-    };
 
     // Whether this binding made the value for a caller to fill.
     bool built_ = false;
@@ -1011,44 +1038,21 @@ private:
     mutable std::vector<Root> staged_;
     // Attributes of a set still being built. See `stage_attr`.
     mutable std::map<std::string, Root> staged_attrs_;
-    StateRef state_;
+    PyStateRef state_;
 };
 
-/** As `evaluator_tp_traverse`, for the state a Value holds. No
- * `tp_clear`: the function and cell in such a cycle carry their own. */
-inline int value_tp_traverse(PyObject * self, visitproc visit, void * arg)
-{
-    Py_VISIT(Py_TYPE(self));
-    if (!nb::inst_ready(self))
-        return 0;
-    Py_VISIT(nb::inst_ptr<Bridge>(self)->py_state());
-    return 0;
-}
-
 inline PyType_Slot value_slots[] = {
-    {Py_tp_traverse, reinterpret_cast<void *>(value_tp_traverse)},
+    {Py_tp_traverse, reinterpret_cast<void *>(state_holder_tp_traverse<Bridge>)},
     {0, nullptr},
 };
 
 }  // namespace huggorm
 
 namespace nanobind::detail {
-
-// Every Value that reaches Python passes here, whichever generated
-// binding or helper returns it.
 template <>
-struct type_caster<huggorm::Bridge> : type_caster_base<huggorm::Bridge>
+struct type_caster<huggorm::Bridge> : huggorm::StateHolderCaster<huggorm::Bridge>
 {
-    template <typename T>
-    static handle from_cpp(T && value, rv_policy policy, cleanup_list * cleanup) noexcept
-    {
-        handle self = type_caster_base<huggorm::Bridge>::from_cpp(std::forward<T>(value), policy, cleanup);
-        if (self.is_valid())
-            huggorm::Bridge::hold_state(self);
-        return self;
-    }
 };
-
 }  // namespace nanobind::detail
 
 namespace huggorm {
@@ -1322,11 +1326,33 @@ struct Repl
 
     Bridge wrap(nix::Value * v) const { return Bridge(core, v); }
 
+    // A Value this makes finds its state through the `EvalState`
+    // object, so the `Repl` keeps that alive (nixidae/nixidae#1085).
+    void hold_state() { py_state.take(*core); }
+    const PyStateRef & state_ref() const { return py_state; }
+
     std::shared_ptr<EvalCore> core;
     std::shared_ptr<nix::StaticEnv> static_env;
     std::shared_ptr<nix::Env *> env;
     std::size_t displ = 0;
+    PyStateRef py_state;
 };
+
+inline PyType_Slot repl_slots[] = {
+    {Py_tp_traverse, reinterpret_cast<void *>(state_holder_tp_traverse<Repl>)},
+    {0, nullptr},
+};
+
+}  // namespace huggorm
+
+namespace nanobind::detail {
+template <>
+struct type_caster<huggorm::Repl> : huggorm::StateHolderCaster<huggorm::Repl>
+{
+};
+}  // namespace nanobind::detail
+
+namespace huggorm {
 
 /** The name and the set of `a.b.c` without its last select. */
 struct ReplSelection
