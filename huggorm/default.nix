@@ -569,6 +569,16 @@ rec {
     }) nixes
   );
 
+  # nix build --file . every-suite
+  #
+  # Every lane's suite: the set CI's test workflow builds, one job per lane.
+  every-suite = pkgs.linkFarm "huggorm-every-suite" (
+    lib.mapAttrsToList (name: lane: {
+      inherit name;
+      path = lane.suite;
+    }) lanes
+  );
+
   # nix build --file . generator-tests
   #
   # The generator's suite for every Nix version, with no compile.
