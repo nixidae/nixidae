@@ -36,6 +36,7 @@ from huggorm_decl.decl.path import ErrorInfo, StorePath
 from huggorm_decl.decl.source_accessor import SourceAccessor
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
+    DETERMINATE,
     F64,
     I64,
     Bint,
@@ -2744,6 +2745,19 @@ def nix_version() -> Str:
     Cxx("""
 return nix::nixVersion;
     """)
+
+
+if DETERMINATE:
+
+    @needs(Local("nix/store/globals.hh"))
+    def determinate_nix_version() -> Str:
+        """The Determinate Nix release these bindings link. `nix_version`
+        is the NixOS/nix release it builds on.
+
+        Only a build that links Determinate Nix has it."""
+        Cxx("""
+return nix::determinateNixVersion;
+        """)
 
 
 @needs(Local("nix/expr/counter.hh"))
