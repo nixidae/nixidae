@@ -31,6 +31,7 @@
   # The suite branches on the `NIX_2_3x` names, and a type checker holds
   # a name constant only when told to.
   checkerFlags,
+  nixEnv,
   sanitizer,
   ruffConfig,
 }:
@@ -76,8 +77,7 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       ruff
       zuban
     ];
-    env = {
-      HUGGORM_NIX_VERSION = huggorm-bindings.nixVersion;
+    env = nixEnv // {
       HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
       # The plugin `test_plugins.py` loads: built against this lane's Nix,
       # as a plugin must be.

@@ -8,6 +8,7 @@
   huggorm-dsl,
   tree-sitter-nix,
   ruff,
+  nixEnv,
   ...
 }:
 # The suite runs against this package in `suite.nix`, not in a check phase
@@ -43,8 +44,9 @@ python3Packages.buildPythonPackage {
 
   # The front door reads the declarations for the Nix the bindings link
   # (nixidae/nixidae#592).
-  env.HUGGORM_NIX_VERSION = huggorm-bindings.nixVersion;
-  env.HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
+  env = nixEnv // {
+    HUGGORM_NIX_GC = if huggorm-bindings.hasCollector then "1" else "0";
+  };
 
   # generated is propagated so anyone writing code in/downstream of
   # huggorm sees huggorm_generated in their environment.

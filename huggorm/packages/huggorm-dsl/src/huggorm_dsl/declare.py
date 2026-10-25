@@ -236,6 +236,25 @@ NIX_2_35: bool = NIX_VERSION >= (2, 35)
 NIX_2_36: bool = NIX_VERSION >= (2, 36)
 
 
+# A build of a FORK of Nix sets `HUGGORM_NIX_FORK` to its name, and
+# `HUGGORM_NIX_VERSION` to the NixOS/nix release the fork builds on. A
+# fork is not a later version, so it is not on the ladder above: its
+# own name says what it adds. An unknown name refuses the import, as a
+# version with no `major.minor` does.
+def _nix_fork() -> str:
+    raw = os.environ.get("HUGGORM_NIX_FORK", "")
+    if raw not in ("", "determinate"):
+        raise ValueError(f"HUGGORM_NIX_FORK is {raw!r}, and huggorm knows only 'determinate'")
+    return raw
+
+
+NIX_FORK: str = _nix_fork()
+
+# Determinate Nix (nixidae/nixidae#1054). Literal for a type checker,
+# as the version names are.
+DETERMINATE: bool = NIX_FORK == "determinate"
+
+
 # The types a Nix binding actually names. Written once, read by name.
 #
 # Each carries its whole C++ fact. No emitter keeps a table that maps a

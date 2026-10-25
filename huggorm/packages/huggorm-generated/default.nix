@@ -2,7 +2,7 @@
   lib,
   python3Packages,
   # The Nix the surface describes (nixidae/nixidae#592).
-  version,
+  nixEnv,
   ruff,
   # The declarations, and the reader that turns them into the model.
   # A build input: pygen imports it and calls it instead of reflecting
@@ -52,7 +52,7 @@ python3Packages.buildPythonPackage {
   # pygen lays its output out with `ruff format`.
   nativeBuildInputs = [ ruff ];
 
-  env.HUGGORM_NIX_VERSION = version;
+  env = nixEnv;
 
   # The emitted package and its stubs are typechecked as a pair by the
   # lane's `suite`, against this package installed in a venv.

@@ -113,10 +113,12 @@ rec {
   # What a type checker holds constant for the Nix `minor`. It never
   # evaluates a comparison, only a name it is told about.
   checkerFlags =
-    minor:
+    minor: fork:
     lib.concatMapStringsSep " " (
       at: (if lib.versionAtLeast minor at then "--always-true " else "--always-false ") + gateName at
-    ) minors.gates;
+    ) minors.gates
+    + (if fork == "determinate" then " --always-true" else " --always-false")
+    + " DETERMINATE";
 
   # The variants a lane can instrument its Nix and the bindings with.
   # `nix/sanitizer.nix` gives each one's rules.
@@ -161,6 +163,10 @@ rec {
     : The NixOS/nix release `components` is. A fork states its base here,
       because its components carry the fork's own version.
 
+    `fork`
+    : The name of the fork `components` is, or null. Declarations read it
+      as `DETERMINATE`.
+
     `boehmgc`, `boehmgcPatches`
     : The collector libexpr and the bindings link, and huggorm's patches
       for it. A fork that pins its own collector states both.
@@ -172,6 +178,7 @@ rec {
       minor,
       master ? false,
       upstreamVersion ? components.version,
+      fork ? null,
       boehmgc ? pkgs.nixDependencies.boehmgc,
       boehmgcPatches ? versions.boehmgcPatches,
       gc ? true,
@@ -234,7 +241,12 @@ rec {
             patched.overrideAllMesonComponents sanitizer.mesonComponentOverrides;
         # What every declaration gate reads.
         version = upstreamVersion;
-        checkerFlags = checkerFlags minor;
+        checkerFlags = checkerFlags minor fork;
+        # What every reader of the declarations is told about this Nix.
+        nixEnv = {
+          HUGGORM_NIX_VERSION = upstreamVersion;
+        }
+        // lib.optionalAttrs (fork != null) { HUGGORM_NIX_FORK = fork; };
         # The CLI. nixpkgs' `nix_2_34` is `nix-everything`, which also
         # builds the manual and runs Nix's functional tests.
         nix = self.nixComponents.nix-cli;
@@ -270,40 +282,42 @@ rec {
 
         # The emitted C++ for this Nix. `HUGGORM_NIX_VERSION` picks each
         # declaration's `NIX_VERSION` branch (nixidae/nixidae#592).
-        bindings-src = bindings-src.overrideAttrs { HUGGORM_NIX_VERSION = self.version; };
+        bindings-src = bindings-src.overrideAttrs self.nixEnv;
         # The generator's own suite, for this Nix, with no compile.
         generator-tests =
           pkgs.runCommand "huggorm-gen-tests-${self.version}"
-            {
-              src = lib.fileset.toSource {
-                root = ./packages/huggorm-gen;
-                fileset = lib.fileset.unions [
-                  ./packages/huggorm-gen/pyproject.toml
-                  ./packages/huggorm-gen/tests
-                ];
-              };
-              nativeBuildInputs = [
-                pkgs.ruff
-                (nixvenv {
-                  python = python3;
-                  packages = ps: [
-                    huggorm-gen
-                    huggorm-decl
-                    huggorm-dsl
-                    ps.pytest
+            (
+              {
+                src = lib.fileset.toSource {
+                  root = ./packages/huggorm-gen;
+                  fileset = lib.fileset.unions [
+                    ./packages/huggorm-gen/pyproject.toml
+                    ./packages/huggorm-gen/tests
                   ];
-                  executables = [ "pytest" ];
-                })
-              ];
-              HUGGORM_NIX_VERSION = self.version;
-              # `test_versions.py` holds `declare.py` to these.
-              HUGGORM_NIX_BASE = minors.base.minor;
-              HUGGORM_NIX_GATES = toString minors.gates;
-              # `$src` is read-only, and the emitter's ruff writes a cache
-              # into the working directory.
-              PYTHONDONTWRITEBYTECODE = "1";
-              RUFF_NO_CACHE = "true";
-            }
+                };
+                nativeBuildInputs = [
+                  pkgs.ruff
+                  (nixvenv {
+                    python = python3;
+                    packages = ps: [
+                      huggorm-gen
+                      huggorm-decl
+                      huggorm-dsl
+                      ps.pytest
+                    ];
+                    executables = [ "pytest" ];
+                  })
+                ];
+                # `test_versions.py` holds `declare.py` to these.
+                HUGGORM_NIX_BASE = minors.base.minor;
+                HUGGORM_NIX_GATES = toString minors.gates;
+                # `$src` is read-only, and the emitter's ruff writes a cache
+                # into the working directory.
+                PYTHONDONTWRITEBYTECODE = "1";
+                RUFF_NO_CACHE = "true";
+              }
+              // self.nixEnv
+            )
             ''
               set -o pipefail
               cd "$src"
@@ -474,7 +488,8 @@ rec {
             export HUGGORM_ORACLE_BASH="${pkgs.bash}"
             export HUGGORM_TCP_STORE_PLUGINS="${self.nix-tcp-store}/lib/nix/plugins"
             # What the build tells the suite in `packages/huggorm`'s `env`.
-            export HUGGORM_NIX_VERSION="${self.huggorm-bindings.nixVersion}"
+            ${lib.toShellVars self.nixEnv}
+            export ${toString (lib.attrNames self.nixEnv)}
             export HUGGORM_NIX_GC="${if self.huggorm-bindings.hasCollector then "1" else "0"}"
             export PYTEST_DEBUG_TEMPROOT="''${PYTEST_DEBUG_TEMPROOT:-/tmp/huggorm}"
             mkdir -p "$PYTEST_DEBUG_TEMPROOT"
@@ -630,20 +645,27 @@ rec {
       # An editor reads `mypy.ini`, so it names the gates itself. It
       # holds every one false: the base Nix.
       grep --quiet --line-regexp --fixed-strings \
-        "always_false = ${lib.concatMapStringsSep ", " gateName minors.gates}" mypy.ini || {
-        echo "mypy.ini: always_false must name ${toString (map gateName minors.gates)}" >&2
+        "always_false = ${lib.concatMapStringsSep ", " gateName minors.gates}, DETERMINATE" mypy.ini || {
+        echo "mypy.ini: always_false must name ${toString (map gateName minors.gates)} DETERMINATE" >&2
         exit 1
       }
-      # The declarations branch on the gates, so each later Nix gets a
-      # run of its own. The suite and the generated surface need no
-      # such run here: each version's own build typechecks them
-      # (nixidae/nixidae#592).
-      echo "--- typecheck: the declarations, for ${toString minors.gates} ---"
-      ${lib.concatMapStrings (at: ''
-        zuban mypy --python-executable "${ourPython}/bin/python3" \
-          ${checkerFlags at} \
-          packages/huggorm-dsl/src/huggorm_dsl packages/huggorm-decl/src/huggorm_decl
-      '') minors.gates}
+      # The declarations branch on the gates and the fork, so every
+      # other Nix gets a run of its own. The suite and the generated
+      # surface need no such run here: each version's own build
+      # typechecks them (nixidae/nixidae#592).
+      echo "--- typecheck: the declarations, for each other Nix ---"
+      ${lib.concatMapStrings
+        (flags: ''
+          zuban mypy --python-executable "${ourPython}/bin/python3" \
+            ${flags} \
+            packages/huggorm-dsl/src/huggorm_dsl packages/huggorm-decl/src/huggorm_decl
+        '')
+        (
+          lib.remove (checkerFlags minors.base.minor null) (
+            lib.unique (lib.mapAttrsToList (_: v: checkerFlags v.minor (v.fork or null)) nixes)
+          )
+        )
+      }
       echo "--- typecheck: the setup scripts ---"
       zuban mypy --python-executable "${ourPython}/bin/python3" packages/huggorm-bindings/setup.py
       zuban mypy --python-executable "${ourPython}/bin/python3" packages/huggorm-generated/setup.py
