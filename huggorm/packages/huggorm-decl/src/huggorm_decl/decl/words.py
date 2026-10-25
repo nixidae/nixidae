@@ -24,7 +24,7 @@ repositories.
 
 from enum import StrEnum
 
-from huggorm_dsl.declare import Enumerated, Local, Wrap, header, words
+from huggorm_dsl.declare import DETERMINATE, Enumerated, Local, Wrap, header, words
 
 
 @header(Local("nix/store/content-address.hh"))
@@ -228,6 +228,7 @@ class BuildSuccessStatus(StrEnum):
             "NOT_DETERMINISTIC": "NotDeterministic",
             "NO_SUBSTITUTERS": "NoSubstituters",
             "HASH_MISMATCH": "HashMismatch",
+            "CANCELLED": "Cancelled",
         },
     ),
 )
@@ -296,6 +297,12 @@ class BuildFailureStatus(StrEnum):
     back into one before serialising, because the protocols do not
     know this word. So a result read over a daemon connection may say
     `output-rejected` where a local one says this."""
+
+    if DETERMINATE:
+        CANCELLED = "cancelled"
+        """The target never finished, because another target failed and
+        the build did not keep going. Determinate Nix also reads a
+        target a daemon left out of its results as this."""
 
 
 @header(Local("nix/store/store-api.hh"))

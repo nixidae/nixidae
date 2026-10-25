@@ -13,7 +13,7 @@ a `static_assert` per member and a switch with no `default`
 
 from enum import IntEnum
 
-from huggorm_dsl.declare import NIX_2_36, Enumerated, Local, header, words
+from huggorm_dsl.declare import DETERMINATE, NIX_2_36, Enumerated, Local, header, words
 
 
 @header(Local("nix/util/error.hh"))
@@ -48,7 +48,8 @@ class Verbosity(IntEnum):
              "QUERY_PATH_INFO": "actQueryPathInfo",
              "POST_BUILD_HOOK": "actPostBuildHook",
              "BUILD_WAITING": "actBuildWaiting", "FETCH_TREE": "actFetchTree",
-             "FETCH_TO_STORE": "actFetchToStore"},
+             "FETCH_TO_STORE": "actFetchToStore",
+             "STRINGLY": "actStringly"},
 ))
 class ActivityType(IntEnum):
     """What an activity is, as a `start` record carries it.
@@ -74,6 +75,11 @@ class ActivityType(IntEnum):
         FETCH_TO_STORE = 113
         """A source path copied into the store, or hashed in a dry
         run."""
+    if DETERMINATE:
+        STRINGLY = 10113
+        """An activity Nix started by name. The record carries only its
+        text: the name and its metadata do not reach a logger that
+        takes an `ActivityType`."""
 
 
 @header(Local("nix/util/logging.hh"))
@@ -87,7 +93,10 @@ class ActivityType(IntEnum):
              "SET_EXPECTED": "resSetExpected",
              "POST_BUILD_LOG_LINE": "resPostBuildLogLine",
              "FETCH_STATUS": "resFetchStatus",
-             "FETCH_TO_STORE": "resFetchToStore"},
+             "FETCH_TO_STORE": "resFetchToStore",
+             "HASH_MISMATCH": "resHashMismatch",
+             "BUILD_RESULT": "resBuildResult",
+             "HTTP_STATUS": "resHttpStatus"},
 ))
 class ResultType(IntEnum):
     """What a `result` record reports inside an activity.
@@ -108,3 +117,11 @@ class ResultType(IntEnum):
         FETCH_TO_STORE = 109
         """The store path an `ActivityType.FETCH_TO_STORE` activity
         produced."""
+    if DETERMINATE:
+        HASH_MISMATCH = 109
+        """A fixed-output derivation produced another hash. The record's
+        `payload` holds the details."""
+        BUILD_RESULT = 110
+        """One target's `BuildResult`, as JSON in `payload`."""
+        HTTP_STATUS = 10111
+        """The answer to one HTTP request, as JSON in `payload`."""
