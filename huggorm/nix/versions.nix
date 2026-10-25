@@ -78,9 +78,7 @@ in
       baseEnvSize
       gmtime234
     ]
-    ++ pkgs.lib.optional (pkgs.lib.versionOlder
-      pkgs.nixVersions.nixComponents_2_34.version "2.34.9"
-    ) interruptedThunk234
+    ++ pkgs.lib.optional (pkgs.lib.versionOlder pkgs.nixVersions.nixComponents_2_34.version "2.34.9") interruptedThunk234
     ++ [
       tempRoots
       remoteVerbosity
@@ -141,8 +139,13 @@ in
   # object that holds a reference, so it pins no accessor.
   determinate = {
     minor = "2.35";
+    fork = "determinate";
     inherit (determinate) components upstreamVersion boehmgc;
     patches = [
+      # No initial-exec TLS, or Python cannot dlopen libnixexpr.
+      (patch "nix-determinate-dynamic-tls")
+      # libnixutil aborts the process on any `std::logic_error` thrown.
+      (patch "nix-determinate-no-cxa-throw-interposer")
       emptyBindings
       baseEnvSize
       gmtime234

@@ -1,0 +1,182 @@
+Give Determinate Nix's thread-locals the default TLS model.
+
+Determinate Nix marks seventeen thread-locals in libexpr and libutil
+`[[gnu::tls_model("initial-exec")]]`, for a faster access on the
+evaluator's hot path. Each library that uses one is then flagged
+STATIC_TLS, and its whole TLS block must be placed in the static TLS
+area that glibc sizes when the process starts.
+
+`nix` links the libraries at start, so that works. huggorm reaches them
+through a Python extension, which the interpreter dlopens, and glibc
+keeps only a small reserve for a library opened later. libnixexpr's
+block is 3800 bytes, mostly toml11's thread-local parser caches, and
+the import fails:
+
+    libnixexpr.so: cannot allocate memory in static TLS block
+
+`GLIBC_TUNABLES=glibc.rtld.optional_static_tls` enlarges the reserve,
+but glibc reads it once when the loader starts, so a library cannot set
+it at import. With the default model every library loads under dlopen.
+
+--- a/src/libexpr/eval.cc
++++ b/src/libexpr/eval.cc
+@@ -262,7 +262,7 @@
+     assertGCInitialized();
+ }
+ 
+-[[gnu::tls_model("initial-exec")]] thread_local EvalState::EvalContext EvalState::evalContext;
++thread_local EvalState::EvalContext EvalState::evalContext;
+ 
+ EvalState::EvalState(
+     const LookupPath & lookupPathFromArguments,
+@@ -1606,7 +1606,7 @@
+     v.mkLambda(&env, this);
+ }
+ 
+-[[gnu::tls_model("initial-exec")]] thread_local size_t CallDepth::callDepth = 0;
++thread_local size_t CallDepth::callDepth = 0;
+ 
+ void EvalState::callFunction(Value & fun, std::span<Value *> args, Value & vRes, const PosIdx pos)
+ {
+--- a/src/libexpr/include/nix/expr/eval.hh
++++ b/src/libexpr/include/nix/expr/eval.hh
+@@ -74,7 +74,7 @@
+      * switches, since several fibers, each with their own call chain,
+      * are interleaved on the same thread.
+      */
+-    [[gnu::tls_model("initial-exec")]] thread_local static size_t callDepth;
++    thread_local static size_t callDepth;
+ 
+     CallDepth()
+     {
+@@ -1180,7 +1180,7 @@
+      * touch the `provenance` shared_ptr's atomic reference count), or
+      * the thread's own context otherwise.
+      */
+-    [[gnu::tls_model("initial-exec")]] thread_local static EvalContext evalContext;
++    thread_local static EvalContext evalContext;
+ 
+     /**
+      * Create a work item that propagates the current evaluation context.
+--- a/src/libexpr/include/nix/expr/eval-inline.hh
++++ b/src/libexpr/include/nix/expr/eval-inline.hh
+@@ -47,7 +47,7 @@
+ #if NIX_USE_BOEHMGC
+     /* Allocation cache for GC'd Value objects. Boehm GC is already a global resource, so thread_local is
+        a natural solution. Multiple EvalState instances on the same thread will reuse the same cache. */
+-    [[gnu::tls_model("initial-exec")]] static thread_local std::shared_ptr<void *> valueAllocCache{
++    static thread_local std::shared_ptr<void *> valueAllocCache{
+         std::allocate_shared<void *>(traceable_allocator<void *>(), nullptr)};
+ 
+     /* We use the boehm batch allocator to speed up allocations of Values (of which there are many).
+@@ -85,7 +85,7 @@
+     if (size == 1) {
+         /* Allocation cache for size-1 Env objects. Boehm GC is already a global resource, so thread_local is
+            a natural solution. Multiple EvalState instances on the same thread will reuse the same cache. */
+-        [[gnu::tls_model("initial-exec")]] static thread_local std::shared_ptr<void *> env1AllocCache{
++        static thread_local std::shared_ptr<void *> env1AllocCache{
+             std::allocate_shared<void *>(traceable_allocator<void *>(), nullptr)};
+         /* see allocValue for explanations. */
+         if (!*env1AllocCache) {
+@@ -112,7 +112,7 @@
+  * in p0 of pending/awaited thunks. We're not using std::thread::id
+  * because it's not guaranteed to fit.
+  */
+-[[gnu::tls_model("initial-exec")]] extern thread_local uint32_t myEvalThreadId;
++extern thread_local uint32_t myEvalThreadId;
+ 
+ template<std::size_t ptrSize>
+ void ValueStorage<ptrSize, std::enable_if_t<detail::useBitPackedValueStorage<ptrSize>>>::force(
+--- a/src/libexpr/include/nix/expr/parallel-eval.hh
++++ b/src/libexpr/include/nix/expr/parallel-eval.hh
+@@ -225,7 +225,7 @@
+      */
+     bool hasBacklog();
+ 
+-    [[gnu::tls_model("initial-exec")]] static thread_local bool amWorkerThread;
++    static thread_local bool amWorkerThread;
+ };
+ 
+ /**
+--- a/src/libexpr/parallel-eval.cc
++++ b/src/libexpr/parallel-eval.cc
+@@ -19,24 +19,24 @@
+ 
+ struct WaiterDomain;
+ 
+-[[gnu::tls_model("initial-exec")]] thread_local bool Executor::amWorkerThread{false};
++thread_local bool Executor::amWorkerThread{false};
+ 
+ static std::atomic<uint32_t> nextEvalThreadId{1};
+-[[gnu::tls_model("initial-exec")]] thread_local uint32_t myEvalThreadId(nextEvalThreadId++);
++thread_local uint32_t myEvalThreadId(nextEvalThreadId++);
+ 
+ /**
+  * The fiber currently executing on this thread, or null if we're not
+  * inside a fiber (e.g. on the main thread or in a worker's scheduler
+  * loop).
+  */
+-[[gnu::tls_model("initial-exec")]] static thread_local Executor::Fiber * currentFiber{nullptr};
++static thread_local Executor::Fiber * currentFiber{nullptr};
+ 
+ /**
+  * The worker whose scheduler loop is running on this thread, or null
+  * on non-worker threads. Only used to assert that fibers are resumed
+  * by their owner.
+  */
+-[[gnu::tls_model("initial-exec")]] static thread_local Executor::Worker * currentWorker{nullptr};
++static thread_local Executor::Worker * currentWorker{nullptr};
+ 
+ struct Executor::Fiber
+ {
+@@ -170,7 +170,7 @@
+  * inside the `boost::context::fiber` constructor) to `makeFiber()`:
+  * the GC descriptor of the most recently allocated stack.
+  */
+-[[gnu::tls_model("initial-exec")]] static thread_local struct GC_stack * lastFiberGCStack{nullptr};
++static thread_local struct GC_stack * lastFiberGCStack{nullptr};
+ #endif
+ 
+ /**
+--- a/src/libutil/logging.cc
++++ b/src/libutil/logging.cc
+@@ -25,7 +25,7 @@
+ 
+ static GlobalConfig::Register rLoggerSettings(&loggerSettings);
+ 
+-[[gnu::tls_model("initial-exec")]] static thread_local ActivityId curActivity = 0;
++static thread_local ActivityId curActivity = 0;
+ 
+ ActivityId getCurActivity()
+ {
+@@ -37,7 +37,7 @@
+     curActivity = activityId;
+ }
+ 
+-[[gnu::tls_model("initial-exec")]] static thread_local unsigned int remoteLogSourceDepth = 0;
++static thread_local unsigned int remoteLogSourceDepth = 0;
+ 
+ RemoteLogSource::RemoteLogSource()
+ {
+--- a/src/libutil/unix/include/nix/util/signals-impl.hh
++++ b/src/libutil/unix/include/nix/util/signals-impl.hh
+@@ -37,7 +37,7 @@
+ 
+ extern std::atomic<bool> _isInterrupted;
+ 
+-[[gnu::tls_model("initial-exec")]] extern thread_local std::function<bool()> interruptCheck;
++extern thread_local std::function<bool()> interruptCheck;
+ 
+ void _interrupted();
+ 
+--- a/src/libutil/unix/signals.cc
++++ b/src/libutil/unix/signals.cc
+@@ -15,7 +15,7 @@
+ 
+ std::atomic<bool> unix::_isInterrupted = false;
+ 
+-[[gnu::tls_model("initial-exec")]] thread_local std::function<bool()> unix::interruptCheck;
++thread_local std::function<bool()> unix::interruptCheck;
+ 
+ void unix::_interrupted()
+ {

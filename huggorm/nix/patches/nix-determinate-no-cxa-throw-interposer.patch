@@ -1,0 +1,30 @@
+Do not interpose `__cxa_throw` from libnixutil.
+
+Determinate Nix links an interposer into libnixutil that aborts the
+process when anything throws a `std::logic_error` (DeterminateSystems
+4cfdfb29, "Abort when throwing std::logic_error"). libnixutil exports
+the symbol, so it replaces `__cxa_throw` for the whole process, not
+only for Nix.
+
+For `nix` that is a policy on its own code. In an embedder it reaches
+every throw: huggorm raises a Python `ValueError` by throwing
+`std::invalid_argument`, nanobind and libstdc++ throw `out_of_range`,
+and each one aborted the interpreter. The suite died in
+test_a_partly_applied_builtin_is_the_third_shape. The abort is chosen
+when the interposer is compiled, so a caller cannot turn it off.
+
+The interposer stays in the tree; libutil no longer links it.
+
+--- a/src/libutil/meson.build
++++ b/src/libutil/meson.build
+@@ -136,10 +136,6 @@
+ 
+ subdir('nix-meson-build-support/common')
+ 
+-if have_cxa_throw
+-  deps_other += cxa_throw_dep
+-endif
+-
+ sources = [ config_priv_h ] + files(
+   'archive.cc',
+   'args.cc',
