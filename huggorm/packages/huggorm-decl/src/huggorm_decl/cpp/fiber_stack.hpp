@@ -35,8 +35,9 @@ public:
     {
 #if __has_include("nix/expr/parallel-eval.hh") && PY_VERSION_HEX >= 0x030E0000
         auto stack = nix::currentFiberStack();
-        std::byte probe;
-        auto here = reinterpret_cast<std::uintptr_t>(&probe);
+        // The frame, as CPython reads it. Not the address of a local:
+        // ASan can put a local on its fake stack, off the fiber's.
+        auto here = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
         auto base = reinterpret_cast<std::uintptr_t>(stack.data());
         // A coroutine body inside the fiber runs on a stack of its own.
         if (here < base || here >= base + stack.size())
