@@ -12,6 +12,9 @@
 
 #include "nix/util/error.hh"
 
+// `FiberStack`, which a trampoline holds while it calls Python.
+#include "huggorm_decl/cpp/fiber_stack.hpp"
+
 namespace huggorm {
 
 /**

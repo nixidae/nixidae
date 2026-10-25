@@ -1,0 +1,109 @@
+Tell an embedder which stack the current Determinate Nix fiber runs on.
+
+A Python primop that an evaluator thread calls runs on a fiber's stack.
+CPython 3.14 measures its stack margin against the thread's own stack,
+so in `_Py_Dealloc` the fiber's stack reads as past the limit and every
+GC-tracked object goes to the thread's `delete_later` list. That list
+drains only on a later free with room to spare, which never comes, and
+the thread state goes away with it full: none of 100 objects freed
+(test_a_primop_on_an_evaluator_thread_frees_what_it_drops,
+nixidae/nixidae#1083). Calls are unaffected, because their check also
+wants the stack pointer near the limit.
+
+`PyUnstable_ThreadState_SetStackProtection` takes the right bounds, and
+only Determinate Nix knows them: the fiber keeps the stack it started
+on, and `currentFiberStack()` returns it.
+
+Applies after nix-determinate-interrupted-thunk-recovers.
+--- a/src/libexpr/include/nix/expr/parallel-eval.hh
++++ b/src/libexpr/include/nix/expr/parallel-eval.hh
+@@ -6,6 +6,7 @@
+ #include <queue>
+ #include <future>
+ #include <random>
++#include <span>
+ #include <thread>
+ 
+ #include "nix/util/move-only-function.hh"
+@@ -248,6 +249,16 @@
+     Executor::Fiber * fiber;
+ };
+ 
++/**
++ * The stack the current fiber was started on, guard page included, or
++ * an empty span outside a fiber. An embedded runtime that compares its
++ * stack pointer against the thread's own stack, such as CPython 3.14,
++ * needs these bounds to run on a fiber. Code inside a coroutine body
++ * runs on another stack, so a caller checks that its stack pointer is
++ * inside.
++ */
++std::span<std::byte> currentFiberStack();
++
+ struct FutureVector
+ {
+     Executor & executor;
+--- a/src/libexpr/parallel-eval.cc
++++ b/src/libexpr/parallel-eval.cc
+@@ -113,6 +113,11 @@
+     struct GC_stack * gcStack = nullptr;
+ #endif
+ 
++    /**
++     * The stack this fiber was started on (see `currentFiberStack()`).
++     */
++    boost::context::stack_context stack;
++
+     Fiber(Executor & executor, Worker & owner, Item && item)
+         : executor(executor)
+         , owner(owner)
+@@ -174,6 +179,11 @@
+ #endif
+ 
+ /**
++ * The same side channel for the stack itself, for `currentFiberStack()`.
++ */
++static thread_local boost::context::stack_context lastFiberStack;
++
++/**
+  * A Boost.Context stack allocator that reuses stacks from the
+  * executor's pool. Reused stacks also come with their previously
+  * faulted-in pages, avoiding both the mmap/munmap system calls and
+@@ -193,6 +203,7 @@
+ #if NIX_USE_BOEHMGC
+                 lastFiberGCStack = state->gcInfo.at(sctx.sp);
+ #endif
++                lastFiberStack = sctx;
+                 return sctx;
+             }
+         }
+@@ -206,6 +217,7 @@
+         executor.stackPool->state_.lock()->gcInfo.emplace(sctx.sp, gs);
+         lastFiberGCStack = gs;
+ #endif
++        lastFiberStack = sctx;
+         return sctx;
+     }
+ 
+@@ -430,6 +442,7 @@
+     fiber->gcStack = lastFiberGCStack;
+     assert(fiber->gcStack);
+ #endif
++    fiber->stack = lastFiberStack;
+     nrFibersSpawned++;
+     return fiber;
+ }
+@@ -684,6 +697,14 @@
+     }
+ }
+ 
++std::span<std::byte> currentFiberStack()
++{
++    if (!currentFiber)
++        return {};
++    auto & stack = currentFiber->stack;
++    return {static_cast<std::byte *>(stack.sp) - stack.size, stack.size};
++}
++
+ FutureVector::~FutureVector()
+ {
+     try {

@@ -97,6 +97,7 @@ namespace nb = nanobind;
 // used to be.
 #include "huggorm_decl/cpp/error_info.hpp"
 #include "huggorm_decl/cpp/gc.hpp"
+#include "huggorm_decl/cpp/fiber_stack.hpp"
 #include "huggorm_decl/cpp/logging.hpp"
 #include "huggorm_decl/cpp/settings.hpp"
 
@@ -1050,6 +1051,9 @@ inline nix::fun<nix::PrimOpFun> primop_impl(
                 .atPos(pos)
                 .debugThrow();
         try {
+            // First in, last out: every Python object below is freed
+            // while it holds.
+            FiberStack fiber_stack;
             nb::list made;
             for (std::size_t i = 0; i < arity; ++i)
                 made.append(nb::cast(Bridge(held, args[i])));

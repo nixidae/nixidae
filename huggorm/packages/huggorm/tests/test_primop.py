@@ -12,10 +12,14 @@ holds that.
 """
 
 import gc
+import threading
+import time
 from typing import Any
 
 import pytest
 from nixversion import ERROR_PREFIX, STRING_ORIGIN
+
+from huggorm_dsl.declare import DETERMINATE
 
 URI = "dummy://"
 
@@ -329,6 +333,34 @@ def test_a_primop_closing_over_its_state_does_not_leak_it() -> None:
 
     assert died == ["collected"], \
         "the state and its callable survived a full collection"
+
+
+@pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
+def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(
+        parallel_state: Any) -> None:
+    """`builtins.parallel` hands each call to an evaluator thread, which
+    runs it on a fiber's stack. CPython 3.14 measures its stack margin
+    against the thread's own stack, read a fiber's as overflowing, and
+    deferred every free on it for good: none of the 100 was freed
+    (nixidae/nixidae#1083)."""
+    died: list[str] = []
+    calls: list[bool] = []
+
+    def drop(v: Any) -> Any:
+        _Canary(died)
+        calls.append(threading.current_thread() is threading.main_thread())
+        return parallel_state.make_int(5)
+
+    parallel_state.register_primop("drop", 1, drop)
+    # The main thread forces none of the list, so no call runs on it.
+    parallel_state.eval_expr(
+        "builtins.parallel (builtins.genList (x: builtins.drop x) 100) null")
+    deadline = time.monotonic() + 10
+    while len(calls) < 100 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert calls == [False] * 100
+    assert len(died) == 100
 
 
 def test_the_callable_still_works_while_the_state_is_reachable() -> None:

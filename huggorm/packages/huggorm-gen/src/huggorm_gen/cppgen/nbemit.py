@@ -758,7 +758,10 @@ def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
     An override falls through by calling `super()`, whose binding calls
     the C++ implementation non-virtually. A declared Nix error it raises
     becomes that Nix exception again (`rethrow_as_nix`), so Nix's own
-    catch - `isValidPath` catching `InvalidPath` - sees what it expects."""
+    catch - `isValidPath` catching `InvalidPath` - sees what it expects.
+
+    The override can run on a Determinate Nix fiber, so a `FiberStack`
+    gives Python that stack's bounds while it runs (nixidae/nixidae#1083)."""
     methods = _virtuals(cls)
     if not methods:
         return []
@@ -779,6 +782,7 @@ def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
                 f'{INDENT * 3}nb::detail::ticket nb_ticket(nb_trampoline, '
                 f'"{m.name}", false);',
                 f"{INDENT * 3}if (nb_ticket.key.is_valid()) {{",
+                f"{INDENT * 4}huggorm::FiberStack nb_fiber_stack;",
                 f"{INDENT * 4}nb::object answer;",
                 f"{INDENT * 4}try {{",
                 f"{INDENT * 5}answer = nb_trampoline.base()"
