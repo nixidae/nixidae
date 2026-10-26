@@ -337,6 +337,19 @@ let
         vivarium.backend = "appliance";
         vivarium.memory = "1536M";
         vivarium.appliance = vivarium.images.vyos-2026_10_26 ''
+          firewall {
+              ipv4 {
+                  input {
+                      filter {
+                          rule 10 {
+                              action "drop"
+                              protocol "icmp"
+                              state "invalid"
+                          }
+                      }
+                  }
+              }
+          }
           interfaces {
               ethernet eth1 {
                   hw-id "${(lib.head config.vivarium.nics).mac}"
