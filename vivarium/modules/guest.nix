@@ -32,7 +32,17 @@ in
   boot.initrd.enable = lib.mkIf (cfg.backend == "uml") false;
   boot.loader.grub.enable = false;
   boot.loader.systemd-boot.enable = false;
-  system.build.installBootLoader = lib.getExe' pkgs.coreutils "true";
+  # A QEMU guest's bootloader is the runner: after a reboot it boots the
+  # bootspec this writes. See `Machine._watch` in vivarium-runner.
+  system.build.installBootLoader =
+    if cfg.backend == "qemu" then
+      pkgs.writeShellScript "vivarium-install-bootloader" ''
+        if [ -e "$1/boot.json" ] && ${lib.getExe' pkgs.util-linux "mountpoint"} -q /artifacts; then
+          ${lib.getExe' pkgs.coreutils "install"} -m 0644 "$1/boot.json" /artifacts/bootloader.json
+        fi
+      ''
+    else
+      lib.getExe' pkgs.coreutils "true";
   # A container has no modules either, and NixOS defines no modprobe
   # script under `boot.isContainer`, so the entry must still get a text.
   system.activationScripts.modprobe.text = lib.mkIf (!lib.elem cfg.backend [ "qemu" "krun" ]) (

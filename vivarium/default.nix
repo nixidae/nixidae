@@ -416,6 +416,42 @@ let
     };
 
     /*
+      Does a QEMU guest come back from its own reboot, on the system its
+      bootloader names? `next` changes the kernel parameters and the
+      initrd, which only a new boot picks up. `two` must still reach it
+      over their segment. QEMU only: a UML guest has no initrd, and its
+      kernel is the process.
+    */
+    reboot = mkTest (
+      { systems, ... }:
+      {
+        name = "reboot";
+        backend = "qemu";
+        phases.test = {
+          script = ./tests/reboot.py;
+          after = [ "boot" ];
+        };
+        nodes = lib.genAttrs [ "one" "two" ] (name: {
+          vivarium.lan = {
+            network = "reboot";
+            address = "10.105.0.${if name == "one" then "1" else "2"}/24";
+          };
+        });
+        settings.next = "${
+          (systems.one.extendModules {
+            modules = [
+              {
+                boot.kernelParams = [ "vivarium.reboot=next" ];
+                boot.initrd.systemd.contents."/etc/vivarium-reboot".text = "next\n";
+                environment.etc."vivarium-reboot".text = "next\n";
+              }
+            ];
+          }).config.system.build.toplevel
+        }";
+      }
+    );
+
+    /*
       Does what a guest writes reach the host, and who is left running?
 
       Two guests, because each one must get its own directory.

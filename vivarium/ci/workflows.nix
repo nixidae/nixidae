@@ -112,6 +112,10 @@ let
       description = "what a guest writes reaches the host, per guest";
       timeoutMinutes = 15;
     };
+    reboot = {
+      description = "a guest reboots into the system its bootloader names";
+      timeoutMinutes = 15;
+    };
     containerd = {
       description = "a container runs, out of the host's store";
       timeoutMinutes = 45;

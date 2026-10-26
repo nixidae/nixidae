@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import json
 import os
 import re
 import shlex
@@ -49,6 +50,14 @@ _CONSOLE_HISTORY = 2000
 
 POWEROFF_GRACE = 20
 """Seconds a guest has to power itself off before the runner signals it."""
+
+REBOOTED = "reboot: Restarting system"
+"""What the guest kernel prints last before a reset. A power-off prints
+`reboot: Power down` instead."""
+
+BOOTLOADER = "bootloader.json"
+"""The bootspec of the system the guest boots next, under its artifacts.
+The guest's `installBootLoader` writes it; see modules/guest.nix."""
 
 _SYSTEMD_TIMEOUT = 60
 """How long to wait for one `systemctl` round trip.  The agent gives the
@@ -299,6 +308,11 @@ class Machine:
         self._memory: mconsole.Mconsole | qmp.Qmp | None = None
         self._pid_file: Path | None = None
         self._cleanup: list[Path] = []
+        self._disk_fds: tuple[int, ...] = ()
+        self._lan_kept: dict[str, int] = {}
+        self._watcher: asyncio.Task | None = None
+        self._stopping = False
+        self._reboot_error: str | None = None
 
     @property
     def name(self) -> str:
@@ -350,14 +364,33 @@ class Machine:
                 writable=self.spec.backend == "container",
             )
             self.spec = replace(self.spec, store=str(view))
+        # The session closes its copies of the segment fds once every guest
+        # has started, so a guest that boots again needs its own.
+        if getattr(self.backend, "reboots", False):
+            self._lan_kept = {nic: os.dup(fd) for nic, fd in self.lan_fds.items()}
+        await self._boot(None)
+
+    async def _boot(self, boot: dict | None) -> None:
+        """Start the guest's process, on *boot* or the spec's own, and connect."""
+        assert self._rundir is not None
         self._agent_sock, self._guest_sock = socket.socketpair(
             socket.AF_UNIX, socket.SOCK_STREAM
         )
 
         try:
-            launch = self.backend.launch(
-                self, self._rundir, self._guest_sock.fileno(), self.lan_fds
-            )
+            if boot is None:
+                launch = self.backend.launch(
+                    self, self._rundir, self._guest_sock.fileno(), self.lan_fds
+                )
+            else:
+                launch = self.backend.launch(
+                    self,
+                    self._rundir,
+                    self._guest_sock.fileno(),
+                    self.lan_fds,
+                    boot=boot,
+                    disk_fds=self._disk_fds,
+                )
         except backends.BackendError as error:
             # A host that lacks something is a reason, not a crash: said
             # the way a guest that did not boot is said.
@@ -365,13 +398,18 @@ class Machine:
         self._helpers = launch.helpers
         self._cleanup = launch.cleanup
         self._pid_file = launch.pid_file
+        for fd in set(self._disk_fds) - set(launch.disk_fds):
+            os.close(fd)
+        self._disk_fds = launch.disk_fds
         if launch.memory is not None:
             self._memory = self.backend.memory_control(launch.memory)
         # Fds the backend opened for the child and no longer needs here.
         self._spare_fds = [
             fd
             for fd in launch.pass_fds
-            if fd != self._guest_sock.fileno() and fd not in self.lan_fds.values()
+            if fd != self._guest_sock.fileno()
+            and fd not in self.lan_fds.values()
+            and fd not in self._disk_fds
         ]
         self._log(f"exec: {' '.join(launch.argv)}")
 
@@ -445,10 +483,67 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
+        if getattr(self.backend, "reboots", False):
+            self._watcher = asyncio.ensure_future(self._watch())
+
+    async def _watch(self) -> None:
+        """Boot the guest again when it reboots itself.
+
+        QEMU runs with `-no-reboot`, so a reset ends the process: rebooting
+        in place would load the `-kernel` and `init=` it started with, not
+        the system the guest switched its bootloader to.
+        """
+        assert self._process is not None
+        await self._process.wait()
+        if self._monitor is not None:
+            await self._monitor
+        if self._stopping or not any(REBOOTED in line for line in self._history):
+            return
+        try:
+            await self._reboot()
+        except MachineError as error:
+            self._reboot_error = str(error)
+            self._log(f"did not come back from its reboot: {error}")
+
+    def _bootloader(self) -> dict | None:
+        """The spec's boot, with what the guest's bootloader chose since."""
+        path = self.artifacts / BOOTLOADER if self.artifacts is not None else None
+        if path is None or not path.exists():
+            return None
+        chosen = json.loads(path.read_text())["org.nixos.bootspec.v1"]
+        return {
+            **self.spec.boot,
+            "kernel": chosen["kernel"],
+            "initrd": chosen["initrd"],
+            "cmdline": " ".join(chosen["kernelParams"]),
+            "toplevel": chosen["toplevel"],
+        }
+
+    async def _reboot(self) -> None:
+        """The process-scoped half of `shutdown`, then `_boot` on the same disk."""
+        boot = self._bootloader()
+        self._log(f"rebooting into {(boot or self.spec.boot)['toplevel']}")
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+        await self._stop_process()
+        # A second boot must not match the first boot's ready line.
+        self._history.clear()
+        while not self._console.empty():
+            self._console.get_nowait()
+        self._process = None
+        self.lan_fds = dict(self._lan_kept)
+        await self._boot(boot or self.spec.boot)
 
 
     async def shutdown(self) -> None:
         """Ask the guest to power off, then make sure nothing is left."""
+        self._stopping = True
+        if self._watcher is not None:
+            self._watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._watcher
+            self._watcher = None
         # `alive` first: a dead guest's agent does not refuse, it hangs,
         # and the request below waited out its full timeout after `crash`.
         asked = False
@@ -469,7 +564,25 @@ class Machine:
         self._agent_sock = self._guest_sock = None
 
         await self._reap(POWEROFF_GRACE if asked else 0)
+        await self._stop_process()
 
+        self._close_kept()
+
+        if self._rundir is not None:
+            storeview.remove(self._rundir / "nix")
+            if not os.environ.get("VIVARIUM_KEEP"):
+                shutil.rmtree(self._rundir, ignore_errors=True)
+            self._rundir = None
+
+    def _close_kept(self) -> None:
+        """The disk and segment fds kept for a reboot."""
+        for fd in (*self._disk_fds, *self._lan_kept.values()):
+            os.close(fd)
+        self._disk_fds = ()
+        self._lan_kept = {}
+
+    async def _stop_process(self) -> None:
+        """What one boot of the guest leaves after its process exited."""
         # virtiofsd and passt, where the backend started them itself.
         # Under UML they are children of the bridge and went with it.
         #
@@ -503,12 +616,6 @@ class Machine:
         for directory in self._cleanup:
             shutil.rmtree(directory, ignore_errors=True)
         self._cleanup = []
-
-        if self._rundir is not None:
-            storeview.remove(self._rundir / "nix")
-            if not os.environ.get("VIVARIUM_KEEP"):
-                shutil.rmtree(self._rundir, ignore_errors=True)
-            self._rundir = None
 
     async def _reap(self, grace: float) -> None:
         """Wait *grace* seconds for the guest to exit, then SIGTERM its
@@ -574,6 +681,7 @@ class Machine:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)
         await self._process.wait()
+        self._close_kept()
         # Polled: under UML the kernel is not our child, so there is
         # nothing to wait on.
         for _ in range(50):

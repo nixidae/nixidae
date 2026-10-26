@@ -259,6 +259,10 @@ class Launch:
     agent_path: Path | None = None
     """A socket to connect to for the agent, once it says it is ready, for
     a backend with no serial line to carry the socketpair."""
+    disk_fds: tuple[int, ...] = ()
+    """The root disk, for a backend that boots the guest again after a
+    reboot. The runner keeps these open and hands them back, so the disk
+    outlives the process that wrote it."""
 
 
 class Uml:
@@ -399,8 +403,19 @@ class Qemu:
     """
 
     name = "qemu"
+    reboots = True
+    """A reboot inside the guest boots it again, into the system its
+    bootloader names. See `Machine._reboot`."""
 
-    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+    def launch(
+        self,
+        machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: dict | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch:
         # virtiofsd serves a file as the guest user that made it, so a
         # guest user outside the namespace's ids gets EINVAL on its first
         # write to /artifacts, minutes in. Fail here instead.
@@ -414,7 +429,9 @@ class Qemu:
         helpers: list[subprocess.Popen] = []
         opened: list[int] = []
         try:
-            return self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened)
+            return self._launch(
+                machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds
+            )
         except BaseException:
             # Nothing owns these until a Launch carries them back, so a
             # failure between the first one and the last would leave a
@@ -437,6 +454,8 @@ class Qemu:
         lan_fds: dict[str, int],
         helpers: list[subprocess.Popen],
         opened: list[int],
+        boot: dict | None = None,
+        disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec, tools = machine.spec, machine.tools
 
@@ -445,6 +464,8 @@ class Qemu:
         # monitor. `vfs` and `art` are no longer than `qmp`, so one check
         # covers all three.
         sockets, cleanup = socket_dir(rundir, "qmp", None)
+        # A guest that rebooted left its monitor's socket.
+        (sockets / "qmp").unlink(missing_ok=True)
 
         vfs_fd, vfsd = self._virtiofsd(tools, sockets, "vfs", spec.store)
         helpers.append(vfsd)
@@ -458,7 +479,17 @@ class Qemu:
             helpers.append(artd)
             opened.append(art_fd)
 
-        disk_fds = self._scratch_disk(tools, rundir, spec.image)
+        # A reboot keeps the disk the guest wrote, and the runner owns it.
+        # QEMU's image lock is an OFD lock: it belongs to the open file
+        # description, which outlives the QEMU that took it. So a reboot
+        # opens the unlinked image afresh and lets the old descriptions go.
+        if disk_fds:
+            disk_fds = tuple(
+                os.open(f"/proc/self/fd/{fd}", flags)
+                for fd, flags in zip(disk_fds, (os.O_RDWR, os.O_RDONLY))
+            )
+        else:
+            disk_fds = self._scratch_disk(tools, rundir, spec.image)
         opened.extend(disk_fds)
 
         passt_fd, passt_proc = self._passt(
@@ -467,7 +498,7 @@ class Qemu:
         helpers.append(passt_proc)
         opened.append(passt_fd)
 
-        boot = spec.boot
+        boot = boot or spec.boot
         argv = [
             str(tools.qemu),
             "-machine", "q35,accel=kvm,memory-backend=guest-memory",
@@ -551,6 +582,7 @@ class Qemu:
             helpers=helpers,
             memory=sockets / "qmp",
             cleanup=cleanup,
+            disk_fds=disk_fds,
         )
 
     @staticmethod
@@ -757,8 +789,17 @@ class Appliance(Qemu):
     """
 
     name = "appliance"
+    reboots = False
 
-    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+    def launch(
+        self,
+        machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: dict | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch:
         helpers: list[subprocess.Popen] = []
         opened: list[int] = []
         try:
