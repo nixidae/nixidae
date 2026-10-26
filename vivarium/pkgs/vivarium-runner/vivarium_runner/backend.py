@@ -746,9 +746,9 @@ class Appliance(Qemu):
 
     For a guest nothing of ours can run inside, a router's or a switch's
     virtual edition. What it shares with a QEMU guest is the hardware: the
-    per-run disk layer, the passt uplink as the first NIC, and each segment
-    as one more, in `interfaces` order. So the appliance names its ports
-    as it would on a PCI bus, the uplink first.
+    per-run disk layer, the passt uplink as the first NIC unless
+    `vivarium.uplink` is off, and each segment as one more, in `interfaces`
+    order. So the appliance names its ports as it would on a PCI bus.
 
     No agent means no `succeed`. The runner reads the console until the
     spec's `ready` pattern, and a test reaches the guest over the network:
@@ -786,9 +786,13 @@ class Appliance(Qemu):
         disk_fds = self._scratch_disk(tools, rundir, spec.image, appliance["format"])
         opened.extend(disk_fds)
 
-        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
-        helpers.append(passt_proc)
-        opened.append(passt_fd)
+        uplink = appliance.get("uplink", True)
+        passt_fds: tuple[int, ...] = ()
+        if uplink:
+            passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+            helpers.append(passt_proc)
+            opened.append(passt_fd)
+            passt_fds = (passt_fd,)
 
         argv = [
             str(tools.qemu),
@@ -801,9 +805,12 @@ class Appliance(Qemu):
             "-add-fd", f"fd={disk_fds[1]},set=1",
             "-drive", "file=/dev/fdset/1,if=virtio,format=qcow2",
             "-serial", "stdio",
-            "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
-            "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
         ]
+        if uplink:
+            argv += [
+                "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fds[0]}",
+                "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+            ]
         if appliance.get("kernel"):
             argv += [
                 "-kernel", appliance["kernel"],
@@ -818,7 +825,7 @@ class Appliance(Qemu):
             ]
         return Launch(
             argv=argv,
-            pass_fds=(passt_fd, *lan_fds.values(), *disk_fds),
+            pass_fds=(*passt_fds, *lan_fds.values(), *disk_fds),
             helpers=helpers,
         )
 

@@ -9,6 +9,17 @@ let
   inherit (lib) mkOption types;
 in
 {
+  options.vivarium.uplink = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      Whether the guest gets passt's uplink, `vec0`: NAT to the host's
+      network and the `forward` rules. Off, an appliance's first port is
+      its first segment, as on a router whose only cables are the ones the
+      test lays. Only the `appliance` backend honours it.
+    '';
+  };
+
   options.vivarium.appliance = mkOption {
     default = null;
     description = ''
@@ -76,6 +87,14 @@ in
     {
       assertion = (config.vivarium.backend == "appliance") == (config.vivarium.appliance != null);
       message = "vivarium.appliance and vivarium.backend = \"appliance\" go together.";
+    }
+    {
+      assertion = config.vivarium.uplink || config.vivarium.backend == "appliance";
+      message = "vivarium.uplink = false: only the appliance backend can leave the uplink out.";
+    }
+    {
+      assertion = config.vivarium.uplink || config.vivarium.forward == [ ];
+      message = "vivarium.forward needs the uplink: forwards are passt's.";
     }
   ];
 }

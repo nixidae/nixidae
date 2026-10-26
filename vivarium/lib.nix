@@ -186,6 +186,7 @@ rec {
           image = "${machine.vivarium.appliance.disk}";
           boot.appliance = {
             inherit (machine.vivarium.appliance) format ready cmdline;
+            inherit (machine.vivarium) uplink;
           }
           // lib.optionalAttrs (machine.vivarium.appliance.kernel != null) {
             kernel = "${machine.vivarium.appliance.kernel}";
