@@ -250,6 +250,11 @@ def resolve(
     if start is None:
         start = unprivileged_start()
 
+    # Remap first: the address is chosen by binding the host ports, and a
+    # privileged one binds nowhere, so every address would be refused.
+    remapped = [_remap(rule, start) for rule in rules]
+    rules = [rule for rule, _ in remapped]
+
     unaddressed = [rule for rule in rules if rule.address is None]
     if unaddressed:
         address = _assign(unaddressed, taken)
@@ -261,8 +266,7 @@ def resolve(
 
     resolved: list[Rule] = []
     notes: list[str] = []
-    for rule in rules:
-        rule, said = _remap(rule, start)
+    for rule, (_, said) in zip(rules, remapped):
         if rule.wide or rule.ports:
             resolved.append(rule)
         notes.extend(f"{rule.address}: {note}" for note in said)
