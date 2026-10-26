@@ -294,6 +294,7 @@ let
     */
     // lib.optionalAttrs (lib.elem "coredns" cfg.skipAddons) { clusterDNS = [ ]; }
     // lib.optionalAttrs (cfg.featureGates != { }) { inherit (cfg) featureGates; }
+    // cfg.kubeletSettings
   );
 
   proxyConfig = yaml.generate "kubeadm-proxy.yaml" {
@@ -653,6 +654,19 @@ in
         Empty writes nothing, so a test that names no gate is unchanged.
         kubelet reads them from its KubeletConfiguration, which kubeadm also
         stores for the workers to fetch, so one entry reaches every node.
+      '';
+    };
+
+    kubeletSettings = lib.mkOption {
+      type = lib.types.attrsOf lib.types.anything;
+      default = { };
+      example = {
+        nodeLeaseDurationSeconds = 8;
+      };
+      description = ''
+        Extra KubeletConfiguration fields, over the ones this module sets.
+        `nodeLeaseDurationSeconds = 8` makes kubelet renew its Lease every
+        2 s instead of 10 s, for a test that waits on a renewal.
       '';
     };
 
