@@ -50,7 +50,10 @@ READY_TIMEOUT = 5 * 60
 # these units start local programs against local files.
 UNIT_TIMEOUT = 5 * 60
 
-POLL = 10
+# A check is a kubectl call or two, about 0.1 s in the guest. At 10 s the
+# sleep was the run: nixkube's chaos phase spent 53 of 594 s in commands,
+# and each of its five waits per scenario rounded up to the next 10 s.
+POLL = 1
 
 # How often `until` says what it is still waiting for.
 _SAY_EVERY = 30
