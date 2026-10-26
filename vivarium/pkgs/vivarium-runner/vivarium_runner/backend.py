@@ -559,7 +559,9 @@ class Qemu:
         return qmp.Qmp(path)
 
     @staticmethod
-    def _scratch_disk(tools, rundir: Path, image: Path | None) -> tuple[int, int]:
+    def _scratch_disk(
+        tools, rundir: Path, image: Path | None, backing: str = "raw"
+    ) -> tuple[int, int]:
         """A writable layer over the read-only root image, with no name.
 
         The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -586,7 +588,7 @@ class Qemu:
                 "-f", "qcow2",
                 # Named, because qemu-img refuses to guess a backing
                 # format and a guess would be silently wrong.
-                "-F", "raw",
+                "-F", backing,
                 "-b", str(image),
                 str(scratch),
             ],
@@ -737,6 +739,82 @@ class Qemu:
             )
         # Kept open until the guest has spawned; Machine closes it after.
         return qemu_end.detach(), proc
+
+
+class Appliance(Qemu):
+    """A vendor's disk image under QEMU: its own kernel, no NixOS, no agent.
+
+    For a guest nothing of ours can run inside, a router's or a switch's
+    virtual edition. What it shares with a QEMU guest is the hardware: the
+    per-run disk layer, the passt uplink as the first NIC, and each segment
+    as one more, in `interfaces` order. So the appliance names its ports
+    as it would on a PCI bus, the uplink first.
+
+    No agent means no `succeed`. The runner reads the console until the
+    spec's `ready` pattern, and a test reaches the guest over the network:
+    through a `vivarium.forward` on the uplink, or from a NixOS guest on a
+    segment.
+    """
+
+    name = "appliance"
+
+    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+        helpers: list[subprocess.Popen] = []
+        opened: list[int] = []
+        try:
+            return self._appliance(machine, rundir, lan_fds, helpers, opened)
+        except BaseException:
+            for helper in helpers:
+                if helper.poll() is None:
+                    helper.kill()
+                    helper.wait()
+            for fd in opened:
+                os.close(fd)
+            raise
+
+    def _appliance(
+        self,
+        machine,
+        rundir: Path,
+        lan_fds: dict[str, int],
+        helpers: list[subprocess.Popen],
+        opened: list[int],
+    ) -> Launch:
+        spec, tools = machine.spec, machine.tools
+        appliance = spec.boot["appliance"]
+
+        disk_fds = self._scratch_disk(tools, rundir, spec.image, appliance["format"])
+        opened.extend(disk_fds)
+
+        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+        helpers.append(passt_proc)
+        opened.append(passt_fd)
+
+        argv = [
+            str(tools.qemu),
+            "-machine", "q35,accel=kvm",
+            "-cpu", "host,-vmx,-svm",
+            "-smp", str(spec.cpus),
+            "-m", spec.memory,
+            "-nodefaults", "-no-reboot", "-display", "none",
+            "-add-fd", f"fd={disk_fds[0]},set=1",
+            "-add-fd", f"fd={disk_fds[1]},set=1",
+            "-drive", "file=/dev/fdset/1,if=virtio,format=qcow2",
+            "-serial", "stdio",
+            "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
+            "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+        ]
+        for nic in spec.interfaces:
+            argv += [
+                "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+                "-device",
+                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
+            ]
+        return Launch(
+            argv=argv,
+            pass_fds=(passt_fd, *lan_fds.values(), *disk_fds),
+            helpers=helpers,
+        )
 
 
 DAX_WINDOW = 512 << 20
@@ -955,7 +1033,9 @@ class Container:
         return [*args, *extra]
 
 
-BACKENDS = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container)}
+BACKENDS = {
+    backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)
+}
 
 
 def get(name: str):

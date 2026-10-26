@@ -1,5 +1,6 @@
 /**
-  Other distributions' cloud images, for `vivarium.image`.
+  Other distributions' cloud images, for `vivarium.image`, and vendor
+  images for `vivarium.appliance`.
 
   An image floats. openSUSE deletes a numbered build when the next one
   lands, so a pinned URL breaks with no commit (nixidae/nixidae#19).
@@ -11,7 +12,11 @@
   under `--pure-eval`. A run that crosses a new openSUSE build fails the
   hash once, and the next evaluation picks the new one up.
 */
-{ fetchurl }:
+{
+  fetchurl,
+  runCommand,
+  unzip,
+}:
 let
   floating =
     url:
@@ -40,5 +45,32 @@ in
       "systemd.mask=jeos-firstboot.service"
       "systemd.mask=kbdsettings.service"
     ];
+  };
+
+  /**
+    MikroTik RouterOS 7.24.5, Cloud Hosted Router, for `vivarium.appliance`.
+
+    Boots in about 6 s under KVM with `admin` and an empty password, a
+    DHCP client on ether1 (the uplink) and REST on port 80. Unlicensed,
+    it limits each interface to 1 Mbit/s: enough to configure and route,
+    not to measure. A pinned version, unlike the cloud images above:
+    MikroTik keeps old releases.
+  */
+  routeros-chr-7_24_5 = {
+    disk =
+      runCommand "routeros-chr-7.24.5.img"
+        {
+          src = fetchurl {
+            url = "https://download.mikrotik.com/routeros/7.24.5/chr-7.24.5.img.zip";
+            hash = "sha256-FvByIqMhM1LJxPvqT03sao/7eP3A+l45jCMQPtNXxus=";
+          };
+          nativeBuildInputs = [ unzip ];
+        }
+        ''
+          unzip -p $src chr-7.24.5.img > $out
+        '';
+    format = "raw";
+    # The login prompt has no newline after it; the banner line before it does.
+    ready = "MikroTik 7\\.24\\.5 ";
   };
 }

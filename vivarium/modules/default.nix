@@ -153,6 +153,7 @@ let
 in
 {
   imports = [
+    ./appliance.nix
     ./container.nix
     ./guest.nix
     ./image.nix
@@ -164,7 +165,7 @@ in
 
   options.vivarium = {
     backend = lib.mkOption {
-      type = lib.types.enum [ "uml" "qemu" "krun" "container" ];
+      type = lib.types.enum [ "uml" "qemu" "krun" "container" "appliance" ];
       default = "uml";
       description = ''
         Which machine a guest becomes.
@@ -180,6 +181,8 @@ in
         no kernel of its own either, and the host needs user namespaces,
         subordinate ids and a writable cgroup. Its uplink and forwards
         are pasta's, and its LAN shares a segment with the other two.
+        `appliance` is not NixOS at all: QEMU boots a vendor's disk image,
+        see `vivarium.appliance`.
 
         The guest is the same NixOS configuration either way, and so is
         the test script. What changes is the kernel and how `/nix`
@@ -213,8 +216,8 @@ in
 
     memory = lib.mkOption {
       type = lib.types.str;
-      default = if lib.elem config.vivarium.backend [ "qemu" "krun" ] then "512M" else "256M";
-      defaultText = lib.literalExpression ''if backend is "qemu" or "krun" then "512M" else "256M"'';
+      default = if lib.elem config.vivarium.backend [ "qemu" "krun" "appliance" ] then "512M" else "256M";
+      defaultText = lib.literalExpression ''if backend is "qemu", "krun" or "appliance" then "512M" else "256M"'';
       example = "1024M";
       description = ''
         Guest RAM, as UML's `mem=` and QEMU's `-m` both take it.

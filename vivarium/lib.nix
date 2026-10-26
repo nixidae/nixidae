@@ -53,7 +53,7 @@ rec {
 
         nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0;
   */
-  images = import ./images.nix { inherit (pkgs) fetchurl; };
+  images = import ./images.nix { inherit (pkgs) fetchurl runCommand unzip; };
 
   /*
     pyright over a caller's test scripts, against this library.
@@ -167,7 +167,14 @@ rec {
       kubernetes = machine.services.vivarium-k8s.enable or false;
     }
     // (
-      if machine.vivarium.image != null then
+      if machine.vivarium.appliance != null then
+        {
+          # A vendor's image under QEMU. No NixOS system is built; see
+          # modules/appliance.nix.
+          image = "${machine.vivarium.appliance.disk}";
+          boot.appliance = { inherit (machine.vivarium.appliance) format ready; };
+        }
+      else if machine.vivarium.image != null then
         {
           # Another distribution's cloud image. Its NixOS system is never
           # built; see modules/image-guest.nix.
@@ -228,6 +235,10 @@ rec {
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
       virtiofsd = "${pkgs.virtiofsd}/bin/virtiofsd";
     }
+    // lib.optionalAttrs (on "appliance" != [ ]) {
+      qemu = "${pkgs.qemu_kvm}/bin/qemu-system-x86_64";
+      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
+    }
     // lib.optionalAttrs (on "krun" != [ ]) {
       libkrun = "${pkgs.callPackage ./pkgs/libkrun/package.nix { }}/lib/libkrun.so";
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
@@ -260,7 +271,7 @@ rec {
     let
       any = backend: lib.any (machine: machine.vivarium.backend == backend) machines;
     in
-    lib.optional (any "qemu" || any "krun") "kvm"
+    lib.optional (any "qemu" || any "krun" || any "appliance") "kvm"
     ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range";
 
   /**
@@ -518,7 +529,7 @@ rec {
             machines = map (
               machine:
               machineSpec machine
-              // lib.optionalAttrs (!machine.vivarium.hostStore.enable) {
+              // lib.optionalAttrs (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null) {
                 storePaths =
                   if machine.vivarium.image != null then
                     "${machine.system.build.vivariumImageClosure}/store-paths"

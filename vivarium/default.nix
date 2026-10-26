@@ -305,6 +305,25 @@ let
     };
 
     /*
+      An appliance: RouterOS CHR booted from MikroTik's image, beside a
+      NixOS guest on one segment. Needs /dev/kvm, as QEMU does.
+    */
+    appliance = mkTest {
+      name = "appliance";
+      phases.test = {
+        script = ./tests/appliance.py;
+        after = [ "boot" ];
+      };
+      nodes.router = {
+        vivarium.backend = "appliance";
+        vivarium.appliance = vivarium.images.routeros-chr-7_24_5;
+        vivarium.forward = [ { ports = [ 80 ]; } ];
+        vivarium.interfaces.fabric.segment = "fabric";
+      };
+      nodes.peer.vivarium.interfaces.fabric.segment = "fabric";
+    };
+
+    /*
       Can the host reach a service in a guest?
 
       The only test that connects inwards.  One guest with every

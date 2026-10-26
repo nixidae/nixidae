@@ -308,6 +308,11 @@ class Machine:
     def ip(self) -> str | None:
         return self.spec.ip
 
+    @property
+    def appliance(self) -> bool:
+        """A vendor image with no agent: `execute` and the rest refuse."""
+        return bool(self.spec.boot.get("appliance"))
+
     def __repr__(self) -> str:
         return f"<Machine {self.name}>"
 
@@ -390,11 +395,17 @@ class Machine:
         self._spare_fds = []
         self._monitor = asyncio.ensure_future(self._pump_console())
 
+        appliance = self.spec.boot.get("appliance") if self.appliance else None
+        ready = (
+            re.compile(appliance["ready"])
+            if appliance
+            else re.compile(re.escape(AGENT_READY))
+        )
         loop = asyncio.get_running_loop()
         started = loop.time()
         try:
             await asyncio.wait_for(
-                self._wait_for_line(re.compile(re.escape(AGENT_READY))),
+                self._wait_for_line(ready),
                 timeout=self.boot_timeout,
             )
             elapsed = loop.time() - started
@@ -410,9 +421,17 @@ class Machine:
             )
         except asyncio.TimeoutError:
             raise MachineError(
-                f"[{self.name}] agent did not come up within "
-                f"{self.boot_timeout:g}s"
+                f"[{self.name}] "
+                + (f"console never matched {appliance['ready']!r}" if appliance else "agent did not come up")
+                + f" within {self.boot_timeout:g}s"
             ) from None
+
+        if appliance:
+            # Nothing in the guest to connect to: tests reach it over the network.
+            self._agent_sock.close()
+            self._guest_sock.close()
+            self._agent_sock = self._guest_sock = None
+            return
 
         if launch.agent_path is not None:
             # No serial line to carry the socketpair: the agent listens on
@@ -636,6 +655,10 @@ class Machine:
 
     @property
     def _agent(self):
+        if self.appliance:
+            raise MachineError(
+                f"[{self.name}] is an appliance: it has no agent, reach it over the network"
+            )
         if self._conn is None:
             raise MachineError(f"[{self.name}] agent is not connected")
         return self._conn.root

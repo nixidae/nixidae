@@ -12,6 +12,10 @@ from vivarium_runner import Machines
 
 async def test(vms: Machines) -> None:
     for name, vm in vms.items():
+        if vm.appliance:
+            # Its console said it was up; there is no systemd to ask.
+            print(f"[boot] {name} is an appliance, up")
+            continue
         state = (await vm.execute("systemctl is-system-running --wait", timeout=180))[1]
         state = state.strip()
         if state in ("running", "starting"):
