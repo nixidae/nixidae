@@ -113,12 +113,6 @@ jobs:
     - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
       name: Push scratch image
       run: ./nix-scratches/bin/push
-    - if: env.CACHIX_AUTH_TOKEN != ''
-      name: Push nocache variant store paths
-      run: nix run --file . push-ci2
-    - if: env.CACHIX_AUTH_TOKEN != ''
-      name: Push test workload store paths
-      run: nix run --file . push-citest
     timeout-minutes: 30
   check:
     runs-on: ubuntu-latest
@@ -147,8 +141,6 @@ jobs:
       run: |
         nix run --file . arch-audit -- \
           push \
-          push-ci2 \
-          push-citest \
           kubenixApply.manifestJSONFile \
           kubenixApply.manifestYAMLFile \
           kubenixCI1.deploymentScript \
