@@ -804,6 +804,12 @@ class Appliance(Qemu):
             "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
             "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
         ]
+        if appliance.get("kernel"):
+            argv += [
+                "-kernel", appliance["kernel"],
+                "-initrd", appliance["initrd"],
+                "-append", appliance.get("cmdline", ""),
+            ]
         for nic in spec.interfaces:
             argv += [
                 "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",

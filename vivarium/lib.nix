@@ -53,7 +53,19 @@ rec {
 
         nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0;
   */
-  images = import ./images.nix { inherit (pkgs) fetchurl runCommand unzip; };
+  images = import ./images.nix {
+    inherit (pkgs)
+      fetchurl
+      runCommand
+      unzip
+      xorriso
+      squashfsTools
+      python3
+      e2fsprogs
+      util-linux
+      fakeroot
+      ;
+  };
 
   /*
     pyright over a caller's test scripts, against this library.
@@ -172,7 +184,13 @@ rec {
           # A vendor's image under QEMU. No NixOS system is built; see
           # modules/appliance.nix.
           image = "${machine.vivarium.appliance.disk}";
-          boot.appliance = { inherit (machine.vivarium.appliance) format ready; };
+          boot.appliance = {
+            inherit (machine.vivarium.appliance) format ready cmdline;
+          }
+          // lib.optionalAttrs (machine.vivarium.appliance.kernel != null) {
+            kernel = "${machine.vivarium.appliance.kernel}";
+            initrd = "${machine.vivarium.appliance.initrd}";
+          };
         }
       else if machine.vivarium.image != null then
         {

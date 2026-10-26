@@ -41,6 +41,23 @@ in
             ];
             default = "raw";
           };
+          kernel = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+            description = ''
+              A kernel to boot directly, with `initrd` and `cmdline`, for an
+              image whose own boot loader cannot be told what to do. Null
+              boots the disk.
+            '';
+          };
+          initrd = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+          };
+          cmdline = mkOption {
+            type = types.str;
+            default = "";
+          };
           ready = mkOption {
             type = types.str;
             description = ''

@@ -16,8 +16,94 @@
   fetchurl,
   runCommand,
   unzip,
+  xorriso,
+  squashfsTools,
+  python3,
+  e2fsprogs,
+  util-linux,
+  fakeroot,
 }:
 let
+  /*
+    A VyOS rolling ISO as an appliance that boots with a given config.
+
+    VyOS is a live system even when installed: one partition labelled
+    `persistence` holds `boot/<version>/<version>.squashfs`, the overlay
+    `boot/<version>/rw` above it, and `persistence.conf` at its root, and
+    the kernel finds them by `vyos-union=/boot/<version>`. That layout is
+    built here, with the config at `rw/opt/vyatta/etc/config/config.boot`,
+    so VyOS loads it at boot. Measured, 2026-10-26: `persistence.conf`
+    anywhere but the partition root, a filesystem on the bare disk, or the
+    ISO's own `/live` as the medium, each boots on an empty tmpfs overlay
+    with the default config and says nothing.
+
+    The config gets the version footer this image writes itself, from the
+    image's own component versions. Without it VyOS runs every migration
+    at boot: 57 s, measured.
+  */
+  vyos =
+    { version, hash }:
+    let
+      parts =
+        runCommand "vyos-${version}-parts"
+          {
+            nativeBuildInputs = [
+              xorriso
+              squashfsTools
+              python3
+            ];
+            iso = fetchurl {
+              url = "https://github.com/vyos/vyos-nightly-build/releases/download/${version}/vyos-${version}-generic-amd64.iso";
+              inherit hash;
+            };
+          }
+          ''
+            mkdir $out
+            xorriso -osirrox on -indev $iso \
+              -extract /live/filesystem.squashfs $out/filesystem.squashfs \
+              -extract /live/vmlinuz $out/vmlinuz \
+              -extract /live/initrd.img $out/initrd.img
+            unsquashfs -cat $out/filesystem.squashfs \
+              usr/lib/python3/dist-packages/vyos/xml_ref/cache.py > cache.py
+            python3 -I ${./pkgs/vyos-footer.py} cache.py > $out/footer
+          '';
+    in
+    configBoot: {
+      format = "raw";
+      kernel = "${parts}/vmlinuz";
+      initrd = "${parts}/initrd.img";
+      cmdline = "boot=live rootdelay=5 vyos-union=/boot/${version} console=ttyS0,115200 net.ifnames=0 biosdevname=0";
+      # vyos-router's last line before the login prompt, which has no
+      # newline: `vyos-router[1049]:  activate configure.`.
+      ready = "vyos-router\\[[0-9]+\\]:.* configure\\.$";
+      disk =
+        runCommand "vyos-${version}-disk"
+          {
+            nativeBuildInputs = [
+              e2fsprogs
+              util-linux
+              fakeroot
+            ];
+            passAsFile = [ "configBoot" ];
+            inherit configBoot;
+          }
+          ''
+            root=$PWD/root
+            boot=$root/boot/${version}
+            mkdir -p $boot/rw/opt/vyatta/etc/config $root/boot/grub
+            cp ${parts}/filesystem.squashfs $boot/${version}.squashfs
+            echo '/ union' > $root/persistence.conf
+            { cat $configBootPath; cat ${parts}/footer; echo '// Release version: ${version}'; } \
+              > $boot/rw/opt/vyatta/etc/config/config.boot
+            size=$(( $(du -sm $root | cut -f1) + 128 ))
+            truncate -s ''${size}M fs.img
+            fakeroot sh -c "chown -R 0:0 $root && mkfs.ext4 -q -L persistence -d $root fs.img"
+            truncate -s $(( size + 2 ))M $out
+            printf 'label: gpt\nstart=2048, type=linux\n' | sfdisk -q $out
+            dd if=fs.img of=$out bs=1M seek=1 conv=notrunc status=none
+          '';
+    };
+
   floating =
     url:
     let
@@ -72,5 +158,18 @@ in
     format = "raw";
     # The login prompt has no newline after it; the banner line before it does.
     ready = "MikroTik 7\\.24\\.5 ";
+  };
+
+  /**
+    VyOS rolling 2026.10.26, for `vivarium.appliance`: a function of the
+    `config.boot` text to boot with. Log in as `vyos`, with the password
+    the config sets. Give each ethernet its `hw-id`, the MAC in
+    `vivarium.nics`: VyOS leaves an interface without one unbound. VyOS
+    publishes nightly ISOs on GitHub and prunes old releases, so this pin
+    may stop downloading; the store keeps it.
+  */
+  vyos-2026_10_26 = vyos {
+    version = "2026.10.26-0027-rolling";
+    hash = "sha256-u5H/DWC/LK6BzLG/Izo6vP4Qe9Qv2b24fCQHVlVg/5Y=";
   };
 }
