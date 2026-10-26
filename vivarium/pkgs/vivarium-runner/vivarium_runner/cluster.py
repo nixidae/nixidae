@@ -561,9 +561,10 @@ async def untaint(cp):
     kubeadm taints it so that nothing schedules there, which is right for a
     cluster with workers and leaves a single-node cluster unable to run
     anything at all.  The trailing ``-`` is kubectl's syntax for removing a
-    taint, and it is not an error when the taint is already gone.
+    taint.  It names the control plane alone: on a node without the taint,
+    such as a worker, kubectl fails with "not found".
     """
-    await kubectl(cp, f"taint nodes --all {CONTROL_PLANE_TAINT}-")
+    await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}-")
     print("[k8s] control plane will schedule workloads", flush=True)
 
 
