@@ -786,7 +786,7 @@ in
         A tarball's layers are opaque to Nix's reference scanner, so it
         carries no references at all. Whatever the images point into the
         store has to be named separately, or a guest whose /nix/store is the
-        build sandbox's will not have it -- see `system.extraDependencies`
+        build sandbox's will not have it -- see `vivarium.nixDatabase.extraRoots`
         below, which is how the images this module builds do it.
       '';
     };
@@ -956,7 +956,8 @@ in
     # ── the images, before anything wants them ─────────────────────
 
     /*
-      What the images point at, made a dependency of the node.
+      What the images point at, and the tarballs, made dependencies of the
+      run and registered in the guest, but not part of its system.
 
       The tarball itself does not count as one.  Its layers are gzipped,
       so the store paths inside are opaque to Nix's reference scanner and
@@ -965,8 +966,17 @@ in
       /nix/store is the build sandbox's would not have it.  The symlinks
       would dangle and runc would report an image that does not contain
       its own binary.
+
+      Not `system.extraDependencies`: these are inputs of the run, not
+      configuration of the host. In the toplevel's closure they cost every
+      system switched to through a store that holds whole closures.
+      Measured on nixkube's uml worker: 1.78 GiB of a 2.9 GiB system was
+      tarballs.
     */
-    system.extraDependencies = lib.mkIf (cfg.images == "nix") images.runtimeInputs;
+    vivarium.nixDatabase.extraRoots = map (path: "${path}") (
+      lib.optionals (cfg.images == "nix") (images.runtimeInputs ++ [ images.tarball ])
+      ++ cfg.extraImages
+    );
 
     # Also in "pull" mode when a test brings images of its own: a pulling
     # node still has no registry for those.
@@ -1020,7 +1030,13 @@ in
             .${cfg.cri};
         in
         ''
-          for tarball in ${lib.optionalString (cfg.images == "nix") images.tarball} ${lib.escapeShellArgs cfg.extraImages}; do
+          for tarball in ${
+            builtins.unsafeDiscardStringContext (
+              lib.escapeShellArgs (
+                map (path: "${path}") (lib.optional (cfg.images == "nix") images.tarball ++ cfg.extraImages)
+              )
+            )
+          }; do
             echo "importing $tarball"
             # `-f` so an uncompressed tarball passes straight through: a
             # caller's images need not be gzipped to be listed here.
