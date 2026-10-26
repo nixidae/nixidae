@@ -1,0 +1,44 @@
+conf: in local mode, keep the IPv4 address, prefix and gateway given with -a, -n and -g
+
+With no external interface to use as a template, conf_ip4_local()
+overwrote the guest address, prefix length and gateway with the
+link-local defaults (169.254.2.1/16 via 169.254.2.2), after the options
+had set them. A guest in a network namespace without a default route, as
+in a Nix build sandbox, so got other addresses than it asked for. Now a
+given value wins, as it does with a template interface; only an unset
+one falls back to the link-local default.
+
+--- a/conf.c
++++ b/conf.c
+@@ -435,9 +435,28 @@
+  */
+ static void conf_ip4_local(struct ip4_ctx *ip4)
+ {
+-	ip4->addr_seen = ip4->addr = IP4_LL_GUEST_ADDR;
+-	ip4->our_tap_addr = ip4->guest_gw = IP4_LL_GUEST_GW;
+-	ip4->prefix_len = IP4_LL_PREFIX_LEN;
++	/* An address, prefix length or gateway given with -a, -n or -g wins
++	 * over the link-local default, as it does with a template interface.
++	 */
++	if (IN4_IS_ADDR_UNSPECIFIED(&ip4->addr)) {
++		ip4->addr = IP4_LL_GUEST_ADDR;
++		ip4->prefix_len = IP4_LL_PREFIX_LEN;
++	} else if (!ip4->prefix_len) {
++		in_addr_t addr = ntohl(ip4->addr.s_addr);
++		if (IN_CLASSA(addr))
++			ip4->prefix_len = (32 - IN_CLASSA_NSHIFT);
++		else if (IN_CLASSB(addr))
++			ip4->prefix_len = (32 - IN_CLASSB_NSHIFT);
++		else if (IN_CLASSC(addr))
++			ip4->prefix_len = (32 - IN_CLASSC_NSHIFT);
++		else
++			ip4->prefix_len = 32;
++	}
++	if (IN4_IS_ADDR_UNSPECIFIED(&ip4->guest_gw))
++		ip4->guest_gw = IP4_LL_GUEST_GW;
++
++	ip4->addr_seen = ip4->addr;
++	ip4->our_tap_addr = ip4->guest_gw;
+ 
+ 	ip4->no_copy_addrs = ip4->no_copy_routes = true;
+ }

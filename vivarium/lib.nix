@@ -237,7 +237,7 @@ rec {
       uml = on "uml";
     in
     {
-      passt = "${pkgs.passt}/bin/passt";
+      passt = "${pkgs.callPackage ./pkgs/passt { }}/bin/passt";
     }
     // lib.optionalAttrs (uml != [ ]) {
       kernel = "${(lib.head uml).system.build.umlKernel}/linux";

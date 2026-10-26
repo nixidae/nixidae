@@ -135,7 +135,7 @@ lib.mkIf (cfg.backend == "uml") {
         --kernel ${build.umlKernel}/linux \
         --root-image ${build.vivariumRootImage} \
         --bridge ${lib.getExe build.umlPasstBridge} \
-        --passt ${pkgs.passt}/bin/passt \
+        --passt ${pkgs.callPackage ../pkgs/passt { }}/bin/passt \
         --ssh-port ${toString cfg.sshPort} \
         --forward ${lib.escapeShellArg (builtins.toJSON cfg.forward)} \
         --mem ${cfg.memory} \
