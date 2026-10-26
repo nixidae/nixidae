@@ -23,6 +23,13 @@ def test_root_already_takes_only_a_mount_namespace() -> None:
     assert "--mount" in argv
 
 
+def test_offline_takes_a_network_namespace_too() -> None:
+    # Only lo, as a build sandbox has: passt's local mode, no way out.
+    for root in (False, True):
+        assert "--net" in unshare_argv("/u", root=root, subordinate=False, private_net=True)
+        assert "--net" not in unshare_argv("/u", root=root, subordinate=False)
+
+
 def test_subordinate_ranges_are_summed_by_name_or_uid(tmp_path: Path) -> None:
     subuid = tmp_path / "subuid"
     subuid.write_text("other:1:99999\ncarl:100000:30000\n1000:200000:35536\n")

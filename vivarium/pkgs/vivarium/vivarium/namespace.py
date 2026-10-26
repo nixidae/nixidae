@@ -13,14 +13,24 @@ is root with its ids already, so it takes a mount namespace only.
 
 util-linux's `unshare` does the mapping: ``--map-auto`` calls the host's
 setuid newuidmap, which must run outside the new namespace.
+
+`--offline` adds a private network namespace holding only ``lo``, which is
+what a build sandbox gives a run. passt then finds no interface to copy and
+takes its local mode, and a guest gets no way off the host in either family
+and no ICMP, as in a build. Binding passt's outbound to loopback instead
+left IPv6 out to the internet and copied the host's IPv6 prefix into the
+guest (measured 2026-10-26, nixidae#1094).
 """
 
 from __future__ import annotations
 
+import fcntl
 import os
 import pwd
 import resource
 import shutil
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -30,6 +40,9 @@ from . import runroot
 
 ENTERED = "VIVARIUM_NAMESPACE"
 """Set in the re-executed runner, so it does not enter a second time."""
+
+PRIVATE_NET = "VIVARIUM_PRIVATE_NET"
+"""Set when the runner has its own network namespace, whose lo starts down."""
 
 SUBORDINATE_IDS = 65536
 """What a container guest needs, and what `--map-auto` maps."""
@@ -73,12 +86,24 @@ def user_argv(unshare: str, *, subordinate: bool) -> list[str]:
     return [unshare, "--user", "--map-root-user", *auto]
 
 
-def unshare_argv(unshare: str, *, root: bool, subordinate: bool) -> list[str]:
+def unshare_argv(
+    unshare: str, *, root: bool, subordinate: bool, private_net: bool = False
+) -> list[str]:
     """The `unshare` command line that puts the runner in its namespace."""
-    mount = ["--mount", "--propagation", "private", "--"]
+    net = ["--net"] if private_net else []
+    mount = [*net, "--mount", "--propagation", "private", "--"]
     if root:
         return [unshare, *mount]
     return [*user_argv(unshare, subordinate=subordinate), *mount]
+
+
+def loopback_up() -> None:
+    """Bring `lo` up, as SIOCSIFFLAGS does; a new network namespace has it down."""
+    siocgifflags, siocsifflags, iff_up = 0x8913, 0x8914, 0x1
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        request = struct.pack("16sH22x", b"lo", 0)
+        flags = struct.unpack("16sH22x", fcntl.ioctl(sock, siocgifflags, request))[1]
+        fcntl.ioctl(sock, siocsifflags, struct.pack("16sH22x", b"lo", flags | iff_up))
 
 
 def describe(uid_map: str) -> str:
@@ -115,13 +140,16 @@ def raise_fd_limit() -> None:
         resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
 
 
-def enter(unshare: Path | None) -> None:
+def enter(unshare: Path | None, *, private_net: bool = False) -> None:
     """Re-execute this process in the run's namespace; return inside it.
 
     Call it before any thread starts: the kernel refuses a user namespace
-    to a threaded process.
+    to a threaded process. `private_net` gives the run a network namespace
+    of its own, with only `lo`: `--offline`.
     """
     if os.environ.get(ENTERED):
+        if os.environ.get(PRIVATE_NET):
+            loopback_up()
         return
     if unshare is None:
         raise NamespaceError("the spec names no `unshare`; an older vivarium wrote it")
@@ -131,7 +159,7 @@ def enter(unshare: Path | None) -> None:
     raise_fd_limit()
     uid = os.getuid()
     subordinate = uid != 0 and has_subordinate_ids(pwd.getpwuid(uid).pw_name, uid)
-    shape = {"root": uid == 0, "subordinate": subordinate}
+    shape = {"root": uid == 0, "subordinate": subordinate, "private_net": private_net}
 
     # The same mapping as the run, so the removal may delete what a
     # container guest's subordinate ids own.
@@ -145,6 +173,8 @@ def enter(unshare: Path | None) -> None:
     (root / runroot.OWNERS).write_text(runroot.owners(os.getpid(), cleaner))
 
     os.environ[ENTERED] = "1"
+    if private_net:
+        os.environ[PRIVATE_NET] = "1"
     os.environ[runroot.ENV] = str(root)
     os.environ["TMPDIR"] = str(root)
     argv = unshare_argv(str(unshare), **shape)

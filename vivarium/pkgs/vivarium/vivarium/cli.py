@@ -564,7 +564,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.keep:
             os.environ[runroot.KEEP] = "1"
         # First, before anything boots or any thread starts.
-        namespace.enter(Spec.read(args.spec).unshare)
+        namespace.enter(Spec.read(args.spec).unshare, private_net=args.offline)
         args.out.mkdir(parents=True, exist_ok=True)
         try:
             raise SystemExit(anyio.run(run, args))

@@ -249,16 +249,23 @@ let
         nix run --file . uplink.driver -- --out ./out
         nix run --file . uplink.driver -- --out ./out --offline
 
-    Measured on 2026-09-23, this host, UML backend:
+    and compare both with the build, `nix build --file . uplink`.
+    Measured on 2026-10-26, UML backend, dynhetz and sg1-n3:
 
-        plain      tcp reachable, dns answered
-        --offline  tcp no route,  dns no answer
+        plain      tcp4 reachable, tcp6 reachable, the host's IPv6
+                   prefix on vec0, ping answered, dns answered
+        --offline  tcp4 no route, tcp6 no route, link-local only,
+                   no ping, dns no answer
+        build      the same as --offline, line for line
 
-    `--offline` binds passt's outbound sockets to loopback rather than
-    leaving passt out. The guest keeps its address, its DHCP lease and
-    the host's way in; only the way out goes. Leaving passt out would
-    take vec0 with it, so a test reaching an API server through a forward
-    would fail for a reason that is not the one being reproduced.
+    `--offline` runs the session in a network namespace of its own with
+    only lo, as a build sandbox does (`vivarium/namespace.py`), so passt
+    takes its local mode in both and they cannot drift apart. passt stays:
+    the guest keeps its address, its DHCP lease and the host's way in, and
+    a test reaching an API server through a forward fails, if it fails,
+    for the reason being reproduced. Binding passt's outbound to loopback
+    is not enough on its own: it binds IPv4 only, and IPv6 got out, with
+    the host's prefix copied onto vec0 (nixidae#1094).
   */
   uplink = mkTest {
     name = "uplink";
