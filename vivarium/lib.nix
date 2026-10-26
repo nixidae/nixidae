@@ -414,6 +414,7 @@ rec {
                             `interactive` merged in
         .phases             what would run, in order, without booting
         .nodes, .config     the evaluated guests and run
+        .systems            each guest's NixOS evaluation, for `extendModules`
         .extend { modules; }  the run with more modules
         .uml, .qemu, .container  every guest on that backend
 
@@ -649,6 +650,9 @@ rec {
             attempt
             spec
             nodes
+            ;
+          systems = evaluated;
+          inherit
             driver
             driverDebug
             extend
