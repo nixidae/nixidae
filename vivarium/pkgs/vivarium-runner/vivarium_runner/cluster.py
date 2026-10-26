@@ -633,7 +633,11 @@ async def bring_up(
     installs in the first place: waiting for a pod nobody created hangs
     until the deadline, and not waiting for one that exists lets a test
     start before cluster DNS answers.
+
+    Only guests with `services.vivarium-k8s` enabled are nodes; the rest of
+    the run, a cache guest for one, is left alone.
     """
+    vms = {name: vm for name, vm in vms.items() if vm.spec.kubernetes}
     cp = vms[cp_name]
     workers = [vm for name, vm in vms.items() if name != cp_name]
     if schedulable is None:

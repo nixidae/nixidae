@@ -164,6 +164,7 @@ rec {
       address = machine.vivarium.lan.address;
       interfaces = machine.vivarium.nics;
       forward = machine.vivarium.forward;
+      kubernetes = machine.services.vivarium-k8s.enable or false;
     }
     // (
       if machine.vivarium.image != null then
@@ -356,6 +357,10 @@ rec {
   # nixos-test's shape, mapped onto mkTest; see nixos-test.nix.
   fromNixosTest = import ./nixos-test.nix { inherit pkgs lib mkTest; };
 
+  # The address and key of `vivarium.recipes.cache`, for what a run renders
+  # outside its own evaluation.
+  cacheFacts = import ./modules/recipes/cache-facts.nix;
+
   /**
     A run: guests, and the phases that drive them.
 
@@ -407,6 +412,10 @@ rec {
           # is a recipe nobody finds.
           ./modules/recipes
           module
+          # Each guest's NixOS evaluation, for `extendModules`: a system a
+          # guest can switch to, the one it booted plus a module. Lazy, as
+          # `nodes` is for guests.
+          { _module.args.systems = evaluated; }
         ];
         specialArgs = { inherit pkgs; };
       };

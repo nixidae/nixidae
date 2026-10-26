@@ -920,6 +920,24 @@ let
       Can an unprivileged, read-only reader open the guest's Nix
       database, as on a running host? harmonia's cache is one.
     */
+    # `vivarium.recipes.cache`: a guest fetches what only the cache guest
+    # holds, and a path nobody holds fails at once.
+    cache = mkTest {
+      name = "cache";
+      vivarium.recipes.cache = {
+        enable = true;
+        roots = [ "${pkgs.hello}" ];
+      };
+      nodes.client = { };
+      # A string, not a store path: `settings` registers what it names in
+      # every guest, and `client` must not have it.
+      settings.hello = builtins.unsafeDiscardStringContext "${pkgs.hello}";
+      phases.cache = {
+        script = ./tests/phases/cache.py;
+        after = [ "boot" ];
+      };
+    };
+
     nix-db = mkTest {
       name = "nix-db";
       nodes.one =

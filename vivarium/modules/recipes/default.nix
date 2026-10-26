@@ -13,5 +13,6 @@
 {
   imports = [
     ./boot.nix
+    ./cache.nix
   ];
 }

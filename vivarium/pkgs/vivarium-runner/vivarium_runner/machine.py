@@ -155,6 +155,9 @@ class MachineSpec:
     guest's Nix database already holds."""
     interfaces: tuple[Interface, ...] = ()
     """The guest's segment links, in NIC order."""
+    kubernetes: bool = False
+    """`services.vivarium-k8s.enable`: whether `cluster.bring_up` makes
+    this guest a node. A run's cache guest, for one, is not."""
     forward: tuple[forward.Rule, ...] = ()
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
@@ -180,6 +183,7 @@ class MachineSpec:
             boot=data.get("boot", {}),
             toplevel=data.get("toplevel"),
             configurations=data.get("configurations", {}),
+            kubernetes=data.get("kubernetes", False),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             forward=tuple(
                 forward.Rule.from_json(rule) for rule in data.get("forward", [])

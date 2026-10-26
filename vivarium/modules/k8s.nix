@@ -346,18 +346,13 @@ let
     means CoreDNS and nothing else, long after the nodes all went Ready.
   */
   /*
-    `ipMasq` follows `services.vivarium-k8s.images`.
-
-    Under `"nix"` a pod has nowhere to go: the node holds every image it
-    will ever run and the guest is in a build sandbox, so masquerading pod
-    traffic out of `vec0` would add a rule nothing ever matches.
-
-    Under `"pull"` it is the difference between a working cluster and a
-    silent one. Pods live on `cni0` in the node's podCIDR, and without
-    SNAT nothing they send past the node is ever answered. Measured: with
-    it off, nixkube's init container spends its life on "Resolving timed
-    out after 15000 milliseconds" and the DaemonSet never rolls out --
-    with no error anywhere naming a route.
+    `ipMasq` always. Pods live on `cni0` in the node's podCIDR, and without
+    SNAT nothing they send past the node is ever answered: not the
+    registry under `images = "pull"`, and not the cache guest of
+    `vivarium.recipes.cache` under either mode. Measured: with it off,
+    nixkube's init container spends its life on "Resolving timed out after
+    15000 milliseconds" and the DaemonSet never rolls out -- with no error
+    anywhere naming a route.
   */
   cniSetup = pkgs.writeShellApplication {
     name = "vivarium-k8s-cni";
@@ -377,7 +372,7 @@ let
             "bridge": "cni0",
             "isDefaultGateway": true,
             "hairpinMode": true,
-            "ipMasq": ${if cfg.images == "nix" then "false" else "true"},
+            "ipMasq": true,
             "ipam": {
               "type": "host-local",
               "ranges": [ [ { "subnet": "$1" } ] ]
