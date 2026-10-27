@@ -100,11 +100,11 @@
     "kr8s": {
       "flake": false,
       "locked": {
-        "lastModified": 1791648761,
-        "narHash": "sha256-CMrxDyxbpaEFSFi/WCPliAlr5BDeWE4nCKJWC8KbkPE=",
+        "lastModified": 1793116073,
+        "narHash": "sha256-28qLgYbZK87qqg8TPZejfFWA1T02w/anmmI86DAX2Sg=",
         "owner": "Lillecarl",
         "repo": "kr8s",
-        "rev": "45b1415396ae75e6bc297471451f61af697df821",
+        "rev": "7fa3b997a24a3875918c62ced080af63cf3593ac",
         "type": "github"
       },
       "original": {
