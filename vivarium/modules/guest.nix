@@ -182,6 +182,26 @@ in
     );
   };
 
+  # No duplicate address detection on a segment. The evaluation assigns
+  # every address on it, so detection can find no conflict that was not
+  # already an evaluation error, and until it finishes an IPv6 address is
+  # tentative and cannot be bound: kubeadm's preflight on an IPv6 node
+  # failed with "Port 2379 is in use" on its own address, before etcd
+  # existed.
+  systemd.network.networks = {
+    # The resolver passt advertises stays off vec0; see below.
+    "40-vec0" = {
+      dhcpV4Config.UseDNS = false;
+      dhcpV6Config.UseDNS = false;
+      ipv6AcceptRAConfig.UseDNS = false;
+    };
+  }
+  // lib.listToAttrs (
+    map (
+      nic: lib.nameValuePair "40-${nic.name}" { networkConfig.IPv6DuplicateAddressDetection = 0; }
+    ) cfg.nics
+  );
+
   # Each segment interface by its MAC, which the runner gives NIC n of
   # guest i as 52:54:00:12:n:i. UML names it `vecN` and QEMU after its PCI
   # slot; the guest renames either. A container's tap has its name already.
@@ -200,12 +220,7 @@ in
   # decides, which is the non-determinism `nameservers` is here to remove.
   # All three, because passt advertises a resolver over DHCPv4, over
   # DHCPv6 and in a router advertisement, and one of them left open puts
-  # the address back on the link.
-  systemd.network.networks."40-vec0" = {
-    dhcpV4Config.UseDNS = false;
-    dhcpV6Config.UseDNS = false;
-    ipv6AcceptRAConfig.UseDNS = false;
-  };
+  # the address back on the link. Set in `systemd.network.networks` above.
 
   # vec0 gets its address from passt within a second; blocking boot on a
   # 90s timeout only ever makes tests slower.
