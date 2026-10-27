@@ -926,6 +926,13 @@ in
         # warning; saying 3 outright means the sections below land where
         # they are read rather than where they used to be.
         version = lib.mkForce 3;
+        # nixpkgs' containerd module writes a version 2 default here,
+        # `cni.bin_dir`, and containerd 2.4 honours it over `bin_dirs`
+        # below: an external CNI's plugin in /opt/cni/bin was never found
+        # ("failed to find plugin cilium-cni in path [<cni-plugins>/bin]").
+        # Everything this file needs from that table it says in the
+        # version 3 sections.
+        plugins."io.containerd.grpc.v1.cri" = lib.mkForce { };
         plugins."io.containerd.cri.v1.runtime" = {
           containerd.runtimes = {
             runc.options.SystemdCgroup = true;
