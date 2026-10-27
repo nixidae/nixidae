@@ -23,6 +23,7 @@ bridge is not in the picture and the runner starts passt directly.
 
 from __future__ import annotations
 
+import itertools
 import json
 import mmap
 import os
@@ -483,14 +484,25 @@ class Qemu:
         # QEMU's image lock is an OFD lock: it belongs to the open file
         # description, which outlives the QEMU that took it. So a reboot
         # opens the unlinked image afresh and lets the old descriptions go.
+        boot = boot or spec.boot
+        efi = boot.get("efi")
         if disk_fds:
             disk_fds = tuple(
                 os.open(f"/proc/self/fd/{fd}", flags)
-                for fd, flags in zip(disk_fds, (os.O_RDWR, os.O_RDONLY))
+                for fd, flags in zip(
+                    disk_fds, itertools.cycle((os.O_RDWR, os.O_RDONLY))
+                )
             )
+            opened.extend(disk_fds)
         else:
             disk_fds = self._scratch_disk(tools, rundir, spec.image)
-        opened.extend(disk_fds)
+            opened.extend(disk_fds)
+            if efi:
+                esp_fds = self._scratch_disk(
+                    tools, rundir, Path(efi["esp"]), backing="qcow2"
+                )
+                opened.extend(esp_fds)
+                disk_fds += esp_fds
 
         passt_fd, passt_proc = self._passt(
             tools, rundir, machine.forward, machine.offline
@@ -498,7 +510,6 @@ class Qemu:
         helpers.append(passt_proc)
         opened.append(passt_fd)
 
-        boot = boot or spec.boot
         argv = [
             str(tools.qemu),
             "-machine", "q35,accel=kvm,memory-backend=guest-memory",
@@ -514,9 +525,6 @@ class Qemu:
             # virtiofsd connects and every read returns nothing.
             "-object",
             f"memory-backend-memfd,id=guest-memory,size={spec.memory},share=on",
-            "-kernel", boot["kernel"],
-            "-initrd", boot["initrd"],
-            "-append", f"{boot['cmdline']} init={boot['toplevel']}/init",
             # The root, as /dev/vda, by fd rather than by name -- see
             # _scratch_disk. Two fds in the set because QEMU opens an
             # image O_RDONLY to probe its format before reopening it
@@ -531,7 +539,10 @@ class Qemu:
             # The control channel: the same socketpair UML gets on ssl0.
             "-chardev", f"socket,id=agent,fd={agent_fd}",
             "-device", "virtio-serial",
-            "-device", "virtconsole,chardev=agent",
+            "-device",
+            "virtserialport,chardev=agent,name=vivarium-agent"
+            if boot.get("efi")
+            else "virtconsole,chardev=agent",
             "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}",
             "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
             # The guest tells QEMU which pages it has freed and QEMU
@@ -543,6 +554,28 @@ class Qemu:
             # rather than waiting for the guest to volunteer one.
             "-qmp", f"unix:{sockets}/qmp,server=on,wait=off",
         ]
+        # A firmware boot has no kernel: systemd-boot on the ESP picks one.
+        if boot.get("kernel"):
+            argv += [
+                "-kernel", boot["kernel"],
+                "-initrd", boot["initrd"],
+                "-append", f"{boot['cmdline']} init={boot['toplevel']}/init",
+            ]
+        if efi:
+            # The variables outlive each QEMU, as NVRAM outlives a reset:
+            # bootctl's boot entry and systemd-boot's LoaderEntryDefault are
+            # there.
+            variables = rundir / "efivars.fd"
+            if not variables.exists():
+                shutil.copyfile(efi["variables"], variables)
+                variables.chmod(0o600)
+            argv += [
+                "-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={efi['firmware']}",
+                "-drive", f"if=pflash,format=raw,unit=1,file={variables}",
+                "-add-fd", f"fd={disk_fds[2]},set=2",
+                "-add-fd", f"fd={disk_fds[3]},set=2",
+                "-drive", "file=/dev/fdset/2,if=virtio,format=qcow2",
+            ]
         if display := boot.get("display"):
             argv += [
                 # `-display none` stays: screendump reads the device's

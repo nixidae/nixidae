@@ -48,7 +48,10 @@ lib.mkIf (lib.elem cfg.backend [
   # until its driver loads -- so a panic before that would be invisible.
   # The agent takes hvc0 instead. libkrun's port is not a console, so it
   # never becomes hvc0, and udev links it by the name the launcher gave it.
-  vivarium.agentDevice = if krun then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
+  # Under OVMF the console port stops delivering what the host sends once
+  # Linux has it; a named port does not.
+  vivarium.agentDevice =
+    if krun || cfg.efi then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
 
   # libkrun's x86 machine has no ACPI, so a poweroff only halts the CPU,
   # and the libkrun process stays up at 100% of a core until something
@@ -162,6 +165,68 @@ lib.mkIf (lib.elem cfg.backend [
     fsType = "ext4";
   };
 
+  /*
+    The EFI system partition for `vivarium.efi`, on a disk of its own so
+    the root stays one ext4 without a partition table.
+
+    GPT with the ESP type, because `bootctl install` refuses a vfat that is
+    not on one. qcow2, because the store keeps no holes and the raw image
+    is 512 MiB of them; the runner layers a scratch qcow2 over it as over
+    the root.
+  */
+  system.build.vivariumEspImage = pkgs.runCommand "qemu-esp-image" {
+    nativeBuildInputs = [ pkgs.util-linux pkgs.dosfstools pkgs.qemu-utils ];
+  } ''
+    truncate -s 512M esp.img
+    echo 'label: gpt
+    start=2048, size=1044480, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP' | sfdisk --quiet esp.img
+    mkfs.vfat -F 32 -n ESP --offset 2048 esp.img 522240 >/dev/null
+    qemu-img convert -f raw -O qcow2 esp.img $out
+  '';
+
+  fileSystems."/boot" = lib.mkIf cfg.efi {
+    device = "/dev/disk/by-partlabel/ESP";
+    fsType = "vfat";
+    options = [ "umask=0077" ];
+  };
+
+  boot.loader.efi.canTouchEfiVariables = lib.mkIf cfg.efi true;
+
+  /*
+    The first boot is a direct kernel boot, with an empty ESP. This makes
+    the booted system generation 1 and installs systemd-boot for it, as
+    an installer would, so the next boot is the firmware's. The ESP lives
+    as long as the run, so a reboot skips it.
+
+    Before the agent, so a test never sees the guest up with no
+    bootloader.
+  */
+  systemd.services.vivarium-install-bootloader = lib.mkIf cfg.efi {
+    description = "Install systemd-boot for the booted system";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "vivarium-agent.service" ];
+    unitConfig = {
+      RequiresMountsFor = [
+        "/boot"
+        "/nix/var/nix"
+      ];
+      ConditionPathExists = "!/boot/loader/loader.conf";
+    };
+    environment.NIXOS_INSTALL_BOOTLOADER = "1";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [
+      config.nix.package
+      pkgs.coreutils
+    ];
+    script = ''
+      nix-env --profile /nix/var/nix/profiles/system --set "$(readlink -f /run/current-system)"
+      /run/current-system/bin/switch-to-configuration boot
+    '';
+  };
+
   fileSystems."/host/nix" = {
     device = "nix";
     fsType = "virtiofs";
@@ -262,6 +327,13 @@ lib.mkIf (lib.elem cfg.backend [
     cmdline = lib.concatStringsSep " " config.boot.kernelParams;
     nested = cfg.nestedVirtualization;
     display = if cfg.display.enable then { inherit (cfg.display) width height; } else null;
+  }
+  // lib.optionalAttrs cfg.efi {
+    efi = {
+      firmware = "${pkgs.OVMF.firmware}";
+      variables = "${pkgs.OVMF.variables}";
+      esp = "${config.system.build.vivariumEspImage}";
+    };
   }
   // lib.optionalAttrs krun { vmlinux = "${vmlinux}"; };
 

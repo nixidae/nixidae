@@ -116,6 +116,10 @@ let
       description = "a guest reboots into the system its bootloader names";
       timeoutMinutes = 15;
     };
+    boot-counting = {
+      description = "systemd-boot falls back from an entry that never completes a boot";
+      timeoutMinutes = 20;
+    };
     containerd = {
       description = "a container runs, out of the host's store";
       timeoutMinutes = 45;

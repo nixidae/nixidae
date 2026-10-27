@@ -31,10 +31,11 @@ in
   # keeps the initrd and the modprobe script. See qemu.nix.
   boot.initrd.enable = lib.mkIf (cfg.backend == "uml") false;
   boot.loader.grub.enable = false;
-  boot.loader.systemd-boot.enable = false;
-  # A QEMU guest's bootloader is the runner: after a reboot it boots the
-  # bootspec this writes. See `Machine._watch` in vivarium-runner.
-  system.build.installBootLoader =
+  boot.loader.systemd-boot.enable = cfg.efi;
+  # Without `vivarium.efi`, a QEMU guest's bootloader is the runner: after
+  # a reboot it boots the bootspec this writes. See `Machine._watch` in
+  # vivarium-runner.
+  system.build.installBootLoader = lib.mkIf (!cfg.efi) (
     if cfg.backend == "qemu" then
       pkgs.writeShellScript "vivarium-install-bootloader" ''
         if [ -e "$1/boot.json" ] && ${lib.getExe' pkgs.util-linux "mountpoint"} -q /artifacts; then
@@ -42,7 +43,8 @@ in
         fi
       ''
     else
-      lib.getExe' pkgs.coreutils "true";
+      lib.getExe' pkgs.coreutils "true"
+  );
   # A container has no modules either, and NixOS defines no modprobe
   # script under `boot.isContainer`, so the entry must still get a text.
   system.activationScripts.modprobe.text = lib.mkIf (!lib.elem cfg.backend [ "qemu" "krun" ]) (

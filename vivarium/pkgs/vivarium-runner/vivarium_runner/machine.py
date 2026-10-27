@@ -507,6 +507,8 @@ class Machine:
 
     def _bootloader(self) -> dict | None:
         """The spec's boot, with what the guest's bootloader chose since."""
+        if "efi" in self.spec.boot:
+            return {**self.spec.boot, "kernel": None}
         path = self.artifacts / BOOTLOADER if self.artifacts is not None else None
         if path is None or not path.exists():
             return None
@@ -521,8 +523,12 @@ class Machine:
 
     async def _reboot(self) -> None:
         """The process-scoped half of `shutdown`, then `_boot` on the same disk."""
-        boot = self._bootloader()
-        self._log(f"rebooting into {(boot or self.spec.boot)['toplevel']}")
+        boot = self._bootloader() or self.spec.boot
+        self._log(
+            f"rebooting into {boot['toplevel']}"
+            if boot.get("kernel")
+            else "rebooting through the firmware"
+        )
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -533,7 +539,7 @@ class Machine:
             self._console.get_nowait()
         self._process = None
         self.lan_fds = dict(self._lan_kept)
-        await self._boot(boot or self.spec.boot)
+        await self._boot(boot)
 
 
     async def shutdown(self) -> None:

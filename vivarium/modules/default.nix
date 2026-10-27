@@ -298,6 +298,26 @@ in
       '';
     };
 
+    efi = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Boot the guest through UEFI firmware and systemd-boot, as an
+        installed machine boots. QEMU backend only.
+
+        The guest gets OVMF, a variable store that lives as long as the
+        run, and a second disk with an EFI system partition on `/boot`.
+        The first boot loads the kernel directly, and a unit installs
+        systemd-boot for the booted system before the agent comes up.
+        Each later boot is the firmware's: systemd-boot picks the entry,
+        so `boot.loader.systemd-boot` options such as `bootCounting` take
+        effect.
+
+        Off, the runner is the bootloader: after a reboot it boots the
+        bootspec that the guest's last `switch-to-configuration` wrote.
+      '';
+    };
+
     display = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -671,6 +691,13 @@ in
           vivarium.nestedVirtualization needs `backend = "qemu"` or "krun": a
           ${config.vivarium.backend} guest has no virtual CPU to expose vmx or
           svm on.
+        '';
+      }
+      {
+        assertion = config.vivarium.efi -> config.vivarium.backend == "qemu";
+        message = ''
+          vivarium.efi needs `backend = "qemu"`: OVMF is QEMU's firmware, and a
+          ${config.vivarium.backend} guest boots without firmware.
         '';
       }
       {
