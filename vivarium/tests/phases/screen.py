@@ -11,6 +11,7 @@ wait for text that never comes fails with what OCR read, and `blind`,
 with no display, refuses.
 """
 
+import re
 import struct
 
 import anyio
@@ -71,7 +72,12 @@ async def test(vms: Machines) -> None:
     )
     devices = await desk.succeed("cat /proc/bus/input/devices")
     block = next(b for b in devices.split("\n\n") if "Virtio Tablet" in b)
-    tablet = next(w for w in block.split() if w.startswith("event"))
+    # `Handlers=event4` when the tablet has no mouse handler, so a word
+    # split never sees one that starts with `event`.
+    found = re.search(r"\bevent\d+", block)
+    if found is None:
+        raise AssertionError(f"no event node for the tablet in {block!r}")
+    tablet = found[0]
 
     # Read the tablet's events while the click happens.
     captured: list[list[tuple[int, int, int]]] = []
