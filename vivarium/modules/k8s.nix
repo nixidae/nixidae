@@ -1210,6 +1210,12 @@ in
       "net.bridge.bridge-nf-call-iptables" = 1;
       "net.bridge.bridge-nf-call-ip6tables" = 1;
       "net.ipv4.ip_forward" = 1;
+      # kubeadm's preflight refuses an IPv6 or dual-stack node without
+      # these ("/proc/sys/net/ipv6/conf/default/forwarding contents are
+      # not set to 1"), and pod traffic needs them as IPv4 needs the line
+      # above.
+      "net.ipv6.conf.all.forwarding" = 1;
+      "net.ipv6.conf.default.forwarding" = 1;
       # Go runtimes reserve far more address space than they touch, which
       # on a 1 GB guest the default heuristic refuses.
       "vm.overcommit_memory" = 1;
