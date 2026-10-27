@@ -143,14 +143,21 @@ let
     kubeletconfiguration and corednsdeployment.  kube-proxy is not among
     them -- see `bring_up`.
   */
-  kubeadmPatches = pkgs.runCommand "kubeadm-patches" { } ''
-    mkdir -p $out
-    cp ${podPatch "etcd"} $out/etcd+strategic.yaml
-    cp ${podPatch "kube-apiserver"} $out/kube-apiserver+strategic.yaml
-    cp ${podPatch "kube-controller-manager"} $out/kube-controller-manager+strategic.yaml
-    cp ${podPatch "kube-scheduler"} $out/kube-scheduler+strategic.yaml
-    cp ${deploymentPatch "coredns"} $out/corednsdeployment+strategic.yaml
-  '';
+  storePatches = lib.optionalAttrs (cfg.images == "nix") {
+    "etcd+strategic.yaml" = podPatch "etcd";
+    "kube-apiserver+strategic.yaml" = podPatch "kube-apiserver";
+    "kube-controller-manager+strategic.yaml" = podPatch "kube-controller-manager";
+    "kube-scheduler+strategic.yaml" = podPatch "kube-scheduler";
+    "corednsdeployment+strategic.yaml" = deploymentPatch "coredns";
+  };
+  patchFiles = storePatches // cfg.kubeadmPatches;
+  kubeadmPatches = pkgs.linkFarm "kubeadm-patches" (
+    lib.mapAttrsToList (name: path: { inherit name path; }) patchFiles
+  );
+  # kubeadm reads patches only where a configuration names a directory.
+  withPatches = lib.optionalAttrs (patchFiles != { }) {
+    patches.directory = "${kubeadmPatches}";
+  };
 
   nodeRegistration = {
     criSocket = criSocket;
@@ -201,11 +208,7 @@ let
       };
       inherit nodeRegistration timeouts;
     }
-    // lib.optionalAttrs (cfg.images == "nix") {
-      # Where the store mount comes from -- see `kubeadmPatches`. An
-      # upstream image needs no such thing.
-      patches.directory = "${kubeadmPatches}";
-    }
+    // withPatches
     // lib.optionalAttrs (cfg.skipAddons != [ ]) {
       skipPhases = map (addon: "addon/${addon}") cfg.skipAddons;
     }
@@ -415,9 +418,7 @@ let
         caCertHashes = [ hash ];
       };
       }
-      // lib.optionalAttrs (cfg.images == "nix") {
-        patches.directory = "${kubeadmPatches}";
-      }
+      // withPatches
     );
 
   joinNode = pkgs.writeShellApplication {
@@ -791,6 +792,25 @@ in
       '';
     };
 
+    kubeadmPatches = lib.mkOption {
+      type = lib.types.attrsOf lib.types.path;
+      default = { };
+      example = lib.literalExpression ''
+        { "kube-apiserver1+json.json" = ./apiserver-args.json; }
+      '';
+      description = ''
+        More kubeadm patches, keyed by file name: what kubeadm changes in
+        the static pods and the CoreDNS Deployment it writes.
+
+        The name is kubeadm's `<target>[suffix][+patchtype].<extension>`,
+        and kubeadm applies a target's patches in name order. A `+json`
+        patch can append to `command`; a strategic one replaces the whole
+        list. Under `images = "nix"` this module writes
+        `<target>+strategic.yaml` for the four static pods and
+        `corednsdeployment`, so a patch of your own takes a suffix.
+      '';
+    };
+
     persistentVolumes = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 0;
@@ -830,6 +850,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = lib.all (name: !storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches);
+        message = "services.vivarium-k8s.kubeadmPatches: ${lib.concatStringsSep ", " (lib.filter (name: storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches))} would replace the store mount this module patches in; add a suffix to the target.";
+      }
       {
         assertion = !(lib.elem "runsc" cfg.runtimes && config.vivarium.backend == "uml");
         message = "services.vivarium-k8s.runtimes: runsc (gVisor) does not start under UML; use the qemu backend.";
