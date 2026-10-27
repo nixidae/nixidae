@@ -27,9 +27,12 @@ from structlog.testing import capture_logs
 
 from kappy.apply import KindNotServedError
 from kappy.converge import (
+    AFTER_ANNOTATION,
     RECREATE_OPT_OUT_ANNOTATION,
+    AfterRef,
     Disposition,
     _wait_before_retrying,  # pyright: ignore[reportPrivateUsage]
+    after_refs,
     classify,
     converge_barrier,
     converge_objects,
@@ -894,3 +897,108 @@ class TestTheRetryDelay:
         """`MAX_BACKOFF_SECONDS` caps our guess. Capping the API server's
         instruction is just ignoring it more politely."""
         assert _wait_before_retrying(0, 120.0) == 120.0
+
+
+class TestAfter:
+    """`kappy.dev/after`: what the API server accepts and a controller then
+    abandons. A CloudNativePG Cluster accepted before its role's password
+    Secret existed never retried the role (T4086), so the Cluster waits."""
+
+    SECRET: ClassVar[str] = (
+        '[{"apiVersion": "v1", "kind": "Secret", "namespace": "postgres", "name": "keycloak-pg-app"}]'
+    )
+
+    def gated(self) -> Manifest:
+        return manifest(kind="Cluster", name="postgres", annotations={AFTER_ANNOTATION: self.SECRET})
+
+    def test_it_reads_the_annotation(self) -> None:
+        assert after_refs(self.gated()) == (AfterRef("v1", "Secret", "postgres", "keycloak-pg-app"),)
+        assert after_refs(manifest()) == ()
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "not json",
+            '{"kind": "Secret"}',
+            '[{"kind": "Secret", "name": "x"}]',
+            '[{"apiVersion": "v1", "kind": "Secret", "name": 3}]',
+        ],
+    )
+    def test_a_malformed_annotation_names_itself(self, raw: str) -> None:
+        with pytest.raises(ValueError, match="."):
+            after_refs(manifest(annotations={AFTER_ANNOTATION: raw}))
+
+    async def test_it_waits_past_the_settle_window_without_sending(self) -> None:
+        """The Secret appears after the settle window would have given up,
+        and the Cluster is sent once, after it does."""
+        now = [0.0]
+        sent: list[str] = []
+
+        async def apply(spec: Manifest) -> APIObject:
+            sent.append(object_key(spec)[2])
+            return applied_object()
+
+        async def gate(_spec: Manifest) -> tuple[str, ...]:
+            return () if now[0] >= 120.0 else ("Secret/postgres/keycloak-pg-app",)
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            [self.gated()],
+            apply=apply,
+            gate=gate,
+            settle_seconds=5.0,
+            wait_seconds=600.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert report.ok
+        assert sent == ["postgres"]
+        assert now[0] >= 120.0
+
+    async def test_a_dependency_that_never_appears_is_reported_by_name(self) -> None:
+        now = [0.0]
+        sent: list[str] = []
+
+        async def apply(spec: Manifest) -> APIObject:
+            sent.append(object_key(spec)[2])
+            return applied_object()
+
+        async def gate(_spec: Manifest) -> tuple[str, ...]:
+            return ("Secret/postgres/keycloak-pg-app",)
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            [self.gated()],
+            apply=apply,
+            gate=gate,
+            wait_seconds=60.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert sent == [], "a waiting object reached the API server"
+        assert [failure.key for failure in report.failures] == [("default", "Cluster", "postgres")]
+        assert "waiting for Secret/postgres/keycloak-pg-app" in report.failures[0].error
+        assert now[0] >= 60.0
+
+    async def test_a_malformed_annotation_fails_at_once(self) -> None:
+        async def apply(_spec: Manifest) -> APIObject:
+            return applied_object()
+
+        async def gate(spec: Manifest) -> tuple[str, ...]:
+            return tuple(ref.describe() for ref in after_refs(spec))
+
+        report = await converge_queue(
+            [manifest(annotations={AFTER_ANNOTATION: "not json"})],
+            apply=apply,
+            gate=gate,
+            sleep=_no_sleep,
+        )
+
+        assert [failure.disposition for failure in report.failures] == [Disposition.TERMINAL]
+        assert AFTER_ANNOTATION in report.failures[0].error

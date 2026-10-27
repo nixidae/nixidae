@@ -25,7 +25,14 @@ from .apply import (
     ssa_apply,
     with_environment_label,
 )
-from .converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, ConvergeReport, converge_queue
+from .converge import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_SETTLE_SECONDS,
+    DEFAULT_WAIT_SECONDS,
+    ConvergeReport,
+    after_refs,
+    converge_queue,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -33,7 +40,7 @@ if TYPE_CHECKING:
     from kr8s.asyncio import Api
     from kr8s.asyncio.objects import APIObject
 
-    from .apply import ApplyCache, Manifest
+    from .apply import ApplyCache, JsonValue, Manifest
 
 _log = structlog.get_logger()
 
@@ -140,6 +147,49 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     return should_skip
 
 
+def _gater(api: Api):
+    """The gate step: what an object is `after` that does not exist yet.
+
+    Asked only of an object that does not exist itself. The annotation orders
+    a creation; an object already on the cluster is updated whatever its
+    dependencies are doing now.
+
+    A kind the cluster does not serve yet, for the object, gates nothing:
+    the apply raises the same `KindNotServedError`, which retries, and the
+    gate is asked again on the next sweep. For a dependency it counts as
+    missing, which it is.
+    """
+
+    async def gate(spec: Manifest) -> tuple[str, ...]:
+        refs = after_refs(spec)
+        if not refs:
+            return ()
+        try:
+            obj = await build_object(spec, api)
+        except KindNotServedError:
+            return ()
+        if await obj.async_exists():
+            return ()
+        missing: list[str] = []
+        for ref in refs:
+            metadata: dict[str, JsonValue] = {"name": ref.name}
+            if ref.namespace is not None:
+                metadata["namespace"] = ref.namespace
+            try:
+                dependency = await build_object(
+                    {"apiVersion": ref.api_version, "kind": ref.kind, "metadata": metadata},
+                    api,
+                )
+            except KindNotServedError:
+                missing.append(ref.describe())
+                continue
+            if not await dependency.async_exists():
+                missing.append(ref.describe())
+        return tuple(missing)
+
+    return gate
+
+
 def _deleter(api: Api):
     """A delete that does not return until the object is gone.
 
@@ -182,6 +232,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
     unit_label: str,
     concurrency: int = DEFAULT_CONCURRENCY,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
+    wait_seconds: float = DEFAULT_WAIT_SECONDS,
     allow_recreate: bool = False,
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
@@ -231,10 +282,12 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
         )
         if cache is not None and cache.assume_unchanged
         else None,
+        gate=_gater(api),
         delete=_deleter(api) if allow_recreate else None,
         resource_priority=resource_priority,
         concurrency=concurrency,
         settle_seconds=settle_seconds,
+        wait_seconds=wait_seconds,
         allow_recreate=allow_recreate,
     )
     return report, desired

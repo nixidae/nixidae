@@ -19,6 +19,7 @@ failure slowly instead of quickly. Issue nixidae/nixidae#450.
 from __future__ import annotations
 
 import enum
+import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from http import HTTPStatus
@@ -72,6 +73,31 @@ report, not a delete to perform.
 
 RECREATE_OPT_OUT_ANNOTATION = "kappy.dev/no-recreate"
 """Set on an object to keep `--allow-recreate` away from it by name."""
+
+AFTER_ANNOTATION = "kappy.dev/after"
+"""Objects that must exist before this one is created, as a JSON list.
+
+Each entry is `{"apiVersion", "kind", "namespace", "name"}`, `namespace`
+null for a cluster-scoped object. easykubenix renders it from `ekn.after`.
+
+For what the API server accepts and a controller then abandons. Retrying
+covers what the API server refuses; it cannot see a CloudNativePG Cluster
+that was accepted before its role's password Secret existed, recorded the
+role as `cannotReconcile`, and never looked again (measured on
+solid-kubernetes' vivlab, T4086). Holding the Cluster until the Secret
+exists is the fix, and naming the dependency is the only way to know it.
+
+On creation only: an object that already exists is never held, so a
+dependency that goes away later cannot block an update.
+"""
+
+DEFAULT_WAIT_SECONDS = 900.0
+"""How long objects may wait for what they are `after` before this gives up.
+
+Minutes, not the settle window's seconds. On a fresh vivlab cluster the
+Secret above appeared about ten minutes into the first apply, behind the
+CNI, External Secrets' images and its webhook.
+"""
 
 
 class Disposition(enum.Enum):
@@ -188,6 +214,18 @@ class SkipCheck(Protocol):
     """
 
     def __call__(self, spec: Manifest, /) -> Awaitable[bool]: ...
+
+
+class GateCheck(Protocol):
+    """Name what an object is still waiting for, or nothing.
+
+    The dependencies an object declares in `AFTER_ANNOTATION` that do not
+    exist yet, as `Kind/namespace/name` strings; empty when the object may be
+    applied, including when it exists already. Injected, like `SkipCheck`,
+    because only the caller holds an `Api` to ask.
+    """
+
+    def __call__(self, spec: Manifest, /) -> Awaitable[tuple[str, ...]]: ...
 
 
 class DeleteOne(Protocol):
@@ -522,6 +560,64 @@ def may_recreate(spec: Manifest) -> bool:
     return RECREATE_OPT_OUT_ANNOTATION not in annotations
 
 
+@dataclass(frozen=True)
+class AfterRef:
+    """One object another one is `after` (see `AFTER_ANNOTATION`)."""
+
+    api_version: str
+    kind: str
+    namespace: str | None
+    name: str
+
+    def describe(self) -> str:
+        return f"{self.kind}/{self.namespace}/{self.name}" if self.namespace else f"{self.kind}/{self.name}"
+
+
+def after_refs(spec: Manifest) -> tuple[AfterRef, ...]:
+    """What `spec` declares it is `after`; empty when it declares nothing.
+
+    Raises `ValueError` naming the problem when the annotation is not a JSON
+    list of `{"apiVersion", "kind", "namespace", "name"}` objects.
+    """
+    metadata_value = spec.get("metadata") or {}
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+    annotations_value = metadata.get("annotations") or {}
+    annotations = annotations_value if isinstance(annotations_value, dict) else {}
+    raw = annotations.get(AFTER_ANNOTATION)
+    if raw is None:
+        return ()
+    if not isinstance(raw, str):
+        msg = "is not a string"
+        raise ValueError(msg)
+    try:
+        entries: JsonValue = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        msg = f"is not JSON: {exc}"
+        raise ValueError(msg) from exc
+    if not isinstance(entries, list):
+        msg = "is not a JSON list"
+        raise ValueError(msg)
+    refs: list[AfterRef] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            msg = f"entry {entry!r} is not an object"
+            raise ValueError(msg)
+        api_version, kind, namespace, name = (
+            entry.get("apiVersion"),
+            entry.get("kind"),
+            entry.get("namespace"),
+            entry.get("name"),
+        )
+        if not (isinstance(api_version, str) and isinstance(kind, str) and isinstance(name, str)):
+            msg = f"entry {entry!r} needs apiVersion, kind and name as strings"
+            raise ValueError(msg)
+        if namespace is not None and not isinstance(namespace, str):
+            msg = f"entry {entry!r} has a namespace that is not a string"
+            raise ValueError(msg)
+        refs.append(AfterRef(api_version, kind, namespace, name))
+    return tuple(refs)
+
+
 def settled(last_progress: float, now: float, settle_seconds: float) -> bool:
     """True when the barrier has stopped making progress.
 
@@ -567,6 +663,12 @@ class _Pass:
     applied: int = 0
     skipped: int = 0
     retry: list[Manifest] = field(default_factory=list[Manifest])
+    waiting: list[Manifest] = field(default_factory=list[Manifest])
+    """Objects held back because something they are `after` is missing.
+
+    Never sent to the API server, and never progress: the settle timer
+    ignores them, and `wait_seconds` bounds them instead.
+    """
     terminal: dict[tuple[str, str, str], Failure] = field(default_factory=dict[tuple[str, str, str], Failure])
     last_error: dict[tuple[str, str, str], str] = field(default_factory=dict[tuple[str, str, str], str])
     diagnoses: dict[tuple[str, str, str], Diagnosis] = field(default_factory=dict[tuple[str, str, str], Diagnosis])
@@ -610,8 +712,10 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     resource_priority: Mapping[str, int] | None = None,
     delete: DeleteOne | None = None,
     should_skip: SkipCheck | None = None,
+    gate: GateCheck | None = None,
     concurrency: int = DEFAULT_CONCURRENCY,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
+    wait_seconds: float = DEFAULT_WAIT_SECONDS,
     allow_recreate: bool = False,
     clock: Callable[[], float] = anyio.current_time,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
@@ -639,6 +743,12 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     different costs -- one LIST per kind, or one GET per object -- and that
     choice belongs to the caller that owns the `Api`, not here.
 
+    `gate` holds an object until what it is `after` exists (see
+    `AFTER_ANNOTATION`). While objects wait, the run carries on even when
+    nothing else progresses, up to `wait_seconds` from the first wait: a
+    retried object may be waiting on a waiter, and the settle window alone
+    would cut both off.
+
     `clock` and `sleep` are arguments so a test of the settle timer costs no
     wall time. `anyio.current_time` and not `time.monotonic`: it is the event
     loop's own clock, the one anyio's timeouts measure against, so a
@@ -657,6 +767,7 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     # back on its own".
     attempts: Counter[tuple[str, str, str]] = Counter()
     last_progress = clock()
+    waiting_since: float | None = None
     attempt = 0
 
     while pending:
@@ -685,6 +796,7 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
                     apply,
                     delete,
                     should_skip,
+                    gate,
                     allow_recreate,
                     clock,
                 )
@@ -695,11 +807,22 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
         last_error.update(state.last_error)
         diagnoses.update(state.diagnoses)
         last_progress = state.last_progress
-        pending = state.retry
+        pending = [*state.retry, *state.waiting]
 
         if not pending:
             break
-        if settled(last_progress, clock(), settle_seconds):
+        now = clock()
+        if state.waiting:
+            if waiting_since is None:
+                waiting_since = now
+            if now - waiting_since >= wait_seconds:
+                _log.warning(
+                    "what objects are waiting for never appeared",
+                    waiting=len(state.waiting),
+                    wait_seconds=wait_seconds,
+                )
+                break
+        elif settled(last_progress, now, settle_seconds):
             _log.warning(
                 "the queue stopped making progress",
                 remaining=len(pending),
@@ -735,6 +858,7 @@ async def _worker(  # noqa: PLR0913 -- the shared state of one sweep, passed rat
     apply: ApplyOne,
     delete: DeleteOne | None,
     should_skip: SkipCheck | None,
+    gate: GateCheck | None,
     allow_recreate: bool,
     clock: Callable[[], float],
 ) -> None:
@@ -751,6 +875,7 @@ async def _worker(  # noqa: PLR0913 -- the shared state of one sweep, passed rat
             apply=apply,
             delete=delete,
             should_skip=should_skip,
+            gate=gate,
             allow_recreate=allow_recreate,
             clock=clock,
         )
@@ -763,10 +888,12 @@ async def _process(  # noqa: PLR0913 -- the shared state of one sweep, passed ra
     apply: ApplyOne,
     delete: DeleteOne | None,
     should_skip: SkipCheck | None,
+    gate: GateCheck | None,
     allow_recreate: bool,
     clock: Callable[[], float],
 ) -> None:
-    """One object: leave it alone if it is unchanged, otherwise apply it."""
+    """One object: leave it alone if it is unchanged, hold it if what it is
+    `after` is missing, otherwise apply it."""
     key = object_key(spec)
 
     if should_skip is not None and await should_skip(spec):
@@ -774,6 +901,23 @@ async def _process(  # noqa: PLR0913 -- the shared state of one sweep, passed ra
             state.skipped += 1
         _log.debug("unchanged", namespace=key[0], kind=key[1], name=key[2])
         return
+
+    if gate is not None:
+        try:
+            missing = await gate(spec)
+        except ValueError as exc:
+            # An `after` annotation that does not parse is the render's
+            # fault, and waiting would not change it.
+            async with state.lock:
+                state.last_error[key] = f"{AFTER_ANNOTATION}: {exc}"
+                state.terminal[key] = Failure(key, Disposition.TERMINAL, state.last_error[key])
+            return
+        if missing:
+            async with state.lock:
+                state.last_error[key] = f"waiting for {', '.join(missing)}"
+                state.waiting.append(spec)
+            _log.debug("waiting", namespace=key[0], kind=key[1], name=key[2], missing=list(missing))
+            return
 
     try:
         applied = await apply(spec)
@@ -835,7 +979,9 @@ async def converge_barrier(  # noqa: PLR0913 -- every argument is an injected se
     apply: ApplyOne,
     delete: DeleteOne | None = None,
     should_skip: SkipCheck | None = None,
+    gate: GateCheck | None = None,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
+    wait_seconds: float = DEFAULT_WAIT_SECONDS,
     allow_recreate: bool = False,
     clock: Callable[[], float] = anyio.current_time,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
@@ -850,8 +996,10 @@ async def converge_barrier(  # noqa: PLR0913 -- every argument is an injected se
         apply=apply,
         delete=delete,
         should_skip=should_skip,
+        gate=gate,
         concurrency=1,
         settle_seconds=settle_seconds,
+        wait_seconds=wait_seconds,
         allow_recreate=allow_recreate,
         clock=clock,
         sleep=sleep,
@@ -972,7 +1120,12 @@ def _recreate_error(exc: BaseException) -> str:
 
 
 __all__ = [
+    "AFTER_ANNOTATION",
     "DEFAULT_SETTLE_SECONDS",
+    "DEFAULT_WAIT_SECONDS",
+    "AfterRef",
+    "GateCheck",
+    "after_refs",
     "RECREATE_DENY_KINDS",
     "RECREATE_OPT_OUT_ANNOTATION",
     "Disposition",
