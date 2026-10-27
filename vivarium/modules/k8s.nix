@@ -792,6 +792,25 @@ in
       '';
     };
 
+    cni = lib.mkOption {
+      type = lib.types.enum [
+        "bridge"
+        "external"
+      ];
+      default = "bridge";
+      description = ''
+        Who gives pods a network.
+
+        `bridge` is `vivarium-k8s-cni`: `bring_up` writes each node's
+        conflist from its podCIDR and routes the other nodes' pod subnets,
+        IPv4 only. `external` leaves the pod network to a CNI the test
+        deploys itself, such as Cilium: `bring_up` writes no conflist and
+        does not wait for Ready nodes or cluster DNS, which cannot come up
+        before that CNI does, and containerd also looks for CNI plugins in
+        /opt/cni/bin, where such a CNI installs its own.
+      '';
+    };
+
     kubeadmPatches = lib.mkOption {
       type = lib.types.attrsOf lib.types.path;
       default = { };
@@ -851,6 +870,10 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
+        assertion = cfg.cni == "bridge" || cfg.cri == "containerd";
+        message = "services.vivarium-k8s.cni = \"external\" adds /opt/cni/bin to containerd's plugin directories only; nothing here does the same for CRI-O.";
+      }
+      {
         assertion = lib.all (name: !storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches);
         message = "services.vivarium-k8s.kubeadmPatches: ${lib.concatStringsSep ", " (lib.filter (name: storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches))} would replace the store mount this module patches in; add a suffix to the target.";
       }
@@ -895,8 +918,14 @@ in
           }
           // lib.getAttrs cfg.runtimes runtimeHandlers;
           # No copy into /opt/cni/bin: nothing writes to these and the
-          # store path is already on the node.
-          cni.bin_dirs = [ "${pkgs.cni-plugins}/bin" ];
+          # store path is already on the node. An external CNI installs
+          # its own plugin there, through a hostPath, and a node whose
+          # containerd never looks there stays NotReady while the CNI's
+          # pods report healthy.
+          cni.bin_dirs = [
+            "${pkgs.cni-plugins}/bin"
+          ]
+          ++ lib.optional (cfg.cni == "external") "/opt/cni/bin";
           cni.conf_dir = "/etc/cni/net.d";
         };
         # Said explicitly because containerd's default tracks containerd

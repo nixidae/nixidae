@@ -639,8 +639,17 @@ async def bring_up(
 
     Only guests with `services.vivarium-k8s` enabled are nodes; the rest of
     the run, a cache guest for one, is left alone.
+
+    Nodes with `services.vivarium-k8s.cni = "external"` get no pod network
+    from here: the test deploys its own CNI. Until it does, no node is
+    Ready and no pod-network pod runs, CoreDNS included, so this returns
+    without waiting for either; host-network addons such as kube-proxy are
+    still waited for.
     """
     vms = {name: vm for name, vm in vms.items() if vm.spec.kubernetes}
+    external = {vm.spec.cni for vm in vms.values()} == {"external"}
+    if not external and any(vm.spec.cni == "external" for vm in vms.values()):
+        raise MachineError("services.vivarium-k8s.cni differs between nodes; one cluster has one CNI")
     cp = vms[cp_name]
     workers = [vm for name, vm in vms.items() if name != cp_name]
     if schedulable is None:
@@ -656,12 +665,14 @@ async def bring_up(
 
     await init_control_plane(cp, nix_images=nix_images)
     await join(cp, workers)
-    await wire_pod_network(cp, vms)
-
-    await wait_for_ready_nodes(cp, len(vms))
+    if not external:
+        await wire_pod_network(cp, vms)
+        await wait_for_ready_nodes(cp, len(vms))
     await provision_storage(cp, vms)
     await provision_runtimes(cp, vms)
     for selector in addons:
+        if external and selector == KUBE_DNS:
+            continue
         await wait_for_pods(cp, selector)
 
     if schedulable:

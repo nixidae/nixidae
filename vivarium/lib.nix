@@ -166,6 +166,7 @@ rec {
       uplink = machine.vivarium.uplink.segment;
       forward = machine.vivarium.forward;
       kubernetes = machine.services.vivarium-k8s.enable or false;
+      cni = machine.services.vivarium-k8s.cni or "bridge";
     }
     // (
       if machine.vivarium.appliance != null then

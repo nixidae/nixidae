@@ -177,6 +177,9 @@ class MachineSpec:
     kubernetes: bool = False
     """`services.vivarium-k8s.enable`: whether `cluster.bring_up` makes
     this guest a node. A run's cache guest, for one, is not."""
+    cni: str = "bridge"
+    """`services.vivarium-k8s.cni`: `bridge` when `cluster.bring_up` wires
+    the pod network, `external` when the test's own CNI does."""
     uplink: str | None = None
     """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
     out-of-band management network a peer serves (nixidae/nixidae#958).
@@ -207,6 +210,7 @@ class MachineSpec:
             toplevel=data.get("toplevel"),
             configurations=data.get("configurations", {}),
             kubernetes=data.get("kubernetes", False),
+            cni=data.get("cni", "bridge"),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             forward=tuple(
