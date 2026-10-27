@@ -38,8 +38,22 @@ let
   # let kubelet pick its own IP would register the same InternalIP as
   # every other node, and the API server would talk to whichever one it
   # happened to reach.
+  #
+  # Every address on vec1, the primary (`vivarium.lan.address`) first: a
+  # dual-stack node registers one InternalIP per family, and kubelet's
+  # --node-ip takes them comma-separated. The control plane advertises the
+  # primary.
+  bare = cidr: lib.head (lib.splitString "/" cidr);
   address = config.vivarium.lan.address;
-  nodeIp = if address == null then "0.0.0.0" else lib.head (lib.splitString "/" address);
+  primary = lib.optional (address != null) address;
+  nodeIps = map bare (
+    primary
+    ++ lib.filter (a: !(lib.elem a primary)) (config.vivarium.interfaces.vec1.addresses or [ ])
+  );
+  nodeIp = if nodeIps == [ ] then "0.0.0.0" else lib.concatStringsSep "," nodeIps;
+  advertiseAddress = if nodeIps == [ ] then "0.0.0.0" else lib.head nodeIps;
+  # host:port, with an IPv6 host in brackets.
+  hostPort = host: port: if lib.hasInfix ":" host then "[${host}]:${toString port}" else "${host}:${toString port}";
 
   # kubeadm takes extraArgs as a list of name/value pairs from v1beta4 on.
   args = lib.mapAttrsToList (name: value: { inherit name value; });
@@ -203,7 +217,7 @@ let
       apiVersion = "kubeadm.k8s.io/v1beta4";
       kind = "InitConfiguration";
       localAPIEndpoint = {
-        advertiseAddress = nodeIp;
+        inherit advertiseAddress;
         bindPort = 6443;
       };
       inherit nodeRegistration timeouts;
@@ -1275,7 +1289,7 @@ in
     system.build.kubeadmConfigs = {
       init = kubeadmConfig;
       join = joinConfig {
-        endpoint = "${nodeIp}:6443";
+        endpoint = hostPort advertiseAddress 6443;
         token = "abcdef.0123456789abcdef";
         hash = "sha256:${lib.concatStrings (lib.genList (_: "00") 32)}";
       };

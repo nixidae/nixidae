@@ -402,7 +402,7 @@ async def join(cp, workers):
         raise MachineError(
             f"[cp] could not read a join command out of:\n{printed}"
         ) from None
-    endpoint = f"{cp.ip}:6443"
+    endpoint = f"[{cp.ip}]:6443" if ":" in cp.ip else f"{cp.ip}:6443"
 
     async def one(worker):
         print(f"[k8s] {worker.name}: kubeadm join ...", flush=True)
