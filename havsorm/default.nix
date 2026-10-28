@@ -63,6 +63,7 @@ rec {
         root = ./.;
         fileset = lib.fileset.unions [
           ./pyproject.toml
+          ./nix/shared
           ./src
           ./tests
         ];
