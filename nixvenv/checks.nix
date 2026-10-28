@@ -1,6 +1,9 @@
 {
+  lib,
   runCommand,
   python3,
+  ruff,
+  zuban,
   nixvenv,
 }:
 let
@@ -25,6 +28,31 @@ let
   };
 in
 {
+  lint =
+    runCommand "nixvenv-lint"
+      {
+        nativeBuildInputs = [
+          ruff
+          zuban
+        ];
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./entry-points.py
+            ./mypy.ini
+            ./ruff.toml
+            ./nix/shared
+          ];
+        };
+      }
+      ''
+        cd $src
+        ruff check --no-cache .
+        ruff format --no-cache --check .
+        zuban mypy
+        touch $out
+      '';
+
   # What a venv promises, measured from inside it and from a child of it.
   venv = runCommand "nixvenv-check-venv" { } ''
     set -eu
