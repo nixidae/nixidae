@@ -189,8 +189,8 @@ rec {
           inherit name useDaemon;
           authToken = "\${{ secrets.CACHIX_AUTH_TOKEN }}";
         }
-        // lib.optionalAttrs (pushFilter != null) { pushFilter = pushFilter; }
-        // lib.optionalAttrs (skipPush != null) { skipPush = skipPush; };
+        // lib.optionalAttrs (pushFilter != null) { inherit pushFilter; }
+        // lib.optionalAttrs (skipPush != null) { inherit skipPush; };
       };
 
     /*

@@ -37,7 +37,7 @@ let
 in
 {
   inherit pkgs pythonSet devEnv;
-  kappy = pythonSet.kappy;
+  inherit (pythonSet) kappy;
   shell = pkgs.mkShell {
     packages = [
       devEnv

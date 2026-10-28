@@ -83,11 +83,15 @@ rec {
   lanes = pkgs.lib.mapAttrs (name: lane: {
     inherit (lane) pynix pynix-lsp;
     inherit (easykubenix.passthru.lanes.${name}) ekn;
-    havsorm =
-      (import sources.havsorm {
-        inherit sources huggorm;
-        huggormPackage = lane.huggorm;
-      }).havsorm;
+    inherit
+      (
+        (import sources.havsorm {
+          inherit sources huggorm;
+          huggormPackage = lane.huggorm;
+        })
+      )
+      havsorm
+      ;
   }) nanopynix.lanes;
 
   ghanix = import sources.ghanix { inherit (pkgs) lib; };
@@ -154,9 +158,19 @@ rec {
   };
   nixfmt-update = nixFormat.update;
 
+  # The one Nix linter. nix/statix.nix.
+  nixLint = import ./nix/statix.nix {
+    inherit (pkgs) lib;
+    inherit pkgs;
+  };
+  statix-fix = nixLint.fix;
+
   checks = {
     # That every tracked .nix file is formatted.
     nixfmt = nixFormat.check;
+
+    # That statix finds nothing in any tracked .nix file.
+    statix = nixLint.check;
 
     # That every committed `<source>-*.yml` is what its source renders.
     ciWorkflows = ci.check;

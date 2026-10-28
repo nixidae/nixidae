@@ -63,7 +63,7 @@ in
     vivarium.cpus = lib.mkDefault 2;
     system.build.vivariumImageGuest = {
       control = "sonic";
-      format = cfg.format;
+      inherit (cfg) format;
     };
     system.build.vivariumImageDisk = cfg.disk;
   };

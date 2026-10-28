@@ -33,7 +33,7 @@
   imageTags ? { },
 }:
 let
-  version = kubernetes.version;
+  inherit (kubernetes) version;
 
   /*
     What kubeadm asks for, for this Kubernetes version.

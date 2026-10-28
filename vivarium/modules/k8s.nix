@@ -16,7 +16,7 @@ let
   cfg = config.services.vivarium-k8s;
   images = pkgs.callPackage ./k8s-images.nix { inherit (cfg) imageTags; };
 
-  kubernetes = pkgs.kubernetes;
+  inherit (pkgs) kubernetes;
   # The unit that serves the CRI, and where. `vivarium-k8s-cri.target` names the
   # unit, so `bring_up` waits for either without knowing which.
   cri =
@@ -175,7 +175,7 @@ let
   };
 
   nodeRegistration = {
-    criSocket = criSocket;
+    inherit criSocket;
   }
   // lib.optionalAttrs (cfg.images == "nix") {
     # There is no registry to reach: everything came from

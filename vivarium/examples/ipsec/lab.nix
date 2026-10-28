@@ -249,7 +249,7 @@ let
     let
       other = if side == "west" then "east" else "west";
       me = topology.${side};
-      address = cidr: bare cidr;
+      address = bare;
       westAddress = address (lib.head topology.west.internet);
       remoteFor = eastAddress: if side == "west" then eastAddress else "%any";
       localFor = eastAddress: if side == "west" then westAddress else eastAddress;
@@ -621,12 +621,12 @@ let
       {
         address = "10.0.0.0";
         prefixLength = 8;
-        via = host.via;
+        inherit (host) via;
       }
       {
         address = "100.64.0.0";
         prefixLength = 10;
-        via = host.via;
+        inherit (host) via;
       }
     ];
   };

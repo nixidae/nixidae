@@ -1,0 +1,9 @@
+# The statix configuration of the whole tree. nixidae/nixidae#1104.
+#
+# empty_pattern (W10) asks for `_:` in place of `{ }:` and `{ ... }:`. Both
+# say "this takes an attribute set": `{ ... }:` is the NixOS module head, and
+# `_:` reads as "argument ignored".
+#
+# repeated_keys (W20) asks for `a = { b = 1; c = 2; }` in place of `a.b = 1;
+# a.c = 2;`. A full option path on each line is easier to find and to read.
+disabled = ["empty_pattern", "repeated_keys"]
