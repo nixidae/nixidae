@@ -74,6 +74,22 @@ rec {
 
   havsorm = import sources.havsorm { inherit sources huggorm; };
 
+  # Every output that links huggorm, once for each lane: huggorm's lanes, plus
+  # `stable` and `latest`, which nanopynix names. `lanes.determinate.ekn` is
+  # the `ekn` that evaluates with Determinate Nix. nixidae/nixidae#1108.
+  #
+  # Not here: pydd picks its lanes for their features, pynixd ships no
+  # huggorm, and kappy's closure holds none.
+  lanes = pkgs.lib.mapAttrs (name: lane: {
+    inherit (lane) pynix pynix-lsp;
+    inherit (easykubenix.passthru.lanes.${name}) ekn;
+    havsorm =
+      (import sources.havsorm {
+        inherit sources huggorm;
+        huggormPackage = lane.huggorm;
+      }).havsorm;
+  }) nanopynix.lanes;
+
   ghanix = import sources.ghanix { inherit (pkgs) lib; };
 
   nixvenv = import sources.nixvenv { inherit pkgs; };
