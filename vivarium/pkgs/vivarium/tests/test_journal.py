@@ -1,5 +1,7 @@
 """Reading a journal that is still being written."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -13,7 +15,7 @@ def line(**fields: object) -> str:
 
 
 class TestParse:
-    def test_the_fields_a_reader_filters_on(self):
+    def test_the_fields_a_reader_filters_on(self) -> None:
         entry = parse(
             line(
                 MESSAGE="started",
@@ -31,55 +33,55 @@ class TestParse:
             pid=412,
         )
 
-    def test_a_message_that_is_not_utf8(self):
+    def test_a_message_that_is_not_utf8(self) -> None:
         """journald writes those as a list of byte values, not a string."""
         entry = parse(line(MESSAGE=[104, 105, 255], PRIORITY="6"))
         assert entry is not None
         assert entry.message == "hi�"
 
-    def test_a_kernel_line_has_no_unit(self):
+    def test_a_kernel_line_has_no_unit(self) -> None:
         entry = parse(line(MESSAGE="oops", PRIORITY="3", _TRANSPORT="kernel"))
         assert entry is not None
         assert entry.unit is None
         assert "unit" not in entry.data()
 
-    def test_no_priority_is_journalds_default(self):
+    def test_no_priority_is_journalds_default(self) -> None:
         entry = parse(line(MESSAGE="x"))
         assert entry is not None
         assert entry.priority == 6
 
-    def test_emerg_is_not_mistaken_for_missing(self):
+    def test_emerg_is_not_mistaken_for_missing(self) -> None:
         entry = parse(line(MESSAGE="x", PRIORITY="0"))
         assert entry is not None
         assert entry.priority == 0
 
     @pytest.mark.parametrize("text", ["", "not json", "[1, 2]", '{"MESSAGE": '])
-    def test_what_is_not_an_entry(self, text: str):
+    def test_what_is_not_an_entry(self, text: str) -> None:
         assert parse(text) is None
 
 
 class TestLevel:
-    def test_errors_are_seen_at_detail(self):
+    def test_errors_are_seen_at_detail(self) -> None:
         assert level(Entry(message="x", priority=3)) is Level.DETAIL
 
-    def test_the_rest_sits_with_the_console(self):
+    def test_the_rest_sits_with_the_console(self) -> None:
         assert level(Entry(message="x", priority=4)) is Level.CONSOLE
 
 
 class TestSplit:
-    def test_a_partial_line_waits(self):
+    def test_a_partial_line_waits(self) -> None:
         assert split(b'{"a":1}\n{"b"') == (['{"a":1}'], b'{"b"')
 
-    def test_a_complete_buffer_leaves_nothing(self):
+    def test_a_complete_buffer_leaves_nothing(self) -> None:
         assert split(b"one\ntwo\n") == (["one", "two"], b"")
 
 
 @pytest.mark.anyio
 class TestTail:
-    async def test_a_file_that_is_not_there_yet(self, tmp_path: Path):
+    async def test_a_file_that_is_not_there_yet(self, tmp_path: Path) -> None:
         assert await Tail(tmp_path / "journal.jsonl").read() == []
 
-    async def test_each_line_once_as_the_file_grows(self, tmp_path: Path):
+    async def test_each_line_once_as_the_file_grows(self, tmp_path: Path) -> None:
         path = tmp_path / "journal.jsonl"
         tail = Tail(path)
         path.write_text('{"n":1}\n{"n"')
@@ -89,7 +91,7 @@ class TestTail:
         assert await tail.read() == ['{"n":2}']
         assert await tail.read() == []
 
-    async def test_a_restarted_stream_is_read_from_the_start(self, tmp_path: Path):
+    async def test_a_restarted_stream_is_read_from_the_start(self, tmp_path: Path) -> None:
         """`truncate:` in the unit: a guest that starts the stream again
         starts the file again, and an offset past its end reads nothing
         forever."""
@@ -102,7 +104,7 @@ class TestTail:
 
 
 class TestRender:
-    def test_the_unit_names_the_source(self):
+    def test_the_unit_names_the_source(self) -> None:
         event = Event(
             at=0,
             kind=Kind.JOURNAL,
@@ -113,7 +115,7 @@ class TestRender:
         )
         assert render(event) == "[cp] kubelet.service: Started"
 
-    def test_the_identifier_when_there_is_no_unit(self):
+    def test_the_identifier_when_there_is_no_unit(self) -> None:
         event = Event(
             at=0,
             kind=Kind.JOURNAL,

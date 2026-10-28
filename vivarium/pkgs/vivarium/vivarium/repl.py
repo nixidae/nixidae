@@ -27,6 +27,9 @@ import anyio.from_thread
 import anyio.lowlevel
 
 if TYPE_CHECKING:
+    from anyio.lowlevel import EventLoopToken
+    from anyio.streams.memory import MemoryObjectSendStream
+
     from .control import Controller
 
 BANNER = (
@@ -47,7 +50,7 @@ def complete(lines: list[str]) -> bool:
         return True
 
 
-def _reader(send: anyio.abc.ObjectSendStream[str | None], token: object) -> None:
+def _reader(send: MemoryObjectSendStream[str | None], token: EventLoopToken) -> None:
     # Its own buffer, for the prompt only: the loop keeps another.
     lines: list[str] = []
     while True:

@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -95,7 +95,9 @@ class Event:
     machine: str | None = None
     phase: str | None = None
     seconds: float | None = None
-    data: dict = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
+    """Keys depend on `kind`: `outcome`, `error`, `exit` and so on. Each
+    reader asks for the keys its kind has, so no one type covers them."""
 
     def as_json(self) -> str:
         body = {

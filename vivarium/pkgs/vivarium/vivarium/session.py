@@ -36,7 +36,7 @@ import traceback
 from collections import defaultdict
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import anyio
 import pytest
@@ -51,7 +51,9 @@ from .phases import PhaseState, passed, runnable, skipped_by
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Collection
+    from collections.abc import Awaitable, Callable, Collection, Iterator
+
+    from vivarium_runner.machine import MachineSpecJson, ToolchainJson
 
     from .sinks import Sink
     from .spec import PhaseSpec, PytestSpec, Spec
@@ -66,6 +68,12 @@ _PRINTING: ContextVar[str | None] = ContextVar("uml_printing", default=None)
 
 _COPY: ContextVar[io.StringIO | None] = ContextVar("vivarium_copy", default=None)
 """Where a task's prints also go: the reply to an `exec` or `inject`."""
+
+
+class _CaseFields(TypedDict, total=False):
+    """The case a line belongs to, as an event field. Spread into `emit`."""
+
+    case: str
 
 
 class _Lines:
@@ -120,17 +128,26 @@ def load_phase(script: Path) -> Callable[[Machines], Awaitable[None]]:
         raise SessionError(f"cannot import a phase from {script}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    test = getattr(module, "test", None)
+    test: object = getattr(module, "test", None)
     if test is None:
         raise SessionError(f"{script} exports no `test`")
     if not callable(test):
         raise SessionError(f"`test` in {script} is not callable")
-    return test
+    # The script is user code, so nothing before this check says what `test`
+    # is. The runner calls it with the machines and awaits the result.
+    return cast("Callable[[Machines], Awaitable[None]]", test)
+
+
+def _kernel_in_boot(machine: MachineSpecJson, kernel: Path) -> MachineSpecJson:
+    boot = machine.get("boot")
+    if not isinstance(boot, dict):
+        return machine
+    return {**machine, "boot": {**boot, "kernel": str(kernel)}}
 
 
 def with_kernel(
-    toolchain: dict[str, str], machines: list[dict[str, Any]], kernel: Path
-) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    toolchain: ToolchainJson, machines: list[MachineSpecJson], kernel: Path
+) -> tuple[ToolchainJson, list[MachineSpecJson]]:
     """The toolchain and machines, booting `kernel` instead of Nix's.
 
     UML reads its kernel from the toolchain; QEMU from each machine's
@@ -138,13 +155,8 @@ def with_kernel(
     it has. Pure, and only ever reached from `--kernel`, by hand: the
     check keeps the kernel Nix built.
     """
-    swapped = {**toolchain, "kernel": str(kernel)} if "kernel" in toolchain else dict(toolchain)
-    return swapped, [
-        {**machine, "boot": {**machine["boot"], "kernel": str(kernel)}}
-        if isinstance(machine.get("boot"), dict)
-        else machine
-        for machine in machines
-    ]
+    swapped: ToolchainJson = {**toolchain, "kernel": str(kernel)} if "kernel" in toolchain else {**toolchain}
+    return swapped, [_kernel_in_boot(machine, kernel) for machine in machines]
 
 
 class Session:
@@ -248,7 +260,7 @@ class Session:
         )
 
     @contextlib.contextmanager
-    def _capture(self, phase: str | None = None, copy: io.StringIO | None = None):
+    def _capture(self, phase: str | None = None, copy: io.StringIO | None = None) -> Iterator[None]:
         """Turn what a phase prints into events.
 
         A phase script says things with `print`, which is right -- asking
@@ -323,7 +335,9 @@ class Session:
         """Bring every guest up and wait for its agent."""
         if self._booted:
             raise SessionError("already booted")
-        toolchain, machines = self.spec.toolchain(), self.spec.machines
+        # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
+        toolchain = self.spec.toolchain()
+        machines = cast("list[MachineSpecJson]", self.spec.machines)
         if self.kernel is not None:
             toolchain, machines = with_kernel(toolchain, machines, self.kernel)
             self.emit(
@@ -359,8 +373,8 @@ class Session:
         lan_fds: dict[str, dict[str, int]] = defaultdict(dict)
         for lan in self._lans:
             for member, fd in lan.fds.items():
-                machine, nic = member.split("/")
-                lan_fds[machine][nic] = fd
+                machine_name, nic_name = member.split("/")
+                lan_fds[machine_name][nic_name] = fd
 
         self.emit(Kind.BOOT, f"booting {', '.join(one.name for one in specs)}")
         self.artifacts.mkdir(parents=True, exist_ok=True)
@@ -405,8 +419,8 @@ class Session:
         # run and wrong for an MCP server holding several -- see the
         # design, area 0d.
         taken: set[str] = set()
-        for machine in vms.values():
-            machine.resolve_forward(taken)
+        for vm in vms.values():
+            vm.resolve_forward(taken)
 
         for lan in self._lans:
             lan.start()
@@ -543,7 +557,7 @@ class Session:
                     **fields,
                 )
 
-    def _in_case(self) -> dict[str, str]:
+    def _in_case(self) -> _CaseFields:
         return {"case": self.case} if self.case is not None else {}
 
     async def follow(self, interval: float = 0.25) -> None:

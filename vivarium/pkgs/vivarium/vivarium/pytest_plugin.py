@@ -27,7 +27,7 @@ import functools
 import inspect
 import types
 from collections import Counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 
@@ -37,23 +37,35 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
     from anyio.from_thread import BlockingPortal
-    from vivarium_runner import Machines
+    from vivarium_runner import Machine, Machines
 
     from .session import Session
 
+type Outcome = Literal["passed", "failed", "skipped", "error"]
 
-def machine_fixtures(vms: Machines) -> types.ModuleType:
+
+class MachineFixtures(types.ModuleType):
+    """The module that holds the fixtures.
+
+    `vms` is set to a fixture that pytest finds by name, so its type is
+    pytest's own and not one this package defines.
+    """
+
+    vms: object
+
+
+def machine_fixtures(vms: Machines) -> MachineFixtures:
     """One fixture per guest, named after it.
 
     A module and not a class: pytest binds a fixture found on an
     instance as a method, and these take no `self`.
     """
-    module = types.ModuleType("uml_machines")
+    module = MachineFixtures("uml_machines")
     for name in vms:
 
-        def make(name: str = name) -> Any:
+        def make(name: str = name) -> Callable[[], Machine]:
             @pytest.fixture(name=name)
-            def machine() -> Any:
+            def machine() -> Machine:
                 return vms[name]
 
             return machine
@@ -64,7 +76,7 @@ def machine_fixtures(vms: Machines) -> types.ModuleType:
     def all_of_them() -> Machines:
         return vms
 
-    module.vms = all_of_them  # ty: ignore[unresolved-attribute]
+    module.vms = all_of_them
     return module
 
 
@@ -106,7 +118,7 @@ class Plugin:
         self.phase = phase
         self.portal = portal
         self.marks: dict[str, Any] = {"by_hand": True} if by_hand else {}
-        self.outcomes: Counter[str] = Counter()
+        self.outcomes: Counter[Outcome] = Counter()
 
     def _emit(self, kind: Kind, text: str, **fields: Any) -> None:
         # On the loop, never from this thread: the sinks write files and
@@ -135,11 +147,13 @@ class Plugin:
             return
         # Restored afterwards, as anyio's own plugin does: the definition
         # is shared by every test that asks for it.
-        fixturedef.func = _in_loop(self.portal, func)  # ty: ignore[invalid-assignment]
+        # pytest declares `func` Final. anyio's plugin swaps it the same way.
+        fixturedef.func = _in_loop(self.portal, func)  # type: ignore[misc]
         try:
             yield
         finally:
-            fixturedef.func = func
+            # The definition is shared by every test that asks for it, so it goes back.
+            fixturedef.func = func  # type: ignore[misc]
 
     # ── which test is running, for everything else that happens ────
 
@@ -158,6 +172,7 @@ class Plugin:
                     if line.strip():
                         self._emit(Kind.OUTPUT, line, case=report.nodeid)
 
+        outcome: Outcome
         if report.when == "call":
             outcome = report.outcome
         elif report.failed:
@@ -177,7 +192,7 @@ class Plugin:
     def _case(
         self,
         nodeid: str,
-        outcome: str,
+        outcome: Outcome,
         when: str,
         seconds: float,
         report: pytest.TestReport | pytest.CollectReport,
@@ -204,7 +219,7 @@ class Plugin:
 
     def summary(self) -> str:
         """`2 passed, 1 failed`, in pytest's own order."""
-        order = ("failed", "error", "passed", "skipped")
+        order: tuple[Outcome, ...] = ("failed", "error", "passed", "skipped")
         return ", ".join(f"{self.outcomes[name]} {name}" for name in order if self.outcomes[name]) or "no tests ran"
 
 

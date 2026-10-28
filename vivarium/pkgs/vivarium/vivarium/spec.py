@@ -2,7 +2,7 @@
 
 A free-form dict is what the old spec was, and every field it carried had
 to be read defensively at the point of use.  A model says the shape once,
-rejects a malformed spec with the field named, and gives pyright
+rejects a malformed spec with the field named, and gives a type checker
 something to check a caller against.
 
 Nothing here decides anything.  The spec is **input**: the runner and the
@@ -15,8 +15,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+if TYPE_CHECKING:
+    from vivarium_runner.machine import ToolchainJson
+
+type JsonObject = dict[str, object]
 
 
 class SpecError(ValueError):
@@ -116,12 +122,14 @@ class Spec(Strict):
     from a store path -- a JUnit suite named after a hash is a suite
     whose name changes every time anything changes."""
 
-    machines: list[dict]
+    machines: list[JsonObject]
     """Passed to `vivarium_runner.MachineSpec.from_json` untouched.  Modelling
-    it twice would be two places to change when a backend gains a flag."""
+    it twice would be two places to change when a backend gains a flag. The
+    runner's `MachineSpecJson` is the shape; pydantic does not check it here."""
 
     phases: list[PhaseSpec] = Field(default_factory=list)
-    settings: dict = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    """A test's own values, as the runner's `Machines.settings` holds them."""
 
     pythonPath: list[Path] = Field(default_factory=list)  # noqa: N815 -- Nix writes it, so Nix spells it
     """Directories every phase script can import from."""
@@ -161,24 +169,34 @@ class Spec(Strict):
                 f" names, {raw.get('vivarium') or '(none named)'}"
             ) from None
 
-    def toolchain(self) -> dict:
+    def toolchain(self) -> ToolchainJson:
         """The toolchain fields, as `vivarium_runner.Toolchain` wants them.
 
         Only what this run's backend needs is set; naming a store path is
         what makes Nix build it, so a UML run carries no QEMU and a QEMU
         run carries no kernel.
         """
-        named = (
-            "kernel",
-            "bridge",
-            "passt",
-            "qemu",
-            "qemuImg",
-            "virtiofsd",
-            "libkrun",
-            "crun",
-            "setpriv",
-            "tesseract",
-            "magick",
-        )
-        return {key: str(value) for key in named if (value := getattr(self, key)) is not None}
+        tools: ToolchainJson = {}
+        if self.kernel is not None:
+            tools["kernel"] = str(self.kernel)
+        if self.bridge is not None:
+            tools["bridge"] = str(self.bridge)
+        if self.passt is not None:
+            tools["passt"] = str(self.passt)
+        if self.qemu is not None:
+            tools["qemu"] = str(self.qemu)
+        if self.qemuImg is not None:
+            tools["qemuImg"] = str(self.qemuImg)
+        if self.virtiofsd is not None:
+            tools["virtiofsd"] = str(self.virtiofsd)
+        if self.libkrun is not None:
+            tools["libkrun"] = str(self.libkrun)
+        if self.crun is not None:
+            tools["crun"] = str(self.crun)
+        if self.setpriv is not None:
+            tools["setpriv"] = str(self.setpriv)
+        if self.tesseract is not None:
+            tools["tesseract"] = str(self.tesseract)
+        if self.magick is not None:
+            tools["magick"] = str(self.magick)
+        return tools

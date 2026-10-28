@@ -91,9 +91,9 @@ def split_last_expression(source: str) -> tuple[ast.Module, ast.Expression | Non
     and evaluated for its value.
     """
     tree = ast.parse(source, mode="exec")
-    if tree.body and isinstance(tree.body[-1], ast.Expr):
-        last = tree.body.pop()
-        return tree, ast.Expression(body=last.value)  # ty: ignore[unresolved-attribute]
+    if tree.body and isinstance(last := tree.body[-1], ast.Expr):
+        tree.body.pop()
+        return tree, ast.Expression(body=last.value)
     return tree, None
 
 
@@ -355,8 +355,11 @@ class Controller:
         output = io.StringIO()
         try:
             test = load_phase(Path(arg).expanduser().resolve())
+            vms = self.session.vms
+            if vms is None:
+                return Reply(ok=False, error="no guests are up yet")
             with self.session._capture(f"inject:{Path(arg).name}", output):
-                await test(self.session.vms)
+                await test(vms)
         except Exception:  # noqa: BLE001 -- the injected code's failure is the reply
             return Reply(ok=False, output=output.getvalue(), error=traceback.format_exc())
         return Reply(ok=True, output=output.getvalue())

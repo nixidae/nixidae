@@ -2,22 +2,40 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
 from vivarium_runner import nixos_test
+from vivarium_runner.machine import Machine
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
-class FakeGuest:
-    """Answers `execute` from a table: the last command sent decides."""
+class FakeGuest(Machine):
+    """Answers `execute` from a table: the last command sent decides.
+
+    A `Machine` subclass, because `nixos_test` takes the runner's `Machine`.
+    The real constructor needs a spec and a toolchain, so it is not called.
+    """
 
     def __init__(self, name: str, answers: dict[str, tuple[int, str]] | None = None) -> None:
-        self.name = name
+        self._fake_name = name
         self.answers = answers or {}
         self.sent: list[str] = []
 
-    async def execute(self, command: str, timeout: float | None = None) -> tuple[int, str]:
+    @property
+    def name(self) -> str:
+        return self._fake_name
+
+    async def execute(
+        self,
+        command: str,
+        timeout: float | None = None,
+        label: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> tuple[int, str]:
         self.sent.append(command)
         for needle, answer in self.answers.items():
             if command.endswith(needle):
@@ -33,11 +51,11 @@ def run(guests: dict[str, Any], script: str) -> Any:
 
 
 def test_names_follow_nixos_test() -> None:
-    names = nixos_test.symbols({"web-1": FakeGuest("web-1")})  # type: ignore[dict-item]
+    names = nixos_test.symbols({"web-1": FakeGuest("web-1")})
     assert "web_1" in names
     # One guest is also `machine`, as nixos-test has it.
     assert names["machine"] is names["web_1"]
-    two = nixos_test.symbols({"a": FakeGuest("a"), "b": FakeGuest("b")})  # type: ignore[dict-item]
+    two = nixos_test.symbols({"a": FakeGuest("a"), "b": FakeGuest("b")})
     assert "machine" not in two
 
 
@@ -71,7 +89,7 @@ def test_a_failed_unit_ends_the_wait() -> None:
 
 
 def test_what_has_no_equivalent_says_so() -> None:
-    machine = nixos_test.Machine(FakeGuest("machine"))  # type: ignore[arg-type]
+    machine = nixos_test.Machine(FakeGuest("machine"))
     with pytest.raises(nixos_test.Unsupported, match="send_monitor_command"):
         machine.send_monitor_command("info status")
     assert not hasattr(machine, "send_monitor_command")

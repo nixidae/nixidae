@@ -70,7 +70,7 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
     Meta keys are identifiers only; Claude Code drops any other key.
     """
     kind = event.get("kind")
-    data = event.get("data") or {}
+    data: dict[str, Any] = event.get("data") or {}
     meta = {"run": run}
     # Facts only. Claude Code frames channel content as untrusted and
     # tells the model not to act on imperative language in it, so what
@@ -99,7 +99,7 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
     if kind == "run_finished":
         passed = bool(data.get("passed"))
         meta |= {"event": "finished", "passed": "true" if passed else "false"}
-        states = data.get("states") or {}
+        states: dict[str, str] = data.get("states") or {}
         summary = ", ".join(f"{name} {state}" for name, state in states.items())
         return f"run {'passed' if passed else 'failed'}: {summary}", meta
     return None

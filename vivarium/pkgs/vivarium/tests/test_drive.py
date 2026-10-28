@@ -7,29 +7,42 @@ guest that is not stopped is a UML kernel spinning on a core until
 somebody notices.
 """
 
+from __future__ import annotations
+
 import contextlib
 import io
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 from vivarium.cli import drive
 from vivarium.control import SOCKET, Op, request
 from vivarium.phases import PhaseState
+from vivarium.session import Session
 from vivarium.spec import PhaseSpec, Spec
-from vivarium_runner import MachineError
+from vivarium_runner import MachineError, Machines
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Iterator
+
+    from vivarium.events import Kind
 
 
-class FakeSession:
-    """Enough of a session to drive, and a record of what was called."""
+class FakeSession(Session):
+    """A session that boots nothing and records what was called.
+
+    A `Session` subclass, so `drive` takes it as it takes the real one. Each
+    method overridden here has the real method's signature.
+    """
 
     def __init__(self, *, boot_error: Exception | None = None, out: Path | None = None) -> None:
         self.spec = Spec(machines=[], phases=[PhaseSpec(name="one", script=Path("x"))])
         self.state: dict[str, PhaseState] = {"one": PhaseState.PENDING}
         # Somewhere real: every drive serves its control socket there.
         self.out = out or Path(tempfile.mkdtemp(prefix="fake-session-"))
-        self.vms = None
+        self.vms: Machines | None = None
         self.errors: dict[str, str] = {}
         self.ran: list[str] = []
         self.boot_error = boot_error
@@ -39,19 +52,25 @@ class FakeSession:
         self.said: list[str] = []
         self.following: bool | None = None
 
-    def emit(self, kind, text: str, **_kwargs) -> None:
+    def emit(self, kind: Kind, text: str, **_kwargs: object) -> None:
         self.said.append(f"{kind}:{text}")
 
-    def _replay(self, lines: int = 20) -> None:
+    def _replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
         self.said.append("replay")
 
-    def _capture(self, phase: str | None = None, copy: io.StringIO | None = None):
-        return contextlib.redirect_stdout(copy) if copy is not None else contextlib.nullcontext()
+    @contextlib.contextmanager
+    def _capture(self, phase: str | None = None, copy: io.StringIO | None = None) -> Iterator[None]:
+        if copy is None:
+            yield
+        else:
+            with contextlib.redirect_stdout(copy):
+                yield
 
-    async def boot(self) -> None:
+    async def boot(self) -> Machines:
         self.booted = True
         if self.boot_error is not None:
             raise self.boot_error
+        return Machines()
 
     def pending(self) -> list[PhaseSpec]:
         return [phase for phase in self.spec.phases if self.state[phase.name] is PhaseState.PENDING]
@@ -71,7 +90,7 @@ class FakeSession:
     async def drain(self) -> None:
         self.said.append("drain")
 
-    async def follow(self) -> None:
+    async def follow(self, interval: float = 0.25) -> None:
         self.following = True
         try:
             await anyio.sleep_forever()
@@ -81,12 +100,12 @@ class FakeSession:
 
 @pytest.mark.anyio
 class TestTeardownAlwaysHappens:
-    async def test_a_good_run_tears_down(self):
+    async def test_a_good_run_tears_down(self) -> None:
         session = FakeSession()
         await drive(session)
         assert session.torn_down
 
-    async def test_a_failed_boot_still_tears_down(self):
+    async def test_a_failed_boot_still_tears_down(self) -> None:
         """The one that leaked.
 
         `boot` lets every guest settle before it reports, so a failure
@@ -97,18 +116,18 @@ class TestTeardownAlwaysHappens:
         await drive(session)
         assert session.torn_down, "a failed boot left the guests running"
 
-    async def test_a_failed_boot_is_not_a_traceback(self):
+    async def test_a_failed_boot_is_not_a_traceback(self) -> None:
         session = FakeSession(boot_error=MachineError("no"))
         await drive(session)
         assert session.state["one"] is PhaseState.PENDING
 
-    async def test_the_evidence_is_written_even_when_the_boot_failed(self):
+    async def test_the_evidence_is_written_even_when_the_boot_failed(self) -> None:
         """A run that got nowhere is still a run somebody has to read."""
         session = FakeSession(boot_error=MachineError("no"))
         await drive(session)
         assert session.wrote
 
-    async def test_a_failed_boot_replays_the_consoles(self):
+    async def test_a_failed_boot_replays_the_consoles(self) -> None:
         """The only thing that says *why* it would not boot.
 
         A guest that never answers cannot be asked anything, so its last
@@ -121,7 +140,7 @@ class TestTeardownAlwaysHappens:
 
 @pytest.mark.anyio
 class TestTheJournalFollower:
-    async def test_it_stops_when_the_drive_ends(self):
+    async def test_it_stops_when_the_drive_ends(self) -> None:
         """`follow` never returns by itself, so a drive that forgot to
         cancel it would never return either."""
         session = FakeSession()
@@ -129,13 +148,13 @@ class TestTheJournalFollower:
             await drive(session)
         assert session.following is False
 
-    async def test_it_stops_when_the_boot_failed(self):
+    async def test_it_stops_when_the_boot_failed(self) -> None:
         session = FakeSession(boot_error=MachineError("no"))
         with anyio.fail_after(5):
             await drive(session)
         assert session.following is False
 
-    async def test_the_last_entries_come_before_the_verdict(self):
+    async def test_the_last_entries_come_before_the_verdict(self) -> None:
         """A reader of `events.jsonl` stops at `run_finished`. A guest's
         last words after it are words nobody reads."""
         session = FakeSession()
@@ -156,7 +175,7 @@ async def until_paused(socket: Path) -> None:
 
 @pytest.mark.anyio
 class TestBreakpoints:
-    async def test_a_break_pauses_before_the_phase_until_continue(self, tmp_path: Path):
+    async def test_a_break_pauses_before_the_phase_until_continue(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
@@ -170,7 +189,7 @@ class TestBreakpoints:
         assert session.torn_down
         assert not socket.exists(), "the socket outlived the run"
 
-    async def test_a_phase_run_while_paused_is_not_run_again(self, tmp_path: Path):
+    async def test_a_phase_run_while_paused_is_not_run_again(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
@@ -181,14 +200,16 @@ class TestBreakpoints:
             await request(socket, Op.CONTINUE)
         assert session.ran == ["one"]
 
-    async def test_a_failure_pauses_with_the_state_intact(self, tmp_path: Path):
+    async def test_a_failure_pauses_with_the_state_intact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         session = FakeSession(out=tmp_path)
 
         async def fail(phase: PhaseSpec) -> PhaseState:
             session.state[phase.name] = PhaseState.FAILED
             return PhaseState.FAILED
 
-        session.run = fail  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", fail)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
@@ -199,7 +220,9 @@ class TestBreakpoints:
             await request(socket, Op.CONTINUE)
         assert session.torn_down
 
-    async def test_exec_while_running_and_nothing_that_needs_a_pause(self, tmp_path: Path):
+    async def test_exec_while_running_and_nothing_that_needs_a_pause(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """`exec` runs beside a phase. `run`, `pytest` and `continue` are
         the scheduler's business, and wait for a pause."""
         session = FakeSession(out=tmp_path)
@@ -212,7 +235,7 @@ class TestBreakpoints:
             session.state[phase.name] = PhaseState.PASSED
             return PhaseState.PASSED
 
-        session.run = slow  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", slow)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
@@ -226,7 +249,7 @@ class TestBreakpoints:
                 assert "only while paused" in (reply.error or "")
             release.set()
 
-    async def test_a_deep_output_directory_still_pauses(self, tmp_path: Path):
+    async def test_a_deep_output_directory_still_pauses(self, tmp_path: Path) -> None:
         """`<out>/control.sock` is longer than `sun_path` under a deep `--out`.
 
         Measured: a scratch directory of 95 characters failed the drive with
@@ -244,7 +267,9 @@ class TestBreakpoints:
         assert session.ran == ["one"]
 
     @pytest.mark.parametrize("control", [True, False])
-    async def test_a_socket_without_a_breakpoint_unless_turned_off(self, tmp_path: Path, control: bool):
+    async def test_a_socket_without_a_breakpoint_unless_turned_off(
+        self, tmp_path: Path, control: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         session = FakeSession(out=tmp_path)
         seen: list[bool] = []
 
@@ -253,7 +278,7 @@ class TestBreakpoints:
             session.state[phase.name] = PhaseState.PASSED
             return PhaseState.PASSED
 
-        session.run = look  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", look)
         await drive(session, control=control)
         assert seen == [control]
         assert not (tmp_path / SOCKET).exists()
@@ -299,53 +324,55 @@ class Overlap:
 
 @pytest.mark.anyio
 class TestPhasesAtOnce:
-    async def test_disjoint_guests_run_together(self):
+    async def test_disjoint_guests_run_together(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = parallel_session(left=["a"], right=["b"])
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         with anyio.fail_after(5):
             await drive(session)
         assert run.seen_beside["left"] == {"right"}
         assert run.most == 2
 
-    async def test_a_dependent_waits_for_every_dependency(self):
+    async def test_a_dependent_waits_for_every_dependency(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = parallel_session(left=["a"], right=["b"])
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         await drive(session)
         assert session.ran[-1] == "end"
         assert run.seen_beside["end"] == set()
 
-    async def test_phases_that_declare_nothing_run_one_at_a_time(self):
+    async def test_phases_that_declare_nothing_run_one_at_a_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Every session written before `nodes` existed."""
         session = parallel_session(left=[], right=[])
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         await drive(session)
         assert run.most == 1
 
-    async def test_a_shared_guest_is_a_queue(self):
+    async def test_a_shared_guest_is_a_queue(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = parallel_session(left=["a"], right=["a", "b"])
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         await drive(session)
         assert run.most == 1
 
-    async def test_serial_runs_one_at_a_time(self):
+    async def test_serial_runs_one_at_a_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = parallel_session(left=["a"], right=["b"])
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         await drive(session, serial=True)
         assert run.most == 1
         assert session.ran == ["boot", "left", "right", "end"], "not the order Nix sorted"
 
-    async def test_a_failure_pauses_only_once_the_others_have_ended(self, tmp_path: Path):
+    async def test_a_failure_pauses_only_once_the_others_have_ended(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Paused means nothing is running. `exec` against a guest a phase
         is still driving is the race breakpoints exist to avoid."""
         session = parallel_session(left=["a"], right=["b"])
         session.out = tmp_path
         run = Overlap(session, fail="left")
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
@@ -356,11 +383,13 @@ class TestPhasesAtOnce:
             assert reply.state["right"] == "passed", "paused while `right` still ran"
             assert (await request(socket, Op.CONTINUE)).ok
 
-    async def test_a_breakpoint_holds_back_only_its_phase(self, tmp_path: Path):
+    async def test_a_breakpoint_holds_back_only_its_phase(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         session = parallel_session(left=["a"], right=["b"])
         session.out = tmp_path
         run = Overlap(session)
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["end"]))
@@ -373,7 +402,7 @@ class TestPhasesAtOnce:
 
 @pytest.mark.anyio
 class TestPendingIsAskedAgain:
-    async def test_a_phase_marked_done_mid_loop_is_not_run(self):
+    async def test_a_phase_marked_done_mid_loop_is_not_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The bug the guest test found.
 
         A list of phases taken once before the loop still holds a phase
@@ -398,6 +427,6 @@ class TestPendingIsAskedAgain:
             session.state["b"] = PhaseState.SKIPPED
             return PhaseState.FAILED
 
-        session.run = run  # ty: ignore[invalid-assignment]
+        monkeypatch.setattr(session, "run", run)
         await drive(session)
         assert ran == ["a"], f"ran a phase that was skipped mid-loop: {ran}"

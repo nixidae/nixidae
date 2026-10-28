@@ -21,6 +21,7 @@ from .events import Event, Kind, Level, junit, render, wanted
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
+    from typing import TextIO
 
 
 class Sink(Protocol):
@@ -42,7 +43,7 @@ class Terminal:
     used to be.
     """
 
-    def __init__(self, level: Level = Level.INFO, stream=None) -> None:
+    def __init__(self, level: Level = Level.INFO, stream: TextIO | None = None) -> None:
         self.level = level
         self._stream = stream if stream is not None else sys.stdout
 
@@ -109,7 +110,7 @@ class ConsoleFiles:
     def __init__(self, directory: Path) -> None:
         self._dir = directory
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._files: dict[str, object] = {}
+        self._files: dict[str, TextIO] = {}
 
     def emit(self, event: Event) -> None:
         if event.kind is not Kind.CONSOLE or not event.machine:
@@ -118,11 +119,11 @@ class ConsoleFiles:
         if handle is None:
             handle = (self._dir / f"{event.machine}.log").open("w", buffering=1, encoding="utf-8", errors="replace")
             self._files[event.machine] = handle
-        handle.write(event.text + "\n")  # ty: ignore[unresolved-attribute]
+        handle.write(event.text + "\n")
 
     def close(self) -> None:
         for handle in self._files.values():
-            handle.close()  # ty: ignore[unresolved-attribute]
+            handle.close()
         self._files.clear()
 
 

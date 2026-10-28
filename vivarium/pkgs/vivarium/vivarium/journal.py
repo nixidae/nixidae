@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypedDict
 
 import anyio
 
@@ -33,6 +33,15 @@ SETTLE: Final = "vivarium-settle"
 entries are the runner's own bookkeeping and never become events."""
 
 
+class EntryFields(TypedDict, total=False):
+    """The `Entry.data` keys. Typed so they can be spread into keyword arguments."""
+
+    priority: int
+    unit: str
+    identifier: str
+    pid: int
+
+
 @dataclass(frozen=True)
 class Entry:
     message: str
@@ -41,9 +50,9 @@ class Entry:
     identifier: str | None = None
     pid: int | None = None
 
-    def data(self) -> dict[str, object]:
+    def data(self) -> EntryFields:
         """The fields a reader filters on, without the absent ones."""
-        fields: dict[str, object] = {"priority": self.priority}
+        fields: EntryFields = {"priority": self.priority}
         if self.unit is not None:
             fields["unit"] = self.unit
         if self.identifier is not None:

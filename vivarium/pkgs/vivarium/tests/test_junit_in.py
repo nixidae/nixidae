@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from vivarium.junit_in import Case, parse
 
@@ -19,7 +21,7 @@ PYTEST = """<?xml version="1.0" encoding="utf-8"?>
 
 
 class TestParse:
-    def test_every_outcome(self):
+    def test_every_outcome(self) -> None:
         cases = parse(PYTEST)
         assert [(c.name.split("::")[-1], c.outcome) for c in cases] == [
             ("test_ok", "passed"),
@@ -28,10 +30,10 @@ class TestParse:
             ("test_later", "skipped"),
         ]
 
-    def test_the_name_carries_the_class(self):
+    def test_the_name_carries_the_class(self) -> None:
         assert parse(PYTEST)[0].name == "tests.unit.test_a::test_ok"
 
-    def test_a_failure_keeps_message_and_body(self):
+    def test_a_failure_keeps_message_and_body(self) -> None:
         bad = parse(PYTEST)[1]
         assert bad == Case(
             "tests.unit.test_a::test_bad",
@@ -41,15 +43,15 @@ class TestParse:
             error="def test_bad():\n>       assert 1 == 2",
         )
 
-    def test_a_skip_keeps_its_reason(self):
+    def test_a_skip_keeps_its_reason(self) -> None:
         assert parse(PYTEST)[3].reason == "not today"
 
-    def test_a_bare_testsuite_root(self):
+    def test_a_bare_testsuite_root(self) -> None:
         """go-junit-report writes <testsuites>; some runners write one
         <testsuite> alone."""
         text = '<testsuite><testcase name="TestX" time="1.5"/></testsuite>'
         assert parse(text) == [Case("TestX", "passed", 1.5)]
 
-    def test_not_xml_says_so(self):
+    def test_not_xml_says_so(self) -> None:
         with pytest.raises(ValueError, match="not JUnit XML"):
             parse("<testsuite><testcase")

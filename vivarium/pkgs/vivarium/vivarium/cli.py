@@ -355,7 +355,7 @@ async def drive(
     wanted = control or breaks or break_on_failure or break_on_start or interactive
     controller = Controller(session) if wanted else None
     async with anyio.create_task_group() as group:
-        group.start_soon(session.follow)
+        group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
             controller.announce()
@@ -434,7 +434,7 @@ async def _schedule(
     paused always means nothing is running, and `run` or `pytest` by hand
     never races a phase. `exec` and `inject` may: the caller asked for it.
     """
-    every = frozenset(machine["name"] for machine in session.spec.machines)
+    every = frozenset(str(machine["name"]) for machine in session.spec.machines)
     running: dict[str, PhaseSpec] = {}
     failed: list[str] = []
     paused_before: set[str] = set()
