@@ -35,23 +35,26 @@ let
 
   # A database over `roots`, built as a NixOS guest's is (default.nix
   # `vivariumNixDatabase` says why each step is there).
-  database = pkgs.runCommand "vivarium-image-nix-database" {
-    nativeBuildInputs = [
-      pkgs.nix
-      pkgs.sqlite
-    ];
-  } ''
-    export USER=nobody
-    export NIX_REMOTE="local?root=$PWD"
-    nix-store --load-db < ${registration}/registration
-    sqlite3 nix/var/nix/db/db.sqlite 'UPDATE ValidPaths SET registrationTime = 0'
-    sqlite3 nix/var/nix/db/db.sqlite '.dump' > db.dump
-    mkdir -p $out
-    sqlite3 $out/db.sqlite '.read db.dump'
-    cp nix/var/nix/db/schema $out/schema
-    sqlite3 $out/db.sqlite 'pragma journal_mode = wal' > /dev/null
-    test -s $out/db.sqlite
-  '';
+  database =
+    pkgs.runCommand "vivarium-image-nix-database"
+      {
+        nativeBuildInputs = [
+          pkgs.nix
+          pkgs.sqlite
+        ];
+      }
+      ''
+        export USER=nobody
+        export NIX_REMOTE="local?root=$PWD"
+        nix-store --load-db < ${registration}/registration
+        sqlite3 nix/var/nix/db/db.sqlite 'UPDATE ValidPaths SET registrationTime = 0'
+        sqlite3 nix/var/nix/db/db.sqlite '.dump' > db.dump
+        mkdir -p $out
+        sqlite3 $out/db.sqlite '.read db.dump'
+        cp nix/var/nix/db/schema $out/schema
+        sqlite3 $out/db.sqlite 'pragma journal_mode = wal' > /dev/null
+        test -s $out/db.sqlite
+      '';
 
   rootList = pkgs.writeText "vivarium-image-roots" (lib.concatMapStrings (root: "${root}\n") roots);
 
@@ -260,10 +263,12 @@ in
     system.build.vivariumImageDisk = cfg.disk;
     # The agent's closure: what the guest's store view holds.
     system.build.vivariumImageClosure = pkgs.closureInfo {
-      rootPaths = roots ++ lib.optionals cfg.writableStore [
-        database
-        rootList
-      ];
+      rootPaths =
+        roots
+        ++ lib.optionals cfg.writableStore [
+          database
+          rootList
+        ];
     };
   };
 }

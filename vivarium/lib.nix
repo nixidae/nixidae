@@ -201,7 +201,10 @@ rec {
         }
     )
     // lib.optionalAttrs (
-      lib.elem machine.vivarium.backend [ "qemu" "krun" ]
+      lib.elem machine.vivarium.backend [
+        "qemu"
+        "krun"
+      ]
       && !(machine.system.build ? vivariumImageGuest)
     ) { boot = machine.system.build.qemuBoot; }
     // lib.optionalAttrs (machine.vivarium.backend == "container") {
@@ -450,7 +453,9 @@ rec {
 
       inherit (checkedConfig) name backend;
 
-      settingsFile = pkgs.writeText "vivarium-${name}-settings.json" (builtins.toJSON checkedConfig.settings);
+      settingsFile = pkgs.writeText "vivarium-${name}-settings.json" (
+        builtins.toJSON checkedConfig.settings
+      );
 
       /*
         Every guest, evaluated, by name. Each one receives all of them as
@@ -545,15 +550,16 @@ rec {
                 seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
               in
               machineSpec machine
-              // lib.optionalAttrs (
-                !machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore
-              ) {
-                storePaths =
-                  if machine.system.build ? vivariumImageGuest then
-                    "${machine.system.build.vivariumImageClosure}/store-paths"
-                  else
-                    "${machine.system.build.vivariumNixRegistration}/store-paths";
-              }
+              //
+                lib.optionalAttrs
+                  (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore)
+                  {
+                    storePaths =
+                      if machine.system.build ? vivariumImageGuest then
+                        "${machine.system.build.vivariumImageClosure}/store-paths"
+                      else
+                        "${machine.system.build.vivariumNixRegistration}/store-paths";
+                  }
             ) machines;
           }
         )

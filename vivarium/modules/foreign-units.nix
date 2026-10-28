@@ -1,7 +1,11 @@
 # The systemd units that run the vivarium agent and the journal stream
 # on a guest that is not NixOS, from the store, through the guest's own
 # systemd and journalctl. image-guest.nix and vyos-guest.nix install them.
-{ lib, pkgs, runner }:
+{
+  lib,
+  pkgs,
+  runner,
+}:
 let
   # What the agent's commands find on PATH: the distribution's own.
   guestPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";

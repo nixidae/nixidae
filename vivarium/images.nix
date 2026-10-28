@@ -194,13 +194,15 @@ in
       in
       # Local: on a remote builder the ISO goes out and the squashfs
       # comes back, 1.2 GB for a copy.
-     runCommand "vyos-2026.10.21-0025-rolling.squashfs" {
-        nativeBuildInputs = [ libarchive ];
-        preferLocalBuild = true;
-        allowSubstitutes = false;
-      } ''
-        bsdtar -xOf ${iso} live/filesystem.squashfs > $out
-      '';
+      runCommand "vyos-2026.10.21-0025-rolling.squashfs"
+        {
+          nativeBuildInputs = [ libarchive ];
+          preferLocalBuild = true;
+          allowSubstitutes = false;
+        }
+        ''
+          bsdtar -xOf ${iso} live/filesystem.squashfs > $out
+        '';
   };
 
   /**
@@ -246,14 +248,19 @@ in
           name = "sonic-vs-202505-1238524.img.gz";
         };
       in
-      runCommand "sonic-vs-202505.qcow2" {
-        nativeBuildInputs = [ gzip qemu-utils ];
-        preferLocalBuild = true;
-        allowSubstitutes = false;
-      } ''
-        gzip -dc ${gz} > full.qcow2
-        qemu-img convert -c -O qcow2 full.qcow2 $out
-      '';
+      runCommand "sonic-vs-202505.qcow2"
+        {
+          nativeBuildInputs = [
+            gzip
+            qemu-utils
+          ];
+          preferLocalBuild = true;
+          allowSubstitutes = false;
+        }
+        ''
+          gzip -dc ${gz} > full.qcow2
+          qemu-img convert -c -O qcow2 full.qcow2 $out
+        '';
     format = "qcow2";
   };
 }

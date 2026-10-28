@@ -52,9 +52,7 @@ let
   srv = ../tests/fleet/srv;
   # Not in any minion's store: `settings` carries them without string
   # context, and the master's cache serves them.
-  unit =
-    name: text:
-    "${pkgs.writeTextDir name text}/${name}";
+  unit = name: text: "${pkgs.writeTextDir name text}/${name}";
   webUnit = unit "havsorm-web.service" ''
     [Unit]
     Description=havsorm test web server
@@ -203,23 +201,35 @@ vivarium.mkTest {
     };
   phases = {
     bootstrap = phase [ "boot" ] [ ];
-    nix-on-suse = phase [ "bootstrap" ] [
-      "master"
-      "suse1"
-    ];
-    nixos = phase [ "bootstrap" ] [
-      "master"
-      "web1"
-    ];
-    rolling = phase [ "nixos" ] [
-      "master"
-      "web1"
-      "web2"
-    ];
+    nix-on-suse =
+      phase
+        [ "bootstrap" ]
+        [
+          "master"
+          "suse1"
+        ];
+    nixos =
+      phase
+        [ "bootstrap" ]
+        [
+          "master"
+          "web1"
+        ];
+    rolling =
+      phase
+        [ "nixos" ]
+        [
+          "master"
+          "web1"
+          "web2"
+        ];
     service = phase [ "nix-on-suse" "rolling" ] [ ];
-    heal = phase [ "service" ] [
-      "master"
-      "suse1"
-    ];
+    heal =
+      phase
+        [ "service" ]
+        [
+          "master"
+          "suse1"
+        ];
   };
 }

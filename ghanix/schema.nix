@@ -402,175 +402,187 @@ let
   jobModule =
     { config, ... }:
     {
-    freeformType = types.attrsOf types.anything;
-    options = {
-      ghanix = mkOption {
-        type = types.submodule runnerModule;
-        default = { };
-        description = ''
-          Steps this job asks for by name. Each one it enables is put at
-          the front of `steps`, in the order `orders` above gives, before
-          every step the job wrote for itself.
+      freeformType = types.attrsOf types.anything;
+      options = {
+        ghanix = mkOption {
+          type = types.submodule runnerModule;
+          default = { };
+          description = ''
+            Steps this job asks for by name. Each one it enables is put at
+            the front of `steps`, in the order `orders` above gives, before
+            every step the job wrote for itself.
 
-          Stripped before rendering: nothing under here reaches GitHub.
-        '';
+            Stripped before rendering: nothing under here reaches GitHub.
+          '';
+        };
+
+        runs-on = mkOption {
+          type = types.either types.str (types.listOf types.str);
+          default = "ubuntu-24.04";
+          description = "Runner label(s) this job executes on.";
+        };
+        timeout-minutes = mkOption {
+          type = types.nullOr types.int;
+          default = null;
+          description = ''
+            Minutes GitHub waits before killing this job. Left unset, GitHub's
+            default is six hours -- long enough that a job which hangs rather
+            than fails burns most of a day of runner time before anyone sees a
+            result, and reports nothing when it finally stops.
+          '';
+        };
+        needs = mkOption {
+          type = types.nullOr (types.either types.str (types.listOf types.str));
+          default = null;
+          description = "Job id(s) this job depends on; GitHub Actions waits for them and exposes their outputs.";
+        };
+        "if" = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "GitHub Actions expression gating whether this job runs.";
+        };
+        permissions = mkOption {
+          type = types.nullOr (types.attrsOf types.str);
+          default = null;
+          example = {
+            contents = "write";
+          };
+          description = "`GITHUB_TOKEN` permission scopes granted to this job.";
+        };
+        environment = mkOption {
+          type = types.nullOr (types.attrsOf types.anything);
+          default = null;
+          example = {
+            name = "github-pages";
+          };
+          description = "Deployment environment this job targets.";
+        };
+        concurrency = mkOption {
+          type = types.nullOr (types.attrsOf types.anything);
+          default = null;
+          example = {
+            group = "pages";
+            cancel-in-progress = false;
+          };
+          description = "Concurrency group for this job, to serialize or cancel overlapping runs.";
+        };
+        strategy = mkOption {
+          type = types.nullOr (types.attrsOf types.anything);
+          default = null;
+          example = {
+            fail-fast = false;
+            matrix.version = [
+              "a"
+              "b"
+            ];
+          };
+          description = "Matrix/fail-fast strategy fanning this job out across multiple runs.";
+        };
+        outputs = mkOption {
+          type = types.nullOr (types.attrsOf types.str);
+          default = null;
+          description = "Named outputs this job exposes to jobs that `need` it, as GitHub Actions expression strings.";
+        };
+        env = mkOption {
+          type = types.nullOr (types.attrsOf types.str);
+          default = null;
+          description = ''
+            Environment variables shared by every step of this job.
+
+            This is where a workflow expression belongs. A value that reaches a
+            step through `env` cannot become part of a command, and it keeps the
+            `run` body free of `''${{ ... }}` -- which is what lets that body be
+            a single line that calls a script.
+          '';
+        };
+        steps = mkOption {
+          type = types.listOf (types.submodule stepModule);
+          default = [ ];
+          description = "Ordered steps this job runs.";
+        };
       };
 
-      runs-on = mkOption {
-        type = types.either types.str (types.listOf types.str);
-        default = "ubuntu-24.04";
-        description = "Runner label(s) this job executes on.";
-      };
-      timeout-minutes = mkOption {
-        type = types.nullOr types.int;
-        default = null;
-        description = ''
-          Minutes GitHub waits before killing this job. Left unset, GitHub's
-          default is six hours -- long enough that a job which hangs rather
-          than fails burns most of a day of runner time before anyone sees a
-          result, and reports nothing when it finally stops.
-        '';
-      };
-      needs = mkOption {
-        type = types.nullOr (types.either types.str (types.listOf types.str));
-        default = null;
-        description = "Job id(s) this job depends on; GitHub Actions waits for them and exposes their outputs.";
-      };
-      "if" = mkOption {
-        type = types.nullOr types.str;
-        default = null;
-        description = "GitHub Actions expression gating whether this job runs.";
-      };
-      permissions = mkOption {
-        type = types.nullOr (types.attrsOf types.str);
-        default = null;
-        example = {
-          contents = "write";
-        };
-        description = "`GITHUB_TOKEN` permission scopes granted to this job.";
-      };
-      environment = mkOption {
-        type = types.nullOr (types.attrsOf types.anything);
-        default = null;
-        example = {
-          name = "github-pages";
-        };
-        description = "Deployment environment this job targets.";
-      };
-      concurrency = mkOption {
-        type = types.nullOr (types.attrsOf types.anything);
-        default = null;
-        example = {
-          group = "pages";
-          cancel-in-progress = false;
-        };
-        description = "Concurrency group for this job, to serialize or cancel overlapping runs.";
-      };
-      strategy = mkOption {
-        type = types.nullOr (types.attrsOf types.anything);
-        default = null;
-        example = {
-          fail-fast = false;
-          matrix.version = [
-            "a"
-            "b"
-          ];
-        };
-        description = "Matrix/fail-fast strategy fanning this job out across multiple runs.";
-      };
-      outputs = mkOption {
-        type = types.nullOr (types.attrsOf types.str);
-        default = null;
-        description = "Named outputs this job exposes to jobs that `need` it, as GitHub Actions expression strings.";
-      };
-      env = mkOption {
-        type = types.nullOr (types.attrsOf types.str);
-        default = null;
-        description = ''
-          Environment variables shared by every step of this job.
+      # The job's own cap, summed from the steps it ends up with -- the ones
+      # `config.steps` below contributes included, which is the whole reason
+      # this is here and not in a caller.
+      #
+      # `mkDefault`, so a job that states its own cap keeps it.
+      config.timeout-minutes = lib.mkIf config.ghanix.deriveTimeout.enable (
+        lib.mkDefault (
+          lib.foldl' (
+            total: step:
+            total
+            + (
+              if step.timeout-minutes != null then
+                step.timeout-minutes
+              else
+                throw ''
+                  ghanix: a step of this job declares no timeout-minutes, so
+                  `ghanix.deriveTimeout` cannot sum the job's cap. Give the
+                  step one, or set the job's timeout-minutes itself. The step
+                  was:
+                  ${builtins.toJSON step}
+                ''
+            )
+          ) config.ghanix.deriveTimeout.slack config.steps
+        )
+      );
 
-          This is where a workflow expression belongs. A value that reaches a
-          step through `env` cannot become part of a command, and it keeps the
-          `run` body free of `''${{ ... }}` -- which is what lets that body be
-          a single line that calls a script.
-        '';
-      };
-      steps = mkOption {
-        type = types.listOf (types.submodule stepModule);
-        default = [ ];
-        description = "Ordered steps this job runs.";
-      };
+      # `lib.mkOrder` with an empty list rather than `lib.mkIf`: a definition
+      # that contributes nothing is simpler than one that is not there, and
+      # it keeps the order visible beside the condition.
+      config.steps =
+        let
+          cfg = config.ghanix;
+        in
+        lib.mkMerge [
+          (lib.mkOrder orders.checkout (
+            lib.optional cfg.checkout.enable (
+              steps.checkout { inherit (cfg.checkout) ref fetchDepth timeoutMinutes; }
+            )
+          ))
+          (lib.mkOrder orders.freeDiskSpace (
+            lib.optional cfg.freeDiskSpace.enable (
+              steps.freeDiskSpace { inherit (cfg.freeDiskSpace) timeoutMinutes; }
+            )
+          ))
+          (lib.mkOrder orders.installNix (
+            lib.optional cfg.nix.install.enable (
+              steps.installNix {
+                inherit (cfg.nix.install)
+                  devNet
+                  experimentalFeatures
+                  settings
+                  timeoutMinutes
+                  uidRange
+                  version
+                  ;
+              }
+            )
+          ))
+          (lib.mkOrder orders.cachix (
+            lib.optional cfg.nix.cachix.enable (
+              steps.cachix {
+                inherit (cfg.nix.cachix)
+                  name
+                  useDaemon
+                  pushFilter
+                  skipPush
+                  timeoutMinutes
+                  ;
+              }
+            )
+          ))
+          (lib.mkOrder orders.userNamespaces (
+            lib.optional cfg.userNamespaces.enable (
+              steps.userNamespaces { inherit (cfg.userNamespaces) timeoutMinutes; }
+            )
+          ))
+          (lib.mkOrder orders.openKvm (
+            lib.optional cfg.openKvm.enable (steps.openKvm { inherit (cfg.openKvm) timeoutMinutes; })
+          ))
+        ];
     };
-
-    # The job's own cap, summed from the steps it ends up with -- the ones
-    # `config.steps` below contributes included, which is the whole reason
-    # this is here and not in a caller.
-    #
-    # `mkDefault`, so a job that states its own cap keeps it.
-    config.timeout-minutes = lib.mkIf config.ghanix.deriveTimeout.enable (
-      lib.mkDefault (
-        lib.foldl' (
-          total: step:
-          total
-          + (
-            if step.timeout-minutes != null then
-              step.timeout-minutes
-            else
-              throw ''
-                ghanix: a step of this job declares no timeout-minutes, so
-                `ghanix.deriveTimeout` cannot sum the job's cap. Give the
-                step one, or set the job's timeout-minutes itself. The step
-                was:
-                ${builtins.toJSON step}
-              ''
-          )
-        ) config.ghanix.deriveTimeout.slack config.steps
-      )
-    );
-
-    # `lib.mkOrder` with an empty list rather than `lib.mkIf`: a definition
-    # that contributes nothing is simpler than one that is not there, and
-    # it keeps the order visible beside the condition.
-    config.steps =
-      let
-        cfg = config.ghanix;
-      in
-      lib.mkMerge [
-        (lib.mkOrder orders.checkout (
-          lib.optional cfg.checkout.enable (steps.checkout { inherit (cfg.checkout) ref fetchDepth timeoutMinutes; })
-        ))
-        (lib.mkOrder orders.freeDiskSpace (
-          lib.optional cfg.freeDiskSpace.enable (
-            steps.freeDiskSpace { inherit (cfg.freeDiskSpace) timeoutMinutes; }
-          )
-        ))
-        (lib.mkOrder orders.installNix (
-          lib.optional cfg.nix.install.enable (
-            steps.installNix {
-              inherit (cfg.nix.install)
-                devNet
-                experimentalFeatures
-                settings
-                timeoutMinutes
-                uidRange
-                version
-                ;
-            }
-          )
-        ))
-        (lib.mkOrder orders.cachix (
-          lib.optional cfg.nix.cachix.enable (
-            steps.cachix { inherit (cfg.nix.cachix) name useDaemon pushFilter skipPush timeoutMinutes; }
-          )
-        ))
-        (lib.mkOrder orders.userNamespaces (
-          lib.optional cfg.userNamespaces.enable (steps.userNamespaces { inherit (cfg.userNamespaces) timeoutMinutes; })
-        ))
-        (lib.mkOrder orders.openKvm (
-          lib.optional cfg.openKvm.enable (steps.openKvm { inherit (cfg.openKvm) timeoutMinutes; })
-        ))
-      ];
-  };
 
   workflowModule = {
     options = {

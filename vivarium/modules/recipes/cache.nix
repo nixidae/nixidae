@@ -42,7 +42,10 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    settings.cache = { inherit url; inherit (facts) trustedPublicKey; };
+    settings.cache = {
+      inherit url;
+      inherit (facts) trustedPublicKey;
+    };
 
     nodes.${cfg.name} = {
       vivarium.memory = lib.mkDefault "512M";

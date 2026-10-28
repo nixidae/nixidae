@@ -16,8 +16,7 @@
   sets,
 }:
 let
-  relative =
-    p: p != "" && !(lib.hasPrefix "/" p) && !(lib.hasPrefix "~" p) && !(lib.hasPrefix "$" p);
+  relative = p: p != "" && !(lib.hasPrefix "/" p) && !(lib.hasPrefix "~" p) && !(lib.hasPrefix "$" p);
 
   placePaths =
     source: value:

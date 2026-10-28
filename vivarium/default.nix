@@ -558,16 +558,15 @@ let
             address = "10.105.0.${if name == "one" then "1" else "2"}/24";
           };
         });
-        settings.next = "${
-          (systems.one.extendModules {
-            modules = [
-              {
-                boot.kernelParams = [ "vivarium.reboot=next" ];
-                boot.initrd.systemd.contents."/etc/vivarium-reboot".text = "next\n";
-                environment.etc."vivarium-reboot".text = "next\n";
-              }
-            ];
-          }).config.system.build.toplevel
+        settings.next = "${(systems.one.extendModules {
+          modules = [
+            {
+              boot.kernelParams = [ "vivarium.reboot=next" ];
+              boot.initrd.systemd.contents."/etc/vivarium-reboot".text = "next\n";
+              environment.etc."vivarium-reboot".text = "next\n";
+            }
+          ];
+        }).config.system.build.toplevel
         }";
       }
     );
@@ -587,15 +586,14 @@ let
       let
         next =
           name: extra:
-          "${
-            (systems.one.extendModules {
-              modules = [
-                {
-                  environment.etc."vivarium-generation".text = "${name}\n";
-                }
-                extra
-              ];
-            }).config.system.build.toplevel
+          "${(systems.one.extendModules {
+            modules = [
+              {
+                environment.etc."vivarium-generation".text = "${name}\n";
+              }
+              extra
+            ];
+          }).config.system.build.toplevel
           }";
       in
       {
@@ -1051,19 +1049,22 @@ let
     # Two containers and a UML guest on one segment. By hand, as above.
     container-lan = mkTest {
       name = "container-lan";
-      nodes = lib.mapAttrs (name: value: {
-        vivarium = {
-          backend = if name == "u" then "uml" else "container";
-          lan = {
-            network = "clan";
-            address = "${value}/24";
+      nodes =
+        lib.mapAttrs
+          (name: value: {
+            vivarium = {
+              backend = if name == "u" then "uml" else "container";
+              lan = {
+                network = "clan";
+                address = "${value}/24";
+              };
+            };
+          })
+          {
+            a = "10.56.0.1";
+            b = "10.56.0.2";
+            u = "10.56.0.3";
           };
-        };
-      }) {
-        a = "10.56.0.1";
-        b = "10.56.0.2";
-        u = "10.56.0.3";
-      };
       phases.reach = {
         script = ./tests/phases/container-lan.py;
         after = [ "boot" ];
@@ -2071,25 +2072,28 @@ let
     */
     backends = mkTest {
       name = "backends";
-      nodes = lib.mapAttrs (name: backend: {
-        vivarium = {
-          inherit backend;
-          lan = {
-            network = "backends";
-            address =
-              {
-                u = "10.57.0.1/24";
-                q = "10.57.0.2/24";
-                c = "10.57.0.3/24";
-              }
-              .${name};
+      nodes =
+        lib.mapAttrs
+          (name: backend: {
+            vivarium = {
+              inherit backend;
+              lan = {
+                network = "backends";
+                address =
+                  {
+                    u = "10.57.0.1/24";
+                    q = "10.57.0.2/24";
+                    c = "10.57.0.3/24";
+                  }
+                  .${name};
+              };
+            };
+          })
+          {
+            u = "uml";
+            q = "qemu";
+            c = "container";
           };
-        };
-      }) {
-        u = "uml";
-        q = "qemu";
-        c = "container";
-      };
       phases.reach = {
         script = ./tests/phases/backends.py;
         after = [ "boot" ];
@@ -2437,9 +2441,7 @@ let
         fixed = pkgs.containerd.overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ [ fix ];
           # So `containerd --version` shows which guest carries the fix.
-          makeFlags = map (
-            f: if lib.hasPrefix "VERSION=" f then "${f}+zero-layers-fix" else f
-          ) old.makeFlags;
+          makeFlags = map (f: if lib.hasPrefix "VERSION=" f then "${f}+zero-layers-fix" else f) old.makeFlags;
         });
         node =
           containerd: address:
@@ -2606,8 +2608,7 @@ let
         # `recipes` as well as `tests`: a recipe is shipped for other
         # projects to enable, so one that does not type check breaks a
         # consumer rather than this repository.
-        lib.filesystem.listFilesRecursive ./recipes
-        ++ lib.filesystem.listFilesRecursive ./tests
+        lib.filesystem.listFilesRecursive ./recipes ++ lib.filesystem.listFilesRecursive ./tests
       );
     };
   };
@@ -2615,10 +2616,36 @@ in
 tests
 // {
   # The library, for a caller that writes its own test.
-  inherit mkNode mkTest fromNixosTest runner session cli typeCheck images;
-  lib = { inherit mkNode mkTest fromNixosTest runner session cli typeCheck images; };
+  inherit
+    mkNode
+    mkTest
+    fromNixosTest
+    runner
+    session
+    cli
+    typeCheck
+    images
+    ;
+  lib = {
+    inherit
+      mkNode
+      mkTest
+      fromNixosTest
+      runner
+      session
+      cli
+      typeCheck
+      images
+      ;
+  };
 
-  inherit demo store k8s-pull uplink incr;
+  inherit
+    demo
+    store
+    k8s-pull
+    uplink
+    incr
+    ;
   inherit (demo.config.system.build) vivariumRunner vivariumRootImage toplevel;
 
   # The slowest thing in the repository and the same for every guest, so

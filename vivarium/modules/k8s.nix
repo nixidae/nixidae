@@ -47,13 +47,14 @@ let
   address = config.vivarium.lan.address;
   primary = lib.optional (address != null) address;
   nodeIps = map bare (
-    primary
-    ++ lib.filter (a: !(lib.elem a primary)) (config.vivarium.interfaces.vec1.addresses or [ ])
+    primary ++ lib.filter (a: !(lib.elem a primary)) (config.vivarium.interfaces.vec1.addresses or [ ])
   );
   nodeIp = if nodeIps == [ ] then "0.0.0.0" else lib.concatStringsSep "," nodeIps;
   advertiseAddress = if nodeIps == [ ] then "0.0.0.0" else lib.head nodeIps;
   # host:port, with an IPv6 host in brackets.
-  hostPort = host: port: if lib.hasInfix ":" host then "[${host}]:${toString port}" else "${host}:${toString port}";
+  hostPort =
+    host: port:
+    if lib.hasInfix ":" host then "[${host}]:${toString port}" else "${host}:${toString port}";
 
   # kubeadm takes extraArgs as a list of name/value pairs from v1beta4 on.
   args = lib.mapAttrsToList (name: value: { inherit name value; });
@@ -278,10 +279,7 @@ let
         milliseconds" against nixkube.cachix.org.
       */
       resolvConf =
-        if cfg.images == "nix" then
-          "/etc/kubernetes/resolv.conf"
-        else
-          "/run/systemd/resolve/resolv.conf";
+        if cfg.images == "nix" then "/etc/kubernetes/resolv.conf" else "/run/systemd/resolve/resolv.conf";
       # Nothing here is fast, and a CRI call that takes a minute on a
       # loaded builder is normal rather than a hung runtime.
       runtimeRequestTimeout = "15m";
@@ -423,14 +421,14 @@ let
     }:
     yaml.generate "kubeadm-join.yaml" (
       {
-      apiVersion = "kubeadm.k8s.io/v1beta4";
-      kind = "JoinConfiguration";
-      inherit nodeRegistration timeouts;
-      discovery.bootstrapToken = {
-        apiServerEndpoint = endpoint;
-        inherit token;
-        caCertHashes = [ hash ];
-      };
+        apiVersion = "kubeadm.k8s.io/v1beta4";
+        kind = "JoinConfiguration";
+        inherit nodeRegistration timeouts;
+        discovery.bootstrapToken = {
+          apiServerEndpoint = endpoint;
+          inherit token;
+          caCertHashes = [ hash ];
+        };
       }
       // withPatches
     );
@@ -889,7 +887,11 @@ in
       }
       {
         assertion = lib.all (name: !storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches);
-        message = "services.vivarium-k8s.kubeadmPatches: ${lib.concatStringsSep ", " (lib.filter (name: storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches))} would replace the store mount this module patches in; add a suffix to the target.";
+        message = "services.vivarium-k8s.kubeadmPatches: ${
+          lib.concatStringsSep ", " (
+            lib.filter (name: storePatches ? ${name}) (lib.attrNames cfg.kubeadmPatches)
+          )
+        } would replace the store mount this module patches in; add a suffix to the target.";
       }
       {
         assertion = !(lib.elem "runsc" cfg.runtimes && config.vivarium.backend == "uml");
@@ -953,8 +955,7 @@ in
         # releases and ours has to track kubeadm's: the two agree today,
         # and the day they do not, every pod sandbox fails to start over
         # an image nothing in this file mentions.
-        plugins."io.containerd.cri.v1.images".pinned_images.sandbox =
-          images.sandboxImage;
+        plugins."io.containerd.cri.v1.images".pinned_images.sandbox = images.sandboxImage;
         # Off in containerd, and off here unless a test says otherwise --
         # see `services.vivarium-k8s.nri`.
         plugins."io.containerd.nri.v1.nri".disable = !cfg.nri;
@@ -977,9 +978,9 @@ in
       directory not empty" for ever, and the agent dead after a container
       exits. containerd has no such bind; its shim mounts the rootfs.
     */
-    virtualisation.containers.storage.settings.storage.options.overlay =
-      lib.mkIf (cfg.cri == "crio" && lib.elem "kata" cfg.runtimes)
-        { skip_mount_home = "true"; };
+    virtualisation.containers.storage.settings.storage.options.overlay = lib.mkIf (
+      cfg.cri == "crio" && lib.elem "kata" cfg.runtimes
+    ) { skip_mount_home = "true"; };
 
     virtualisation.cri-o = lib.mkIf (cfg.cri == "crio") {
       enable = true;
@@ -1048,8 +1049,7 @@ in
       tarballs.
     */
     vivarium.nixDatabase.extraRoots = map (path: "${path}") (
-      lib.optionals (cfg.images == "nix") (images.runtimeInputs ++ [ images.tarball ])
-      ++ cfg.extraImages
+      lib.optionals (cfg.images == "nix") (images.runtimeInputs ++ [ images.tarball ]) ++ cfg.extraImages
     );
 
     # Also in "pull" mode when a test brings images of its own: a pulling
@@ -1221,43 +1221,44 @@ in
       "vm.overcommit_memory" = 1;
     };
 
-    environment.etc = lib.optionalAttrs (cfg.persistentVolumes > 0) {
-      # Where `provision_storage` looks.  A node with no volumes writes no
-      # file and the runner applies nothing, so storage is one knob and not
-      # two -- unlike `skipAddons`, which a test has to repeat in `addons`.
-      "kubernetes/vivarium-storage.yaml".source = storageManifest;
-    }
-    // lib.optionalAttrs (cfg.cri == "crio") {
-      # CRI-O's own bridge sorts before `10-vivarium.conflist` and would win. The
-      # pod network is `vivarium-k8s-cni`'s, whichever CRI runs.
-      "cni/net.d/10-crio-bridge.conflist".enable = false;
-    }
-    // lib.optionalAttrs (cfg.runtimes != [ ]) {
-      # Where `provision_runtimes` looks, on the same terms.
-      "kubernetes/vivarium-runtimes.yaml".source = runtimeManifest;
-    }
-    // {
-      # What every pod gets as its /etc/resolv.conf, and what CoreDNS
-      # forwards to.  A sandboxed guest can reach no resolver at all, but
-      # CoreDNS refuses to start against a file that names none -- so
-      # this names one that is guaranteed both to parse and to go
-      # nowhere.  Nothing in a test needs a name from outside the
-      # cluster; cluster.local is served locally.
-      "kubernetes/resolv.conf".text = ''
-        # RFC 5737 TEST-NET-1: unroutable on purpose.
-        nameserver 192.0.2.1
-      '';
+    environment.etc =
+      lib.optionalAttrs (cfg.persistentVolumes > 0) {
+        # Where `provision_storage` looks.  A node with no volumes writes no
+        # file and the runner applies nothing, so storage is one knob and not
+        # two -- unlike `skipAddons`, which a test has to repeat in `addons`.
+        "kubernetes/vivarium-storage.yaml".source = storageManifest;
+      }
+      // lib.optionalAttrs (cfg.cri == "crio") {
+        # CRI-O's own bridge sorts before `10-vivarium.conflist` and would win. The
+        # pod network is `vivarium-k8s-cni`'s, whichever CRI runs.
+        "cni/net.d/10-crio-bridge.conflist".enable = false;
+      }
+      // lib.optionalAttrs (cfg.runtimes != [ ]) {
+        # Where `provision_runtimes` looks, on the same terms.
+        "kubernetes/vivarium-runtimes.yaml".source = runtimeManifest;
+      }
+      // {
+        # What every pod gets as its /etc/resolv.conf, and what CoreDNS
+        # forwards to.  A sandboxed guest can reach no resolver at all, but
+        # CoreDNS refuses to start against a file that names none -- so
+        # this names one that is guaranteed both to parse and to go
+        # nowhere.  Nothing in a test needs a name from outside the
+        # cluster; cluster.local is served locally.
+        "kubernetes/resolv.conf".text = ''
+          # RFC 5737 TEST-NET-1: unroutable on purpose.
+          nameserver 192.0.2.1
+        '';
 
-      # Over CRI-O's own, which names its socket and none of the timeout.
-      "crictl.yaml".text = lib.mkForce ''
-        runtime-endpoint: ${criSocket}
-        image-endpoint: ${criSocket}
-        timeout: 60
-      '';
-    }
-    // lib.optionalAttrs (cfg.role == "control-plane") {
-      "kubernetes/kubeadm-config.yaml".source = kubeadmConfig;
-    };
+        # Over CRI-O's own, which names its socket and none of the timeout.
+        "crictl.yaml".text = lib.mkForce ''
+          runtime-endpoint: ${criSocket}
+          image-endpoint: ${criSocket}
+          timeout: 60
+        '';
+      }
+      // lib.optionalAttrs (cfg.role == "control-plane") {
+        "kubernetes/kubeadm-config.yaml".source = kubeadmConfig;
+      };
 
     environment.systemPackages = [
       kubernetes
@@ -1311,7 +1312,8 @@ in
     # So a test can say `kubectl get nodes` rather than carrying the
     # kubeconfig through every command.  Commands from the host run as
     # children of the agent, and systemd units do not read /etc/profile.
-    systemd.services.vivarium-agent.environment.KUBECONFIG =
-      lib.mkIf (cfg.role == "control-plane") "/etc/kubernetes/admin.conf";
+    systemd.services.vivarium-agent.environment.KUBECONFIG = lib.mkIf (
+      cfg.role == "control-plane"
+    ) "/etc/kubernetes/admin.conf";
   };
 }

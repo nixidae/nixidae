@@ -103,7 +103,9 @@ pkgs.runCommand "huggorm-licenses"
         lib.concatStringsSep "\n" (
           lib.mapAttrsToList (
             name: src:
-            ''echo "${name} ${builtins.substring 33 (-1) (baseNameOf (builtins.unsafeDiscardStringContext "${src}"))}"''
+            ''echo "${name} ${
+              builtins.substring 33 (-1) (baseNameOf (builtins.unsafeDiscardStringContext "${src}"))
+            }"''
           ) srcs
         )
       }

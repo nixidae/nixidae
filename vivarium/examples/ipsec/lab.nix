@@ -463,7 +463,8 @@ let
       {
         address = bare topology.netmap.${otherSide side}.policy;
         prefixLength = 24;
-        via = if side == "west" then topology.policy.eastAddress else bare (lib.head topology.west.internet);
+        via =
+          if side == "west" then topology.policy.eastAddress else bare (lib.head topology.west.internet);
       }
     ];
     boot.kernel.sysctl = {

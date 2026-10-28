@@ -59,7 +59,7 @@ let
       ports = lib.mkOption {
         type = lib.types.either (lib.types.enum [ "all" ]) (lib.types.listOf portMap);
         default = "all";
-        example = lib.literalExpression ''[ 8080 { host = 9090; guest = 80; } ]'';
+        example = lib.literalExpression "[ 8080 { host = 9090; guest = 80; } ]";
         description = ''
           Which ports to forward, or `"all"` for every port passt is
           willing to bind on this address.
@@ -73,7 +73,12 @@ let
       };
 
       protocols = lib.mkOption {
-        type = lib.types.listOf (lib.types.enum [ "tcp" "udp" ]);
+        type = lib.types.listOf (
+          lib.types.enum [
+            "tcp"
+            "udp"
+          ]
+        );
         default = [ "tcp" ];
         description = ''
           Which protocols to forward these ports for.  UDP doubles the
@@ -168,7 +173,13 @@ in
 
   options.vivarium = {
     backend = lib.mkOption {
-      type = lib.types.enum [ "uml" "qemu" "krun" "container" "appliance" ];
+      type = lib.types.enum [
+        "uml"
+        "qemu"
+        "krun"
+        "container"
+        "appliance"
+      ];
       default = "uml";
       description = ''
         Which machine a guest becomes.
@@ -219,7 +230,17 @@ in
 
     memory = lib.mkOption {
       type = lib.types.str;
-      default = if lib.elem config.vivarium.backend [ "qemu" "krun" "appliance" ] then "512M" else "256M";
+      default =
+        if
+          lib.elem config.vivarium.backend [
+            "qemu"
+            "krun"
+            "appliance"
+          ]
+        then
+          "512M"
+        else
+          "256M";
       defaultText = lib.literalExpression ''if backend is "qemu", "krun" or "appliance" then "512M" else "256M"'';
       example = "1024M";
       description = ''
@@ -420,7 +441,7 @@ in
     forward = lib.mkOption {
       type = lib.types.listOf forwardRule;
       default = [ { ports = [ config.vivarium.sshPort ]; } ];
-      defaultText = lib.literalExpression ''[ { ports = [ config.vivarium.sshPort ]; } ]'';
+      defaultText = lib.literalExpression "[ { ports = [ config.vivarium.sshPort ]; } ]";
       example = lib.literalExpression ''
         [
           { ports = "all"; }                              # the whole guest, privately
@@ -802,26 +823,29 @@ in
         wrote is what makes the output the same for the same closure,
         whatever order the inserts happened in.
       */
-      vivariumNixDatabase = pkgs.runCommand "vivarium-nix-database" {
-        nativeBuildInputs = [
-          config.nix.package
-          pkgs.sqlite
-        ];
-      } ''
-        export USER=nobody
-        export NIX_REMOTE="local?root=$PWD"
-        nix-store --load-db < ${config.system.build.vivariumNixRegistration}/registration
+      vivariumNixDatabase =
+        pkgs.runCommand "vivarium-nix-database"
+          {
+            nativeBuildInputs = [
+              config.nix.package
+              pkgs.sqlite
+            ];
+          }
+          ''
+            export USER=nobody
+            export NIX_REMOTE="local?root=$PWD"
+            nix-store --load-db < ${config.system.build.vivariumNixRegistration}/registration
 
-        # A build gets no clock, so give every path the same time rather
-        # than whatever this one happened to run at.
-        sqlite3 nix/var/nix/db/db.sqlite 'UPDATE ValidPaths SET registrationTime = 0'
-        sqlite3 nix/var/nix/db/db.sqlite '.dump' > db.dump
+            # A build gets no clock, so give every path the same time rather
+            # than whatever this one happened to run at.
+            sqlite3 nix/var/nix/db/db.sqlite 'UPDATE ValidPaths SET registrationTime = 0'
+            sqlite3 nix/var/nix/db/db.sqlite '.dump' > db.dump
 
-        mkdir -p $out
-        sqlite3 $out/db.sqlite '.read db.dump'
-        cp nix/var/nix/db/schema $out/schema
-        sqlite3 $out/db.sqlite 'pragma journal_mode = wal' > /dev/null
-      '';
+            mkdir -p $out
+            sqlite3 $out/db.sqlite '.read db.dump'
+            cp nix/var/nix/db/schema $out/schema
+            sqlite3 $out/db.sqlite 'pragma journal_mode = wal' > /dev/null
+          '';
     }
     # Only under the UML backend, because the kernel is half an hour the
     # first time and a QEMU guest has no use for it. `system.build` is an

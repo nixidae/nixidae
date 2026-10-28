@@ -1,7 +1,12 @@
 # An iperf3 server, for measuring what a segment between two guests can
 # actually carry.  Tests drive the client side themselves over the agent,
 # so there is nothing here to schedule or wait for.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.iperf3-server;
 in

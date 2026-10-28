@@ -70,23 +70,29 @@ let
   # eth0 leases its management address; a segment NIC takes the static
   # addresses the node gave it.
   uplinkStanza = lib.optionalString onOob ''
-        ethernet eth0 {
-            address "dhcp"
-            hw-id "${uplinkMac}"${lib.optionalString (uplinkVrf != null) ''
+    ethernet eth0 {
+        address "dhcp"
+        hw-id "${uplinkMac}"${
+          lib.optionalString (uplinkVrf != null) ''
 
-            vrf "${uplinkVrf}"''}
+            vrf "${uplinkVrf}"''
         }
+    }
   '';
 
   # The interfaces' hw-id and addresses, in a block of their own after the
   # user's config.
   interfaceBlock = lib.optionalString (onOob || config.vivarium.nics != [ ]) ''
     interfaces {
-    ${uplinkStanza}${lib.concatMapStrings (nic: ''
-          ethernet ${nic.name} {
-      ${lib.concatMapStrings (address: "        address \"${address}\"\n") nic.addresses}        hw-id "${nic.mac}"
-          }
-    '') config.vivarium.nics}}
+    ${uplinkStanza}${
+      lib.concatMapStrings (nic: ''
+            ethernet ${nic.name} {
+        ${
+          lib.concatMapStrings (address: "        address \"${address}\"\n") nic.addresses
+        }        hw-id "${nic.mac}"
+            }
+      '') config.vivarium.nics
+    }}
   '';
 
   configBoot = pkgs.writeText "config.boot" (cfg.config + vrfBlock + interfaceBlock);

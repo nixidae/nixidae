@@ -47,9 +47,12 @@ in
   );
   # A container has no modules either, and NixOS defines no modprobe
   # script under `boot.isContainer`, so the entry must still get a text.
-  system.activationScripts.modprobe.text = lib.mkIf (!lib.elem cfg.backend [ "qemu" "krun" ]) (
-    lib.mkForce ""
-  );
+  system.activationScripts.modprobe.text = lib.mkIf (
+    !lib.elem cfg.backend [
+      "qemu"
+      "krun"
+    ]
+  ) (lib.mkForce "");
 
   /*
     No bind of /nix/store on top of /nix.
@@ -314,22 +317,24 @@ in
   #
   # A container's agent listens on a socket and has no device unit to wait
   # for; one named anyway never appears, and the agent never starts.
-  systemd.services.vivarium-agent = let
-    units = lib.optional (lib.hasPrefix "/dev/" cfg.agentDevice) "${utils.escapeSystemdPath cfg.agentDevice}.device";
-  in {
-    description = "Host control channel on ${cfg.agentDevice}";
-    wantedBy = [ "multi-user.target" ];
-    # A switch (`vm.switch_to`) must not cut the channel that runs it.
-    restartIfChanged = false;
-    after = units;
-    bindsTo = units;
-    environment.VIVARIUM_AGENT_DEVICE = cfg.agentDevice;
-    serviceConfig = {
-      ExecStart = lib.getExe' config.system.build.vivariumRunnerPackage "vivarium-agent";
-      StandardOutput = "journal+console";
-      StandardError = "journal+console";
+  systemd.services.vivarium-agent =
+    let
+      units = lib.optional (lib.hasPrefix "/dev/" cfg.agentDevice) "${utils.escapeSystemdPath cfg.agentDevice}.device";
+    in
+    {
+      description = "Host control channel on ${cfg.agentDevice}";
+      wantedBy = [ "multi-user.target" ];
+      # A switch (`vm.switch_to`) must not cut the channel that runs it.
+      restartIfChanged = false;
+      after = units;
+      bindsTo = units;
+      environment.VIVARIUM_AGENT_DEVICE = cfg.agentDevice;
+      serviceConfig = {
+        ExecStart = lib.getExe' config.system.build.vivariumRunnerPackage "vivarium-agent";
+        StandardOutput = "journal+console";
+        StandardError = "journal+console";
+      };
     };
-  };
 
   /*
     Before the agent, so the stream is running by the time the host sees

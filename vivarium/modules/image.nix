@@ -93,38 +93,44 @@ lib.mkIf (cfg.backend == "uml") {
     `fakeroot` answers `stat` with what `chown` was told, which is all
     `mkfs.ext4 -d` reads.
   */
-  system.build.vivariumRootImage = pkgs.runCommand "vivarium-root-image" {
-    nativeBuildInputs = [ pkgs.e2fsprogs pkgs.fakeroot ];
-  } ''
-    mkdir -p root/{dev,proc,sys,tmp,run,var,root,home,bin,sbin,artifacts}
-    mkdir -p root/nix root/.nix-upper/store root/.nix-work root/host/nix root/nix-state
-    # `nix-daemon.socket` carries
-    # `ConditionPathIsReadWrite=/nix/var/nix/daemon-socket`, and an unmet
-    # condition skips a unit silently. Without this directory the guest
-    # has no daemon and says nothing about it. Here rather than in
-    # tmpfiles, for the reason the database is here: in place before pid 1.
-    mkdir -p root/nix-state/nix/daemon-socket
+  system.build.vivariumRootImage =
+    pkgs.runCommand "vivarium-root-image"
+      {
+        nativeBuildInputs = [
+          pkgs.e2fsprogs
+          pkgs.fakeroot
+        ];
+      }
+      ''
+        mkdir -p root/{dev,proc,sys,tmp,run,var,root,home,bin,sbin,artifacts}
+        mkdir -p root/nix root/.nix-upper/store root/.nix-work root/host/nix root/nix-state
+        # `nix-daemon.socket` carries
+        # `ConditionPathIsReadWrite=/nix/var/nix/daemon-socket`, and an unmet
+        # condition skips a unit silently. Without this directory the guest
+        # has no daemon and says nothing about it. Here rather than in
+        # tmpfiles, for the reason the database is here: in place before pid 1.
+        mkdir -p root/nix-state/nix/daemon-socket
 
-    install -m 0555 ${init} root/init
-    ${lib.optionalString cfg.nixDatabase.enable ''
-      mkdir -p root/nix-state/nix/db
-      install -m 0644 ${build.vivariumNixDatabase}/db.sqlite root/nix-state/nix/db/
-      install -m 0644 ${build.vivariumNixDatabase}/schema root/nix-state/nix/db/
-      # An empty database looks exactly like a full one until something
-      # runs Nix, and looks then like a network timeout naming nothing.
-      # Fail the build instead.
-      test -s root/nix-state/nix/db/db.sqlite
-      test -s root/nix-state/nix/db/schema''}
-    install -m 0555 ${pkgs.pkgsStatic.busybox}/bin/busybox root/bin/busybox
-    for cmd in sh mkdir mount echo cat ls; do
-      ln -s busybox "root/bin/$cmd"
-    done
-    ln -s ${build.toplevel}/init root/sbin/init
+        install -m 0555 ${init} root/init
+        ${lib.optionalString cfg.nixDatabase.enable ''
+          mkdir -p root/nix-state/nix/db
+          install -m 0644 ${build.vivariumNixDatabase}/db.sqlite root/nix-state/nix/db/
+          install -m 0644 ${build.vivariumNixDatabase}/schema root/nix-state/nix/db/
+          # An empty database looks exactly like a full one until something
+          # runs Nix, and looks then like a network timeout naming nothing.
+          # Fail the build instead.
+          test -s root/nix-state/nix/db/db.sqlite
+          test -s root/nix-state/nix/db/schema''}
+        install -m 0555 ${pkgs.pkgsStatic.busybox}/bin/busybox root/bin/busybox
+        for cmd in sh mkdir mount echo cat ls; do
+          ln -s busybox "root/bin/$cmd"
+        done
+        ln -s ${build.toplevel}/init root/sbin/init
 
-    truncate -s ${toString cfg.diskSize}M disk.img
-    fakeroot -- sh -c 'chown -R 0:0 root && mkfs.ext4 -q -L nixos -d root disk.img'
-    mv disk.img $out
-  '';
+        truncate -s ${toString cfg.diskSize}M disk.img
+        fakeroot -- sh -c 'chown -R 0:0 root && mkfs.ext4 -q -L nixos -d root disk.img'
+        mv disk.img $out
+      '';
 
   # `nix run` this to get one guest with everything already pointed at it.
   system.build.vivariumRunner = pkgs.writeShellApplication {

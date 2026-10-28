@@ -51,7 +51,8 @@ let
     coredns = "v1.14.6";
     etcd = "3.7.0-0";
     pause = "3.10.2";
-  } // imageTags;
+  }
+  // imageTags;
 
   /*
     One image: *command*, and whatever it shells out to, as symlinks.
@@ -83,9 +84,7 @@ let
       includeStorePaths = selfContained;
       extraCommands = ''
         mkdir -p usr/local/bin tmp
-        ${lib.concatMapStringsSep "\n" (
-          pkg: "ln -sfn ${pkg}/bin/* usr/local/bin/"
-        ) extraPackages}
+        ${lib.concatMapStringsSep "\n" (pkg: "ln -sfn ${pkg}/bin/* usr/local/bin/") extraPackages}
         ln -sfn ${package}/bin/${command} usr/local/bin/${command}
       '';
       config = {

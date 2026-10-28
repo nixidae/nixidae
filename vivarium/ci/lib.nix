@@ -83,9 +83,7 @@ rec {
         timeout-minutes = timeoutMinutes;
         # `--file .`, which is how this repository is built everywhere
         # else. flake.nix is a second door and CI does not use it.
-        run = "nix build --no-link --print-build-logs --keep-going --file . ${
-          lib.concatStringsSep " " attrs
-        }";
+        run = "nix build --no-link --print-build-logs --keep-going --file . ${lib.concatStringsSep " " attrs}";
       };
   };
 

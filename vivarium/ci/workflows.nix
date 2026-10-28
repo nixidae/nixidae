@@ -4,7 +4,12 @@
 { lib, ghalib }:
 let
   ci = import ./lib.nix { inherit lib; };
-  inherit (ci) steps job selectable bootstrap;
+  inherit (ci)
+    steps
+    job
+    selectable
+    bootstrap
+    ;
 
   # A job that boots a guest needs the user namespace, whether the guest is
   # a UML process inside the Nix sandbox or a QEMU machine outside it: the
