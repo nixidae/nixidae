@@ -101,9 +101,31 @@ rec {
   };
   ci-workflow-update = ci.update;
 
+  # The ruff configuration every Python source shares. nix/shared-config.nix.
+  sharedConfig = import ./nix/shared-config.nix {
+    inherit (pkgs) lib;
+    inherit pkgs;
+    sources = [
+      "easykubenix"
+      "havsorm"
+      "huggorm"
+      "kappy"
+      "nanopynix"
+      "nixkube"
+      "nixvenv"
+      "pydd"
+      "pynixd"
+      "vivarium"
+    ];
+  };
+  shared-config-update = sharedConfig.update;
+
   checks = {
     # That every committed `<source>-*.yml` is what its source renders.
     ciWorkflows = ci.check;
+
+    # That every source's copy of nix/shared/ is the same bytes.
+    sharedConfig = sharedConfig.check;
 
     # That calling a flake we do not own uses our inputs and not its lock.
     # nix/examples/call-flake.nix is the worked example as well as the gate.
