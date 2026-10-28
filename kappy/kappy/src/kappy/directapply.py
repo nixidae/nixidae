@@ -19,6 +19,7 @@ import structlog
 
 from .apply import (
     KindNotServedError,
+    api_object_key,
     build_object,
     field_manager_for,
     resource_version,
@@ -35,12 +36,13 @@ from .converge import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     from kr8s.asyncio import Api
     from kr8s.asyncio.objects import APIObject
 
-    from .apply import ApplyCache, JsonValue, Manifest
+    from .apply import ApplyCache, JsonValue, Manifest, ObjectKey
+    from .converge import ApplyOne, DeleteOne, GateCheck, SkipCheck
 
 _log = structlog.get_logger()
 
@@ -60,10 +62,10 @@ def _applier(  # noqa: PLR0913 -- one caller, and each argument is a piece of wh
     field_manager: str,
     environment_label: str,
     unit_label: str,
-    desired: dict[tuple[str, str, str], type[APIObject]],
+    desired: dict[ObjectKey, type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
-) -> Callable[[Manifest], Awaitable[APIObject]]:
+) -> ApplyOne:
     """The apply step, recording what it built into `desired` for the prune.
 
     Recorded after `build_object` and **before** the apply, for two reasons.
@@ -80,7 +82,7 @@ def _applier(  # noqa: PLR0913 -- one caller, and each argument is a piece of wh
             with_environment_label(spec, environment_label, environment),
             api,
         )
-        desired[(obj.namespace or "none", obj.kind, obj.name)] = type(obj)
+        desired[api_object_key(obj)] = type(obj)
         manager = field_manager_for(spec, default=field_manager, unit_managers=unit_managers, unit_label=unit_label)
         await ssa_apply(obj, field_manager=manager)
         if cache is not None:
@@ -100,9 +102,9 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     field_manager: str,
     environment_label: str,
     unit_label: str,
-    desired: dict[tuple[str, str, str], type[APIObject]],
+    desired: dict[ObjectKey, type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
-) -> Callable[[Manifest], Awaitable[bool]]:
+) -> SkipCheck:
     """The skip step: leave an object alone, and still call it desired.
 
     **The `desired` entry is the whole safety of this.** A prune deletes what
@@ -138,7 +140,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
             # CustomResourceDefinition and a custom resource of its kind in
             # one run.
             return False
-        key = (obj.namespace or "none", obj.kind, obj.name)
+        key = api_object_key(obj)
         if not cache.unchanged(spec, field_manager=manager, key=key):
             return False
         desired[key] = type(obj)
@@ -147,7 +149,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     return should_skip
 
 
-def _gater(api: Api) -> Callable[[Manifest], Awaitable[tuple[str, ...]]]:
+def _gater(api: Api) -> GateCheck:
     """The gate step: what an object is `after` that does not exist yet.
 
     Asked only of an object that does not exist itself. The annotation orders
@@ -190,7 +192,7 @@ def _gater(api: Api) -> Callable[[Manifest], Awaitable[tuple[str, ...]]]:
     return gate
 
 
-def _deleter(api: Api) -> Callable[[Manifest], Awaitable[None]]:
+def _deleter(api: Api) -> DeleteOne:
     """A delete that does not return until the object is gone.
 
     `DeleteOne` requires this, and the requirement is not pedantry: a delete
@@ -236,7 +238,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
     allow_recreate: bool = False,
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
-) -> tuple[ConvergeReport, dict[tuple[str, str, str], type[APIObject]]]:
+) -> tuple[ConvergeReport, dict[ObjectKey, type[APIObject]]]:
     """Apply `objects` until the cluster stops changing, or until it stops
     making progress.
 
@@ -257,7 +259,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
         settle=settle_seconds,
         recreate=allow_recreate,
     )
-    desired: dict[tuple[str, str, str], type[APIObject]] = {}
+    desired: dict[ObjectKey, type[APIObject]] = {}
     report = await converge_queue(
         objects,
         apply=_applier(

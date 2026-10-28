@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, cast
 
 import anyio
 import kr8s
@@ -72,6 +72,18 @@ DEFAULT_BARRIER_PRIORITY = 1000
 type Manifest = dict[str, JsonValue]
 
 
+CLUSTER_SCOPED: Final = "none"
+"""The namespace an `ObjectKey` names for a cluster-scoped object."""
+
+
+class ObjectKey(NamedTuple):
+    """Which object a manifest or a live object is."""
+
+    namespace: str
+    kind: str
+    name: str
+
+
 def raw_metadata(obj: APIObject) -> dict[str, JsonValue]:
     """`obj.raw["metadata"]`, typed. kr8s leaves `raw` untyped; `{}` when it holds no object."""
     raw = cast("JsonValue", obj.raw)
@@ -89,7 +101,7 @@ class ApplyCache(Protocol):
 
     def may_skip(self, spec: Manifest, *, field_manager: str) -> bool: ...
 
-    def unchanged(self, spec: Manifest, *, field_manager: str, key: tuple[str, str, str]) -> bool: ...
+    def unchanged(self, spec: Manifest, *, field_manager: str, key: ObjectKey) -> bool: ...
 
     def record(self, spec: Manifest, *, field_manager: str, resource_version: str | None) -> None: ...
 
@@ -271,8 +283,8 @@ async def apply_one(spec: Manifest, api: Api, *, field_manager: str) -> APIObjec
     return obj
 
 
-def api_object_key(obj: APIObject) -> tuple[str, str, str]:
-    return (obj.namespace or "none", obj.kind, obj.name)
+def api_object_key(obj: APIObject) -> ObjectKey:
+    return ObjectKey(obj.namespace or CLUSTER_SCOPED, obj.kind, obj.name)
 
 
 def resource_version(obj: APIObject) -> str | None:
@@ -396,7 +408,7 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
     prune_kinds: Mapping[str, str] | None = None,
     hand_applied: Collection[str] = (),
     declared_units: Collection[str] | None = None,
-    protect: set[tuple[str, str, str]] | None = None,
+    protect: set[ObjectKey] | None = None,
     cache: ApplyCache | None = None,
 ) -> None:
     """Apply `objects` in barrier order, then (if `prune`) prune anything
@@ -464,7 +476,7 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
         _check_unit_labels(objects, unit, unit_label)
     # Every object this apply produced, keyed as the prune scan keys them, and
     # carrying the class it was applied through. See `prune_generation`.
-    desired: dict[tuple[str, str, str], type[APIObject]] = {}
+    desired: dict[ObjectKey, type[APIObject]] = {}
 
     # Progress is logged at INFO per barrier, not per object. An apply of a few
     # hundred objects otherwise runs completely silently for minutes -- every
@@ -528,13 +540,13 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
 async def prune_generation(  # noqa: PLR0913 -- every argument names part of a delete scope, and a dict would hide them
     api: Api,
     *,
-    desired: Mapping[tuple[str, str, str], type[APIObject]],
+    desired: Mapping[ObjectKey, type[APIObject]],
     environment: str,
     unit: str | None = None,
     hand_applied: Collection[str] = (),
     declared_units: Collection[str] | None = None,
     prune_kinds: Mapping[str, str] | None = None,
-    protect: Collection[tuple[str, str, str]] = (),
+    protect: Collection[ObjectKey] = (),
     environment_label: str,
     unit_label: str,
     delivery_managers: Collection[str],
@@ -785,8 +797,8 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
     selector: str,
     scan_kinds: set[str],
     classes: dict[str, type[APIObject]],
-    desired_keys: set[tuple[str, str, str]],
-    protected: set[tuple[str, str, str]],
+    desired_keys: set[ObjectKey],
+    protected: set[ObjectKey],
     declared_units: Collection[str] | None = None,
     unit_label: str,
     delivery_managers: Collection[str],
@@ -830,7 +842,7 @@ async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state th
             # `api_object_key` used at apply time) instead of trusting the
             # listed object's mangled one -- otherwise every CRD-based
             # object's key mismatches and everything gets "pruned".
-            key = (obj.namespace or "none", kind, obj.name)
+            key = ObjectKey(obj.namespace or CLUSTER_SCOPED, kind, obj.name)
             if key in desired_keys:
                 continue
             if key in protected:

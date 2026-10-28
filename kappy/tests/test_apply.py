@@ -9,6 +9,7 @@ from conventions import apply_and_prune, converge_direct, field_manager_for, pru
 from kappy.apply import (
     JsonValue,
     Manifest,
+    ObjectKey,
     Resource,
     _wait_established,
     discover,
@@ -104,7 +105,7 @@ class TestDiscover:
 
         await apply_and_prune([spec], api=api.as_api(), environment="full", prune=False)
 
-        assert api.patched == [("kube-system", "NetworkAttachmentDefinition", "dynhetz")]
+        assert api.patched == [ObjectKey("kube-system", "NetworkAttachmentDefinition", "dynhetz")]
 
 
 class TestApplyAndPrune:
@@ -117,7 +118,7 @@ class TestApplyAndPrune:
             "kind": "VerticalPodAutoscaler",
             "metadata": {"name": "argocd-server", "namespace": "argocd"},
         }
-        api = FakeApi(listed=[("argocd", "verticalpodautoscaler", "argocd-server")])
+        api = FakeApi(listed=[ObjectKey("argocd", "verticalpodautoscaler", "argocd-server")])
 
         await apply_and_prune([spec], api=api.as_api(), environment="full")
 
@@ -131,14 +132,14 @@ class TestApplyAndPrune:
         }
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "long-gone"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "long-gone"),
             ]
         )
 
         await apply_and_prune([spec], api=api.as_api(), environment="full")
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "long-gone")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "long-gone")]
 
 
 class TestPruneLeavesOwnedObjects:
@@ -161,8 +162,8 @@ class TestPruneLeavesOwnedObjects:
     async def test_an_owned_object_survives_a_prune_that_would_take_it(self) -> None:
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "materialised"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "materialised"),
             ],
             extra_metadata={
                 "materialised": {"ownerReferences": [{"kind": "ExternalSecret", "name": "harbor-admin"}]},
@@ -179,15 +180,15 @@ class TestPruneLeavesOwnedObjects:
         guard silently unprunable-by-default."""
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "long-gone"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "long-gone"),
             ],
             extra_metadata={"long-gone": {"ownerReferences": []}},
         )
 
         await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "long-gone")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "long-gone")]
 
 
 class TestPruneLeavesObjectsItNeverApplied:
@@ -211,8 +212,8 @@ class TestPruneLeavesObjectsItNeverApplied:
     async def test_a_controller_generated_child_is_not_pruned(self) -> None:
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "inherited"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "inherited"),
             ],
             extra_metadata={
                 # No ownerReferences, exactly like a legacy Endpoints object.
@@ -231,8 +232,8 @@ class TestPruneLeavesObjectsItNeverApplied:
         labels and absent from this generation, is what a prune is for."""
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "removed-from-config"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "removed-from-config"),
             ],
             extra_metadata={
                 "removed-from-config": {"managedFields": [{"manager": "ekn"}]},
@@ -241,7 +242,7 @@ class TestPruneLeavesObjectsItNeverApplied:
 
         await apply_and_prune([self.SPEC], api=api.as_api(), environment="full")
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "removed-from-config")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "removed-from-config")]
 
     async def test_the_units_own_field_manager_counts_as_delivery(self) -> None:
         """A unit applies as the controller that takes its objects over, so a
@@ -258,8 +259,8 @@ class TestPruneLeavesObjectsItNeverApplied:
         }
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "gone"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "gone"),
             ],
             extra_metadata={"gone": {"managedFields": [{"manager": "argocd-controller"}]}},
         )
@@ -272,7 +273,7 @@ class TestPruneLeavesObjectsItNeverApplied:
             field_manager="argocd-controller",
         )
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "gone")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "gone")]
 
 
 class TestPruneWarnsAboutUndeclaredUnits:
@@ -290,8 +291,8 @@ class TestPruneWarnsAboutUndeclaredUnits:
     async def test_it_still_deletes_and_it_says_which_unit(self, capsys: pytest.CaptureFixture[str]) -> None:
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "orphan"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "orphan"),
             ],
             extra_metadata={"orphan": {"labels": {"ekn.dev/deployment-unit": "retired"}}},
         )
@@ -303,7 +304,7 @@ class TestPruneWarnsAboutUndeclaredUnits:
             declared_units=["bootstrap"],
         )
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "orphan")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "orphan")]
         # structlog writes to stdout rather than through `logging`, so
         # `caplog` stays empty here however loudly the warning fires.
         assert "retired" in capsys.readouterr().out
@@ -311,8 +312,8 @@ class TestPruneWarnsAboutUndeclaredUnits:
     async def test_a_declared_unit_is_pruned_without_the_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
         api = FakeApi(
             listed=[
-                ("argocd", "verticalpodautoscaler", "argocd-server"),
-                ("argocd", "verticalpodautoscaler", "orphan"),
+                ObjectKey("argocd", "verticalpodautoscaler", "argocd-server"),
+                ObjectKey("argocd", "verticalpodautoscaler", "orphan"),
             ],
             extra_metadata={"orphan": {"labels": {"ekn.dev/deployment-unit": "routed"}}},
         )
@@ -324,7 +325,7 @@ class TestPruneWarnsAboutUndeclaredUnits:
             declared_units=["routed"],
         )
 
-        assert api.deleted == [("argocd", "verticalpodautoscaler", "orphan")]
+        assert api.deleted == [ObjectKey("argocd", "verticalpodautoscaler", "orphan")]
         assert "no longer declares" not in capsys.readouterr().out
 
 
@@ -477,7 +478,7 @@ class TestUnitLabelGuard:
 
         await apply_and_prune([spec], api=api.as_api(), environment="full", unit="bootstrap", prune=False)
 
-        assert api.patched == [("argocd", "ConfigMap", "root")]
+        assert api.patched == [ObjectKey("argocd", "ConfigMap", "root")]
 
 
 class FakeCrd:

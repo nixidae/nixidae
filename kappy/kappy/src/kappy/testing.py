@@ -14,6 +14,8 @@ import httpx
 import kr8s
 from kr8s.asyncio.objects import APIObject, new_class
 
+from .apply import CLUSTER_SCOPED, ObjectKey
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -71,7 +73,7 @@ class FakeApi:
         self,
         *,
         namespaced: bool = True,
-        listed: list[tuple[str, str, str]] | None = None,
+        listed: list[ObjectKey] | None = None,
         resources: list[Resource] | None = None,
         extra_metadata: dict[str, Metadata] | None = None,
         deny: dict[str, int] | None = None,
@@ -106,8 +108,8 @@ class FakeApi:
             ]
         )
         self.uncached_reads = 0
-        self.deleted: list[tuple[str, str, str]] = []
-        self.patched: list[tuple[str, str, str]] = []
+        self.deleted: list[ObjectKey] = []
+        self.patched: list[ObjectKey] = []
         self.managers: dict[str, str] = {}
         self.swept: list[str] = []
         # (params, headers) of every LIST, for a caller that cares how it asked.
@@ -115,7 +117,7 @@ class FakeApi:
         # Every object "on the cluster", keyed as the prune scan keys them and
         # holding the metadata a sweep would return. An apply adds one; the
         # `listed` objects were there before this run.
-        self.live: dict[tuple[str, str, str], Metadata] = {}
+        self.live: dict[ObjectKey, Metadata] = {}
         for ns, kind, name in self._listed:
             seen: Metadata = {
                 "name": name,
@@ -123,7 +125,7 @@ class FakeApi:
                 "resourceVersion": "1",
                 "managedFields": [{"manager": "ekn"}],
             }
-            self.live[(ns or "none", kind, name)] = seen | self._extra_metadata.get(name, {})
+            self.live[ObjectKey(ns or CLUSTER_SCOPED, kind, name)] = seen | self._extra_metadata.get(name, {})
 
     @asynccontextmanager
     async def call_api(
@@ -143,7 +145,7 @@ class FakeApi:
         if method != "PATCH":
             raise AssertionError(f"FakeApi serves GET and PATCH, not {method}")
         body = json.loads(content or "{}")
-        key: tuple[str, str, str] = (namespace or "none", body["kind"], body["metadata"]["name"])
+        key = ObjectKey(namespace or CLUSTER_SCOPED, body["kind"], body["metadata"]["name"])
         self.patched.append(key)
         # Which manager each object was applied as. SSA sends it as a query
         # parameter, so this is the only place a test can see it.
@@ -169,7 +171,7 @@ class FakeApi:
         """This double where an `Api` is wanted. It implements the surface the engine touches, not all of `Api`."""
         return cast("Api", self)
 
-    def write(self, key: tuple[str, str, str]) -> None:
+    def write(self, key: ObjectKey) -> None:
         """Somebody other than this apply wrote the object: a `kubectl edit`.
 
         Only the resourceVersion moves, which is the whole of what the gate
@@ -256,4 +258,4 @@ class FakeApi:
         return _gen()
 
     def _record_delete(self, namespace: str | None, kind: str, name: str) -> None:
-        self.deleted.append((namespace or "none", kind, name))
+        self.deleted.append(ObjectKey(namespace or CLUSTER_SCOPED, kind, name))

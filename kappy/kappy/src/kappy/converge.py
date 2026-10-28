@@ -31,7 +31,15 @@ import structlog
 
 # `Manifest` is a runtime import, not a type-only one: the memory object
 # stream is parameterised with it, and that subscript is evaluated.
-from .apply import DEFAULT_BARRIER_PRIORITY, JsonValue, KindNotServedError, Manifest, raw_metadata
+from .apply import (
+    CLUSTER_SCOPED,
+    DEFAULT_BARRIER_PRIORITY,
+    JsonValue,
+    KindNotServedError,
+    Manifest,
+    ObjectKey,
+    raw_metadata,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -146,7 +154,7 @@ class Diagnosis:
 class Failure:
     """One object that did not apply, and everything known about why."""
 
-    key: tuple[str, str, str]
+    key: ObjectKey
     disposition: Disposition
     error: str
     diagnosis: Diagnosis | None = None
@@ -245,15 +253,15 @@ class DeleteOne(Protocol):
     def __call__(self, spec: Manifest, /) -> Awaitable[None]: ...
 
 
-def object_key(spec: Manifest) -> tuple[str, str, str]:
+def object_key(spec: Manifest) -> ObjectKey:
     """The `(namespace, kind, name)` identity of a rendered manifest."""
     metadata_value = spec.get("metadata") or {}
     metadata = metadata_value if isinstance(metadata_value, dict) else {}
     namespace = metadata.get("namespace")
     name = metadata.get("name")
     kind = spec.get("kind")
-    return (
-        str(namespace) if isinstance(namespace, str) else "none",
+    return ObjectKey(
+        str(namespace) if isinstance(namespace, str) else CLUSTER_SCOPED,
         str(kind) if isinstance(kind, str) else "?",
         str(name) if isinstance(name, str) else "?",
     )
@@ -669,9 +677,9 @@ class _Pass:
     Never sent to the API server, and never progress: the settle timer
     ignores them, and `wait_seconds` bounds them instead.
     """
-    terminal: dict[tuple[str, str, str], Failure] = field(default_factory=dict[tuple[str, str, str], Failure])
-    last_error: dict[tuple[str, str, str], str] = field(default_factory=dict[tuple[str, str, str], str])
-    diagnoses: dict[tuple[str, str, str], Diagnosis] = field(default_factory=dict[tuple[str, str, str], Diagnosis])
+    terminal: dict[ObjectKey, Failure] = field(default_factory=dict[ObjectKey, Failure])
+    last_error: dict[ObjectKey, str] = field(default_factory=dict[ObjectKey, str])
+    diagnoses: dict[ObjectKey, Diagnosis] = field(default_factory=dict[ObjectKey, Diagnosis])
     retry_after: float | None = None
     """The longest `retryAfterSeconds` any object of this sweep was given.
 
@@ -758,14 +766,14 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     pending = sort_for_apply(specs, resource_priority or {})
     workers = max(1, concurrency)
     applied = skipped = 0
-    terminal: dict[tuple[str, str, str], Failure] = {}
-    last_error: dict[tuple[str, str, str], str] = {}
-    diagnoses: dict[tuple[str, str, str], Diagnosis] = {}
+    terminal: dict[ObjectKey, Failure] = {}
+    last_error: dict[ObjectKey, str] = {}
+    diagnoses: dict[ObjectKey, Diagnosis] = {}
     # How many sweeps each object has been through. A report that says an
     # object failed once and a report that says it failed eleven times are
     # different reports, and only the second one says "this is not coming
     # back on its own".
-    attempts: Counter[tuple[str, str, str]] = Counter()
+    attempts: Counter[ObjectKey] = Counter()
     last_progress = clock()
     waiting_since: float | None = None
     attempt = 0
@@ -1067,11 +1075,11 @@ async def converge_objects(  # noqa: PLR0913 -- every argument is an injected se
 async def _recreate(  # noqa: PLR0913 -- one caller, and every argument is state that caller holds
     spec: Manifest,
     *,
-    key: tuple[str, str, str],
+    key: ObjectKey,
     apply: ApplyOne,
     delete: DeleteOne | None,
     allow_recreate: bool,
-    last_error: dict[tuple[str, str, str], str],
+    last_error: dict[ObjectKey, str],
 ) -> Disposition:
     """Delete an object with an immutable field, then apply it again.
 

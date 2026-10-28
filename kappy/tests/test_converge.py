@@ -25,7 +25,7 @@ import kr8s
 import pytest
 from structlog.testing import capture_logs
 
-from kappy.apply import KindNotServedError
+from kappy.apply import KindNotServedError, ObjectKey
 from kappy.converge import (
     AFTER_ANNOTATION,
     RECREATE_OPT_OUT_ANNOTATION,
@@ -862,7 +862,7 @@ class TestAnApplyThatSucceedsAndDoesNotConverge:
         assert not report.ok
         assert report.applied == 0
         failure = report.failures[0]
-        assert failure.key == ("default", "Namespace", "ekn-term")
+        assert failure.key == ObjectKey("default", "Namespace", "ekn-term")
         assert "being deleted" in failure.error
         assert failure.diagnosis is not None
         assert failure.diagnosis.causes[0].field_path == "metadata.deletionTimestamp"
