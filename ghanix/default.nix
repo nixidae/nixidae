@@ -50,6 +50,7 @@ ghalib
   packages = { };
   lib = ghalib;
   nixosModules = { };
+  easykubenixModules = { };
   checks = { };
   docs = { };
   ciTestWorkflows = { };

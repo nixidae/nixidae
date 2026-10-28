@@ -42,6 +42,7 @@ in
   };
   lib = { };
   nixosModules = { };
+  easykubenixModules = { };
   # The tests run in `shell`; see ci/workflows/tests.nix.
   checks = { };
   docs = { };

@@ -229,6 +229,7 @@ rec {
     default = havsorm;
   };
   nixosModules.default = nixosModule;
+  easykubenixModules = { };
   checks = { inherit suite bundle fleet; };
   docs = { };
   ciTestWorkflows = { };

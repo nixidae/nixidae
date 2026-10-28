@@ -2725,6 +2725,7 @@ tests
     default = cli;
   };
   nixosModules = { };
+  easykubenixModules = { };
   docs = { };
 
   /*

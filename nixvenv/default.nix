@@ -30,6 +30,7 @@ in
   packages = { };
   lib = { inherit nixvenv ps; };
   nixosModules = { };
+  easykubenixModules = { };
   checks = pkgs.callPackages ./checks.nix { inherit nixvenv; };
   docs = { };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;

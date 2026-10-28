@@ -795,6 +795,7 @@ rec {
     default = huggorm;
   };
   nixosModules = { };
+  easykubenixModules = { };
   checks = {
     inherit
       suite
