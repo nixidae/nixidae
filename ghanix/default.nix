@@ -27,17 +27,30 @@
 #
 # YAML is a superset of JSON, so `builtins.toJSON` into a `.yml` file also
 # works and needs no builder at all. It is unreadable in a diff.
+#
+# The output follows the schema of nixidae/nixidae#1103, with the functions
+# under `lib`. The input does not: `{ pkgs, sources }` would need a nixpkgs.
 { lib }:
 let
   schema = import ./schema.nix { inherit lib; };
   steps = import ./steps.nix { inherit lib; };
+  ghalib =
+    schema
+    // steps
+    // {
+      # A path, and not a store path: ghanix takes `lib` and nothing else, and
+      # keeping that true is what lets a repository use it while pinning its own
+      # nixpkgs. A caller interpolates it into a builder, which is where it
+      # becomes a store path.
+      toYamlScript = ./to_yaml.py;
+    };
 in
-schema
-// steps
+ghalib
 // {
-  # A path, and not a store path: ghanix takes `lib` and nothing else, and
-  # keeping that true is what lets a repository use it while pinning its own
-  # nixpkgs. A caller interpolates it into a builder, which is where it
-  # becomes a store path.
-  toYamlScript = ./to_yaml.py;
+  packages = { };
+  lib = ghalib;
+  nixosModules = { };
+  checks = { };
+  docs = { };
+  ciTestWorkflows = { };
 }
