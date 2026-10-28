@@ -60,9 +60,9 @@ class Memory(SourceAccessor):
 
     def read_directory(self, path: str) -> dict[str, FileType | None]:
         prefix = path.rstrip("/") + "/"
-        names = {p[len(prefix):].split("/")[0]
-                 for p in [*self.tree, *self._dirs()]
-                 if p.startswith(prefix) and p != prefix}
+        names = {
+            p[len(prefix) :].split("/")[0] for p in [*self.tree, *self._dirs()] if p.startswith(prefix) and p != prefix
+        }
         entries: dict[str, FileType | None] = {}
         for name in sorted(names):
             stat = self.maybe_lstat(prefix + name)
@@ -96,8 +96,7 @@ def on_disk(root: pathlib.Path, tree: dict[str, Any]) -> pathlib.Path:
     return root
 
 
-def test_nix_reads_a_python_tree_as_it_reads_the_same_tree_on_disk(
-        tmp_path: pathlib.Path) -> None:
+def test_nix_reads_a_python_tree_as_it_reads_the_same_tree_on_disk(tmp_path: pathlib.Path) -> None:
     store = dummy()
     from_python = store.add_accessor_to_store("tree", Memory(TREE))
     from_disk = store.add_path_to_store("tree", str(on_disk(tmp_path / "t", TREE)))
@@ -115,12 +114,14 @@ def test_python_reads_the_hooks() -> None:
     memory = Memory(TREE)
     stat = memory.maybe_lstat("/bin/run")
     assert stat is not None
-    assert (stat.type(), stat.file_size(), stat.is_executable()) == (
-        FileType.REGULAR, 19, True)
+    assert (stat.type(), stat.file_size(), stat.is_executable()) == (FileType.REGULAR, 19, True)
     assert memory.maybe_lstat("/absent") is None
     assert memory.read_directory("/") == {
-        "bin": FileType.DIRECTORY, "empty": FileType.DIRECTORY,
-        "hello.txt": FileType.REGULAR, "link": FileType.SYMLINK}
+        "bin": FileType.DIRECTORY,
+        "empty": FileType.DIRECTORY,
+        "hello.txt": FileType.REGULAR,
+        "link": FileType.SYMLINK,
+    }
 
 
 def test_an_entry_with_no_type_is_read_as_one_to_lstat() -> None:
@@ -129,12 +130,10 @@ def test_an_entry_with_no_type_is_read_as_one_to_lstat() -> None:
             return dict.fromkeys(super().read_directory(path))
 
     store = dummy()
-    assert store.add_accessor_to_store("tree", NamesOnly(TREE)) == (
-        store.add_accessor_to_store("tree", Memory(TREE)))
+    assert store.add_accessor_to_store("tree", NamesOnly(TREE)) == (store.add_accessor_to_store("tree", Memory(TREE)))
 
 
-def test_a_layer_overrides_one_file_and_forwards_the_rest(
-        tmp_path: pathlib.Path) -> None:
+def test_a_layer_overrides_one_file_and_forwards_the_rest(tmp_path: pathlib.Path) -> None:
     """A virtual file over a tree: the layer answers `/hello.txt`, and
     `super()` reaches the tree below for everything else."""
 
@@ -152,8 +151,7 @@ def test_a_layer_overrides_one_file_and_forwards_the_rest(
     store = dummy()
     layered = store.add_accessor_to_store("tree", Greeting(Memory(TREE)))
     changed = {**TREE, "/hello.txt": b"hi\n"}
-    assert layered == store.add_path_to_store(
-        "tree", str(on_disk(tmp_path / "t", changed)))
+    assert layered == store.add_path_to_store("tree", str(on_disk(tmp_path / "t", changed)))
 
 
 def test_a_raising_hook_is_an_error() -> None:
@@ -200,8 +198,7 @@ def test_the_evaluator_reads_a_mounted_tree(pure: bool) -> None:
     assert got == {
         "imported": 42,
         "joined": "hello\n",
-        "listed": {"default.nix": "regular", "hello.txt": "regular",
-                   "link": "symlink", "sub": "directory"},
+        "listed": {"default.nix": "regular", "hello.txt": "regular", "link": "symlink", "sub": "directory"},
         "missing": False,
         "linked": "hello\n",
     }
@@ -250,11 +247,13 @@ def test_python_reads_a_store_object() -> None:
     assert stat is not None and stat.is_executable()
     assert tree.read_link("/link") == "hello.txt"
     assert tree.read_directory("/") == {
-        "bin": "directory", "empty": "directory",
-        "hello.txt": "regular", "link": "symlink"}
+        "bin": "directory",
+        "empty": "directory",
+        "hello.txt": "regular",
+        "link": "symlink",
+    }
     assert tree.maybe_lstat("/absent") is None
-    absent = store.parse_store_path(
-        "/nix/store/00000000000000000000000000000000-absent")
+    absent = store.parse_store_path("/nix/store/00000000000000000000000000000000-absent")
     assert store.get_fs_accessor(absent) is None
 
 
@@ -275,10 +274,8 @@ def test_a_layer_over_a_store_object() -> None:
 
     store = dummy()
     held = store.add_accessor_to_store("tree", Memory(TREE))
-    layered = store.add_accessor_to_store(
-        "tree", Greeting(store.get_fs_accessor(held)))
-    assert layered == store.add_accessor_to_store(
-        "tree", Memory({**TREE, "/hello.txt": b"hi\n"}))
+    layered = store.add_accessor_to_store("tree", Greeting(store.get_fs_accessor(held)))
+    assert layered == store.add_accessor_to_store("tree", Memory({**TREE, "/hello.txt": b"hi\n"}))
 
 
 def test_a_python_store_falls_through_to_the_store_below() -> None:
@@ -300,8 +297,7 @@ def test_the_evaluator_reads_a_python_store() -> None:
     asked: list[bool] = []
 
     class Virtual(LayeredStore):
-        def get_fs_accessor(self, wanted: Any,
-                            require_valid_path: bool = True) -> SourceAccessor | None:
+        def get_fs_accessor(self, wanted: Any, require_valid_path: bool = True) -> SourceAccessor | None:
             asked.append(require_valid_path)
             return Memory(SOURCE) if wanted == path else None
 
@@ -346,19 +342,15 @@ def test_a_given_path_the_store_holds_keeps_the_store_content() -> None:
     assert json.loads(state.eval_file(entry).to_json())["imported"] == 42
 
 
-def test_a_filesystem_tree_reads_as_nix_reads_it(
-        tmp_path: pathlib.Path) -> None:
+def test_a_filesystem_tree_reads_as_nix_reads_it(tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import filesystem_accessor
 
     root = on_disk(tmp_path / "t", TREE)
     store = dummy()
-    assert store.add_accessor_to_store(
-        "tree", filesystem_accessor(root)) == store.add_path_to_store(
-            "tree", str(root))
+    assert store.add_accessor_to_store("tree", filesystem_accessor(root)) == store.add_path_to_store("tree", str(root))
 
 
-def test_a_filesystem_tree_stays_inside_its_root(
-        tmp_path: pathlib.Path) -> None:
+def test_a_filesystem_tree_stays_inside_its_root(tmp_path: pathlib.Path) -> None:
     """A symlink is not followed, and `..` does not leave the root."""
     from huggorm_bindings import filesystem_accessor
 

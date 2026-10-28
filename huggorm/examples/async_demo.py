@@ -83,16 +83,17 @@ async def main() -> None:
     print(f"eval: {await v.string_value()!r} (type {await v.type_name()})")
 
     print("\n=== returned values inherit threading ===")
-    print(f"value workers: {sorted(_runner(v).workers_seen)} "
-          f"(state's: {sorted(_runner(state).workers_seen)})")
+    print(f"value workers: {sorted(_runner(v).workers_seen)} (state's: {sorted(_runner(state).workers_seen)})")
     print(f"workers seen: {sorted(_runner(state).workers_seen)}  <- must be exactly 1")
 
     # Module-level binding functions get generated wrappers too.
     await collect_garbage()
     stats = await gc_stats()
     print(f"after 2x full GC: {await v.string_value()!r}")
-    print(f"gc: {stats['collections']} collections, heap {stats['heap_size'] >> 10} KiB,"
-          f" value in GC heap: {await v.is_gc_managed()}")
+    print(
+        f"gc: {stats['collections']} collections, heap {stats['heap_size'] >> 10} KiB,"
+        f" value in GC heap: {await v.is_gc_managed()}"
+    )
 
     async def evaluate(expr: str) -> None:
         await state.eval_expr(expr)

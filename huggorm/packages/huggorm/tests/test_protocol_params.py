@@ -14,13 +14,11 @@ from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 
 
 async def _remote_value(client: Any) -> Any:
-    state = await client.acquire(
-        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     return state, await state.eval_expr("1 + 1")
 
 
-async def _apply_twice(state: AsyncEvalState, fn: AsyncValue,
-                       arg: AsyncValue) -> int:
+async def _apply_twice(state: AsyncEvalState, fn: AsyncValue, arg: AsyncValue) -> int:
     """One consumer, typed only against the async classes."""
     once = await fn(arg)
     twice = await fn(once)
@@ -53,8 +51,7 @@ async def test_in_process_refuses_a_remote_handle(client: Any) -> None:
         await local.aclose()
 
 
-async def test_a_remote_call_refuses_an_in_process_object(
-        client: Any) -> None:
+async def test_a_remote_call_refuses_an_in_process_object(client: Any) -> None:
     state, _ = await _remote_value(client)
     local = AsyncEvalState(AsyncStore("dummy://"))
     try:

@@ -20,15 +20,14 @@ from huggorm_generated import AsyncEvalState, AsyncStore
 
 async def main(path: str | Path) -> None:
     async with remote.connect(path) as client:
-
         root = tempfile.mkdtemp(prefix="huggorm-demo-")
         store = await client.acquire(AsyncStore, root)
         state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
 
         print("=== wire-value returns are real local objects ===")
         from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm
-        p = await store.add_to_store("hello.txt", b"world",
-                                     CA.NAR, HashAlgorithm.SHA256)
+
+        p = await store.add_to_store("hello.txt", b"world", CA.NAR, HashAlgorithm.SHA256)
         print(f"{type(p).__module__}.{type(p).__name__}: {p.to_string()}")
         print("valid:", await store.is_valid_path(p))
 
@@ -41,20 +40,19 @@ async def main(path: str | Path) -> None:
 
         print("\n=== proxies stay remote behind handles ===")
         v = await state.make_int(42)
-        print("value handle:", remote.handle_of(v)[:12], "| copied:", v._copied,
-              "| class:", type(v).__name__)
+        print("value handle:", remote.handle_of(v)[:12], "| copied:", v._copied, "| class:", type(v).__name__)
         print("integer:", await v.integer())
         await state.force(await state.parse_expr("7"))  # proxy arg over the wire
         text = await state.eval_expr('"hello over a socket"')
         print(f"eval: {await text.string_value()!r}")
 
         print("\n=== one function, either location, no branching ===")
+
         # Typed against the async class. It never asks whether the
         # store answering is in this process or on the far side of the
         # socket - and a typechecker sees the whole surface either way.
         async def report(s: AsyncStore) -> str:
-            path = await s.add_to_store("shared.txt", b"either location",
-                                        CA.NAR, HashAlgorithm.SHA256)
+            path = await s.add_to_store("shared.txt", b"either location", CA.NAR, HashAlgorithm.SHA256)
             return f"{await s.get_uri()}: {path.to_string()}"
 
         print(" remote:", await report(store))

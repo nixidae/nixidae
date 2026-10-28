@@ -68,9 +68,11 @@ class FlakeRef:
         Cxx("return self.toAttrs();")
 
     @staticmethod
-    @needs(Local("huggorm_decl/cpp/call_settings.hpp"),
-           Local("huggorm_decl/cpp/flakeref.hpp"),
-           Local("nix/fetchers/fetch-settings.hh"))
+    @needs(
+        Local("huggorm_decl/cpp/call_settings.hpp"),
+        Local("huggorm_decl/cpp/flakeref.hpp"),
+        Local("nix/fetchers/fetch-settings.hh"),
+    )
     def _from_parts() -> FlakeRef:
         """Rebuild one from its attributes, with the process's fetcher
         settings: the attributes already say everything a setting would
@@ -81,9 +83,12 @@ return huggorm::flake_ref_from_attrs(*fetch, to_attrs);
         """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"),
-       Local("nix/flake/flakeref.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/flakeref.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/flake/flakeref.hh"),
+)
 @threading("pool")
 @blocks
 def parse_flake_ref(url: Str, base: Opt[Str] = None) -> FlakeRef:

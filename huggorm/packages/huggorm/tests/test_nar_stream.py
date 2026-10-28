@@ -45,8 +45,8 @@ class Chunks(Source):
         self.data, self.size = data, size
 
     def read(self, n: int) -> bytes:
-        out = self.data[:min(n, self.size)]
-        self.data = self.data[len(out):]
+        out = self.data[: min(n, self.size)]
+        self.data = self.data[len(out) :]
         return out
 
 
@@ -72,8 +72,7 @@ def test_a_nar_goes_out_and_back_through_python() -> None:
     assert out.nar().startswith(NAR_MAGIC)
 
     dst = dummy()
-    dst.add_to_store_nar(src.query_path_info(held), Chunks(out.nar()),
-                         check_sigs=False)
+    dst.add_to_store_nar(src.query_path_info(held), Chunks(out.nar()), check_sigs=False)
     assert dst.is_valid_path(held)
 
 
@@ -108,8 +107,7 @@ def test_python_sees_a_nar_in_large_pieces(tmp_path: pathlib.Path) -> None:
             return super().read(n)
 
     dst = dummy()
-    dst.add_to_store_nar(store.query_path_info(path),
-                         Counted(nar, 1 << 20), check_sigs=False)
+    dst.add_to_store_nar(store.query_path_info(path), Counted(nar, 1 << 20), check_sigs=False)
     assert dst.is_valid_path(path)
     assert Counted.reads <= pieces + 1
 
@@ -117,8 +115,7 @@ def test_python_sees_a_nar_in_large_pieces(tmp_path: pathlib.Path) -> None:
 def test_a_nar_is_read_no_further_than_its_end(tmp_path: pathlib.Path) -> None:
     store, path, nar = many_files(tmp_path)
     source = Chunks(nar + b"the next reader's", 1 << 20)
-    dummy().add_to_store_nar(store.query_path_info(path), source,
-                             check_sigs=False)
+    dummy().add_to_store_nar(store.query_path_info(path), source, check_sigs=False)
     assert source.data == b"the next reader's"
 
 
@@ -130,8 +127,7 @@ def test_a_source_must_not_answer_more_than_asked() -> None:
     src = dummy()
     held = src.add_to_store("held", b"held")
     with pytest.raises(Exception, match="when asked for at most"):
-        dummy().add_to_store_nar(src.query_path_info(held), Greedy(),
-                                 check_sigs=False)
+        dummy().add_to_store_nar(src.query_path_info(held), Greedy(), check_sigs=False)
 
 
 async def test_the_async_store_streams_through_python() -> None:
@@ -149,10 +145,9 @@ async def test_the_async_store_streams_through_python() -> None:
 def test_a_dump_streams_in_through_python() -> None:
     store = dummy()
     added = store.add_to_store_from_dump(
-        Chunks(b"hello"), "hello", FileSerialisationMethod.FLAT,
-        ContentAddressMethod.FLAT)
-    assert added == store.add_to_store(
-        "hello", b"hello", ContentAddressMethod.FLAT)
+        Chunks(b"hello"), "hello", FileSerialisationMethod.FLAT, ContentAddressMethod.FLAT
+    )
+    assert added == store.add_to_store("hello", b"hello", ContentAddressMethod.FLAT)
 
 
 def test_nix_reaches_the_dump_hook() -> None:
@@ -163,19 +158,22 @@ def test_nix_reaches_the_dump_hook() -> None:
 
     class Reads(LayeredStore):
         def add_to_store_from_dump(
-                self, dump: Source, name: str,
-                dump_method: FileSerialisationMethod = FileSerialisationMethod.NAR,
-                hash_method: ContentAddressMethod = ContentAddressMethod.NAR,
-                hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
-                references: list[Any] | None = None,
-                repair: bool = False) -> Any:
+            self,
+            dump: Source,
+            name: str,
+            dump_method: FileSerialisationMethod = FileSerialisationMethod.NAR,
+            hash_method: ContentAddressMethod = ContentAddressMethod.NAR,
+            hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
+            references: list[Any] | None = None,
+            repair: bool = False,
+        ) -> Any:
             data = b""
             while part := dump.read(1 << 16):
                 data += part
             seen.append((name, data, dump_method, references))
             return super().add_to_store_from_dump(
-                Chunks(data), name, dump_method, hash_method, hash_algo,
-                references, repair)
+                Chunks(data), name, dump_method, hash_method, hash_algo, references, repair
+            )
 
     added = opened(Reads, below).add_to_store("held", b"held")
     assert seen == [("held", b"held", FileSerialisationMethod.FLAT, [])]
@@ -224,9 +222,7 @@ def test_nix_copies_into_a_python_store() -> None:
         def query_valid_paths(self, paths: list[Any]) -> list[Any]:
             return []
 
-        def add_to_store_nar(self, info: Any, source: Any,
-                             repair: bool = False,
-                             check_sigs: bool = True) -> None:
+        def add_to_store_nar(self, info: Any, source: Any, repair: bool = False, check_sigs: bool = True) -> None:
             parts = []
             while part := source.read(1 << 16):
                 parts.append(part)
@@ -246,9 +242,7 @@ def test_super_streams_below() -> None:
             seen.append("out")
             super().nar_from_path(path, sink)
 
-        def add_to_store_nar(self, info: Any, source: Any,
-                             repair: bool = False,
-                             check_sigs: bool = True) -> None:
+        def add_to_store_nar(self, info: Any, source: Any, repair: bool = False, check_sigs: bool = True) -> None:
             seen.append("in")
             super().add_to_store_nar(info, source, repair, check_sigs)
 

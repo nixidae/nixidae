@@ -60,11 +60,9 @@ class NixError(Exception):
     # same thing - the parts this object can be rebuilt from - though
     # an error travels in a FAULT frame rather than as a result
     # (nixidae/nixidae#573).
-    _wire_fields: tuple[tuple[str, object], ...] = (
-        ("message", str), ("colored", str), ("info", ErrorInfo | None))
+    _wire_fields: tuple[tuple[str, object], ...] = (("message", str), ("colored", str), ("info", ErrorInfo | None))
 
-    def __init__(self, message: str, colored: str | None = None,
-                 info: ErrorInfo | None = None) -> None:
+    def __init__(self, message: str, colored: str | None = None, info: ErrorInfo | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.colored = message if colored is None else colored
@@ -122,8 +120,7 @@ class NixError(Exception):
         Defining `__eq__` alone would set this to None and make every
         declared error unhashable, which is a thing a caller may
         reasonably want to do with one."""
-        return hash((type(self).__name__,
-                     tuple(sorted(self.to_dict().items()))))
+        return hash((type(self).__name__, tuple(sorted(self.to_dict().items()))))
 
     def to_dict(self) -> dict[str, object]:
         """This error as its declared parts, for a peer to rebuild.
@@ -298,8 +295,7 @@ class Interrupted(BaseException):
 
     def to_dict(self) -> dict[str, str]:
         """This error as its declared parts, as NixError's."""
-        parts = {name: str(getattr(self, name))
-                 for name, _ in self._wire_fields}
+        parts = {name: str(getattr(self, name)) for name, _ in self._wire_fields}
         return {"code": self.code, **parts}
 
 
@@ -326,12 +322,11 @@ class BuildError(NixError):
     that nothing here saw evidence otherwise.
     """
 
-    _wire_fields = (("message", str), ("colored", str),
-                    ("status", str), ("is_non_deterministic", bool))
+    _wire_fields = (("message", str), ("colored", str), ("status", str), ("is_non_deterministic", bool))
 
-    def __init__(self, message: str, colored: str | None = None,
-                 status: str = "misc-failure",
-                 is_non_deterministic: bool = False) -> None:
+    def __init__(
+        self, message: str, colored: str | None = None, status: str = "misc-failure", is_non_deterministic: bool = False
+    ) -> None:
         super().__init__(message, colored)
         self.status = status
         self.is_non_deterministic = is_non_deterministic

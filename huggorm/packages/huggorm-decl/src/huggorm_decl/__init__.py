@@ -81,8 +81,7 @@ VOCABULARIES = (
 ERRORS = "errors.py"
 
 
-def census(root: pathlib.Path,
-           listed: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
+def census(root: pathlib.Path, listed: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
     """Refuse a directory and a set of lists that disagree.
 
     A declaration in none of the lists is SKIPPED, and a skip reads
@@ -113,15 +112,13 @@ def census(root: pathlib.Path,
     if missing:
         bad.append(
             f"in no list, so nothing reads them: {', '.join(missing)}. "
-            f"Add each to the group that describes it, or delete it.")
+            f"Add each to the group that describes it, or delete it."
+        )
     if gone:
-        bad.append(
-            f"listed and not on disk: {', '.join(gone)}. Remove the name "
-            f"or restore the file.")
+        bad.append(f"listed and not on disk: {', '.join(gone)}. Remove the name or restore the file.")
     bad += sorted(twice)
     if bad:
-        raise TypeError(
-            f"{root} and the declaration lists disagree. " + " ".join(bad))
+        raise TypeError(f"{root} and the declaration lists disagree. " + " ".join(bad))
 
 
 @functools.cache
@@ -148,11 +145,8 @@ def corpus() -> Corpus:
     # that one stays with the documents." A Corpus is handed a set.
     # This is where the set is decided, so this is where it has to
     # answer for the directory it came from.
-    census(DECLARATIONS, (("NANOBIND", NANOBIND),
-                          ("VOCABULARIES", VOCABULARIES),
-                          ("ERRORS", (ERRORS,))))
-    return Corpus(DECLARATIONS, nanobind=NANOBIND,
-                  vocabularies=VOCABULARIES, errors=ERRORS)
+    census(DECLARATIONS, (("NANOBIND", NANOBIND), ("VOCABULARIES", VOCABULARIES), ("ERRORS", (ERRORS,))))
+    return Corpus(DECLARATIONS, nanobind=NANOBIND, vocabularies=VOCABULARIES, errors=ERRORS)
 
 
 def declaration(name: str) -> str:
@@ -162,8 +156,7 @@ def declaration(name: str) -> str:
     file, because there are several callers in several directories
     and each one guessing its way back to `decl/` is another chance
     to guess wrong."""
-    return str(DECLARATIONS / (name if name.endswith(".py")
-                               else f"{name}.py"))
+    return str(DECLARATIONS / (name if name.endswith(".py") else f"{name}.py"))
 
 
 # The C++ helpers a declaration NAMES, and the directory to compile

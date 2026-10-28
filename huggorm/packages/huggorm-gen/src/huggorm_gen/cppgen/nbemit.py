@@ -66,16 +66,19 @@ INDENT = "    "
 # is emitted with nb::is_operator(); see the module docstring.
 # A Python default, spelled for C++. Only where the two differ: a
 # number or a string literal already reads the same in both.
-COMPARISONS = (("__eq__", "==", "value"), ("__lt__", "<", "order"),
-               ("__le__", "<=", "order"), ("__gt__", ">", "order"),
-               ("__ge__", ">=", "order"))
+COMPARISONS = (
+    ("__eq__", "==", "value"),
+    ("__lt__", "<", "order"),
+    ("__le__", "<=", "order"),
+    ("__gt__", ">", "order"),
+    ("__ge__", ">=", "order"),
+)
 
 
 def _cxx_comparisons(cls: ir.ClassModel) -> list[tuple[str, str]]:
     """Each comparison bound to the C++ type's own operator, as
     (dunder, operator)."""
-    facts = {"value": cls.semantics.cxx_equal,
-             "order": cls.semantics.cxx_order}
+    facts = {"value": cls.semantics.cxx_equal, "order": cls.semantics.cxx_order}
     return [(name, op) for name, op, fact in COMPARISONS if facts[fact]]
 
 
@@ -91,7 +94,7 @@ def _doc(text: str) -> str:
     "undocumented" where "" says "documented as nothing"."""
     if not text or not text.strip():
         return ""
-    return " ".join(text.split()).replace("\\", "\\\\").replace('"', r'\"')
+    return " ".join(text.split()).replace("\\", "\\\\").replace('"', r"\"")
 
 
 # The lambda's parameter name for the bound object, in every emitted
@@ -109,9 +112,10 @@ def _doc(text: str) -> str:
 SELF = "self"
 
 
-def _sites(classes: Sequence[ir.ClassModel],
-           functions: Sequence[ir.FunctionModel] = (),
-           ) -> Iterator[tuple[ir.ParamModel | None, ir.TypeRef | None]]:
+def _sites(
+    classes: Sequence[ir.ClassModel],
+    functions: Sequence[ir.FunctionModel] = (),
+) -> Iterator[tuple[ir.ParamModel | None, ir.TypeRef | None]]:
     """Every place this translation unit names a declared type.
 
     One walk, because two things read the same sites and a second
@@ -148,10 +152,11 @@ def _carried(body: Body, depth: int) -> list[str]:
 
     The compiler then reports an error in a body at the declaration's
     own file and line."""
-    return [f'#line {body.line} "{body.path}"',
-            *(f"{INDENT * depth}{ln}".rstrip()
-              for ln in body.text.strip().splitlines()),
-            _LINE_RESET]
+    return [
+        f'#line {body.line} "{body.path}"',
+        *(f"{INDENT * depth}{ln}".rstrip() for ln in body.text.strip().splitlines()),
+        _LINE_RESET,
+    ]
 
 
 def placed_lines(text: str, name: str) -> str:
@@ -170,8 +175,7 @@ def _settles(cls: ir.ClassModel) -> bool:
     return cls.threading is Threading.AFFINE
 
 
-def waits(cls: ir.ClassModel,
-          m: ir.MethodModel | ir.FunctionModel) -> bool:
+def waits(cls: ir.ClassModel, m: ir.MethodModel | ir.FunctionModel) -> bool:
     """Whether this call can block, and so needs the GIL released.
 
     The class states the general case and a method overrides it in
@@ -182,7 +186,6 @@ def waits(cls: ir.ClassModel,
     if m.instant:
         return False
     return cls.blocking or m.blocks
-
 
 
 def words_from_word(cls: ir.EnumModel) -> list[str]:
@@ -212,35 +215,31 @@ def words_from_word(cls: ir.EnumModel) -> list[str]:
     enum = cls.cxx
     assert enum is not None
     listed = ", ".join(f"'{w.value}'" for w in cls.members)
-    out = [f"/** A word, as the {cls.name} libstore holds. */",
-           "template <typename T> T from_word(std::string_view word);",
-           f"template <> inline {enum.held}",
-           f"from_word<{enum.held}>(std::string_view word)",
-           "{"]
+    out = [
+        f"/** A word, as the {cls.name} libstore holds. */",
+        "template <typename T> T from_word(std::string_view word);",
+        f"template <> inline {enum.held}",
+        f"from_word<{enum.held}>(std::string_view word)",
+        "{",
+    ]
     for word in cls.members:
-        out += [f'{INDENT}if (word == "{word.value}")',
-                f"{INDENT * 2}return {word.enumerator};"]
-    out += [f'{INDENT}huggorm::refuse_word(',
-            f'{INDENT * 2}"unknown {cls.name} \'%1%\', expect {listed}",'
-            if listed else f'{INDENT * 2}"unknown {cls.name} \'%1%\'",',
-            f"{INDENT * 2}word);",
-            "}", ""]
+        out += [f'{INDENT}if (word == "{word.value}")', f"{INDENT * 2}return {word.enumerator};"]
+    out += [
+        f"{INDENT}huggorm::refuse_word(",
+        f"{INDENT * 2}\"unknown {cls.name} '%1%', expect {listed}\","
+        if listed
+        else f"{INDENT * 2}\"unknown {cls.name} '%1%'\",",
+        f"{INDENT * 2}word);",
+        "}",
+        "",
+    ]
     return out
-
-
-
-
 
 
 def _wrong_arm(owner: str, hold: str, expected: str) -> str:
     """Nix's own refusal of a value of the wrong type, which the
     holder's `wrong_arm` throws."""
     return f"{owner}.wrong_arm({expected}, *{owner}.{hold});"
-
-
-
-
-
 
 
 def _render(cls: ir.ClassModel, accessor: str) -> str:
@@ -278,26 +277,26 @@ def _value_semantics(cls: ir.ClassModel) -> list[str]:
 
     if cls.semantics.text:
         # A CONVERSION, and only for a value that IS a string.
-        out.append(f'{INDENT * 2}.def("__str__", [](nb::handle h) '
-                   f"{{ return {_render(cls, cls.semantics.text)}; }})")
+        out.append(f'{INDENT * 2}.def("__str__", [](nb::handle h) {{ return {_render(cls, cls.semantics.text)}; }})')
     if cls.wire is Crossing.VALUE:
         # A value COPIES. Without these, copy.copy falls through to
         # pickle, which a bound C++ type cannot do - so a caller gets
         # TypeError rather than a copy.
         #
         # A bound value is immutable, so a deep copy IS a copy.
-        out += [f'{INDENT * 2}.def("__copy__", []({ref}) '
-                f"{{ return {held}({obj}); }})",
-                f'{INDENT * 2}.def("__deepcopy__", []({ref}, nb::dict) '
-                f"{{ return {held}({obj}); }}, \"memo\"_a)"]
+        out += [
+            f'{INDENT * 2}.def("__copy__", []({ref}) {{ return {held}({obj}); }})',
+            f'{INDENT * 2}.def("__deepcopy__", []({ref}, nb::dict) {{ return {held}({obj}); }}, "memo"_a)',
+        ]
 
     for name, op in _cxx_comparisons(cls):
         # The C++ comparison, not a Python one on the rendered text.
         # Upstream defaults these, so declaring them means the binding
         # follows if that ever stops being true.
-        out += [f'{INDENT * 2}.def("{name}", [](const {held} &a, '
-                f"const {held} &b)",
-                f"{INDENT * 3} {{ return a {op} b; }}, nb::is_operator())"]
+        out += [
+            f'{INDENT * 2}.def("{name}", [](const {held} &a, const {held} &b)',
+            f"{INDENT * 3} {{ return a {op} b; }}, nb::is_operator())",
+        ]
 
     return out
 
@@ -310,7 +309,6 @@ def _paragraph(doc: str) -> list[str]:
             break
         out.append(line.strip())
     return out
-
 
 
 RUNTIME_HEADER = "huggorm_runtime.hpp"
@@ -331,8 +329,7 @@ def records_include(module: str, package: str) -> str:
     return f"{package}/{name}" if package else name
 
 
-def records_header(unit: ir.ModuleModel, package: str,
-                   model: ir.Model) -> str | None:
+def records_header(unit: ir.ModuleModel, package: str, model: ir.Model) -> str | None:
     """The header a module's records are emitted into, or None.
 
     A HEADER, not the unit, because a record is a C++ type another unit
@@ -342,16 +339,18 @@ def records_header(unit: ir.ModuleModel, package: str,
     if not values:
         return None
     emit = Emitter(model, unit)
-    others = [m for m in emit.records_named(values, ())
-              if m != unit.name]
+    others = [m for m in emit.records_named(values, ()) if m != unit.name]
     structs = emit.records(values)
-    return "\n".join([
-        "#pragma once", "",
-        *emit.includes(values, ()),
-        *[Local(records_include(m, package)).line for m in others],
-        "",
-        *structs,
-    ])
+    return "\n".join(
+        [
+            "#pragma once",
+            "",
+            *emit.includes(values, ()),
+            *[Local(records_include(m, package)).line for m in others],
+            "",
+            *structs,
+        ]
+    )
 
 
 def _unhashable(t: ir.TypeRef) -> bool:
@@ -369,7 +368,6 @@ def _nodes(t: ir.TypeRef | None) -> Iterator[ir.TypeRef]:
     yield t
     for arg in t.args:
         yield from _nodes(arg)
-
 
 
 def words_conversion(cls: ir.EnumModel) -> list[str]:
@@ -399,13 +397,14 @@ def words_conversion(cls: ir.EnumModel) -> list[str]:
         return numbers_conversion(cls)
     enum = cls.cxx
     assert enum is not None
-    out = [f"/** A {cls.name}, as the word Python has. */",
-           conversion_signature(cls),
-           "{",
-           f"{INDENT}switch (value{enum.reach}) {{"]
+    out = [
+        f"/** A {cls.name}, as the word Python has. */",
+        conversion_signature(cls),
+        "{",
+        f"{INDENT}switch (value{enum.reach}) {{",
+    ]
     for word in cls.members:
-        out.append(f"{INDENT}case {word.enumerator}: "
-                   f'return "{word.value}";')
+        out.append(f'{INDENT}case {word.enumerator}: return "{word.value}";')
     return out + _conversion_end(cls)
 
 
@@ -423,9 +422,7 @@ def conversion_signature(cls: ir.EnumModel) -> str:
 def _conversion_end(cls: ir.EnumModel) -> list[str]:
     enum = cls.cxx
     assert enum is not None
-    return [f"{INDENT}}}",
-            f'{INDENT}huggorm::unknown_enumerator("{enum.held}");',
-            "}", ""]
+    return [f"{INDENT}}}", f'{INDENT}huggorm::unknown_enumerator("{enum.held}");', "}", ""]
 
 
 def numbers_conversion(cls: ir.EnumModel) -> list[str]:
@@ -442,15 +439,14 @@ def numbers_conversion(cls: ir.EnumModel) -> list[str]:
     enum = cls.cxx
     assert enum is not None
     out = [f"/** One {cls.name}, as the number Python has. */"]
-    out += [f"static_assert(static_cast<std::int64_t>({m.enumerator}) == {m.value},"
-            f' "{cls.name}.{m.name} is {m.value} in the declaration");'
-            for m in cls.members]
-    out += [conversion_signature(cls), "{",
-            f"{INDENT}switch (value{enum.reach}) {{"]
-    out += [f"{INDENT}case {m.enumerator}: return {m.value};"
-            for m in cls.members]
+    out += [
+        f"static_assert(static_cast<std::int64_t>({m.enumerator}) == {m.value},"
+        f' "{cls.name}.{m.name} is {m.value} in the declaration");'
+        for m in cls.members
+    ]
+    out += [conversion_signature(cls), "{", f"{INDENT}switch (value{enum.reach}) {{"]
+    out += [f"{INDENT}case {m.enumerator}: return {m.value};" for m in cls.members]
     return out + _conversion_end(cls)
-
 
 
 def _is_bare(cls: ir.UnionModel) -> bool:
@@ -463,10 +459,8 @@ def _arms_type(cls: ir.UnionModel) -> str:
     return f"std::variant<{', '.join(a.cxx for a in cls.arms)}>"
 
 
-
 # What `_from_parts` is for, in one sentence a caller can read.
 FROM_PARTS_DOC = "Wire-deserialization helper (private, never surfaced)."
-
 
 
 def wire_fields(cls: ir.ClassModel) -> list[tuple[str, ir.TypeRef, str]]:
@@ -476,20 +470,17 @@ def wire_fields(cls: ir.ClassModel) -> list[tuple[str, ir.TypeRef, str]]:
     which is how one line covers a str, a store path and a list of
     them: the part comes back as whatever its own binding hands over,
     so nothing here knows what a part IS."""
-    return [(f.name, f.type, f'h.attr("{f.read}")()')
-            for f in cls.wire_fields]
+    return [(f.name, f.type, f'h.attr("{f.read}")()') for f in cls.wire_fields]
 
 
 # What `_parts` is for, in one sentence a caller can read.
-PARTS_DOC = ("Wire-serialization helper (private): one value per "
-             "_wire_fields entry, in order.")
+PARTS_DOC = "Wire-serialization helper (private): one value per _wire_fields entry, in order."
 
 
 # A declared field's WIRE type, and the C++ that carries it. The wire
 # spells types the way a declaration does - `str`, `int`, `str?`, or
 # another declared class - because that is the vocabulary the message
 # shape is written in, not C++'s.
-
 
 
 def _round_trip(cls: ir.ClassModel) -> list[str]:
@@ -507,9 +498,11 @@ def _round_trip(cls: ir.ClassModel) -> list[str]:
     if not fields and not cls.semantics.unit:
         return []
     reads = ", ".join(read for _, _, read in fields)
-    return [f'{INDENT * 2}.def("_parts", [](nb::handle h) {{',
-            f"{INDENT * 3}return nb::make_tuple({reads});",
-            f'{INDENT * 2}}}, "{PARTS_DOC}")']
+    return [
+        f'{INDENT * 2}.def("_parts", [](nb::handle h) {{',
+        f"{INDENT * 3}return nb::make_tuple({reads});",
+        f'{INDENT * 2}}}, "{PARTS_DOC}")',
+    ]
 
 
 def markers(cls: ir.ClassModel) -> list[str]:
@@ -523,11 +516,9 @@ def markers(cls: ir.ClassModel) -> list[str]:
     # safe default on both sides - stateful until a declaration proves
     # otherwise - and writing it out means a reader of the compiled
     # class is told rather than left to know the default.
-    out = [f'{INDENT}cls.attr("_copied") = '
-           f'{"true" if cls.copied else "false"};']
+    out = [f'{INDENT}cls.attr("_copied") = {"true" if cls.copied else "false"};']
     fields = wire_fields(cls)
-    if ((fields or cls.semantics.unit) and not cls.is_value
-            and cls.init is not None):
+    if (fields or cls.semantics.unit) and not cls.is_value and cls.init is not None:
         # The other half of the round trip, and for a CONSTRUCTED value
         # it is the class.
         #
@@ -544,7 +535,6 @@ def markers(cls: ir.ClassModel) -> list[str]:
         # in order, which the model checks.
         out.append(f'{INDENT}cls.attr("_from_parts") = cls;')
     return out
-
 
 
 def _virtuals(cls: ir.ClassModel) -> tuple[ir.MethodModel, ...]:
@@ -592,8 +582,7 @@ def _answer_cxx(m: ir.MethodModel) -> str:
             return _container(t).of(held) if t.optional else held
         case ir.Answer.BYTES:
             return "std::string"
-        case (ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST
-              | ir.Answer.MAP | ir.Answer.WIDTH):
+        case ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST | ir.Answer.MAP | ir.Answer.WIDTH:
             assert t is not None
             return t.cxx
         case _:
@@ -615,22 +604,21 @@ def _taken(m: ir.MethodModel) -> list[str]:
             word = f"{parser}(nb::cast<std::string>(item.second))"
             if t.inner.optional:
                 held = _container(t.inner).of(held)
-                word = (f"item.second.is_none() ? {held}{{}}"
-                        f" : {held}{{{word}}}")
-            return [f"{_word_map_cxx(t)} out;",
-                    "for (auto item : nb::cast<nb::dict>(answer))",
-                    f"{INDENT}out.emplace(nb::cast<std::string>(item.first), {word});",
-                    "return out;"]
+                word = f"item.second.is_none() ? {held}{{}} : {held}{{{word}}}"
+            return [
+                f"{_word_map_cxx(t)} out;",
+                "for (auto item : nb::cast<nb::dict>(answer))",
+                f"{INDENT}out.emplace(nb::cast<std::string>(item.first), {word});",
+                "return out;",
+            ]
         case ir.Answer.WORD:
             assert t is not None
             _, parser = _enum(t)
             parsed = [f"return {parser}(nb::cast<std::string>(answer));"]
             if t.optional:
-                return ["if (answer.is_none())",
-                        f"{INDENT}return std::nullopt;", *parsed]
+                return ["if (answer.is_none())", f"{INDENT}return std::nullopt;", *parsed]
             return parsed
-        case (ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST
-              | ir.Answer.MAP | ir.Answer.WIDTH):
+        case ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST | ir.Answer.MAP | ir.Answer.WIDTH:
             return [f"return nb::cast<{_answer_cxx(m)}>(answer);"]
         case _:
             assert_never(m.answer)
@@ -667,10 +655,8 @@ def _handed(pr: ir.ParamModel, model: ir.Model | None) -> str:
         case ir.Arrives.WORD:
             words = model.declared(pr.type) if model is not None else None
             if not isinstance(words, ir.EnumModel):
-                raise TypeError(f"{pr.name}: a vocabulary needs the model "
-                                f"to name its Python enum")
-            return (f'nb::module_::import_("{words.module}")'
-                    f'.attr("{words.name}")(as_word({pr.name}))')
+                raise TypeError(f"{pr.name}: a vocabulary needs the model to name its Python enum")
+            return f'nb::module_::import_("{words.module}").attr("{words.name}")(as_word({pr.name}))'
         case ir.Arrives.ABSENT | ir.Arrives.CAST:
             return pr.name
         case _:
@@ -704,15 +690,13 @@ def _bytes_shapes(where: str, m: ir.MethodModel) -> None:
     the C++ spells it, a string crosses as `str` where the declaration
     says `bytes`."""
     shapes: list[tuple[str, ir.TypeRef | None, bool]] = [
-        (f"parameter {pr.name!r}", pr.type, pr.passes is ir.Passes.BYTES)
-        for pr in m.params]
+        (f"parameter {pr.name!r}", pr.type, pr.passes is ir.Passes.BYTES) for pr in m.params
+    ]
     shapes.append(("return", m.returns, m.answer is ir.Answer.BYTES))
     for what, t, converted in shapes:
         if _holds_bytes(t) and not converted:
             assert t is not None
-            raise TypeError(
-                f"{where}: {what} `{t.spelling}` has no bytes conversion. "
-                f"Carry a Cxx body.")
+            raise TypeError(f"{where}: {what} `{t.spelling}` has no bytes conversion. Carry a Cxx body.")
 
 
 def rethrow_as_nix(errors: ir.Errors) -> list[str]:
@@ -724,25 +708,28 @@ def rethrow_as_nix(errors: ir.Errors) -> list[str]:
     and the check is the compiler's, not a list: `EvalError` needs an
     evaluator. Its Python instance then matches a base further down.
     Anything else rethrows as the Python error it is."""
-    out = ["#include <type_traits>", "", f"namespace {NAMESPACE} {{", "",
-           "// A template, so the branch a type cannot take is never compiled.",
-           "template<typename E>",
-           "void throw_as(const std::string & what)",
-           "{",
-           f"{INDENT}if constexpr (std::is_constructible_v<E, const char *, "
-           f"std::string>)",
-           f'{INDENT * 2}throw E("%s", what);',
-           "}", "",
-           "[[noreturn]] inline void rethrow_as_nix(nb::python_error & e)",
-           "{",
-           f'{INDENT}nb::module_ errors = nb::module_::import_("{errors.module}");',
-           f"{INDENT}std::string what = nb::str(e.value()).c_str();"]
+    out = [
+        "#include <type_traits>",
+        "",
+        f"namespace {NAMESPACE} {{",
+        "",
+        "// A template, so the branch a type cannot take is never compiled.",
+        "template<typename E>",
+        "void throw_as(const std::string & what)",
+        "{",
+        f"{INDENT}if constexpr (std::is_constructible_v<E, const char *, std::string>)",
+        f'{INDENT * 2}throw E("%s", what);',
+        "}",
+        "",
+        "[[noreturn]] inline void rethrow_as_nix(nb::python_error & e)",
+        "{",
+        f'{INDENT}nb::module_ errors = nb::module_::import_("{errors.module}");',
+        f"{INDENT}std::string what = nb::str(e.value()).c_str();",
+    ]
     for name in errors.caught:
         cxx_type = errors.classes[name].cxx
-        out += [f'{INDENT}if (e.matches(errors.attr("{name}")))',
-                f"{INDENT * 2}throw_as<{cxx_type}>(what);"]
-    return [*out, f"{INDENT}throw;", "}", "",
-            f"}}  // namespace {NAMESPACE}", ""]
+        out += [f'{INDENT}if (e.matches(errors.attr("{name}")))', f"{INDENT * 2}throw_as<{cxx_type}>(what);"]
+    return [*out, f"{INDENT}throw;", "}", "", f"}}  // namespace {NAMESPACE}", ""]
 
 
 def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
@@ -765,36 +752,38 @@ def trampoline(cls: ir.ClassModel, model: ir.Model | None = None) -> list[str]:
     methods = _virtuals(cls)
     if not methods:
         return []
-    out = [f"namespace {NAMESPACE} {{", "",
-           f"struct Py{cls.name} : public {cls.held}",
-           "{",
-           f"{INDENT}NB_TRAMPOLINE({cls.held}, {len(methods)});"]
+    out = [
+        f"namespace {NAMESPACE} {{",
+        "",
+        f"struct Py{cls.name} : public {cls.held}",
+        "{",
+        f"{INDENT}NB_TRAMPOLINE({cls.held}, {len(methods)});",
+    ]
     for m in methods:
         ret = _answer_cxx(m)
-        params = ", ".join(f"{_virtual_param(pr)} {pr.name}"
-                           for pr in m.params)
+        params = ", ".join(f"{_virtual_param(pr)} {pr.name}" for pr in m.params)
         args = ", ".join(pr.name for pr in m.params)
         handed = ", ".join(_handed(pr, model) for pr in m.params)
-        out += ["",
-                f"{INDENT}{ret} {m.cxx_name or m.name}({params}) override",
-                f"{INDENT}{{",
-                f"{INDENT * 2}{{",
-                f'{INDENT * 3}nb::detail::ticket nb_ticket(nb_trampoline, '
-                f'"{m.name}", false);',
-                f"{INDENT * 3}if (nb_ticket.key.is_valid()) {{",
-                f"{INDENT * 4}huggorm::FiberStack nb_fiber_stack;",
-                f"{INDENT * 4}nb::object answer;",
-                f"{INDENT * 4}try {{",
-                f"{INDENT * 5}answer = nb_trampoline.base()"
-                f".attr(nb_ticket.key)({handed});",
-                f"{INDENT * 4}}} catch (nb::python_error & e) {{",
-                f"{INDENT * 5}rethrow_as_nix(e);",
-                f"{INDENT * 4}}}",
-                *[f"{INDENT * 4}{line}" for line in _taken(m)],
-                f"{INDENT * 3}}}",
-                f"{INDENT * 2}}}",
-                f"{INDENT * 2}return NBBase::{m.cxx_name or m.name}({args});",
-                f"{INDENT}}}"]
+        out += [
+            "",
+            f"{INDENT}{ret} {m.cxx_name or m.name}({params}) override",
+            f"{INDENT}{{",
+            f"{INDENT * 2}{{",
+            f'{INDENT * 3}nb::detail::ticket nb_ticket(nb_trampoline, "{m.name}", false);',
+            f"{INDENT * 3}if (nb_ticket.key.is_valid()) {{",
+            f"{INDENT * 4}huggorm::FiberStack nb_fiber_stack;",
+            f"{INDENT * 4}nb::object answer;",
+            f"{INDENT * 4}try {{",
+            f"{INDENT * 5}answer = nb_trampoline.base().attr(nb_ticket.key)({handed});",
+            f"{INDENT * 4}}} catch (nb::python_error & e) {{",
+            f"{INDENT * 5}rethrow_as_nix(e);",
+            f"{INDENT * 4}}}",
+            *[f"{INDENT * 4}{line}" for line in _taken(m)],
+            f"{INDENT * 3}}}",
+            f"{INDENT * 2}}}",
+            f"{INDENT * 2}return NBBase::{m.cxx_name or m.name}({args});",
+            f"{INDENT}}}",
+        ]
     return [*out, "};", "", f"}}  // namespace {NAMESPACE}", ""]
 
 
@@ -810,8 +799,7 @@ class Emitter:
         self.model = model
         self.unit = unit
 
-    def _produced_ctor(self, cls: ir.ClassModel,
-                       because: str = "") -> list[str]:
+    def _produced_ctor(self, cls: ir.ClassModel, because: str = "") -> list[str]:
         """The `__init__` of a class nothing constructs.
 
         `because` is the sentence, for a class that is unconstructible
@@ -822,12 +810,12 @@ class Emitter:
         which is true and tells a caller nothing about where to look.
         The calls are read off the return types, so none goes stale."""
         calls = list(self.model.producers.get(cls.name, ()))
-        named = (" or ".join([", ".join(calls[:-1]), calls[-1]])
-                 if len(calls) > 1 else "".join(calls))
-        said = because or (f"objects come from {named}, not from a "
-                           f"constructor" if named
-                           else "objects come from another call, not from "
-                                "a constructor")
+        named = " or ".join([", ".join(calls[:-1]), calls[-1]]) if len(calls) > 1 else "".join(calls)
+        said = because or (
+            f"objects come from {named}, not from a constructor"
+            if named
+            else "objects come from another call, not from a constructor"
+        )
         return [
             f'{INDENT * 2}.def("__init__", []({cls.held} *) {{',
             f"{INDENT * 3}throw nb::type_error(",
@@ -835,9 +823,9 @@ class Emitter:
             f"{INDENT * 2}}})",
         ]
 
-    def includes(self, classes: Sequence[ir.ClassModel],
-                 functions: Sequence[ir.FunctionModel],
-                 errors: Sequence[Include] = ()) -> list[str]:
+    def includes(
+        self, classes: Sequence[ir.ClassModel], functions: Sequence[ir.FunctionModel], errors: Sequence[Include] = ()
+    ) -> list[str]:
         """Exactly the headers this translation unit needs, and no others.
 
         Derived from the declared types rather than listed. A caster left
@@ -894,8 +882,7 @@ class Emitter:
         if any(_virtuals(cls) for cls in classes):
             out.append("#include <nanobind/trampoline.h>")
         out += [f"#include <nanobind/stl/{c}.h>" for c in sorted(casters)]
-        if any(cls.wire is Crossing.VALUE and cls.semantics.text
-               for cls in classes):
+        if any(cls.wire is Crossing.VALUE and cls.semantics.text for cls in classes):
             # std::hash lives in <functional>, and the value hash uses it.
             out.append("#include <functional>")
         # Each class's header, then whatever the bodies reach past it.
@@ -906,22 +893,21 @@ class Emitter:
         # A union's own type, which no `@header` names: the alias carries
         # it, because a unit that only PASSES one declares none of its
         # arms and would otherwise include nothing that spells it.
-        wanted |= {u.variant.header for u in self._unions_used(
-            classes, functions) if u.variant is not None}
+        wanted |= {u.variant.header for u in self._unions_used(classes, functions) if u.variant is not None}
         # A vocabulary's enum, for the same reason. `hash.cpp` returns a
         # HashAlgorithm and declares no class from `nix/util/hash.hh`
         # beyond its own - the words live in another declaration file.
-        wanted |= {v.header for v in self._vocabularies_used(
-            classes, functions)}
+        wanted |= {v.header for v in self._vocabularies_used(classes, functions)}
         # A class from ANOTHER declaration that a signature names. nanobind
         # casts by type, so a forward declaration is not enough:
         # `registry.cpp` names `nix::Store` only as a parameter.
-        wanted |= {other.header for _, t in _sites(classes, functions)
-                   if t is not None
-                   and (other := self.model.declared(t.leaf)) is not None}
+        wanted |= {
+            other.header
+            for _, t in _sites(classes, functions)
+            if t is not None and (other := self.model.declared(t.leaf)) is not None
+        }
         wanted |= {h for cls in classes for h in cls.headers}
-        wanted |= {h for cls in classes for m in cls.callables
-                   for h in m.headers}
+        wanted |= {h for cls in classes for m in cls.callables for h in m.headers}
         wanted |= {h for fn in functions for h in fn.headers}
         every = {h for h in wanted if h is not None} | set(declared)
         # What each leaf's alias says declares it, and each `@needs`
@@ -934,8 +920,7 @@ class Emitter:
         # (nixidae/nixidae#627). `decl/errors.py` says which header each class is
         # in, beside the `cxx` that names the class.
         out += [h.line for h in errors]
-        out += [h.line for h in sorted(h for h in every
-                                       if isinstance(h, Local))]
+        out += [h.line for h in sorted(h for h in every if isinstance(h, Local))]
         return out
 
     def _extras(self, wait: bool, params: Sequence[ir.ParamModel]) -> str:
@@ -960,8 +945,7 @@ class Emitter:
             out.append(arg)
         return "".join(f", {x}" for x in out)
 
-    def _derived(self, cls: ir.ClassModel,
-                 m: ir.MethodModel) -> list[str] | None:
+    def _derived(self, cls: ir.ClassModel, m: ir.MethodModel) -> list[str] | None:
         """The body of a method the emitter can write itself, or None.
 
         Three mechanical things a HANDLE forces, and each of them was a
@@ -980,15 +964,15 @@ class Emitter:
 
         None when this method needs none of the four. `_method` then
         binds it by pointer, which is the shorter and better line."""
-        if (m.returns is not None and m.returns.optional
-                and m.returns.required.container):
+        if m.returns is not None and m.returns.optional and m.returns.required.container:
             # Neither a pointer bind nor `as_list` converts the payload
             # of an optional, so nanobind would cast the C++ type: a set
             # where the declaration says list (nixidae/nixidae#711).
             raise TypeError(
                 f"{cls.name}.{m.name}: a `{m.returns.spelling}` return has "
                 f"no conversion. Declare the container alone: an absent one "
-                f"is an empty one.")
+                f"is an empty one."
+            )
         _bytes_shapes(f"{cls.name}.{m.name}", m)
         for pr in m.params:
             if pr.passes is ir.Passes.SET and pr.type.optional:
@@ -997,17 +981,23 @@ class Emitter:
                     f"{cls.name}.{m.name}: parameter {pr.name!r} is a "
                     f"`{pr.type.spelling}` over `{pr.collection}`, which "
                     f"has no conversion. Default it to None, so an absent "
-                    f"one is an empty one, or carry a body.")
+                    f"one is an empty one, or carry a body."
+                )
         # A guarded accessor reaches through the union pair rather than
         # through `via`, so the two are read separately and `call` below
         # is rebuilt after the guard picks its reach.
         # A converted answer needs a body too: a pointer binding has
         # nowhere to put the conversion. A width does not, because
         # nanobind casts the integer either way.
-        if not (cls.via or m.reads or m.guard or m.names or m.produces
-                or m.answer not in (ir.Answer.NOTHING, ir.Answer.CAST,
-                                    ir.Answer.WIDTH)
-                or any(pr.converts for pr in m.params)):
+        if not (
+            cls.via
+            or m.reads
+            or m.guard
+            or m.names
+            or m.produces
+            or m.answer not in (ir.Answer.NOTHING, ir.Answer.CAST, ir.Answer.WIDTH)
+            or any(pr.converts for pr in m.params)
+        ):
             return None
         obj = SELF
         reach = f"{obj}.{cls.via}->" if cls.via else f"{obj}."
@@ -1049,8 +1039,7 @@ class Emitter:
         # A member is reached, not called. The declaration says which by
         # writing @reads, and an accessor that reads one takes no
         # parameters - so there is no argument list to spell either.
-        call = (f"{reach}{m.reads}" if m.reads
-                else f"{reach}{m.cxx_name or m.name}({passed})")
+        call = f"{reach}{m.reads}" if m.reads else f"{reach}{m.cxx_name or m.name}({passed})"
         t = m.returns
         match m.answer:
             case ir.Answer.NOTHING:
@@ -1074,29 +1063,28 @@ class Emitter:
             case ir.Answer.WORD:
                 assert t is not None
                 if t.optional:
-                    return [*head, f"{INDENT * 4}auto answer = {call};",
-                            f"{INDENT * 4}if (!answer)",
-                            f"{INDENT * 5}return std::nullopt;",
-                            f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
+                    return [
+                        *head,
+                        f"{INDENT * 4}auto answer = {call};",
+                        f"{INDENT * 4}if (!answer)",
+                        f"{INDENT * 5}return std::nullopt;",
+                        f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);",
+                    ]
                 return [*head, f"{INDENT * 4}return {NAMESPACE}::as_word({call});"]
             # `size()` answers a size_t where the declaration says I64,
             # and the emitted C++ says what the declaration says.
             case ir.Answer.WIDTH:
                 assert t is not None
-                return [*head, f"{INDENT * 4}return "
-                               f"static_cast<{t.cxx}>({call});"]
+                return [*head, f"{INDENT * 4}return static_cast<{t.cxx}>({call});"]
             case ir.Answer.CAST:
                 return [*head, f"{INDENT * 4}return {call};"]
             # `ir._unconverted` refuses a container of vocabulary words.
             case ir.Answer.WORD_MAP:
-                raise TypeError(f"{cls.name}.{m.name}: a `dict` of "
-                                f"vocabulary words converts only in a "
-                                f"@virtual")
+                raise TypeError(f"{cls.name}.{m.name}: a `dict` of vocabulary words converts only in a @virtual")
             case _:
                 assert_never(m.answer)
 
-    def _guard_head(self, cls: ir.ClassModel,
-                    m: ir.MethodModel) -> list[str]:
+    def _guard_head(self, cls: ir.ClassModel, m: ir.MethodModel) -> list[str]:
         """The tag check an accessor on a tagged union owes its caller.
 
         Separate from HOW the rest of the body reads, so a method with a
@@ -1138,8 +1126,10 @@ class Emitter:
         By reference, `getBuilder` raised `bad_weak_ptr` on a Python
         store once `openStore`'s owner was gone."""
         if cls.holder is Holder.SHARED_PTR:
-            return (f"const std::shared_ptr<{cls.held}> &nb_self",
-                    [f"{INDENT * 4}[[maybe_unused]] {cls.held} &{SELF} = *nb_self;"])
+            return (
+                f"const std::shared_ptr<{cls.held}> &nb_self",
+                [f"{INDENT * 4}[[maybe_unused]] {cls.held} &{SELF} = *nb_self;"],
+            )
         return f"{cls.held} &{SELF}", []
 
     def _returns(self, m: ir.MethodModel) -> str:
@@ -1189,16 +1179,19 @@ class Emitter:
             # A method the declaration could not derive, carried verbatim.
             me, held = self._self(cls)
             args, opening = self._signature(m.params)
-            head = (f'{INDENT * 2}.def("{m.name}", '
-                    f"[]({me}{args}){self._returns(m)} {{")
+            head = f'{INDENT * 2}.def("{m.name}", []({me}{args}){self._returns(m)} {{'
             body = _carried(m.cxx_body, 4)
             # The tag check goes in FRONT of a declared body. A body says
             # what to do once the arm is known; @guard says the arm is
             # known, and the two are separate decisions.
             extras = self._extras(waits(cls, m), m.params)
-            return [head, *held, *opening,
-                    *self._settled(cls, m, [*self._guard_head(cls, m), *body]),
-                    f"{INDENT * 2}}}{extras}{tail})"]
+            return [
+                head,
+                *held,
+                *opening,
+                *self._settled(cls, m, [*self._guard_head(cls, m), *body]),
+                f"{INDENT * 2}}}{extras}{tail})",
+            ]
         extras = self._extras(waits(cls, m), m.params)
         if m.virtual:
             return self._virtual_def(cls, m, tail)
@@ -1211,25 +1204,27 @@ class Emitter:
             derived = [f"{INDENT * 4}return {SELF}.{spelled}({names});"]
         if derived is not None:
             args, opening = self._signature(m.params)
-            return [f'{INDENT * 2}.def("{m.name}", '
-                    f"[]({me}{args}){self._returns(m)} {{",
-                    *held, *opening, *self._settled(cls, m, derived),
-                    f"{INDENT * 2}}}{extras}{tail})"]
+            return [
+                f'{INDENT * 2}.def("{m.name}", []({me}{args}){self._returns(m)} {{',
+                *held,
+                *opening,
+                *self._settled(cls, m, derived),
+                f"{INDENT * 2}}}{extras}{tail})",
+            ]
         spelled = m.cxx_name or m.name
         if held:
             # A pointer would take `self` by reference: see `_self`.
             args, opening = self._signature(m.params)
             names = ", ".join(pr.name for pr in m.params)
-            return [f'{INDENT * 2}.def("{m.name}", [](const std::shared_ptr<{cls.held}> '
-                    f"&nb_self{args}) {{",
-                    *opening,
-                    f"{INDENT * 4}return nb_self->{spelled}({names});",
-                    f"{INDENT * 2}}}{extras}{tail})"]
-        return [f'{INDENT * 2}.def("{m.name}", &{cls.held}::{spelled}'
-                f"{extras}{tail})"]
+            return [
+                f'{INDENT * 2}.def("{m.name}", [](const std::shared_ptr<{cls.held}> &nb_self{args}) {{',
+                *opening,
+                f"{INDENT * 4}return nb_self->{spelled}({names});",
+                f"{INDENT * 2}}}{extras}{tail})",
+            ]
+        return [f'{INDENT * 2}.def("{m.name}", &{cls.held}::{spelled}{extras}{tail})']
 
-    def _settled(self, cls: ir.ClassModel, m: ir.MethodModel,
-                 body: list[str]) -> list[str]:
+    def _settled(self, cls: ir.ClassModel, m: ir.MethodModel, body: list[str]) -> list[str]:
         """`body`, then the wait for the state's pending store writes.
 
         Determinate Nix writes a derivation from a worker thread, and
@@ -1240,12 +1235,13 @@ class Emitter:
         write, and a destructor must not throw."""
         if not _settles(cls):
             return body
-        return [f"{INDENT * 4}return {NAMESPACE}::settled({SELF}, "
-                f"[&](){self._returns(m)} {{",
-                *body, f"{INDENT * 4}}});"]
+        return [
+            f"{INDENT * 4}return {NAMESPACE}::settled({SELF}, [&](){self._returns(m)} {{",
+            *body,
+            f"{INDENT * 4}}});",
+        ]
 
-    def _virtual_def(self, cls: ir.ClassModel, m: ir.MethodModel,
-                     tail: str) -> list[str]:
+    def _virtual_def(self, cls: ir.ClassModel, m: ir.MethodModel, tail: str) -> list[str]:
         """The binding of a @virtual: the C++ implementation, called
         QUALIFIED so the call is not virtual. A member pointer dispatches
         through the trampoline, and `super().f()` from inside an override
@@ -1255,63 +1251,76 @@ class Emitter:
         convert on each side of the call and a conversion needs the GIL."""
         args, opening = self._signature(m.params)
         me, held = self._self(cls)
-        body = [*held, *opening] + [f"{INDENT * 4}const std::string {pr.name}_ = "
-                f"from_bytes({pr.name});"
-                for pr in m.params if pr.passes is ir.Passes.BYTES]
-        names = ", ".join(f"{pr.name}_" if pr.passes is ir.Passes.BYTES
-                          else pr.name for pr in m.params)
+        body = [*held, *opening] + [
+            f"{INDENT * 4}const std::string {pr.name}_ = from_bytes({pr.name});"
+            for pr in m.params
+            if pr.passes is ir.Passes.BYTES
+        ]
+        names = ", ".join(f"{pr.name}_" if pr.passes is ir.Passes.BYTES else pr.name for pr in m.params)
         call = f"{SELF}.{cls.held}::{m.cxx_name or m.name}({names})"
-        release = ([f"{INDENT * 5}nb::gil_scoped_release nb_released;"]
-                   if waits(cls, m) else [])
+        release = [f"{INDENT * 5}nb::gil_scoped_release nb_released;"] if waits(cls, m) else []
         t = m.returns
         match m.answer:
             case ir.Answer.WORD_MAP:
                 assert t is not None
                 word = f"{NAMESPACE}::as_word(item.second)"
                 if t.inner.optional:
-                    word = (f"item.second ? {t.inner.cxx}{{"
-                            f"{NAMESPACE}::as_word(*item.second)}} : std::nullopt")
-                body += [f"{INDENT * 4}{_answer_cxx(m)} answer;",
-                         f"{INDENT * 4}{{", *release,
-                         f"{INDENT * 5}answer = {call};",
-                         f"{INDENT * 4}}}",
-                         f"{INDENT * 4}{t.cxx} out;",
-                         f"{INDENT * 4}for (auto & item : answer)",
-                         f"{INDENT * 5}out.emplace(item.first, {word});",
-                         f"{INDENT * 4}return out;"]
+                    word = f"item.second ? {t.inner.cxx}{{{NAMESPACE}::as_word(*item.second)}} : std::nullopt"
+                body += [
+                    f"{INDENT * 4}{_answer_cxx(m)} answer;",
+                    f"{INDENT * 4}{{",
+                    *release,
+                    f"{INDENT * 5}answer = {call};",
+                    f"{INDENT * 4}}}",
+                    f"{INDENT * 4}{t.cxx} out;",
+                    f"{INDENT * 4}for (auto & item : answer)",
+                    f"{INDENT * 5}out.emplace(item.first, {word});",
+                    f"{INDENT * 4}return out;",
+                ]
             case ir.Answer.BYTES:
-                body += [f"{INDENT * 4}std::string answer;",
-                         f"{INDENT * 4}{{", *release,
-                         f"{INDENT * 5}answer = {call};",
-                         f"{INDENT * 4}}}",
-                         f"{INDENT * 4}return to_bytes(answer);"]
+                body += [
+                    f"{INDENT * 4}std::string answer;",
+                    f"{INDENT * 4}{{",
+                    *release,
+                    f"{INDENT * 5}answer = {call};",
+                    f"{INDENT * 4}}}",
+                    f"{INDENT * 4}return to_bytes(answer);",
+                ]
             case ir.Answer.WORD:
                 assert t is not None
-                body += [f"{INDENT * 4}{_answer_cxx(m)} answer;",
-                         f"{INDENT * 4}{{", *release,
-                         f"{INDENT * 5}answer = {call};",
-                         f"{INDENT * 4}}}"]
+                body += [
+                    f"{INDENT * 4}{_answer_cxx(m)} answer;",
+                    f"{INDENT * 4}{{",
+                    *release,
+                    f"{INDENT * 5}answer = {call};",
+                    f"{INDENT * 4}}}",
+                ]
                 if t.optional:
-                    body += [f"{INDENT * 4}if (!answer)",
-                             f"{INDENT * 5}return std::nullopt;",
-                             f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);"]
+                    body += [
+                        f"{INDENT * 4}if (!answer)",
+                        f"{INDENT * 5}return std::nullopt;",
+                        f"{INDENT * 4}return {NAMESPACE}::as_word(*answer);",
+                    ]
                 else:
                     body += [f"{INDENT * 4}return {NAMESPACE}::as_word(answer);"]
-            case (ir.Answer.NOTHING | ir.Answer.CAST | ir.Answer.HANDLE
-                  | ir.Answer.LIST | ir.Answer.MAP | ir.Answer.WIDTH):
-                body += [f"{INDENT * 4}{{", *release,
-                         f"{INDENT * 5}return {call};",
-                         f"{INDENT * 4}}}"]
+            case (
+                ir.Answer.NOTHING | ir.Answer.CAST | ir.Answer.HANDLE | ir.Answer.LIST | ir.Answer.MAP | ir.Answer.WIDTH
+            ):
+                body += [f"{INDENT * 4}{{", *release, f"{INDENT * 5}return {call};", f"{INDENT * 4}}}"]
             case _:
                 assert_never(m.answer)
         extras = self._extras(False, m.params)
-        return [f'{INDENT * 2}.def("{m.name}", '
-                f"[]({me}{args}){self._returns(m)} {{",
-                *body,
-                f"{INDENT * 2}}}{extras}{tail})"]
+        return [
+            f'{INDENT * 2}.def("{m.name}", []({me}{args}){self._returns(m)} {{',
+            *body,
+            f"{INDENT * 2}}}{extras}{tail})",
+        ]
 
-    def _signature(self, params: Sequence[ir.ParamModel], depth: int = 4,
-                   ) -> tuple[str, list[str]]:
+    def _signature(
+        self,
+        params: Sequence[ir.ParamModel],
+        depth: int = 4,
+    ) -> tuple[str, list[str]]:
         """A lambda's parameter list, and the lines that open its body.
 
         Almost always the first alone. The lines exist for one case: a
@@ -1337,25 +1346,21 @@ class Emitter:
                     args += f", {pr.cxx} {pr.name}_"
                     if pr.type.optional:
                         opening += [
-                            f"{INDENT * depth}"
-                            f"{_container(pr.type).of(f'decltype({parser}(*{pr.name}_))')}"
-                            f" {pr.name};",
+                            f"{INDENT * depth}{_container(pr.type).of(f'decltype({parser}(*{pr.name}_))')} {pr.name};",
                             f"{INDENT * depth}if ({pr.name}_)",
-                            f"{INDENT * (depth + 1)}{pr.name} = {parser}(*{pr.name}_);"]
+                            f"{INDENT * (depth + 1)}{pr.name} = {parser}(*{pr.name}_);",
+                        ]
                     else:
-                        opening.append(f"{INDENT * depth}const auto {pr.name} = "
-                                       f"{parser}({pr.name}_);")
+                        opening.append(f"{INDENT * depth}const auto {pr.name} = {parser}({pr.name}_);")
                 case ir.Arrives.ABSENT:
                     held = pr.type.required.cxx
                     args += f", const {OPT.of(held)} & {pr.name}_"
-                    opening.append(f"{INDENT * depth}const {held} {pr.name} = "
-                                   f"{pr.name}_.value_or({held}{{}});")
+                    opening.append(f"{INDENT * depth}const {held} {pr.name} = {pr.name}_.value_or({held}{{}});")
                 case _:
                     assert_never(pr.arrives)
         return args, opening
 
-    def _identity_semantics(self, cls: ir.ClassModel,
-                            equality: bool = True) -> list[str]:
+    def _identity_semantics(self, cls: ir.ClassModel, equality: bool = True) -> list[str]:
         """The repr and the hash every wire value owes a reader.
 
         Both from the declared PARTS, and both through the Python object.
@@ -1383,10 +1388,12 @@ class Emitter:
             # The repr then has no name to print, so it prints the value
             # alone - `ValidPathInfo('/nix/store/...')`. Weaker than a
             # named field, and it is what the declaration carries.
-            return [f'{INDENT * 2}.def("__repr__", [](nb::handle h) {{',
-                    f'{INDENT * 3}return nb::str("{cls.name}({{!r}})").format(',
-                    f'{INDENT * 4}h.attr("{cls.semantics.shown}")());',
-                    f"{INDENT * 2}}})"]
+            return [
+                f'{INDENT * 2}.def("__repr__", [](nb::handle h) {{',
+                f'{INDENT * 3}return nb::str("{cls.name}({{!r}})").format(',
+                f'{INDENT * 4}h.attr("{cls.semantics.shown}")());',
+                f"{INDENT * 2}}})",
+            ]
         # A UNIT value has no parts and still compares, hashes and prints:
         # every one is equal, `Deferred()` names it, and the empty tuple
         # hashes.
@@ -1394,9 +1401,7 @@ class Emitter:
             return []
         spec = ", ".join(f"{name}={{!r}}" for name, _, _ in fields)
         reads = ", ".join(read for _, _, read in fields)
-        hashed = ", ".join(
-            f"{NAMESPACE}::hashable({read})" if _unhashable(t) else read
-            for _, t, read in fields)
+        hashed = ", ".join(f"{NAMESPACE}::hashable({read})" if _unhashable(t) else read for _, t, read in fields)
         out = []
         if equality and not cls.semantics.cxx_equal:
             # Equal when the SAME CLASS carries the same declared parts.
@@ -1413,8 +1418,7 @@ class Emitter:
                 f"{INDENT * 3} -> nb::object {{",
                 f"{INDENT * 3}if (!b.type().is(a.type()))",
                 f"{INDENT * 4}return nb::not_implemented();",
-                f'{INDENT * 3}return nb::cast(a.attr("_parts")()'
-                f'.equal(b.attr("_parts")()));',
+                f'{INDENT * 3}return nb::cast(a.attr("_parts")().equal(b.attr("_parts")()));',
                 f"{INDENT * 2}}}, nb::is_operator())",
             ]
         return [
@@ -1437,10 +1441,7 @@ class Emitter:
         init = cls.init
         if init is None:
             return []
-        names = "".join(
-            f', "{pr.name}"_a'
-            + (f" = {pr.cxx_default}" if pr.cxx_default else "")
-            for pr in init.params)
+        names = "".join(f', "{pr.name}"_a' + (f" = {pr.cxx_default}" if pr.cxx_default else "") for pr in init.params)
         if init.cxx_body is not None:
             # Placement new, because `__init__` is handed storage rather
             # than asked for an object. One Python signature over several
@@ -1451,14 +1452,12 @@ class Emitter:
             obj = SELF
             args, opening = self._signature(init.params)
             body = _carried(init.cxx_body, 4)
-            head = (f'{INDENT * 2}.def("__init__", '
-                    f"[]({cls.held} *{obj}{args}) {{")
+            head = f'{INDENT * 2}.def("__init__", []({cls.held} *{obj}{args}) {{'
             tail = f"{INDENT * 2}}}{names}"
             if not init.doc:
                 return [head, *opening, *body, tail + ")"]
             doc = _doc(init.doc)
-            return [head, *opening, *body, tail + ",",
-                    f'{INDENT * 3}     "{doc}")']
+            return [head, *opening, *body, tail + ",", f'{INDENT * 3}     "{doc}")']
         types = ", ".join(pr.cxx for pr in init.params)
         line = f"{INDENT * 2}.def(nb::init<{types}>(){names}"
         if not init.doc:
@@ -1468,8 +1467,7 @@ class Emitter:
         doc = _doc(init.doc)
         return [line + ",", f'{INDENT * 3}     "{doc}")']
 
-    def record_fields(self, cls: ir.ClassModel
-                      ) -> list[tuple[str, ir.TypeRef]]:
+    def record_fields(self, cls: ir.ClassModel) -> list[tuple[str, ir.TypeRef]]:
         """Every member of a produced value's struct, in declared order.
 
         Nothing is listed. A produced value's ACCESSORS are its fields -
@@ -1478,8 +1476,7 @@ class Emitter:
         it returns. Order is the declaration's, which is the order a
         reader of the declaration sees and the order the constructor
         takes."""
-        return [(m.name, m.returns)
-                for m in cls.bound if m.returns is not None and not m.local]
+        return [(m.name, m.returns) for m in cls.bound if m.returns is not None and not m.local]
 
     def record(self, cls: ir.ClassModel) -> list[str]:
         """The C++ struct a produced value crosses as.
@@ -1504,13 +1501,11 @@ class Emitter:
         # reader rather than for this.
         lead = " ".join(_paragraph(cls.doc))
         out = [f"/** {lead} */", f"struct {cls.name}", "{"]
-        out += [f"{INDENT}{t.cxx} {name};"
-                for name, t in self.record_fields(cls)]
+        out += [f"{INDENT}{t.cxx} {name};" for name, t in self.record_fields(cls)]
         # A value compares as its parts, and `= default` is the whole of
         # that sentence. Written out, it would be one line per field with
         # nothing to gate it against the field list.
-        out += [f"{INDENT}bool operator==(const {cls.name} &) const = default;",
-                "};"]
+        out += [f"{INDENT}bool operator==(const {cls.name} &) const = default;", "};"]
         return out
 
     def records(self, classes: Sequence[ir.ClassModel]) -> list[str]:
@@ -1523,8 +1518,7 @@ class Emitter:
             out += [*self.record(cls), ""]
         return [*out, f"}}  // namespace {NAMESPACE}", ""]
 
-    def records_named(self, classes: Sequence[ir.ClassModel],
-                      functions: Sequence[ir.FunctionModel]) -> list[str]:
+    def records_named(self, classes: Sequence[ir.ClassModel], functions: Sequence[ir.FunctionModel]) -> list[str]:
         """Every module whose records this unit names, its own included.
 
         A record is a struct the emitter declares, so a unit that names one
@@ -1538,9 +1532,11 @@ class Emitter:
                     out.add(held.module)
         return sorted(out)
 
-    def _unions_used(self, classes: Sequence[ir.ClassModel],
-                     functions: Sequence[ir.FunctionModel],
-                     ) -> list[ir.UnionModel]:
+    def _unions_used(
+        self,
+        classes: Sequence[ir.ClassModel],
+        functions: Sequence[ir.FunctionModel],
+    ) -> list[ir.UnionModel]:
         """Every union with a declared C++ variant this unit names.
 
         By name, so a union named twice is converted once. Sorted,
@@ -1550,14 +1546,15 @@ class Emitter:
         for _, t in _sites(classes, functions):
             for node in _nodes(t):
                 held = self.model.declared(node)
-                if (isinstance(held, ir.UnionModel)
-                        and held.variant is not None):
+                if isinstance(held, ir.UnionModel) and held.variant is not None:
                     out[node.name] = held
         return [out[name] for name in sorted(out)]
 
-    def _vocabularies_used(self, classes: Sequence[ir.ClassModel],
-                           functions: Sequence[ir.FunctionModel],
-                           ) -> list[ir.EnumModel]:
+    def _vocabularies_used(
+        self,
+        classes: Sequence[ir.ClassModel],
+        functions: Sequence[ir.FunctionModel],
+    ) -> list[ir.EnumModel]:
         """Every enum-backed vocabulary this unit NAMES, either way round.
 
         Every site, not only the returns. A unit that only TAKES a word
@@ -1572,17 +1569,18 @@ class Emitter:
         vocabulary named twice is converted once, and the order two
         methods happen to be declared in is not an order for a
         translation unit."""
-        out = {node.name: held for _, t in _sites(classes, functions)
-               for node in _nodes(t)
-               if isinstance(held := self.model.declared(node), ir.EnumModel)
-               and held.cxx is not None}
+        out = {
+            node.name: held
+            for _, t in _sites(classes, functions)
+            for node in _nodes(t)
+            if isinstance(held := self.model.declared(node), ir.EnumModel) and held.cxx is not None
+        }
         # ...and what a BODY spells, from `@spells`. A signature does not
         # reach everything: `KeyedBuildResult.error` builds an exception
         # carrying a failure word, and `-> BuildError | None` says
         # nothing about it. The model checked each is an enumerated
         # vocabulary.
-        spelled = [n for cls in classes for m in cls.callables
-                   for n in m.spells]
+        spelled = [n for cls in classes for m in cls.callables for n in m.spells]
         spelled += [n for fn in functions for n in fn.spells]
         out.update((name, self.model.enums[name]) for name in spelled)
         return [out[name] for name in sorted(out)]
@@ -1617,34 +1615,34 @@ class Emitter:
         held = _arms_type(cls)
         reach = f"p.{variant.raw}" if variant.raw else "p"
         count = len(variant.alternatives)
-        out = [f"/** The arms of a {cls.name}, as Python has them. */",
-               f"inline {held} as_arms(const {variant.cxx} & p)",
-               "{",
-               f"{INDENT}static_assert(decltype({NAMESPACE}::arm_count("
-               f"{reach}))::value == {count},",
-               f'{INDENT * 2}"{cls.name} declares {count} arms, and '
-               f'{variant.cxx} has a different count: declare each one");']
+        out = [
+            f"/** The arms of a {cls.name}, as Python has them. */",
+            f"inline {held} as_arms(const {variant.cxx} & p)",
+            "{",
+            f"{INDENT}static_assert(decltype({NAMESPACE}::arm_count({reach}))::value == {count},",
+            f'{INDENT * 2}"{cls.name} declares {count} arms, and '
+            f'{variant.cxx} has a different count: declare each one");',
+        ]
         for alt in alts:
-            out += [f"{INDENT}if (auto * arm = std::get_if<{alt.cxx}>(&{reach}))",
-                    f"{INDENT * 2}return "
-                    f"{'arm->' + alt.member if alt.member else '*arm'};"]
+            out += [
+                f"{INDENT}if (auto * arm = std::get_if<{alt.cxx}>(&{reach}))",
+                f"{INDENT * 2}return {'arm->' + alt.member if alt.member else '*arm'};",
+            ]
         got = f"std::get<{last.cxx}>({reach})"
-        out += [f"{INDENT}return "
-                f"{got + '.' + last.member if last.member else got};",
-                "}", ""]
+        out += [f"{INDENT}return {got + '.' + last.member if last.member else got};", "}", ""]
 
-        out += [f"/** A {cls.name}'s arms, as the C++ union holds them. */",
-                f"inline {variant.cxx} from_arms(const {held} & a)",
-                "{"]
+        out += [
+            f"/** A {cls.name}'s arms, as the C++ union holds them. */",
+            f"inline {variant.cxx} from_arms(const {held} & a)",
+            "{",
+        ]
         for alt in alts:
-            out += [f"{INDENT}if (auto * arm = "
-                    f"std::get_if<{alt.arm}>(&a))",
-                    f"{INDENT * 2}return "
-                    f"{alt.cxx + '{*arm}' if alt.member else '*arm'};"]
+            out += [
+                f"{INDENT}if (auto * arm = std::get_if<{alt.arm}>(&a))",
+                f"{INDENT * 2}return {alt.cxx + '{*arm}' if alt.member else '*arm'};",
+            ]
         got = f"std::get<{last.arm}>(a)"
-        out += [f"{INDENT}return "
-                f"{last.cxx + '{' + got + '}' if last.member else got};",
-                "}", ""]
+        out += [f"{INDENT}return {last.cxx + '{' + got + '}' if last.member else got};", "}", ""]
 
         return out
 
@@ -1657,10 +1655,11 @@ class Emitter:
         than casting through the wrong alternative."""
         variant = cls.variant
         assert variant is not None
-        return [f"static_assert(std::is_same_v<{variant.cxx}, "
-                f"{_arms_type(cls)}>,",
-                f'{INDENT}"{cls.name} is declared bare, so its C++ type must '
-                f'be the std::variant of its arms, in order");', ""]
+        return [
+            f"static_assert(std::is_same_v<{variant.cxx}, {_arms_type(cls)}>,",
+            f'{INDENT}"{cls.name} is declared bare, so its C++ type must be the std::variant of its arms, in order");',
+            "",
+        ]
 
     def caster(self, cls: ir.UnionModel) -> list[str]:
         """One union as a nanobind type_caster, so no body converts.
@@ -1694,8 +1693,7 @@ class Emitter:
             f"{INDENT}using Caster = make_caster<Arms>;",
             f"{INDENT}static constexpr auto Name = Caster::Name;",
             f"{INDENT}template <typename T_> using Cast = movable_cast_t<T_>;",
-            f"{INDENT}template <typename T_> static constexpr bool can_cast()"
-            f" {{ return true; }}",
+            f"{INDENT}template <typename T_> static constexpr bool can_cast() {{ return true; }}",
             "",
             f"{INDENT}std::optional<Value> held;",
             f"{INDENT}explicit operator Value *() {{ return &*held; }}",
@@ -1708,16 +1706,14 @@ class Emitter:
             f"{INDENT * 2}Caster caster;",
             f"{INDENT * 2}if (!caster.from_python(src, flags, cleanup))",
             f"{INDENT * 3}return false;",
-            f"{INDENT * 2}held.emplace({NAMESPACE}::from_arms("
-            f"caster.operator cast_t<Arms>()));",
+            f"{INDENT * 2}held.emplace({NAMESPACE}::from_arms(caster.operator cast_t<Arms>()));",
             f"{INDENT * 2}return true;",
             f"{INDENT}}}",
             "",
             f"{INDENT}static handle from_cpp(const Value &value, rv_policy policy,",
             f"{INDENT * 4}               cleanup_list *cleanup) noexcept",
             f"{INDENT}{{",
-            f"{INDENT * 2}return Caster::from_cpp({NAMESPACE}::as_arms(value), "
-            f"policy, cleanup);",
+            f"{INDENT * 2}return Caster::from_cpp({NAMESPACE}::as_arms(value), policy, cleanup);",
             f"{INDENT}}}",
             "",
             f"{INDENT}static handle from_cpp(const Value *value, rv_policy policy,",
@@ -1778,8 +1774,7 @@ class Emitter:
         # KeyedBuildResult with no failure arm could not be rebuilt at
         # all, and the message named every parameter as compatible
         # (nixidae/nixidae#608).
-        args = "".join(f', "{name}"_a' + (".none()" if t.pyobject else "")
-                       for name, t in fields)
+        args = "".join(f', "{name}"_a' + (".none()" if t.pyobject else "") for name, t in fields)
         made = ", ".join(f"{t.cxx} {name}" for name, t in fields)
         values = ", ".join(name for name, _ in fields)
         return [
@@ -1836,15 +1831,13 @@ class Emitter:
             # literal has no continuation and gluing two is noise.
             return [line + ",", f'{INDENT * 3}     "{doc}")']
         head, opening = self._lambda_head(made, 3)
-        lines = [f"{INDENT * 2}.def(nb::new_({head}", *opening,
-                 *_carried(made.cxx_body, 3)]
+        lines = [f"{INDENT * 2}.def(nb::new_({head}", *opening, *_carried(made.cxx_body, 3)]
         close = f"{INDENT * 2}}}){extras}"
         if not doc:
             return [*lines, close + ")"]
         return [*lines, close + ",", f'{INDENT * 3}     "{doc}")']
 
-    def _lambda_head(self, fn: ir.FunctionModel,
-                     depth: int) -> tuple[str, list[str]]:
+    def _lambda_head(self, fn: ir.FunctionModel, depth: int) -> tuple[str, list[str]]:
         """The opening of a lambda for a function that CARRIES its C++,
         and the lines `_signature` opens its body with.
 
@@ -1886,32 +1879,32 @@ class Emitter:
     def _rebuilt(self, f: ir.FieldModel) -> str:
         """One part, converted back to what the C++ member IS, or "".
 
-        A part arrives as the wire carries it, and a `list[T]` is a
-        vector. Where the member is a SET, aggregate initialisation does
-        not convert - `could not convert 'paths' from
-        'std::vector<std::string>' to 'nix::StringSet'` is what the
-        compiler says, and it says it about a line this emitter wrote.
+            A part arrives as the wire carries it, and a `list[T]` is a
+            vector. Where the member is a SET, aggregate initialisation does
+            not convert - `could not convert 'paths' from
+            'std::vector<std::string>' to 'nix::StringSet'` is what the
+            compiler says, and it says it about a line this emitter wrote.
 
-        Two declarations answer, and they are one fact stated at two
-        scopes. `@binding(collection=...)` on the ELEMENT class says every
-        `list[StorePath]` is a `nix::StorePathSet`. `@reads(member,
-        collection=...)` says THIS member is, and it exists for the case
-        with no element class to ask: `str` is a builtin, and
-        `nix::GCResults::paths` is a `StringSet`.
+            Two declarations answer, and they are one fact stated at two
+            scopes. `@binding(collection=...)` on the ELEMENT class says every
+            `list[StorePath]` is a `nix::StorePathSet`. `@reads(member,
+            collection=...)` says THIS member is, and it exists for the case
+            with no element class to ask: `str` is a builtin, and
+            `nix::GCResults::paths` is a `StringSet`.
 
-        The field's own answer wins. It is the more specific of the two,
-        and a class-wide rule that could not be overridden would make the
-        exception unsayable.
+            The field's own answer wins. It is the more specific of the two,
+            and a class-wide rule that could not be overridden would make the
+            exception unsayable.
 
-    Both branches have a user. `GCResults.paths` needs the field's,
-        and `MissingPaths` needs the class's - its three path lists are
-        `StorePathSet`s, and it used to carry a declared `_from_parts`
-        whose whole body was the three `as_set` calls this now writes.
-        That body is gone, which is the point: it was a mapping, and a
-        mapping is derived.
+        Both branches have a user. `GCResults.paths` needs the field's,
+            and `MissingPaths` needs the class's - its three path lists are
+            `StorePathSet`s, and it used to carry a declared `_from_parts`
+            whose whole body was the three `as_set` calls this now writes.
+            That body is gone, which is the point: it was a mapping, and a
+            mapping is derived.
 
-        `PathInfo` still writes its own, for reasons that are not this
-        one - a virtual base, so it is not an aggregate at all."""
+            `PathInfo` still writes its own, for reasons that are not this
+            one - a virtual base, so it is not an aggregate at all."""
         if not f.collection:
             return ""
         # The lambda's parameter is the part's NAME. `f.read` names an
@@ -1945,8 +1938,7 @@ class Emitter:
         if not fields and not cls.semantics.unit:
             return []
         types = self.part_types(cls)
-        args = ", ".join(f"{t} {n}" for (n, _, _), t in zip(fields, types,
-                                                            strict=True))
+        args = ", ".join(f"{t} {n}" for (n, _, _), t in zip(fields, types, strict=True))
         # `.none()` on an `nb::object` part, and nothing else needs it.
         # nanobind refuses None for a parameter unless the ARGUMENT says
         # it takes one, and an nb::object caster accepts anything - so the
@@ -1954,23 +1946,21 @@ class Emitter:
         # KeyedBuildResult with no failure arm could not be rebuilt at
         # all, and the message listed every parameter as compatible
         # (nixidae/nixidae#608).
-        keywords = "".join(f', "{n}"_a' + (".none()" if f.type.pyobject else "")
-                           for (n, _, _), f in zip(fields, cls.wire_fields,
-                                                   strict=True))
+        keywords = "".join(
+            f', "{n}"_a' + (".none()" if f.type.pyobject else "")
+            for (n, _, _), f in zip(fields, cls.wire_fields, strict=True)
+        )
         written = cls.from_parts
         if written is not None and written.cxx_body is not None:
             body = _carried(written.cxx_body, 3)
         else:
             names = ", ".join(
-                f"from_bytes({n})" if f.type.is_bytes or f.type.bytes_list
-                else self._rebuilt(f) or n
-                for (n, _, _), f in zip(fields, cls.wire_fields, strict=True))
+                f"from_bytes({n})" if f.type.is_bytes or f.type.bytes_list else self._rebuilt(f) or n
+                for (n, _, _), f in zip(fields, cls.wire_fields, strict=True)
+            )
             body = [f"{INDENT * 3}return {cls.held}({names});"]
-        doc = _doc(written.doc) if written is not None and written.doc \
-            else FROM_PARTS_DOC
-        return [f'{INDENT * 2}.def_static("_from_parts", []({args}) {{',
-                *body,
-                f'{INDENT * 2}}}{keywords}, "{doc}")']
+        doc = _doc(written.doc) if written is not None and written.doc else FROM_PARTS_DOC
+        return [f'{INDENT * 2}.def_static("_from_parts", []({args}) {{', *body, f'{INDENT * 2}}}{keywords}, "{doc}")']
 
     def bind_function(self, cls: ir.ClassModel) -> str:
         """The whole `bind_<name>` function for one declared class.
@@ -1980,8 +1970,7 @@ class Emitter:
         and friends. Generated code drops in beside hand-written code, one
         class at a time, and NB_MODULE does not change."""
         if not cls.bindable:
-            raise TypeError(
-                f"{cls.name}: no C++ type to bind. @binding(cxx=...) names it.")
+            raise TypeError(f"{cls.name}: no C++ type to bind. @binding(cxx=...) names it.")
         held = cls.held
         holds = [held]
         if cls.base:
@@ -1994,7 +1983,8 @@ class Emitter:
                     f"{cls.name}: a class with @virtual methods constructs "
                     f"through nb::init, which alone builds the trampoline "
                     f"for a Python subclass. A body would build the base, "
-                    f"and every override would go unseen.")
+                    f"and every override would go unseen."
+                )
             holds.append(f"{NAMESPACE}::Py{cls.name}")
         # A WIRE VALUE is final, and that is a contract rather than a
         # preference. Such a class crosses as its declared parts, so a
@@ -2022,11 +2012,11 @@ class Emitter:
         # member no declaration describes. Without it a class that stores
         # a callable leaks itself as soon as that callable closes over it
         # (nixidae/nixidae#630).
-        slots = (f", nb::type_slots({cls.gc_slots})"
-                 if cls.gc_slots else "")
-        lines = [f"static void bind_{cls.name.lower()}(nb::module_ &m) {{",
-                 f'{INDENT}auto cls = nb::class_<{", ".join(holds)}>'
-                 f'(m, "{cls.name}"{shown}{final}{slots})']
+        slots = f", nb::type_slots({cls.gc_slots})" if cls.gc_slots else ""
+        lines = [
+            f"static void bind_{cls.name.lower()}(nb::module_ &m) {{",
+            f'{INDENT}auto cls = nb::class_<{", ".join(holds)}>(m, "{cls.name}"{shown}{final}{slots})',
+        ]
         if cls.is_value:
             # A RECORD: the emitter declared the struct, so every accessor
             # is a member and the whole binding is derived from the field
@@ -2043,11 +2033,11 @@ class Emitter:
             # field MEANS is a sentence only a person can write, and the
             # declaration already has one on every method.
             described = {m.name: _doc(m.doc) for m in cls.bound}
-            body += [f'{INDENT * 2}.def("{name}", [](const {held} &{obj}) '
-                     f"{{ return {obj}.{name}; }}"
-                     + (f', "{described[name]}"' if described.get(name) else "")
-                     + ")"
-                     for name, _ in self.record_fields(cls)]
+            body += [
+                f'{INDENT * 2}.def("{name}", [](const {held} &{obj}) '
+                f"{{ return {obj}.{name}; }}" + (f', "{described[name]}"' if described.get(name) else "") + ")"
+                for name, _ in self.record_fields(cls)
+            ]
             body += self._record_semantics(cls)
             # ...which owns `__eq__` for a record, so this contributes
             # the repr and the hash alone.
@@ -2088,9 +2078,12 @@ class Emitter:
             # `__init__`, and one that is honestly abstract with nothing
             # to open it. `_produced_ctor` supplies the third wording
             # itself, from the calls that return the class.
-            body = self._produced_ctor(cls, "" if cls.made_elsewhere else (
-                "declares no constructor" if cls.init is None
-                else "is abstract, and no factory opens one"))
+            body = self._produced_ctor(
+                cls,
+                ""
+                if cls.made_elsewhere
+                else ("declares no constructor" if cls.init is None else "is abstract, and no factory opens one"),
+            )
         elif cls.factory_name:
             # A factory this module BINDS - `open_store` becomes
             # `Store.__new__`.
@@ -2124,7 +2117,8 @@ class Emitter:
         if not fn.cxx_name and fn.cxx_body is None:
             raise TypeError(
                 f"{fn.name}: a free function names the C++ it binds, or "
-                f'carries it. Use @binds("cxx_name") or a Cxx(...) body.')
+                f'carries it. Use @binds("cxx_name") or a Cxx(...) body.'
+            )
         extras = []
         if fn.blocks and not fn.instant:
             extras.append("nb::call_guard<nb::gil_scoped_release>()")
@@ -2138,12 +2132,14 @@ class Emitter:
             if _holds_bytes(fn.returns):
                 raise TypeError(
                     f"{fn.name}: bound by name, a string crosses as `str` "
-                    f"where the declaration says bytes. Carry a Cxx body.")
+                    f"where the declaration says bytes. Carry a Cxx body."
+                )
             if converted := [pr.name for pr in fn.params if pr.converts]:
                 raise TypeError(
                     f"{fn.name}: bound by name, {converted} reach the C++ "
                     f"as nanobind cast them, with no conversion. Carry a "
-                    f"Cxx body.")
+                    f"Cxx body."
+                )
             return [f'{INDENT}m.def("{fn.name}", &{fn.cxx_name}{tail});']
         # A body, for a function whose C++ is assembled rather than named.
         # `gc_stats` reads five counters out of gc.h and hands back one
@@ -2152,8 +2148,7 @@ class Emitter:
         # The opening spells the return type, as `_lambda_head` does for
         # a factory body: one rule for both kinds of body.
         head, opening = self._lambda_head(fn, 2)
-        return [f'{INDENT}m.def("{fn.name}", {head}', *opening,
-                *_carried(fn.cxx_body, 2), f"{INDENT}}}{tail});"]
+        return [f'{INDENT}m.def("{fn.name}", {head}', *opening, *_carried(fn.cxx_body, 2), f"{INDENT}}}{tail});"]
 
     def free_functions(self, fns: Sequence[ir.FunctionModel]) -> str:
         """Every free binding, in one function the module can call.
@@ -2164,11 +2159,9 @@ class Emitter:
         body: list[str] = []
         for fn in fns:
             body += self.free_function(fn)
-        return "\n".join(["static void bind_functions(nb::module_ &m) {",
-                           *body, "}"]) + "\n"
+        return "\n".join(["static void bind_functions(nb::module_ &m) {", *body, "}"]) + "\n"
 
-    def _errors_used(self, classes: Sequence[ir.ClassModel],
-                     functions: Sequence[ir.FunctionModel]) -> bool:
+    def _errors_used(self, classes: Sequence[ir.ClassModel], functions: Sequence[ir.FunctionModel]) -> bool:
         """Whether this unit names a declared EXCEPTION class anywhere.
 
         One site is enough. A unit that answers with an exception has to
@@ -2179,34 +2172,46 @@ class Emitter:
         it, and the declaration's body reads it by name."""
         return any(t is not None and t.leaf.kind == ir.Kind.ERROR for _, t in _sites(classes, functions))
 
-    def module(self, classes: Sequence[ir.ClassModel],
-               functions: Sequence[ir.FunctionModel],
-               exported: Sequence[ir.FunctionModel],
-               errors: str = "",
-               error_headers: Sequence[Include] = (),
-               package: str = "",
-               *, prelude: str) -> str:
+    def module(
+        self,
+        classes: Sequence[ir.ClassModel],
+        functions: Sequence[ir.FunctionModel],
+        exported: Sequence[ir.FunctionModel],
+        errors: str = "",
+        error_headers: Sequence[Include] = (),
+        package: str = "",
+        *,
+        prelude: str,
+    ) -> str:
         """One translation unit: the includes, then a bind function each.
 
         Several classes, not one. A declaration file owns a module and
         may declare more than one class in it - `decl/store.py` declares
         three - and a nanobind extension is one translation unit, so the
         file and the unit are the same grain."""
-        head = [*self.includes(classes, functions, error_headers),
-                f'#include "{prelude}"',
-                f'#include "{runtime_include(package)}"',
-                *[f'#include "{records_include(m, package)}"'
-                  for m in self.records_named(classes, functions)], "",
-                "namespace nb = nanobind;",
-                "using namespace nb::literals;", ""]
+        head = [
+            *self.includes(classes, functions, error_headers),
+            f'#include "{prelude}"',
+            f'#include "{runtime_include(package)}"',
+            *[f'#include "{records_include(m, package)}"' for m in self.records_named(classes, functions)],
+            "",
+            "namespace nb = nanobind;",
+            "using namespace nb::literals;",
+            "",
+        ]
         if errors and self._errors_used(classes, functions):
             # Where `huggorm::as_error` looks a class up. Emitted, never
             # written: the same string the catch chain is given, from the
             # same derivation, so a renamed declaration moves both.
-            head += ["namespace huggorm {", "",
-                     "/** Where this build put the exception classes. */",
-                     f'constexpr const char * errors_module = "{errors}";', "",
-                     "}  // namespace huggorm", ""]
+            head += [
+                "namespace huggorm {",
+                "",
+                "/** Where this build put the exception classes. */",
+                f'constexpr const char * errors_module = "{errors}";',
+                "",
+                "}  // namespace huggorm",
+                "",
+            ]
         unions = self._unions_used(classes, functions)
         vocabularies = self._vocabularies_used(classes, functions)
         if unions or vocabularies:
@@ -2216,8 +2221,7 @@ class Emitter:
                 if not v.parsed_by and not v.numeric:
                     head += words_from_word(v)
             for u in unions:
-                head += (self.bare_check(u) if _is_bare(u)
-                         else self.conversions(u))
+                head += self.bare_check(u) if _is_bare(u) else self.conversions(u)
             head += [f"}}  // namespace {NAMESPACE}", ""]
         # The casters come AFTER the conversions and outside the
         # namespace: each one calls a conversion by name, and a
@@ -2232,10 +2236,8 @@ class Emitter:
             head += rethrow_as_nix(self.model.errors)
         for cls in classes:
             head += trampoline(cls, self.model)
-        out = "\n".join(head) + "\n" + "\n".join(
-            self.bind_function(cls) for cls in classes)
-        return out + ("\n" + self.free_functions(exported)
-                      if exported else "")
+        out = "\n".join(head) + "\n" + "\n".join(self.bind_function(cls) for cls in classes)
+        return out + ("\n" + self.free_functions(exported) if exported else "")
 
 
 def imports(unit: ir.ModuleModel, model: ir.Model) -> list[str]:
@@ -2251,16 +2253,25 @@ def imports(unit: ir.ModuleModel, model: ir.Model) -> list[str]:
     needs binding only if it has C++ behind it or is a record the
     emitter declares. A vocabulary is filtered out here, which is why
     importing `HashAlgorithm` costs nothing."""
-    return sorted({c.module for name in unit.visible
-                   if (c := model.classes.get(name)) is not None
-                   and c.bindable and c.module != unit.name})
+    return sorted(
+        {
+            c.module
+            for name in unit.visible
+            if (c := model.classes.get(name)) is not None and c.bindable and c.module != unit.name
+        }
+    )
 
 
-def extension(unit: ir.ModuleModel, dotted: str, model: ir.Model,
-              chain: list[str] | None = None,
-              errors: str = "",
-              error_headers: Sequence[Include] = (),
-              *, prelude: str) -> str:
+def extension(
+    unit: ir.ModuleModel,
+    dotted: str,
+    model: ir.Model,
+    chain: list[str] | None = None,
+    errors: str = "",
+    error_headers: Sequence[Include] = (),
+    *,
+    prelude: str,
+) -> str:
     """One whole extension module: includes, bindings, entry point.
 
     `module` stops at the `bind_<name>` functions because that is the
@@ -2279,43 +2290,48 @@ def extension(unit: ir.ModuleModel, dotted: str, model: ir.Model,
     follow."""
     classes = unit.bindable()
     package = dotted.rpartition(".")[0]
-    reached = [f'{INDENT}nb::module_::import_("'
-               f'{f"{package}." if package else ""}{stem}");'
-               for stem in imports(unit, model)]
+    reached = [
+        f'{INDENT}nb::module_::import_("{f"{package}." if package else ""}{stem}");' for stem in imports(unit, model)
+    ]
     translators = [translator(fn, chain) for fn in unit.translators]
     # Only a unit that HAS a translator catches anything, and only one
     # with a trampoline throws one back, so only those need the headers
     # behind the chain.
     rethrows = any(_virtuals(cls) for cls in classes)
-    return "\n".join([
-        Emitter(model, unit).module(
-            classes, unit.functions, unit.exported,
-            errors,
-            error_headers if translators or rethrows else (), package,
-            prelude=prelude),
-        *translators,
-        f"NB_MODULE({dotted.rpartition('.')[2]}, m) {{",
-        # The declaration file's own docstring, which is the only
-        # description of this module anyone wrote. Without it
-        # `help(huggorm_bindings.path)` answers with nothing.
-        *([f'{INDENT}m.doc() = "{_doc(unit.doc)}";'] if _doc(unit.doc) else []),
-        # A startup hook goes ahead of everything, imports included -
-        # an import runs another module's initialisation, and a
-        # library that demands initialisation is entitled to it
-        # before any of its code runs. libstore does not raise when
-        # it has not been initialised; it aborts the process.
-        *[f"{INDENT}{fn.cxx_name}();" for fn in unit.startup],
-        # Then the other modules: a signature naming a type from one
-        # of them is built as the binding is defined, so the class has
-        # to already be registered.
-        *reached,
-        *[f"{INDENT}register_{fn.name.lstrip('_')}();"
-          for fn in unit.translators],
-        *[f"{INDENT}bind_{cls.name.lower()}(m);" for cls in classes],
-        *([f"{INDENT}bind_functions(m);"] if unit.exported else []),
-        "}",
-        "",
-    ])
+    return "\n".join(
+        [
+            Emitter(model, unit).module(
+                classes,
+                unit.functions,
+                unit.exported,
+                errors,
+                error_headers if translators or rethrows else (),
+                package,
+                prelude=prelude,
+            ),
+            *translators,
+            f"NB_MODULE({dotted.rpartition('.')[2]}, m) {{",
+            # The declaration file's own docstring, which is the only
+            # description of this module anyone wrote. Without it
+            # `help(huggorm_bindings.path)` answers with nothing.
+            *([f'{INDENT}m.doc() = "{_doc(unit.doc)}";'] if _doc(unit.doc) else []),
+            # A startup hook goes ahead of everything, imports included -
+            # an import runs another module's initialisation, and a
+            # library that demands initialisation is entitled to it
+            # before any of its code runs. libstore does not raise when
+            # it has not been initialised; it aborts the process.
+            *[f"{INDENT}{fn.cxx_name}();" for fn in unit.startup],
+            # Then the other modules: a signature naming a type from one
+            # of them is built as the binding is defined, so the class has
+            # to already be registered.
+            *reached,
+            *[f"{INDENT}register_{fn.name.lstrip('_')}();" for fn in unit.translators],
+            *[f"{INDENT}bind_{cls.name.lower()}(m);" for cls in classes],
+            *([f"{INDENT}bind_functions(m);"] if unit.exported else []),
+            "}",
+            "",
+        ]
+    )
 
 
 def translator(fn: ir.FunctionModel, chain: list[str] | None = None) -> str:
@@ -2339,8 +2355,7 @@ def translator(fn: ir.FunctionModel, chain: list[str] | None = None) -> str:
     that matters: C++ takes the first catch that matches, so a base
     listed before its subclass swallows it. Python inheritance
     already says which is which."""
-    body = (chr(10).join(chain) if chain
-            else f"{INDENT * 4}{fn.cxx_name}();")
+    body = chr(10).join(chain) if chain else f"{INDENT * 4}{fn.cxx_name}();"
     return f"""
 static void register_{fn.name.lstrip("_")}() {{
     nb::register_exception_translator(
@@ -2380,8 +2395,7 @@ def census(cls: ir.ClassModel) -> dict[str, int]:
     if cls.init is not None:
         derived += 1
     derived += len(_value_semantics(cls)) and len(_cxx_comparisons(cls))
-    return {"derived": derived, "hatched": hatched,
-            "hatch_lines": hatch_lines}
+    return {"derived": derived, "hatched": hatched, "hatch_lines": hatch_lines}
 
 
 if __name__ == "__main__":
@@ -2396,10 +2410,12 @@ if __name__ == "__main__":
         unit = whole.module(name)
         emit = Emitter(whole, unit)
         for cls in unit.bindable():
-            print(emit.module([cls], (), (), prelude=PRELUDE) if len(unit.classes) == 1
-                  else emit.bind_function(cls))
+            print(emit.module([cls], (), (), prelude=PRELUDE) if len(unit.classes) == 1 else emit.bind_function(cls))
             c = census(cls)
             total = c["derived"] + c["hatched"]
-            print(f"// {cls.name}: {c['derived']}/{total} derived, "
-                  f"{c['hatched']} through the hatch "
-                  f"({c['hatch_lines']} lines of C++)", file=sys.stderr)
+            print(
+                f"// {cls.name}: {c['derived']}/{total} derived, "
+                f"{c['hatched']} through the hatch "
+                f"({c['hatch_lines']} lines of C++)",
+                file=sys.stderr,
+            )

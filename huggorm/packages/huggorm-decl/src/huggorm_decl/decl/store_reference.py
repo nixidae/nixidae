@@ -103,10 +103,7 @@ class StoreReferenceSpecified:
 
 
 StoreReferenceVariant = Annotated[
-    StoreReferenceAuto
-    | StoreReferenceSpecified
-    | StoreReferenceDaemon
-    | StoreReferenceLocal,
+    StoreReferenceAuto | StoreReferenceSpecified | StoreReferenceDaemon | StoreReferenceLocal,
     Variant(
         "nix::StoreReference::Variant",
         header=Local("nix/store/store-reference.hh"),

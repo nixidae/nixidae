@@ -58,8 +58,7 @@ def write(path: Any, text: str) -> str:
     return str(path)
 
 
-async def test_it_watches_the_directory_and_not_the_file(
-        state: Any, tmp_path: Any) -> None:
+async def test_it_watches_the_directory_and_not_the_file(state: Any, tmp_path: Any) -> None:
     """The one decision this module makes, and it is in the watch set.
 
     A watch follows the INODE. Most editors save by writing a
@@ -81,8 +80,7 @@ async def test_it_watches_the_directory_and_not_the_file(
         assert set(w.watching()) == {inner, outer}
 
 
-async def test_the_watch_set_follows_the_roots(
-        state: Any, tmp_path: Any) -> None:
+async def test_the_watch_set_follows_the_roots(state: Any, tmp_path: Any) -> None:
     """A directory is watched because a root depends on something in
     it, and stops being watched when no root does.
 
@@ -114,8 +112,7 @@ async def test_the_watch_set_follows_the_roots(
         assert source.directories() == []
 
 
-async def test_a_saved_file_wakes_the_watcher(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_saved_file_wakes_the_watcher(state: Any, tmp_path: Any) -> None:
     """End to end: an edit nobody reported forgets the root.
 
     This is what the module is FOR. `test_watch.py` proves the
@@ -139,8 +136,7 @@ async def test_a_saved_file_wakes_the_watcher(
         assert await (await source.eval_file(outer)).integer() == 2
 
 
-async def test_a_save_by_rename_wakes_it_too(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_save_by_rename_wakes_it_too(state: Any, tmp_path: Any) -> None:
     """The case a file watch cannot see, done the way an editor does.
 
     Write a temporary file beside the original and rename it over the
@@ -169,8 +165,7 @@ async def test_a_save_by_rename_wakes_it_too(
         assert await (await source.eval_file(outer)).integer() == 2
 
 
-async def test_the_virtual_entry_is_never_watched(
-        state: Any, tmp_path: Any) -> None:
+async def test_the_virtual_entry_is_never_watched(state: Any, tmp_path: Any) -> None:
     """libexpr's own file is in the cache and on no filesystem.
 
     `«nix-internal»/derivation-internal.nix` comes back from
@@ -201,8 +196,7 @@ async def test_the_virtual_entry_is_never_watched(
         assert w.roots == [root]
 
 
-async def test_a_deleted_directory_is_a_change(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_deleted_directory_is_a_change(state: Any, tmp_path: Any) -> None:
     """A watch that cannot be placed is a CHANGE, not a skip.
 
     `sync()` runs after an evaluation, and by then the directory a
@@ -231,8 +225,7 @@ async def test_a_deleted_directory_is_a_change(
         source.close()
 
 
-async def test_an_unrelated_file_wakes_nothing(
-        state: Any, tmp_path: Any) -> None:
+async def test_an_unrelated_file_wakes_nothing(state: Any, tmp_path: Any) -> None:
     """The control, and the one a too-eager adapter fails.
 
     A file in a watched directory that no root depends on raises real

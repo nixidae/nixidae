@@ -203,9 +203,7 @@ class Diagnostics:
         if len(self.messages) == 1:
             raise DeclarationError.already(self.messages[0])
         joined = "\n  ".join(self.messages)
-        raise DeclarationError.already(
-            f"{len(self.messages)} declaration errors:\n  {joined}",
-            self.messages)
+        raise DeclarationError.already(f"{len(self.messages)} declaration errors:\n  {joined}", self.messages)
 
 
 @contextlib.contextmanager
@@ -277,8 +275,7 @@ class DeclarationError(Exception):
         self.messages: tuple[str, ...] = (str(self),)
 
     @classmethod
-    def already(cls, text: str,
-                messages: Sequence[str] = ()) -> DeclarationError:
+    def already(cls, text: str, messages: Sequence[str] = ()) -> DeclarationError:
         """One already-formatted message, for the collector's report.
 
         `__init__` builds the position from a node, and a report has
@@ -409,7 +406,8 @@ class Type:
                 raise TypeError(
                     f"'{inner}' holds a {leaf.cxx.spelling}, and a "
                     f"container of a width has no wire spelling yet. "
-                    f"See nixidae/nixidae#616.")
+                    f"See nixidae/nixidae#616."
+                )
             inner = leaf.cxx.width.value
         return f"{inner}?" if self.optional else inner
 
@@ -699,7 +697,8 @@ class Class:
             if marked := [m.name for m in self.methods if m.wire_read]:
                 raise TypeError(
                     f"{self.name}: {marked} carry @wire_read, which a "
-                    f"declared field list ignores. Use one or the other.")
+                    f"declared field list ignores. Use one or the other."
+                )
             out = []
             for f in self.decl.fields:
                 if isinstance(f, str):
@@ -709,7 +708,8 @@ class Class:
                     raise TypeError(
                         f"{self.name}: '{f.name}' is declared a wire field "
                         f"and '{f.read}' names no accessor of this class "
-                        f"that answers anything.")
+                        f"that answers anything."
+                    )
                 out.append((f, m))
             return out
         if self.decl.wire is not Crossing.VALUE:
@@ -726,7 +726,8 @@ class Class:
                 raise TypeError(
                     f"{self.name}.{m.name}: @wire_read names "
                     f"'{m.wire_read}', which must be a @local accessor "
-                    f"of this class that answers something.")
+                    f"of this class that answers something."
+                )
             out.append((Field(m.name, read=m.wire_read), reader))
         return out
 
@@ -779,9 +780,7 @@ class Module:
         spelling of the same call. `parse_store_reference` makes a
         `StoreReference`, which declares none, so it stays."""
         made = {c.decl.factory for c in self.classes if c.ctor is not None}
-        return tuple(fn for fn in self.functions
-                     if not (fn.startup or fn.translator)
-                     and fn.name not in made)
+        return tuple(fn for fn in self.functions if not (fn.startup or fn.translator) and fn.name not in made)
 
     @property
     def known(self) -> dict[str, Class]:
@@ -790,10 +789,13 @@ class Module:
         Unions among them, because an annotation names one the same
         way it names a class and every emitter resolves it the same
         way."""
-        return {**self.uses,
-                **{c.name: c for c in self.classes},
-                **{e.name: e for e in self.errors},
-                **{u.name: u for u in self.unions}}
+        return {
+            **self.uses,
+            **{c.name: c for c in self.classes},
+            **{e.name: e for e in self.errors},
+            **{u.name: u for u in self.unions},
+        }
+
     # Local name -> name in declare. `from declare import Str as S`
     # is legal Python, so the reader follows the import rather than
     # matching the spelling it expects.
@@ -803,6 +805,7 @@ class Module:
 
 
 # -- the vocabulary -------------------------------------------------------
+
 
 def _vocabulary(tree: ast.Module) -> dict[str, str]:
     """Every name this file took from declare, as local -> declared.
@@ -817,8 +820,6 @@ def _vocabulary(tree: ast.Module) -> dict[str, str]:
             for alias in node.names:
                 out[alias.asname or alias.name] = alias.name
     return out
-
-
 
 
 def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
@@ -843,13 +844,17 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
     for."""
     if isinstance(ann, str):
         raise DeclarationError(
-            node, f"'{ann}' is quoted. Write the annotation unquoted: "
-                  f"Python 3.14 defers it, so a forward reference needs "
-                  f"no quotes, and the reader takes the object, not text.")
+            node,
+            f"'{ann}' is quoted. Write the annotation unquoted: "
+            f"Python 3.14 defers it, so a forward reference needs "
+            f"no quotes, and the reader takes the object, not text.",
+        )
     if isinstance(ann, annotationlib.ForwardRef):
         raise DeclarationError(
-            node, f"'{ann.__forward_arg__}' is not a name this file defines "
-                  f"or imports. Import the declaration that declares it.")
+            node,
+            f"'{ann.__forward_arg__}' is not a name this file defines "
+            f"or imports. Import the declaration that declares it.",
+        )
     origin = get_origin(ann)
     if isinstance(origin, typing.TypeAliasType):
         # A generic alias such as `Vec[Str]`: its value with the
@@ -859,15 +864,13 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
     if origin is Annotated:
         held, *meta = get_args(ann)
         if any(isinstance(m, declare.Variant) for m in meta):
-            name = next((k for k, v in home.items() if v is ann),
-                        None)
+            name = next((k for k, v in home.items() if v is ann), None)
             if name is None:
                 raise DeclarationError(
-                    node, "a union is named by the alias it is assigned "
-                          "to, and this one is not a global of the file.")
+                    node, "a union is named by the alias it is assigned to, and this one is not a global of the file."
+                )
             return Type(python=name, bound=True)
-        twin = next((m.spelling for m in meta
-                     if isinstance(m, declare.Async)), "")
+        twin = next((m.spelling for m in meta if isinstance(m, declare.Async)), "")
         for m in meta:
             if isinstance(m, Cxx):
                 if get_origin(held) is not None:
@@ -875,36 +878,35 @@ def type_of(ann: object, node: ast.AST, home: Mapping[str, Any]) -> Type:
                     return replace(type_of(held, node, home), cxx=m)
                 return replace(_undeclared(held, m), twin=twin)
         raise DeclarationError(
-            node, f"'{ann}' carries no C++ spelling. Annotate the alias "
-                  f"with Cxx(...) in declare.py.")
+            node, f"'{ann}' carries no C++ spelling. Annotate the alias with Cxx(...) in declare.py."
+        )
     if origin in (types.UnionType, typing.Union):
         arms = get_args(ann)
         present = [a for a in arms if a is not type(None)]
         if len(arms) != 2 or len(present) != 1:
             raise DeclarationError(
-                node, f"'{ann}': an annotation holds `Opt[T]` and no other "
-                      f"union. A sum type is a named alias with Variant(...).")
+                node,
+                f"'{ann}': an annotation holds `Opt[T]` and no other "
+                f"union. A sum type is a named alias with Variant(...).",
+            )
         inner = type_of(present[0], node, home)
-        return Type(python=f"{inner.python} | None", origin=Origin.OPTIONAL,
-                    args=(inner,))
+        return Type(python=f"{inner.python} | None", origin=Origin.OPTIONAL, args=(inner,))
     if origin is list:
         (item,) = get_args(ann)
         inner = type_of(item, node, home)
-        return Type(python=f"list[{inner.python}]", origin=Origin.LIST,
-                    args=(inner,))
+        return Type(python=f"list[{inner.python}]", origin=Origin.LIST, args=(inner,))
     if origin is dict:
         key, value = get_args(ann)
         if key is not str:
             raise DeclarationError(
-                node, f"'{ann}': a map is keyed by str. The wire has no "
-                      f"other key, and a Nix attribute name is one.")
+                node, f"'{ann}': a map is keyed by str. The wire has no other key, and a Nix attribute name is one."
+            )
         inner = type_of(value, node, home)
-        return Type(python=f"dict[str, {inner.python}]", origin=Origin.DICT,
-                    args=(inner,))
+        return Type(python=f"dict[str, {inner.python}]", origin=Origin.DICT, args=(inner,))
     if origin is not None:
         raise DeclarationError(
-            node, f"'{ann}': no binding carries a {origin.__name__}. A "
-                  f"declaration holds Vec, Map and Opt.")
+            node, f"'{ann}': no binding carries a {origin.__name__}. A declaration holds Vec, Map and Opt."
+        )
     if isinstance(ann, type):
         if _declared(ann, home):
             return Type(python=ann.__name__, bound=True)
@@ -923,9 +925,11 @@ def _spelled(t: Type, node: ast.AST, where: str) -> Type:
         _spelled(a, node, where)
     if not t.bound and t.cxx is None:
         raise DeclarationError(
-            node, f"{where}: '{t.python}' is a bare builtin or class. "
-                  f"Name a type from declare.py - Str, I64, Vec, Map, "
-                  f"Opt - which carries its C++ spelling.")
+            node,
+            f"{where}: '{t.python}' is a bare builtin or class. "
+            f"Name a type from declare.py - Str, I64, Vec, Map, "
+            f"Opt - which carries its C++ spelling.",
+        )
     return t
 
 
@@ -935,17 +939,17 @@ def _writable_default(value: object, node: ast.AST, where: str) -> None:
     surface, and `repr(float("inf"))` is a NameError where it lands."""
     if isinstance(value, (list, dict, set, bytearray)):
         raise DeclarationError(
-            node, f"{where}: {value!r} is a mutable default, and every "
-                  f"generated surface would carry its own. Default to "
-                  f"None: a list reads an absent argument back as empty.")
+            node,
+            f"{where}: {value!r} is a mutable default, and every "
+            f"generated surface would carry its own. Default to "
+            f"None: a list reads an absent argument back as empty.",
+        )
     try:
         same = ast.literal_eval(repr(value)) == value
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         same = False
     if not same:
-        raise DeclarationError(
-            node, f"{where}: default {value!r} is not a literal the "
-                  f"generated surfaces can write.")
+        raise DeclarationError(node, f"{where}: default {value!r} is not a literal the generated surfaces can write.")
 
 
 def _member(ann: object, value: object) -> str:
@@ -958,8 +962,7 @@ def _member(ann: object, value: object) -> str:
         return ""
     if not _marked(ann, declare.words):
         return ""
-    return next((k for k, v in vars(ann).items()
-                 if not k.startswith("_") and v == value), "")
+    return next((k for k, v in vars(ann).items() if not k.startswith("_") and v == value), "")
 
 
 def _undeclared(cls: type, cxx: Cxx | None = None) -> Type:
@@ -970,8 +973,7 @@ def _undeclared(cls: type, cxx: Cxx | None = None) -> Type:
     annotation has to say to typecheck."""
     if cls.__module__ == "builtins":
         return Type(python=cls.__name__, cxx=cxx)
-    return Type(python=f"{cls.__module__}.{cls.__name__}", cxx=cxx,
-                module=cls.__module__)
+    return Type(python=f"{cls.__module__}.{cls.__name__}", cxx=cxx, module=cls.__module__)
 
 
 def _declared(cls: type, home: Mapping[str, Any]) -> bool:
@@ -998,8 +1000,8 @@ def _declared(cls: type, home: Mapping[str, Any]) -> bool:
 # -- literals -------------------------------------------------------------
 
 
-
 # -- decorators -----------------------------------------------------------
+
 
 def _marked(obj: object, by: Callable[..., object]) -> list[Mark]:
     """The marks the marker `by` left on `obj`."""
@@ -1007,8 +1009,7 @@ def _marked(obj: object, by: Callable[..., object]) -> list[Mark]:
     return [m for m in declare.marks(obj) if m.marker is rule]
 
 
-def _marks(node: DefinitionNode, held: object,
-           kind: Target) -> dict[str, Any]:
+def _marks(node: DefinitionNode, held: object, kind: Target) -> dict[str, Any]:
     """The fields the markers on `held` fill, once their rules hold.
 
     Read off the import, so a marker counts whatever name or module
@@ -1020,17 +1021,15 @@ def _marks(node: DefinitionNode, held: object,
     wraps = isinstance(held, property | staticmethod | classmethod)
     if len(node.decorator_list) != len(got) + wraps:
         raise DeclarationError(
-            node, f"{node.name}: a decorator here is not a marker from "
-                  f"{VOCABULARY}, so nothing reads what it says")
+            node, f"{node.name}: a decorator here is not a marker from {VOCABULARY}, so nothing reads what it says"
+        )
     seen: set[str] = set()
     out: dict[str, Any] = {}
     for mark in got:
         rule = mark.marker
         if kind not in rule.target:
             legal = ", ".join(sorted(rule.target))
-            raise DeclarationError(
-                node, f"@{rule.name} is not legal on a {kind} "
-                      f"(legal on {legal})")
+            raise DeclarationError(node, f"@{rule.name} is not legal on a {kind} (legal on {legal})")
         if rule.name in seen and rule.arity is not declare.Arity.REPEATABLE:
             raise DeclarationError(node, f"@{rule.name} may appear once")
         seen.add(rule.name)
@@ -1042,13 +1041,13 @@ def _marks(node: DefinitionNode, held: object,
             a, b = sorted(r.name for r in pair)
             raise DeclarationError(node, f"@{a} and @{b} cannot both be set")
     for rule in sorted(rules & declare.REQUIRES.keys(), key=lambda r: r.name):
-        for need in sorted(declare.REQUIRES[rule] - rules,
-                           key=lambda r: r.name):
+        for need in sorted(declare.REQUIRES[rule] - rules, key=lambda r: r.name):
             raise DeclarationError(node, f"@{rule.name} needs @{need.name}")
     return out
 
 
 # -- methods --------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Body:
@@ -1068,7 +1067,7 @@ class Body:
 def _source(path: str) -> str:
     marker = "/huggorm_decl/"
     at = path.rfind(marker)
-    return path[at + 1:] if at >= 0 else path
+    return path[at + 1 :] if at >= 0 else path
 
 
 def _cxx_call(node: ast.FunctionDef, stmt: ast.stmt) -> Body | None:
@@ -1076,29 +1075,25 @@ def _cxx_call(node: ast.FunctionDef, stmt: ast.stmt) -> Body | None:
     if not isinstance(stmt, ast.Expr):
         return None
     value = stmt.value
-    if not (isinstance(value, ast.Call)
-            and isinstance(value.func, ast.Name)
-            and value.func.id == "Cxx"):
+    if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "Cxx"):
         return None
     if len(value.args) != 1 or not isinstance(value.args[0], ast.Constant):
-        raise DeclarationError(
-            stmt, f"{node.name}: Cxx() takes one string "
-                  f"literal. The C++ is carried, not built.")
+        raise DeclarationError(stmt, f"{node.name}: Cxx() takes one string literal. The C++ is carried, not built.")
     if value.keywords:
-        names = ", ".join(f"{k.arg}=" if k.arg else "**"
-                          for k in value.keywords)
+        names = ", ".join(f"{k.arg}=" if k.arg else "**" for k in value.keywords)
         raise DeclarationError(
-            stmt, f"{node.name}: a body Cxx() takes no keywords, and "
-                  f"{names} would reach no output. `copy` and `width` "
-                  f"belong on a type's Cxx, in an Annotated alias "
-                  f"(nixidae/nixidae#870).")
+            stmt,
+            f"{node.name}: a body Cxx() takes no keywords, and "
+            f"{names} would reach no output. `copy` and `width` "
+            f"belong on a type's Cxx, in an Annotated alias "
+            f"(nixidae/nixidae#870).",
+        )
     literal = value.args[0]
     text = str(literal.value)
     # The literal starts on its own line; the C++ starts after the
     # newlines that `.strip()` drops.
-    skipped = text[:len(text) - len(text.lstrip())].count("\n")
-    return Body(text, _source(_READING[-1]) if _READING else "<declaration>",
-                literal.lineno + skipped)
+    skipped = text[: len(text) - len(text.lstrip())].count("\n")
+    return Body(text, _source(_READING[-1]) if _READING else "<declaration>", literal.lineno + skipped)
 
 
 def _body(node: ast.FunctionDef) -> Body | None:
@@ -1128,39 +1123,42 @@ def _body(node: ast.FunctionDef) -> Body | None:
     body, or the body and forget the marker."""
     seen: Body | None = None
     for i, stmt in enumerate(node.body):
-        if (i == 0 and isinstance(stmt, ast.Expr)
-                and isinstance(stmt.value, ast.Constant)
-                and isinstance(stmt.value.value, str)):
-            continue                           # the docstring
+        if (
+            i == 0
+            and isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue  # the docstring
         if isinstance(stmt, ast.If):
             raise DeclarationError(
-                stmt, f"{node.name}: a body holds no version test. A call "
-                      f"whose shape differs between Nix versions goes in a "
-                      f"cpp/ helper that detects the shape; a different "
-                      f"Python surface is a branch around the method "
-                      f"(nixidae/nixidae#706).")
+                stmt,
+                f"{node.name}: a body holds no version test. A call "
+                f"whose shape differs between Nix versions goes in a "
+                f"cpp/ helper that detects the shape; a different "
+                f"Python surface is a branch around the method "
+                f"(nixidae/nixidae#706).",
+            )
         cxx = _cxx_call(node, stmt)
         if cxx is not None:
             if seen:
-                raise DeclarationError(
-                    stmt, f"{node.name}: one Cxx(...) per body. Two "
-                          f"bodies is two bindings.")
+                raise DeclarationError(stmt, f"{node.name}: one Cxx(...) per body. Two bodies is two bindings.")
             seen = cxx
             continue
-        if (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
-                and stmt.value.value is Ellipsis):
-            continue                           # `...`, an empty body
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
+            continue  # `...`, an empty body
         raise DeclarationError(
-            stmt, f"{node.name}: a declaration body is a docstring, then "
-                  f"at most one Cxx(...). {ast.unparse(stmt)!r} is "
-                  f"neither, and nothing would emit it.")
+            stmt,
+            f"{node.name}: a declaration body is a docstring, then "
+            f"at most one Cxx(...). {ast.unparse(stmt)!r} is "
+            f"neither, and nothing would emit it.",
+        )
     return seen
 
 
-
-
-def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
-            bound: bool = True, bound_kind: bool = True) -> Method:
+def _method(
+    node: ast.FunctionDef, held: object, vocab: dict[str, str], bound: bool = True, bound_kind: bool = True
+) -> Method:
     """One declared function.
 
     `bound=False` for a function with no `self` to skip. That is not
@@ -1181,14 +1179,16 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
     fn = getattr(held, "fget", None) or getattr(held, "__func__", held)
     if not isinstance(fn, types.FunctionType):
         raise DeclarationError(
-            node, f"{node.name}: the import holds no function here, so "
-                  f"its annotations cannot be resolved.")
+            node, f"{node.name}: the import holds no function here, so its annotations cannot be resolved."
+        )
     static = not bound and bound_kind
     if static and not isinstance(held, staticmethod):
         raise DeclarationError(
-            node, f"{node.name}: a class member with no self is a "
-                  f"@staticmethod. Say so, or a type checker reads its "
-                  f"first parameter as self.")
+            node,
+            f"{node.name}: a class member with no self is a "
+            f"@staticmethod. Say so, or a type checker reads its "
+            f"first parameter as self.",
+        )
     if isinstance(held, staticmethod | classmethod) and not static:
         # `@staticmethod` and `@classmethod` say the first parameter
         # is not `self`, and this reads a bound method by SKIPPING the
@@ -1204,38 +1204,32 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
         # That is four outputs for a shape no declaration wants yet
         # (nixidae/nixidae#613).
         raise DeclarationError(
-            node, f"{node.name}: @{type(held).__name__} has no meaning in "
-                  f"a declaration yet, and this reads a method as one "
-                  f"that takes self - so its first parameter would be "
-                  f"dropped. See nixidae/nixidae#613.")
-    signature = inspect.signature(
-        fn, annotation_format=annotationlib.Format.FORWARDREF)
+            node,
+            f"{node.name}: @{type(held).__name__} has no meaning in "
+            f"a declaration yet, and this reads a method as one "
+            f"that takes self - so its first parameter would be "
+            f"dropped. See nixidae/nixidae#613.",
+        )
+    signature = inspect.signature(fn, annotation_format=annotationlib.Format.FORWARDREF)
     every = list(signature.parameters.values())
-    if any(p.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD
-           for p in every):
+    if any(p.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD for p in every):
         raise DeclarationError(
-            node, f"{node.name}: a bound method takes plain positional "
-                  f"parameters. C++ has no *args.")
-    anns = annotationlib.get_annotations(
-        fn, format=annotationlib.Format.FORWARDREF)
+            node, f"{node.name}: a bound method takes plain positional parameters. C++ has no *args."
+        )
+    anns = annotationlib.get_annotations(fn, format=annotationlib.Format.FORWARDREF)
     # The tree only for positions: a refusal points at the parameter.
     at = {a.arg: a for a in node.args.args}
     params = []
     for p in every[1:] if bound else every:
         arg = at[p.name]
         if p.name not in anns:
-            raise DeclarationError(
-                arg, f"{node.name}({arg.arg}): every parameter states its "
-                     f"type.")
+            raise DeclarationError(arg, f"{node.name}({arg.arg}): every parameter states its type.")
         default = p.default
-        declared = _spelled(type_of(anns[arg.arg], arg, fn.__globals__),
-                            arg, f"{node.name}({arg.arg})")
+        declared = _spelled(type_of(anns[arg.arg], arg, fn.__globals__), arg, f"{node.name}({arg.arg})")
         if default is None and not declared.optional:
             # An implicit Optional: every surface but the C++ then says
             # `| None` where the declaration did not (nixidae/nixidae#641).
-            raise DeclarationError(
-                arg, f"{node.name}({arg.arg}): a default of None needs "
-                     f"`Opt[...]` in the type.")
+            raise DeclarationError(arg, f"{node.name}({arg.arg}): a default of None needs `Opt[...]` in the type.")
         member = _member(anns[arg.arg], default)
         # A vocabulary member is written as the member, not by repr.
         if default is not inspect.Parameter.empty and not member:
@@ -1244,8 +1238,7 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
 
     ret: Type | None = None
     if node.returns is not None and anns.get("return") is not None:
-        ret = _spelled(type_of(anns["return"], node.returns, fn.__globals__),
-                       node.returns, f"{node.name}()")
+        ret = _spelled(type_of(anns["return"], node.returns, fn.__globals__), node.returns, f"{node.name}()")
 
     out = Method(
         name=node.name,
@@ -1254,8 +1247,7 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
         ret=ret,
         prop=isinstance(held, property),
         cxx_body=_body(node),
-        **_marks(node, held,
-                 Target.METHOD if bound_kind else Target.FREE),
+        **_marks(node, held, Target.METHOD if bound_kind else Target.FREE),
     )
     _holds_the_gil(node, out, method=bool(bound_kind))
     if out.reads and params:
@@ -1263,9 +1255,7 @@ def _method(node: ast.FunctionDef, held: object, vocab: dict[str, str],
         # an argument to go. The emitter drops them silently, which
         # would leave the Python signature demanding a value nothing
         # uses.
-        raise DeclarationError(
-            node, f"{node.name}: @reads names a data member, so this "
-                  f"accessor takes no parameters.")
+        raise DeclarationError(node, f"{node.name}: @reads names a data member, so this accessor takes no parameters.")
     return out
 
 
@@ -1292,46 +1282,46 @@ def _members(node: ast.ClassDef, holder: type) -> tuple[Member, ...]:
                 walk(item.orelse, False)
                 continue
             if not isinstance(item, ast.Assign):
-                if _is_docstring(item) and (
-                        (top and i == 0) or (i > 0 and isinstance(body[i - 1], ast.Assign))):
+                if _is_docstring(item) and ((top and i == 0) or (i > 0 and isinstance(body[i - 1], ast.Assign))):
                     continue
                 raise DeclarationError(
-                    item, f"{node.name}: a vocabulary holds members and their "
-                          f"docstrings, and nothing else")
+                    item, f"{node.name}: a vocabulary holds members and their docstrings, and nothing else"
+                )
             if len(item.targets) != 1 or not isinstance(item.targets[0], ast.Name):
                 raise DeclarationError(item, "a member is one plain assignment")
             want = int if numeric else str
-            if not (isinstance(item.value, ast.Constant)
-                    and type(item.value.value) is want):
+            if not (isinstance(item.value, ast.Constant) and type(item.value.value) is want):
                 raise DeclarationError(
-                    item, "an IntEnum member IS Nix's number, written as an int"
-                    if numeric else
-                    "a word IS a string. Nothing else crosses as one.")
+                    item,
+                    "an IntEnum member IS Nix's number, written as an int"
+                    if numeric
+                    else "a word IS a string. Nothing else crosses as one.",
+                )
             nxt = body[i + 1] if i + 1 < len(body) else None
             docs[targets_name(item)] = (
                 nxt.value.value
-                if (isinstance(nxt, ast.Expr) and isinstance(nxt.value, ast.Constant)
-                    and isinstance(nxt.value.value, str))
-                else "")
+                if (
+                    isinstance(nxt, ast.Expr)
+                    and isinstance(nxt.value, ast.Constant)
+                    and isinstance(nxt.value.value, str)
+                )
+                else ""
+            )
 
     walk(node.body, True)
     members = typing.cast("Mapping[str, enum.Enum]", holder.__members__)
-    out = [Member(name, member.value, docs[name])
-           for name, member in members.items()]
+    out = [Member(name, member.value, docs[name]) for name, member in members.items()]
     if len({m.value for m in out}) != len(out):
         # An alias is a second name for a value, and an emitted switch
         # would name that value twice. Upstream's `actLast` is one.
-        raise DeclarationError(
-            node, f"{node.name}: two members share a value. Declare each "
-                  f"value once.")
+        raise DeclarationError(node, f"{node.name}: two members share a value. Declare each value once.")
     if not out:
         raise DeclarationError(node, f"{node.name}: a vocabulary with no members")
     return tuple(out)
 
 
 def _is_docstring(item: ast.stmt) -> bool:
-    return (isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant)
-            and isinstance(item.value.value, str))
+    return isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant) and isinstance(item.value.value, str)
 
 
 def targets_name(item: ast.Assign) -> str:
@@ -1340,11 +1330,16 @@ def targets_name(item: ast.Assign) -> str:
     return target.id
 
 
-def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
-           where: str, here: str, diag: Diagnostics,
-           made: Mapping[type, str]) -> Class:
-    decl = Decl(name=node.name, factory=made.get(holder, ""),
-                **_marks(node, holder, Target.CLASS))
+def _class(
+    node: ast.ClassDef,
+    holder: type,
+    vocab: dict[str, str],
+    where: str,
+    here: str,
+    diag: Diagnostics,
+    made: Mapping[type, str],
+) -> Class:
+    decl = Decl(name=node.name, factory=made.get(holder, ""), **_marks(node, holder, Target.CLASS))
     # The base, said the way Python says it.
     #
     # This used to be `@derives("Store")` and a Python base class was
@@ -1365,14 +1360,18 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
         if holder.__bases__ == (enum.IntEnum,):
             if decl.parsed_by or not decl.enumerated:
                 raise DeclarationError(
-                    node, f"{node.name}: an IntEnum vocabulary holds the "
-                          f"numbers of a C++ enum, so it names that enum "
-                          f"with `enumerated=` and has no `parsed_by`.")
+                    node,
+                    f"{node.name}: an IntEnum vocabulary holds the "
+                    f"numbers of a C++ enum, so it names that enum "
+                    f"with `enumerated=` and has no `parsed_by`.",
+                )
         elif holder.__bases__ != (enum.StrEnum,):
             raise DeclarationError(
-                node, f"{node.name}: a vocabulary is a StrEnum, or an "
-                      f"IntEnum for a C++ enum Nix numbers. Write "
-                      f"`class {node.name}(StrEnum)`.")
+                node,
+                f"{node.name}: a vocabulary is a StrEnum, or an "
+                f"IntEnum for a C++ enum Nix numbers. Write "
+                f"`class {node.name}(StrEnum)`.",
+            )
     elif holder.__bases__ != (object,):
         # One base, and only on an @in_process class. Nix hands a
         # Python-implemented store back as the object Python made, so
@@ -1380,12 +1379,13 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
         # is, with its methods (nixidae/nixidae#732). The async and remote
         # surfaces carry no hierarchy, so a served class has no base.
         (base,) = holder.__bases__ if len(holder.__bases__) == 1 else (None,)
-        if (base is None or not declare.marks(base)
-                or decl.wire is not Crossing.LOCAL):
+        if base is None or not declare.marks(base) or decl.wire is not Crossing.LOCAL:
             raise DeclarationError(
-                node, f"{node.name}: only an @in_process class has a base, "
-                      f"and it is one declared class. Declare the methods "
-                      f"on {node.name} itself (nixidae/nixidae#597).")
+                node,
+                f"{node.name}: only an @in_process class has a base, "
+                f"and it is one declared class. Declare the methods "
+                f"on {node.name} itself (nixidae/nixidae#597).",
+            )
         decl = replace(decl, base=base.__name__)
 
     if decl.kind is DeclKind.WORDS:
@@ -1409,12 +1409,16 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
         fn = _written(value, here)
         if fn is None:
             if not _dunder(name):
-                diag.record(DeclarationError(
-                    _binder(node, name),
-                    f"{node.name}.{name} ({type(value).__name__}) reaches "
-                    f"no output. A bound class holds its methods, its "
-                    f"constructor, {FROM_PARTS} and what its decorators "
-                    f"wrote."), unsound=f"{node.name}.{name}")
+                diag.record(
+                    DeclarationError(
+                        _binder(node, name),
+                        f"{node.name}.{name} ({type(value).__name__}) reaches "
+                        f"no output. A bound class holds its methods, its "
+                        f"constructor, {FROM_PARTS} and what its decorators "
+                        f"wrote.",
+                    ),
+                    unsound=f"{node.name}.{name}",
+                )
             continue
         _one_definition(fn)
         items.append((_node_of(fn), value))
@@ -1425,13 +1429,16 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
             # `@binding(threading=...)` and `@blocks`, one file later,
             # so `async def` here says nothing the emitter can use
             # (nixidae/nixidae#625).
-            diag.record(DeclarationError(
-                item,
-                f"{node.name}.{item.name}: a declaration describes a C++ "
-                f"binding, so `async def` says nothing here. The async "
-                f"form is DERIVED - @binding(threading=...) and @blocks "
-                f"decide which methods get one - so write a plain `def`."),
-                unsound=f"{node.name}.{item.name}")
+            diag.record(
+                DeclarationError(
+                    item,
+                    f"{node.name}.{item.name}: a declaration describes a C++ "
+                    f"binding, so `async def` says nothing here. The async "
+                    f"form is DERIVED - @binding(threading=...) and @blocks "
+                    f"decide which methods get one - so write a plain `def`.",
+                ),
+                unsound=f"{node.name}.{item.name}",
+            )
             continue
         if not isinstance(item, ast.FunctionDef):
             continue
@@ -1447,7 +1454,8 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
                     f"{node.name}.{FROM_PARTS} takes no parameters here. "
                     f"The wire fields ARE its parameters, and the emitter "
                     f"writes them from the field list so the two cannot "
-                    f"disagree. The body reads them by name.")
+                    f"disagree. The body reads them by name.",
+                )
             continue
         if item.name == "__init__":
             ctor = _method(item, held, vocab)
@@ -1470,7 +1478,8 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
                     f"@constructs({node.name}) says {decl.factory} "
                     f"builds one - so {decl.factory} owns the "
                     f"signature. Move them there and leave the "
-                    f"docstring here.")
+                    f"docstring here.",
+                )
         elif item.name.startswith("__") and item.name not in DECLARED_DUNDERS:
             # Without this refusal, a SILENT SKIP. The loop would keep
             # the names that are not `__`-prefixed and drop the rest
@@ -1492,17 +1501,20 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
             # lands here too, and the answer is the same: Python
             # mangles it, nothing reads it, and the reader says so
             # rather than dropping it.
-            diag.record(DeclarationError(
-                item,
-                f"{node.name}.{item.name}: a name starting with `__` "
-                f"reaches no emitter unless the emitters are taught it. "
-                f"`__init__` and {sorted(DECLARED_DUNDERS)} are. The "
-                f"value dunders are derived from the class decorators - "
-                f"@wire_value writes them, and its `order=` and "
-                f"`text=` decide which - so do not declare one. "
-                f"Anything else needs the emitters taught (nixidae/nixidae#625); "
-                f"declare it under a plain name until then."),
-                unsound=f"{node.name}.{item.name}")
+            diag.record(
+                DeclarationError(
+                    item,
+                    f"{node.name}.{item.name}: a name starting with `__` "
+                    f"reaches no emitter unless the emitters are taught it. "
+                    f"`__init__` and {sorted(DECLARED_DUNDERS)} are. The "
+                    f"value dunders are derived from the class decorators - "
+                    f"@wire_value writes them, and its `order=` and "
+                    f"`text=` decide which - so do not declare one. "
+                    f"Anything else needs the emitters taught (nixidae/nixidae#625); "
+                    f"declare it under a plain name until then.",
+                ),
+                unsound=f"{node.name}.{item.name}",
+            )
         else:
             # Definition order, which is the order a reader of the
             # declaration sees and the order the emitted file keeps.
@@ -1531,7 +1543,6 @@ def _class(node: ast.ClassDef, holder: type, vocab: dict[str, str],
     return out
 
 
-
 def _mentions(cls: Class, node: ast.AST) -> None:
     """Every declared wire field must appear in the body, by name.
 
@@ -1549,8 +1560,7 @@ def _mentions(cls: Class, node: ast.AST) -> None:
     A false positive costs one comment naming the field."""
     assert cls.from_parts is not None
     body = cls.from_parts.cxx_body
-    seen = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*",
-                          body.text if body is not None else ""))
+    seen = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", body.text if body is not None else ""))
     for f, _ in cls.parts:
         if f.name not in seen:
             raise DeclarationError(
@@ -1561,23 +1571,25 @@ def _mentions(cls: Class, node: ast.AST) -> None:
                 f"An accessor joins the wire by existing, so a NEW one "
                 f"lands here: either consume it in {FROM_PARTS}, or mark "
                 f"it @local - a value this side computes and does not "
-                f"send.")
+                f"send.",
+            )
 
 
-def _guarded_import(name: str, globals: Mapping[str, object] | None = None,
-                    locals: Mapping[str, object] | None = None,
-                    fromlist: Sequence[str] = (), level: int = 0) -> ModuleType:
+def _guarded_import(
+    name: str,
+    globals: Mapping[str, object] | None = None,
+    locals: Mapping[str, object] | None = None,
+    fromlist: Sequence[str] = (),
+    level: int = 0,
+) -> ModuleType:
     """`__import__` for a declaration's own statements.
 
     A declaration describes C++; it computes nothing, so it needs
     nothing past the vocabulary, the other declarations and the
     typing names. Not a sandbox: declarations are trusted repository
     code, and this catches a mistake (nixidae/nixidae#689)."""
-    if level or not any(name == m or name.startswith(f"{m}.")
-                        for m in IMPORTABLE):
-        raise ImportError(
-            f"a declaration imports only from {', '.join(IMPORTABLE)}, "
-            f"not {'.' * level}{name}")
+    if level or not any(name == m or name.startswith(f"{m}.") for m in IMPORTABLE):
+        raise ImportError(f"a declaration imports only from {', '.join(IMPORTABLE)}, not {'.' * level}{name}")
     return builtins.__import__(name, globals, locals, fromlist, level)
 
 
@@ -1601,21 +1613,19 @@ class _DeclarationFinder(importlib.abc.MetaPathFinder):
     declaration or by a test. Two objects made `StorePath` two classes
     (nixidae/nixidae#712)."""
 
-    def find_spec(self, fullname: str, path: Sequence[str] | None,
-                  target: ModuleType | None = None
-                  ) -> importlib.machinery.ModuleSpec | None:
+    def find_spec(
+        self, fullname: str, path: Sequence[str] | None, target: ModuleType | None = None
+    ) -> importlib.machinery.ModuleSpec | None:
         if not fullname.startswith(f"{DECLARATIONS}."):
             return None
         spec = importlib.machinery.PathFinder.find_spec(fullname, path)
-        if spec is None or spec.origin is None or not isinstance(
-                spec.loader, importlib.machinery.SourceFileLoader):
+        if spec is None or spec.origin is None or not isinstance(spec.loader, importlib.machinery.SourceFileLoader):
             return spec
         # Resolved: a Nix Python env reaches the package through a
         # symlink, and `_written` matches `co_filename` against the
         # resolved path. Unresolved, every definition went unmatched.
         origin = str(pathlib.Path(spec.origin).resolve())
-        return importlib.util.spec_from_file_location(
-            fullname, origin, loader=_DeclarationLoader(fullname, origin))
+        return importlib.util.spec_from_file_location(fullname, origin, loader=_DeclarationLoader(fullname, origin))
 
 
 if not any(isinstance(f, _DeclarationFinder) for f in sys.meta_path):
@@ -1631,8 +1641,7 @@ def _declaration_name(path: pathlib.Path) -> str | None:
         return None
     if package is None or package.submodule_search_locations is None:
         return None
-    homes = {pathlib.Path(p).resolve()
-             for p in package.submodule_search_locations}
+    homes = {pathlib.Path(p).resolve() for p in package.submodule_search_locations}
     return f"{DECLARATIONS}.{path.stem}" if path.parent in homes else None
 
 
@@ -1685,9 +1694,7 @@ def load(path: str) -> ModuleType:
         name = f"_huggorm_decl_{pathlib.Path(path).stem}_{digest}"
         spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
-            raise DeclarationError.already(
-                f"{here}: Python will not load this file as a module at "
-                f"all.")
+            raise DeclarationError.already(f"{here}: Python will not load this file as a module at all.")
         mod = importlib.util.module_from_spec(spec)
         _guarded(mod)
         sys.modules[name] = mod
@@ -1700,8 +1707,8 @@ def load(path: str) -> ModuleType:
         # at, and "it did not import" alone would send a reader to the
         # wrong file.
         raise DeclarationError.already(
-            f"{here}: the declaration does not import, so nothing says "
-            f"which definitions exist. {type(e).__name__}: {e}") from e
+            f"{here}: the declaration does not import, so nothing says which definitions exist. {type(e).__name__}: {e}"
+        ) from e
     return mod
 
 
@@ -1719,18 +1726,17 @@ def _node_of(obj: Callable[..., object]) -> DefinitionNode:
     try:
         lines, start = inspect.getsourcelines(obj)
     except (OSError, TypeError) as e:
-        raise DeclarationError.already(
-            f"{name}: Python has no source for this definition. {e}") from e
+        raise DeclarationError.already(f"{name}: Python has no source for this definition. {e}") from e
     src = "".join(lines)
     indented = src[:1] in " \t"
     tree = ast.parse("if 1:\n" + src if indented else src)
     ast.increment_lineno(tree, start - 1 - indented)
-    node = next((n for n in ast.walk(tree) if isinstance(n, DEFINITIONS)),
-                None)
+    node = next((n for n in ast.walk(tree) if isinstance(n, DEFINITIONS)), None)
     if node is None or node.name != name:
         raise DeclarationError.already(
             f"{name}: the source Python names for this definition, at line "
-            f"{start}, defines something else. A decorator replaced it.")
+            f"{start}, defines something else. A decorator replaced it."
+        )
     return node
 
 
@@ -1743,8 +1749,8 @@ def _one_definition(fn: types.FunctionType) -> None:
     if earlier := get_overloads(fn):
         raise DeclarationError(
             _node_of(earlier[0]),
-            f"{fn.__name__} is overloaded. A binding holds one definition "
-            f"per name; give each signature its own name.")
+            f"{fn.__name__} is overloaded. A binding holds one definition per name; give each signature its own name.",
+        )
 
 
 def _kept(path: str) -> list[Callable[..., object]]:
@@ -1757,8 +1763,7 @@ def _kept(path: str) -> list[Callable[..., object]]:
     for value in vars(mod).values():
         if isinstance(value, type) and value.__module__ == mod.__name__:
             out.append(value)
-            out += [fn for member in vars(value).values()
-                    if (fn := _written(member, here)) is not None]
+            out += [fn for member in vars(value).values() if (fn := _written(member, here)) is not None]
         elif (fn := _written(value, here)) is not None:
             out.append(fn)
     return out
@@ -1773,16 +1778,17 @@ def _unbranched(tree: ast.Module, mod: ModuleType, here: str) -> None:
 
     An `@overload` keeps its earlier definitions only in
     `typing.get_overloads`, and `_one_definition` refuses them."""
+
     def check(n: DefinitionNode, scope: Mapping[str, object]) -> None:
         held = scope.get(n.name)
-        got = (held if isinstance(held, type)
-               and held.__module__ == mod.__name__ else _written(held, here))
-        if got is None or n.lineno not in {
-                _node_of(d).lineno for d in [got, *get_overloads(got)]}:
+        got = held if isinstance(held, type) and held.__module__ == mod.__name__ else _written(held, here)
+        if got is None or n.lineno not in {_node_of(d).lineno for d in [got, *get_overloads(got)]}:
             raise DeclarationError(
-                n, f"{n.name}: this definition is under no `if`, and the "
-                   f"import holds something else under its name. Something "
-                   f"replaced or wrapped it, and the reader would drop it.")
+                n,
+                f"{n.name}: this definition is under no `if`, and the "
+                f"import holds something else under its name. Something "
+                f"replaced or wrapped it, and the reader would drop it.",
+            )
 
     for n in tree.body:
         if not isinstance(n, DEFINITIONS):
@@ -1879,10 +1885,12 @@ def _read(path: str) -> Module:
     assigned = _assignments(tree)
     vocab = _vocabulary(tree)
     stem = pathlib.Path(path).stem
-    imported = {a.asname or a.name.split(".")[0]
-                for n in ast.walk(tree)
-                if isinstance(n, ast.Import | ast.ImportFrom)
-                for a in n.names}
+    imported = {
+        a.asname or a.name.split(".")[0]
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Import | ast.ImportFrom)
+        for a in n.names
+    }
     glb = vars(mod)
     # SIBLINGS, so one bad definition does not hide the next. Each is
     # read in full or not at all - the failure is recorded, its name
@@ -1908,21 +1916,21 @@ def _read(path: str) -> Module:
                     classes.append(cls)
                 else:
                     raise DeclarationError(
-                        node, f"{node.name}: a class with no marker declares "
-                              f"an exception, so it derives from "
-                              f"BaseException.")
+                        node,
+                        f"{node.name}: a class with no marker declares an exception, so it derives from BaseException.",
+                    )
             elif fn is not None:
                 _one_definition(fn)
                 functions.append(_free(_node_of(fn), value, vocab))
             elif _union(value) is not None and name in assigned:
-                unions.append(_union_class(name, value, stem,
-                                           *assigned[name]))
+                unions.append(_union_class(name, value, stem, *assigned[name]))
             else:
                 raise DeclarationError(
                     assigned.get(name, (tree, None))[0],
                     f"{name} ({type(value).__name__}) reaches no output. A "
                     f"declaration holds declared classes, exceptions, union "
-                    f"aliases, decorated functions and imports.")
+                    f"aliases, decorated functions and imports.",
+                )
         except DeclarationError as e:
             diag.record(e, unsound=name)
     uses = _uses(tree, pathlib.Path(path).parent, diag)
@@ -1932,8 +1940,7 @@ def _read(path: str) -> Module:
     # THE ONE CROSS-CLASS CHECK IN THIS READER, which is why bogus
     # errors have one source and one cure. Every other refusal above
     # is about a single class or this file's own vocabulary.
-    resolvable = {**uses, **{c.name: c for c in classes},
-                  **{u.name: u for u in unions}}
+    resolvable = {**uses, **{c.name: c for c in classes}, **{u.name: u for u in unions}}
     for u in unions:
         try:
             _check_arms(u, resolvable, assigned[u.name][0], diag)
@@ -1949,13 +1956,11 @@ def _read(path: str) -> Module:
         vocabulary=vocab,
         unions=tuple(unions),
         uses=uses,
-        markers=frozenset(m.marker.name for obj in _kept(path)
-                          for m in declare.marks(obj)),
+        markers=frozenset(m.marker.name for obj in _kept(path) for m in declare.marks(obj)),
     )
 
 
-def _factories(glb: Mapping[str, object], here: str, mod: ModuleType,
-               diag: Diagnostics) -> dict[type, str]:
+def _factories(glb: Mapping[str, object], here: str, mod: ModuleType, diag: Diagnostics) -> dict[type, str]:
     """Each class a `@constructs` function here builds, and that
     function's name.
 
@@ -1969,23 +1974,25 @@ def _factories(glb: Mapping[str, object], here: str, mod: ModuleType,
         for mark in _marked(fn, declare.constructs):
             cls = mark.value
             if not (isinstance(cls, type) and cls.__module__ == mod.__name__):
-                diag.record(DeclarationError(
-                    _node_of(fn),
-                    f"{fn.__name__}: @constructs names a class this file "
-                    f"does not declare."), unsound=fn.__name__)
+                diag.record(
+                    DeclarationError(
+                        _node_of(fn), f"{fn.__name__}: @constructs names a class this file does not declare."
+                    ),
+                    unsound=fn.__name__,
+                )
                 continue
             out[cls] = fn.__name__
     return out
 
 
-def _holds_the_gil(node: DefinitionNode, fn: Method, *,
-                   method: bool) -> None:
+def _holds_the_gil(node: DefinitionNode, fn: Method, *, method: bool) -> None:
     """Refuse a by-value Python handle on a call that releases the GIL.
 
     nanobind aborts the process when a reference count changes without
     the GIL, and it compiles fine. A method needs `@instant`, because
     its class may block and release the GIL for it. A free function
     releases it only for `@blocks` (nixidae/nixidae#872)."""
+
     def holds(t: Type) -> bool:
         return t.cxx == PY_OBJECT or any(holds(a) for a in t.args)
 
@@ -1994,17 +2001,18 @@ def _holds_the_gil(node: DefinitionNode, fn: Method, *,
         return
     if method and not fn.instant:
         raise DeclarationError(
-            node, f"{node.name}: {handles} is a Python object held by "
-                  f"value, which is safe only while the GIL is held. "
-                  f"Mark the method @instant.")
+            node,
+            f"{node.name}: {handles} is a Python object held by "
+            f"value, which is safe only while the GIL is held. "
+            f"Mark the method @instant.",
+        )
     if not method and fn.blocks:
         raise DeclarationError(
-            node, f"{node.name}: {handles} is a Python object held by "
-                  f"value, and @blocks releases the GIL around it.")
+            node, f"{node.name}: {handles} is a Python object held by value, and @blocks releases the GIL around it."
+        )
 
 
-def _free(node: DefinitionNode, fn: object,
-          vocab: dict[str, str]) -> Method:
+def _free(node: DefinitionNode, fn: object, vocab: dict[str, str]) -> Method:
     """One module-level function: a FREE binding, if it is marked.
 
     nanopynix has 72 of them, `m.def("open_store", &open_store_uri,
@@ -2012,16 +2020,19 @@ def _free(node: DefinitionNode, fn: object,
     it."""
     if isinstance(node, ast.ClassDef) or not declare.marks(fn):
         raise DeclarationError(
-            node, f"{node.name} (function) reaches no output. A free "
-                  f"binding carries a marker from {VOCABULARY}; a "
-                  f"declaration holds no helpers.")
+            node,
+            f"{node.name} (function) reaches no output. A free "
+            f"binding carries a marker from {VOCABULARY}; a "
+            f"declaration holds no helpers.",
+        )
     if isinstance(node, ast.AsyncFunctionDef):
         # As in a class body, and for the same reason.
         raise DeclarationError(
             node,
             f"{node.name}: a declaration describes a C++ binding, so "
             f"`async def` says nothing here. The async form is "
-            f"DERIVED from @threading - so write a plain `def`.")
+            f"DERIVED from @threading - so write a plain `def`.",
+        )
     return _method(node, fn, vocab, bound=False, bound_kind=False)
 
 
@@ -2034,17 +2045,16 @@ def _assignments(tree: ast.Module) -> dict[str, tuple[ast.Assign, str]]:
     two are read as one pair."""
     out: dict[str, tuple[ast.Assign, str]] = {}
     for parent in ast.walk(tree):
-        for body in (getattr(parent, "body", None),
-                     getattr(parent, "orelse", None)):
+        for body in (getattr(parent, "body", None), getattr(parent, "orelse", None)):
             if not isinstance(body, list) or isinstance(parent, ast.ClassDef):
                 continue
             for i, item in enumerate(body):
-                if not (isinstance(item, ast.Assign) and len(item.targets) == 1
-                        and isinstance(item.targets[0], ast.Name)):
+                if not (
+                    isinstance(item, ast.Assign) and len(item.targets) == 1 and isinstance(item.targets[0], ast.Name)
+                ):
                     continue
                 nxt = body[i + 1] if i + 1 < len(body) else None
-                doc = (nxt.value.value if nxt is not None and _is_docstring(nxt)
-                       else "")
+                doc = nxt.value.value if nxt is not None and _is_docstring(nxt) else ""
                 out[item.targets[0].id] = (item, doc)
     return out
 
@@ -2071,10 +2081,8 @@ def _binder(tree: ast.AST, name: str) -> ast.AST:
         if isinstance(node, DEFINITIONS) and node.name == name:
             return node
         if isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
-            targets = (node.targets if isinstance(node, ast.Assign)
-                       else [node.target])
-            if any(isinstance(t, ast.Name) and t.id == name
-                   for t in targets):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == name for t in targets):
                 return node
     return tree
 
@@ -2089,8 +2097,7 @@ def _union(alias: object) -> tuple[object, list[object]] | None:
     return held, meta
 
 
-def _union_class(name: str, alias: object, where: str,
-                 item: ast.Assign, doc: str) -> Class:
+def _union_class(name: str, alias: object, where: str, item: ast.Assign, doc: str) -> Class:
     """One module-level union alias, as a Class the emitters can name.
 
     A union is written as the alias it is:
@@ -2109,15 +2116,16 @@ def _union_class(name: str, alias: object, where: str,
     held, meta = found
     parts = [(_scalar_arm(a, name, item), a) for a in get_args(held)]
     scalars = {s.wire: s for s, _ in parts if s is not None}
-    arms = tuple(s.wire if s is not None
-                 else "None" if a is type(None)
-                 else getattr(a, "__name__", repr(a))
-                 for s, a in parts)
+    arms = tuple(
+        s.wire if s is not None else "None" if a is type(None) else getattr(a, "__name__", repr(a)) for s, a in parts
+    )
     variant = _variant(name, tuple(meta), arms, item)
     return Class(
-        name=name, doc=doc, ctor=None, module=where,
-        decl=Decl(name=name, kind=DeclKind.UNION, arms=arms, wire=Crossing.VALUE,
-                  variant=variant, scalars=scalars),
+        name=name,
+        doc=doc,
+        ctor=None,
+        module=where,
+        decl=Decl(name=name, kind=DeclKind.UNION, arms=arms, wire=Crossing.VALUE, variant=variant, scalars=scalars),
     )
 
 
@@ -2127,11 +2135,11 @@ def _scalar_arm(arm: object, union: str, node: ast.AST) -> Type | None:
     Named by its WIRE spelling, `uint` for a U64, because that is the
     spelling that carries the width. Above the boundary it is an `int`
     like any other."""
-    if isinstance(arm, type) and arm.__module__ == "builtins" \
-            and arm is not type(None):
+    if isinstance(arm, type) and arm.__module__ == "builtins" and arm is not type(None):
         raise DeclarationError(
-            node, f"{union}: '{arm.__name__}' names no C++ type. Use the "
-                  f"alias - Str, I64, U64, Bint - so the arm has one.")
+            node,
+            f"{union}: '{arm.__name__}' names no C++ type. Use the alias - Str, I64, U64, Bint - so the arm has one.",
+        )
     if get_origin(arm) is not Annotated:
         return None
     held, *meta = get_args(arm)
@@ -2141,8 +2149,7 @@ def _scalar_arm(arm: object, union: str, node: ast.AST) -> Type | None:
     return _undeclared(held, cxx)
 
 
-def _variant(name: str, meta: tuple[object, ...], arms: tuple[str, ...],
-             node: ast.AST) -> declare.Variant | None:
+def _variant(name: str, meta: tuple[object, ...], arms: tuple[str, ...], node: ast.AST) -> declare.Variant | None:
     """The `Variant(...)` on a union's alias, checked against its arms.
 
     None when the alias carries none, which stays legal: a union
@@ -2156,25 +2163,26 @@ def _variant(name: str, meta: tuple[object, ...], arms: tuple[str, ...],
     variants = [m for m in meta if isinstance(m, declare.Variant)]
     if len(variants) > 1:
         raise DeclarationError(
-            node, f"{name}: one Variant(...) on an alias. Two would be two "
-                  f"answers to what one C++ union is.")
+            node, f"{name}: one Variant(...) on an alias. Two would be two answers to what one C++ union is."
+        )
     if not variants:
         return None
     variant = variants[0]
     for arm in variant.wraps:
         if arm not in arms:
             raise DeclarationError(
-                node, f"{name}: wraps names '{arm}', which is not an arm of "
-                      f"this union. A wrap says how the C++ variant holds a "
-                      f"DECLARED arm, so it can only name one of "
-                      f"{', '.join(arms)}.")
+                node,
+                f"{name}: wraps names '{arm}', which is not an arm of "
+                f"this union. A wrap says how the C++ variant holds a "
+                f"DECLARED arm, so it can only name one of "
+                f"{', '.join(arms)}.",
+            )
     return variant
 
 
 # What a union's ARM may be. Each refusal is its own sentence, because
 # each is a different mistake.
-def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST,
-                diag: Diagnostics) -> None:
+def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST, diag: Diagnostics) -> None:
     """The widened union rule, enforced where the arms can be resolved.
 
     `T | None` was the only union an annotation could hold, and it
@@ -2187,9 +2195,11 @@ def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST,
     for arm, scalar in cls.decl.scalars.items():
         if (first := seen.setdefault(scalar.python, arm)) != arm:
             raise DeclarationError(
-                node, f"{cls.name}: '{first}' and '{arm}' are both a "
-                      f"Python {scalar.python}, so a value could not say "
-                      f"which arm it is.")
+                node,
+                f"{cls.name}: '{first}' and '{arm}' are both a "
+                f"Python {scalar.python}, so a value could not say "
+                f"which arm it is.",
+            )
     for arm in cls.decl.arms:
         if arm in cls.decl.scalars:
             continue
@@ -2205,35 +2215,41 @@ def _check_arms(cls: Class, known: dict[str, Class], node: ast.AST,
             if arm in diag.unsound or diag.blind:
                 continue
             raise DeclarationError(
-                node, f"{cls.name}: '{arm}' is not a declared class. A "
-                      f"union names types some declaration declares, or "
-                      f"a scalar alias such as Str, U64 or Bint.")
+                node,
+                f"{cls.name}: '{arm}' is not a declared class. A "
+                f"union names types some declaration declares, or "
+                f"a scalar alias such as Str, U64 or Bint.",
+            )
         if other.is_words:
             raise DeclarationError(
-                node, f"{cls.name}: '{arm}' is a vocabulary, which crosses "
-                      f"as a plain string - so an arm of it is "
-                      f"indistinguishable from any other string arm.")
+                node,
+                f"{cls.name}: '{arm}' is a vocabulary, which crosses "
+                f"as a plain string - so an arm of it is "
+                f"indistinguishable from any other string arm.",
+            )
         if other.is_union:
             raise DeclarationError(
-                node, f"{cls.name}: '{arm}' is itself a union. Flatten it: "
-                      f"a oneof of a oneof is one oneof, and nesting them "
-                      f"hides which arms exist.")
+                node,
+                f"{cls.name}: '{arm}' is itself a union. Flatten it: "
+                f"a oneof of a oneof is one oneof, and nesting them "
+                f"hides which arms exist.",
+            )
         if other.decl.wire is not Crossing.VALUE:
             raise DeclarationError(
-                node, f"{cls.name}: '{arm}' crosses as a {other.decl.wire}, "
-                      f"not as a value. An arm that granted a lease would "
-                      f"make every union a bulk-lease problem (nixidae/nixidae#568).")
+                node,
+                f"{cls.name}: '{arm}' crosses as a {other.decl.wire}, "
+                f"not as a value. An arm that granted a lease would "
+                f"make every union a bulk-lease problem (nixidae/nixidae#568).",
+            )
 
 
-def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
-           stem: str) -> Class:
+def _error(node: ast.ClassDef, kls: type, home: dict[str, Any], stem: str) -> Class:
     """One EXCEPTION class this file declares.
 
     The IMPORT says what the class derives from: `Interrupted` is a
     BaseException, as upstream's is, and a match on base names
     skipped it."""
-    thrown: declare.Throws | None = _marks(node, kls, Target.ERROR).get(
-        "throws")
+    thrown: declare.Throws | None = _marks(node, kls, Target.ERROR).get("throws")
     return Class(
         name=node.name,
         doc=ast.get_docstring(node, clean=False) or "",
@@ -2244,8 +2260,7 @@ def _error(node: ast.ClassDef, kls: type, home: dict[str, Any],
     )
 
 
-def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any],
-            thrown: declare.Throws | None) -> Raised:
+def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any], thrown: declare.Throws | None) -> Raised:
     """One exception's C++ facts, refused unless it can be caught right.
 
     All of it from the IMPORT. `@throws` is own-class, as every mark
@@ -2262,20 +2277,23 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any],
     extra = fields[MESSAGE_PARTS:]
     if cxx and extra and not reader:
         raise DeclarationError(
-            node, f"{node.name}: `_wire_fields` declares "
-                  f"{[f for f, _ in extra]} beyond the message, and no "
-                  f"`reader = \"...\"` says which C++ reads them off the "
-                  f"caught exception.")
+            node,
+            f"{node.name}: `_wire_fields` declares "
+            f"{[f for f, _ in extra]} beyond the message, and no "
+            f'`reader = "..."` says which C++ reads them off the '
+            f"caught exception.",
+        )
     here = home["__name__"]
     return Raised(
-        bases=tuple(b.__name__ for b in kls.__bases__
-                    if b.__module__ == here),
+        bases=tuple(b.__name__ for b in kls.__bases__ if b.__module__ == here),
         parts=tuple((part, type_of(t, node, home)) for part, t in fields),
-        cxx=cxx, header=header, reader=reader)
+        cxx=cxx,
+        header=header,
+        reader=reader,
+    )
 
 
-def _uses(tree: ast.Module, here: pathlib.Path,
-          diag: Diagnostics) -> dict[str, Class]:
+def _uses(tree: ast.Module, here: pathlib.Path, diag: Diagnostics) -> dict[str, Class]:
     """Declarations this one imported, read.
 
     `from huggorm_decl.decl.words import ContentAddressMethod`
@@ -2292,9 +2310,11 @@ def _uses(tree: ast.Module, here: pathlib.Path,
         stem = (node.module or "").rsplit(".", 1)[-1]
         source = here / f"{stem}.py"
         if not source.exists():
-            diag.record(DeclarationError(
-                node, f"no declaration at {source}. A declaration may only "
-                      f"import another declaration beside it."))
+            diag.record(
+                DeclarationError(
+                    node, f"no declaration at {source}. A declaration may only import another declaration beside it."
+                )
+            )
             diag.blind = True
             continue
         try:

@@ -54,8 +54,7 @@ async def test_a_frame_crosses_whole(pair: tuple[Channel, Channel]) -> None:
 
 
 @pytest.mark.anyio
-async def test_frames_keep_their_boundaries(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_frames_keep_their_boundaries(pair: tuple[Channel, Channel]) -> None:
     """Fifty senders at once, each frame larger than the last. The
     reader runs beside them: the socket buffer holds far less than
     all fifty."""
@@ -85,8 +84,7 @@ async def test_a_bad_frame_is_refused(pair: tuple[Channel, Channel]) -> None:
 
 
 @pytest.mark.anyio
-async def test_a_close_between_frames_is_the_end(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_a_close_between_frames_is_the_end(pair: tuple[Channel, Channel]) -> None:
     """Both ends stop reading on EndOfStream, so a clean close must
     read as one."""
     left, right = pair
@@ -144,14 +142,11 @@ async def test_a_late_answer_is_dropped() -> None:
 def test_each_direction_asks_and_answers_with_the_same_ops() -> None:
     """A callback from the server is a CALL, answered by RESULT or
     FAULT, as a call from the client is."""
-    assert {op.name for op in Op} == {
-        "HELLO", "WELCOME", "CALL", "CONTROL", "CANCEL", "DROP",
-        "RESULT", "FAULT"}
+    assert {op.name for op in Op} == {"HELLO", "WELCOME", "CALL", "CONTROL", "CANCEL", "DROP", "RESULT", "FAULT"}
 
 
 @pytest.mark.anyio
-async def test_an_answer_reaches_its_asker(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_an_answer_reaches_its_asker(pair: tuple[Channel, Channel]) -> None:
     """A RESULT answers its value, a FAULT raises."""
     left, right = pair
     asker = Peer(left, Faults())
@@ -160,8 +155,7 @@ async def test_an_answer_reaches_its_asker(
         call = await right.receive()
         await right.send([Op.RESULT, call[1], "value"])
         call = await right.receive()
-        await right.send([Op.FAULT, call[1], Faults().encode(
-            Refused(Refusal.SWEPT, "gone"))])
+        await right.send([Op.FAULT, call[1], Faults().encode(Refused(Refusal.SWEPT, "gone"))])
 
     async def reader() -> None:
         while True:
@@ -178,8 +172,7 @@ async def test_an_answer_reaches_its_asker(
 
 
 @pytest.mark.anyio
-async def test_a_closed_peer_says_so_and_refuses_to_ask(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_a_closed_peer_says_so_and_refuses_to_ask(pair: tuple[Channel, Channel]) -> None:
     peer = Peer(pair[0], Faults())
     assert not peer.closed.is_set()
     peer.close()
@@ -190,8 +183,7 @@ async def test_a_closed_peer_says_so_and_refuses_to_ask(
 
 
 @pytest.mark.anyio
-async def test_an_asker_that_stops_waiting_sends_cancel(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_an_asker_that_stops_waiting_sends_cancel(pair: tuple[Channel, Channel]) -> None:
     left, right = pair
     asker = Peer(left, Faults())
     with anyio.move_on_after(0.2):
@@ -202,8 +194,7 @@ async def test_an_asker_that_stops_waiting_sends_cancel(
 
 
 @pytest.mark.anyio
-async def test_close_wakes_every_asker_and_refuses_the_next(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_close_wakes_every_asker_and_refuses_the_next(pair: tuple[Channel, Channel]) -> None:
     left, right = pair
     asker = Peer(left, Faults())
 
@@ -221,8 +212,7 @@ async def test_close_wakes_every_asker_and_refuses_the_next(
 
 
 @pytest.mark.anyio
-async def test_a_cancel_reaches_an_answer_that_has_not_started(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_a_cancel_reaches_an_answer_that_has_not_started(pair: tuple[Channel, Channel]) -> None:
     """A CANCEL read right after its request finds the answer's scope,
     even when the answer's task has not run yet. Nothing in between
     has to checkpoint: `serve` registers the scope before it starts
@@ -246,8 +236,7 @@ async def test_a_cancel_reaches_an_answer_that_has_not_started(
 
 
 @pytest.mark.anyio
-async def test_close_cancels_every_answer(
-        pair: tuple[Channel, Channel]) -> None:
+async def test_close_cancels_every_answer(pair: tuple[Channel, Channel]) -> None:
     left, _ = pair
     answerer = Peer(left, Faults())
     stopped = anyio.Event()

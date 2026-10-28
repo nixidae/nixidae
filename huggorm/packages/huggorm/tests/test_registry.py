@@ -34,19 +34,18 @@ def _flakes(file: pathlib.Path) -> list[dict[str, Any]]:
     return flakes
 
 
-def test_add_writes_the_entry_and_keeps_the_subdirectory(
-        tmp_path: pathlib.Path) -> None:
+def test_add_writes_the_entry_and_keeps_the_subdirectory(tmp_path: pathlib.Path) -> None:
     """The subdirectory is the `dir` extra attribute, not part of the
     target: `nix registry add` stores it that way."""
     file = tmp_path / "registry.json"
-    wrote = registry_add(str(file), "mine", "github:o/r?dir=sub",
-                         settings=NO_GLOBAL)
-    assert (wrote.path(), wrote.removed(), wrote.target(), wrote.locked()) \
-        == (str(file), 0, "github:o/r", None)
-    assert _flakes(file) == [{
-        "from": {"id": "mine", "type": "indirect"},
-        "to": {"owner": "o", "repo": "r", "type": "github", "dir": "sub"},
-    }]
+    wrote = registry_add(str(file), "mine", "github:o/r?dir=sub", settings=NO_GLOBAL)
+    assert (wrote.path(), wrote.removed(), wrote.target(), wrote.locked()) == (str(file), 0, "github:o/r", None)
+    assert _flakes(file) == [
+        {
+            "from": {"id": "mine", "type": "indirect"},
+            "to": {"owner": "o", "repo": "r", "type": "github", "dir": "sub"},
+        }
+    ]
 
 
 def test_a_second_add_replaces_the_first(tmp_path: pathlib.Path) -> None:
@@ -72,16 +71,13 @@ def test_a_relative_path_parses_against_the_base(tmp_path: pathlib.Path) -> None
     """Without a base directory a relative path does not parse at all."""
     (tmp_path / "flake").mkdir()
     file = tmp_path / "registry.json"
-    wrote = registry_add(str(file), "mine", "path:./flake",
-                         base=str(tmp_path), settings=NO_GLOBAL)
+    wrote = registry_add(str(file), "mine", "path:./flake", base=str(tmp_path), settings=NO_GLOBAL)
     assert wrote.target() == f"path:{tmp_path}/flake"
 
 
-def test_a_name_that_is_not_a_fetcher_setting_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_a_name_that_is_not_a_fetcher_setting_is_refused(tmp_path: pathlib.Path) -> None:
     with pytest.raises(UsageError, match="not a setting this call takes"):
-        registry_add(str(tmp_path / "r.json"), "a", "github:o/a",
-                     settings={"pure-eval": "true"})
+        registry_add(str(tmp_path / "r.json"), "a", "github:o/a", settings={"pure-eval": "true"})
 
 
 LIST = """
@@ -103,12 +99,15 @@ def test_entries_come_from_every_layer_in_order(tmp_path: pathlib.Path) -> None:
     consults them. A write with no path goes to the user's file."""
     # NIX_CONF_DIR too: the system layer is `$NIX_CONF_DIR/registry.json`,
     # and a machine's own entries would join the list.
-    env = {**os.environ, "NIX_CONFIG": "experimental-features = flakes",
-           "XDG_CONFIG_HOME": str(tmp_path / "config"),
-           "NIX_CONF_DIR": str(tmp_path / "etc")}
+    env = {
+        **os.environ,
+        "NIX_CONFIG": "experimental-features = flakes",
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "NIX_CONF_DIR": str(tmp_path / "etc"),
+    }
     out = subprocess.run(
-        [sys.executable, "-c", LIST, str(tmp_path / "global.json")],
-        env=env, capture_output=True, text=True, check=True)
+        [sys.executable, "-c", LIST, str(tmp_path / "global.json")], env=env, capture_output=True, text=True, check=True
+    )
     assert json.loads(out.stdout) == [
         ["user", "flake:user-one", "github:o/u", {}, False],
         ["global", "flake:global-one", "github:o/g", {"dir": "sub"}, False],
@@ -121,8 +120,6 @@ def test_an_attribute_keeps_its_arm_across_the_wire() -> None:
     from conftest import across
 
     attrs = {"text": "x", "count": 7, "yes": True, "no": False, "zero": 0}
-    entry = cast("Any", RegistryEntry)._from_parts(
-        RegistryType.GLOBAL, "flake:a", "github:o/a", attrs, True)
+    entry = cast("Any", RegistryEntry)._from_parts(RegistryType.GLOBAL, "flake:a", "github:o/a", attrs, True)
     back = across(Wire(WireKind.VALUE, "RegistryEntry"), entry).extra_attrs()
-    assert {k: (type(v), v) for k, v in back.items()} \
-        == {k: (type(v), v) for k, v in attrs.items()}
+    assert {k: (type(v), v) for k, v in back.items()} == {k: (type(v), v) for k, v in attrs.items()}

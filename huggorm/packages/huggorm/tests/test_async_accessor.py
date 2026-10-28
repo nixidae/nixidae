@@ -24,9 +24,7 @@ class Tree:
     """`Memory` behind async hooks. `on_read` runs before each file
     read, on the loop."""
 
-    def __init__(self, tree: dict[str, Any],
-                 on_read: Callable[[str], Awaitable[None]] | None = None
-                 ) -> None:
+    def __init__(self, tree: dict[str, Any], on_read: Callable[[str], Awaitable[None]] | None = None) -> None:
         self.sync = Memory(tree)
         self.on_read = on_read
         self.threads: set[str] = set()
@@ -58,8 +56,7 @@ async def evaluated(state: AsyncEvalState, path: Any) -> Any:
 async def test_a_store_reads_an_async_tree() -> None:
     """On a pool thread: the worker waits, and does nothing else."""
     with anyio.fail_after(30):
-        got = await AsyncStore(DUMMY).add_accessor_to_store(
-            "source", Tree(SOURCE))
+        got = await AsyncStore(DUMMY).add_accessor_to_store("source", Tree(SOURCE))
     assert got == local_path()
 
 
@@ -128,6 +125,5 @@ async def test_a_failing_hook_fails_the_call() -> None:
         raise RuntimeError(f"cannot read {path}")
 
     with anyio.fail_after(30), pytest.raises(Exception) as caught:
-        await AsyncStore(DUMMY).add_accessor_to_store(
-            "source", Tree(SOURCE, fails))
+        await AsyncStore(DUMMY).add_accessor_to_store("source", Tree(SOURCE, fails))
     assert "cannot read" in str(caught.value.__cause__)

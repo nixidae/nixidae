@@ -109,7 +109,8 @@ from huggorm_dsl.declare import (
 # arm is one line here rather than a switch case and a guard that
 # have to agree.
 @tagged(
-    "get()", "huggorm::value_type",
+    "get()",
+    "huggorm::value_type",
     thunk="nix::nThunk",
     int="nix::nInt",
     float="nix::nFloat",
@@ -145,13 +146,15 @@ from huggorm_dsl.declare import (
     # A Leaf's wire type is what picks the arm, so the layer above
     # reads a declared type name rather than a label this file
     # invented.
-    kinds={"int": Leaf(Scalar.INT, "integer"),
-           "float": Leaf(Scalar.FLOAT, "floating"),
-           "string": Leaf(Scalar.STR, "string_value"),
-           "bool": Leaf(Scalar.BOOL, "boolean"),
-           "null": Null(),
-           "list": Items(size="size", item="at"),
-           "attrs": Entries(size="size", name="name_at", value="value_at")},
+    kinds={
+        "int": Leaf(Scalar.INT, "integer"),
+        "float": Leaf(Scalar.FLOAT, "floating"),
+        "string": Leaf(Scalar.STR, "string_value"),
+        "bool": Leaf(Scalar.BOOL, "boolean"),
+        "null": Null(),
+        "list": Items(size="size", item="at"),
+        "attrs": Entries(size="size", name="name_at", value="value_at"),
+    },
 )
 class Value:
     """One GC-resident nix::Value, rooted for as long as Python holds
@@ -1045,6 +1048,7 @@ class LogField:
     would lose the difference between the number 42 and the string
     "42", and a progress result is made of numbers.
     """
+
     # The FIXME: logging.hh:76.
 
     @reads("is_int")
@@ -1100,6 +1104,7 @@ class LogRecord:
     are: `Verbosity`, `ActivityType` and `ResultType` are int-valued
     C++ enums and nothing upstream parses one from a string.
     """
+
     # internal-json: logging.cc:272. nixidae/nixidae#569 says why the mechanism
     # differs. `decl/words.py` is for vocabularies whose member IS the
     # string libstore parses, and these are not that.
@@ -1508,10 +1513,11 @@ return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)
 # the RPC layer names none of them.
 @builds(
     null="make_null",
-    leaves={Scalar.INT: "make_int", Scalar.FLOAT: "make_float",
-            Scalar.STR: "make_string", Scalar.BOOL: "make_bool"},
-    items="make_list", add_item="list_append",
-    entries="make_attrs", add_entry="attrs_set",
+    leaves={Scalar.INT: "make_int", Scalar.FLOAT: "make_float", Scalar.STR: "make_string", Scalar.BOOL: "make_bool"},
+    items="make_list",
+    add_item="list_append",
+    entries="make_attrs",
+    add_entry="attrs_set",
 )
 @binding(
     cxx="huggorm::Evaluator",
@@ -1553,12 +1559,11 @@ class EvalState:
     exactly as permissive as libexpr, which has no such rule of its
     own.
     """
+
     # Goal 1: a binding is not MORE permissive than what it binds.
     # Carl decided this; nixidae/nixidae#622 records it.
 
-    def __init__(self, store: Store,
-                 settings: Opt[Map[Str]] = None,
-                 build_store: Opt[Store] = None) -> None:
+    def __init__(self, store: Store, settings: Opt[Map[Str]] = None, build_store: Opt[Store] = None) -> None:
         """Open a state against a store.
 
         REQUIRED, with no default. A state is bound to a store and a
@@ -1681,10 +1686,8 @@ self.state().evalFile(nix::lookupFileArg(self.state(), path), *made);
 return self.wrap(made);
         """)
 
-    @needs(Local("nix/fetchers/fetch-to-store.hh"),
-           Local("nix/util/mounted-source-accessor.hh"))
-    def mount(self, accessor: SourceAccessor, name: Str = "source",
-              path: Opt[StorePath] = None) -> StorePath:
+    @needs(Local("nix/fetchers/fetch-to-store.hh"), Local("nix/util/mounted-source-accessor.hh"))
+    def mount(self, accessor: SourceAccessor, name: Str = "source", path: Opt[StorePath] = None) -> StorePath:
         """Show `accessor`'s tree to the evaluator at its store path.
 
         What Nix does with a lazily fetched input (`mountInput`): the
@@ -1803,8 +1806,7 @@ huggorm::invalidate_cache(root);
         """)
 
     @instant
-    def register_primop(self, name: Str, arity: I64,
-                        fn: PyFunc) -> None:
+    def register_primop(self, name: Str, arity: I64, fn: PyFunc) -> None:
         """Publish a Python callable as `builtins.<name>`.
 
         The direction every other method here runs the other way.
@@ -1901,8 +1903,7 @@ return self.make_primop(name, static_cast<std::size_t>(arity), fn);
         """)
 
     @subscription(Subscription.OPEN)
-    def subscribe_logs(self, capacity: I64 = 1024,
-                       level: I64 = 3) -> LogStream:
+    def subscribe_logs(self, capacity: I64 = 1024, level: I64 = 3) -> LogStream:
         """Record what Nix says on THIS state's thread.
 
         The direction `register_primop` runs, without a call: nix
@@ -2005,9 +2006,11 @@ huggorm::unsubscribe_logs();
     def make_float(self, value: F64) -> Value:
         """A forced float value."""
 
-    def make_string(self, value: Str,
-                    context: Opt[Vec[Str]] = None,
-                    ) -> Value:
+    def make_string(
+        self,
+        value: Str,
+        context: Opt[Vec[Str]] = None,
+    ) -> Value:
         """A forced string value, carrying `context`: elements as
         `string_context` names them.
 
@@ -2061,12 +2064,19 @@ return self.wrap_builder(made);
         set built by assignment."""
         Cxx("return target.stage_attr(name, item.get());")
 
-    @needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/flake/settings.hh"),
-           Local("nix/fetchers/input-cache.hh"))
-    def lock_flake(self, ref: FlakeRef, recreate: Bint = False,
-                   update: Opt[Vec[Str]] = None,
-                   write_lock_file: Bint = True,
-                   settings: Opt[Map[Str]] = None) -> LockedFlake:
+    @needs(
+        Local("huggorm_decl/cpp/call_settings.hpp"),
+        Local("nix/flake/settings.hh"),
+        Local("nix/fetchers/input-cache.hh"),
+    )
+    def lock_flake(
+        self,
+        ref: FlakeRef,
+        recreate: Bint = False,
+        update: Opt[Vec[Str]] = None,
+        write_lock_file: Bint = True,
+        settings: Opt[Map[Str]] = None,
+    ) -> LockedFlake:
         """Lock a flake, as `nix flake lock` does.
 
         `recreate` drops the old lock file; `update` names the inputs to
@@ -2806,8 +2816,7 @@ return static_cast<bool>(NIX_USE_BOEHMGC);
 @needs(Local("huggorm_decl/cpp/logging.hpp"))
 @threading("pool")
 @subscription(Subscription.OPEN)
-def subscribe_process_logs(capacity: I64 = 1024,
-                           level: I64 = 3) -> LogStream:
+def subscribe_process_logs(capacity: I64 = 1024, level: I64 = 3) -> LogStream:
     """Record what no subscribed thread claims.
 
     A FREE function, because there is nothing to hang it on. Every

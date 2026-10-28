@@ -68,10 +68,12 @@ def _body(tree: ast.Module) -> list[ast.stmt]:
     for node in tree.body:
         if isinstance(node, ast.If):
             raise DeclarationError(
-                node, "this exception declaration still has a version "
-                      "branch in it. Read it with `read.resolved`, which "
-                      "chooses the arm the import kept - a raw parse "
-                      "answers for both.")
+                node,
+                "this exception declaration still has a version "
+                "branch in it. Read it with `read.resolved`, which "
+                "chooses the arm the import kept - a raw parse "
+                "answers for both.",
+            )
     return tree.body
 
 
@@ -97,8 +99,7 @@ def chain(errors: ir.Errors, raise_as: str) -> list[str]:
         error = errors.classes[name]
         readers = "".join(f", {r}" for r in error.readers)
         out.append(f"    }} catch (const {error.cxx} & e) {{")
-        out.append(f'        {raise_as}("{errors.module}", "{name}", '
-                   f"e{readers});")
+        out.append(f'        {raise_as}("{errors.module}", "{name}", e{readers});')
     out.append("    }")
     return out
 
@@ -109,13 +110,12 @@ def _emitted_import(node: ast.stmt, package: str) -> ast.stmt:
     `from huggorm_decl.decl.path import ErrorInfo` names the type a
     part carries. The emitted module runs where the declarations are
     not installed, and the class it means is the one `path` emitted."""
-    if not (isinstance(node, ast.ImportFrom) and node.module
-            and node.module.startswith(f"{DECLARATIONS}.")):
+    if not (isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(f"{DECLARATIONS}.")):
         return node
     if not package:
         raise DeclarationError(
-            node, f"`{node.module}` is a declaration, and nothing says "
-                  f"which package its emitted module is in.")
+            node, f"`{node.module}` is a declaration, and nothing says which package its emitted module is in."
+        )
     out = copy.deepcopy(node)
     out.module = f"{package}.{node.module.removeprefix(f'{DECLARATIONS}.')}"
     return out
@@ -155,11 +155,16 @@ def module(tree: ast.Module, doc: str, package: str = "") -> str:
             # one emits a translator that catches nothing, which
             # compiles (nixidae/nixidae#627).
             cls = copy.deepcopy(node)
-            cls.body = [item for item in cls.body
-                        if not (isinstance(item, ast.Assign)
-                                and len(item.targets) == 1
-                                and isinstance(item.targets[0], ast.Name)
-                                and item.targets[0].id == READER)]
+            cls.body = [
+                item
+                for item in cls.body
+                if not (
+                    isinstance(item, ast.Assign)
+                    and len(item.targets) == 1
+                    and isinstance(item.targets[0], ast.Name)
+                    and item.targets[0].id == READER
+                )
+            ]
             cls.decorator_list = []
             body.append(cls)
             continue
@@ -171,4 +176,3 @@ def module(tree: ast.Module, doc: str, package: str = "") -> str:
     out = ast.Module(body=[header, *body], type_ignores=[])
     ast.fix_missing_locations(out)
     return ast.unparse(out)
-

@@ -39,8 +39,10 @@ def register(factory: Any) -> str:
 
 def opened(cls: type, underlying: Any = None) -> Any:
     """`cls` over `underlying`, opened through its scheme."""
+
     def factory(config: LayeredStoreConfig) -> Any:
         return cls(config, underlying)
+
     return Store(f"{register(factory)}://")
 
 
@@ -54,14 +56,12 @@ def test_a_subclass_opens_through_its_scheme() -> None:
 
     class Mine(LayeredStore):
         def __init__(self, config: LayeredStoreConfig) -> None:
-            seen.append((config.scheme(), config.authority(),
-                         config.params()))
+            seen.append((config.scheme(), config.authority(), config.params()))
             super().__init__(config)
 
     name = register(Mine)
     Store(f"{name}://there?flavour=sweet&path-info-cache-size=0")
-    assert seen == [(name, "there", {"flavour": "sweet"})], (
-        "the subclass gets only the parameters Nix does not take")
+    assert seen == [(name, "there", {"flavour": "sweet"})], "the subclass gets only the parameters Nix does not take"
 
 
 def test_a_factory_must_answer_a_layered_store() -> None:
@@ -73,8 +73,7 @@ def test_a_factory_must_answer_a_layered_store() -> None:
 def test_a_name_registers_once() -> None:
     name = register(LayeredStore)
     with pytest.raises(Exception, match="already registered"):
-        register_store_implementation(name, ["layered-test-other"],
-                                      LayeredStore)
+        register_store_implementation(name, ["layered-test-other"], LayeredStore)
 
 
 def test_with_nothing_below_an_unanswered_operation_is_unsupported() -> None:
@@ -116,8 +115,7 @@ def test_super_runs_below(under: Any) -> None:
 def test_an_operation_with_no_override_runs_below(under: Any) -> None:
     held = under.add_to_store("held", b"held")
     store = opened(LayeredStore, under)
-    assert store.query_path_info(held).nar_hash() == (
-        under.query_path_info(held).nar_hash())
+    assert store.query_path_info(held).nar_hash() == (under.query_path_info(held).nar_hash())
     added = store.add_to_store("added", b"added")
     assert under.is_valid_path(added), "a write lands below"
     with pytest.raises(Unsupported, match=f"{NOT_SUPPORTED_BY_STORE} 'dummy://'"):
@@ -180,9 +178,12 @@ def test_nix_reaches_every_hook(under: Any) -> None:
             return [p for p in paths if p == held]
 
         def compute_fs_closure(
-                self, paths: list[Any], flip_direction: bool = False,
-                include_outputs: bool = False,
-                include_derivers: bool = False) -> list[Any]:
+            self,
+            paths: list[Any],
+            flip_direction: bool = False,
+            include_outputs: bool = False,
+            include_derivers: bool = False,
+        ) -> list[Any]:
             flags = (flip_direction, include_outputs, include_derivers)
             called.append(f"compute_fs_closure{flags}")
             return [held]
@@ -206,8 +207,7 @@ def test_nix_reaches_every_hook(under: Any) -> None:
         def optimise_store(self) -> None:
             called.append("optimise_store")
 
-        def verify_store(self, check_contents: bool,
-                         repair: bool = False) -> bool:
+        def verify_store(self, check_contents: bool, repair: bool = False) -> bool:
             called.append(f"verify_store{check_contents, repair}")
             return True
 
@@ -233,11 +233,17 @@ def test_nix_reaches_every_hook(under: Any) -> None:
     assert Store.verify_store(store, False, True)
     Store.ensure_path(store, missing)
     assert called == [
-        "query_valid_derivers", "query_valid_paths",
+        "query_valid_derivers",
+        "query_valid_paths",
         "compute_fs_closure(True, False, False)",
-        "query_substitutable_paths", "query_missing", "query_realisation",
-        "read_derivation", "optimise_store", "verify_store(False, True)",
-        "ensure_path"]
+        "query_substitutable_paths",
+        "query_missing",
+        "query_realisation",
+        "read_derivation",
+        "optimise_store",
+        "verify_store(False, True)",
+        "ensure_path",
+    ]
 
 
 def test_a_closure_from_path_info_alone(under: Any) -> None:
@@ -258,8 +264,7 @@ def test_a_closure_from_path_info_alone(under: Any) -> None:
     assert store.query_valid_paths([top, missing]) == [top]
 
 
-def test_a_copy_asks_the_destination_which_paths_it_holds(
-        under: Any) -> None:
+def test_a_copy_asks_the_destination_which_paths_it_holds(under: Any) -> None:
     held = under.add_to_store("held", b"held")
 
     class Claims(LayeredStore):
@@ -267,11 +272,9 @@ def test_a_copy_asks_the_destination_which_paths_it_holds(
             return list(paths)
 
     below = Store("dummy://?read-only=false")
-    under.copy_closure(opened(Claims, below), [held],
-                       check_sigs=False)
+    under.copy_closure(opened(Claims, below), [held], check_sigs=False)
     assert not below.is_valid_path(held), "Nix skips what the hook claims"
-    under.copy_closure(opened(LayeredStore, below), [held],
-                       check_sigs=False)
+    under.copy_closure(opened(LayeredStore, below), [held], check_sigs=False)
     assert below.is_valid_path(held), "and copies without the claim"
 
 
@@ -283,14 +286,12 @@ def test_nix_reaches_the_build_hooks(under: Any) -> None:
     called: list[tuple[str, list[Any], str, Any]] = []
 
     class Builds(LayeredStore):
-        def build_paths(self, targets: list[Any],
-                        mode: BuildMode = BuildMode.NORMAL,
-                        eval_store: Any = None) -> None:
+        def build_paths(self, targets: list[Any], mode: BuildMode = BuildMode.NORMAL, eval_store: Any = None) -> None:
             called.append(("build_paths", targets, mode, eval_store))
 
         def build_paths_with_results(
-                self, targets: list[Any], mode: BuildMode = BuildMode.NORMAL,
-                eval_store: Any = None) -> list[Any]:
+            self, targets: list[Any], mode: BuildMode = BuildMode.NORMAL, eval_store: Any = None
+        ) -> list[Any]:
             called.append(("with_results", targets, mode, eval_store))
             return super().build_paths_with_results(targets, mode, eval_store)
 
@@ -298,10 +299,8 @@ def test_nix_reaches_the_build_hooks(under: Any) -> None:
     Store.build_paths(store, [held], BuildMode.REPAIR)
     [result] = Store.build_paths_with_results(store, [held])
     assert result.path() == held
-    assert called == [("build_paths", [held], BuildMode.REPAIR, None),
-                      ("with_results", [held], BuildMode.NORMAL, None)]
-    assert all(type(mode) is BuildMode for _, _, mode, _ in called), (
-        "the override gets the member its annotation names")
+    assert called == [("build_paths", [held], BuildMode.REPAIR, None), ("with_results", [held], BuildMode.NORMAL, None)]
+    assert all(type(mode) is BuildMode for _, _, mode, _ in called), "the override gets the member its annotation names"
 
 
 def test_nix_reaches_is_trusted_client(under: Any) -> None:
@@ -320,8 +319,7 @@ def test_nix_reaches_is_trusted_client(under: Any) -> None:
     assert Store.is_trusted_client(opened(LayeredStore, under)) == below
 
 
-def test_nix_reaches_write_derivation(
-        under: Any, tmp_path: pathlib.Path) -> None:
+def test_nix_reaches_write_derivation(under: Any, tmp_path: pathlib.Path) -> None:
     """`add_derivation` parses JSON and calls Nix's `writeDerivation`,
     which reaches the override; `super()` writes below."""
     from test_derivation import LEAF, instantiate
@@ -348,8 +346,7 @@ def test_nix_reaches_register_drv_output(under: Any) -> None:
     got: list[tuple[Any, bool]] = []
 
     class Registers(LayeredStore):
-        def register_drv_output(self, output: Realisation,
-                                check_sigs: bool = True) -> None:
+        def register_drv_output(self, output: Realisation, check_sigs: bool = True) -> None:
             got.append((output, check_sigs))
 
     Store.register_drv_output(opened(Registers), output, False)
@@ -368,8 +365,7 @@ def test_ensure_path_runs_below(under: Any) -> None:
         Store.ensure_path(store, missing)
 
 
-def test_a_raising_override_is_an_error_not_a_fall_through(
-        under: Any) -> None:
+def test_a_raising_override_is_an_error_not_a_fall_through(under: Any) -> None:
     held = under.add_to_store("held", b"held")
 
     class Raises(LayeredStore):

@@ -39,8 +39,7 @@ print(h.init_plugins())
 
 
 def run(*args: str) -> list[str]:
-    done = subprocess.run(
-        [sys.executable, "-c", CHILD, *args], capture_output=True, text=True, timeout=60)
+    done = subprocess.run([sys.executable, "-c", CHILD, *args], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
     return done.stdout.splitlines()
 

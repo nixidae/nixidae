@@ -107,11 +107,15 @@ async def test_connected_opens_the_connection_itself(ssh_port: int) -> None:
 _OPTIONS = ServerOptions(settings={"system": "x86_64-test"}, load_config=True)
 
 
-async def test_ssh_runs_the_server_command_for_its_options(
-    ssh_port: int, ssh_commands: list[str]
-) -> None:
-    via = Ssh("127.0.0.1", port=ssh_port, username="test", password="test",
-              python="/remote/python", connect_options={"known_hosts": None})
+async def test_ssh_runs_the_server_command_for_its_options(ssh_port: int, ssh_commands: list[str]) -> None:
+    via = Ssh(
+        "127.0.0.1",
+        port=ssh_port,
+        username="test",
+        password="test",
+        python="/remote/python",
+        connect_options={"known_hosts": None},
+    )
     async with worker(_OPTIONS, via=via, store_uri="dummy://") as session:
         state = await session.eval(await session.store())
         assert await (await state.eval_expr("1 + 1")).integer() == 2

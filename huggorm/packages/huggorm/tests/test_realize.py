@@ -24,8 +24,7 @@ from huggorm_generated._runtime import InternalError
 def held(value: Any) -> bool:
     """A node the walk did not expand: a handle, and not a view. A
     view is a handle too, so `isinstance(v, AsyncValue)` cannot tell."""
-    return isinstance(value, AsyncValue) and not isinstance(
-        value, AttrsView | ListView)
+    return isinstance(value, AsyncValue) and not isinstance(value, AttrsView | ListView)
 
 
 @pytest.fixture
@@ -51,6 +50,7 @@ async def bag(state: Any) -> Any:
 
 # -- walking it one call at a time -----------------------------------------
 
+
 async def test_an_attribute_set_crosses_as_a_proxy(state: Any) -> None:
     attrs = await bag(state)
     assert await attrs.type_name() == "attrs"
@@ -73,6 +73,7 @@ async def test_an_attribute_value_is_a_handle_of_its_own(state: Any) -> None:
 
 
 # -- one round trip --------------------------------------------------------
+
 
 async def test_realize_returns_the_shape(state: Any) -> None:
     client = state._backend.client
@@ -158,16 +159,15 @@ async def test_a_repeated_value_crosses_once(state: Any) -> None:
 
 # -- a forcing walk (nixidae/nixidae#721) ------------------------------------------
 
+
 async def test_a_forcing_walk_forces_what_it_visits(state: Any) -> None:
     client = state._backend.client
-    value = await state.eval_expr(
-        '{ a = 1 + 1; b = [ (2 * 3) ]; d = { e = "x"; }; }')
+    value = await state.eval_expr('{ a = 1 + 1; b = [ (2 * 3) ]; d = { e = "x"; }; }')
 
     lazy = await client.realize(value)
     assert held(lazy["a"]), "a plain walk forces nothing"
 
-    assert await client.realize(value, force=True) == {
-        "a": 2, "b": [6], "d": {"e": "x"}}
+    assert await client.realize(value, force=True) == {"a": 2, "b": [6], "d": {"e": "x"}}
 
 
 async def test_a_throw_stays_a_handle_and_raises_on_read(state: Any) -> None:
@@ -185,9 +185,7 @@ async def test_a_throw_stays_a_handle_and_raises_on_read(state: Any) -> None:
 
 async def test_a_forcing_walk_does_not_enter_a_derivation(state: Any) -> None:
     client = state._backend.client
-    value = await state.eval_expr(
-        '{ drv = { type = "derivation"; name = "x"; };'
-        '  other = { type = "other"; }; }')
+    value = await state.eval_expr('{ drv = { type = "derivation"; name = "x"; };  other = { type = "other"; }; }')
 
     tree = await client.realize(value, force=True)
     assert held(tree["drv"]), tree["drv"]
@@ -198,8 +196,7 @@ async def test_an_endless_value_ends_at_the_budget(state: Any) -> None:
     """Every level is a fresh value, so the visit set never stops it;
     the budget does. forceValueDeep would never return."""
     client = state._backend.client
-    value = await state.eval_expr(
-        "let f = n: { n = n; next = f (n + 1); }; in f 0")
+    value = await state.eval_expr("let f = n: { n = n; next = f (n + 1); }; in f 0")
 
     tree = await client.realize(value, force=True, budget=20)
     node, levels = tree, 0
@@ -213,6 +210,7 @@ async def test_an_endless_value_ends_at_the_budget(state: Any) -> None:
 
 # -- views (nixidae/nixidae#721) ---------------------------------------------------
 
+
 async def apply_int(state: Any, fn: str, arg: Any) -> int:
     result = await (await state.eval_expr(fn))(arg)
     await state.force(result)
@@ -222,8 +220,7 @@ async def apply_int(state: Any, fn: str, arg: Any) -> int:
 async def test_a_view_reads_locally_and_passes_back(state: Any) -> None:
     """Reads are local; handing the view to Nix sends its handle."""
     client = state._backend.client
-    tree = await client.realize(
-        await state.eval_expr("{ a = 1; d = { e = 2; }; }"), force=True)
+    tree = await client.realize(await state.eval_expr("{ a = 1; d = { e = 2; }; }"), force=True)
 
     assert isinstance(tree, AttrsView) and isinstance(tree["d"], AttrsView)
     assert tree["d"]["e"] == 2 and len(tree) == 2 and "a" in tree
@@ -235,8 +232,7 @@ async def test_a_child_view_outlives_its_root(state: Any) -> None:
     """The root's handle goes when its last view does, and the server
     keeps it while a child lives."""
     client = state._backend.client
-    tree = await client.realize(
-        await state.eval_expr("{ d = { e = 2; }; }"), force=True)
+    tree = await client.realize(await state.eval_expr("{ d = { e = 2; }; }"), force=True)
     child = tree["d"]
     del tree
     gc.collect()
@@ -247,8 +243,7 @@ async def test_a_child_view_outlives_its_root(state: Any) -> None:
 
 async def test_a_view_copies_to_a_plain_dict(state: Any) -> None:
     client = state._backend.client
-    tree = await client.realize(await state.eval_expr("{ a = 1; }"),
-                                force=True)
+    tree = await client.realize(await state.eval_expr("{ a = 1; }"), force=True)
 
     merged = tree | {"b": 2}
     assert type(merged) is dict and merged == {"a": 1, "b": 2}
@@ -266,11 +261,11 @@ async def test_a_list_view(state: Any) -> None:
 
 # -- data into Nix (nixidae/nixidae#721) --------------------------------------------
 
-@pytest.mark.parametrize(("data", "kind"), [
-    (None, "null"), (True, "bool"), (1, "int"), (0.5, "float"),
-    ("s", "string")])
-async def test_a_scalar_becomes_a_value(state: Any, data: Any,
-                                        kind: str) -> None:
+
+@pytest.mark.parametrize(
+    ("data", "kind"), [(None, "null"), (True, "bool"), (1, "int"), (0.5, "float"), ("s", "string")]
+)
+async def test_a_scalar_becomes_a_value(state: Any, data: Any, kind: str) -> None:
     """A scalar at the root answers as a handle: the caller asked for a
     value. `True` is a bool, never the int it is to isinstance."""
     made = await state._backend.client.value(state, data)
@@ -286,33 +281,32 @@ async def test_data_becomes_a_value_in_one_round_trip(state: Any) -> None:
     assert isinstance(made, AttrsView) and isinstance(made["xs"], ListView)
     assert made == data | {"t": [True]}
     assert await apply_int(state, "x: x.a + builtins.length x.xs", made) == 4
-    assert await apply_int(state, "x: builtins.stringLength x.e",
-                           made["d"]) == 1
+    assert await apply_int(state, "x: builtins.stringLength x.e", made["d"]) == 1
     assert await client.realize(made, force=True) == made
 
 
 async def test_a_handle_in_the_data_comes_back_as_itself(state: Any) -> None:
     """Including an empty view, which is falsy."""
     client = state._backend.client
-    inner = await client.realize(await state.eval_expr("{ e = 2; }"),
-                                 force=True)
+    inner = await client.realize(await state.eval_expr("{ e = 2; }"), force=True)
     empty = await client.value(state, [])
 
     made = await client.value(state, {"inner": inner, "n": 1, "z": empty})
     assert made["inner"] is inner and made["z"] is empty
-    assert await apply_int(
-        state, "x: x.inner.e + x.n + builtins.length x.z", made) == 3
+    assert await apply_int(state, "x: x.inner.e + x.n + builtins.length x.z", made) == 3
 
 
-@pytest.mark.parametrize(("data", "error", "match"), [
-    (Decimal(1), TypeError, "Decimal has no Nix value"),
-    ({1}, TypeError, "set has no Nix value"),
-    ({1: 2}, TypeError, "attribute name is a str"),
-    (lambda x: x, TypeError, "make_primop"),
-    (2**63, OverflowError, "64 bits"),
-])
-async def test_data_nix_has_no_value_for_is_refused(
-        state: Any, data: Any, error: type[Exception], match: str) -> None:
+@pytest.mark.parametrize(
+    ("data", "error", "match"),
+    [
+        (Decimal(1), TypeError, "Decimal has no Nix value"),
+        ({1}, TypeError, "set has no Nix value"),
+        ({1: 2}, TypeError, "attribute name is a str"),
+        (lambda x: x, TypeError, "make_primop"),
+        (2**63, OverflowError, "64 bits"),
+    ],
+)
+async def test_data_nix_has_no_value_for_is_refused(state: Any, data: Any, error: type[Exception], match: str) -> None:
     with pytest.raises(error, match=match):
         await state._backend.client.value(state, [data])
 
@@ -326,8 +320,7 @@ async def test_data_that_holds_itself_is_refused(state: Any) -> None:
 
 async def test_a_value_of_another_state_is_refused(state: Any) -> None:
     client = state._backend.client
-    other = await client.acquire(AsyncEvalState,
-                                 await client.acquire(AsyncStore, "dummy://"))
+    other = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     foreign = await other.make_int(1)
     with pytest.raises(InternalError) as refused:
         await client.value(state, [foreign])

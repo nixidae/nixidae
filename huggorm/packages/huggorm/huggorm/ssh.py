@@ -45,9 +45,7 @@ class SshStream(anyio.abc.ByteStream):
     stdin of a remote process, or the stdin and stdout of a session a
     server answers. Both are opened with `encoding=None`."""
 
-    def __init__(
-        self, reader: asyncssh.SSHReader[bytes], writer: asyncssh.SSHWriter[bytes]
-    ) -> None:
+    def __init__(self, reader: asyncssh.SSHReader[bytes], writer: asyncssh.SSHWriter[bytes]) -> None:
         self._reader = reader
         self._writer = writer
 
@@ -76,8 +74,7 @@ class SshStream(anyio.abc.ByteStream):
             await self.send_eof()
 
 
-def server_command(options: ServerOptions | None = None, *,
-                   python: str = sys.executable) -> str:
+def server_command(options: ServerOptions | None = None, *, python: str = sys.executable) -> str:
     """The shell command that runs `huggorm.server --stdio` set up as
     `options` says, under `python`, this process's interpreter unless
     given."""
@@ -87,9 +84,7 @@ def server_command(options: ServerOptions | None = None, *,
 
 
 @contextlib.asynccontextmanager
-async def spawned(
-    connection: asyncssh.SSHClientConnection, command: str
-) -> AsyncIterator[transport.Dialer]:
+async def spawned(connection: asyncssh.SSHClientConnection, command: str) -> AsyncIterator[transport.Dialer]:
     """Run `command` (see `server_command`) over `connection`, and yield
     a dialer for the server's one connection.
 
@@ -160,12 +155,15 @@ class Ssh:
     # Any: asyncssh's option names, passed through unread.
     connect_options: Mapping[str, Any] = field(default_factory=dict)
 
-    def launch(self, options: ServerOptions
-               ) -> AbstractAsyncContextManager[transport.Dialer]:
-        return connected(self.host, username=self.username, port=self.port,
-                         password=self.password,
-                         command=server_command(options, python=self.python),
-                         **self.connect_options)
+    def launch(self, options: ServerOptions) -> AbstractAsyncContextManager[transport.Dialer]:
+        return connected(
+            self.host,
+            username=self.username,
+            port=self.port,
+            password=self.password,
+            command=server_command(options, python=self.python),
+            **self.connect_options,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +173,5 @@ class SshConnection:
     connection: asyncssh.SSHClientConnection
     python: str = sys.executable
 
-    def launch(self, options: ServerOptions
-               ) -> AbstractAsyncContextManager[transport.Dialer]:
+    def launch(self, options: ServerOptions) -> AbstractAsyncContextManager[transport.Dialer]:
         return spawned(self.connection, server_command(options, python=self.python))

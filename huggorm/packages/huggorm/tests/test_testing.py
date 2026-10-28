@@ -14,9 +14,7 @@ async def test_a_local_environment_is_a_chroot_store_under_its_root(tmp_path: pa
         assert env.store_uri == f"local://?root={root}"
         async with huggorm.AsyncSession() as session:
             store = session.store(env.store_uri)
-            added = await store.add_to_store(
-                "fixture", b"fixture\n", method=huggorm.ContentAddressMethod.FLAT
-            )
+            added = await store.add_to_store("fixture", b"fixture\n", method=huggorm.ContentAddressMethod.FLAT)
             path = await store.print_store_path(added)
         assert path.startswith("/nix/store/")
         assert env.physical_path(path).read_bytes() == b"fixture\n"
@@ -33,9 +31,7 @@ def test_a_daemon_environment_serves_its_store_on_its_own_socket(tmp_path: pathl
     assert not root.exists()
 
 
-def test_the_system_store_is_not_relocated(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-) -> None:
+def test_the_system_store_is_not_relocated(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     monkeypatch.setenv(environment.SYSTEM_STORE_ENV, "1")
     with environment.nix_environment("local", tmp_path / "root") as env:
         assert env.store_uri == "local://"

@@ -33,19 +33,21 @@ def _open_under(root: pathlib.Path) -> int:
     return count
 
 
-@pytest.mark.parametrize("expr", [
-    # A path literal: `ExprPath`.
-    "builtins.path {{ path = {source}; }}",
-    # An `import`: the `ExprParseFile` evalFile allocates.
-    "(import {source}).x",
-    # An error a file raises and `tryEval` catches: a finalizable Boehm
-    # block that holds the error's position, released by the collection
-    # `aclose` runs. A Nix without the collector frees no such block, so
-    # every round keeps its store: 4, 7, 10 descriptors under ASAN.
-    pytest.param("(import {source}).caught", marks=needs_collector),
-])
-async def test_a_closed_evaluator_releases_its_store(
-        tmp_path: pathlib.Path, expr: str) -> None:
+@pytest.mark.parametrize(
+    "expr",
+    [
+        # A path literal: `ExprPath`.
+        "builtins.path {{ path = {source}; }}",
+        # An `import`: the `ExprParseFile` evalFile allocates.
+        "(import {source}).x",
+        # An error a file raises and `tryEval` catches: a finalizable Boehm
+        # block that holds the error's position, released by the collection
+        # `aclose` runs. A Nix without the collector frees no such block, so
+        # every round keeps its store: 4, 7, 10 descriptors under ASAN.
+        pytest.param("(import {source}).caught", marks=needs_collector),
+    ],
+)
+async def test_a_closed_evaluator_releases_its_store(tmp_path: pathlib.Path, expr: str) -> None:
     root = tmp_path / "chroot"
     source = tmp_path / "source.nix"
     source.write_text('{ x = 1; caught = (builtins.tryEval (throw "no")).success; }')

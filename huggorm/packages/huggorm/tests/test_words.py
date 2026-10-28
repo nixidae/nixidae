@@ -78,25 +78,15 @@ def a_method(word: CA) -> CA:
 # refusal, so a word that fails for a DIFFERENT reason arrives as a
 # confusing assertion about the message rather than as the refusal
 # itself. The probe is what the goal-1 test needs.
-TRIPS: dict[str, tuple[type[StrEnum],
-                       Callable[[Any], Any],
-                       Callable[[Any], Any]]] = {
-    "HashAlgorithm": (HashAlgorithm,
-                      lambda w: a_hash(w).algorithm(),
-                      lambda w: Hash(w, b"")),
-    "ContentAddressMethod": (CA,
-                             a_method,
-                             lambda w: ContentAddress(
-                                 w, a_hash(HashAlgorithm.SHA256))),
+TRIPS: dict[str, tuple[type[StrEnum], Callable[[Any], Any], Callable[[Any], Any]]] = {
+    "HashAlgorithm": (HashAlgorithm, lambda w: a_hash(w).algorithm(), lambda w: Hash(w, b"")),
+    "ContentAddressMethod": (CA, a_method, lambda w: ContentAddress(w, a_hash(HashAlgorithm.SHA256))),
 }
-ROUND_TRIP = [(name, word)
-              for name, (vocab, _, _) in TRIPS.items()
-              for word in vocab if word not in GATED]
+ROUND_TRIP = [(name, word) for name, (vocab, _, _) in TRIPS.items() for word in vocab if word not in GATED]
 
 
 @pytest.mark.parametrize("vocabulary,word", ROUND_TRIP)
-def test_a_declared_word_comes_back_as_itself(
-        vocabulary: str, word: StrEnum) -> None:
+def test_a_declared_word_comes_back_as_itself(vocabulary: str, word: StrEnum) -> None:
     """Our word in, libstore's enumerator, our word out.
 
     This catches a misspelling in either direction. Upstream's parser
@@ -106,10 +96,8 @@ def test_a_declared_word_comes_back_as_itself(
     assert TRIPS[vocabulary][1](word) == word
 
 
-@pytest.mark.parametrize(
-    "word", [w for w in HashAlgorithm if w not in GATED])
-def test_upstream_prints_the_same_word_we_declare(
-        word: HashAlgorithm) -> None:
+@pytest.mark.parametrize("word", [w for w in HashAlgorithm if w not in GATED])
+def test_upstream_prints_the_same_word_we_declare(word: HashAlgorithm) -> None:
     """libstore's own rendering, read out of its own message.
 
     Not the same check as the round trip above, and the difference is
@@ -128,8 +116,7 @@ def test_upstream_prints_the_same_word_we_declare(
 
 
 @pytest.mark.parametrize("word,feature", sorted(GATED.items()))
-def test_a_gated_word_is_refused_the_way_libstore_refuses_it(
-        word: StrEnum, feature: str) -> None:
+def test_a_gated_word_is_refused_the_way_libstore_refuses_it(word: StrEnum, feature: str) -> None:
     """Goal 1: the binding is not more permissive than the C++.
 
     The word is in the vocabulary because libstore knows it. Parsing

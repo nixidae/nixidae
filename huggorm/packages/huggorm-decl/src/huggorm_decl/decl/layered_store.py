@@ -68,8 +68,7 @@ from huggorm_dsl.declare import (
 
 @in_process
 @header(Local("huggorm_decl/cpp/layered_store.hpp"))
-@binding(cxx="huggorm::LayeredStoreConfig", holder="shared_ptr",
-         threading="pool", blocking=False)
+@binding(cxx="huggorm::LayeredStoreConfig", holder="shared_ptr", threading="pool", blocking=False)
 class LayeredStoreConfig:
     """What a store URI said: Nix opens a layered store with one, and
     hands it to the factory."""
@@ -90,16 +89,14 @@ class LayeredStoreConfig:
 
 @in_process
 @header(Local("huggorm_decl/cpp/layered_store.hpp"))
-@binding(cxx="huggorm::LayeredStore", holder="shared_ptr",
-         threading="pool", blocking=True)
+@binding(cxx="huggorm::LayeredStore", holder="shared_ptr", threading="pool", blocking=True)
 class LayeredStore(Store):
     """The base of a store implemented in Python. See the module.
 
     It IS a `Store`: Nix hands the opened store back as the object the
     factory made, so `Store("mine://")` answers the subclass."""
 
-    def __init__(self, config: LayeredStoreConfig,
-                 underlying: Opt[Store] = None) -> None:
+    def __init__(self, config: LayeredStoreConfig, underlying: Opt[Store] = None) -> None:
         """A layer over `underlying`, or over nothing."""
 
     @virtual
@@ -149,8 +146,7 @@ class LayeredStore(Store):
         """Every path reachable from `paths`, `paths` included."""
 
     @virtual
-    def query_substitutable_paths(
-            self, paths: Vec[StorePath]) -> Vec[StorePath]:
+    def query_substitutable_paths(self, paths: Vec[StorePath]) -> Vec[StorePath]:
         """Which of `paths` a substituter can supply."""
 
     @virtual
@@ -162,8 +158,7 @@ class LayeredStore(Store):
         """What a content-addressed output turned out to be, or None."""
 
     @virtual
-    def register_drv_output(self, output: Realisation,
-                            check_sigs: Bint = True) -> None:
+    def register_drv_output(self, output: Realisation, check_sigs: Bint = True) -> None:
         """Record what a content-addressed output turned out to be."""
 
     @virtual
@@ -171,8 +166,7 @@ class LayeredStore(Store):
         """The derivation at `path`."""
 
     @virtual
-    def write_derivation(self, drv: Derivation,
-                         repair: Bint = False) -> StorePath:
+    def write_derivation(self, drv: Derivation, repair: Bint = False) -> StorePath:
         """Write `drv` to the store as a `.drv`, and answer its path."""
 
     @virtual
@@ -180,8 +174,7 @@ class LayeredStore(Store):
         """Hard-link identical files together."""
 
     @virtual
-    def verify_store(self, check_contents: Bint,
-                     repair: Bint = False) -> Bint:
+    def verify_store(self, check_contents: Bint, repair: Bint = False) -> Bint:
         """Check the store, and answer True when errors remain."""
 
     @virtual
@@ -194,22 +187,22 @@ class LayeredStore(Store):
         """Make `path` valid, by substituting it if it is not."""
 
     @virtual
-    def build_paths(self, targets: Vec[DerivedPath],
-                    mode: BuildMode = BuildMode.NORMAL,
-                    eval_store: Opt[Store] = None) -> None:
+    def build_paths(
+        self, targets: Vec[DerivedPath], mode: BuildMode = BuildMode.NORMAL, eval_store: Opt[Store] = None
+    ) -> None:
         """Build or fetch every one of `targets`, and wait."""
 
     @virtual
     def build_paths_with_results(
-            self, targets: Vec[DerivedPath],
-            mode: BuildMode = BuildMode.NORMAL,
-            eval_store: Opt[Store] = None,
+        self,
+        targets: Vec[DerivedPath],
+        mode: BuildMode = BuildMode.NORMAL,
+        eval_store: Opt[Store] = None,
     ) -> Vec[KeyedBuildResult]:
         """Build or fetch every one of `targets`, and report on each."""
 
     @virtual
-    def get_fs_accessor(self, path: StorePath,
-                        require_valid_path: Bint = True) -> Opt[SourceAccessor]:
+    def get_fs_accessor(self, path: StorePath, require_valid_path: Bint = True) -> Opt[SourceAccessor]:
         """The files of `path`, or None when the store has none there.
         Nix reads a store path's files through this, the evaluator
         included."""
@@ -232,15 +225,12 @@ class LayeredStore(Store):
         """Add what `dump` serialises, and name the result."""
 
     @virtual
-    def add_to_store_nar(self, info: PathInfo, source: Source,
-                         repair: Bint = False,
-                         check_sigs: Bint = True) -> None:
+    def add_to_store_nar(self, info: PathInfo, source: Source, repair: Bint = False, check_sigs: Bint = True) -> None:
         """Add the path `info` describes, read as a NAR from `source`."""
 
 
 @needs(Local("huggorm_decl/cpp/layered_store.hpp"))
-def register_store_implementation(name: Str, schemes: Vec[Str],
-                                  factory: PyFunc) -> None:
+def register_store_implementation(name: Str, schemes: Vec[Str], factory: PyFunc) -> None:
     """Make `schemes` open a store that `factory` makes, for the rest of
     the process.
 

@@ -51,18 +51,19 @@ def test_from_json_sorts_nothing_and_drops_the_unknown() -> None:
     flags; upstream's `fromJSON` matches no arm for it, so neither
     does this.
     """
-    env = BuildEnvironment.from_json({
-        "variables": {
-            "plain": {"type": "var", "value": "x"},
-            "kept": {"type": "exported", "value": "y"},
-            "list": {"type": "array", "value": ["b", "a"]},
-            "map": {"type": "associative",
-                    "value": {"k": "v"}},
-            "flagged": {"type": "unknown"},
-        },
-        "bashFunctions": {"f": "true\n"},
-        "structuredAttrs": {".attrs.sh": "SH", ".attrs.json": "{}"},
-    })
+    env = BuildEnvironment.from_json(
+        {
+            "variables": {
+                "plain": {"type": "var", "value": "x"},
+                "kept": {"type": "exported", "value": "y"},
+                "list": {"type": "array", "value": ["b", "a"]},
+                "map": {"type": "associative", "value": {"k": "v"}},
+                "flagged": {"type": "unknown"},
+            },
+            "bashFunctions": {"f": "true\n"},
+            "structuredAttrs": {".attrs.sh": "SH", ".attrs.json": "{}"},
+        }
+    )
     assert env.vars["plain"] == Var(exported=False, value="x")
     assert env.vars["kept"] == Var(exported=True, value="y")
     assert env.vars["list"] == ["b", "a"]
@@ -76,8 +77,7 @@ def test_parse_reads_bytes_and_refuses_both_breakages() -> None:
     """UTF-8 first, then JSON: either failure raises, naming nothing,
     because the caller names the file it failed on."""
     env = BuildEnvironment.parse(json.dumps(CANNED).encode())
-    assert env.vars["out"] == Var(exported=True,
-                                  value="/nix/store/abc-out")
+    assert env.vars["out"] == Var(exported=True, value="/nix/store/abc-out")
     with pytest.raises(UnicodeDecodeError):
         BuildEnvironment.parse(b"\xff\xfe")
     with pytest.raises(json.JSONDecodeError):
@@ -88,8 +88,7 @@ def test_to_dict_round_trips_through_from_json() -> None:
     """The document `--json` prints, and upstream's own self-check."""
     env = BuildEnvironment.from_json(CANNED)
     assert BuildEnvironment.from_json(env.to_dict()) == env
-    assert env.to_dict()["variables"]["out"] == {
-        "type": "exported", "value": "/nix/store/abc-out"}
+    assert env.to_dict()["variables"]["out"] == {"type": "exported", "value": "/nix/store/abc-out"}
 
 
 def test_to_bash_renders_every_arm_sorted_and_quoted() -> None:
@@ -123,9 +122,8 @@ def test_to_bash_ignores_the_caller_s_shell() -> None:
     """`HOME` and friends never cross: the build's copies would only
     break the shell being entered."""
     env = BuildEnvironment(
-        vars={"HOME": Var(exported=True, value="/root"),
-              "out": Var(exported=True, value="x")},
-        bash_functions={})
+        vars={"HOME": Var(exported=True, value="/root"), "out": Var(exported=True, value="x")}, bash_functions={}
+    )
     assert "HOME" not in env.to_bash()
     assert "out='x'\n" in env.to_bash()
 
@@ -133,14 +131,11 @@ def test_to_bash_ignores_the_caller_s_shell() -> None:
 def test_an_ignored_name_still_renders_when_asked() -> None:
     """The ignore set is a default, not a rule: passing none keeps
     everything."""
-    env = BuildEnvironment(
-        vars={"HOME": Var(exported=True, value="/root")},
-        bash_functions={})
+    env = BuildEnvironment(vars={"HOME": Var(exported=True, value="/root")}, bash_functions={})
     assert "HOME='/root'\n" in env.to_bash(ignore_vars=frozenset())
 
 
-def test_to_rc_script_rewrites_outputs_into_a_directory(
-        tmp_path: pathlib.Path) -> None:
+def test_to_rc_script_rewrites_outputs_into_a_directory(tmp_path: pathlib.Path) -> None:
     """The full sourced script: the saved-variable dance, a fresh
     build top, the hook, and the store path rewritten out."""
     from huggorm.devshell import BuildEnvironment
@@ -148,11 +143,10 @@ def test_to_rc_script_rewrites_outputs_into_a_directory(
     env = BuildEnvironment.from_json(CANNED)
     script = env.to_rc_script(outputs_dir=str(tmp_path / "outputs"))
     assert script.startswith("unset shellHook\n")
-    assert 'PATH=${PATH:-}\n' in script
+    assert "PATH=${PATH:-}\n" in script
     assert 'nix_saved_PATH="$PATH"\n' in script
     assert 'PATH="$PATH${nix_saved_PATH:+:$nix_saved_PATH}"\n' in script
-    assert 'export NIX_BUILD_TOP="$(mktemp -d -t nix-shell.XXXXXX)"\n' \
-        in script
+    assert 'export NIX_BUILD_TOP="$(mktemp -d -t nix-shell.XXXXXX)"\n' in script
     assert 'export TMP="$NIX_BUILD_TOP"\n' in script
     assert 'eval "${shellHook:-}"\n' in script
     assert f"out='{tmp_path / 'outputs' / 'out'}'\n" in script
@@ -160,9 +154,7 @@ def test_to_rc_script_rewrites_outputs_into_a_directory(
     assert "HOME" not in script
 
 
-def test_to_rc_script_defaults_outputs_beside_the_work(
-        tmp_path: pathlib.Path,
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_to_rc_script_defaults_outputs_beside_the_work(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No directory given means `cwd/"outputs"`, as upstream."""
     from huggorm.devshell import BuildEnvironment
 
@@ -178,14 +170,11 @@ def test_to_rc_script_without_outputs_is_upstream_s_error() -> None:
     from huggorm.errors import NixError
 
     env = BuildEnvironment(vars={}, bash_functions={})
-    with pytest.raises(
-            NixError,
-            match="derivation does not have an 'outputs' attribute"):
+    with pytest.raises(NixError, match="derivation does not have an 'outputs' attribute"):
         env.to_rc_script()
 
 
-def test_to_rc_script_moves_structured_attrs_out_of_the_build(
-        tmp_path: pathlib.Path) -> None:
+def test_to_rc_script_moves_structured_attrs_out_of_the_build(tmp_path: pathlib.Path) -> None:
     """`/build/.attrs.*` is gone once sourced, so the contents move
     to files that outlive the call."""
     from huggorm.devshell import BuildEnvironment
@@ -195,17 +184,15 @@ def test_to_rc_script_moves_structured_attrs_out_of_the_build(
     env = BuildEnvironment(
         vars={
             "outputs": {"out": "/nix/store/abc-out"},
-            "NIX_ATTRS_SH_FILE": Var(exported=True,
-                                     value="/build/.attrs.sh"),
-            "NIX_ATTRS_JSON_FILE": Var(exported=True,
-                                       value="/build/.attrs.json"),
+            "NIX_ATTRS_SH_FILE": Var(exported=True, value="/build/.attrs.sh"),
+            "NIX_ATTRS_JSON_FILE": Var(exported=True, value="/build/.attrs.json"),
         },
         bash_functions={},
-        structured_attrs=('{"out": 1}', "out=1\n"))
+        structured_attrs=('{"out": 1}', "out=1\n"),
+    )
     owned = tmp_path / "attrs"
     owned.mkdir()
-    script = env.to_rc_script(outputs_dir=str(tmp_path / "o"),
-                              tmp_dir=str(owned))
+    script = env.to_rc_script(outputs_dir=str(tmp_path / "o"), tmp_dir=str(owned))
     assert "/build/.attrs.sh" not in script
     assert "/nix/store/abc-out" not in script
     assert (owned / ".attrs.sh").read_text() == "out=1\n"
@@ -239,19 +226,22 @@ def test_rewrite_strings_refuses_where_upstream_hangs() -> None:
         _rewrite_strings("ab", {"ab": "xab"})
 
 
-def test_a_flat_associative_outputs_names_by_its_keys(
-        tmp_path: pathlib.Path) -> None:
+def test_a_flat_associative_outputs_names_by_its_keys(tmp_path: pathlib.Path) -> None:
     """Without structured attrs an associative `outputs` names its
     outputs by its KEYS, and each key's variable holds the path - as
     upstream's `getStrings` reads it. The port branched on the shape
     of `outputs` and read the values as paths instead."""
-    env = BuildEnvironment.parse(json.dumps({
-        "variables": {
-            "outputs": {"type": "associative", "value": {"out": "ignored"}},
-            "out": {"type": "exported", "value": "/nix/store/abc-out"},
-        },
-        "bashFunctions": {},
-    }).encode())
+    env = BuildEnvironment.parse(
+        json.dumps(
+            {
+                "variables": {
+                    "outputs": {"type": "associative", "value": {"out": "ignored"}},
+                    "out": {"type": "exported", "value": "/nix/store/abc-out"},
+                },
+                "bashFunctions": {},
+            }
+        ).encode()
+    )
     script = env.to_rc_script(outputs_dir=str(tmp_path / "o"))
     assert "/nix/store/abc-out" not in script
     assert str(tmp_path / "o" / "out") in script
@@ -269,9 +259,9 @@ class FakeStore:
     store anyone should mistake for one.
     """
 
-    def __init__(self, chroot: Store, files: dict[str, pathlib.Path],
-                 build_error: str | None = None,
-                 empty: bool = False) -> None:
+    def __init__(
+        self, chroot: Store, files: dict[str, pathlib.Path], build_error: str | None = None, empty: bool = False
+    ) -> None:
         self.chroot = chroot
         self.files = files
         self.build_error = build_error
@@ -279,9 +269,7 @@ class FakeStore:
         self.rooted: list[StorePath] = []
         names = ["empty", "full"] if empty else ["full"]
         self.outputs: dict[str, StorePath] = {
-            name: chroot.parse_store_path(
-                f"/nix/store/00000000000000000000000000000000-{name}")
-            for name in names
+            name: chroot.parse_store_path(f"/nix/store/00000000000000000000000000000000-{name}") for name in names
         }
 
     def read_derivation(self, path: StorePath) -> Any:
@@ -301,8 +289,7 @@ class FakeStore:
         return Read()
 
     def add_to_store(self, *args: Any) -> StorePath:
-        return self.chroot.parse_store_path(
-            "/nix/store/00000000000000000000000000000000-get-env.sh")
+        return self.chroot.parse_store_path("/nix/store/00000000000000000000000000000000-get-env.sh")
 
     def print_store_path(self, path: StorePath) -> str:
         return "/nix/store/00000000000000000000000000000000-get-env.sh"
@@ -310,10 +297,8 @@ class FakeStore:
     def add_derivation(self, document: str) -> StorePath:
         rewritten = json.loads(document)
         assert rewritten["name"] == "leaf-env"
-        assert rewritten["args"] == [
-            "/nix/store/00000000000000000000000000000000-get-env.sh"]
-        return self.chroot.parse_store_path(
-            "/nix/store/00000000000000000000000000000000-leaf-env.drv")
+        assert rewritten["args"] == ["/nix/store/00000000000000000000000000000000-get-env.sh"]
+        return self.chroot.parse_store_path("/nix/store/00000000000000000000000000000000-leaf-env.drv")
 
     def build_paths(self, targets: list[DerivedPath], *args: Any) -> None:
         from huggorm_bindings.errors import NixError
@@ -323,8 +308,7 @@ class FakeStore:
             self.raised = NixError(self.build_error)
             raise self.raised
 
-    def query_derivation_output_map(
-            self, path: StorePath) -> dict[str, StorePath]:
+    def query_derivation_output_map(self, path: StorePath) -> dict[str, StorePath]:
         return dict(self.outputs)
 
     def real_path(self, path: StorePath) -> pathlib.Path:
@@ -337,13 +321,10 @@ class FakeStore:
         self.rooted.append(path)
 
 
-
-def _fake(chroot: Store, files: dict[str, pathlib.Path],
-          **kwargs: Any) -> tuple[Any, Any]:
+def _fake(chroot: Store, files: dict[str, pathlib.Path], **kwargs: Any) -> tuple[Any, Any]:
     """A stub the checker reads as unwritten: `Any` in, `Any` out."""
     store: Any = FakeStore(chroot, files, **kwargs)
-    drv: Any = chroot.parse_store_path(
-        "/nix/store/00000000000000000000000000000000-leaf.drv")
+    drv: Any = chroot.parse_store_path("/nix/store/00000000000000000000000000000000-leaf.drv")
     return store, drv
 
 
@@ -355,8 +336,7 @@ def _canned_files(tmp_path: pathlib.Path) -> dict[str, pathlib.Path]:
     return {"full": full, "empty": empty}
 
 
-def test_get_build_environment_builds_reads_and_roots(
-        tmp_path: pathlib.Path) -> None:
+def test_get_build_environment_builds_reads_and_roots(tmp_path: pathlib.Path) -> None:
     """The whole orchestration: rewrite, build every output, first
     non-empty file, temporary root, parsed environment beside its
     path."""
@@ -366,8 +346,7 @@ def test_get_build_environment_builds_reads_and_roots(
     chroot = Store(str(tmp_path / "chroot"))
     store, drv = _fake(chroot, _canned_files(tmp_path))
     env, path = get_build_environment(store, drv, b"script")
-    assert env.vars["out"] == Var(exported=True,
-                                  value="/nix/store/abc-out")
+    assert env.vars["out"] == Var(exported=True, value="/nix/store/abc-out")
     assert env.bash_functions == {"hello": "echo hi\n"}
     assert path.to_string().endswith("-full")
     assert store.rooted == [path]
@@ -376,8 +355,7 @@ def test_get_build_environment_builds_reads_and_roots(
     assert chroot.print_derived_path(target).endswith(".drv^*")
 
 
-def test_get_build_environment_skips_the_empty_output(
-        tmp_path: pathlib.Path) -> None:
+def test_get_build_environment_skips_the_empty_output(tmp_path: pathlib.Path) -> None:
     """Map order meets an empty first file: the search moves on, in
     the map's order."""
     from huggorm.devshell import get_build_environment
@@ -390,8 +368,7 @@ def test_get_build_environment_skips_the_empty_output(
     assert env.vars["outputs"] == Var(exported=False, value="out")
 
 
-def test_get_build_environment_without_an_answer_is_upstream_s_error(
-        tmp_path: pathlib.Path) -> None:
+def test_get_build_environment_without_an_answer_is_upstream_s_error(tmp_path: pathlib.Path) -> None:
     """Nothing non-empty anywhere: upstream's own message."""
     from huggorm.devshell import get_build_environment
     from huggorm.errors import NixError
@@ -401,13 +378,11 @@ def test_get_build_environment_without_an_answer_is_upstream_s_error(
     files = _canned_files(tmp_path)
     files["full"].write_bytes(b"")
     store, drv = _fake(chroot, files)
-    with pytest.raises(
-            NixError, match=r"get-env.sh failed to produce an environment"):
+    with pytest.raises(NixError, match=r"get-env.sh failed to produce an environment"):
         get_build_environment(store, drv, b"script")
 
 
-def test_an_unreadable_output_raises_rather_than_being_skipped(
-        tmp_path: pathlib.Path) -> None:
+def test_an_unreadable_output_raises_rather_than_being_skipped(tmp_path: pathlib.Path) -> None:
     """Only a missing output moves the search on, as in `maybeLstat`.
 
     An output under a directory nobody may search fails with EACCES,
@@ -429,8 +404,7 @@ def test_an_unreadable_output_raises_rather_than_being_skipped(
         locked.chmod(0o700)
 
 
-def test_a_failed_build_raises_its_own_error(
-        tmp_path: pathlib.Path) -> None:
+def test_a_failed_build_raises_its_own_error(tmp_path: pathlib.Path) -> None:
     """The build's exception propagates as it is, as in Nix.
 
     `nix print-dev-env` lets a failed build's error through, and a
@@ -444,15 +418,13 @@ def test_a_failed_build_raises_its_own_error(
     from huggorm_bindings import Store
 
     chroot = Store(str(tmp_path / "chroot"))
-    store, drv = _fake(chroot, _canned_files(tmp_path),
-                       build_error="build of foo failed")
+    store, drv = _fake(chroot, _canned_files(tmp_path), build_error="build of foo failed")
     with pytest.raises(NixError) as caught:
         get_build_environment(store, drv, b"script")
     assert caught.value is store.raised
 
 
-def test_a_broken_dump_names_the_file_it_broke_on(
-        tmp_path: pathlib.Path) -> None:
+def test_a_broken_dump_names_the_file_it_broke_on(tmp_path: pathlib.Path) -> None:
     """Unparseable JSON raises with the path it came from."""
     from huggorm.devshell import get_build_environment
     from huggorm.errors import NixError
@@ -466,8 +438,7 @@ def test_a_broken_dump_names_the_file_it_broke_on(
         get_build_environment(store, drv, b"script")
 
 
-def test_print_dev_env_renders_the_built_environment(
-        tmp_path: pathlib.Path) -> None:
+def test_print_dev_env_renders_the_built_environment(tmp_path: pathlib.Path) -> None:
     """The command's stdout: the built environment as sourcable
     shell, with outputs rewritten where told."""
     from huggorm.devshell import print_dev_env
@@ -475,8 +446,7 @@ def test_print_dev_env_renders_the_built_environment(
 
     chroot = Store(str(tmp_path / "chroot"))
     store, drv = _fake(chroot, _canned_files(tmp_path))
-    script = print_dev_env(store, drv, b"script",
-                           outputs_dir=str(tmp_path / "o"))
+    script = print_dev_env(store, drv, b"script", outputs_dir=str(tmp_path / "o"))
     assert script.startswith("unset shellHook\n")
     assert f"out='{tmp_path / 'o' / 'out'}'\n" in script
     assert 'eval "${shellHook:-}"\n' in script
@@ -493,12 +463,15 @@ def _oracle(*args: str, cwd: pathlib.Path | None = None) -> str:
 
     nix = os.environ.get("HUGGORM_ORACLE_NIX")
     assert nix, "run through `nix run --file . test`, which sets HUGGORM_ORACLE_NIX"
-    version = subprocess.run([nix, "--version"], check=True,
-                             capture_output=True, text=True).stdout
+    version = subprocess.run([nix, "--version"], check=True, capture_output=True, text=True).stdout
     assert version.split()[-1] == nix_version()
     return subprocess.run(
         [nix, "--extra-experimental-features", "nix-command", *args],
-        check=True, capture_output=True, text=True, cwd=cwd).stdout
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    ).stdout
 
 
 def _oracle_drv(structured: bool) -> str:
@@ -508,7 +481,10 @@ def _oracle_drv(structured: bool) -> str:
     bash = os.environ.get("HUGGORM_ORACLE_BASH")
     assert bash, "run through `nix run --file . test`, which sets HUGGORM_ORACLE_BASH"
     return _oracle(
-        "eval", "--raw", "--impure", "--expr",
+        "eval",
+        "--raw",
+        "--impure",
+        "--expr",
         f"""(derivation {{
           name = "devenv-oracle";
           system = builtins.currentSystem;
@@ -518,15 +494,15 @@ def _oracle_drv(structured: bool) -> str:
           FOO = "bar baz";
           shellHook = "echo hi";
           __structuredAttrs = {str(structured).lower()};
-        }}).drvPath""")
+        }}).drvPath""",
+    )
 
 
 @pytest.mark.live
-@pytest.mark.parametrize("structured", [False, True],
-                         ids=["flat", "structured"])
+@pytest.mark.parametrize("structured", [False, True], ids=["flat", "structured"])
 def test_the_environment_matches_nix_print_dev_env(
-        ambient_store: Store, tmp_path: pathlib.Path,
-        structured: bool) -> None:
+    ambient_store: Store, tmp_path: pathlib.Path, structured: bool
+) -> None:
     """Both renderings against `nix print-dev-env` on the same drv.
 
     The JSON half compares whole documents. The shell half differs
@@ -538,8 +514,7 @@ def test_the_environment_matches_nix_print_dev_env(
 
     from huggorm.devshell import get_build_environment, print_dev_env
 
-    script = (importlib.resources.files("huggorm_bindings")
-              / "get-env.sh").read_bytes()
+    script = (importlib.resources.files("huggorm_bindings") / "get-env.sh").read_bytes()
     drv_text = _oracle_drv(structured)
     drv = ambient_store.parse_store_path(drv_text)
     installable = f"{drv_text}^*"
@@ -549,18 +524,18 @@ def test_the_environment_matches_nix_print_dev_env(
     nix = json.loads(_oracle("print-dev-env", "--json", installable))
     assert mine.keys() == nix.keys()
     for section in nix:
-        differ = {k: (mine[section].get(k), nix[section].get(k))
-                  for k in mine[section].keys() | nix[section].keys()
-                  if mine[section].get(k) != nix[section].get(k)}
+        differ = {
+            k: (mine[section].get(k), nix[section].get(k))
+            for k in mine[section].keys() | nix[section].keys()
+            if mine[section].get(k) != nix[section].get(k)
+        }
         assert differ == {}, section
 
     # `Logger::writeToStdout` writes a newline after the script.
     theirs = _oracle("print-dev-env", installable, cwd=tmp_path)
     assert theirs.endswith("\n\n")
     theirs = theirs[:-1]
-    rendered = print_dev_env(ambient_store, drv, script,
-                             outputs_dir=str(tmp_path / "outputs"),
-                             tmp_dir=str(tmp_path))
+    rendered = print_dev_env(ambient_store, drv, script, outputs_dir=str(tmp_path / "outputs"), tmp_dir=str(tmp_path))
     attrs = re.search(r"NIX_ATTRS_JSON_FILE='(.*)/\.attrs\.json'", theirs)
     assert (attrs is not None) == structured
     if attrs is not None:
@@ -568,8 +543,7 @@ def test_the_environment_matches_nix_print_dev_env(
     assert rendered == theirs
 
 
-def test_first_env_output_needs_a_build(
-        tmp_path: pathlib.Path) -> None:
+def test_first_env_output_needs_a_build(tmp_path: pathlib.Path) -> None:
     """The search over a real store, before anything built.
 
     The rewrite is written and its deferred outputs filled, but no
@@ -586,18 +560,20 @@ def test_first_env_output_needs_a_build(
 
     store = Store(str(tmp_path))
     (tmp_path / "src").write_text("source\n")
-    drv = EvalState(store).eval_expr(
-        'derivation { name = "leaf"; system = "x86_64-linux"; '
-        'builder = "/bin/bash"; outputs = [ "out" ]; }',
-        str(tmp_path)).drv_path()
+    drv = (
+        EvalState(store)
+        .eval_expr(
+            'derivation { name = "leaf"; system = "x86_64-linux"; builder = "/bin/bash"; outputs = [ "out" ]; }',
+            str(tmp_path),
+        )
+        .drv_path()
+    )
     shell = write_dev_shell_derivation(store, drv, b"echo env\n")
-    with pytest.raises(
-            NixError, match=r"get-env.sh failed to produce an environment"):
+    with pytest.raises(NixError, match=r"get-env.sh failed to produce an environment"):
         _first_env_output(store, shell)
 
 
-async def test_afirst_env_output_needs_a_build(
-        tmp_path: pathlib.Path) -> None:
+async def test_afirst_env_output_needs_a_build(tmp_path: pathlib.Path) -> None:
     """The async search over the same unbuilt store."""
     from huggorm.devshell import (
         _afirst_env_output,
@@ -609,14 +585,17 @@ async def test_afirst_env_output_needs_a_build(
 
     sync = Store(str(tmp_path))
     (tmp_path / "src").write_text("source\n")
-    drv = EvalState(sync).eval_expr(
-        'derivation { name = "leaf"; system = "x86_64-linux"; '
-        'builder = "/bin/bash"; outputs = [ "out" ]; }',
-        str(tmp_path)).drv_path()
+    drv = (
+        EvalState(sync)
+        .eval_expr(
+            'derivation { name = "leaf"; system = "x86_64-linux"; builder = "/bin/bash"; outputs = [ "out" ]; }',
+            str(tmp_path),
+        )
+        .drv_path()
+    )
     astore = AsyncStore(str(tmp_path))
     shell = await awrite_dev_shell_derivation(astore, drv, b"echo env\n")
-    with pytest.raises(
-            NixError, match=r"get-env.sh failed to produce an environment"):
+    with pytest.raises(NixError, match=r"get-env.sh failed to produce an environment"):
         await _afirst_env_output(astore, shell)
 
 
@@ -653,12 +632,10 @@ class AsyncFakeStore:
     async def add_derivation(self, document: str) -> StorePath:
         return self.sync.add_derivation(document)
 
-    async def build_paths(self, targets: list[DerivedPath],
-                          *args: Any) -> None:
+    async def build_paths(self, targets: list[DerivedPath], *args: Any) -> None:
         self.sync.build_paths(targets, *args)
 
-    async def query_derivation_output_map(
-            self, path: StorePath) -> dict[str, StorePath]:
+    async def query_derivation_output_map(self, path: StorePath) -> dict[str, StorePath]:
         return self.sync.query_derivation_output_map(path)
 
     async def real_path(self, path: StorePath) -> anyio.Path:
@@ -668,18 +645,14 @@ class AsyncFakeStore:
         self.sync.add_temp_root(path)
 
 
-
-def _afake(chroot: Store, files: dict[str, pathlib.Path],
-           **kwargs: Any) -> tuple[Any, Any]:
+def _afake(chroot: Store, files: dict[str, pathlib.Path], **kwargs: Any) -> tuple[Any, Any]:
     """The async stub, likewise unread by the checker."""
     store: Any = AsyncFakeStore(chroot, files, **kwargs)
-    drv: Any = chroot.parse_store_path(
-        "/nix/store/00000000000000000000000000000000-leaf.drv")
+    drv: Any = chroot.parse_store_path("/nix/store/00000000000000000000000000000000-leaf.drv")
     return store, drv
 
 
-async def test_aget_build_environment_builds_reads_and_roots(
-        tmp_path: pathlib.Path) -> None:
+async def test_aget_build_environment_builds_reads_and_roots(tmp_path: pathlib.Path) -> None:
     """The async orchestration answers the same environment."""
     from huggorm.devshell import aget_build_environment
     from huggorm_bindings import Store
@@ -687,15 +660,13 @@ async def test_aget_build_environment_builds_reads_and_roots(
     chroot = Store(str(tmp_path / "chroot"))
     store, drv = _afake(chroot, _canned_files(tmp_path))
     env, path = await aget_build_environment(store, drv, b"script")
-    assert env.vars["out"] == Var(exported=True,
-                                  value="/nix/store/abc-out")
+    assert env.vars["out"] == Var(exported=True, value="/nix/store/abc-out")
     assert store.rooted == [path]
     [target] = store.built
     assert target.outputs().all() is True
 
 
-async def test_aprint_dev_env_renders_the_built_environment(
-        tmp_path: pathlib.Path) -> None:
+async def test_aprint_dev_env_renders_the_built_environment(tmp_path: pathlib.Path) -> None:
     """And the async rendering matches the sync one."""
     from huggorm.devshell import aprint_dev_env, print_dev_env
     from huggorm_bindings import Store
@@ -703,8 +674,5 @@ async def test_aprint_dev_env_renders_the_built_environment(
     chroot = Store(str(tmp_path / "chroot"))
     files = _canned_files(tmp_path)
     sync, drv = _afake(chroot, files)
-    script = await aprint_dev_env(sync, drv, b"script",
-                                  outputs_dir=str(tmp_path / "o"))
-    assert script == print_dev_env(
-        _fake(chroot, files)[0], drv, b"script",
-        outputs_dir=str(tmp_path / "o"))
+    script = await aprint_dev_env(sync, drv, b"script", outputs_dir=str(tmp_path / "o"))
+    assert script == print_dev_env(_fake(chroot, files)[0], drv, b"script", outputs_dir=str(tmp_path / "o"))

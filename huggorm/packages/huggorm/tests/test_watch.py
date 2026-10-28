@@ -32,8 +32,7 @@ def write(path: Any, text: str) -> str:
     return str(path)
 
 
-async def test_a_root_is_forgotten_when_its_import_changes(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_root_is_forgotten_when_its_import_changes(state: Any, tmp_path: Any) -> None:
     """The base case, and the one nixidae/nixidae#553 already gated.
 
     Here it runs through the watcher instead of by hand, so what is
@@ -51,8 +50,7 @@ async def test_a_root_is_forgotten_when_its_import_changes(
     assert await (await w.eval_file(outer)).integer() == 2
 
 
-async def test_a_shared_import_forgets_both_roots(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_shared_import_forgets_both_roots(state: Any, tmp_path: Any) -> None:
     """The case the DIFF model got wrong, which is why this exists.
 
     nixidae/nixidae#620 measured it: the second root to import a shared file
@@ -78,8 +76,7 @@ async def test_a_shared_import_forgets_both_roots(
     assert await (await w.eval_file(b)).integer() == 2, "the diff model's bug"
 
 
-async def test_rescan_finds_the_change_without_being_told(
-        state: Any, tmp_path: Any) -> None:
+async def test_rescan_finds_the_change_without_being_told(state: Any, tmp_path: Any) -> None:
     """The dependency-free change source, end to end.
 
     `changed()` is told; `rescan()` stats. A file written twice inside
@@ -101,8 +98,7 @@ async def test_rescan_finds_the_change_without_being_told(
     assert await (await w.eval_file(outer)).integer() == 2
 
 
-async def test_a_deleted_dependency_counts_as_a_change(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_deleted_dependency_counts_as_a_change(state: Any, tmp_path: Any) -> None:
     """Absence is an answer too.
 
     The evaluation that cached the file READ it, so its removal makes
@@ -123,8 +119,7 @@ async def test_a_deleted_dependency_counts_as_a_change(
     assert "inner.nix" in str(caught.value)
 
 
-async def test_the_virtual_cache_entry_is_never_watched(
-        state: Any, tmp_path: Any) -> None:
+async def test_the_virtual_cache_entry_is_never_watched(state: Any, tmp_path: Any) -> None:
     """libexpr caches something that is not a file.
 
     `«nix-internal»/derivation-internal.nix` comes out of an in-memory
@@ -143,8 +138,7 @@ async def test_the_virtual_cache_entry_is_never_watched(
     assert await w.rescan() == []
 
 
-async def test_an_unrelated_path_forgets_nothing(
-        state: Any, tmp_path: Any) -> None:
+async def test_an_unrelated_path_forgets_nothing(state: Any, tmp_path: Any) -> None:
     """A change source may over-report, and it costs one call.
 
     Without this, a watcher that forgot everything on every event
@@ -158,8 +152,7 @@ async def test_an_unrelated_path_forgets_nothing(
     assert w.roots == [src]
 
 
-async def test_forgetting_a_root_stops_watching_its_files(
-        state: Any, tmp_path: Any) -> None:
+async def test_forgetting_a_root_stops_watching_its_files(state: Any, tmp_path: Any) -> None:
     """A watcher meant to run for days cannot grow without bound.
 
     Forgetting a root drops its snapshot, and the files only that
@@ -193,8 +186,7 @@ async def test_forgetting_a_root_stops_watching_its_files(
     assert w._seen == {}, "a watcher for days cannot keep stamps forever"
 
 
-async def test_a_failed_evaluation_does_not_wedge_the_root(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_failed_evaluation_does_not_wedge_the_root(state: Any, tmp_path: Any) -> None:
     """A syntax error must not outlive the syntax error.
 
     libexpr caches what a FAILED evaluation read, and the cache is
@@ -224,8 +216,7 @@ async def test_a_failed_evaluation_does_not_wedge_the_root(
     assert await (await w.eval_file(root)).integer() == 4
 
 
-async def test_a_failure_keeps_a_healthy_root_warm(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_failure_keeps_a_healthy_root_warm(state: Any, tmp_path: Any) -> None:
     """Cleaning up after a failure must not clean up everything.
 
     The rule is "cached and in no snapshot", not "cached". A root that

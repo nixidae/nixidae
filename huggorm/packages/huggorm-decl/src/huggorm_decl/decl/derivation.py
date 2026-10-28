@@ -91,8 +91,7 @@ class DerivationOutputCAFloating:
     """A content-addressed output whose hash is known only after the
     build. Needs the `ca-derivations` experimental feature."""
 
-    def __init__(self, method: ContentAddressMethod,
-                 hash_algo: HashAlgorithm) -> None:
+    def __init__(self, method: ContentAddressMethod, hash_algo: HashAlgorithm) -> None:
         """How the finished output will be hashed."""
         Cxx("new (self) nix::DerivationOutput::CAFloating{method, hash_algo};")
 
@@ -133,8 +132,7 @@ class DerivationOutputImpure:
     """An output of an impure derivation: content-addressed, and never
     registered as a realisation. Needs `impure-derivations`."""
 
-    def __init__(self, method: ContentAddressMethod,
-                 hash_algo: HashAlgorithm) -> None:
+    def __init__(self, method: ContentAddressMethod, hash_algo: HashAlgorithm) -> None:
         """How the finished output will be hashed."""
         Cxx("new (self) nix::DerivationOutput::Impure{method, hash_algo};")
 

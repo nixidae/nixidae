@@ -72,6 +72,7 @@ DUNDERS: tuple[tuple[str, str], ...] = (
     ("__str__", "text"),
 )
 
+
 class Kind(StrEnum):
     """What a leaf type is, and so how it crosses."""
 
@@ -133,9 +134,7 @@ class Resolver:
             return Kind.OPAQUE
         cls = self.known.get(name)
         if cls is None:
-            raise TypeError(
-                f"'{name}' names nothing this declaration set declares, "
-                f"and it is not a builtin")
+            raise TypeError(f"'{name}' names nothing this declaration set declares, and it is not a builtin")
         if cls.decl.kind is DeclKind.ERROR:
             return Kind.ERROR
         if cls.numeric:
@@ -144,7 +143,8 @@ class Resolver:
             # route, silently.
             raise TypeError(
                 f"'{name}' is an IntEnum vocabulary, and it does not cross. "
-                f"Type the value as I64: an IntEnum compares equal to it.")
+                f"Type the value as I64: an IntEnum compares equal to it."
+            )
         if cls.is_words:
             return Kind.ENUM
         if cls.is_union:
@@ -209,8 +209,7 @@ class TypeRef:
             # one. `from_word` is a template because a return type does
             # not overload - `as_word` going the other way needs no such
             # thing, which is why the two names are not symmetrical.
-            return (f"{cxx.NAMESPACE}::from_word"
-                    f"<{other.decl.enumerated.held}>")
+            return f"{cxx.NAMESPACE}::from_word<{other.decl.enumerated.held}>"
         return other.decl.parsed_by
 
     @property
@@ -306,18 +305,15 @@ class TypeRef:
 
     @classmethod
     def list_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"list[{t.spelling}]", Origin.LIST, (t,), t.kind, t.name,
-                   spelled=VEC)
+        return cls(f"list[{t.spelling}]", Origin.LIST, (t,), t.kind, t.name, spelled=VEC)
 
     @classmethod
     def dict_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"dict[str, {t.spelling}]", Origin.DICT, (t,), t.kind,
-                   t.name, spelled=MAP)
+        return cls(f"dict[str, {t.spelling}]", Origin.DICT, (t,), t.kind, t.name, spelled=MAP)
 
     @classmethod
     def optional_of(cls, t: TypeRef) -> TypeRef:
-        return cls(f"{t.spelling} | None", Origin.OPTIONAL, (t,), t.kind,
-                   t.name, spelled=OPT)
+        return cls(f"{t.spelling} | None", Origin.OPTIONAL, (t,), t.kind, t.name, spelled=OPT)
 
 
 # Why an opaque Python object never crosses. A DECISION, unlike every
@@ -328,7 +324,8 @@ NOT_DATA = (
     "registering one would make the evaluator call BACK over the "
     "socket, on its own evaluation thread, once per invocation - "
     "a distributed call in a hot loop. In-process only, by "
-    "decision rather than omission (nixidae/nixidae#570).")
+    "decision rather than omission (nixidae/nixidae#570)."
+)
 
 
 def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
@@ -347,13 +344,14 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
         if element.optional:
             element = element.required
         if element.kind == Kind.CLIENT:
-            return (f"{t.spelling}: a client object crosses alone, as one "
-                    f"argument")
+            return f"{t.spelling}: a client object crosses alone, as one argument"
         if element.kind == Kind.PROXY:
             # One lease per element, and nothing grants leases in bulk.
-            return (f"{t.spelling}: a container of proxies would grant one "
-                    f"lease per element, and nothing grants leases in bulk "
-                    f"(nixidae/nixidae#568)")
+            return (
+                f"{t.spelling}: a container of proxies would grant one "
+                f"lease per element, and nothing grants leases in bulk "
+                f"(nixidae/nixidae#568)"
+            )
         t = element
     match t.kind:
         case Kind.OPAQUE:
@@ -362,19 +360,22 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
             if t.name in served:
                 return None
             # A handle only some service can answer is worth sending.
-            return (f"{t.spelling} is a proxy with no service: it crosses "
-                    f"as a handle, and nothing is wrapped to answer a call "
-                    f"on that handle. A remote caller would receive an id "
-                    f"it cannot use.")
+            return (
+                f"{t.spelling} is a proxy with no service: it crosses "
+                f"as a handle, and nothing is wrapped to answer a call "
+                f"on that handle. A remote caller would receive an id "
+                f"it cannot use."
+            )
         case Kind.MODULE:
             if t.name in SPELLED:
                 return None
-            return (f"{t.spelling} has no wire spelling: a type from "
-                    f"another module crosses only as the builtin "
-                    f"wiretypes.SPELLED names for it, and SPELLED names "
-                    f"none for this one")
-        case (Kind.SCALAR | Kind.ENUM | Kind.UNION | Kind.ERROR
-              | Kind.VALUE | Kind.CLIENT):
+            return (
+                f"{t.spelling} has no wire spelling: a type from "
+                f"another module crosses only as the builtin "
+                f"wiretypes.SPELLED names for it, and SPELLED names "
+                f"none for this one"
+            )
+        case Kind.SCALAR | Kind.ENUM | Kind.UNION | Kind.ERROR | Kind.VALUE | Kind.CLIENT:
             return None
         case _:
             assert_never(t.kind)
@@ -432,12 +433,10 @@ class FieldModel:
         return self.accessor or self.name
 
     @classmethod
-    def of(cls, name: str, t: Type, resolver: Resolver, accessor: str = "",
-           collection: str = "") -> FieldModel:
+    def of(cls, name: str, t: Type, resolver: Resolver, accessor: str = "", collection: str = "") -> FieldModel:
         crossable(t, name)
         ref = type_ref(t, resolver)
-        return cls(name, ref, "" if accessor == name else accessor,
-                   collection or ref.collection)
+        return cls(name, ref, "" if accessor == name else accessor, collection or ref.collection)
 
 
 def crossable(t: Type | None, where: str) -> None:
@@ -447,12 +446,12 @@ def crossable(t: Type | None, where: str) -> None:
     of one does not: the width reaches the reader on the container,
     and naming the container `uint` would be wrong (nixidae/nixidae#616)."""
     held = t.required if t is not None else None
-    if held is not None and held.origin and held.leaf.cxx is not None \
-            and held.leaf.cxx.width is not None:
+    if held is not None and held.origin and held.leaf.cxx is not None and held.leaf.cxx.width is not None:
         raise TypeError(
             f"{where}: '{held.python}' holds a {held.leaf.cxx.spelling}, and "
             f"a container of a width has no wire spelling yet. See "
-            f"nixidae/nixidae#616.")
+            f"nixidae/nixidae#616."
+        )
 
 
 def _clean(text: str) -> str:
@@ -572,9 +571,7 @@ class ParamModel:
         so every branch that may bind by pointer asks this one question
         (nixidae/nixidae#874). Bytes in any shape count, so that the
         shapes with no conversion reach a refusal."""
-        return (self.arrives is not Arrives.CAST
-                or self.passes is not Passes.AS_IS
-                or self.type.holds_bytes)
+        return self.arrives is not Arrives.CAST or self.passes is not Passes.AS_IS or self.type.holds_bytes
 
     @classmethod
     def of(cls, p: Param, resolver: Resolver) -> ParamModel:
@@ -593,23 +590,27 @@ class ParamModel:
         # one IS an empty one, so the model holds `list[X]` or
         # `dict[str, X]`. A surface adds `| None` for the default
         # (nixidae/nixidae#641).
-        return cls(p.name, written.required if absent else written, default,
-                   cxx.default(p), spelled, caster, absent=absent,
-                   parsed_by=written.parsed_by,
-                   collection=written.required.collection,
-                   via=handle.decl.via if handle is not None else "")
+        return cls(
+            p.name,
+            written.required if absent else written,
+            default,
+            cxx.default(p),
+            spelled,
+            caster,
+            absent=absent,
+            parsed_by=written.parsed_by,
+            collection=written.required.collection,
+            via=handle.decl.via if handle is not None else "",
+        )
 
 
-def blockers(params: Sequence[ParamModel], returns: TypeRef | None,
-             served: frozenset[str]) -> list[str]:
+def blockers(params: Sequence[ParamModel], returns: TypeRef | None, served: frozenset[str]) -> list[str]:
     """Why a call has no rpc, or [] when it has one."""
-    out = [f"parameter {p.name!r}: {why}" for p in params
-           if (why := wire_blocker(p.type, served))]
+    out = [f"parameter {p.name!r}: {why}" for p in params if (why := wire_blocker(p.type, served))]
     if returns is not None and (why := wire_blocker(returns, served)):
         out.append(f"return type: {why}")
     elif returns is not None and returns.leaf.kind == Kind.CLIENT:
-        out.append(f"return type: {returns.spelling} crosses only from a "
-                   f"client, as an argument")
+        out.append(f"return type: {returns.spelling} crosses only from a client, as an argument")
     return out
 
 
@@ -650,9 +651,7 @@ class Tagged:
     def test(self, word: str, where: str) -> ArmTest:
         tag = dict(self.arms).get(word)
         if tag is None:
-            raise ValueError(
-                f"{where} names no arm; @tagged offers "
-                f"{sorted(w for w, _ in self.arms)}")
+            raise ValueError(f"{where} names no arm; @tagged offers {sorted(w for w, _ in self.arms)}")
         return ArmTest(self.hold, self.ask, tag)
 
 
@@ -677,13 +676,14 @@ def _spells(m: Method, where: str, resolver: Resolver) -> tuple[str, ...]:
             raise TypeError(
                 f"{where}: @spells({name!r}) names no "
                 f"enum-backed vocabulary this declaration can see. "
-                f"Import the declaration that declares it.")
+                f"Import the declaration that declares it."
+            )
     return m.spells
 
 
-def _unconverted(m: Method, params: Sequence[ParamModel],
-                 returns: TypeRef | None, where: str, *,
-                 scalars: bool) -> None:
+def _unconverted(
+    m: Method, params: Sequence[ParamModel], returns: TypeRef | None, where: str, *, scalars: bool
+) -> None:
     """Refuse a vocabulary or a handle no emitted line converts.
 
     `_derived` parses a vocabulary parameter, renders a vocabulary
@@ -695,17 +695,17 @@ def _unconverted(m: Method, params: Sequence[ParamModel],
     if m.cxx_body is not None:
         return
     for t, what, word in [
-            *((p.type, f"parameter {p.name!r}", p.type.leaf.parsed_by)
-              for p in params),
-            (returns, "return",
-             returns is not None and returns.leaf.words is not None)]:
+        *((p.type, f"parameter {p.name!r}", p.type.leaf.parsed_by) for p in params),
+        (returns, "return", returns is not None and returns.leaf.words is not None),
+    ]:
         if t is None or not (scalars or t.required.container):
             continue
         if word or t.leaf.handle is not None:
             raise TypeError(
                 f"{where}: {what} `{t.spelling}` holds a "
                 f"`{t.leaf.spelling}` that nothing converts here. Carry a "
-                f"Cxx body.")
+                f"Cxx body."
+            )
 
 
 def _attribute(owner: Class, m: Method) -> TypeError:
@@ -728,7 +728,8 @@ def _attribute(owner: Class, m: Method) -> TypeError:
         f"ATTRIBUTE, and every reader of this class calls it - the "
         f"emitted `_parts`, the stub and the wire all spell "
         f"`obj.{m.name}()`. Drop the @property and declare a plain "
-        f"accessor, or teach all four (nixidae/nixidae#613).")
+        f"accessor, or teach all four (nixidae/nixidae#613)."
+    )
 
 
 def _tagged(owner: Class, m: Method) -> Tagged | None:
@@ -740,12 +741,12 @@ def _tagged(owner: Class, m: Method) -> Tagged | None:
         raise ValueError(
             f"{owner.name}.{m.name}: needs @tagged(reach, ask, ...) on the "
             f"class to say how to reach the union, how to ask which arm "
-            f"it holds, and what the arms are called")
+            f"it holds, and what the arms are called"
+        )
     return tagged
 
 
-def _fill(owner: Class, m: Method, params: Sequence[ParamModel],
-          resolver: Resolver) -> Fill | None:
+def _fill(owner: Class, m: Method, params: Sequence[ParamModel], resolver: Resolver) -> Fill | None:
     """A `@fills` method's target check. The TARGET's class holds the
     arm table, not the owner's: `list_append` is declared on the
     evaluator and fills a Value."""
@@ -758,11 +759,8 @@ def _fill(owner: Class, m: Method, params: Sequence[ParamModel],
     held = params[0].type.required.declared
     tagged = Tagged.of(held.decl) if held is not None else None
     if tagged is None:
-        raise ValueError(
-            f"{where}: @fills needs its target's class to "
-            f"carry @tagged, to check the arm being filled")
-    return Fill(maker, params[0].name,
-                tagged.test(arm, f'{where}: @fills(..., "{arm}")'))
+        raise ValueError(f"{where}: @fills needs its target's class to carry @tagged, to check the arm being filled")
+    return Fill(maker, params[0].name, tagged.test(arm, f'{where}: @fills(..., "{arm}")'))
 
 
 @dataclass(frozen=True)
@@ -812,24 +810,32 @@ class MethodModel:
         params = tuple(ParamModel.of(p, resolver) for p in m.params)
         virtual = _virtual(owner, m)
         if not virtual:
-            _unconverted(m, params, returns, f"{owner.name}.{m.name}",
-                         scalars=False)
+            _unconverted(m, params, returns, f"{owner.name}.{m.name}", scalars=False)
         tagged = _tagged(owner, m)
         where = f'{owner.name}.{m.name}: @guard("{m.guard}")'
-        guard = (tagged.test(m.guard, where)
-                 if tagged is not None and m.guard else None)
-        made = cls(m.name, params, returns,
-                   _clean(m.doc), m.blocks, instant=m.instant,
-                   cxx_name=m.cxx_name, cxx_body=m.cxx_body, reads=m.reads,
-                   guard=guard, names=tagged if m.names else None,
-                   produces=m.produces,
-                   fills=_fill(owner, m, params, resolver),
-                   local=m.local, virtual=virtual,
-                   posted=_posted(owner, m),
-                   subscription=_subscription(f"{owner.name}.{m.name}", m),
-                   returns_handle=cxx.held(handle) if handle else "",
-                   headers=m.headers,
-                   spells=_spells(m, f"{owner.name}.{m.name}", resolver))
+        guard = tagged.test(m.guard, where) if tagged is not None and m.guard else None
+        made = cls(
+            m.name,
+            params,
+            returns,
+            _clean(m.doc),
+            m.blocks,
+            instant=m.instant,
+            cxx_name=m.cxx_name,
+            cxx_body=m.cxx_body,
+            reads=m.reads,
+            guard=guard,
+            names=tagged if m.names else None,
+            produces=m.produces,
+            fills=_fill(owner, m, params, resolver),
+            local=m.local,
+            virtual=virtual,
+            posted=_posted(owner, m),
+            subscription=_subscription(f"{owner.name}.{m.name}", m),
+            returns_handle=cxx.held(handle) if handle else "",
+            headers=m.headers,
+            spells=_spells(m, f"{owner.name}.{m.name}", resolver),
+        )
         if virtual:
             _overridable(made, f"{owner.name}.{m.name}")
         return made
@@ -847,8 +853,7 @@ class MethodModel:
             case Origin.LIST:
                 return Answer.LIST
             case Origin.DICT:
-                return (Answer.WORD_MAP if t.inner.words is not None
-                        else Answer.MAP)
+                return Answer.WORD_MAP if t.inner.words is not None else Answer.MAP
             case Origin.OPTIONAL | None:
                 pass
             case _:
@@ -862,6 +867,7 @@ class MethodModel:
     @property
     def return_spelling(self) -> str:
         return self.returns.spelling if self.returns is not None else "None"
+
 
 class Execution(StrEnum):
     """Where a wrapped call runs: a `Threading`, or on the calling
@@ -908,8 +914,7 @@ class FunctionModel:
     subscription: shapes.Subscription | None = None
 
     @classmethod
-    def of(cls, fn: Method, package: str, module: str,
-           resolver: Resolver) -> FunctionModel:
+    def of(cls, fn: Method, package: str, module: str, resolver: Resolver) -> FunctionModel:
         policy = fn.policy
         if policy is not None:
             for pr in fn.params:
@@ -918,16 +923,28 @@ class FunctionModel:
         params = tuple(ParamModel.of(p, resolver) for p in fn.params)
         returns = type_ref(fn.ret, resolver) if fn.ret is not None else None
         _unconverted(fn, params, returns, fn.name, scalars=True)
-        return cls(fn.name, f"{package}.{module}", policy, params, returns,
-                   _clean(fn.doc), cxx_name=fn.binds, cxx_body=fn.cxx_body,
-                   blocks=fn.blocks, instant=fn.instant, headers=fn.headers,
-                   spells=_spells(fn, fn.name, resolver), startup=fn.startup,
-                   translator=fn.translator,
-                   subscription=_subscription(fn.name, fn))
+        return cls(
+            fn.name,
+            f"{package}.{module}",
+            policy,
+            params,
+            returns,
+            _clean(fn.doc),
+            cxx_name=fn.binds,
+            cxx_body=fn.cxx_body,
+            blocks=fn.blocks,
+            instant=fn.instant,
+            headers=fn.headers,
+            spells=_spells(fn, fn.name, resolver),
+            startup=fn.startup,
+            translator=fn.translator,
+            subscription=_subscription(fn.name, fn),
+        )
 
     @property
     def wrapped(self) -> bool:
         return self.threading is not None
+
 
 @dataclass(frozen=True)
 class Semantics:
@@ -946,8 +963,7 @@ class Semantics:
 
     @classmethod
     def of(cls, decl: Decl) -> Semantics:
-        return cls(decl.text, decl.shown, decl.compare is Compare.CXX,
-                   decl.order, decl.unit)
+        return cls(decl.text, decl.shown, decl.compare is Compare.CXX, decl.order, decl.unit)
 
     @property
     def cxx_order(self) -> bool:
@@ -963,8 +979,7 @@ def _factory(cls: Class, functions: Sequence[Method]) -> Method | None:
     return next((f for f in functions if f.name == cls.decl.factory), None)
 
 
-def _ctor_params(cls: Class,
-                 functions: Sequence[Method] = ()) -> tuple[Param, ...]:
+def _ctor_params(cls: Class, functions: Sequence[Method] = ()) -> tuple[Param, ...]:
     """The parameters a caller passes to build one of these.
 
     A class with a factory is built by it, so the factory's
@@ -1039,17 +1054,16 @@ class ClassModel:
         a subset without `__init__` drops the header its `@needs`
         names and the conversion its `@spells` names
         (nixidae/nixidae#873)."""
-        return (*self.bound,
-                *(c for c in (self.init, self.from_parts) if c is not None))
+        return (*self.bound, *(c for c in (self.init, self.from_parts) if c is not None))
 
     @classmethod
-    def of(cls, c: Class, package: str, module: str, resolver: Resolver,
-           functions: Sequence[Method] = ()) -> ClassModel:
+    def of(
+        cls, c: Class, package: str, module: str, resolver: Resolver, functions: Sequence[Method] = ()
+    ) -> ClassModel:
         return _shaped(cls._of(c, package, module, resolver, functions))
 
     @classmethod
-    def _of(cls, c: Class, package: str, module: str, resolver: Resolver,
-            functions: Sequence[Method]) -> ClassModel:
+    def _of(cls, c: Class, package: str, module: str, resolver: Resolver, functions: Sequence[Method]) -> ClassModel:
         decl = c.decl
         if decl.wire is Crossing.PROXY:
             # A proxy is reached through a service, so its methods ARE
@@ -1061,23 +1075,24 @@ class ClassModel:
                     crossable(pr.type, f"{c.name}.{m.name}({pr.name})")
                 crossable(m.ret, f"{c.name}.{m.name}'s return")
         return cls(
-            name=c.name, package=package, module=module,
+            name=c.name,
+            package=package,
+            module=module,
             # RAW: the stubs carry the indentation the source had.
-            doc=c.doc, is_value=c.is_value,
-            produced=c.is_produced, constructs=c.constructs,
+            doc=c.doc,
+            is_value=c.is_value,
+            produced=c.is_produced,
+            constructs=c.constructs,
             wire_fields=tuple(
-                FieldModel.of(f.name, m.ret, resolver, f.read,
-                              m.member_collection)
-                for f, m in c.parts if m.ret is not None),
-            ctor=tuple(ParamModel.of(p, resolver)
-                       for p in _ctor_params(c, functions)),
+                FieldModel.of(f.name, m.ret, resolver, f.read, m.member_collection)
+                for f, m in c.parts
+                if m.ret is not None
+            ),
+            ctor=tuple(ParamModel.of(p, resolver) for p in _ctor_params(c, functions)),
             bound=tuple(MethodModel.of(m, c, resolver) for m in c.methods),
-            init=(MethodModel.of(c.ctor, c, resolver)
-                  if c.ctor is not None else None),
-            factory=(FunctionModel.of(made, package, module, resolver)
-                     if (made := _factory(c, functions)) else None),
-            from_parts=(MethodModel.of(c.from_parts, c, resolver)
-                        if c.from_parts is not None else None),
+            init=(MethodModel.of(c.ctor, c, resolver) if c.ctor is not None else None),
+            factory=(FunctionModel.of(made, package, module, resolver) if (made := _factory(c, functions)) else None),
+            from_parts=(MethodModel.of(c.from_parts, c, resolver) if c.from_parts is not None else None),
             header=decl.header,
             semantics=Semantics.of(decl),
             wire=decl.wire,
@@ -1114,9 +1129,11 @@ class ClassModel:
     @property
     def dunders(self) -> list[str]:
         """The value dunders this class implies, sorted."""
-        facts = {"value": self.wire is Crossing.VALUE,
-                 "order": self.semantics.ordered,
-                 "text": bool(self.semantics.text)}
+        facts = {
+            "value": self.wire is Crossing.VALUE,
+            "order": self.semantics.ordered,
+            "text": bool(self.semantics.text),
+        }
         return sorted(name for name, fact in DUNDERS if facts[fact])
 
     @property
@@ -1156,8 +1173,7 @@ class ClassModel:
         inline - a hop buys nothing, and a request would push a
         "finalized" marker from a pool thread into the process queue
         for a call no reader made."""
-        return (Execution(self.threading) if self.wrapped
-                else Execution.INLINE)
+        return Execution(self.threading) if self.wrapped else Execution.INLINE
 
     @property
     def qualified_module(self) -> str:
@@ -1185,15 +1201,12 @@ def _subscription(where: str, m: Method) -> shapes.Subscription | None:
     if m.subscription is None:
         return None
     names = [p.name for p in m.params]
-    if m.subscription is Subscription.OPEN and (
-            names != ["capacity", "level"] or m.ret is None):
+    if m.subscription is Subscription.OPEN and (names != ["capacity", "level"] or m.ret is None):
         raise TypeError(
-            f"{where}: @subscription(OPEN) takes (capacity, level) and "
-            f"answers a reader; this takes {names}")
+            f"{where}: @subscription(OPEN) takes (capacity, level) and answers a reader; this takes {names}"
+        )
     if m.subscription is Subscription.CLOSE and (names or m.ret is not None):
-        raise TypeError(
-            f"{where}: @subscription(CLOSE) takes nothing and answers "
-            f"nothing")
+        raise TypeError(f"{where}: @subscription(CLOSE) takes nothing and answers nothing")
     return m.subscription
 
 
@@ -1204,12 +1217,14 @@ def _posted(owner: Class, m: Method) -> bool:
     if not owner.decl.calls_back:
         raise TypeError(
             f"{owner.name}.{m.name}: @posted needs a @calls_back class. "
-            f"Only an async object's hook can run after Nix goes on.")
+            f"Only an async object's hook can run after Nix goes on."
+        )
     if m.ret is not None:
         raise TypeError(
             f"{owner.name}.{m.name}: @posted needs a hook that answers "
             f"nothing. Nix goes on before the hook runs, so nothing could "
-            f"take its answer.")
+            f"take its answer."
+        )
     return True
 
 
@@ -1221,11 +1236,13 @@ def _virtual(owner: Class, m: Method) -> bool:
         raise TypeError(
             f"{owner.name}.{m.name}: @virtual needs an @in_process class. "
             f"An override is Python in this process, and a remote caller "
-            f"could not reach it.")
+            f"could not reach it."
+        )
     if m.cxx_body is not None or m.reads:
         raise TypeError(
             f"{owner.name}.{m.name}: @virtual overrides the C++ member of "
-            f"that name, so it carries no body and reads no member.")
+            f"that name, so it carries no body and reads no member."
+        )
     return True
 
 
@@ -1235,19 +1252,16 @@ def _overridable(m: MethodModel, where: str) -> None:
     crosses as its C++ enum, so it needs one. Every other shape crosses
     as declared, and the compiler checks it against the C++ virtual."""
     for pr in m.params:
-        if (pr.type.bytes_list
-                or (pr.arrives is Arrives.WORD
-                    and (pr.type.optional or pr.type.words is None))):
+        if pr.type.bytes_list or (pr.arrives is Arrives.WORD and (pr.type.optional or pr.type.words is None)):
             raise TypeError(
                 f"{where}({pr.name}): a @virtual takes each parameter as "
-                f"the C++ virtual does, and this one arrives converted.")
+                f"the C++ virtual does, and this one arrives converted."
+            )
     if m.returns is not None and (
-            m.returns.bytes_list
-            or (m.returns.required.kind == Kind.ENUM
-                and m.answer not in (Answer.WORD, Answer.WORD_MAP))):
-        raise TypeError(
-            f"{where}: a @virtual cannot answer a list of bytes or a "
-            f"vocabulary with no C++ enum.")
+        m.returns.bytes_list
+        or (m.returns.required.kind == Kind.ENUM and m.answer not in (Answer.WORD, Answer.WORD_MAP))
+    ):
+        raise TypeError(f"{where}: a @virtual cannot answer a list of bytes or a vocabulary with no C++ enum.")
 
 
 def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
@@ -1258,9 +1272,7 @@ def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
         match how:
             case shapes.Leaf():
                 if how.wire not in LEAVES:
-                    raise TypeError(
-                        f"{cls.name}: a tree leaf is a {how.wire}. A leaf "
-                        f"is one of {list(LEAVES)}.")
+                    raise TypeError(f"{cls.name}: a tree leaf is a {how.wire}. A leaf is one of {list(LEAVES)}.")
                 names.append(how.read)
             case shapes.Items():
                 names += [how.size, how.item]
@@ -1270,25 +1282,18 @@ def _walkable(cls: ClassModel, spec: shapes.Tree[str]) -> None:
                 pass
     bound = {m.name for m in cls.bound}
     if missing := [n for n in names if n not in bound]:
-        raise TypeError(
-            f"{cls.name}: its @tree names {missing}, which this class does "
-            f"not bind.")
+        raise TypeError(f"{cls.name}: its @tree names {missing}, which this class does not bind.")
 
 
 def _buildable(cls: ClassModel, spec: shapes.Builds[str]) -> None:
     """Refuse builders the class does not bind, or a leaf the tree has
     no arm for."""
     if odd := sorted(str(w) for w in spec.leaves if w not in LEAVES):
-        raise TypeError(
-            f"{cls.name}: @builds makes leaves {odd}. A leaf is one of "
-            f"{list(LEAVES)}.")
-    names = [spec.null, *spec.leaves.values(), spec.items, spec.add_item,
-             spec.entries, spec.add_entry]
+        raise TypeError(f"{cls.name}: @builds makes leaves {odd}. A leaf is one of {list(LEAVES)}.")
+    names = [spec.null, *spec.leaves.values(), spec.items, spec.add_item, spec.entries, spec.add_entry]
     bound = {m.name for m in cls.bound}
     if missing := [n for n in names if n not in bound]:
-        raise TypeError(
-            f"{cls.name}: its @builds names {missing}, which this class "
-            f"does not bind.")
+        raise TypeError(f"{cls.name}: its @builds names {missing}, which this class does not bind.")
 
 
 def _shaped(cls: ClassModel) -> ClassModel:
@@ -1299,16 +1304,19 @@ def _shaped(cls: ClassModel) -> ClassModel:
     fields, in order."""
     text = cls.semantics.text
     if text and not any(m.name == text for m in cls.bound):
-        raise TypeError(
-            f"{cls.name}: \"{text}\" names no accessor on this class.")
+        raise TypeError(f'{cls.name}: "{text}" names no accessor on this class.')
     if cls.tree is not None:
         _walkable(cls, cls.tree)
     if cls.builds is not None:
         _buildable(cls, cls.builds)
     fields = [f.name for f in cls.wire_fields]
-    if (cls.wire is Crossing.VALUE and (fields or cls.semantics.unit)
-            and not cls.is_value
-            and cls.init is not None and len(cls.init.params) != len(fields)):
+    if (
+        cls.wire is Crossing.VALUE
+        and (fields or cls.semantics.unit)
+        and not cls.is_value
+        and cls.init is not None
+        and len(cls.init.params) != len(fields)
+    ):
         # `_from_parts` IS the constructor here. A forgotten `@local`
         # breaks that: an accessor joins the wire by existing, `_parts`
         # grows a value, and the constructor does not.
@@ -1318,32 +1326,31 @@ def _shaped(cls: ClassModel) -> ClassModel:
             f"{len(fields)} accessor(s) cross the wire: "
             f"{fields}. An accessor joins the "
             f"wire by existing - mark the ones that should not "
-            f"@local, or give the constructor what they send.")
+            f"@local, or give the constructor what they send."
+        )
     if not cls.is_value:
         if cls.from_parts is not None and cls.init is not None:
             raise TypeError(
                 f"{cls.name}: declares `_from_parts` beside a constructing "
                 f"`__init__`. The constructor rebuilds it from its parts, "
-                f"so the body is never emitted. Drop `_from_parts`.")
+                f"so the body is never emitted. Drop `_from_parts`."
+            )
         return cls
     if cls.from_parts is not None:
         if not cls.from_parts.cxx_body:
             raise TypeError(
                 f"{cls.name}: declares `_from_parts` with no body. Write "
                 f"one, or drop the declaration and let the aggregate "
-                f"build it.")
+                f"build it."
+            )
         return cls
-    members = [m.name for m in cls.bound
-               if m.returns is not None and not m.local]
-    if (any(f.read != f.name for f in cls.wire_fields)
-            and fields != members):
+    members = [m.name for m in cls.bound if m.returns is not None and not m.local]
+    if any(f.read != f.name for f in cls.wire_fields) and fields != members:
         # A part read through another accessor arrives as that
         # accessor's type, and `_from_parts` initialises the record
         # POSITIONALLY: a part out of member order lands in the wrong
         # member.
-        raise TypeError(
-            f"{cls.name}: its parts {fields} are not its members "
-            f"{members}, in order.")
+        raise TypeError(f"{cls.name}: its parts {fields} are not its members {members}, in order.")
     return cls
 
 
@@ -1393,16 +1400,30 @@ class UnionModel:
         arms = []
         for a in u.decl.arms:
             held = u.decl.scalars.get(a) or Type(python=a, bound=True)
-            arms.append(replace(TypeRef.named(a, resolver.kind(a)),
-                                cxx=cxx.arm(u, a, resolver.known),
-                                caster=type_ref(held, resolver).caster))
+            arms.append(
+                replace(
+                    TypeRef.named(a, resolver.kind(a)),
+                    cxx=cxx.arm(u, a, resolver.known),
+                    caster=type_ref(held, resolver).caster,
+                )
+            )
         v = u.decl.variant
-        variant = None if v is None else CxxVariant(
-            v.cxx, v.raw, v.header, v.bare,
-            tuple(Alternative(a.cxx, w.cxx, w.holds)
-                  if (w := v.wraps.get(a.name)) is not None
-                  else Alternative(a.cxx, a.cxx)
-                  for a in arms))
+        variant = (
+            None
+            if v is None
+            else CxxVariant(
+                v.cxx,
+                v.raw,
+                v.header,
+                v.bare,
+                tuple(
+                    Alternative(a.cxx, w.cxx, w.holds)
+                    if (w := v.wraps.get(a.name)) is not None
+                    else Alternative(a.cxx, a.cxx)
+                    for a in arms
+                ),
+            )
+        )
         return cls(u.name, tuple(arms), u.decl.header, variant)
 
 
@@ -1456,14 +1477,17 @@ class EnumModel:
     @classmethod
     def of(cls, c: Class, package: str, module: str) -> EnumModel:
         enum = c.decl.enumerated
-        return cls(c.name, f"{package}.{module}",
-                   tuple(WordModel(m.name, m.value,
-                                   enum.enumerator(m.name) if enum else "",
-                                   m.doc)
-                         for m in c.members),
-                   c.doc, c.decl.header,
-                   CxxEnum(enum.held, enum.reach) if enum else None,
-                   c.decl.parsed_by, c.numeric)
+        return cls(
+            c.name,
+            f"{package}.{module}",
+            tuple(WordModel(m.name, m.value, enum.enumerator(m.name) if enum else "", m.doc) for m in c.members),
+            c.doc,
+            c.decl.header,
+            CxxEnum(enum.held, enum.reach) if enum else None,
+            c.decl.parsed_by,
+            c.numeric,
+        )
+
 
 @dataclass(frozen=True)
 class VocabularyModel:
@@ -1501,14 +1525,11 @@ class ErrorModel:
             raise TypeError(f"{error.name}: not an exception declaration")
         # Unspelled: a part crosses the wire and is read off the caught
         # exception by its record type, and no C++ signature names it.
-        parts = tuple(FieldModel(part, type_ref(t, resolver, spelled=False))
-                      for part, t in raised.parts)
+        parts = tuple(FieldModel(part, type_ref(t, resolver, spelled=False)) for part, t in raised.parts)
         readers: tuple[str, ...] = ()
         if raised.cxx:
-            readers = tuple(_reader(error.name, raised.reader, f)
-                            for f in parts[MESSAGE_PARTS:])
-        return cls(error.name, raised.bases, parts, raised.cxx,
-                   raised.header, readers)
+            readers = tuple(_reader(error.name, raised.reader, f) for f in parts[MESSAGE_PARTS:])
+        return cls(error.name, raised.bases, parts, raised.cxx, raised.header, readers)
 
 
 def _reader(error: str, reader: str, part: FieldModel) -> str:
@@ -1520,7 +1541,8 @@ def _reader(error: str, reader: str, part: FieldModel) -> str:
         raise TypeError(
             f"{error}: part '{part.name}' is a {record.kind}, and "
             f"`{reader}` reads a record - a declared value - off the "
-            f"caught exception.")
+            f"caught exception."
+        )
     return f"{reader}<{cxx.NAMESPACE}::{record.name}>"
 
 
@@ -1536,13 +1558,10 @@ class Errors:
     caught: tuple[str, ...] = ()
 
     @classmethod
-    def of(cls, module: str, declared: Sequence[Class],
-           resolver: Resolver) -> Errors:
+    def of(cls, module: str, declared: Sequence[Class], resolver: Resolver) -> Errors:
         """`declared` in file order, which breaks a tie in depth."""
-        classes = {e.name: ErrorModel.of(e, resolver)
-                   for e in sorted(declared, key=lambda e: e.name)}
-        caught = sorted((e.name for e in declared if classes[e.name].cxx),
-                        key=lambda name: -_depth(name, classes))
+        classes = {e.name: ErrorModel.of(e, resolver) for e in sorted(declared, key=lambda e: e.name)}
+        caught = sorted((e.name for e in declared if classes[e.name].cxx), key=lambda name: -_depth(name, classes))
         return cls(module, classes, tuple(caught))
 
     @property
@@ -1550,8 +1569,8 @@ class Errors:
         """Every header the catch chain needs, once each, sorted: an
         include block is a set, and the chain's order is a fact about
         the catches."""
-        return sorted({c.header for c in self.classes.values()
-                       if c.header is not None}, key=lambda h: h.line)
+        return sorted({c.header for c in self.classes.values() if c.header is not None}, key=lambda h: h.line)
+
 
 def _depth(name: str, classes: Mapping[str, ErrorModel]) -> int:
     """How far this class is from the root of the declared hierarchy.
@@ -1565,8 +1584,7 @@ def _depth(name: str, classes: Mapping[str, ErrorModel]) -> int:
 
 
 # Why a free function with no threading policy has no rpc.
-NO_POLICY = ("no threading policy, so the function has no async form for "
-             "a server to call")
+NO_POLICY = "no threading policy, so the function has no async form for a server to call"
 
 
 @dataclass(frozen=True)
@@ -1590,15 +1608,15 @@ class ModuleModel:
     @classmethod
     def of(cls, mod: Module, package: str) -> ModuleModel:
         resolver = Resolver.of(mod)
-        functions = {fn.name: FunctionModel.of(fn, package, mod.name, resolver)
-                     for fn in mod.functions}
+        functions = {fn.name: FunctionModel.of(fn, package, mod.name, resolver) for fn in mod.functions}
         return cls(
-            mod.name, mod.doc,
-            tuple(ClassModel.of(c, package, mod.name, resolver, mod.functions)
-                  for c in mod.classes),
+            mod.name,
+            mod.doc,
+            tuple(ClassModel.of(c, package, mod.name, resolver, mod.functions) for c in mod.classes),
             tuple(functions.values()),
             tuple(functions[fn.name] for fn in mod.exported),
-            frozenset(mod.known))
+            frozenset(mod.known),
+        )
 
     def bindable(self) -> tuple[ClassModel, ...]:
         """The classes nanobind binds: a C++ type, or a record the
@@ -1638,12 +1656,11 @@ class Model:
     def __post_init__(self) -> None:
         # A produced class has no way in but a call that returns it,
         # and its refusing `__init__` names those calls.
-        if missing := sorted(n for n, c in self.classes.items()
-                             if c.made_elsewhere
-                             and n not in self.producers):
+        if missing := sorted(n for n, c in self.classes.items() if c.made_elsewhere and n not in self.producers):
             raise TypeError(
                 f"{', '.join(missing)}: declared @produced, and no declared "
-                f"call returns one. Declare the call that makes it.")
+                f"call returns one. Declare the call that makes it."
+            )
 
     def module(self, name: str) -> ModuleModel:
         return next(m for m in self.modules if m.name == name)
@@ -1673,12 +1690,10 @@ class Model:
                 out[unit.name] = names
         for vocab in self.vocabularies:
             if vocab.enums:
-                out.setdefault(vocab.name, []).extend(
-                    e.name for e in vocab.enums)
+                out.setdefault(vocab.name, []).extend(e.name for e in vocab.enums)
         return {m: sorted(out[m]) for m in sorted(out)}
 
-    def declared(self, t: TypeRef
-                 ) -> ClassModel | UnionModel | EnumModel | None:
+    def declared(self, t: TypeRef) -> ClassModel | UnionModel | EnumModel | None:
         """The model behind one leaf, or None for a builtin, a module
         type or an exception, which carry no C++ of their own here.
 
@@ -1712,6 +1727,7 @@ class Model:
         A union at the leaf makes each of its arms too: `to_attrs`
         answers `dict[str, Attr]`, and on Nix 2.35 that makes a
         `LazyAttr`."""
+
         def made(t: TypeRef | None) -> list[str]:
             if t is None:
                 return []
@@ -1734,8 +1750,7 @@ class Model:
     def returned(self) -> frozenset[str]:
         """The classes a call hands back and nothing builds: produced,
         and in `producers`."""
-        return frozenset(n for n in self.producers
-                         if n in self.classes and self.classes[n].produced)
+        return frozenset(n for n in self.producers if n in self.classes and self.classes[n].produced)
 
     @property
     def blocking_methods(self) -> list[FunctionModel]:
@@ -1756,18 +1771,26 @@ class Model:
                         f"{c.name}.{m.name} is @blocks, and {c.name} is "
                         f"served but not wrapped, so its async form calls it "
                         f"on the event loop. Declare {c.name} "
-                        f"@binding(blocking=True).")
+                        f"@binding(blocking=True)."
+                    )
                 name = f"{_snake(c.name)}_{m.name}"
                 if name in self.functions:
                     raise TypeError(
                         f"{c.name}.{m.name}: its async form is named {name}, "
-                        f"and a declared free function has that name.")
+                        f"and a declared free function has that name."
+                    )
                 me = TypeRef(c.name, None, (), Kind.VALUE, c.name)
-                out.append(FunctionModel(
-                    name, c.qualified_module, c.threading,
-                    (ParamModel(_snake(c.name), me, NoDefault.REQUIRED),
-                     *m.params),
-                    m.returns, m.doc, calls=MethodRef(c.name, m.name)))
+                out.append(
+                    FunctionModel(
+                        name,
+                        c.qualified_module,
+                        c.threading,
+                        (ParamModel(_snake(c.name), me, NoDefault.REQUIRED), *m.params),
+                        m.returns,
+                        m.doc,
+                        calls=MethodRef(c.name, m.name),
+                    )
+                )
         return out
 
     @property
@@ -1787,14 +1810,12 @@ class Model:
     @property
     def constructed(self) -> list[ClassModel]:
         """Every class a caller builds, by name."""
-        return [self.classes[n] for n in sorted(self.classes)
-                if n not in self.returned]
+        return [self.classes[n] for n in sorted(self.classes) if n not in self.returned]
 
     @property
     def handed_back(self) -> list[ClassModel]:
         """Every class only a call hands back, by name."""
-        return [self.classes[n] for n in sorted(self.classes)
-                if n in self.returned]
+        return [self.classes[n] for n in sorted(self.classes) if n in self.returned]
 
     @property
     def acquirable(self) -> list[ClassModel]:
@@ -1806,15 +1827,13 @@ class Model:
     @property
     def called_back(self) -> list[ClassModel]:
         """Every `@calls_back` class, by name."""
-        return [self.classes[n] for n in sorted(self.classes)
-                if self.classes[n].calls_back]
+        return [self.classes[n] for n in sorted(self.classes) if self.classes[n].calls_back]
 
     @property
     def ordered_served(self) -> list[ClassModel]:
         """Every served class: the returned ones, then the constructed
         ones, each by name - the order every surface emits them in."""
-        return [c for c in (*self.handed_back, *self.constructed)
-                if c.served]
+        return [c for c in (*self.handed_back, *self.constructed) if c.served]
 
     def offered(self, m: MethodModel) -> bool:
         """Whether a method crosses the wire, which is also whether the

@@ -116,29 +116,33 @@ class OverlayNamespace:
     lower_dir: str = STORE_DIR
 
     @classmethod
-    def under(cls, root: str | os.PathLike[str], *,
-              lower_store: str = "daemon",
-              lower_dir: str = STORE_DIR) -> OverlayNamespace:
+    def under(
+        cls, root: str | os.PathLike[str], *, lower_store: str = "daemon", lower_dir: str = STORE_DIR
+    ) -> OverlayNamespace:
         """The four directories under one `root`."""
         base = pathlib.Path(root)
-        return cls(upper_dir=str(base / "upper"),
-                   work_dir=str(base / "work"),
-                   state_dir=str(base / "state"),
-                   log_dir=str(base / "log"),
-                   lower_store=lower_store,
-                   lower_dir=lower_dir)
+        return cls(
+            upper_dir=str(base / "upper"),
+            work_dir=str(base / "work"),
+            state_dir=str(base / "state"),
+            log_dir=str(base / "log"),
+            lower_store=lower_store,
+            lower_dir=lower_dir,
+        )
 
     def store_uri(self) -> str:
         """The `local-overlay://` URI of this store. The parameter names
         are those of `local-overlay-store.hh` and the local-fs store;
         Nix parses and validates the URI when it opens it. `work_dir`
         is absent: the mount needs it, the store does not."""
-        query = urllib.parse.urlencode({
-            "lower-store": self.lower_store,
-            "upper-layer": self.upper_dir,
-            "state": self.state_dir,
-            "log": self.log_dir,
-        })
+        query = urllib.parse.urlencode(
+            {
+                "lower-store": self.lower_store,
+                "upper-layer": self.upper_dir,
+                "state": self.state_dir,
+                "log": self.log_dir,
+            }
+        )
         return f"local-overlay://?{query}"
 
 
@@ -184,8 +188,7 @@ def release(root: str | os.PathLike[str], fd: int | None) -> None:
         if os.path.lexists(root):
             remove_layers(root)
     except OSError:
-        logger.warning("cannot remove the overlay layers at %s", root,
-                       exc_info=True)
+        logger.warning("cannot remove the overlay layers at %s", root, exc_info=True)
     finally:
         if fd is not None:
             os.close(fd)
@@ -204,13 +207,11 @@ def owning(root: str | os.PathLike[str]) -> Iterator[None]:
             try:
                 _umount(_mounted_at)
             except OSError:
-                logger.warning("cannot unmount the overlay at %s",
-                               _mounted_at, exc_info=True)
+                logger.warning("cannot unmount the overlay at %s", _mounted_at, exc_info=True)
         release(root, fd)
 
 
-def sweep(parent: str | os.PathLike[str] | None = None, *,
-          min_age: float = SWEEP_MIN_AGE) -> list[str]:
+def sweep(parent: str | os.PathLike[str] | None = None, *, min_age: float = SWEEP_MIN_AGE) -> list[str]:
     """Remove each temporary root of this user under `parent` (the
     system's temporary directory by default) that no live process
     holds, and return the roots it removed."""
@@ -225,9 +226,7 @@ def sweep(parent: str | os.PathLike[str] | None = None, *,
                 info = entry.stat(follow_symlinks=False)
             except FileNotFoundError:
                 continue
-            if (not entry.is_dir(follow_symlinks=False)
-                    or info.st_uid != os.getuid()
-                    or now - info.st_mtime < min_age):
+            if not entry.is_dir(follow_symlinks=False) or info.st_uid != os.getuid() or now - info.st_mtime < min_age:
                 continue
             if _sweep_one(entry.path):
                 removed.append(entry.path)
@@ -270,42 +269,38 @@ def _umount(target: str) -> None:
         raise OSError(errno, f"umount2({target!r}): {os.strerror(errno)}")
 
 
-def _mount(source: str, target: str, fstype: str | None, flags: int,
-           data: str | None) -> None:
+def _mount(source: str, target: str, fstype: str | None, flags: int, data: str | None) -> None:
     libc = _libc()
 
     def encode(value: str | None) -> bytes | None:
         return None if value is None else value.encode()
 
-    if libc.mount(encode(source), encode(target), encode(fstype),
-                  ctypes.c_ulong(flags), encode(data)) != 0:
+    if libc.mount(encode(source), encode(target), encode(fstype), ctypes.c_ulong(flags), encode(data)) != 0:
         errno = ctypes.get_errno()
-        raise OSError(errno, f"mount({source!r}, {target!r}, {fstype!r}): "
-                             f"{os.strerror(errno)}")
+        raise OSError(errno, f"mount({source!r}, {target!r}, {fstype!r}): {os.strerror(errno)}")
 
 
-def enter_overlay_namespace(spec: OverlayNamespace, *,
-                            mount_at: str = STORE_DIR) -> None:
+def enter_overlay_namespace(spec: OverlayNamespace, *, mount_at: str = STORE_DIR) -> None:
     """Enter a private user and mount namespace, and mount the overlay
     at `mount_at`. Call it on the only thread, before Nix opens a store.
     The mount is visible to this process and its children alone."""
     if sys.platform != "linux":
-        raise RuntimeError(
-            f"an overlay store namespace needs Linux, not {sys.platform}")
+        raise RuntimeError(f"an overlay store namespace needs Linux, not {sys.platform}")
     threads = threading.active_count()
     if threads != 1:
         raise RuntimeError(
             f"enter_overlay_namespace needs a single-threaded process, "
             f"and this one has {threads} threads: unshare(CLONE_NEWUSER) "
-            f"fails with EINVAL once a second thread exists")
+            f"fails with EINVAL once a second thread exists"
+        )
 
     uid, gid = os.getuid(), os.getgid()
     try:
         os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNS)
     except OSError as exc:
         raise RuntimeError(
-            f"cannot create a user namespace ({exc.strerror}): this host "
-            f"does not let an unprivileged user create one") from exc
+            f"cannot create a user namespace ({exc.strerror}): this host does not let an unprivileged user create one"
+        ) from exc
 
     # Root inside, and nothing else mapped: root is what lets Nix build
     # without a build-users group. The kernel refuses an unprivileged
@@ -318,16 +313,14 @@ def enter_overlay_namespace(spec: OverlayNamespace, *,
     # shared (the systemd default), and every process sees it.
     _mount("none", "/", None, _MS_REC | _MS_PRIVATE, None)
 
-    for directory in (spec.upper_dir, spec.work_dir, spec.state_dir,
-                      spec.log_dir, mount_at):
+    for directory in (spec.upper_dir, spec.work_dir, spec.state_dir, spec.log_dir, mount_at):
         pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
 
     # `userxattr` is required: an unprivileged mount cannot write the
     # `trusted.overlay.*` attributes, so a whiteout over a lower path
     # would fail. OverlayFS resolves `lowerdir` before the new mount
     # hides it, so a lower layer at `mount_at` stays readable.
-    options = (f"lowerdir={spec.lower_dir},upperdir={spec.upper_dir},"
-               f"workdir={spec.work_dir},userxattr")
+    options = f"lowerdir={spec.lower_dir},upperdir={spec.upper_dir},workdir={spec.work_dir},userxattr"
     try:
         _mount("overlay", mount_at, "overlay", 0, options)
     except OSError as exc:
@@ -335,6 +328,7 @@ def enter_overlay_namespace(spec: OverlayNamespace, *,
             f"cannot mount the overlay store at {mount_at} "
             f"({exc.strerror}). {spec.work_dir} must be on the filesystem "
             f"of {spec.upper_dir}, and that filesystem must support user "
-            f"extended attributes") from exc
+            f"extended attributes"
+        ) from exc
     global _mounted_at
     _mounted_at = mount_at

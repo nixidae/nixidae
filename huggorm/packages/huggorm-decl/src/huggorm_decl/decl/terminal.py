@@ -19,8 +19,7 @@ from huggorm_dsl.declare import (
 
 
 @needs(Local("nix/util/terminal.hh"), Std("limits"))
-def filter_ansi_escapes(text: Str, filter_all: Bint = False,
-                        width: Opt[U64] = None) -> Str:
+def filter_ansi_escapes(text: Str, filter_all: Bint = False, width: Opt[U64] = None) -> Str:
     """Filter the ANSI escape sequences out of `text`, as Nix does.
 
     With `filter_all` false a colour sequence stays and counts for no

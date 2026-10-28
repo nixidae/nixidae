@@ -19,8 +19,7 @@ from huggorm_gen.ir import Kind, Member, Origin, ParamModel, TypeRef
 from huggorm_gen.payload._wiretypes import python_spelling
 
 # Names Python already has.
-BUILTIN = frozenset({"None", "str", "int", "float", "bool", "bytes",
-                     "object"})
+BUILTIN = frozenset({"None", "str", "int", "float", "bool", "bytes", "object"})
 
 # Where a name is imported from: a module and its relative level.
 Source = tuple[str, int]
@@ -51,8 +50,7 @@ def dotted(name: str) -> ast.expr:
 
 def union(first: ast.expr, *rest: ast.expr) -> ast.expr:
     """`first | ...`, left to right as Python groups it."""
-    return functools.reduce(
-        lambda a, b: ast.BinOp(left=a, op=ast.BitOr(), right=b), rest, first)
+    return functools.reduce(lambda a, b: ast.BinOp(left=a, op=ast.BitOr(), right=b), rest, first)
 
 
 NONE = ast.Constant(value=None)
@@ -60,8 +58,7 @@ NONE = ast.Constant(value=None)
 
 def import_from(module: str, *names: str, level: int = 0) -> ast.ImportFrom:
     """`from module import names`. ruff merges and orders them later."""
-    return ast.ImportFrom(module=module, names=[ast.alias(name=n) for n in names],
-                          level=level)
+    return ast.ImportFrom(module=module, names=[ast.alias(name=n) for n in names], level=level)
 
 
 class Spelling:
@@ -71,9 +68,12 @@ class Spelling:
     module may spell a parameter, a constructor argument and a return
     three ways."""
 
-    def __init__(self, proxy: Rename | None = None,
-                 expand: Mapping[str, tuple[TypeRef, ...]] | None = None,
-                 client: Rename | None = None) -> None:
+    def __init__(
+        self,
+        proxy: Rename | None = None,
+        expand: Mapping[str, tuple[TypeRef, ...]] | None = None,
+        client: Rename | None = None,
+    ) -> None:
         self._proxy = proxy
         # The async protocol a parameter of a `@calls_back` class also
         # takes, on a surface that adapts one (nixidae/nixidae#740).
@@ -87,20 +87,19 @@ class Spelling:
         # `import module`, for a type written dotted.
         self.modules: set[str] = set()
 
-    def __call__(self, t: TypeRef, proxy: Rename | None = None,
-                 twin: bool = False, client: bool = False) -> ast.expr:
+    def __call__(self, t: TypeRef, proxy: Rename | None = None, twin: bool = False, client: bool = False) -> ast.expr:
         """`client` widens a `@calls_back` leaf to its async protocol:
         a parameter takes one, a return never hands one back."""
         match t.origin:
             case Origin.OPTIONAL:
                 return union(self(t.args[0], proxy, twin, client), NONE)
             case Origin.LIST:
-                return ast.Subscript(value=ast.Name(id="list"),
-                                     slice=self(t.args[0], proxy, twin, client))
+                return ast.Subscript(value=ast.Name(id="list"), slice=self(t.args[0], proxy, twin, client))
             case Origin.DICT:
-                return ast.Subscript(value=ast.Name(id="dict"), slice=ast.Tuple(
-                    elts=[ast.Name(id="str"),
-                          self(t.args[0], proxy, twin, client)]))
+                return ast.Subscript(
+                    value=ast.Name(id="dict"),
+                    slice=ast.Tuple(elts=[ast.Name(id="str"), self(t.args[0], proxy, twin, client)]),
+                )
             case None:
                 pass
             case _:
@@ -129,8 +128,7 @@ class Spelling:
                 if self._expand is not None:
                     return self._arms(t.name)
                 self.need(t.name, UNIONS)
-            case (Kind.SCALAR | Kind.ENUM | Kind.ERROR | Kind.VALUE
-                  | Kind.CLIENT | Kind.OPAQUE):
+            case Kind.SCALAR | Kind.ENUM | Kind.ERROR | Kind.VALUE | Kind.CLIENT | Kind.OPAQUE:
                 if t.name not in BUILTIN:
                     self.need(t.name, BINDINGS)
             case _:
@@ -162,8 +160,7 @@ class Spelling:
         """A type written dotted, `pathlib.Path`: its module is bound."""
         self.modules.add(name.split(".", 1)[0])
 
-    def returns(self, t: TypeRef | None, proxy: Rename | None = None,
-                twin: bool = False) -> ast.expr:
+    def returns(self, t: TypeRef | None, proxy: Rename | None = None, twin: bool = False) -> ast.expr:
         return self(t, proxy, twin) if t is not None else NONE
 
     def defaults(self, params: Iterable[ParamModel]) -> None:
@@ -187,4 +184,6 @@ class Spelling:
         class the module defines, which it must not import."""
         return self.module_imports() + [
             import_from(module, *(names - {own}), level=level)
-            for (module, level), names in self.froms.items() if names - {own}]
+            for (module, level), names in self.froms.items()
+            if names - {own}
+        ]

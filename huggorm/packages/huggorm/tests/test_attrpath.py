@@ -115,9 +115,7 @@ def test_show_attr_paths_joins_as_nix_does() -> None:
     assert show_attr_paths(["a", "b", "c"]) == "'a', 'b' or 'c'"
 
 
-BUILD = AttrPathSearch(
-    prefixes=("packages.x.", "legacyPackages.x."), defaults=("packages.x.default",)
-)
+BUILD = AttrPathSearch(prefixes=("packages.x.", "legacyPackages.x."), defaults=("packages.x.default",))
 
 
 @pytest.mark.parametrize(
@@ -130,9 +128,7 @@ BUILD = AttrPathSearch(
         (".", ("",)),
     ],
 )
-def test_candidates_follow_get_actual_attr_paths(
-    fragment: str | None, candidates: tuple[str, ...]
-) -> None:
+def test_candidates_follow_get_actual_attr_paths(fragment: str | None, candidates: tuple[str, ...]) -> None:
     assert BUILD.candidates(fragment) == candidates
 
 

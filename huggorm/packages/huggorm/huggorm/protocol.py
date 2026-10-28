@@ -161,8 +161,7 @@ def peer_uid(stream: ByteStream) -> int:
     """The uid of the process on the other end of a Unix socket, as
     the kernel recorded it at connect time."""
     sock: socket.socket = stream.extra(SocketAttribute.raw_socket)
-    creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
-                            struct.calcsize("3i"))
+    creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
     _pid, uid, _gid = struct.unpack("3i", creds)
     return int(uid)
 
@@ -179,8 +178,7 @@ class Channel:
     async def send(self, frame: list[Any]) -> None:
         body = pack(frame)
         if len(body) > MAX_FRAME:
-            raise ProtocolError(f"a {len(body)} byte frame is over the "
-                                f"{MAX_FRAME} byte limit")
+            raise ProtocolError(f"a {len(body)} byte frame is over the {MAX_FRAME} byte limit")
         # Shielded: a cancel in the middle of a write leaves the peer
         # reading a body that never ends.
         with anyio.CancelScope(shield=True):
@@ -198,13 +196,11 @@ class Channel:
             raise anyio.EndOfStream from None
         (length,) = _LENGTH.unpack(head)
         if length > MAX_FRAME:
-            raise ProtocolError(f"a {length} byte frame is over the "
-                                f"{MAX_FRAME} byte limit")
+            raise ProtocolError(f"a {length} byte frame is over the {MAX_FRAME} byte limit")
         try:
             body = await self._reader.receive_exactly(length)
         except anyio.IncompleteRead:
-            raise ProtocolError(
-                f"the peer closed inside a {length} byte frame") from None
+            raise ProtocolError(f"the peer closed inside a {length} byte frame") from None
         frame = unpack(body)
         if type(frame) is not list or not frame or type(frame[0]) is not int:
             raise ProtocolError(f"a frame arrived as {frame!r:.80}")
@@ -263,8 +259,7 @@ class Peer:
         try:
             try:
                 await self.channel.send([op, n, *body])
-            except (anyio.BrokenResourceError,
-                    anyio.ClosedResourceError) as e:
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError) as e:
                 raise ConnectionLost("the connection is closed") from e
             try:
                 await waiting.done.wait()
@@ -272,8 +267,7 @@ class Peer:
                 if not waiting.done.is_set():
                     # `send` shields itself, so a cancelled asker still
                     # sends.
-                    with contextlib.suppress(anyio.BrokenResourceError,
-                                             anyio.ClosedResourceError):
+                    with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
                         await self.channel.send([Op.CANCEL, n])
                 raise
         finally:
@@ -295,8 +289,7 @@ class Peer:
             waiting.frame = frame
             waiting.done.set()
 
-    def serve(self, tasks: TaskGroup, n: int,
-              answer: Callable[[], Awaitable[list[Any]]]) -> None:
+    def serve(self, tasks: TaskGroup, n: int, answer: Callable[[], Awaitable[list[Any]]]) -> None:
         """Answer request `n` in a task of `tasks`: send the frame
         `answer` makes. A CANCEL for `n` ends it with no answer.
 
@@ -305,16 +298,14 @@ class Peer:
         scope = self._answering[n] = anyio.CancelScope()
         tasks.start_soon(self._answer, n, scope, answer)
 
-    async def _answer(self, n: int, scope: anyio.CancelScope,
-                      answer: Callable[[], Awaitable[list[Any]]]) -> None:
+    async def _answer(self, n: int, scope: anyio.CancelScope, answer: Callable[[], Awaitable[list[Any]]]) -> None:
         try:
             with scope:
                 # A cancel delivered at the first await would still
                 # run `answer` up to that await: a thread may start.
                 await anyio.lowlevel.checkpoint_if_cancelled()
                 frame = await answer()
-                with contextlib.suppress(anyio.BrokenResourceError,
-                                         anyio.ClosedResourceError):
+                with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
                     await self.channel.send(frame)
         finally:
             if self._answering.get(n) is scope:
@@ -354,8 +345,7 @@ class Faults:
     (nixidae/nixidae#603). Anything else crosses as an InternalError: its cause
     crosses as itself when declared, and by builtin name when not."""
 
-    def __init__(self, codec: Codec | None = None,
-                 module: ModuleType | None = None) -> None:
+    def __init__(self, codec: Codec | None = None, module: ModuleType | None = None) -> None:
         self.codec = codec or Codec()
         self._module = module
 
@@ -378,8 +368,7 @@ class Faults:
         return _ERRORS.index(name)
 
     def _parts(self, index: int, err: BaseException) -> Any:
-        return self.codec.encode(Wire(WireKind.ERROR, _ERRORS[index]), err,
-                                 _no_proxy)
+        return self.codec.encode(Wire(WireKind.ERROR, _ERRORS[index]), err, _no_proxy)
 
     def encode(self, wrapper: Any) -> list[Any]:
         """`wrapper` is a declared error, a WrapperError or a Refused."""
@@ -387,15 +376,19 @@ class Faults:
             return [wrapper.code, wrapper.message, "", "", None, None]
         itself = self._declared(wrapper)
         if itself is not None:
-            return [wrapper.code, wrapper.message, "", "", itself,
-                    self._parts(itself, wrapper)]
+            return [wrapper.code, wrapper.message, "", "", itself, self._parts(itself, wrapper)]
         cause: BaseException | None = getattr(wrapper, "__cause__", None)
         if cause is None:
             return [wrapper.code, wrapper.message, "", "", None, None]
         declared = self._declared(cause)
-        return [wrapper.code, wrapper.message, type(cause).__name__,
-                str(cause), declared,
-                None if declared is None else self._parts(declared, cause)]
+        return [
+            wrapper.code,
+            wrapper.message,
+            type(cause).__name__,
+            str(cause),
+            declared,
+            None if declared is None else self._parts(declared, cause),
+        ]
 
     def decode(self, raw: Any) -> BaseException:
         from huggorm_generated._runtime import InternalError, WrapperError
@@ -410,12 +403,10 @@ class Faults:
         if error is not None:
             if type(error) is not int or not 0 <= error < len(_ERRORS):
                 raise ProtocolError(f"no declared error numbered {error!r}")
-            rebuilt = self.codec.decode(
-                Wire(WireKind.ERROR, _ERRORS[error]), parts, _no_proxy)
+            rebuilt = self.codec.decode(Wire(WireKind.ERROR, _ERRORS[error]), parts, _no_proxy)
         if not cause_type:
             return rebuilt or WrapperError(message)
-        return InternalError(
-            message, cause=rebuilt or _approximate(cause_type, cause_message))
+        return InternalError(message, cause=rebuilt or _approximate(cause_type, cause_message))
 
 
 def _no_proxy(_: Any) -> Any:

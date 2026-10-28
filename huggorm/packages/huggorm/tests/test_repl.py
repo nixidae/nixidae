@@ -115,8 +115,7 @@ def test_a_file_is_found_in_the_lookup_path(tmp_path: pathlib.Path) -> None:
     assert repl.load_file("<plain>").integer() == 1
 
 
-def test_a_loaded_file_is_called_and_not_added(
-        repl: Repl, tmp_path: pathlib.Path) -> None:
+def test_a_loaded_file_is_called_and_not_added(repl: Repl, tmp_path: pathlib.Path) -> None:
     (tmp_path / "default.nix").write_text("{ value ? 41 }: { answer = value + 1; }")
     loaded = repl.load_file(str(tmp_path))
     assert loaded.type_name() == "attrs"
@@ -129,8 +128,7 @@ REPL_SIZE = 32768
 
 
 def _set_of(count: int) -> str:
-    return (f"builtins.listToAttrs (builtins.genList"
-            f' (i: {{ name = "a" + toString i; value = i; }}) {count})')
+    return f'builtins.listToAttrs (builtins.genList (i: {{ name = "a" + toString i; value = i; }}) {count})'
 
 
 def test_a_set_that_fills_the_scope_exactly_is_added(repl: Repl) -> None:
@@ -189,7 +187,7 @@ def test_a_held_scope_is_never_collected(state: EvalState) -> None:
 async def test_a_scope_serves_over_the_wire(client: Any) -> None:
     state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     repl = await state.repl()
-    assert await repl.process_line('a = { b = 1; }') is None
+    assert await repl.process_line("a = { b = 1; }") is None
     answer = await repl.process_line("a.b + 1")
     assert await answer.integer() == 2
     selected = await repl.select("a.b")

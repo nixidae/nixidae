@@ -110,8 +110,7 @@ def test_a_warning_takes_the_other_path(subscribed: tuple[Any, Any]) -> None:
     assert info.msg() == "careful"
 
 
-def test_a_warning_in_no_encoding_reads_as_bytes(
-        subscribed: tuple[Any, Any], tmp_path: pathlib.Path) -> None:
+def test_a_warning_in_no_encoding_reads_as_bytes(subscribed: tuple[Any, Any], tmp_path: pathlib.Path) -> None:
     """`logEI` carries the same bytes the error would.
 
     `builtins.warn` of bytes read from a file logs them through
@@ -131,8 +130,7 @@ def test_a_warning_in_no_encoding_reads_as_bytes(
     assert info.msg_bytes() == b"\xff\xfe"
 
 
-def test_a_plain_message_carries_no_error_info(
-        subscribed: tuple[Any, Any]) -> None:
+def test_a_plain_message_carries_no_error_info(subscribed: tuple[Any, Any]) -> None:
     """`log`, not `logEI`: a trace is text, and has no parts."""
     state, stream = subscribed
     state.eval_expr(TRACE % "plain")
@@ -163,8 +161,7 @@ def test_the_level_refuses_what_it_did_not_ask_for(state: Any) -> None:
     assert "refused" not in seen
 
 
-def test_a_message_the_caller_logs_arrives_as_nix_s_own(
-        subscribed: tuple[Any, Any]) -> None:
+def test_a_message_the_caller_logs_arrives_as_nix_s_own(subscribed: tuple[Any, Any]) -> None:
     """`log_message` is `nix::logger->log`, so the record is a "msg"
     at the level given, and the level filters it as it does Nix's."""
     from huggorm_bindings import log_message
@@ -173,8 +170,7 @@ def test_a_message_the_caller_logs_arrives_as_nix_s_own(
     log_message(3, "from python")
     log_message(7, "too verbose")
     records = stream.drain()
-    assert [(r.action(), r.level(), r.text()) for r in records] == [
-        ("msg", 3, "from python")]
+    assert [(r.action(), r.level(), r.text()) for r in records] == [("msg", 3, "from python")]
 
 
 def test_a_logged_level_outside_nix_s_range_is_refused() -> None:
@@ -330,8 +326,7 @@ def test_a_record_carries_its_fields_as_a_list(subscribed: tuple[Any, Any]) -> N
     assert isinstance(record.fields(), list)
 
 
-def test_a_message_in_no_encoding_fails_text_and_reads_as_bytes(
-        tmp_path: pathlib.Path) -> None:
+def test_a_message_in_no_encoding_fails_text_and_reads_as_bytes(tmp_path: pathlib.Path) -> None:
     """A log carries bytes, and `text` is only one decoder.
 
     `builtins.trace` of bytes Nix read from a file evaluates fine:
@@ -374,8 +369,7 @@ def test_a_field_in_no_encoding_fails_text_and_reads_as_bytes() -> None:
 
 
 @pytest.mark.live
-def test_an_activity_arrives_as_a_start_and_a_stop(
-        tmp_path: pathlib.Path) -> None:
+def test_an_activity_arrives_as_a_start_and_a_stop(tmp_path: pathlib.Path) -> None:
     """The tree, not the stream.
 
     Interpolating a path copies it into the store, and `fetchToStore`
@@ -430,8 +424,7 @@ def test_a_stop_is_never_dropped(tmp_path: pathlib.Path) -> None:
     starts = [r.id() for r in records if r.action() == "start"]
     stops = [r.id() for r in records if r.action() == "stop"]
     assert starts, "an activity was raised"
-    assert sorted(starts) == sorted(stops), \
-        "every start past the bound still got its stop"
+    assert sorted(starts) == sorted(stops), "every start past the bound still got its stop"
 
 
 @pytest.fixture
@@ -451,8 +444,7 @@ def process_sink() -> Iterator[Any]:
         unsubscribe_process_logs()
 
 
-def test_an_unclaimed_record_reaches_the_process_sink(
-        state: Any, process_sink: Any) -> None:
+def test_an_unclaimed_record_reaches_the_process_sink(state: Any, process_sink: Any) -> None:
     """The gap nixidae/nixidae#622 named, closed.
 
     This thread subscribed to NOTHING, so before the sink existed the
@@ -467,8 +459,7 @@ def test_an_unclaimed_record_reaches_the_process_sink(
     assert any("unclaimed" in t for t in texts(process_sink))
 
 
-def test_a_subscribed_thread_claims_its_own_records(
-        state: Any, process_sink: Any) -> None:
+def test_a_subscribed_thread_claims_its_own_records(state: Any, process_sink: Any) -> None:
     """A FALLBACK, not a broadcast, and this is the direction that
     says so.
 
@@ -493,12 +484,10 @@ def test_a_subscribed_thread_claims_its_own_records(
         state.unsubscribe_logs()
 
     assert any("claimed" in t for t in mine), "the thread's queue got it"
-    assert not any("claimed" in t for t in texts(process_sink)), \
-        "and the process sink did not"
+    assert not any("claimed" in t for t in texts(process_sink)), "and the process sink did not"
 
 
-def test_a_second_process_subscription_replaces_the_first(
-        state: Any) -> None:
+def test_a_second_process_subscription_replaces_the_first(state: Any) -> None:
     """REPLACES, like `subscribe_logs`, and closes what it replaced.
 
     Refusing was the other answer and is wrong at this layer: an
@@ -520,8 +509,7 @@ def test_a_second_process_subscription_replaces_the_first(
     try:
         state.eval_expr(TRACE % "after")
         assert any("after" in t for t in texts(second))
-        assert texts(first) == [], \
-            "closed, so what it held went too - not merely superseded"
+        assert texts(first) == [], "closed, so what it held went too - not merely superseded"
     finally:
         unsubscribe_process_logs()
 
@@ -597,8 +585,7 @@ async def test_a_remote_handle_drains(client: Any) -> None:
     The handle is a reader of the state's fan-out, and each `drain`
     pulls the shared queue. ONE drain: the trace is queued on the
     evaluation thread before `eval_expr` answers."""
-    state = await client.acquire(
-        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await state.subscribe_logs()
     try:
         await state.eval_expr(TRACE % "through a handle")
@@ -619,8 +606,7 @@ async def test_a_remote_subscribe_silences_no_stream(client: Any) -> None:
     a remote `unsubscribe_logs` would end it (nixidae/nixidae#622). Both rpcs
     go through the state's fan-out instead, so the stream hears every
     record before, between and after them."""
-    state = await client.acquire(
-        AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
     stream = await opened(client, state)
     try:
         handle = await state.subscribe_logs()
@@ -724,8 +710,7 @@ async def test_a_trace_reaches_a_remote_client(client: Any) -> None:
         await stream.aclose()
 
 
-async def test_an_idle_remote_stream_waits_on_the_server(
-        client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_idle_remote_stream_waits_on_the_server(client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A quiet stream sends one request and waits for its answer.
 
     A stream that polled asked every 50 ms, so half a second of quiet
@@ -739,8 +724,7 @@ async def test_an_idle_remote_stream_waits_on_the_server(
     send = channel.send
 
     async def counted(frame: list[Any]) -> None:
-        if frame[:1] == [Op.CALL] or (frame[:1] == [Op.CONTROL]
-                                      and frame[2] != Control.PING):
+        if frame[:1] == [Op.CALL] or (frame[:1] == [Op.CONTROL] and frame[2] != Control.PING):
             sent.append(frame)
         await send(frame)
 
@@ -784,8 +768,7 @@ async def test_a_record_arrives_as_a_real_local_object(client: Any) -> None:
     assert isinstance(record.fields(), list)
 
 
-async def test_a_message_in_no_encoding_crosses_as_bytes(
-        client: Any, tmp_path: pathlib.Path) -> None:
+async def test_a_message_in_no_encoding_crosses_as_bytes(client: Any, tmp_path: pathlib.Path) -> None:
     """The gate on the wire change: the part reads `text_bytes`.
 
     A part that read `text` would fail the encoding on the first line
@@ -802,8 +785,7 @@ async def test_a_message_in_no_encoding_crosses_as_bytes(
     finally:
         await stream.aclose()
 
-    assert any(r.text_bytes() == b"trace: \xff\xfe" for r in records
-               if r.action() == "msg"), records
+    assert any(r.text_bytes() == b"trace: \xff\xfe" for r in records if r.action() == "msg"), records
     assert dropped == 0
 
 
@@ -898,8 +880,7 @@ async def test_two_readers_on_one_state_both_see_it(client: Any) -> None:
     assert any("BOTH-OF-US" in r.text() for r in two), two
 
 
-async def test_one_reader_leaving_does_not_stop_the_other(
-        client: Any) -> None:
+async def test_one_reader_leaving_does_not_stop_the_other(client: Any) -> None:
     """The refcount, from the side that matters.
 
     The subscription lives while ANY reader holds it. A `leave` that
@@ -962,8 +943,7 @@ async def opened_process(client: Any, **kw: Any) -> Any:
     return stream
 
 
-async def test_an_unclaimed_record_reaches_a_remote_client(
-        client: Any) -> None:
+async def test_an_unclaimed_record_reaches_a_remote_client(client: Any) -> None:
     """The gap nixidae/nixidae#622 named, over the wire.
 
     The state is acquired and NEVER given a `logs` stream, so its
@@ -1034,8 +1014,7 @@ async def test_two_process_readers_both_see_it(client: Any) -> None:
     assert any("SEEN-TWICE" in r.text() for r in two), two
 
 
-async def test_a_closed_process_stream_lets_the_next_one_in(
-        client: Any) -> None:
+async def test_a_closed_process_stream_lets_the_next_one_in(client: Any) -> None:
     """The gate on `join` AFTER a teardown.
 
     There is no flag any more - `Fanout` counts readers - so what
@@ -1144,9 +1123,7 @@ async def test_a_swept_connection_ends_the_stream(ttl_server: Server) -> None:
 #   nothing writes stderr at all.
 
 
-def test_a_message_reaches_stderr_with_no_subscriber(
-    state: Any, capfd: pytest.CaptureFixture[str]
-) -> None:
+def test_a_message_reaches_stderr_with_no_subscriber(state: Any, capfd: pytest.CaptureFixture[str]) -> None:
     """The fallback exists, and nix's own gate is the only one.
 
     `builtins.trace` is `printError`, so lvlError (`primops.cc:1282`),
@@ -1221,8 +1198,7 @@ async def test_a_record_carries_the_call_it_was_raised_inside() -> None:
 
     finals = [r for r in records if r.action() == "finalized"]
     assert finals, [r.action() for r in records]
-    assert traces[0].request() in {r.request() for r in finals}, \
-        "the call that raised it also said it had finished"
+    assert traces[0].request() in {r.request() for r in finals}, "the call that raised it also said it had finished"
 
 
 async def test_two_calls_get_two_numbers() -> None:
@@ -1248,9 +1224,7 @@ async def test_two_calls_get_two_numbers() -> None:
     assert first[0] != second[0], "two calls, two numbers"
 
 
-def test_a_record_outside_a_wrapped_call_carries_zero(
-    subscribed: tuple[Any, Any]
-) -> None:
+def test_a_record_outside_a_wrapped_call_carries_zero(subscribed: tuple[Any, Any]) -> None:
     """Zero is an answer, and it is reachable.
 
     The sync binding is called straight from this thread, so no
@@ -1299,8 +1273,7 @@ async def test_the_marker_survives_a_queue_full_of_messages() -> None:
     # At least one per eval. `subscribe_logs` is a wrapped call too,
     # and the queue exists by the time its own marker is pushed, so it
     # adds one more - which is why this counts down and not equal.
-    assert len(finals) >= 20, \
-        f"every call said it finished, got {len(finals)}"
+    assert len(finals) >= 20, f"every call said it finished, got {len(finals)}"
 
 
 # ---- the level is the thread's, and it can widen --------------------
@@ -1339,9 +1312,7 @@ def evaluated(tmp_path: pathlib.Path) -> str:
     return str(tmp_path)
 
 
-def test_a_subscription_can_ask_for_more_than_the_default(
-    state: Any, tmp_path: pathlib.Path
-) -> None:
+def test_a_subscription_can_ask_for_more_than_the_default(state: Any, tmp_path: pathlib.Path) -> None:
     """The whole point, and the thing the old design could not do.
 
     `evaluating file` is lvlTalkative, which is ABOVE the lvlInfo
@@ -1355,8 +1326,7 @@ def test_a_subscription_can_ask_for_more_than_the_default(
     stream = state.subscribe_logs(level=TALKATIVE)
     try:
         state.eval_file(where)
-        deep = [r for r in stream.drain()
-                if r.action() == "msg" and r.level() == TALKATIVE]
+        deep = [r for r in stream.drain() if r.action() == "msg" and r.level() == TALKATIVE]
     finally:
         state.unsubscribe_logs()
 
@@ -1364,9 +1334,7 @@ def test_a_subscription_can_ask_for_more_than_the_default(
     assert EVALUATING_FILE in deep[0].text(), deep[0].text()
 
 
-def test_the_same_work_at_the_default_says_nothing(
-    state: Any, tmp_path: pathlib.Path
-) -> None:
+def test_the_same_work_at_the_default_says_nothing(state: Any, tmp_path: pathlib.Path) -> None:
     """Pinning the global must not widen what a plain caller sees.
 
     The SAME evaluation as above, at the default level. The pin moved
@@ -1383,14 +1351,11 @@ def test_the_same_work_at_the_default_says_nothing(
     finally:
         state.unsubscribe_logs()
 
-    loud = [r for r in records
-            if r.action() == "msg" and r.level() > 3]
+    loud = [r for r in records if r.action() == "msg" and r.level() > 3]
     assert not loud, [(r.level(), r.text()) for r in loud]
 
 
-def test_unsubscribing_puts_the_level_back(
-    state: Any, tmp_path: pathlib.Path
-) -> None:
+def test_unsubscribing_puts_the_level_back(state: Any, tmp_path: pathlib.Path) -> None:
     """A level belongs to a subscription, not to the thread forever.
 
     This is why the level is per thread rather than the global
@@ -1408,8 +1373,7 @@ def test_unsubscribing_puts_the_level_back(
     quiet = state.subscribe_logs()
     try:
         state.eval_file(where)
-        after = [r for r in quiet.drain()
-                 if r.action() == "msg" and r.level() > 3]
+        after = [r for r in quiet.drain() if r.action() == "msg" and r.level() > 3]
     finally:
         state.unsubscribe_logs()
 
@@ -1439,8 +1403,7 @@ def test_an_unsubscribed_caller_still_sees_only_the_default(
     assert EVALUATING_FILE not in err, err
 
 
-def test_nothing_asks_nix_for_everything(state: Any,
-                                         tmp_path: pathlib.Path) -> None:
+def test_nothing_asks_nix_for_everything(state: Any, tmp_path: pathlib.Path) -> None:
     """`daemon_verbosity` is what the DAEMON is told to produce.
 
     `RemoteStore::setOptions` sends it over the worker protocol and
@@ -1469,8 +1432,7 @@ def test_nothing_asks_nix_for_everything(state: Any,
     finally:
         state.unsubscribe_logs()
 
-    assert daemon_verbosity() < 7, (
-        "every new daemon connection is told to narrate at vomit")
+    assert daemon_verbosity() < 7, "every new daemon connection is told to narrate at vomit"
 
 
 def test_a_subscription_raises_the_gate_it_needs(state: Any) -> None:
@@ -1521,9 +1483,7 @@ def test_the_ceiling_is_pinned_at_import(state: Any) -> None:
     assert process_verbosity() == CHATTY
 
 
-def test_a_subscription_above_the_ceiling_gets_nothing_above_it(
-    state: Any, tmp_path: pathlib.Path
-) -> None:
+def test_a_subscription_above_the_ceiling_gets_nothing_above_it(state: Any, tmp_path: pathlib.Path) -> None:
     """Nix produces nothing above the pin, so nothing above it arrives.
 
     `findFile` resolves a search path element once per state and says
@@ -1534,14 +1494,12 @@ def test_a_subscription_above_the_ceiling_gets_nothing_above_it(
     the record arrives at 6."""
     stream = state.subscribe_logs(level=7)
     try:
-        state.eval_expr(
-            f'builtins.findFile [ {{ prefix = "hg"; path = "{tmp_path}"; }} ] "hg"')
+        state.eval_expr(f'builtins.findFile [ {{ prefix = "hg"; path = "{tmp_path}"; }} ] "hg"')
         records = stream.drain()
     finally:
         state.unsubscribe_logs()
 
-    above = [(r.level(), r.text()) for r in records
-             if r.action() == "msg" and r.level() > CHATTY]
+    above = [(r.level(), r.text()) for r in records if r.action() == "msg" and r.level() > CHATTY]
     assert not above, above
 
 
@@ -1551,17 +1509,19 @@ print(process_verbosity(), daemon_verbosity())
 """
 
 
-@pytest.mark.parametrize(("value", "pinned"),
-                         [("", CHATTY), ("debug", DEBUG), ("DEBUG", DEBUG),
-                          ("2", 2)])
+@pytest.mark.parametrize(("value", "pinned"), [("", CHATTY), ("debug", DEBUG), ("DEBUG", DEBUG), ("2", 2)])
 def test_huggorm_log_ceiling_picks_the_pin(value: str, pinned: int) -> None:
     """The daemon still starts at lvlInfo, whatever the pin is.
 
     Perturbation: store `nix::lvlVomit` into `remoteVerbosity` in
     `install_log_tap` and the second number is 7."""
-    out = subprocess.run([sys.executable, "-c", CEILING_PROBE],
-                         capture_output=True, text=True, check=False,
-                         env={**os.environ, "HUGGORM_LOG_CEILING": value})
+    out = subprocess.run(
+        [sys.executable, "-c", CEILING_PROBE],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "HUGGORM_LOG_CEILING": value},
+    )
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == [str(pinned), str(LOG_INFO)]
 
@@ -1569,15 +1529,18 @@ def test_huggorm_log_ceiling_picks_the_pin(value: str, pinned: int) -> None:
 @pytest.mark.parametrize("value", ["loud", "8", "-1"])
 def test_a_ceiling_that_names_no_level_refuses_the_import(value: str) -> None:
     """Keeping the default would ignore the caller with nothing said."""
-    out = subprocess.run([sys.executable, "-c", CEILING_PROBE],
-                         capture_output=True, text=True, check=False,
-                         env={**os.environ, "HUGGORM_LOG_CEILING": value})
+    out = subprocess.run(
+        [sys.executable, "-c", CEILING_PROBE],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "HUGGORM_LOG_CEILING": value},
+    )
     assert out.returncode != 0
     assert f"HUGGORM_LOG_CEILING is '{value}'" in out.stderr, out.stderr
 
 
-def test_the_gate_goes_back_down_when_a_subscription_ends(
-        state: Any) -> None:
+def test_the_gate_goes_back_down_when_a_subscription_ends(state: Any) -> None:
     """The other half of the gate above, and it was missing.
 
     nixidae/nixidae#632 measured the cost of never lowering the daemon level:
@@ -1596,12 +1559,10 @@ def test_the_gate_goes_back_down_when_a_subscription_ends(
     assert daemon_verbosity() >= TALKATIVE, "the gate went up"
     state.unsubscribe_logs()
 
-    assert daemon_verbosity() == LOG_INFO, \
-        "nothing asks for more than the default any more"
+    assert daemon_verbosity() == LOG_INFO, "nothing asks for more than the default any more"
 
 
-def test_the_gate_stays_up_for_a_subscription_that_is_still_live(
-        state: Any) -> None:
+def test_the_gate_stays_up_for_a_subscription_that_is_still_live(state: Any) -> None:
     """Lowering has to stop at what someone else still needs.
 
     The whole reason `VerbosityDemand` counts per level instead of
@@ -1622,17 +1583,14 @@ def test_the_gate_stays_up_for_a_subscription_that_is_still_live(
     try:
         state.subscribe_logs(level=TALKATIVE)
         state.unsubscribe_logs()
-        assert daemon_verbosity() >= DEBUG, \
-            "the process-wide subscription still needs it"
+        assert daemon_verbosity() >= DEBUG, "the process-wide subscription still needs it"
     finally:
         unsubscribe_process_logs()
 
     assert daemon_verbosity() == LOG_INFO, "and now nobody does"
 
 
-def test_a_thread_level_needs_no_queue(state: Any,
-                                       tmp_path: pathlib.Path,
-                                       process_sink: Any) -> None:
+def test_a_thread_level_needs_no_queue(state: Any, tmp_path: pathlib.Path, process_sink: Any) -> None:
     """The shape nanopynix reads: one process queue, a level per call.
 
     This thread subscribes to nothing, so its records fall back to the
@@ -1657,8 +1615,7 @@ def test_a_thread_level_needs_no_queue(state: Any,
     finally:
         clear_thread_verbosity()
 
-    deep = [r for r in process_sink.drain()
-            if r.action() == "msg" and r.level() == TALKATIVE]
+    deep = [r for r in process_sink.drain() if r.action() == "msg" and r.level() == TALKATIVE]
     assert any(EVALUATING_FILE in r.text() for r in deep), deep
     assert thread_verbosity() == LOG_INFO, "back to the default"
     assert daemon_verbosity() == LOG_INFO, "and the gate back down"
@@ -1720,9 +1677,7 @@ def test_the_current_request_is_the_one_begun() -> None:
     assert current_request() == 0
 
 
-def test_a_daemon_told_to_narrate_is_told_to_stop(
-        private_daemon: str,
-        capfd: pytest.CaptureFixture[str]) -> None:
+def test_a_daemon_told_to_narrate_is_told_to_stop(private_daemon: str, capfd: pytest.CaptureFixture[str]) -> None:
     """The defect nixidae/nixidae#632 found, as a gate.
 
     The chain, and no gate above it can stand in for this one:

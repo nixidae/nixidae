@@ -126,8 +126,7 @@ def delete_old_generations(profile: Path, dry_run: Bint = False) -> None:
 @needs(Local("nix/store/profiles.hh"))
 @threading("pool")
 @blocks
-def delete_generations_older_than(profile: Path, older_than: Str,
-                                  dry_run: Bint = False) -> None:
+def delete_generations_older_than(profile: Path, older_than: Str, dry_run: Bint = False) -> None:
     """Delete the generations older than `older_than`, such as `30d`, but
     never the current one, nor the newest one older than the cutoff.
     `nix-env --delete-generations 30d`."""

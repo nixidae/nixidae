@@ -54,8 +54,7 @@ async def test_two_states_never_share_a_thread() -> None:
     first, second = await two_states()
     try:
         assert runner_of(first).last_worker_ident is not None
-        assert runner_of(first).last_worker_ident \
-            != runner_of(second).last_worker_ident
+        assert runner_of(first).last_worker_ident != runner_of(second).last_worker_ident
         assert runner_of(first)._executor() is not runner_of(second)._executor()
     finally:
         await first.aclose()
@@ -169,8 +168,7 @@ async def test_a_pool_object_is_not_an_isolation() -> None:
 
     first, second = AsyncStore(URI), AsyncStore(URI)
     try:
-        path = await first.parse_store_path(
-            "/nix/store/00000000000000000000000000000000-x")
+        path = await first.parse_store_path("/nix/store/00000000000000000000000000000000-x")
         assert await second.print_store_path(path)
     finally:
         await first.aclose()

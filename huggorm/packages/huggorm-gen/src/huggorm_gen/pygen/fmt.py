@@ -14,8 +14,14 @@ import pathlib
 import subprocess
 
 SETTINGS = ["--isolated", "--line-length", "100", "--target-version", "py314"]
-SORT = ["--select", "I,RUF022", "--fix", "--quiet", "--config",
-        'lint.isort.known-first-party = ["huggorm", "huggorm_bindings", "huggorm_generated"]']
+SORT = [
+    "--select",
+    "I,RUF022",
+    "--fix",
+    "--quiet",
+    "--config",
+    'lint.isort.known-first-party = ["huggorm", "huggorm_bindings", "huggorm_generated"]',
+]
 
 
 def format_paths(*paths: pathlib.Path) -> None:

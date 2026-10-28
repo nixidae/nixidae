@@ -37,7 +37,7 @@ from huggorm_gen import ir
 
 # What `huggorm_bindings/__init__.py` says about itself. Prose only:
 # every name and every import below it is derived.
-DOC = '''
+DOC = """
 nanobind bindings over Nix, none of them hand-written.
 
 There will be a lot of these, and most of them exist only so that
@@ -90,7 +90,7 @@ rather than as a function of its own.
 There isn't one. `fake-library/` was a C++ stand-in this repo grew
 before real Nix was linked; every module here binds libstore or
 libexpr now, and the stand-in is deleted (nixidae/nixidae#597).
-'''
+"""
 
 
 def module(model: ir.Model) -> str:
@@ -112,14 +112,11 @@ def module(model: ir.Model) -> str:
     by_module = model.exports
     body: list[ast.stmt] = [ast.Expr(value=ast.Constant(value=DOC))]
     for name, names in by_module.items():
-        body.append(ast.ImportFrom(
-            module=name,
-            names=[ast.alias(name=n) for n in names],
-            level=1))
+        body.append(ast.ImportFrom(module=name, names=[ast.alias(name=n) for n in names], level=1))
     everything = sorted({n for names in by_module.values() for n in names})
-    body.append(ast.Assign(
-        targets=[ast.Name(id="__all__")],
-        value=ast.List(elts=[ast.Constant(value=n) for n in everything])))
+    body.append(
+        ast.Assign(targets=[ast.Name(id="__all__")], value=ast.List(elts=[ast.Constant(value=n) for n in everything]))
+    )
     out = ast.Module(body=body, type_ignores=[])
     ast.fix_missing_locations(out)
     return ast.unparse(out)

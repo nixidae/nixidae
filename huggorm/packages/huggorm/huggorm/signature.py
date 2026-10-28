@@ -85,9 +85,7 @@ async def signature_of(value: AsyncValue | Any) -> inspect.Signature:
     quadratic. A caller that wants it asks.
     """
     if await value.type_name() != "function":
-        raise TypeError(
-            f"a {await value.type_name()} has no signature; only a function "
-            f"does")
+        raise TypeError(f"a {await value.type_name()} has no signature; only a function does")
 
     if await value.is_lambda():
         return await _lambda_signature(value)
@@ -100,7 +98,8 @@ async def signature_of(value: AsyncValue | Any) -> inspect.Signature:
     raise TypeError(
         "a partially-applied builtin has no signature: nix does not say "
         "how many arguments it still wants, and guessing would be an "
-        "answer rather than the absence it is")
+        "answer rather than the absence it is"
+    )
 
 
 async def _lambda_signature(value: Any) -> inspect.Signature:
@@ -110,9 +109,7 @@ async def _lambda_signature(value: Any) -> inspect.Signature:
         # and the name is not a keyword any caller can use - it is
         # the lambda's own binding, reported so `help()` can show it.
         name = await value.lambda_arg()
-        return inspect.Signature([
-            inspect.Parameter(_identifier(name, "arg"),
-                              inspect.Parameter.POSITIONAL_ONLY)])
+        return inspect.Signature([inspect.Parameter(_identifier(name, "arg"), inspect.Parameter.POSITIONAL_ONLY)])
 
     names = await value.formal_names()
     defaulted = set(await value.defaulted_formals())
@@ -120,9 +117,10 @@ async def _lambda_signature(value: Any) -> inspect.Signature:
         inspect.Parameter(
             _identifier(name, f"formal_{n}"),
             inspect.Parameter.KEYWORD_ONLY,
-            default=(UNKNOWN_DEFAULT if name in defaulted
-                     else inspect.Parameter.empty))
-        for n, name in enumerate(names)]
+            default=(UNKNOWN_DEFAULT if name in defaulted else inspect.Parameter.empty),
+        )
+        for n, name in enumerate(names)
+    ]
 
     # A parameter with no default may not follow one, even among
     # keyword-only parameters, so the required ones go first. The
@@ -134,8 +132,7 @@ async def _lambda_signature(value: Any) -> inspect.Signature:
         # `...`, which is exactly VAR_KEYWORD: the lambda accepts
         # names it does not mention. It changes what `apply_auto`
         # PASSES as well as what it accepts.
-        params.append(inspect.Parameter(EXTRA,
-                                        inspect.Parameter.VAR_KEYWORD))
+        params.append(inspect.Parameter(EXTRA, inspect.Parameter.VAR_KEYWORD))
 
     # `{ a, b } @ rest:` binds the whole set as well, and a Signature
     # cannot say that: `rest` is not another parameter, it is the same
@@ -157,9 +154,10 @@ async def _primop_signature(value: Any) -> inspect.Signature:
     names = await value.primop_args()
     params = [
         inspect.Parameter(
-            _identifier(names[n] if n < len(names) else "", f"arg_{n}"),
-            inspect.Parameter.POSITIONAL_ONLY)
-        for n in range(arity)]
+            _identifier(names[n] if n < len(names) else "", f"arg_{n}"), inspect.Parameter.POSITIONAL_ONLY
+        )
+        for n in range(arity)
+    ]
     return inspect.Signature(params)
 
 

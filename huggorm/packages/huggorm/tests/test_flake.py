@@ -41,15 +41,17 @@ def state(tmp_path: pathlib.Path) -> EvalState:
 @pytest.fixture
 def probe(tmp_path: pathlib.Path) -> pathlib.Path:
     dep = _flake(tmp_path / "src" / "dep", "{ outputs = _: { y = 1; }; }")
-    return _flake(tmp_path / "src" / "probe", f"""{{
+    return _flake(
+        tmp_path / "src" / "probe",
+        f"""{{
   description = "probe";
   inputs.dep.url = "path:{dep}";
   outputs = {{ dep, ... }}: {{ x = 7; y = dep.y; }};
-}}""")
+}}""",
+    )
 
 
-def test_a_locked_flake_calls_to_its_outputs(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_a_locked_flake_calls_to_its_outputs(state: EvalState, probe: pathlib.Path) -> None:
     locked = state.lock_flake(parse_flake_ref(f"path:{probe}"))
     assert locked.description() == "probe"
     outputs = state.call_flake(locked)
@@ -60,40 +62,34 @@ def test_a_locked_flake_calls_to_its_outputs(
     assert (x.integer(), y.integer()) == (7, 1)
 
 
-def test_the_lock_file_is_written_and_names_the_input(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_the_lock_file_is_written_and_names_the_input(state: EvalState, probe: pathlib.Path) -> None:
     locked = state.lock_flake(parse_flake_ref(f"path:{probe}"))
     written = json.loads((probe / "flake.lock").read_text())
     assert written["nodes"]["root"]["inputs"] == {"dep": "dep"}
     dep = locked.find_input(["dep"])
     assert dep is not None
     assert dep.is_flake() is True
-    assert dep.original_ref().to_attrs() == {
-        "type": "path", "path": str(probe.parent / "dep")}
+    assert dep.original_ref().to_attrs() == {"type": "path", "path": str(probe.parent / "dep")}
     assert dep.locked_ref().to_attrs()["type"] == "path"
 
 
-def test_a_lock_that_is_not_written_leaves_no_file(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_a_lock_that_is_not_written_leaves_no_file(state: EvalState, probe: pathlib.Path) -> None:
     state.lock_flake(parse_flake_ref(f"path:{probe}"), write_lock_file=False)
     assert not (probe / "flake.lock").exists()
 
 
-def test_an_input_that_is_not_there_is_none(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_an_input_that_is_not_there_is_none(state: EvalState, probe: pathlib.Path) -> None:
     locked = state.lock_flake(parse_flake_ref(f"path:{probe}"))
     assert locked.find_input(["nope"]) is None
     assert locked.find_input([]) is None
 
 
-def test_an_empty_input_path_is_refused(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_an_empty_input_path_is_refused(state: EvalState, probe: pathlib.Path) -> None:
     with pytest.raises(UsageError, match="must not be empty"):
         state.lock_flake(parse_flake_ref(f"path:{probe}"), update=[""])
 
 
-def test_the_metadata_is_what_nix_flake_metadata_prints(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_the_metadata_is_what_nix_flake_metadata_prints(state: EvalState, probe: pathlib.Path) -> None:
     locked = state.lock_flake(parse_flake_ref(f"path:{probe}"))
     metadata = json.loads(state.flake_metadata_json(locked))
     assert metadata["description"] == "probe"
@@ -102,37 +98,37 @@ def test_the_metadata_is_what_nix_flake_metadata_prints(
     assert set(metadata["locks"]["nodes"]) == {"root", "dep"}
 
 
-def test_get_flake_answers_the_resolved_reference(
-        state: EvalState, probe: pathlib.Path) -> None:
-    resolved = state.get_flake(parse_flake_ref(f"path:{probe}"),
-                               use_registries=False)
+def test_get_flake_answers_the_resolved_reference(state: EvalState, probe: pathlib.Path) -> None:
+    resolved = state.get_flake(parse_flake_ref(f"path:{probe}"), use_registries=False)
     assert resolved.to_attrs() == {"type": "path", "path": str(probe)}
 
 
-def test_a_flake_setting_that_is_not_one_is_refused(
-        state: EvalState, probe: pathlib.Path) -> None:
+def test_a_flake_setting_that_is_not_one_is_refused(state: EvalState, probe: pathlib.Path) -> None:
     with pytest.raises(UsageError, match="not a setting this call takes"):
-        state.lock_flake(parse_flake_ref(f"path:{probe}"),
-                         settings={"pure-eval": "true"})
+        state.lock_flake(parse_flake_ref(f"path:{probe}"), settings={"pure-eval": "true"})
 
 
 def test_the_flake_builtins_are_there(state: EvalState) -> None:
     """`getFlake`, `parseFlakeRef` and `flakeRefToString`, which
     libflake adds to a state's settings rather than to every state."""
     ref = state.eval_expr(
-        'builtins.flakeRefToString (builtins.parseFlakeRef '
-        '"github:NixOS/nixpkgs/nixos-unstable")', "/")
+        'builtins.flakeRefToString (builtins.parseFlakeRef "github:NixOS/nixpkgs/nixos-unstable")', "/"
+    )
     assert ref.string_value() == "github:NixOS/nixpkgs/nixos-unstable"
     assert state.eval_expr("builtins ? getFlake", "/").boolean()
 
 
 def _commit(repo: pathlib.Path, text: str) -> str:
     """Commit *text* as the `flake.nix` of *repo*, and return the revision."""
+
     def git(*args: str) -> str:
-        return subprocess.run(["git", "-c", "user.name=huggorm",
-                               "-c", "user.email=huggorm@invalid", *args],
-                              cwd=repo, check=True, capture_output=True,
-                              text=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-c", "user.name=huggorm", "-c", "user.email=huggorm@invalid", *args],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     repo.mkdir(parents=True, exist_ok=True)
     (repo / "flake.nix").write_text(text)
@@ -144,8 +140,7 @@ def _commit(repo: pathlib.Path, text: str) -> str:
 
 
 @pytest.mark.parametrize("same_state", [False, True], ids=["new-state", "same-state"])
-def test_a_second_lock_sees_a_new_commit(
-        tmp_path: pathlib.Path, same_state: bool) -> None:
+def test_a_second_lock_sees_a_new_commit(tmp_path: pathlib.Path, same_state: bool) -> None:
     """Nix keeps each git work tree's HEAD for the whole process
     (`getCachedWorkdirInfo`), and each fetched input for the life of a
     state (`inputCache`). So a second lock locked the old revision and
@@ -153,10 +148,13 @@ def test_a_second_lock_sees_a_new_commit(
     dep = tmp_path / "dep"
     _commit(dep, "{ outputs = _: { y = 1; }; }")
     root = tmp_path / "root-flake"
-    _commit(root, f"""{{
+    _commit(
+        root,
+        f"""{{
   inputs.dep.url = "git+file://{dep}";
   outputs = _: {{ }};
-}}""")
+}}""",
+    )
     ref = parse_flake_ref(f"git+file://{root}")
     store = Store(str(tmp_path / "store"))
     first = EvalState(store, NO_GLOBAL)
@@ -180,10 +178,13 @@ def _locked_dep(tmp_path: pathlib.Path) -> Any:
     _commit(dep, "{ outputs = _: { }; }")
     _commit(dep, "{ outputs = _: { y = 2; }; }")
     root = tmp_path / "root-flake"
-    _commit(root, f"""{{
+    _commit(
+        root,
+        f"""{{
   inputs.dep.url = "git+file://{dep}";
   outputs = _: {{ }};
-}}""")
+}}""",
+    )
     state = EvalState(Store(str(tmp_path / "store")), NO_GLOBAL)
     locked = state.lock_flake(parse_flake_ref(f"git+file://{root}"))
     node = locked.find_input(["dep"])
@@ -208,8 +209,7 @@ def test_a_probe_flake_is_got(state: EvalState, probe: pathlib.Path) -> None:
     assert got.integer() == 7
 
 
-async def test_a_flake_locks_over_the_socket(
-        client: Any, tmp_path: pathlib.Path, probe: pathlib.Path) -> None:
+async def test_a_flake_locks_over_the_socket(client: Any, tmp_path: pathlib.Path, probe: pathlib.Path) -> None:
     """`lock_flake` takes `settings: dict[str, str] | None`. None and a
     real mapping both cross (nixidae/nixidae#714)."""
     store = await client.acquire(AsyncStore, str(tmp_path / "remote"))
@@ -217,5 +217,4 @@ async def test_a_flake_locks_over_the_socket(
     locked = await state.lock_flake(parse_flake_ref(f"path:{probe}"))
     assert await locked.description() == "probe"
     with pytest.raises(UsageError, match="not a setting this call takes"):
-        await state.lock_flake(parse_flake_ref(f"path:{probe}"),
-                               settings={"pure-eval": "true"})
+        await state.lock_flake(parse_flake_ref(f"path:{probe}"), settings={"pure-eval": "true"})

@@ -92,9 +92,7 @@ def extract_fod_hash_mismatch(message: str) -> FodHashMismatch | None:
     if len(matches) != 1:
         return None
     match = matches[0]
-    return FodHashMismatch(
-        specified=match["specified"], got=match["got"], drv_path=match["drv_path"]
-    )
+    return FodHashMismatch(specified=match["specified"], got=match["got"], drv_path=match["drv_path"])
 
 
 def extract_unique_fod_hash_mismatch(messages: Iterable[str]) -> FodHashMismatch | None:
@@ -113,9 +111,7 @@ def extract_unique_fod_hash_mismatch(messages: Iterable[str]) -> FodHashMismatch
     return unambiguous[0] if unambiguous else None
 
 
-def find_fod_hash_literal(
-    source: str, specified: str, *, derivation_name: str | None = None
-) -> FodHashLiteral:
+def find_fod_hash_literal(source: str, specified: str, *, derivation_name: str | None = None) -> FodHashLiteral:
     """The one hash binding in `source` that produced the failed derivation."""
     candidates = _fod_hash_literals(source.encode())
     exact = [candidate for candidate in candidates if candidate.value == specified]
@@ -129,8 +125,7 @@ def find_fod_hash_literal(
         return candidates[0]
     if not candidates:
         raise FodSourceUpdateError(
-            "no hash, sha256, or outputHash binding found that is a plain string "
-            "or a fakeHash symbol"
+            "no hash, sha256, or outputHash binding found that is a plain string or a fakeHash symbol"
         )
     raise FodSourceUpdateError(
         "multiple hash literals found; refusing to guess which one produced the failed derivation"
@@ -140,13 +135,9 @@ def find_fod_hash_literal(
 def replace_fod_hash(source: str, literal: FodHashLiteral, got: str) -> str:
     """`source` with the value of `literal` replaced by the quoted `got`."""
     if '"' in got or "\n" in got:
-        raise FodSourceUpdateError(
-            "the computed hash is not safe to insert into a Nix string literal"
-        )
+        raise FodSourceUpdateError("the computed hash is not safe to insert into a Nix string literal")
     encoded = source.encode()
-    return (
-        encoded[: literal.start_byte] + f'"{got}"'.encode() + encoded[literal.end_byte :]
-    ).decode()
+    return (encoded[: literal.start_byte] + f'"{got}"'.encode() + encoded[literal.end_byte :]).decode()
 
 
 def derivation_name_from_path(drv_path: str | None) -> str | None:
@@ -179,9 +170,7 @@ async def evaluated_derivation_path(state: AsyncEvalState, value: AsyncValue) ->
     return await value.drv_path()
 
 
-async def is_fixed_output_derivation_in_closure(
-    store: AsyncStore, root: StorePath, candidate: StorePath
-) -> bool:
+async def is_fixed_output_derivation_in_closure(store: AsyncStore, root: StorePath, candidate: StorePath) -> bool:
     """Whether `candidate` is a fixed-output member of `root`'s closure.
 
     Nix builds a resolved copy of a FOD whose hash is empty, under a new
@@ -289,9 +278,7 @@ def _run_command_name(node: Any, source: bytes) -> tuple[str, Any] | None:
     if len(function.named_children) != _APPLY_EXPRESSION_ARITY:
         return None
     callee, name = function.named_children
-    if name.type != "string_expression" or any(
-        child.type == "interpolation" for child in name.children
-    ):
+    if name.type != "string_expression" or any(child.type == "interpolation" for child in name.children):
         return None
     rendered = source[name.start_byte : name.end_byte]
     if (
@@ -314,20 +301,13 @@ def _run_command_hash_bindings(root: Any, source: bytes) -> dict[int, str]:
         if call is None:
             continue
         derivation_name, attrs = call
-        binding_set = next(
-            (child for child in attrs.named_children if child.type == "binding_set"), None
-        )
+        binding_set = next((child for child in attrs.named_children if child.type == "binding_set"), None)
         if binding_set is None:
             continue
         for binding in binding_set.named_children:
             if binding.type != "binding":
                 continue
-            attrpath = next(
-                (child for child in binding.named_children if child.type == "attrpath"), None
-            )
-            if (
-                attrpath is not None
-                and source[attrpath.start_byte : attrpath.end_byte] == b"outputHash"
-            ):
+            attrpath = next((child for child in binding.named_children if child.type == "attrpath"), None)
+            if attrpath is not None and source[attrpath.start_byte : attrpath.end_byte] == b"outputHash":
                 names[binding.start_byte] = derivation_name
     return names

@@ -79,8 +79,7 @@ def _declaration(tmp_path: pathlib.Path, source: str) -> str:
     return str(out)
 
 
-def test_a_version_branch_is_resolved_before_an_emitter_sees_it(
-        tmp_path: pathlib.Path) -> None:
+def test_a_version_branch_is_resolved_before_an_emitter_sees_it(tmp_path: pathlib.Path) -> None:
     """The class the import kept reaches every output; the other
     reaches none.
 
@@ -116,7 +115,7 @@ def test_a_version_branch_is_resolved_before_an_emitter_sees_it(
     assert "Gone" not in emitted
 
 
-READERLESS = '''
+READERLESS = """
 from huggorm_dsl.declare import Local, Map, Opt, Vec, I64, throws
 
 
@@ -128,11 +127,10 @@ class NixError(Exception):
 @throws("nix::Read", Local("nix/util/error.hh"))
 class Read(NixError):
     reader = "huggorm::error_info"
-'''
+"""
 
 
-def test_a_part_beyond_the_message_needs_a_reader(
-        tmp_path: pathlib.Path) -> None:
+def test_a_part_beyond_the_message_needs_a_reader(tmp_path: pathlib.Path) -> None:
     """A catch with a part and no reader calls the constructor short,
     and `raise_as` turns that refusal into a RuntimeError in silence.
 
@@ -148,12 +146,10 @@ def test_a_part_beyond_the_message_needs_a_reader(
         read(path)
 
     chain = "\n".join(pyerrors.chain(declared_model().errors, "raise_as"))
-    assert ('"ThrownError", e, '
-            "huggorm::error_info<huggorm::ErrorInfo>);") in chain
+    assert ('"ThrownError", e, huggorm::error_info<huggorm::ErrorInfo>);') in chain
 
 
-def test_the_emitted_module_keeps_no_trace_of_the_branch(
-        tmp_path: pathlib.Path) -> None:
+def test_the_emitted_module_keeps_no_trace_of_the_branch(tmp_path: pathlib.Path) -> None:
     """Three things must not survive into the emitted exception module.
 
     The `if` itself, because the arm is chosen at build time and a
@@ -172,18 +168,15 @@ def test_the_emitted_module_keeps_no_trace_of_the_branch(
     from huggorm_dsl.read import resolved
     from huggorm_gen.cppgen import pyerrors
 
-    emitted = pyerrors.module(resolved(_declaration(tmp_path, BRANCHED)),
-                              "emitted")
+    emitted = pyerrors.module(resolved(_declaration(tmp_path, BRANCHED)), "emitted")
     tree = ast.parse(emitted)
     assert not [n for n in ast.walk(tree) if isinstance(n, ast.If)]
     assert "cxx" not in emitted
     assert "huggorm_dsl" not in emitted
-    assert not [n for n in tree.body
-                if isinstance(n, ast.Import | ast.ImportFrom)]
+    assert not [n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)]
 
 
-def test_the_errors_emitter_refuses_a_tree_nothing_resolved(
-        tmp_path: pathlib.Path) -> None:
+def test_the_errors_emitter_refuses_a_tree_nothing_resolved(tmp_path: pathlib.Path) -> None:
     """A raw parse is the wrong tree, and saying so is the gate.
 
     This is what catches a caller reverting to `Corpus.tree`, and
@@ -200,8 +193,7 @@ def test_the_errors_emitter_refuses_a_tree_nothing_resolved(
         pyerrors.module(raw, "emitted")
 
 
-def test_a_declaration_that_does_not_branch_reads_the_same_either_way(
-        tmp_path: pathlib.Path) -> None:
+def test_a_declaration_that_does_not_branch_reads_the_same_either_way(tmp_path: pathlib.Path) -> None:
     """Resolving costs nothing where there is nothing to resolve.
 
     The claim the fix rests on: `read.resolved` is a raw parse for
@@ -213,8 +205,7 @@ def test_a_declaration_that_does_not_branch_reads_the_same_either_way(
 
     path = _declaration(tmp_path, FLAT)
     raw = ast.parse(FLAT)
-    assert pyerrors.module(resolved(path), "emitted") == \
-        pyerrors.module(raw, "emitted")
+    assert pyerrors.module(resolved(path), "emitted") == pyerrors.module(raw, "emitted")
 
 
 # A bound class with one accessor written as an ATTRIBUTE. The word is
@@ -287,10 +278,8 @@ def part(at: Str) -> Str:
 '''
 
 
-@pytest.mark.parametrize(("source", "line"), [
-    (OVERLOADED, 14), (OVERLOADED_FREE, 10)])
-def test_an_overload_is_refused(
-        tmp_path: pathlib.Path, source: str, line: int) -> None:
+@pytest.mark.parametrize(("source", "line"), [(OVERLOADED, 14), (OVERLOADED_FREE, 10)])
+def test_an_overload_is_refused(tmp_path: pathlib.Path, source: str, line: int) -> None:
     """Every surface binds one definition per name, so the stub would
     hold duplicate `def`s and the RPC layer one route twice. The
     import answers, so the module spelling is refused as well."""
@@ -301,8 +290,7 @@ def test_an_overload_is_refused(
     assert f":{line}:" in str(caught.value)
 
 
-def test_the_reader_sees_an_accessor_the_import_kept_as_a_descriptor(
-        tmp_path: pathlib.Path) -> None:
+def test_the_reader_sees_an_accessor_the_import_kept_as_a_descriptor(tmp_path: pathlib.Path) -> None:
     """A `@property` accessor survives the read, and says it is one.
 
     A `property` object has no `__code__` and no source, so a reader
@@ -363,8 +351,7 @@ class Line:
 '''
 
 
-def test_a_part_read_through_another_accessor_is_still_derived(
-        tmp_path: pathlib.Path) -> None:
+def test_a_part_read_through_another_accessor_is_still_derived(tmp_path: pathlib.Path) -> None:
     """`@wire_read` changes one part's reader, and nothing else.
 
     The parts stay derived from the accessors, so an accessor added
@@ -378,18 +365,15 @@ def test_a_part_read_through_another_accessor_is_still_derived(
 
     path = _declaration(tmp_path, WIRE_READ.replace("{local}", "@local"))
     cls = read(path).classes[0]
-    assert [(f.name, f.read) for f, _ in cls.parts] == [
-        ("text", "text_bytes"), ("number", "number")]
+    assert [(f.name, f.read) for f, _ in cls.parts] == [("text", "text_bytes"), ("number", "number")]
 
     (tmp_path / "unmarked").mkdir()
-    path = _declaration(tmp_path / "unmarked",
-                        WIRE_READ.replace("    {local}\n", ""))
+    path = _declaration(tmp_path / "unmarked", WIRE_READ.replace("    {local}\n", ""))
     with pytest.raises(TypeError, match="must be a @local accessor"):
         _ = read(path).classes[0].parts
 
 
-def test_a_produced_class_nothing_returns_fails_the_build(
-        tmp_path: pathlib.Path) -> None:
+def test_a_produced_class_nothing_returns_fails_the_build(tmp_path: pathlib.Path) -> None:
     """A produced class is made by a call that returns it, and the
     build reads those calls off the return types. `Line` is produced
     and nothing here returns one, so it has no way in at all. The real
@@ -401,16 +385,13 @@ def test_a_produced_class_nothing_returns_fails_the_build(
     mod = read(_declaration(tmp_path, WIRE_READ.replace("{local}", "@local")))
     unit = ir.ModuleModel.of(mod, "")
     with pytest.raises(TypeError, match=r"^Line: declared @produced"):
-        ir.Model({c.name: c for c in unit.classes}, {}, {},
-                 {}, ir.Errors("", {}), (unit,))
+        ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
 
     model = declared_model()
-    assert model.producers["PathInfo"] == (
-        "LayeredStore.query_path_info", "Store.query_path_info")
+    assert model.producers["PathInfo"] == ("LayeredStore.query_path_info", "Store.query_path_info")
     # A dict's value is made too: on 2.35 this is the only call that
     # makes an UnkeyedRealisation (nixidae/nixidae#698).
-    built = next(m for m in model.classes["BuildSuccess"].bound
-                 if m.name == "built_outputs")
+    built = next(m for m in model.classes["BuildSuccess"].bound if m.name == "built_outputs")
     returns = built.returns
     assert returns is not None and returns.origin is ir.Origin.DICT
     assert "BuildSuccess.built_outputs" in model.producers[returns.leaf.name]
@@ -438,8 +419,7 @@ class Callable:
 '''
 
 
-def test_an_undeclarable_dunder_is_refused_rather_than_dropped(
-        tmp_path: pathlib.Path) -> None:
+def test_an_undeclarable_dunder_is_refused_rather_than_dropped(tmp_path: pathlib.Path) -> None:
     """A dunder the emitters are not taught gets an answer.
 
     Without the refusal, the class-body loop would keep the names
@@ -478,8 +458,7 @@ class Leaf(Base):
 '''
 
 
-def test_a_bound_base_is_refused_rather_than_dropped(
-        tmp_path: pathlib.Path) -> None:
+def test_a_bound_base_is_refused_rather_than_dropped(tmp_path: pathlib.Path) -> None:
     """No emitter carries a class hierarchy, so a base would be
     dropped in silence; the reader refuses it at its line
     (nixidae/nixidae#597)."""
@@ -501,12 +480,14 @@ def probe(x: Str = DEFAULT) -> Str:
 '''
 
 
-@pytest.mark.parametrize(("default", "why"), [
-    ("[]", "mutable default"),
-    ('float("inf")', "not a literal"),
-])
-def test_a_default_no_surface_can_write_is_refused(
-        tmp_path: pathlib.Path, default: str, why: str) -> None:
+@pytest.mark.parametrize(
+    ("default", "why"),
+    [
+        ("[]", "mutable default"),
+        ('float("inf")', "not a literal"),
+    ],
+)
+def test_a_default_no_surface_can_write_is_refused(tmp_path: pathlib.Path, default: str, why: str) -> None:
     """Every surface writes a default as source. `[]` would be one
     shared list per surface, and `inf` is a NameError where it lands."""
     from huggorm_dsl.read import DeclarationError, read
@@ -572,8 +553,7 @@ AS_METHOD = ("    def base16", "    async def base16")
 AS_FREE = ("\ndef free_one", "\nasync def free_one")
 
 
-def test_an_async_def_says_why_it_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_an_async_def_says_why_it_is_refused(tmp_path: pathlib.Path) -> None:
     """`async def` in a declaration names its own cause.
 
     The refusal is at the loop that drops it, so it can say what a
@@ -589,8 +569,7 @@ def test_an_async_def_says_why_it_is_refused(
     assert "Digest.base16" in str(caught.value)
 
 
-def test_a_free_async_function_is_refused_too(
-        tmp_path: pathlib.Path) -> None:
+def test_a_free_async_function_is_refused_too(tmp_path: pathlib.Path) -> None:
     """The module-level loop drops one the same way.
 
     A second loop, so a second refusal - and the class one cannot
@@ -604,8 +583,7 @@ def test_a_free_async_function_is_refused_too(
     assert "free_one" in str(caught.value)
 
 
-def test_an_undecorated_async_helper_reaches_nothing(
-        tmp_path: pathlib.Path) -> None:
+def test_an_undecorated_async_helper_reaches_nothing(tmp_path: pathlib.Path) -> None:
     """An UNDECORATED def at module level reaches no output, so the
     contents check refuses it for that cause.
 
@@ -639,13 +617,17 @@ class Digest:
 {outer}'''
 
 
-@pytest.mark.parametrize(("inner", "outer", "refusal"), [
-    ("", "LIMIT = 3\n", "LIMIT (int) reaches no output"),
-    ("", "def helper() -> None:\n    pass\n", "helper (function) reaches"),
-    ("    limit = 3\n", "", "Digest.limit (int) reaches no output"),
-])
+@pytest.mark.parametrize(
+    ("inner", "outer", "refusal"),
+    [
+        ("", "LIMIT = 3\n", "LIMIT (int) reaches no output"),
+        ("", "def helper() -> None:\n    pass\n", "helper (function) reaches"),
+        ("    limit = 3\n", "", "Digest.limit (int) reaches no output"),
+    ],
+)
 def test_a_name_the_reader_puts_nowhere_is_refused(
-        tmp_path: pathlib.Path, inner: str, outer: str, refusal: str) -> None:
+    tmp_path: pathlib.Path, inner: str, outer: str, refusal: str
+) -> None:
     """The import holds every name the build has. A name the reader
     keeps nothing for reads as one nobody wrote, so it is refused
     (nixidae/nixidae#689). The class attribute was dropped in silence: the
@@ -730,8 +712,7 @@ class Sizes:
 '''
 
 
-def test_a_field_says_which_64_bit_integer_it_is(
-        tmp_path: pathlib.Path) -> None:
+def test_a_field_says_which_64_bit_integer_it_is(tmp_path: pathlib.Path) -> None:
     """`U64` crosses as `uint` and `I64` as `int`, and Python sees
     `int` for both.
 
@@ -755,18 +736,14 @@ def test_a_field_says_which_64_bit_integer_it_is(
 
     module = read(_declaration(tmp_path, WIDTHS))
     cls = module.classes[0]
-    assert [(f.name, m.ret.wire) for f, m in cls.parts
-            if m.ret is not None] == [("total", "uint"), ("when", "int")]
+    assert [(f.name, m.ret.wire) for f, m in cls.parts if m.ret is not None] == [("total", "uint"), ("when", "int")]
 
     typed = ir.ClassModel.of(cls, "pkg", "mod", ir.Resolver.of(module))
-    assert [(f.name, f.type.scalar) for f in typed.wire_fields] == [
-        ("total", "uint"), ("when", "int")]
-    assert [(m.name, m.return_spelling) for m in typed.methods] == [
-        ("total", "int"), ("when", "int")]
+    assert [(f.name, f.type.scalar) for f in typed.wire_fields] == [("total", "uint"), ("when", "int")]
+    assert [(m.name, m.return_spelling) for m in typed.methods] == [("total", "int"), ("when", "int")]
 
 
-def test_a_container_of_a_width_is_refused_rather_than_guessed(
-        tmp_path: pathlib.Path) -> None:
+def test_a_container_of_a_width_is_refused_rather_than_guessed(tmp_path: pathlib.Path) -> None:
     """`dict[str, U64]` has no wire spelling, and says so.
 
     The uint64_t on this field is what the dict HOLDS. Naming the
@@ -783,12 +760,10 @@ def test_a_container_of_a_width_is_refused_rather_than_guessed(
     module = read(_declaration(tmp_path, HELD))
     # Refused where the wire spelling is rendered, which is the model.
     with pytest.raises(TypeError, match="nixidae/nixidae#616"):
-        ir.ClassModel.of(module.classes[0], "pkg", "mod",
-                         ir.Resolver.of(module))
+        ir.ClassModel.of(module.classes[0], "pkg", "mod", ir.Resolver.of(module))
 
 
-def test_a_service_parameter_says_which_64_bit_integer_it_is(
-        tmp_path: pathlib.Path) -> None:
+def test_a_service_parameter_says_which_64_bit_integer_it_is(tmp_path: pathlib.Path) -> None:
     """A proxy method may take a `U64`, and its `Wire` says `uint`.
 
     It was refused: a parameter was one string read both as a Python
@@ -812,8 +787,7 @@ def test_a_service_parameter_says_which_64_bit_integer_it_is(
     assert spec.args[0].type.name == "uint"
 
 
-def test_the_model_refuses_an_accessor_declared_as_an_attribute(
-        tmp_path: pathlib.Path) -> None:
+def test_the_model_refuses_an_accessor_declared_as_an_attribute(tmp_path: pathlib.Path) -> None:
     """`@property` is refused, because a binding alone cannot honour it.
 
     Three other outputs read an accessor as a CALL: the emitted
@@ -866,20 +840,17 @@ class State:
 '''
 
 
-@pytest.mark.parametrize(("method", "refusal"), [
-    ('    @guard("int")\n    def integer(self) -> I64:\n        """."""',
-     "needs @tagged"),
-    ('    @names\n    def kind(self) -> Str:\n        """."""',
-     "needs @tagged"),
-    ('    @fills("make", "list")\n    def append(self) -> None:\n'
-     '        """."""', "@fills needs a target"),
-    ('    @fills("make", "list")\n    def append(self, to: Bare) -> None:\n'
-     '        """."""', "carry @tagged"),
-    ('    @fills("make", "set")\n    def append(self, to: Held) -> None:\n'
-     '        """."""', "names no arm"),
-])
-def test_the_model_refuses_an_arm_it_cannot_check(
-        tmp_path: pathlib.Path, method: str, refusal: str) -> None:
+@pytest.mark.parametrize(
+    ("method", "refusal"),
+    [
+        ('    @guard("int")\n    def integer(self) -> I64:\n        """."""', "needs @tagged"),
+        ('    @names\n    def kind(self) -> Str:\n        """."""', "needs @tagged"),
+        ('    @fills("make", "list")\n    def append(self) -> None:\n        """."""', "@fills needs a target"),
+        ('    @fills("make", "list")\n    def append(self, to: Bare) -> None:\n        """."""', "carry @tagged"),
+        ('    @fills("make", "set")\n    def append(self, to: Held) -> None:\n        """."""', "names no arm"),
+    ],
+)
+def test_the_model_refuses_an_arm_it_cannot_check(tmp_path: pathlib.Path, method: str, refusal: str) -> None:
     """A union accessor whose arm test cannot be written is refused by
     the MODEL, not by the C++ emitter.
 
@@ -894,12 +865,14 @@ def test_the_model_refuses_an_arm_it_cannot_check(
         ir.ModuleModel.of(module, "")
 
 
-@pytest.mark.parametrize(("marker", "said"), [
-    ("wire_value", {"compare": "cpp"}),
-    ("binding", {"holder": "shared"}),
-])
-def test_a_marker_refuses_a_word_outside_its_set(
-        marker: str, said: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    ("marker", "said"),
+    [
+        ("wire_value", {"compare": "cpp"}),
+        ("binding", {"holder": "shared"}),
+    ],
+)
+def test_a_marker_refuses_a_word_outside_its_set(marker: str, said: dict[str, str]) -> None:
     """`compare` and `holder` each take one word from a fixed set.
 
     A misspelt `compare` that reached the model would compare the parts
@@ -945,13 +918,15 @@ class Mode(StrEnum):
 '''
 
 
-@pytest.mark.parametrize("extra", [
-    "def slow(self) -> str:\n        return 'slow'",
-    "SLOW: str",
-    '"""A docstring under no word."""',
-])
-def test_a_vocabulary_refuses_what_is_not_a_word(
-        tmp_path: pathlib.Path, extra: str) -> None:
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "def slow(self) -> str:\n        return 'slow'",
+        "SLOW: str",
+        '"""A docstring under no word."""',
+    ],
+)
+def test_a_vocabulary_refuses_what_is_not_a_word(tmp_path: pathlib.Path, extra: str) -> None:
     """A vocabulary body is words and their docstrings. The reader read
     those and skipped the rest, so a stage emitting the words from the
     model would have dropped anything else without a word."""
@@ -962,8 +937,7 @@ def test_a_vocabulary_refuses_what_is_not_a_word(
         _ = read(_declaration(tmp_path, source)).classes
 
 
-def test_the_model_refuses_a_spelling_of_no_vocabulary(
-        tmp_path: pathlib.Path) -> None:
+def test_the_model_refuses_a_spelling_of_no_vocabulary(tmp_path: pathlib.Path) -> None:
     """`@spells` must name an enum-backed vocabulary the declaration
     sees, and the model checks it before any surface is built
     (nixidae/nixidae#676)."""
@@ -995,16 +969,23 @@ class Signed:
 {extra}'''
 
 
-@pytest.mark.parametrize(("text", "extra", "refusal"), [
-    ("nothing", "", "names no accessor"),
-    ("name", '    def sig(self) -> Str:\n        """."""\n', "@local"),
-    ("name", '    @staticmethod\n    def _from_parts() -> Signed:\n'
-             '        """."""\n'
-             '        Cxx("return nix::Signature{name, {}};")\n',
-     "beside a constructing `__init__`"),
-])
+@pytest.mark.parametrize(
+    ("text", "extra", "refusal"),
+    [
+        ("nothing", "", "names no accessor"),
+        ("name", '    def sig(self) -> Str:\n        """."""\n', "@local"),
+        (
+            "name",
+            "    @staticmethod\n    def _from_parts() -> Signed:\n"
+            '        """."""\n'
+            '        Cxx("return nix::Signature{name, {}};")\n',
+            "beside a constructing `__init__`",
+        ),
+    ],
+)
 def test_the_model_refuses_a_value_that_cannot_round_trip(
-        tmp_path: pathlib.Path, text: str, extra: str, refusal: str) -> None:
+    tmp_path: pathlib.Path, text: str, extra: str, refusal: str
+) -> None:
     """A `text=` that names no accessor, and a constructor that does not
     take every wire field, are refused by the model (nixidae/nixidae#676).
     So is a `_from_parts` body on a value its constructor rebuilds: the
@@ -1054,8 +1035,7 @@ class Store:
 '''
 
 
-def test_a_part_read_elsewhere_is_rebuilt_from_its_own_parameter(
-        tmp_path: pathlib.Path) -> None:
+def test_a_part_read_elsewhere_is_rebuilt_from_its_own_parameter(tmp_path: pathlib.Path) -> None:
     """`_from_parts` takes one parameter per part, named after the
     part. A part read through another accessor is converted back from
     THAT parameter, not from the accessor's name, which names nothing
@@ -1065,10 +1045,8 @@ def test_a_part_read_elsewhere_is_rebuilt_from_its_own_parameter(
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    unit = ir.ModuleModel.of(
-        read(_declaration(tmp_path, HELD_ELSEWHERE)), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, HELD_ELSEWHERE)), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     text = nbemit.Emitter(model, unit).bind_function(unit.classes[0])
     assert "as_set<nix::StringSet>(paths)" in text, text
     assert "as_set<nix::StringSet>(held)" not in text, text
@@ -1089,8 +1067,7 @@ def _corpus_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path
 
 
-def test_a_declaration_in_no_list_fails_the_build(
-        tmp_path: pathlib.Path) -> None:
+def test_a_declaration_in_no_list_fails_the_build(tmp_path: pathlib.Path) -> None:
     """A file nobody lists is an error, not a silence.
 
     `decl/gc.py` was written, was well-formed, imported, parsed and
@@ -1112,8 +1089,7 @@ def test_a_declaration_in_no_list_fails_the_build(
         census(root, (("ONE", ("a.py",)),))
 
 
-def test_a_list_naming_a_deleted_declaration_fails_the_build(
-        tmp_path: pathlib.Path) -> None:
+def test_a_list_naming_a_deleted_declaration_fails_the_build(tmp_path: pathlib.Path) -> None:
     """The other direction, and a different mistake.
 
     A file nobody listed emits nothing. A name with no file behind it
@@ -1127,8 +1103,7 @@ def test_a_list_naming_a_deleted_declaration_fails_the_build(
         census(root, (("ONE", ("a.py", "b.py", "gone.py")),))
 
 
-def test_a_declaration_in_two_lists_fails_the_build(
-        tmp_path: pathlib.Path) -> None:
+def test_a_declaration_in_two_lists_fails_the_build(tmp_path: pathlib.Path) -> None:
     """One document, one group.
 
     The groups say how the BUILD treats a declaration - a compiled
@@ -1155,8 +1130,7 @@ def test_the_real_declaration_set_agrees_with_its_directory() -> None:
     huggorm_decl.corpus()
 
 
-def test_the_census_runs_when_the_corpus_is_built(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_census_runs_when_the_corpus_is_built(monkeypatch: pytest.MonkeyPatch) -> None:
     """`corpus()` calls the census, and this notices when it stops.
 
     The three tests above drive a temporary directory. They prove the
@@ -1173,8 +1147,7 @@ def test_the_census_runs_when_the_corpus_is_built(
     import huggorm_decl
 
     ran = []
-    monkeypatch.setattr(huggorm_decl, "census",
-                        lambda *args: ran.append(args))
+    monkeypatch.setattr(huggorm_decl, "census", lambda *args: ran.append(args))
     huggorm_decl.corpus.cache_clear()
     try:
         huggorm_decl.corpus()
@@ -1224,13 +1197,15 @@ class Digest:
 PLAIN = STATIC.replace("    @staticmethod\n    def of(text", "    def of(self, text")
 
 
-@pytest.mark.parametrize(("tail", "line"), [
-    ("    of = None\n", 11),
-    ("\n    def of(self, text: Str) -> Str:\n        ...\n", 11),
-    ("\nDigest = None\n", 8),
-])
-def test_a_definition_the_import_replaced_is_refused(
-        tmp_path: pathlib.Path, tail: str, line: int) -> None:
+@pytest.mark.parametrize(
+    ("tail", "line"),
+    [
+        ("    of = None\n", 11),
+        ("\n    def of(self, text: Str) -> Str:\n        ...\n", 11),
+        ("\nDigest = None\n", 8),
+    ],
+)
+def test_a_definition_the_import_replaced_is_refused(tmp_path: pathlib.Path, tail: str, line: int) -> None:
     """A definition under no `if` that its name no longer holds is
     refused at its line. The reader walks what the import holds, so
     it would drop the definition in silence (nixidae/nixidae#712)."""
@@ -1245,13 +1220,15 @@ def test_a_definition_the_import_replaced_is_refused(
     assert f":{line}:" in str(caught.value)
 
 
-@pytest.mark.parametrize("line", [
-    "import os",
-    "from os import path",
-    "from . import sibling",
-])
-def test_a_declaration_imports_only_from_the_allowed_modules(
-        tmp_path: pathlib.Path, line: str) -> None:
+@pytest.mark.parametrize(
+    "line",
+    [
+        "import os",
+        "from os import path",
+        "from . import sibling",
+    ],
+)
+def test_a_declaration_imports_only_from_the_allowed_modules(tmp_path: pathlib.Path, line: str) -> None:
     """A declaration describes C++ and computes nothing, so it imports
     only the vocabulary, the other declarations, `typing` and `enum`
     (nixidae/nixidae#689)."""
@@ -1281,15 +1258,17 @@ class Store:
 '''
 
 
-def test_a_definition_under_no_branch_must_be_kept(
-        tmp_path: pathlib.Path) -> None:
+def test_a_definition_under_no_branch_must_be_kept(tmp_path: pathlib.Path) -> None:
     """A `def` outside any `if` that the import did not keep is not a
     dead arm. It is a definition the reader would drop in silence
     (nixidae/nixidae#712)."""
     from huggorm_dsl.read import DeclarationError, read
 
-    with pytest.raises(DeclarationError, match=r"lost: .* the import holds "
-                                               r"something else"):
+    with pytest.raises(
+        DeclarationError,
+        match=r"lost: .* the import holds "
+        r"something else",
+    ):
         read(_declaration(tmp_path, SHADOWED))
 
 
@@ -1307,8 +1286,7 @@ def test_a_declaration_is_one_guarded_module() -> None:
     assert loaded.__builtins__["__import__"] is read._guarded_import
 
 
-def test_a_declaration_that_will_not_import_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_a_declaration_that_will_not_import_is_refused(tmp_path: pathlib.Path) -> None:
     """The import error reaches a reader, with Python's own reason.
 
     `load` used to answer None here and the reader fell back to the
@@ -1331,7 +1309,7 @@ def test_a_declaration_that_will_not_import_is_refused(
 
 
 # A file that will not import.
-UNRELATED ='''"""One accessor naming something that does not exist."""
+UNRELATED = '''"""One accessor naming something that does not exist."""
 
 from huggorm_dsl.declare import Local, Map, Opt, Vec, Cxx, Str, binding, header
 
@@ -1349,8 +1327,7 @@ class Digest:
 '''
 
 
-def test_a_refusal_names_the_file_whatever_type_the_path_was(
-        tmp_path: pathlib.Path) -> None:
+def test_a_refusal_names_the_file_whatever_type_the_path_was(tmp_path: pathlib.Path) -> None:
     """The position is built by concatenation, so the stack holds str.
 
     `DeclarationError` reads `_READING[-1]` and does `where +=
@@ -1376,50 +1353,43 @@ def test_a_refusal_names_the_file_whatever_type_the_path_was(
     from huggorm_dsl.read import DeclarationError, reading
 
     node = ast.parse("x = 1").body[0]
-    with reading(tmp_path / "decl.py"), \
-            pytest.raises(DeclarationError) as caught:
+    with reading(tmp_path / "decl.py"), pytest.raises(DeclarationError) as caught:
         raise DeclarationError(node, "refused")
 
     assert "decl.py:1:1: refused" in str(caught.value), str(caught.value)
 
     # The str path is unchanged, which is what says the fix widened
     # rather than moved.
-    with reading(str(tmp_path / "decl.py")), \
-            pytest.raises(DeclarationError) as same:
+    with reading(str(tmp_path / "decl.py")), pytest.raises(DeclarationError) as same:
         raise DeclarationError(node, "refused")
     assert str(same.value) == str(caught.value)
 
 
-@pytest.mark.parametrize("order", [
-    "    @instant\n    @property", "    @property\n    @instant"])
-def test_a_marker_reaches_the_function_under_a_property(
-        tmp_path: pathlib.Path, order: str) -> None:
+@pytest.mark.parametrize("order", ["    @instant\n    @property", "    @property\n    @instant"])
+def test_a_marker_reaches_the_function_under_a_property(tmp_path: pathlib.Path, order: str) -> None:
     """A marker records itself on the function a descriptor holds, so
     the order of `@property` and a marker decides nothing
     (nixidae/nixidae#881)."""
     from huggorm_dsl.read import read
 
-    method = read(_declaration(tmp_path, UNIMPORTABLE.replace(
-        "    @instant\n    @property", order))).classes[0].methods[0]
+    method = (
+        read(_declaration(tmp_path, UNIMPORTABLE.replace("    @instant\n    @property", order))).classes[0].methods[0]
+    )
     assert (method.prop, method.instant) == (True, True)
 
 
-def test_a_marker_over_a_staticmethod_reaches_its_refusal(
-        tmp_path: pathlib.Path) -> None:
+def test_a_marker_over_a_staticmethod_reaches_its_refusal(tmp_path: pathlib.Path) -> None:
     """A marker over a `@staticmethod` reaches the function under it,
     and the reader then refuses the static method itself."""
     from huggorm_dsl.read import DeclarationError, read
 
-    marked = STATIC.replace("    @staticmethod",
-                            "    @instant\n    @staticmethod")
-    marked = marked.replace("binding, header",
-                            "binding, header, instant")
+    marked = STATIC.replace("    @staticmethod", "    @instant\n    @staticmethod")
+    marked = marked.replace("binding, header", "binding, header, instant")
     with pytest.raises(DeclarationError, match="@staticmethod"):
         read(_declaration(tmp_path, marked))
 
 
-def test_an_accessor_declared_static_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_an_accessor_declared_static_is_refused(tmp_path: pathlib.Path) -> None:
     """`@staticmethod` says the first parameter is not self, and the
     reader reads a bound method by skipping the first parameter.
 
@@ -1490,8 +1460,7 @@ def _one_file_corpus(tmp_path: pathlib.Path, source: str) -> Any:
     return Corpus(tmp_path, nanobind=("digest.py",))
 
 
-def test_a_branch_arm_that_lost_is_not_a_missing_definition(
-        tmp_path: pathlib.Path) -> None:
+def test_a_branch_arm_that_lost_is_not_a_missing_definition(tmp_path: pathlib.Path) -> None:
     """The one definition a declaration may write that reaches nothing.
 
     Python resolves `NIX_VERSION` during the import, so the arm this
@@ -1507,7 +1476,6 @@ def test_a_branch_arm_that_lost_is_not_a_missing_definition(
     mod = have.module("digest.py")
     kept = {m.name for m in mod.classes[0].methods}
     assert kept == {"base16", "here"}, "the import chose an arm"
-
 
 
 def _versioned_body(body: str) -> str:
@@ -1535,12 +1503,12 @@ def test_a_body_with_a_version_test_is_refused(tmp_path: pathlib.Path) -> None:
     reader refuses an `if` in a body instead of choosing an arm."""
     from huggorm_dsl.read import DeclarationError
 
-    body = '''
+    body = """
 if NIX_VERSION >= (2, 0):
     Cxx("return self.now();")
 else:
     Cxx("return self.past();")
-'''
+"""
     with pytest.raises(DeclarationError, match="a body holds no version test"):
         _one_file_corpus(tmp_path, _versioned_body(body)).module("digest.py")
 
@@ -1565,8 +1533,7 @@ def test_the_emitter_must_write_every_method_the_reader_kept() -> None:
     model = generate.declared_model()
     unit = model.module("pathinfo")
     bound = unit.bindable()
-    text = extension(unit, "huggorm_bindings.pathinfo", model,
-                     chain=[], errors="", prelude=PRELUDE)
+    text = extension(unit, "huggorm_bindings.pathinfo", model, chain=[], errors="", prelude=PRELUDE)
     generate.census_written(mod, bound, text)
 
     lost = text.replace('def("nar_size"', 'def("not_that_one"')
@@ -1575,8 +1542,7 @@ def test_the_emitter_must_write_every_method_the_reader_kept() -> None:
         generate.census_written(mod, bound, lost)
 
 
-def test_a_dropped_method_is_missed_though_another_class_binds_its_name(
-        ) -> None:
+def test_a_dropped_method_is_missed_though_another_class_binds_its_name() -> None:
     """`ErrorInfo.pos` dropped, and `Trace.pos` still bound in the same
     unit. One set of names for the unit passed it (nixidae/nixidae#875)."""
     from huggorm_decl import corpus
@@ -1587,8 +1553,7 @@ def test_a_dropped_method_is_missed_though_another_class_binds_its_name(
     model = generate.declared_model()
     unit = model.module("path")
     bound = unit.bindable()
-    text = extension(unit, "huggorm_bindings.path", model,
-                     chain=[], errors="", prelude=PRELUDE)
+    text = extension(unit, "huggorm_bindings.path", model, chain=[], errors="", prelude=PRELUDE)
     generate.census_written(mod, bound, text)
 
     at = text.index('(m, "ErrorInfo"')
@@ -1619,19 +1584,19 @@ def test_a_function_the_emitter_writes_another_way_is_not_missing() -> None:
 
     have = corpus()
     model = generate.declared_model()
-    for stem, shapes in (("store", {"open_store", "_init_libstore"}),
-                         ("path", {"_init_libstore", "_translate_nix_error"})):
+    for stem, shapes in (
+        ("store", {"open_store", "_init_libstore"}),
+        ("path", {"_init_libstore", "_translate_nix_error"}),
+    ):
         mod = have.module(f"{stem}.py")
         assert shapes <= {f.name for f in mod.functions}
         unit = model.module(stem)
-        text = extension(unit, f"huggorm_bindings.{stem}", model,
-                         chain=[], errors="", prelude=PRELUDE)
+        text = extension(unit, f"huggorm_bindings.{stem}", model, chain=[], errors="", prelude=PRELUDE)
         assert 'def("open_store"' not in text, "it is a constructor, not a name"
         generate.census_written(mod, unit.bindable(), text)
 
 
-def test_the_codegen_runs_the_written_census(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+def test_the_codegen_runs_the_written_census(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The census is called for every module the codegen emits.
 
     Same argument as the two wiring tests above: the tests that drive
@@ -1639,8 +1604,7 @@ def test_the_codegen_runs_the_written_census(
     from huggorm_gen.cppgen import generate
 
     ran = []
-    monkeypatch.setattr(generate, "census_written",
-                        lambda mod, bound, text: ran.append(mod.name))
+    monkeypatch.setattr(generate, "census_written", lambda mod, bound, text: ran.append(mod.name))
     assert generate.main(str(tmp_path)) == 0
     assert "pathinfo" in ran, ran
 
@@ -1670,69 +1634,76 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
 
     headers = declared_model().errors.headers
     assert [h.name for h in headers] == [
-                       "huggorm_decl/cpp/eval_errors.hpp",
-                       "nix/expr/eval-error.hh",
-                       "nix/store/store-api.hh",
-                       "nix/store/store-dir-config.hh",
-                       "nix/util/error.hh",
-                       "nix/util/signals.hh"], headers
+        "huggorm_decl/cpp/eval_errors.hpp",
+        "nix/expr/eval-error.hh",
+        "nix/store/store-api.hh",
+        "nix/store/store-dir-config.hh",
+        "nix/util/error.hh",
+        "nix/util/signals.hh",
+    ], headers
 
     unit = declared_model().module("path")
     assert unit.translators, "the control below means nothing otherwise"
-    text = extension(unit, "huggorm_bindings.path", declared_model(),
-                     chain=[], errors="", prelude=PRELUDE,
-                     error_headers=headers)
+    text = extension(
+        unit, "huggorm_bindings.path", declared_model(), chain=[], errors="", prelude=PRELUDE, error_headers=headers
+    )
     for h in headers:
         assert h.line in text, h
 
-    without = extension(unit, "huggorm_bindings.path", declared_model(),
-                        chain=[], errors="", prelude=PRELUDE)
-    assert '#include "nix/store/store-dir-config.hh"' not in without, \
+    without = extension(unit, "huggorm_bindings.path", declared_model(), chain=[], errors="", prelude=PRELUDE)
+    assert '#include "nix/store/store-dir-config.hh"' not in without, (
         "the headers come from the derivation, not from a fixed list"
+    )
 
 
-@pytest.mark.parametrize(("throws", "refusal"), [
-    # A catch whose type the emitted file reaches only by accident
-    # (nixidae/nixidae#627).
-    ('@throws("nix::Error")', "missing 1 required positional argument: "
-                              "'header'"),
-    ('@throws("nix::Error", "nix/util/error.hh")',
-     r'@throws takes Std\("x"\) or Local'),
-    ('@throws(Local("nix/util/error.hh"), "nix::Error")',
-     r"@throws names C\+\+, so it takes a string"),
-])
-def test_a_caught_error_names_its_type_and_its_header(
-        tmp_path: pathlib.Path, throws: str, refusal: str) -> None:
+@pytest.mark.parametrize(
+    ("throws", "refusal"),
+    [
+        # A catch whose type the emitted file reaches only by accident
+        # (nixidae/nixidae#627).
+        ('@throws("nix::Error")', "missing 1 required positional argument: 'header'"),
+        ('@throws("nix::Error", "nix/util/error.hh")', r'@throws takes Std\("x"\) or Local'),
+        ('@throws(Local("nix/util/error.hh"), "nix::Error")', r"@throws names C\+\+, so it takes a string"),
+    ],
+)
+def test_a_caught_error_names_its_type_and_its_header(tmp_path: pathlib.Path, throws: str, refusal: str) -> None:
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match=refusal):
-        read(_declaration(tmp_path, 'from huggorm_dsl.declare import '
-                                    'Local, throws\n\n\n'
-                                    f'{throws}\n'
-                                    'class NixError(Exception):\n'
-                                    '    pass\n'))
+        read(
+            _declaration(
+                tmp_path,
+                f"from huggorm_dsl.declare import Local, throws\n\n\n{throws}\nclass NixError(Exception):\n    pass\n",
+            )
+        )
 
 
-@pytest.mark.parametrize(("source", "refusal"), [
-    ('class Helper:\n    pass\n',
-     "Helper: a class with no marker declares an exception"),
-    ('@binding(cxx="x::Broken")\nclass Broken(Exception):\n    pass\n',
-     "@binding is not legal on a error"),
-    ('@throws("x::Broken", Local("x.hpp"))\n@binding(cxx="x::Stream")\n'
-     'class Stream:\n    pass\n',
-     "@throws is not legal on a class"),
-])
+@pytest.mark.parametrize(
+    ("source", "refusal"),
+    [
+        ("class Helper:\n    pass\n", "Helper: a class with no marker declares an exception"),
+        ('@binding(cxx="x::Broken")\nclass Broken(Exception):\n    pass\n', "@binding is not legal on a error"),
+        (
+            '@throws("x::Broken", Local("x.hpp"))\n@binding(cxx="x::Stream")\nclass Stream:\n    pass\n',
+            "@throws is not legal on a class",
+        ),
+    ],
+)
 def test_an_exception_and_a_bound_class_take_their_own_markers(
-        tmp_path: pathlib.Path, source: str, refusal: str) -> None:
+    tmp_path: pathlib.Path, source: str, refusal: str
+) -> None:
     """A class that derives from no exception and carries no marker is
     refused. The module transform would copy it through, and no model
     entry and no catch clause would know it - a silent skip."""
     from huggorm_dsl.read import DeclarationError, read
 
-    path = _declaration(tmp_path, 'from huggorm_dsl.declare import '
-                                  'Local, binding, throws\n\n\n'
-                                  'class NixError(Exception):\n'
-                                  '    pass\n\n\n' + source)
+    path = _declaration(
+        tmp_path,
+        "from huggorm_dsl.declare import "
+        "Local, binding, throws\n\n\n"
+        "class NixError(Exception):\n"
+        "    pass\n\n\n" + source,
+    )
     with pytest.raises(DeclarationError, match=refusal):
         read(path)
 
@@ -1743,8 +1714,7 @@ def test_a_reader_reads_a_record(tmp_path: pathlib.Path) -> None:
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    path = _declaration(tmp_path, READERLESS.replace(
-        '    _wire', '    reader = "huggorm::error_info"\n    _wire', 1))
+    path = _declaration(tmp_path, READERLESS.replace("    _wire", '    reader = "huggorm::error_info"\n    _wire', 1))
     with pytest.raises(TypeError, match="part 'code' is a scalar"):
         _errors(read(path), ir)
 
@@ -1807,23 +1777,40 @@ def test_emitting_the_module_leaves_the_declaration_alone() -> None:
 # Where each standard name a body spells is declared. The check of the
 # runtime header's fixed set, not a table any emitter reads.
 BODY_STD = {
-    "std::invalid_argument": "stdexcept", "std::runtime_error": "stdexcept",
-    "std::out_of_range": "stdexcept", "std::string": "string",
-    "std::string_view": "string_view", "std::nullopt": "optional",
-    "std::optional": "optional", "std::int64_t": "cstdint",
-    "std::uint64_t": "cstdint", "std::uint32_t": "cstdint",
-    "std::uint8_t": "cstdint", "std::size_t": "cstddef",
-    "std::filesystem": "filesystem", "std::vector": "vector",
-    "std::set": "set", "std::map": "map", "std::variant": "variant",
-    "std::get_if": "variant", "std::holds_alternative": "variant",
-    "std::move": "utility", "std::to_underlying": "utility",
-    "std::pair": "utility", "std::less": "functional",
-    "std::function": "functional", "std::numeric_limits": "limits",
-    "std::sort": "algorithm", "std::ranges": "algorithm",
+    "std::invalid_argument": "stdexcept",
+    "std::runtime_error": "stdexcept",
+    "std::out_of_range": "stdexcept",
+    "std::string": "string",
+    "std::string_view": "string_view",
+    "std::nullopt": "optional",
+    "std::optional": "optional",
+    "std::int64_t": "cstdint",
+    "std::uint64_t": "cstdint",
+    "std::uint32_t": "cstdint",
+    "std::uint8_t": "cstdint",
+    "std::size_t": "cstddef",
+    "std::filesystem": "filesystem",
+    "std::vector": "vector",
+    "std::set": "set",
+    "std::map": "map",
+    "std::variant": "variant",
+    "std::get_if": "variant",
+    "std::holds_alternative": "variant",
+    "std::move": "utility",
+    "std::to_underlying": "utility",
+    "std::pair": "utility",
+    "std::less": "functional",
+    "std::function": "functional",
+    "std::numeric_limits": "limits",
+    "std::sort": "algorithm",
+    "std::ranges": "algorithm",
     "std::memory_order_relaxed": "atomic",
-    "std::memory_order_acquire": "atomic", "std::atomic": "atomic",
-    "std::make_shared": "memory", "std::shared_ptr": "memory",
-    "std::dynamic_pointer_cast": "memory", "std::tie": "tuple",
+    "std::memory_order_acquire": "atomic",
+    "std::atomic": "atomic",
+    "std::make_shared": "memory",
+    "std::shared_ptr": "memory",
+    "std::dynamic_pointer_cast": "memory",
+    "std::tie": "tuple",
 }
 
 
@@ -1840,18 +1827,14 @@ def test_the_runtime_header_declares_what_the_bodies_spell() -> None:
     from huggorm_gen.cppgen.generate import declared_model
 
     model = declared_model()
-    bodies = [b.text for cls in model.classes.values()
-              for m in cls.callables if (b := m.cxx_body) is not None]
-    bodies += [b.text for fn in model.functions.values()
-               if (b := fn.cxx_body) is not None]
+    bodies = [b.text for cls in model.classes.values() for m in cls.callables if (b := m.cxx_body) is not None]
+    bodies += [b.text for fn in model.functions.values() if (b := fn.cxx_body) is not None]
     spelled = set(re.findall(r"std::\w+", "\n".join(bodies)))
     assert "std::invalid_argument" in spelled, "the control"
     unknown = spelled - BODY_STD.keys()
     assert not unknown, f"no header known for {sorted(unknown)}"
-    runtime = (pathlib.Path(nbemit.__file__).parent
-               / nbemit.RUNTIME_HEADER).read_text()
-    missing = {BODY_STD[n] for n in spelled} - set(
-        re.findall(r"#include <(\w+)>", runtime))
+    runtime = (pathlib.Path(nbemit.__file__).parent / nbemit.RUNTIME_HEADER).read_text()
+    missing = {BODY_STD[n] for n in spelled} - set(re.findall(r"#include <(\w+)>", runtime))
     assert not missing, f"the runtime header lacks {sorted(missing)}"
 
 
@@ -1881,8 +1864,7 @@ def test_an_alias_is_resolved_at_any_depth(tmp_path: pathlib.Path) -> None:
 
     t = read(_declaration(tmp_path, NESTED)).classes[0].methods[0].ret
     assert t is not None
-    assert (t.origin, t.required.origin, t.required.element.origin) == \
-        (Origin.OPTIONAL, Origin.DICT, Origin.LIST)
+    assert (t.origin, t.required.origin, t.required.element.origin) == (Origin.OPTIONAL, Origin.DICT, Origin.LIST)
     leaf = t.leaf
     assert leaf.python == "str"
     assert leaf.cxx is not None and leaf.cxx.spelling == "std::string"
@@ -1907,12 +1889,14 @@ class Thing:
 UNIMPORTED = QUOTED.replace('-> "Str"', "-> Elsewhere")
 
 
-@pytest.mark.parametrize(("source", "said"), [
-    (QUOTED, "unquoted"),
-    (UNIMPORTED, "Elsewhere"),
-])
-def test_an_annotation_the_import_cannot_resolve_is_refused(
-        tmp_path: pathlib.Path, source: str, said: str) -> None:
+@pytest.mark.parametrize(
+    ("source", "said"),
+    [
+        (QUOTED, "unquoted"),
+        (UNIMPORTED, "Elsewhere"),
+    ],
+)
+def test_an_annotation_the_import_cannot_resolve_is_refused(tmp_path: pathlib.Path, source: str, said: str) -> None:
     """A quote is text, and a name the file never imported arrives as
     a `ForwardRef`. The reader takes neither as a type."""
     from huggorm_dsl.read import DeclarationError, read
@@ -1945,12 +1929,14 @@ class Node:
 '''
 
 
-@pytest.mark.parametrize(("kinds", "refusal"), [
-    ('{"list": Items(size="size", item="at")}', "names ['at']"),
-    ('{"bytes": Leaf("bytes", "size")}', "a tree leaf is a bytes"),
-])
-def test_a_tree_that_names_what_the_class_lacks_is_refused(
-        tmp_path: pathlib.Path, kinds: str, refusal: str) -> None:
+@pytest.mark.parametrize(
+    ("kinds", "refusal"),
+    [
+        ('{"list": Items(size="size", item="at")}', "names ['at']"),
+        ('{"bytes": Leaf("bytes", "size")}', "a tree leaf is a bytes"),
+    ],
+)
+def test_a_tree_that_names_what_the_class_lacks_is_refused(tmp_path: pathlib.Path, kinds: str, refusal: str) -> None:
     """The server walks a tree by the names `@tree` gives. A name the
     class does not bind would fail on the first walk, as an
     AttributeError a remote caller sees as an internal error; a leaf
@@ -1961,8 +1947,7 @@ def test_a_tree_that_names_what_the_class_lacks_is_refused(
 
     module = read(_declaration(tmp_path, WALKED.replace("{kinds}", kinds)))
     with pytest.raises(TypeError, match=re.escape(refusal)):
-        ir.ClassModel.of(module.classes[0], "pkg", "mod",
-                         ir.Resolver.of(module))
+        ir.ClassModel.of(module.classes[0], "pkg", "mod", ir.Resolver.of(module))
 
 
 STREAMED = '''"""A class whose override takes or answers bytes."""
@@ -1986,8 +1971,7 @@ def _stream(tmp_path: pathlib.Path, declared: str) -> Any:
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, STREAMED.replace("DECLARED", declared))), "")
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, STREAMED.replace("DECLARED", declared))), "")
     return unit.classes[0]
 
 
@@ -1996,19 +1980,20 @@ def test_a_virtual_crosses_bytes_as_a_string(tmp_path: pathlib.Path) -> None:
     are a `std::string`, converted where the GIL is held."""
     from huggorm_gen.cppgen import nbemit
 
-    text = "\n".join(nbemit.trampoline(
-        _stream(tmp_path, "swap(self, data: Bytes) -> Bytes")))
+    text = "\n".join(nbemit.trampoline(_stream(tmp_path, "swap(self, data: Bytes) -> Bytes")))
     assert "std::string swap(const std::string & data) override" in text
     assert ".attr(nb_ticket.key)(to_bytes(data))" in text
     assert "return from_bytes(nb::cast<nb::bytes>(answer));" in text
 
 
-@pytest.mark.parametrize("declared", [
-    "take(self, data: Vec[Bytes]) -> None",
-    "give(self) -> Vec[Bytes]",
-])
-def test_a_virtual_refuses_a_list_of_bytes(
-        tmp_path: pathlib.Path, declared: str) -> None:
+@pytest.mark.parametrize(
+    "declared",
+    [
+        "take(self, data: Vec[Bytes]) -> None",
+        "give(self) -> Vec[Bytes]",
+    ],
+)
+def test_a_virtual_refuses_a_list_of_bytes(tmp_path: pathlib.Path, declared: str) -> None:
     from huggorm_gen.cppgen import nbemit
 
     with pytest.raises(TypeError, match="Stream"):
@@ -2039,33 +2024,35 @@ class Stream:
 '''
 
 
-@pytest.mark.parametrize(("calls_back", "declared", "refusal"), [
-    ("", "write(self, data: Bytes) -> None", "needs a @calls_back class"),
-    ("@calls_back", "swap(self, data: Bytes) -> Bytes",
-     "needs a hook that answers nothing"),
-])
+@pytest.mark.parametrize(
+    ("calls_back", "declared", "refusal"),
+    [
+        ("", "write(self, data: Bytes) -> None", "needs a @calls_back class"),
+        ("@calls_back", "swap(self, data: Bytes) -> Bytes", "needs a hook that answers nothing"),
+    ],
+)
 def test_posted_refuses_a_hook_no_caller_could_leave(
-        tmp_path: pathlib.Path, calls_back: str, declared: str,
-        refusal: str) -> None:
+    tmp_path: pathlib.Path, calls_back: str, declared: str, refusal: str
+) -> None:
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    module = read(_declaration(tmp_path, POSTED.replace(
-        "CALLS_BACK", calls_back).replace("DECLARED", declared)))
+    module = read(_declaration(tmp_path, POSTED.replace("CALLS_BACK", calls_back).replace("DECLARED", declared)))
     with pytest.raises(TypeError, match=refusal):
-        ir.ClassModel.of(module.classes[0], "pkg", "mod",
-                         ir.Resolver.of(module))
+        ir.ClassModel.of(module.classes[0], "pkg", "mod", ir.Resolver.of(module))
 
 
 def test_posted_reaches_the_hook_table(tmp_path: pathlib.Path) -> None:
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    module = read(_declaration(tmp_path, POSTED.replace(
-        "CALLS_BACK", "@calls_back").replace(
-            "DECLARED", "write(self, data: Bytes) -> None")))
-    cls = ir.ClassModel.of(module.classes[0], "pkg", "mod",
-                           ir.Resolver.of(module))
+    module = read(
+        _declaration(
+            tmp_path,
+            POSTED.replace("CALLS_BACK", "@calls_back").replace("DECLARED", "write(self, data: Bytes) -> None"),
+        )
+    )
+    cls = ir.ClassModel.of(module.classes[0], "pkg", "mod", ir.Resolver.of(module))
     assert [(m.name, m.posted) for m in cls.hooks] == [("write", True)]
 
 
@@ -2090,112 +2077,138 @@ class Stream:
 '''
 
 
-@pytest.mark.parametrize(("class_marker", "method_marker"), [
-    ('@binding(cxx="x::Stream", blocking=False)', "@fast"),
-    ('@d.binding(cxx="x::Stream", blocking=False)', "@d.instant"),
-])
+@pytest.mark.parametrize(
+    ("class_marker", "method_marker"),
+    [
+        ('@binding(cxx="x::Stream", blocking=False)', "@fast"),
+        ('@d.binding(cxx="x::Stream", blocking=False)', "@d.instant"),
+    ],
+)
 def test_a_marker_is_read_from_the_import_whatever_its_spelling(
-        tmp_path: pathlib.Path, class_marker: str, method_marker: str) -> None:
+    tmp_path: pathlib.Path, class_marker: str, method_marker: str
+) -> None:
     """A marker records itself on what it marks, so an alias and the
     attribute form say what the bare name says (nixidae/nixidae#881)."""
     from huggorm_dsl.read import read
 
-    module = read(_declaration(tmp_path, SPELLED.replace(
-        "CLASS_MARKER", class_marker).replace("METHOD_MARKER", method_marker)))
+    module = read(
+        _declaration(tmp_path, SPELLED.replace("CLASS_MARKER", class_marker).replace("METHOD_MARKER", method_marker))
+    )
     (cls,) = module.classes
     assert (cls.decl.cxx, cls.decl.blocking) == ("x::Stream", False)
     assert [(m.name, m.instant) for m in cls.methods] == [("name", True)]
 
 
-@pytest.mark.parametrize(("class_marker", "method_marker", "refusal"), [
-    ('@typing.final\n@binding(cxx="x::Stream")', "", "not a marker"),
-    ('@binding(cxx="x::Stream")', "@typing.final", "not a marker"),
-    ('@binding(cxx="x::Stream")\n@fast', "", "not legal on a class"),
-    ('@binding(cxx="x::Stream")', "@d.binds", "needs arguments"),
-    ('@binding(cxx="x::Stream")', '@d.cxx_name("a")\n    @d.cxx_name("b")',
-     "may appear once"),
-    ('@binding(cxx="x::Stream")', "@d.blocks\n    @fast",
-     "cannot both be set"),
-    ('@binding(cxx="x::Stream")', "@fast\n    @d.blocks",
-     "@blocks and @instant cannot both be set"),
-    ('@binding(cxx="x::Stream")\n@d.wire_value()\n@d.in_process', "",
-     "@in_process and @wire_value cannot both be set"),
-    ('@binding(cxx="x::Stream")\n@d.calls_back', "",
-     "@calls_back needs @in_process"),
-    ('@binding(cxx="x::Stream")', "@d.posted", "@posted needs @virtual"),
-])
+@pytest.mark.parametrize(
+    ("class_marker", "method_marker", "refusal"),
+    [
+        ('@typing.final\n@binding(cxx="x::Stream")', "", "not a marker"),
+        ('@binding(cxx="x::Stream")', "@typing.final", "not a marker"),
+        ('@binding(cxx="x::Stream")\n@fast', "", "not legal on a class"),
+        ('@binding(cxx="x::Stream")', "@d.binds", "needs arguments"),
+        ('@binding(cxx="x::Stream")', '@d.cxx_name("a")\n    @d.cxx_name("b")', "may appear once"),
+        ('@binding(cxx="x::Stream")', "@d.blocks\n    @fast", "cannot both be set"),
+        ('@binding(cxx="x::Stream")', "@fast\n    @d.blocks", "@blocks and @instant cannot both be set"),
+        (
+            '@binding(cxx="x::Stream")\n@d.wire_value()\n@d.in_process',
+            "",
+            "@in_process and @wire_value cannot both be set",
+        ),
+        ('@binding(cxx="x::Stream")\n@d.calls_back', "", "@calls_back needs @in_process"),
+        ('@binding(cxx="x::Stream")', "@d.posted", "@posted needs @virtual"),
+    ],
+)
 def test_a_marker_is_checked_by_what_it_recorded(
-        tmp_path: pathlib.Path, class_marker: str, method_marker: str,
-        refusal: str) -> None:
+    tmp_path: pathlib.Path, class_marker: str, method_marker: str, refusal: str
+) -> None:
     """A decorator that records no mark reaches no output, so it is
     refused rather than dropped."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match=refusal):
-        read(_declaration(tmp_path, SPELLED.replace(
-            "CLASS_MARKER", class_marker).replace(
-                "METHOD_MARKER", method_marker)))
+        read(
+            _declaration(
+                tmp_path, SPELLED.replace("CLASS_MARKER", class_marker).replace("METHOD_MARKER", method_marker)
+            )
+        )
 
 
-@pytest.mark.parametrize(("stray", "refusal"), [
-    ('@typing.final\n@throws("x::Broken", Local("x.hpp"))\n'
-     'class Broken(Exception):\n    """."""\n',
-     "Broken: a decorator here is not a marker"),
-    ('@typing.final\ndef stray() -> Str:\n    """."""\n',
-     r"stray \(function\) reaches no output"),
-])
-def test_a_foreign_decorator_alone_is_refused(
-        tmp_path: pathlib.Path, stray: str, refusal: str) -> None:
+@pytest.mark.parametrize(
+    ("stray", "refusal"),
+    [
+        (
+            '@typing.final\n@throws("x::Broken", Local("x.hpp"))\nclass Broken(Exception):\n    """."""\n',
+            "Broken: a decorator here is not a marker",
+        ),
+        ('@typing.final\ndef stray() -> Str:\n    """."""\n', r"stray \(function\) reaches no output"),
+    ],
+)
+def test_a_foreign_decorator_alone_is_refused(tmp_path: pathlib.Path, stray: str, refusal: str) -> None:
     """The marks decide whether a definition is bound, not the
     decorators. A decorator that records no mark is still refused, on
     an exception and on a free function (nixidae/nixidae#900)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match=refusal):
-        read(_declaration(tmp_path, SPELLED.replace(
-            "CLASS_MARKER", '@binding(cxx="x::Stream")').replace(
-                "METHOD_MARKER", "") + "\n\n" + stray))
+        read(
+            _declaration(
+                tmp_path,
+                SPELLED.replace("CLASS_MARKER", '@binding(cxx="x::Stream")').replace("METHOD_MARKER", "")
+                + "\n\n"
+                + stray,
+            )
+        )
 
 
-def test_a_read_decl_is_frozen_and_keeps_its_base(
-        tmp_path: pathlib.Path) -> None:
+def test_a_read_decl_is_frozen_and_keeps_its_base(tmp_path: pathlib.Path) -> None:
     """The reader builds each `Decl` whole, so a later reader cannot
     change one (nixidae/nixidae#901). The base is the field it set last."""
     import dataclasses
 
     from huggorm_dsl.read import read
 
-    module = read(_declaration(tmp_path, SPELLED.replace(
-        "CLASS_MARKER", '@binding(cxx="x::Stream")\n@d.in_process').replace(
-            "METHOD_MARKER", "") + '''
+    module = read(
+        _declaration(
+            tmp_path,
+            SPELLED.replace("CLASS_MARKER", '@binding(cxx="x::Stream")\n@d.in_process').replace("METHOD_MARKER", "")
+            + '''
 
 @binding(cxx="x::Sub")
 @d.in_process
 @header(Local("x.hpp"))
 class Sub(Stream):
     """A sub-stream."""
-'''))
+''',
+        )
+    )
     sub = next(c for c in module.classes if c.name == "Sub")
     assert sub.decl.base == "Stream"
     with pytest.raises(dataclasses.FrozenInstanceError):
         sub.decl.base = ""  # type: ignore[misc]
 
 
-@pytest.mark.parametrize(("old", "new"), [
-    ('@header(Local("x.hpp"))', '@header("x.hpp")'),
-    ("METHOD_MARKER", '@d.needs("m.hpp")'),
-    ("METHOD_MARKER", '@d.needs(Local("m.hpp"), "n.hpp")'),
-])
-def test_a_header_is_an_include_not_a_string(
-        tmp_path: pathlib.Path, old: str, new: str) -> None:
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ('@header(Local("x.hpp"))', '@header("x.hpp")'),
+        ("METHOD_MARKER", '@d.needs("m.hpp")'),
+        ("METHOD_MARKER", '@d.needs(Local("m.hpp"), "n.hpp")'),
+    ],
+)
+def test_a_header_is_an_include_not_a_string(tmp_path: pathlib.Path, old: str, new: str) -> None:
     """A bare string says neither `<x>` nor `"x"`, so `@header` and
     `@needs` refuse one (nixidae/nixidae#938)."""
     from huggorm_dsl.read import DeclarationError, read
 
     with pytest.raises(DeclarationError, match=r'takes Std\("x"\) or Local'):
-        read(_declaration(tmp_path, SPELLED.replace(old, new).replace(
-            "CLASS_MARKER", '@binding(cxx="x::Stream")').replace(
-                "METHOD_MARKER", "")))
+        read(
+            _declaration(
+                tmp_path,
+                SPELLED.replace(old, new)
+                .replace("CLASS_MARKER", '@binding(cxx="x::Stream")')
+                .replace("METHOD_MARKER", ""),
+            )
+        )
 
 
 def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
@@ -2204,14 +2217,17 @@ def test_stacked_needs_keep_every_header(tmp_path: pathlib.Path) -> None:
     from huggorm_dsl.declare import Local
     from huggorm_dsl.read import read
 
-    module = read(_declaration(tmp_path, SPELLED.replace(
-        "CLASS_MARKER", '@d.needs(Local("c1.hpp"))\n@d.needs(Local("c2.hpp"))\n'
-                        '@binding(cxx="x::Stream")').replace(
-        "METHOD_MARKER", '@d.needs(Local("m1.hpp"))\n    @d.needs(Local("m2.hpp"))')))
+    module = read(
+        _declaration(
+            tmp_path,
+            SPELLED.replace(
+                "CLASS_MARKER", '@d.needs(Local("c1.hpp"))\n@d.needs(Local("c2.hpp"))\n@binding(cxx="x::Stream")'
+            ).replace("METHOD_MARKER", '@d.needs(Local("m1.hpp"))\n    @d.needs(Local("m2.hpp"))'),
+        )
+    )
     (cls,) = module.classes
     assert cls.decl.headers == (Local("c1.hpp"), Local("c2.hpp"))
-    assert [m.headers for m in cls.methods] == [
-        (Local("m1.hpp"), Local("m2.hpp"))]
+    assert [m.headers for m in cls.methods] == [(Local("m1.hpp"), Local("m2.hpp"))]
 
 
 OPTIONAL_LIST = '''"""A return the emitter cannot convert."""
@@ -2229,20 +2245,16 @@ class Store:
 '''
 
 
-@pytest.mark.parametrize("returns", ["Opt[Vec[Str]]",
-                                     "Opt[Map[Str]]"])
-def test_an_optional_container_return_is_refused(
-        tmp_path: pathlib.Path, returns: str) -> None:
+@pytest.mark.parametrize("returns", ["Opt[Vec[Str]]", "Opt[Map[Str]]"])
+def test_an_optional_container_return_is_refused(tmp_path: pathlib.Path, returns: str) -> None:
     """Nothing converts the payload of an optional, so nanobind would
     hand Python a set where the declaration says list (nixidae/nixidae#711)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, OPTIONAL_LIST.replace("RETURNS", returns))), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, OPTIONAL_LIST.replace("RETURNS", returns))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     with pytest.raises(TypeError, match="has no conversion"):
         nbemit.Emitter(model, unit).bind_function(unit.classes[0])
 
@@ -2263,11 +2275,10 @@ class Store:
 '''
 
 
-@pytest.mark.parametrize(("param", "held"), [
-    ("Vec[Str]", "std::vector<std::string>"),
-    ("Map[Str]", "std::map<std::string, std::string>")])
-def test_an_absent_container_parameter_is_an_empty_one(
-        tmp_path: pathlib.Path, param: str, held: str) -> None:
+@pytest.mark.parametrize(
+    ("param", "held"), [("Vec[Str]", "std::vector<std::string>"), ("Map[Str]", "std::map<std::string, std::string>")]
+)
+def test_an_absent_container_parameter_is_an_empty_one(tmp_path: pathlib.Path, param: str, held: str) -> None:
     """nanobind's container casters refuse None, so the binding takes
     an optional and opens it to an empty container (nixidae/nixidae#641,
     nixidae/nixidae#711)."""
@@ -2275,21 +2286,17 @@ def test_an_absent_container_parameter_is_an_empty_one(
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, ABSENT_CONTAINER.replace("PARAM", param))), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, ABSENT_CONTAINER.replace("PARAM", param))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     names = unit.classes[0].methods[0].params[0]
     assert names.absent
     assert names.type.container and not names.type.optional
     emit = nbemit.Emitter(model, unit)
     emitted = emit.bind_function(unit.classes[0])
-    assert (f"const std::optional<{held}> & names_" in emitted
-            and f"names_.value_or({held}{{}})" in emitted), emitted
+    assert f"const std::optional<{held}> & names_" in emitted and f"names_.value_or({held}{{}})" in emitted, emitted
     # The only optional in the unit, and nanobind casts it only with
     # this header: without it the cast fails at run time.
-    assert "#include <nanobind/stl/optional.h>" in emit.includes(
-        unit.classes, ())
+    assert "#include <nanobind/stl/optional.h>" in emit.includes(unit.classes, ())
 
 
 SET_PARAM = '''"""A derived method whose parameter libstore holds as a set."""
@@ -2319,16 +2326,13 @@ def _set_param(tmp_path: pathlib.Path, param: str) -> str:
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, SET_PARAM.replace("PARAM", param))), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, SET_PARAM.replace("PARAM", param))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     store = next(c for c in unit.classes if c.name == "Store")
     return nbemit.Emitter(model, unit).bind_function(store)
 
 
-def test_a_collection_parameter_alone_gets_a_body(
-        tmp_path: pathlib.Path) -> None:
+def test_a_collection_parameter_alone_gets_a_body(tmp_path: pathlib.Path) -> None:
     """A `list[StorePath]` with nothing else to convert was bound by
     pointer, so the C++ got a vector where it takes a StorePathSet
     (nixidae/nixidae#874)."""
@@ -2337,51 +2341,49 @@ def test_a_collection_parameter_alone_gets_a_body(
     from huggorm_gen.cppgen import nbemit
 
     source = SET_PARAM.replace(
-        "def names(self, paths: PARAM) -> Vec[Str]:",
-        "def forget(self, paths: Vec[StorePath]) -> None:")
+        "def names(self, paths: PARAM) -> Vec[Str]:", "def forget(self, paths: Vec[StorePath]) -> None:"
+    )
     assert "def forget" in source
     unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     store = next(c for c in unit.classes if c.name == "Store")
     emitted = nbemit.Emitter(model, unit).bind_function(store)
     assert "forget(as_set<nix::StorePathSet>(paths))" in emitted, emitted
 
 
-def test_a_free_function_bound_by_name_refuses_a_conversion(
-        tmp_path: pathlib.Path) -> None:
+def test_a_free_function_bound_by_name_refuses_a_conversion(tmp_path: pathlib.Path) -> None:
     """Bound by name, nothing converts an argument (nixidae/nixidae#874)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    source = SET_PARAM.replace(
-        "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, header",
-        "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, binds, header",
-    ).replace("PARAM", "Vec[StorePath]") + '''
+    source = (
+        SET_PARAM.replace(
+            "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, header",
+            "from huggorm_dsl.declare import Local, Map, Opt, Vec, Str, binding, binds, header",
+        ).replace("PARAM", "Vec[StorePath]")
+        + '''
 
 @binds("nix::forget")
 def forget(paths: Vec[StorePath]) -> None:
     """Forget them."""
 '''
+    )
     unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     fn = next(f for f in unit.functions if f.name == "forget")
     with pytest.raises(TypeError, match=r"\['paths'\]"):
         nbemit.Emitter(model, unit).free_function(fn)
 
 
-def test_an_absent_list_over_a_set_converts_what_it_opens(
-        tmp_path: pathlib.Path) -> None:
+def test_an_absent_list_over_a_set_converts_what_it_opens(tmp_path: pathlib.Path) -> None:
     """The binding opens the optional to a vector, and `as_set` takes
     that vector (nixidae/nixidae#711)."""
     emitted = _set_param(tmp_path, "Opt[Vec[StorePath]] = None")
     assert "as_set<nix::StorePathSet>(paths)" in emitted, emitted
 
 
-def test_an_optional_list_over_a_set_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_an_optional_list_over_a_set_is_refused(tmp_path: pathlib.Path) -> None:
     """`as_set` converts a vector, not an optional one (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=r"'paths' is a .* has no conversion"):
         _set_param(tmp_path, "Opt[Vec[StorePath]]")
@@ -2435,12 +2437,9 @@ def _vocabulary(tmp_path: pathlib.Path, declared: str) -> str:
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    (tmp_path / "probe.py").write_text(
-        WORDS_STORE.replace("DECLARED", declared))
-    unit = ir.ModuleModel.of(
-        Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    (tmp_path / "probe.py").write_text(WORDS_STORE.replace("DECLARED", declared))
+    unit = ir.ModuleModel.of(Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     store = next(c for c in unit.classes if c.name == "Store")
     return nbemit.Emitter(model, unit).bind_function(store)
 
@@ -2455,8 +2454,7 @@ MARKED = '''
 
 
 @pytest.mark.parametrize("name", ["__init__", "touch"])
-def test_a_constructor_emits_what_it_needs_and_spells(
-        tmp_path: pathlib.Path, name: str) -> None:
+def test_a_constructor_emits_what_it_needs_and_spells(tmp_path: pathlib.Path, name: str) -> None:
     """`@needs` and `@spells` on `__init__` reached no header and no
     conversion, while the same marks on a method reached both
     (nixidae/nixidae#873)."""
@@ -2466,24 +2464,21 @@ def test_a_constructor_emits_what_it_needs_and_spells(
 
     (tmp_path / "probe.py").write_text(
         WORDS_STORE.replace(
-            "from huggorm_dsl.declare import Local, "
-            "Map, Opt, Vec, Enumerated, binding, binds, header, words",
+            "from huggorm_dsl.declare import Local, Map, Opt, Vec, Enumerated, binding, binds, header, words",
             "from huggorm_dsl.declare import (\n"
             "    Local, Map, Opt, Vec, Cxx, Enumerated, binding, binds, header,\n"
             "    needs,\n"
-            "    spells, words)")
-        .replace("DECLARED", MARKED.format(where=name, name=name)))
+            "    spells, words)",
+        ).replace("DECLARED", MARKED.format(where=name, name=name))
+    )
     mod = Corpus(tmp_path, nanobind=("probe.py",)).module("probe")
     unit = ir.ModuleModel.of(mod, "")
-    enums = {c.name: ir.EnumModel.of(c, "", "probe")
-             for c in mod.classes if c.is_words}
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     enums, ir.Errors("", {}), (unit,))
+    enums = {c.name: ir.EnumModel.of(c, "", "probe") for c in mod.classes if c.is_words}
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, enums, ir.Errors("", {}), (unit,))
     store = next(c for c in unit.classes if c.name == "Store")
     emitter = nbemit.Emitter(model, unit)
     assert f'#include "probe/{name}.hh"' in emitter.includes([store], [])
-    assert [e.name for e in emitter._vocabularies_used([store], [])] == [
-        "HashAlgorithm"]
+    assert [e.name for e in emitter._vocabularies_used([store], [])] == ["HashAlgorithm"]
 
 
 def test_a_vocabulary_converts_with_no_body(tmp_path: pathlib.Path) -> None:
@@ -2491,45 +2486,48 @@ def test_a_vocabulary_converts_with_no_body(tmp_path: pathlib.Path) -> None:
     which no Python value converts to: a call that raises
     (nixidae/nixidae#711)."""
     emitted = _vocabulary(tmp_path, SCALAR_WORDS)
-    for line in ("const auto algo = nix::parseHashAlgo(algo_);",
-                 "algo = nix::parseHashAlgo(*algo_);",
-                 "return huggorm::as_word(self.answer());",
-                 "return huggorm::as_word(*answer);"):
+    for line in (
+        "const auto algo = nix::parseHashAlgo(algo_);",
+        "algo = nix::parseHashAlgo(*algo_);",
+        "return huggorm::as_word(self.answer());",
+        "return huggorm::as_word(*answer);",
+    ):
         assert line in emitted, emitted
     assert "&nix::Store::" not in emitted, emitted
 
 
-def test_a_vocabulary_crosses_with_the_string_caster(
-        tmp_path: pathlib.Path) -> None:
+def test_a_vocabulary_crosses_with_the_string_caster(tmp_path: pathlib.Path) -> None:
     """A member is the string a parser takes, so its caster is the
     string one, decided by the class and not by its spelling."""
     from huggorm_dsl.corpus import Corpus
     from huggorm_gen import ir
 
-    (tmp_path / "probe.py").write_text(
-        WORDS_STORE.replace("DECLARED", SCALAR_WORDS))
-    unit = ir.ModuleModel.of(
-        Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
+    (tmp_path / "probe.py").write_text(WORDS_STORE.replace("DECLARED", SCALAR_WORDS))
+    unit = ir.ModuleModel.of(Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
     store = next(c for c in unit.classes if c.name == "Store")
     answer = next(m for m in store.bound if m.name == "answer").returns
     assert answer is not None
     assert (answer.cxx, answer.caster) == ("std::string", "string")
 
 
-@pytest.mark.parametrize(("declared", "what"), [
-    ('    def many(self, algos: Vec[HashAlgorithm]) -> None:\n'
-     '        """Many."""\n', "Store.many: parameter 'algos'"),
-    ('    def answers(self) -> Map[HashAlgorithm]:\n'
-     '        """Answers."""\n', "Store.answers: return"),
-    ('\n\n@binds("nix::pick")\n'
-     'def pick(algo: HashAlgorithm) -> None:\n'
-     '    """Pick."""\n', "pick: parameter 'algo'")])
-def test_a_vocabulary_nothing_converts_is_refused(
-        tmp_path: pathlib.Path, declared: str, what: str) -> None:
+@pytest.mark.parametrize(
+    ("declared", "what"),
+    [
+        (
+            '    def many(self, algos: Vec[HashAlgorithm]) -> None:\n        """Many."""\n',
+            "Store.many: parameter 'algos'",
+        ),
+        ('    def answers(self) -> Map[HashAlgorithm]:\n        """Answers."""\n', "Store.answers: return"),
+        (
+            '\n\n@binds("nix::pick")\ndef pick(algo: HashAlgorithm) -> None:\n    """Pick."""\n',
+            "pick: parameter 'algo'",
+        ),
+    ],
+)
+def test_a_vocabulary_nothing_converts_is_refused(tmp_path: pathlib.Path, declared: str, what: str) -> None:
     """A container of them has no conversion line, and a free function
     with no body is bound by name (nixidae/nixidae#711)."""
-    with pytest.raises(TypeError, match=f"{re.escape(what)} .* nothing "
-                                        f"converts here"):
+    with pytest.raises(TypeError, match=f"{re.escape(what)} .* nothing converts here"):
         _vocabulary(tmp_path, declared)
 
 
@@ -2565,21 +2563,21 @@ def test_an_intenum_vocabulary_reads_its_numbers(tmp_path: pathlib.Path) -> None
     false `if` is absent, and the tree gives each one's docstring."""
     from huggorm_gen import ir
 
-    cls = _numbers(tmp_path, 'WARN = 1\n    if False:\n        NOTICE = 2\n'
-                             '        """Not on this Nix."""')
+    cls = _numbers(tmp_path, 'WARN = 1\n    if False:\n        NOTICE = 2\n        """Not on this Nix."""')
     enum = ir.EnumModel.of(cls, "", "probe")  # type: ignore[arg-type]
     assert (enum.numeric, enum.base) == (True, "IntEnum")
-    assert [(m.name, m.value, m.doc) for m in enum.members] == [
-        ("ERROR", 0, "Errors only."), ("WARN", 1, "")]
+    assert [(m.name, m.value, m.doc) for m in enum.members] == [("ERROR", 0, "Errors only."), ("WARN", 1, "")]
 
 
-@pytest.mark.parametrize(("extra", "match"), [
-    ("WARN = 0", "share a value"),
-    # IntEnum takes 1.0 as 1, so only the tree sees it.
-    ("WARN = 1.0", "written as an int"),
-])
-def test_an_intenum_vocabulary_refuses(
-        tmp_path: pathlib.Path, extra: str, match: str) -> None:
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        ("WARN = 0", "share a value"),
+        # IntEnum takes 1.0 as 1, so only the tree sees it.
+        ("WARN = 1.0", "written as an int"),
+    ],
+)
+def test_an_intenum_vocabulary_refuses(tmp_path: pathlib.Path, extra: str, match: str) -> None:
     """An alias would put one value in the switch twice, and a float
     member is not Nix's number."""
     from huggorm_dsl.read import DeclarationError
@@ -2588,8 +2586,7 @@ def test_an_intenum_vocabulary_refuses(
         _numbers(tmp_path, extra)
 
 
-def test_an_intenum_vocabulary_is_checked_against_its_enum(
-        tmp_path: pathlib.Path) -> None:
+def test_an_intenum_vocabulary_is_checked_against_its_enum(tmp_path: pathlib.Path) -> None:
     """A `static_assert` per member, with a cast because an `enum
     class` does not compare with an int, and a switch with no
     `default` (nixidae/nixidae#1052)."""
@@ -2597,25 +2594,23 @@ def test_an_intenum_vocabulary_is_checked_against_its_enum(
     from huggorm_gen.cppgen import nbemit
 
     cls = _numbers(tmp_path, "WARN = 1")
-    emitted = "\n".join(nbemit.words_conversion(
-        ir.EnumModel.of(cls, "", "probe")))  # type: ignore[arg-type]
-    assert ("static_assert(static_cast<std::int64_t>(nix::Verbosity::lvlWarn) == 1,"
-            in emitted), emitted
+    emitted = "\n".join(nbemit.words_conversion(ir.EnumModel.of(cls, "", "probe")))  # type: ignore[arg-type]
+    assert "static_assert(static_cast<std::int64_t>(nix::Verbosity::lvlWarn) == 1," in emitted, emitted
     assert "case nix::Verbosity::lvlWarn: return 1;" in emitted, emitted
     assert "default" not in emitted, emitted
 
 
-def test_an_intenum_vocabulary_in_a_signature_is_refused(
-        tmp_path: pathlib.Path) -> None:
+def test_an_intenum_vocabulary_in_a_signature_is_refused(tmp_path: pathlib.Path) -> None:
     """Nothing converts one at a crossing, and the vocabulary route
     would hand it over as a string."""
     from huggorm_dsl.corpus import Corpus
     from huggorm_gen import ir
 
-    source = (NUMBERS.format(extra="WARN = 1")
-              .replace("import Enumerated, Local, header, words",
-                       "import Enumerated, Local, binding, header, words")
-              + '''
+    source = (
+        NUMBERS.format(extra="WARN = 1").replace(
+            "import Enumerated, Local, header, words", "import Enumerated, Local, binding, header, words"
+        )
+        + '''
 
 @header(Local("nix/store/store-api.hh"))
 @binding(cxx="nix::Store", threading="pool", blocking=False)
@@ -2624,7 +2619,8 @@ class Store:
 
     def level(self) -> Verbosity:
         """A level."""
-''')
+'''
+    )
     (tmp_path / "probe.py").write_text(source)
     with pytest.raises(TypeError, match="IntEnum vocabulary, and it does not cross"):
         ir.ModuleModel.of(Corpus(tmp_path, nanobind=("probe.py",)).module("probe"), "")
@@ -2651,22 +2647,21 @@ class Store:
 '''
 
 
-@pytest.mark.parametrize(("method", "what"), [
-    ('take(self, values: Vec[Value]) -> None:\n        """Take."""',
-     "Store.take: parameter 'values'"),
-    ('give(self) -> Map[Value]:\n        """Give."""',
-     "Store.give: return")])
-def test_a_container_of_handles_is_refused(
-        tmp_path: pathlib.Path, method: str, what: str) -> None:
+@pytest.mark.parametrize(
+    ("method", "what"),
+    [
+        ('take(self, values: Vec[Value]) -> None:\n        """Take."""', "Store.take: parameter 'values'"),
+        ('give(self) -> Map[Value]:\n        """Give."""', "Store.give: return"),
+    ],
+)
+def test_a_container_of_handles_is_refused(tmp_path: pathlib.Path, method: str, what: str) -> None:
     """`via` unwraps one handle and the return wraps one. A container
     of them has neither (nixidae/nixidae#711)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    with pytest.raises(TypeError, match=f"{re.escape(what)} .* `Value` "
-                                        f"that nothing converts here"):
-        ir.ModuleModel.of(read(_declaration(
-            tmp_path, HANDLES.replace("METHOD", method))), "")
+    with pytest.raises(TypeError, match=f"{re.escape(what)} .* `Value` that nothing converts here"):
+        ir.ModuleModel.of(read(_declaration(tmp_path, HANDLES.replace("METHOD", method))), "")
 
 
 def test_a_container_of_errors_names_the_errors_module() -> None:
@@ -2676,11 +2671,9 @@ def test_a_container_of_errors_names_the_errors_module() -> None:
     from huggorm_gen.cppgen import nbemit
 
     gone = ir.TypeRef.named("Gone", ir.Kind.ERROR)
-    fn = ir.FunctionModel("errors", "m.m", None, (),
-                          ir.TypeRef.list_of(gone), "")
+    fn = ir.FunctionModel("errors", "m.m", None, (), ir.TypeRef.list_of(gone), "")
     model = ir.Model({}, {}, {}, {}, ir.Errors("", {}))
-    emitter = nbemit.Emitter(model, ir.ModuleModel("m", "", (), (), (),
-                                                    frozenset()))
+    emitter = nbemit.Emitter(model, ir.ModuleModel("m", "", (), (), (), frozenset()))
     assert emitter._errors_used((), (fn,))
 
 
@@ -2703,21 +2696,21 @@ def _bytes(tmp_path: pathlib.Path, declared: str) -> str:
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, BYTES_STORE.replace("DECLARED", declared))), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, BYTES_STORE.replace("DECLARED", declared))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     emitter = nbemit.Emitter(model, unit)
-    return "\n".join([emitter.bind_function(unit.classes[0]),
-                      *(line for fn in unit.functions
-                        for line in emitter.free_function(fn))])
+    return "\n".join(
+        [emitter.bind_function(unit.classes[0]), *(line for fn in unit.functions for line in emitter.free_function(fn))]
+    )
 
 
 def test_bytes_convert_with_no_body(tmp_path: pathlib.Path) -> None:
     """Bound by pointer, a string crossed as `str` where the
     declaration says `bytes`, and a `bytes` argument did not convert
     to one (nixidae/nixidae#711)."""
-    emitted = _bytes(tmp_path, '''
+    emitted = _bytes(
+        tmp_path,
+        '''
     def read(self) -> Bytes:
         """Read."""
 
@@ -2726,23 +2719,22 @@ def test_bytes_convert_with_no_body(tmp_path: pathlib.Path) -> None:
 
     def write(self, data: Bytes) -> None:
         """Write."""
-''')
-    for line in ("return to_bytes(self.read());",
-                 "return to_bytes(self.chunks());",
-                 "self.write(from_bytes(data));"):
+''',
+    )
+    for line in ("return to_bytes(self.read());", "return to_bytes(self.chunks());", "self.write(from_bytes(data));"):
         assert line in emitted, emitted
     assert "&nix::Store::" not in emitted, emitted
 
 
-@pytest.mark.parametrize(("declared", "what"), [
-    ('    def maybe(self) -> Opt[Bytes]:\n        """Maybe."""\n',
-     "Store.maybe: return"),
-    ('    def many(self, data: Vec[Bytes]) -> None:\n        """Many."""\n',
-     "Store.many: parameter 'data'"),
-    ('\n\n@binds("nix::put")\ndef put(data: Bytes) -> None:\n'
-     '    """Put."""\n', "put: bound by name")])
-def test_a_bytes_shape_nothing_converts_is_refused(
-        tmp_path: pathlib.Path, declared: str, what: str) -> None:
+@pytest.mark.parametrize(
+    ("declared", "what"),
+    [
+        ('    def maybe(self) -> Opt[Bytes]:\n        """Maybe."""\n', "Store.maybe: return"),
+        ('    def many(self, data: Vec[Bytes]) -> None:\n        """Many."""\n', "Store.many: parameter 'data'"),
+        ('\n\n@binds("nix::put")\ndef put(data: Bytes) -> None:\n    """Put."""\n', "put: bound by name"),
+    ],
+)
+def test_a_bytes_shape_nothing_converts_is_refused(tmp_path: pathlib.Path, declared: str, what: str) -> None:
     """Refused, not bound as the C++ spells it (nixidae/nixidae#711)."""
     with pytest.raises(TypeError, match=re.escape(what)):
         _bytes(tmp_path, declared)
@@ -2773,8 +2765,7 @@ class Twice:
 '''
 
 
-def test_a_refused_declaration_is_refused_on_every_read(
-        tmp_path: pathlib.Path) -> None:
+def test_a_refused_declaration_is_refused_on_every_read(tmp_path: pathlib.Path) -> None:
     """A second read raises too, and does not hand back the class
     with the refused methods gone (nixidae/nixidae#869).
 
@@ -2791,8 +2782,7 @@ def test_a_refused_declaration_is_refused_on_every_read(
         read(path)
 
 
-def test_every_refusal_in_a_file_is_reported_at_once(
-        tmp_path: pathlib.Path) -> None:
+def test_every_refusal_in_a_file_is_reported_at_once(tmp_path: pathlib.Path) -> None:
     """Two mistakes in one file give two messages from one read."""
     from huggorm_dsl.read import DeclarationError, read
 
@@ -2802,21 +2792,21 @@ def test_every_refusal_in_a_file_is_reported_at_once(
     assert r"worse(z)" in str(caught.value)
 
 
-@pytest.mark.parametrize("keyword", ["copy=\"view\"", "width=32"])
-def test_a_body_cxx_with_a_keyword_is_refused(
-        tmp_path: pathlib.Path, keyword: str) -> None:
+@pytest.mark.parametrize("keyword", ['copy="view"', "width=32"])
+def test_a_body_cxx_with_a_keyword_is_refused(tmp_path: pathlib.Path, keyword: str) -> None:
     """`copy` and `width` mean something on a type's `Cxx` only. In a
     body the reader read the text and dropped the keyword, in silence
     (nixidae/nixidae#870)."""
     from huggorm_dsl.read import DeclarationError, read
 
-    source = CALLABLE.replace(
-        'Cxx("return arg;")', f'Cxx("return arg;", {keyword})').replace(
+    source = CALLABLE.replace('Cxx("return arg;")', f'Cxx("return arg;", {keyword})').replace(
         '''
     def __len__(self) -> I64:
         """No emitter carries this one."""
         Cxx("return 0;")
-''', "")
+''',
+        "",
+    )
     assert keyword in source
     assert "__len__" not in source
     with pytest.raises(DeclarationError, match="belong on a type"):
@@ -2851,31 +2841,31 @@ def keep(fn: PyFunc) -> None:
 '''
 
 
-@pytest.mark.parametrize(("marker", "free_marker", "refused"), [
-    ("", "", "Mark the method @instant"),
-    ("@instant", "@blocks", "@blocks releases the GIL"),
-])
+@pytest.mark.parametrize(
+    ("marker", "free_marker", "refused"),
+    [
+        ("", "", "Mark the method @instant"),
+        ("@instant", "@blocks", "@blocks releases the GIL"),
+    ],
+)
 def test_a_python_handle_on_a_call_that_releases_the_gil_is_refused(
-        tmp_path: pathlib.Path, marker: str, free_marker: str,
-        refused: str) -> None:
+    tmp_path: pathlib.Path, marker: str, free_marker: str, refused: str
+) -> None:
     """nanobind aborts when a by-value `nb::object` changes its count
     without the GIL, and the binding compiles fine
     (nixidae/nixidae#872)."""
     from huggorm_dsl.read import DeclarationError, read
 
-    source = HANDLE_HELD.replace("{marker}", marker).replace(
-        "{free_marker}", free_marker)
+    source = HANDLE_HELD.replace("{marker}", marker).replace("{free_marker}", free_marker)
     with pytest.raises(DeclarationError, match=refused):
         read(_declaration(tmp_path, source))
 
 
-def test_a_python_handle_on_a_call_that_keeps_the_gil_is_read(
-        tmp_path: pathlib.Path) -> None:
+def test_a_python_handle_on_a_call_that_keeps_the_gil_is_read(tmp_path: pathlib.Path) -> None:
     """`@instant` on the method, no `@blocks` on the function."""
     from huggorm_dsl.read import read
 
-    source = HANDLE_HELD.replace("{marker}", "@instant").replace(
-        "{free_marker}", "")
+    source = HANDLE_HELD.replace("{marker}", "@instant").replace("{free_marker}", "")
     mod = read(_declaration(tmp_path, source))
     assert [m.name for m in mod.classes[0].methods] == ["keep"]
     assert [f.name for f in mod.functions] == ["keep"]
@@ -2898,22 +2888,24 @@ class Store:
 '''
 
 
-@pytest.mark.parametrize(("alias", "param", "value", "caster"), [
-    ("Str", "const std::string &", "std::string", "string"),
-    ("StrView", "std::string_view", "std::string_view", "string_view"),
-    ("Bint", "bool", "bool", None),
-    ("Bytes", "const nb::bytes &", "nb::bytes", None),
-    ("U64", "std::uint64_t", "std::uint64_t", None),
-    ("I64", "std::int64_t", "std::int64_t", None),
-    ("F64", "double", "double", None),
-    ("Path", "const std::filesystem::path &", "std::filesystem::path",
-     "filesystem"),
-    ("Duration", "std::chrono::microseconds", "std::chrono::microseconds",
-     "chrono"),
-    ("PyFunc", "nb::object", "nb::object", None)])
+@pytest.mark.parametrize(
+    ("alias", "param", "value", "caster"),
+    [
+        ("Str", "const std::string &", "std::string", "string"),
+        ("StrView", "std::string_view", "std::string_view", "string_view"),
+        ("Bint", "bool", "bool", None),
+        ("Bytes", "const nb::bytes &", "nb::bytes", None),
+        ("U64", "std::uint64_t", "std::uint64_t", None),
+        ("I64", "std::int64_t", "std::int64_t", None),
+        ("F64", "double", "double", None),
+        ("Path", "const std::filesystem::path &", "std::filesystem::path", "filesystem"),
+        ("Duration", "std::chrono::microseconds", "std::chrono::microseconds", "chrono"),
+        ("PyFunc", "nb::object", "nb::object", None),
+    ],
+)
 def test_a_leaf_is_spelled_by_the_cxx_its_alias_carries(
-        tmp_path: pathlib.Path, alias: str, param: str, value: str,
-        caster: str | None) -> None:
+    tmp_path: pathlib.Path, alias: str, param: str, value: str, caster: str | None
+) -> None:
     """The alias states the whole C++ fact - spelling, caster and
     whether a parameter takes it by reference - so no emitter table
     can say otherwise. The expected spellings are written out, so an
@@ -2921,28 +2913,31 @@ def test_a_leaf_is_spelled_by_the_cxx_its_alias_carries(
     from huggorm_dsl.read import read
     from huggorm_gen import ir
 
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, LEAF.replace("ALIAS", alias).replace("NAME", alias))), "")
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, LEAF.replace("ALIAS", alias).replace("NAME", alias))), "")
     echo = unit.classes[0].methods[0]
     assert (echo.params[0].cxx, echo.params[0].caster) == (param, caster)
     assert echo.returns is not None
     assert (echo.returns.cxx, echo.returns.caster) == (value, caster)
 
 
-@pytest.mark.parametrize(("alias", "include"), [
-    ("Str", "#include <string>"),
-    ("StrView", "#include <string_view>"),
-    ("U64", "#include <cstdint>"),
-    ("I64", "#include <cstdint>"),
-    ("Path", "#include <filesystem>"),
-    ("Duration", "#include <chrono>"),
-    ("Thing", '#include "nix/util/thing.hh"'),
-    ("Vec[Bint]", "#include <vector>"),
-    ("Map[Bint]", "#include <map>"),
-    ("Opt[Bint]", "#include <optional>")])
+@pytest.mark.parametrize(
+    ("alias", "include"),
+    [
+        ("Str", "#include <string>"),
+        ("StrView", "#include <string_view>"),
+        ("U64", "#include <cstdint>"),
+        ("I64", "#include <cstdint>"),
+        ("Path", "#include <filesystem>"),
+        ("Duration", "#include <chrono>"),
+        ("Thing", '#include "nix/util/thing.hh"'),
+        ("Vec[Bint]", "#include <vector>"),
+        ("Map[Bint]", "#include <map>"),
+        ("Opt[Bint]", "#include <optional>"),
+    ],
+)
 def test_a_unit_includes_the_header_each_leaf_names(
-        tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-        alias: str, include: str) -> None:
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, alias: str, include: str
+) -> None:
     """The alias names its header and how it is included, so a unit
     includes what its signatures spell and no emitter picks one.
     `Thing` stands for a DSL type a Nix header declares."""
@@ -2953,51 +2948,55 @@ def test_a_unit_includes_the_header_each_leaf_names(
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    monkeypatch.setattr(declare, "Thing", typing.Annotated[int, declare.Cxx(
-        "nix::Thing", includes=(declare.Local("nix/util/thing.hh"),))],
-        raising=False)
+    monkeypatch.setattr(
+        declare,
+        "Thing",
+        typing.Annotated[int, declare.Cxx("nix::Thing", includes=(declare.Local("nix/util/thing.hh"),))],
+        raising=False,
+    )
     name = alias.split("[")[-1].rstrip("]")
-    unit = ir.ModuleModel.of(read(_declaration(
-        tmp_path, LEAF.replace("ALIAS", alias).replace("NAME", name))), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    unit = ir.ModuleModel.of(read(_declaration(tmp_path, LEAF.replace("ALIAS", alias).replace("NAME", name))), "")
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     lines = nbemit.Emitter(model, unit).includes(unit.classes, ())
     assert lines.count(include) == 1, lines
 
 
-def test_a_needed_header_is_included_as_its_kind_says(
-        tmp_path: pathlib.Path) -> None:
+def test_a_needed_header_is_included_as_its_kind_says(tmp_path: pathlib.Path) -> None:
     """`@needs(Std("x"))` renders `<x>` among the standard headers, and
     `Local("x")` renders `"x"` among the others (nixidae/nixidae#938)."""
     from huggorm_dsl.read import read
     from huggorm_gen import ir
     from huggorm_gen.cppgen import nbemit
 
-    source = LEAF.replace("ALIAS", "Bint").replace("NAME", "Bint").replace(
-        "header, instant", "header, instant, needs, Std").replace(
-        "    @instant\n",
-        '    @instant\n    @needs(Std("atomic"), Local("x/y.hh"))\n')
+    source = (
+        LEAF.replace("ALIAS", "Bint")
+        .replace("NAME", "Bint")
+        .replace("header, instant", "header, instant, needs, Std")
+        .replace("    @instant\n", '    @instant\n    @needs(Std("atomic"), Local("x/y.hh"))\n')
+    )
     unit = ir.ModuleModel.of(read(_declaration(tmp_path, source)), "")
-    model = ir.Model({c.name: c for c in unit.classes}, {}, {},
-                     {}, ir.Errors("", {}), (unit,))
+    model = ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
     lines = nbemit.Emitter(model, unit).includes(unit.classes, ())
     std, local = "#include <atomic>", '#include "x/y.hh"'
     assert lines.count(std) == 1 and lines.count(local) == 1, lines
-    assert lines.index(std) < lines.index(
-        '#include "nix/store/store-api.hh"') < lines.index(local), lines
+    assert lines.index(std) < lines.index('#include "nix/store/store-api.hh"') < lines.index(local), lines
 
 
-@pytest.mark.parametrize("signature", [
-    "def name(self) -> str:", "def take(self, flag: bool) -> None:",
-    "def names(self) -> list[Str]:", "def take(self, it: Str | None) -> None:"])
-def test_a_signature_refuses_a_bare_builtin(
-        tmp_path: pathlib.Path, signature: str) -> None:
+@pytest.mark.parametrize(
+    "signature",
+    [
+        "def name(self) -> str:",
+        "def take(self, flag: bool) -> None:",
+        "def names(self) -> list[Str]:",
+        "def take(self, it: Str | None) -> None:",
+    ],
+)
+def test_a_signature_refuses_a_bare_builtin(tmp_path: pathlib.Path, signature: str) -> None:
     """A builtin says what Python sees and nothing about the C++, so a
     signature names a type from declare.py. A bare container around
     an alias is refused too: `Vec`, `Map` and `Opt` carry its C++."""
     from huggorm_dsl.read import DeclarationError, read
 
-    source = (LEAF.replace("ALIAS", "Str").replace("NAME", "Str")
-              .replace("def echo(self, it: Str) -> Str:", signature))
+    source = LEAF.replace("ALIAS", "Str").replace("NAME", "Str").replace("def echo(self, it: Str) -> Str:", signature)
     with pytest.raises(DeclarationError, match="a bare builtin"):
         read(_declaration(tmp_path, source))

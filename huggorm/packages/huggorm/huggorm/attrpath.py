@@ -78,9 +78,7 @@ def _describe(names: Sequence[str]) -> str:
     return f"{listed}{suffix}"
 
 
-async def select_attr_path(
-    state: AsyncEvalState, value: AsyncValue, parts: Sequence[str]
-) -> AsyncValue:
+async def select_attr_path(state: AsyncEvalState, value: AsyncValue, parts: Sequence[str]) -> AsyncValue:
     """Select each component of `parts` in turn. The result is not forced.
 
     A missing component raises `AttrPathNotFoundError`, and so does a
@@ -90,9 +88,7 @@ async def select_attr_path(
     """
     for depth, part in enumerate(parts):
         if not part:
-            raise AttrPathNotFoundError(
-                "attribute path contains an empty component", depth=depth, available=()
-            )
+            raise AttrPathNotFoundError("attribute path contains an empty component", depth=depth, available=())
         await state.force(value)
         try:
             present = await value.has(part)

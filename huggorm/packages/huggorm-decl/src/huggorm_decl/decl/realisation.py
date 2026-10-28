@@ -61,6 +61,7 @@ class DrvOutput:
     # WIRE ORDER: the two facts, in the order the rendering states them.
 
     if NIX_2_35:
+
         def __init__(self, drv_path: StorePath, output_name: Str) -> None:
             """Name an output of a derivation, by the derivation's
             store path and the output's name."""
@@ -70,6 +71,7 @@ class DrvOutput:
         def drv_path(self) -> StorePath:
             """The derivation's store path."""
     else:
+
         def __init__(self, drv_hash: Hash, output_name: Str) -> None:
             """Name an output of a derivation, by the derivation's hash
             modulo and the output's name."""
@@ -136,8 +138,7 @@ class Realisation:
 
     # WIRE ORDER: what it is, what it is, and who says so.
 
-    def __init__(self, id: DrvOutput, out_path: StorePath,
-                 signatures: Opt[Vec[Signature]] = None) -> None:
+    def __init__(self, id: DrvOutput, out_path: StorePath, signatures: Opt[Vec[Signature]] = None) -> None:
         """Say that output `id` turned out to be `out_path`."""
         Cxx("new (self) nix::Realisation{{out_path, {signatures.begin(), signatures.end()}}, id};")
 
@@ -167,6 +168,7 @@ class Realisation:
 
 
 if NIX_2_35:
+
     @produced
     @header(Local("nix/store/realisation.hh"))
     @binding(

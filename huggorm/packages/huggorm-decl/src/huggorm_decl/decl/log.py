@@ -17,12 +17,21 @@ from huggorm_dsl.declare import DETERMINATE, NIX_2_36, Enumerated, Local, header
 
 
 @header(Local("nix/util/error.hh"))
-@words(enumerated=Enumerated(
-    "nix::Verbosity",
-    spelled={"ERROR": "lvlError", "WARN": "lvlWarn", "NOTICE": "lvlNotice",
-             "INFO": "lvlInfo", "TALKATIVE": "lvlTalkative",
-             "CHATTY": "lvlChatty", "DEBUG": "lvlDebug", "VOMIT": "lvlVomit"},
-))
+@words(
+    enumerated=Enumerated(
+        "nix::Verbosity",
+        spelled={
+            "ERROR": "lvlError",
+            "WARN": "lvlWarn",
+            "NOTICE": "lvlNotice",
+            "INFO": "lvlInfo",
+            "TALKATIVE": "lvlTalkative",
+            "CHATTY": "lvlChatty",
+            "DEBUG": "lvlDebug",
+            "VOMIT": "lvlVomit",
+        },
+    )
+)
 class Verbosity(IntEnum):
     """How much Nix says. A message is shown when its level is at or
     below the verbosity."""
@@ -38,19 +47,29 @@ class Verbosity(IntEnum):
 
 
 @header(Local("nix/util/logging.hh"))
-@words(enumerated=Enumerated(
-    "nix::ActivityType",
-    spelled={"UNKNOWN": "actUnknown", "COPY_PATH": "actCopyPath",
-             "FILE_TRANSFER": "actFileTransfer", "REALISE": "actRealise",
-             "COPY_PATHS": "actCopyPaths", "BUILDS": "actBuilds",
-             "BUILD": "actBuild", "OPTIMISE_STORE": "actOptimiseStore",
-             "VERIFY_PATHS": "actVerifyPaths", "SUBSTITUTE": "actSubstitute",
-             "QUERY_PATH_INFO": "actQueryPathInfo",
-             "POST_BUILD_HOOK": "actPostBuildHook",
-             "BUILD_WAITING": "actBuildWaiting", "FETCH_TREE": "actFetchTree",
-             "FETCH_TO_STORE": "actFetchToStore",
-             "STRINGLY": "actStringly"},
-))
+@words(
+    enumerated=Enumerated(
+        "nix::ActivityType",
+        spelled={
+            "UNKNOWN": "actUnknown",
+            "COPY_PATH": "actCopyPath",
+            "FILE_TRANSFER": "actFileTransfer",
+            "REALISE": "actRealise",
+            "COPY_PATHS": "actCopyPaths",
+            "BUILDS": "actBuilds",
+            "BUILD": "actBuild",
+            "OPTIMISE_STORE": "actOptimiseStore",
+            "VERIFY_PATHS": "actVerifyPaths",
+            "SUBSTITUTE": "actSubstitute",
+            "QUERY_PATH_INFO": "actQueryPathInfo",
+            "POST_BUILD_HOOK": "actPostBuildHook",
+            "BUILD_WAITING": "actBuildWaiting",
+            "FETCH_TREE": "actFetchTree",
+            "FETCH_TO_STORE": "actFetchToStore",
+            "STRINGLY": "actStringly",
+        },
+    )
+)
 class ActivityType(IntEnum):
     """What an activity is, as a `start` record carries it.
 
@@ -83,21 +102,26 @@ class ActivityType(IntEnum):
 
 
 @header(Local("nix/util/logging.hh"))
-@words(enumerated=Enumerated(
-    "nix::ResultType",
-    spelled={"FILE_LINKED": "resFileLinked",
-             "BUILD_LOG_LINE": "resBuildLogLine",
-             "UNTRUSTED_PATH": "resUntrustedPath",
-             "CORRUPTED_PATH": "resCorruptedPath",
-             "SET_PHASE": "resSetPhase", "PROGRESS": "resProgress",
-             "SET_EXPECTED": "resSetExpected",
-             "POST_BUILD_LOG_LINE": "resPostBuildLogLine",
-             "FETCH_STATUS": "resFetchStatus",
-             "FETCH_TO_STORE": "resFetchToStore",
-             "HASH_MISMATCH": "resHashMismatch",
-             "BUILD_RESULT": "resBuildResult",
-             "HTTP_STATUS": "resHttpStatus"},
-))
+@words(
+    enumerated=Enumerated(
+        "nix::ResultType",
+        spelled={
+            "FILE_LINKED": "resFileLinked",
+            "BUILD_LOG_LINE": "resBuildLogLine",
+            "UNTRUSTED_PATH": "resUntrustedPath",
+            "CORRUPTED_PATH": "resCorruptedPath",
+            "SET_PHASE": "resSetPhase",
+            "PROGRESS": "resProgress",
+            "SET_EXPECTED": "resSetExpected",
+            "POST_BUILD_LOG_LINE": "resPostBuildLogLine",
+            "FETCH_STATUS": "resFetchStatus",
+            "FETCH_TO_STORE": "resFetchToStore",
+            "HASH_MISMATCH": "resHashMismatch",
+            "BUILD_RESULT": "resBuildResult",
+            "HTTP_STATUS": "resHttpStatus",
+        },
+    )
+)
 class ResultType(IntEnum):
     """What a `result` record reports inside an activity.
 

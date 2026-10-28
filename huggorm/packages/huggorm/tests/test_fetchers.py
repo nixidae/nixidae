@@ -15,8 +15,7 @@ def test_a_url_parses_into_its_attributes() -> None:
 
     parsed = input_from_url("github:NixOS/nixpkgs")
     attrs = parsed.to_attrs()
-    assert (attrs["type"], attrs["owner"], attrs["repo"]) == (
-        "github", "NixOS", "nixpkgs")
+    assert (attrs["type"], attrs["owner"], attrs["repo"]) == ("github", "NixOS", "nixpkgs")
     assert parsed.to_string() == "github:NixOS/nixpkgs"
 
 
@@ -51,9 +50,12 @@ def _dirty(tmp_path: pathlib.Path) -> pathlib.Path:
     repo.mkdir()
 
     def git(*args: str) -> None:
-        subprocess.run(["git", "-c", "user.name=huggorm",
-                        "-c", "user.email=huggorm@invalid", *args],
-                       cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=huggorm", "-c", "user.email=huggorm@invalid", *args],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
 
     (repo / "a").write_text("committed")
     git("init", "--quiet")
@@ -63,8 +65,7 @@ def _dirty(tmp_path: pathlib.Path) -> pathlib.Path:
     return repo
 
 
-def test_a_dirty_work_tree_is_named_by_its_changes(
-        tmp_path: pathlib.Path) -> None:
+def test_a_dirty_work_tree_is_named_by_its_changes(tmp_path: pathlib.Path) -> None:
     """Uncommitted changes are hashed into the fingerprint, which is
     the case that makes `fingerprint` block: Nix reads each changed
     file. Change the file and the answer changes."""
@@ -81,8 +82,7 @@ def test_a_dirty_work_tree_is_named_by_its_changes(
     assert again.fingerprint(store) not in (None, first)
 
 
-async def test_a_blocking_method_on_a_value_is_awaitable(
-        tmp_path: pathlib.Path) -> None:
+async def test_a_blocking_method_on_a_value_is_awaitable(tmp_path: pathlib.Path) -> None:
     """`Input.fingerprint` blocks, and `Input` is a value with no
     wrapper, so its async form is a free coroutine. It takes the
     store as either form, as every free coroutine does (nixidae/nixidae#562)."""

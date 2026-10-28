@@ -15,8 +15,7 @@ from huggorm_bindings import EvalState, Store
 def _store(tmp_path: pathlib.Path) -> Store:
     """A store whose store directory is a real path, so a copy works in a
     build sandbox."""
-    return Store(f"local?store={tmp_path}/nix/store&state={tmp_path}/nix/var/nix"
-                 f"&log={tmp_path}/nix/var/log/nix")
+    return Store(f"local?store={tmp_path}/nix/store&state={tmp_path}/nix/var/nix&log={tmp_path}/nix/var/log/nix")
 
 
 def test_forgetting_a_path_copies_it_again(tmp_path: pathlib.Path) -> None:

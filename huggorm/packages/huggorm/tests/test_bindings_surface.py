@@ -32,6 +32,7 @@ def test_runtime_contract(out: pathlib.Path) -> None:
     Every referenced symbol must exist, and the core trio must still be
     exercised at all."""
     import huggorm_generated._runtime as rt
+
     referenced = set()
     for py in sorted(out.glob("*.py")):
         tree = ast.parse(py.read_text(), filename=str(py.name))
@@ -78,8 +79,7 @@ def test_every_call_is_numbered_once() -> None:
     from huggorm_generated._policy import ACQUIRE, CALLS, FREE, METHODS
 
     assert [c.index for c in CALLS] == list(range(len(CALLS)))
-    named: list[Call | Acquire] = [*ACQUIRE.values(), *FREE.values(),
-             *(m for ms in METHODS.values() for m in ms)]
+    named: list[Call | Acquire] = [*ACQUIRE.values(), *FREE.values(), *(m for ms in METHODS.values() for m in ms)]
     assert sorted(c.index for c in named) == list(range(len(CALLS)))
     for c in named:
         assert CALLS[c.index] is c, (c.index, c)
@@ -113,7 +113,8 @@ def test_stubs(out: pathlib.Path) -> None:
         node.name: node
         for pyi in stub_dir.glob("*.pyi")
         for node in ast.parse(pyi.read_text()).body
-        if isinstance(node, ast.ClassDef)}
+        if isinstance(node, ast.ClassDef)
+    }
     for pyi in sorted(stub_dir.glob("*.pyi")):
         if pyi.name == "__init__.pyi":
             continue
@@ -127,12 +128,15 @@ def test_stubs(out: pathlib.Path) -> None:
                 classes[node.name] = node
             elif isinstance(node, ast.FunctionDef):
                 declared.add(node.name)
-        live = {n for n in dir(module) if not n.startswith("_")
-                and getattr(getattr(module, n), "__module__", None) == module.__name__}
+        live = {
+            n
+            for n in dir(module)
+            if not n.startswith("_") and getattr(getattr(module, n), "__module__", None) == module.__name__
+        }
         if declared != live:
             failures.append(
-                f"{pyi.name}: declares {sorted(declared - live)} that do not "
-                f"exist, and omits {sorted(live - declared)}")
+                f"{pyi.name}: declares {sorted(declared - live)} that do not exist, and omits {sorted(live - declared)}"
+            )
 
         # Every name an annotation uses must be one the stub binds. A
         # stub that names a union alias the module never defines -
@@ -146,9 +150,11 @@ def test_stubs(out: pathlib.Path) -> None:
         for walked in ast.walk(tree):
             annotations = []
             if isinstance(walked, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                annotations += [a.annotation for a in (
-                    *walked.args.posonlyargs, *walked.args.args,
-                    *walked.args.kwonlyargs) if a.annotation is not None]
+                annotations += [
+                    a.annotation
+                    for a in (*walked.args.posonlyargs, *walked.args.args, *walked.args.kwonlyargs)
+                    if a.annotation is not None
+                ]
                 if walked.returns is not None:
                     annotations.append(walked.returns)
             elif isinstance(walked, ast.AnnAssign):
@@ -157,8 +163,8 @@ def test_stubs(out: pathlib.Path) -> None:
                 used |= {n.id for n in ast.walk(ann) if isinstance(n, ast.Name)}
         if used - bound:
             failures.append(
-                f"{pyi.name}: annotations name {sorted(used - bound)}, which "
-                f"the stub neither defines nor imports")
+                f"{pyi.name}: annotations name {sorted(used - bound)}, which the stub neither defines nor imports"
+            )
 
         # Everything the stub says a class has, including what it
         # inherits through a base the stub also declares. Defined once
@@ -173,9 +179,7 @@ def test_stubs(out: pathlib.Path) -> None:
             for b in cn.bases:
                 if isinstance(b, ast.Name):
                     out_ |= surface(b.id)
-            return out_ | {f.name for f in cn.body
-                           if isinstance(f, ast.FunctionDef)
-                           and is_surface(f.name)}
+            return out_ | {f.name for f in cn.body if isinstance(f, ast.FunctionDef) and is_surface(f.name)}
 
         for name in classes:
             cls = getattr(module, name)
@@ -184,14 +188,15 @@ def test_stubs(out: pathlib.Path) -> None:
             for k in cls.__mro__:
                 if getattr(k, "__module__", "").split(".")[0] != bindings.__name__:
                     continue
-                live_methods |= {a for a, v in k.__dict__.items()
-                                 if is_surface(a)
-                                 and (callable(v) or hasattr(v, "__get__"))}
+                live_methods |= {
+                    a for a, v in k.__dict__.items() if is_surface(a) and (callable(v) or hasattr(v, "__get__"))
+                }
             if stub_methods != live_methods:
                 failures.append(
                     f"{pyi.name}:{name} declares "
                     f"{sorted(stub_methods - live_methods)} that do not "
-                    f"exist, and omits {sorted(live_methods - stub_methods)}")
+                    f"exist, and omits {sorted(live_methods - stub_methods)}"
+                )
             checked += 1
 
     assert not failures, "stubs disagree with the bindings:\n  " + "\n  ".join(failures)
@@ -199,22 +204,15 @@ def test_stubs(out: pathlib.Path) -> None:
 
     # The __init__ stub must re-export exactly what the real one does.
     init = ast.parse((stub_dir / "__init__.pyi").read_text())
-    exported = {
-        a.name
-        for node in init.body if isinstance(node, ast.ImportFrom)
-        for a in node.names
-    }
+    exported = {a.name for node in init.body if isinstance(node, ast.ImportFrom) for a in node.names}
     assert exported == set(bindings.__all__), (
-        f"__init__.pyi exports {sorted(exported)}, the package exports "
-        f"{sorted(bindings.__all__)}")
+        f"__init__.pyi exports {sorted(exported)}, the package exports {sorted(bindings.__all__)}"
+    )
     # A plain import in a stub is PRIVATE; only `X as X` re-exports.
     aliased = {
-        a.name
-        for node in init.body if isinstance(node, ast.ImportFrom)
-        for a in node.names if a.asname == a.name
+        a.name for node in init.body if isinstance(node, ast.ImportFrom) for a in node.names if a.asname == a.name
     }
-    assert aliased == exported, (
-        f"these are imported but not re-exported: {sorted(exported - aliased)}")
+    assert aliased == exported, f"these are imported but not re-exported: {sorted(exported - aliased)}"
 
 
 def test_docstrings() -> None:
@@ -274,8 +272,8 @@ def _rendered(sig: str) -> str:
     a default as an opaque `\\0` placeholder, and the names are the
     declaration's own - `"name"_a` comes straight off it, so comparing
     them would compare the declaration with itself."""
-    body = sig[sig.index("(") + 1:sig.rindex(")")]
-    ret = sig[sig.rindex(")") + 1:].removeprefix(" -> ")
+    body = sig[sig.index("(") + 1 : sig.rindex(")")]
+    ret = sig[sig.rindex(")") + 1 :].removeprefix(" -> ")
     parts, depth, cur = [], 0, ""
     for ch in body:
         if ch in "[(":
@@ -288,9 +286,11 @@ def _rendered(sig: str) -> str:
         else:
             cur += ch
     parts.append(cur)
-    typed = [p.split(":", 1)[1].split("=")[0] if ":" in p else p
-             for p in (q.strip() for q in parts)
-             if p and p.strip() != "self"]
+    typed = [
+        p.split(":", 1)[1].split("=")[0] if ":" in p else p
+        for p in (q.strip() for q in parts)
+        if p and p.strip() != "self"
+    ]
     return f"({', '.join(_same(x) for x in typed)}) -> {_same(ret)}"
 
 
@@ -344,8 +344,7 @@ def _same(spelling: str) -> str:
     for _ in range(len(_UNIONS) + 1):
         before = out
         for alias, arms in _UNIONS.items():
-            out = re.sub(rf"\b{re.escape(alias)}\b",
-                         " | ".join(python_spelling(a) for a in arms), out)
+            out = re.sub(rf"\b{re.escape(alias)}\b", " | ".join(python_spelling(a) for a in arms), out)
         if out == before:
             break
     return re.sub(r"\s+", " ", out).strip()
@@ -362,8 +361,7 @@ _UNIONS: dict[str, list[str]] = {}
 _ERRORS: set[str] = set()
 
 
-def test_a_declared_type_is_the_type_nanobind_BINDS(
-        out: pathlib.Path) -> None:
+def test_a_declared_type_is_the_type_nanobind_BINDS(out: pathlib.Path) -> None:
     """The declaration and the real C++ must agree, per method.
 
     The gate above catches a type nanobind cannot cast at all. This
@@ -401,8 +399,7 @@ def test_a_declared_type_is_the_type_nanobind_BINDS(
     _VOCABULARIES.clear()
     _VOCABULARIES.update(model.enums)
     _UNIONS.clear()
-    _UNIONS.update({n: [a.name for a in u.arms]
-                    for n, u in model.unions.items()})
+    _UNIONS.update({n: [a.name for a in u.arms] for n, u in model.unions.items()})
     _ERRORS.clear()
     _ERRORS.update(model.errors.classes)
 
@@ -414,25 +411,24 @@ def test_a_declared_type_is_the_type_nanobind_BINDS(
             sigs = getattr(fn, "__nb_signature__", None)
             if not sigs:
                 continue
-            params = [_same(p.type.spelling)
-                      # A parameter that reads None arrives as a
-                      # std::optional so an explicit None works, and
-                      # nanobind says so. The declaration says it with
-                      # the default.
-                      + (" | None" if p.default is None
-                         and not p.type.optional else "")
-                      for p in meth.params]
+            params = [
+                _same(p.type.spelling)
+                # A parameter that reads None arrives as a
+                # std::optional so an explicit None works, and
+                # nanobind says so. The declaration says it with
+                # the default.
+                + (" | None" if p.default is None and not p.type.optional else "")
+                for p in meth.params
+            ]
             want = f"({', '.join(params)}) -> {_same(meth.return_spelling)}"
             got = _rendered(sigs[0][0])
             checked += 1
             if got != want:
-                bad.append(f"{c.name}.{meth.name}\n"
-                           f"      nanobind: {got}\n"
-                           f"      declared: {want}")
+                bad.append(f"{c.name}.{meth.name}\n      nanobind: {got}\n      declared: {want}")
     assert not bad, (
         "the declaration disagrees with the C++ nanobind binds. nanobind "
-        "reads the real signature, so the declaration is what to fix:\n    "
-        + "\n    ".join(bad))
+        "reads the real signature, so the declaration is what to fix:\n    " + "\n    ".join(bad)
+    )
     assert checked, "no bound signature was found to check"
 
 
@@ -476,5 +472,6 @@ def test_no_binding_leaks_a_cxx_type(out: pathlib.Path) -> None:
                     bad.append(f"{c.name}.{name}: {sig}")
     assert not bad, (
         "a bound signature names a C++ type, so nanobind has no caster "
-        "for it and every call raises TypeError:\n  " + "\n  ".join(bad))
+        "for it and every call raises TypeError:\n  " + "\n  ".join(bad)
+    )
     assert seen, "no bound signature was found to check"

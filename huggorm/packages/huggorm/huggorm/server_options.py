@@ -53,11 +53,8 @@ class ServerOptions:
         if self.overlay is None:
             return None
         if self.overlay is TEMPORARY:
-            raise ValueError("a TEMPORARY overlay has no layout until "
-                             "huggorm.worker makes its root")
-        return namespace.OverlayNamespace.under(
-            self.overlay, lower_store=self.lower_store, lower_dir=self.lower_dir
-        )
+            raise ValueError("a TEMPORARY overlay has no layout until huggorm.worker makes its root")
+        return namespace.OverlayNamespace.under(self.overlay, lower_store=self.lower_store, lower_dir=self.lower_dir)
 
     def argv(self) -> list[str]:
         """These options as `huggorm.server` takes them, after its
@@ -66,8 +63,7 @@ class ServerOptions:
         if self.load_config:
             arguments.append("--load-config")
         if self.overlay is TEMPORARY:
-            raise ValueError("a TEMPORARY overlay has no command line until "
-                             "huggorm.worker makes its root")
+            raise ValueError("a TEMPORARY overlay has no command line until huggorm.worker makes its root")
         if self.overlay is not None:
             arguments += [
                 "--overlay",

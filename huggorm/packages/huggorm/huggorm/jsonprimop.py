@@ -28,9 +28,7 @@ if TYPE_CHECKING:
 # A named recursive alias, as the `type` statement makes on 3.12. A plain
 # `TypeAlias` string is not one: pydantic's `TypeAdapter(JsonValue)` recursed
 # until the stack ran out, and ekn builds one at import.
-JsonValue = TypeAliasType(
-    "JsonValue", "bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None"
-)
+JsonValue = TypeAliasType("JsonValue", "bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None")
 
 
 def _value(state: EvalState, obj: object, context: list[str]) -> Value:
@@ -78,16 +76,17 @@ def json_primop(state: EvalState, fn: Callable[..., Any]) -> Callable[..., Value
     return bridge
 
 
-async def register_json_primop(
-        state: AsyncEvalState, name: str, arity: int, fn: Callable[..., Any]) -> None:
+async def register_json_primop(state: AsyncEvalState, name: str, arity: int, fn: Callable[..., Any]) -> None:
     """Publish `fn` as `builtins.<name>`, over plain data.
 
     The registration runs on the state's own thread, because the bridge
     builds its result with that state."""
     runner = state._backend
     if not isinstance(runner, BaseRunner):
-        raise TypeError("register_json_primop runs only in process: a primop "
-                        "calls Python on the evaluator's thread (nixidae/nixidae#570)")
+        raise TypeError(
+            "register_json_primop runs only in process: a primop "
+            "calls Python on the evaluator's thread (nixidae/nixidae#570)"
+        )
     await runner.run(lambda raw: raw.register_primop(name, arity, json_primop(raw, fn)))
 
 

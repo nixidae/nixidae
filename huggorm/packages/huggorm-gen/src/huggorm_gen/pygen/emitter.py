@@ -34,8 +34,8 @@ from huggorm_gen.pygen.spell import (
 
 ASYNC = ir.ASYNC
 
-def _code(src: str, signature: ast.arguments | None = None,
-          **subst: str) -> ast.stmt:
+
+def _code(src: str, signature: ast.arguments | None = None, **subst: str) -> ast.stmt:
     """One statement from a source template.
 
     `$name` is replaced as text and the result is parsed, so a bad
@@ -48,9 +48,13 @@ def _code(src: str, signature: ast.arguments | None = None,
     return node
 
 
-def _def(header: str, body: str | list[ast.stmt] = "...", doc: str = "",
-         signature: ast.arguments | None = None,
-         returns: ast.expr | None = None) -> ast.stmt:
+def _def(
+    header: str,
+    body: str | list[ast.stmt] = "...",
+    doc: str = "",
+    signature: ast.arguments | None = None,
+    returns: ast.expr | None = None,
+) -> ast.stmt:
     """One def from its header and its body, as source or as nodes.
 
     `signature` replaces the parameters, for one `_arguments` spells
@@ -97,17 +101,14 @@ def _built(t: ir.TypeRef, value: str, depth: int = 0) -> str:
         case ir.Origin.OPTIONAL:
             return f"None if {value} is None else {_built(t.inner, value, depth)}"
         case ir.Origin.LIST:
-            return (f"[{_built(t.inner, f'item{n}', depth + 1)} "
-                    f"for item{n} in {value}]")
+            return f"[{_built(t.inner, f'item{n}', depth + 1)} for item{n} in {value}]"
         case ir.Origin.DICT:
-            return (f"{{key{n}: {_built(t.inner, f'item{n}', depth + 1)} "
-                    f"for key{n}, item{n} in {value}.items()}}")
+            return f"{{key{n}: {_built(t.inner, f'item{n}', depth + 1)} for key{n}, item{n} in {value}.items()}}"
         case _:
             assert_never(t.origin)
 
 
-def _handing_back(call: str, r: ir.TypeRef | None,
-                  returns: ast.expr) -> list[ast.stmt]:
+def _handing_back(call: str, r: ir.TypeRef | None, returns: ast.expr) -> list[ast.stmt]:
     """The body of an async call: its twin built, or its answer cast.
     The runner has already adopted a returned served class.
 
@@ -122,8 +123,7 @@ def _handing_back(call: str, r: ir.TypeRef | None,
         return [ast.Expr(value=awaited)]
     if r.leaf.twin:
         return ast.parse(_twinned(call, r)).body
-    return [ast.Return(value=ast.Call(func=ast.Name(id="cast"),
-                                      args=[returns, awaited], keywords=[]))]
+    return [ast.Return(value=ast.Call(func=ast.Name(id="cast"), args=[returns, awaited], keywords=[]))]
 
 
 def _casts(returns: Iterable[ir.TypeRef | None]) -> bool:
@@ -142,10 +142,14 @@ RUNNER = {
     ir.Execution.INLINE: "InlineRunner",
 }
 
-def _arguments(leading: list[ast.arg], params: Sequence[ir.ParamModel],
-               spell: Spelling, where: str,
-               annotate: Callable[[ir.TypeRef], ast.expr] | None = None
-               ) -> ast.arguments:
+
+def _arguments(
+    leading: list[ast.arg],
+    params: Sequence[ir.ParamModel],
+    spell: Spelling,
+    where: str,
+    annotate: Callable[[ir.TypeRef], ast.expr] | None = None,
+) -> ast.arguments:
     """`leading` plus one argument per declared parameter, annotated
     and defaulted.
 
@@ -173,17 +177,14 @@ def _arguments(leading: list[ast.arg], params: Sequence[ir.ParamModel],
         match p.default:
             case ir.NoDefault.REQUIRED:
                 if defaults:
-                    raise ValueError(
-                        f"{where}: required parameter {p.name!r} follows "
-                        f"a defaulted one")
+                    raise ValueError(f"{where}: required parameter {p.name!r} follows a defaulted one")
             case ir.Member(vocabulary, name):
-                defaults.append(ast.Attribute(
-                    value=ast.Name(id=vocabulary), attr=name))
+                defaults.append(ast.Attribute(value=ast.Name(id=vocabulary), attr=name))
             case value:
                 defaults.append(_literal(value))
-    return ast.arguments(posonlyargs=[], args=args, vararg=None,
-                         kwonlyargs=[], kw_defaults=[], kwarg=None,
-                         defaults=defaults)
+    return ast.arguments(
+        posonlyargs=[], args=args, vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=defaults
+    )
 
 
 # The emitted `_policy.py`'s own docstring. Out here rather than
@@ -228,13 +229,11 @@ def _literal(v: object) -> ast.expr:
                 keywords.append(ast.keyword(arg=f.name, value=_literal(x)))
             else:
                 args.append(_literal(x))
-        return ast.Call(func=ast.Name(id=type(v).__name__), args=args,
-                        keywords=keywords)
+        return ast.Call(func=ast.Name(id=type(v).__name__), args=args, keywords=keywords)
     if isinstance(v, tuple):
         return ast.Tuple(elts=[_literal(x) for x in v])
     if isinstance(v, dict):
-        return ast.Dict(keys=[_literal(k) for k in v],
-                        values=[_literal(x) for x in v.values()])
+        return ast.Dict(keys=[_literal(k) for k in v], values=[_literal(x) for x in v.values()])
     if v is None or isinstance(v, (str, bytes, int, float)):
         return ast.Constant(value=v)
     raise TypeError(f"no literal for {type(v).__name__}: {v!r}")
@@ -244,11 +243,14 @@ def _table(var: str, ann: str, rows: Sequence[tuple[str, object]]) -> ast.stmt:
     """One emitted lookup table, named and annotated. A row's value is
     an expression already, or a value `_literal` writes."""
     return ast.AnnAssign(
-        target=ast.Name(id=var), annotation=_ann(ann, var),
-        value=ast.Dict(keys=[ast.Constant(value=n) for n, _ in rows],
-                       values=[v if isinstance(v, ast.expr) else _literal(v)
-                               for _, v in rows]),
-        simple=1)
+        target=ast.Name(id=var),
+        annotation=_ann(ann, var),
+        value=ast.Dict(
+            keys=[ast.Constant(value=n) for n, _ in rows],
+            values=[v if isinstance(v, ast.expr) else _literal(v) for _, v in rows],
+        ),
+        simple=1,
+    )
 
 
 def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
@@ -259,11 +261,9 @@ def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
     t = t.required
     match t.origin:
         case ir.Origin.LIST:
-            return cs.Wire(cs.WireKind.LIST, item=_wire(t.args[0]),
-                           optional=optional)
+            return cs.Wire(cs.WireKind.LIST, item=_wire(t.args[0]), optional=optional)
         case ir.Origin.DICT:
-            return cs.Wire(cs.WireKind.MAP, item=_wire(t.args[0]),
-                           optional=optional)
+            return cs.Wire(cs.WireKind.MAP, item=_wire(t.args[0]), optional=optional)
         case ir.Origin.OPTIONAL:
             raise TypeError(f"{t.spelling}: `| None` under `| None`")
         case None:
@@ -273,9 +273,7 @@ def _wire(t: ir.TypeRef | None) -> cs.Wire | None:
     if t.scalar is not None:
         # The leaf's own name, not the builtin it goes in as: the codec
         # converts a `datetime.timedelta` by name.
-        return cs.Wire(cs.WireKind.SCALAR,
-                       t.width.value if t.width is not None else t.name,
-                       optional=optional)
+        return cs.Wire(cs.WireKind.SCALAR, t.width.value if t.width is not None else t.name, optional=optional)
     if (kind := t.kind.wire) is not None:
         return cs.Wire(kind, t.name, optional=optional)
     raise TypeError(f"{t.spelling} is a {t.kind}, which does not cross")
@@ -306,8 +304,7 @@ class _Specs:
 
     def add(self, var: str, spec: cs.Call | cs.Acquire) -> ast.Name:
         assert spec.index == self.next, (var, spec.index, self.next)
-        self._body.append(ast.Assign(targets=[ast.Name(id=var)],
-                                     value=_literal(spec)))
+        self._body.append(ast.Assign(targets=[ast.Name(id=var)], value=_literal(spec)))
         self.names.append(ast.Name(id=var))
         return ast.Name(id=var)
 
@@ -323,10 +320,10 @@ def _typed(cls: type, *args: ast.expr, **kw: ast.expr) -> ast.expr:
     """`cls[Accessor](...)`. The type argument is explicit, because a
     typechecker would infer one accessor's type for the whole tree."""
     return ast.Call(
-        func=ast.Subscript(value=ast.Name(id=cls.__name__),
-                           slice=ast.Name(id="Accessor")),
+        func=ast.Subscript(value=ast.Name(id=cls.__name__), slice=ast.Name(id="Accessor")),
         args=list(args),
-        keywords=[ast.keyword(arg=k, value=v) for k, v in kw.items()])
+        keywords=[ast.keyword(arg=k, value=v) for k, v in kw.items()],
+    )
 
 
 def _bound_tree(t: shapes.Tree[str]) -> ast.expr:
@@ -335,32 +332,34 @@ def _bound_tree(t: shapes.Tree[str]) -> ast.expr:
     for how in t.kinds.values():
         match how:
             case shapes.Leaf():
-                values.append(_typed(shapes.Leaf, _literal(how.wire),
-                                     _accessor(how.read)))
+                values.append(_typed(shapes.Leaf, _literal(how.wire), _accessor(how.read)))
             case shapes.Items():
-                values.append(_typed(shapes.Items, _accessor(how.size),
-                                     _accessor(how.item)))
+                values.append(_typed(shapes.Items, _accessor(how.size), _accessor(how.item)))
             case shapes.Entries():
-                values.append(_typed(shapes.Entries, _accessor(how.size),
-                                     _accessor(how.name), _accessor(how.value)))
+                values.append(_typed(shapes.Entries, _accessor(how.size), _accessor(how.name), _accessor(how.value)))
             case shapes.Null():
                 values.append(_literal(how))
             case _:
                 assert_never(how)
     kinds = ast.Dict(keys=[ast.Constant(value=k) for k in t.kinds], values=values)
-    optional = {k: _accessor(v) for k, v in (
-        ("identity", t.identity), ("force", t.force), ("stop", t.stop))
-        if v is not None}
+    optional = {
+        k: _accessor(v) for k, v in (("identity", t.identity), ("force", t.force), ("stop", t.stop)) if v is not None
+    }
     return _typed(shapes.Tree, _accessor(t.kind), kinds, **optional)
 
 
 def _bound_builds(b: shapes.Builds[str]) -> ast.expr:
     """`b`, with each builder name as an `Accessor`."""
-    leaves = ast.Dict(keys=[_literal(w) for w in b.leaves],
-                      values=[_accessor(n) for n in b.leaves.values()])
-    return _typed(shapes.Builds, _accessor(b.null), leaves, _accessor(b.items),
-                  _accessor(b.add_item), _accessor(b.entries),
-                  _accessor(b.add_entry))
+    leaves = ast.Dict(keys=[_literal(w) for w in b.leaves], values=[_accessor(n) for n in b.leaves.values()])
+    return _typed(
+        shapes.Builds,
+        _accessor(b.null),
+        leaves,
+        _accessor(b.items),
+        _accessor(b.add_item),
+        _accessor(b.entries),
+        _accessor(b.add_entry),
+    )
 
 
 def policy_module(model: ir.Model) -> str:
@@ -385,26 +384,41 @@ def policy_module(model: ir.Model) -> str:
     classes = [*model.constructed, *model.handed_back]
     body: list[ast.stmt] = [
         ast.Expr(value=ast.Constant(value=POLICY_DOC)),
-        import_from("_callspec", "Accessor", "Acquire", "Arg", "Call", "Hook",
-                    "Local", "Wire", "WireKind", level=1),
-        import_from("_shapes", "Builds", "Entries", "Items", "Leaf", "Null",
-                    "Scalar", "Subscription", "Tree", level=1),
+        import_from("_callspec", "Accessor", "Acquire", "Arg", "Call", "Hook", "Local", "Wire", "WireKind", level=1),
+        import_from("_shapes", "Builds", "Entries", "Items", "Leaf", "Null", "Scalar", "Subscription", "Tree", level=1),
     ]
-    body.append(_table("WIRE_FIELDS", "dict[str, tuple[Arg, ...]]",
-                       [(c.name, _args([(f.name, f.type) for f in c.wire_fields]))
-                        for c in classes if c.wire is Crossing.VALUE]))
+    body.append(
+        _table(
+            "WIRE_FIELDS",
+            "dict[str, tuple[Arg, ...]]",
+            [(c.name, _args([(f.name, f.type) for f in c.wire_fields])) for c in classes if c.wire is Crossing.VALUE],
+        )
+    )
     # The exception surface. ERROR_MODULE is where the emitted module
     # lands, which the fault codec imports to construct one; the
     # fields are what it is rebuilt FROM.
-    body.append(ast.AnnAssign(
-        target=ast.Name(id="ERROR_MODULE"), annotation=_ann("str", "ERROR_MODULE"),
-        value=ast.Constant(value=model.errors.module), simple=1))
-    body.append(_table("ERROR_FIELDS", "dict[str, tuple[Arg, ...]]", [
-        (n, _args([(f.name, f.type) for f in e.wire_fields]))
-        for n, e in model.errors.classes.items()]))
-    body.append(_table("UNION_ARMS", "dict[str, tuple[Wire, ...]]", [
-        (n, tuple(_wire(a) for a in u.arms))
-        for n, u in model.unions.items()]))
+    body.append(
+        ast.AnnAssign(
+            target=ast.Name(id="ERROR_MODULE"),
+            annotation=_ann("str", "ERROR_MODULE"),
+            value=ast.Constant(value=model.errors.module),
+            simple=1,
+        )
+    )
+    body.append(
+        _table(
+            "ERROR_FIELDS",
+            "dict[str, tuple[Arg, ...]]",
+            [(n, _args([(f.name, f.type) for f in e.wire_fields])) for n, e in model.errors.classes.items()],
+        )
+    )
+    body.append(
+        _table(
+            "UNION_ARMS",
+            "dict[str, tuple[Wire, ...]]",
+            [(n, tuple(_wire(a) for a in u.arms)) for n, u in model.unions.items()],
+        )
+    )
     # Every call's spec, ONCE. The async classes hand them to a runner
     # or to the client, and the server reads the tables, so no two of
     # them can disagree about a call's shape.
@@ -414,36 +428,59 @@ def policy_module(model: ir.Model) -> str:
         offered: list[ast.expr] = []
         for m in c.methods:
             if model.offered(m):
-                offered.append(specs.add(
-                    _spec_name(c.name, m.name),
-                    _spec(specs.next, m.name, m.params, m.returns,
-                          m.subscription)))
+                offered.append(
+                    specs.add(
+                        _spec_name(c.name, m.name), _spec(specs.next, m.name, m.params, m.returns, m.subscription)
+                    )
+                )
             else:
-                body.append(ast.Assign(
-                    targets=[ast.Name(id=_spec_name(c.name, m.name))],
-                    value=_literal(cs.Local(m.name, _wire(m.returns), "; ".join(
-                        ir.blockers(m.params, m.returns, model.served))))))
+                body.append(
+                    ast.Assign(
+                        targets=[ast.Name(id=_spec_name(c.name, m.name))],
+                        value=_literal(
+                            cs.Local(
+                                m.name, _wire(m.returns), "; ".join(ir.blockers(m.params, m.returns, model.served))
+                            )
+                        ),
+                    )
+                )
         methods.append((c.name, ast.Tuple(elts=offered)))
     body.append(_table("METHODS", "dict[str, tuple[Call, ...]]", methods))
     # What the server may call on a client's object: each `@virtual`,
     # numbered within its class (nixidae/nixidae#738).
-    body.append(_table("CALLBACKS", "dict[str, tuple[Hook, ...]]", [
-        (c.name, tuple(cs.Hook(_spec(i, m.name, m.params, m.returns), m.posted)
-                       for i, m in enumerate(c.hooks)))
-        for c in model.called_back]))
+    body.append(
+        _table(
+            "CALLBACKS",
+            "dict[str, tuple[Hook, ...]]",
+            [
+                (c.name, tuple(cs.Hook(_spec(i, m.name, m.params, m.returns), m.posted) for i, m in enumerate(c.hooks)))
+                for c in model.called_back
+            ],
+        )
+    )
     # The value TREES, and how values are built.
-    body.append(_table("TREES", "dict[str, Tree[Accessor]]", [
-        (c.name, _bound_tree(c.tree)) for c in classes if c.tree is not None]))
-    body.append(_table("BUILDERS", "dict[str, Builds[Accessor]]", [
-        (c.name, _bound_builds(c.builds))
-        for c in classes if c.builds is not None]))
+    body.append(
+        _table(
+            "TREES", "dict[str, Tree[Accessor]]", [(c.name, _bound_tree(c.tree)) for c in classes if c.tree is not None]
+        )
+    )
+    body.append(
+        _table(
+            "BUILDERS",
+            "dict[str, Builds[Accessor]]",
+            [(c.name, _bound_builds(c.builds)) for c in classes if c.builds is not None],
+        )
+    )
     body.extend(_directory(model, specs))
-    body.append(ast.AnnAssign(
-        target=ast.Name(id="CALLS"),
-        annotation=_ann("tuple[Call | Acquire, ...]", "CALLS"),
-        value=ast.Tuple(elts=list(specs.names)), simple=1))
-    return ast.unparse(ast.fix_missing_locations(
-        ast.Module(body=body, type_ignores=[]))) + "\n"
+    body.append(
+        ast.AnnAssign(
+            target=ast.Name(id="CALLS"),
+            annotation=_ann("tuple[Call | Acquire, ...]", "CALLS"),
+            value=ast.Tuple(elts=list(specs.names)),
+            simple=1,
+        )
+    )
+    return ast.unparse(ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))) + "\n"
 
 
 def unions_module(unions: Mapping[str, ir.UnionModel]) -> str:
@@ -454,26 +491,29 @@ def unions_module(unions: Mapping[str, ir.UnionModel]) -> str:
     once and this is the same sentence in the package a caller
     imports."""
     # A scalar arm is a builtin, and huggorm_bindings has none to import.
-    arms = sorted({a.name for u in unions.values() for a in u.arms
-                   if a.kind != ir.Kind.SCALAR})
+    arms = sorted({a.name for u in unions.values() for a in u.arms if a.kind != ir.Kind.SCALAR})
     body: list[ast.stmt] = [
-        ast.Expr(value=ast.Constant(value=(
-            "The declared SUM types, as the aliases they are.\n\n"
-            "A union has no home in `huggorm_bindings`: the alias is "
-            "Python and the module that binds its arms is a compiled "
-            "extension. So it is written here, from the same "
-            "declaration the arms came from.\n"))),
-        ast.ImportFrom(module="huggorm_bindings",
-                       names=[ast.alias(name=a) for a in arms], level=0),
+        ast.Expr(
+            value=ast.Constant(
+                value=(
+                    "The declared SUM types, as the aliases they are.\n\n"
+                    "A union has no home in `huggorm_bindings`: the alias is "
+                    "Python and the module that binds its arms is a compiled "
+                    "extension. So it is written here, from the same "
+                    "declaration the arms came from.\n"
+                )
+            )
+        ),
+        ast.ImportFrom(module="huggorm_bindings", names=[ast.alias(name=a) for a in arms], level=0),
     ]
     for alias, u in unions.items():
-        body.append(ast.Assign(targets=[ast.Name(id=alias)], value=union(
-            *(dotted(python_spelling(a.name)) for a in u.arms))))
-    body.append(ast.Assign(
-        targets=[ast.Name(id="__all__")],
-        value=ast.List(elts=[ast.Constant(value=a) for a in unions])))
-    return ast.unparse(ast.fix_missing_locations(
-        ast.Module(body=body, type_ignores=[]))) + "\n"
+        body.append(
+            ast.Assign(targets=[ast.Name(id=alias)], value=union(*(dotted(python_spelling(a.name)) for a in u.arms)))
+        )
+    body.append(
+        ast.Assign(targets=[ast.Name(id="__all__")], value=ast.List(elts=[ast.Constant(value=a) for a in unions]))
+    )
+    return ast.unparse(ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))) + "\n"
 
 
 def _ann(type_str: str, context: str) -> ast.expr:
@@ -484,8 +524,6 @@ def _ann(type_str: str, context: str) -> ast.expr:
         raise ValueError(f"unparseable annotation {type_str!r} on {context}") from e
 
 
-
-
 def _as_binding(t: ir.TypeRef) -> tuple[str, Source | None]:
     return t.name, BINDINGS
 
@@ -494,13 +532,11 @@ def _as_async(t: ir.TypeRef) -> tuple[str, Source | None]:
     return f"{ASYNC}{t.name}", sibling(t.name)
 
 
-def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef,
-             client: bool = False) -> ast.expr:
+def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef, client: bool = False) -> ast.expr:
     """A constructor's or a free function's parameter: a bare proxy
     takes the sync object or its async wrapper.
     `client` widens a `@calls_back` class where the call adapts it."""
-    if (t.optional and t.required.kind == ir.Kind.PROXY and not t.required.origin
-            and t.required.name in model.served):
+    if t.optional and t.required.kind == ir.Kind.PROXY and not t.required.origin and t.required.name in model.served:
         return union(_widened(spell, model, t.required, client), NONE)
     if t.kind == ir.Kind.PROXY and not t.origin and t.name in model.served:
         spell.need(t.name, BINDINGS)
@@ -509,8 +545,7 @@ def _widened(spell: Spelling, model: ir.Model, t: ir.TypeRef,
     return spell(t, _as_binding, client=client)
 
 
-def _returning(spell: Spelling, model: ir.Model,
-               r: ir.TypeRef | None) -> ast.expr:
+def _returning(spell: Spelling, model: ir.Model, r: ir.TypeRef | None) -> ast.expr:
     """How an async surface spells a call's return. A served class is
     its async class, a type with an async twin is the twin, and
     everything else is itself."""
@@ -527,66 +562,84 @@ def _async_spelling(model: ir.Model) -> Spelling:
     An unserved class has no async class, so a method that takes one
     takes the binding class: the method has no RPC, and the runner
     calls it in this process."""
-    return Spelling(lambda t: _as_async(t) if t.name in model.served
-                    else _as_binding(t),
-                    client=_client_rename(PROTOCOLS))
+    return Spelling(
+        lambda t: _as_async(t) if t.name in model.served else _as_binding(t), client=_client_rename(PROTOCOLS)
+    )
 
 
-def _hop_method(cls: ast.ClassDef, model: ir.Model, spell: Spelling,
-                m: ir.MethodModel, svc: str) -> None:
+def _hop_method(cls: ast.ClassDef, model: ir.Model, spell: Spelling, m: ir.MethodModel, svc: str) -> None:
     """One `async def` that sends its spec to the backend. The backend
     hands a returned served class back in its async form."""
     returns = _returning(spell, model, m.returns)
-    call = (f"self._backend.call({_spec_name(svc, m.name)}, "
-            f"[{', '.join(p.name for p in m.params)}])")
-    cls.body.append(_def(
-        f"async def {m.name}()",
-        _handing_back(call, m.returns, returns), m.doc,
-        _arguments([ast.arg(arg="self")], m.params, spell, f"{svc}.{m.name}",
-                   lambda t: spell(t, client=True)),
-        returns))
+    call = f"self._backend.call({_spec_name(svc, m.name)}, [{', '.join(p.name for p in m.params)}])"
+    cls.body.append(
+        _def(
+            f"async def {m.name}()",
+            _handing_back(call, m.returns, returns),
+            m.doc,
+            _arguments([ast.arg(arg="self")], m.params, spell, f"{svc}.{m.name}", lambda t: spell(t, client=True)),
+            returns,
+        )
+    )
 
 
 _POLICY_DOC = {
     ir.Execution.AFFINE: "operations run on the producer's thread.",
     ir.Execution.POOL: "operations may run on any pool thread.",
-    ir.Execution.INLINE: "operations run on the calling thread, because none of "
-              "them can wait.",
+    ir.Execution.INLINE: "operations run on the calling thread, because none of them can wait.",
 }
 
 
-def _async_module(model: ir.Model, c: ir.ClassModel, spell: Spelling,
-                  doc: str, class_doc: str, init: ast.stmt,
-                  typing_names: set[str],
-                  runtime_names: set[str]) -> ast.Module:
+def _async_module(
+    model: ir.Model,
+    c: ir.ClassModel,
+    spell: Spelling,
+    doc: str,
+    class_doc: str,
+    init: ast.stmt,
+    typing_names: set[str],
+    runtime_names: set[str],
+) -> ast.Module:
     """`Async<X>`: the skeleton both async modules share. `init` is
     how an instance comes to hold an object, spelled with `spell`."""
     # `__init__` or `_adopt` names the sync class it takes.
     spell.need(c.name, BINDINGS)
-    cls = ast.ClassDef(name=c.async_name, bases=[], keywords=[], decorator_list=[], body=[
-        ast.Expr(value=ast.Constant(value=class_doc)),
-        _code("_copied = $copied", copied=repr(c.copied)),
-        _code("_backend: Backend"),
-        init,
-        _code("""
+    cls = ast.ClassDef(
+        name=c.async_name,
+        bases=[],
+        keywords=[],
+        decorator_list=[],
+        body=[
+            ast.Expr(value=ast.Constant(value=class_doc)),
+            _code("_copied = $copied", copied=repr(c.copied)),
+            _code("_backend: Backend"),
+            init,
+            _code("""
             @classmethod
             def _on(cls, backend: Backend) -> Self:
                 obj = cls.__new__(cls)
                 obj._backend = backend
                 return obj
             """),
-        _code("""
+            _code(
+                """
             @classmethod
             def _adopt(cls, obj: $svc, runner: BaseRunner) -> Self:
                 return cls._on($adopter.adopt(obj, runner))
-            """, svc=c.name, adopter=RUNNER[c.execution]),
-    ])
+            """,
+                svc=c.name,
+                adopter=RUNNER[c.execution],
+            ),
+        ],
+    )
     for m in c.methods:
         _hop_method(cls, model, spell, m, c.name)
-    cls.body.append(_code("""
+    cls.body.append(
+        _code("""
         async def aclose(self) -> None:
             await self._backend.aclose()
-        """))
+        """)
+    )
     # A call hands back Any, and cast is where the declared type is
     # claimed. A twin is built instead, and a None return does not
     # return.
@@ -594,20 +647,20 @@ def _async_module(model: ir.Model, c: ir.ClassModel, spell: Spelling,
         typing_names = typing_names | {"cast"}
     # Docstring FIRST: anything before it demotes it to a dead
     # expression and leaves the module with no __doc__.
-    mod = ast.Module(type_ignores=[], body=[
-        ast.Expr(value=ast.Constant(value=doc)),
-        _future_annotations(),
-        import_from("typing", "Self", *typing_names),
-        import_from("_runtime", "Backend", "BaseRunner",
-                    *sorted({RUNNER[c.execution], *runtime_names}), level=1),
-        *([import_from("_policy", *(_spec_name(c.name, m.name)
-                                    for m in c.methods), level=1)]
-          if c.methods else []),
-        # A value that produces values names its OWN async class, which
-        # is defined right here: importing it would be a self-import.
-        *spell.imports(own=c.async_name),
-        cls,
-    ])
+    mod = ast.Module(
+        type_ignores=[],
+        body=[
+            ast.Expr(value=ast.Constant(value=doc)),
+            _future_annotations(),
+            import_from("typing", "Self", *typing_names),
+            import_from("_runtime", "Backend", "BaseRunner", *sorted({RUNNER[c.execution], *runtime_names}), level=1),
+            *([import_from("_policy", *(_spec_name(c.name, m.name) for m in c.methods), level=1)] if c.methods else []),
+            # A value that produces values names its OWN async class, which
+            # is defined right here: importing it would be a self-import.
+            *spell.imports(own=c.async_name),
+            cls,
+        ],
+    )
     ast.fix_missing_locations(mod)
     return mod
 
@@ -620,17 +673,25 @@ def returned_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
     returned class can produce another one - a Value holds Values -
     and that return is adopted too."""
     policy = c.threading
-    init = _code("""
+    init = _code(
+        """
         def __init__(self, obj: $svc, runner: BaseRunner) -> None:
             self._backend = $adopter.adopt(obj, runner)
-        """, svc=c.name, adopter=RUNNER[c.execution])
+        """,
+        svc=c.name,
+        adopter=RUNNER[c.execution],
+    )
     return _async_module(
-        model, c, _async_spelling(model),
-        f"Generated async wrapper for returned type {c.name} "
-        f"(threading: {policy}) - do not edit.",
+        model,
+        c,
+        _async_spelling(model),
+        f"Generated async wrapper for returned type {c.name} (threading: {policy}) - do not edit.",
         f"A {c.name} that another call hands back, in this process or on "
         f"a server. Policy '{policy}' in process: " + _POLICY_DOC[c.execution],
-        init, set(), set())
+        init,
+        set(),
+        set(),
+    )
 
 
 def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
@@ -642,48 +703,64 @@ def wrapper_module(model: ir.Model, c: ir.ClassModel) -> ast.Module:
     svc = c.name
     threading = c.threading
     spell = _async_spelling(model)
-    doc = (f"Generated async wrapper for {svc} (threading: {threading}) - "
-           f"do not edit. Built via ast at Nix build time.")
+    doc = f"Generated async wrapper for {svc} (threading: {threading}) - do not edit. Built via ast at Nix build time."
     if not c.constructs:
         # No runner and no target: there is no way in, so there is
         # nothing to construct lazily. Keyed on the DOOR rather than on
         # `abstract`, which is the C++ fact - nix::Store is abstract and
         # still constructs, through its factory (nixidae/nixidae#598).
-        init = _code("""
+        init = _code(
+            """
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 raise TypeError($message)
-            """, message=repr(
+            """,
+            message=repr(
                 f"{c.async_name} has no constructor: nothing declared makes "
-                f"one. Receive one from a call that returns {svc}."))
+                f"one. Receive one from a call that returns {svc}."
+            ),
+        )
         return _async_module(
-            model, c, spell, doc,
-            f"A {svc}, in this process or on a server. Only a call hands one "
-            f"back: nothing declared constructs it.",
-            init, {"Any"}, set())
+            model,
+            c,
+            spell,
+            doc,
+            f"A {svc}, in this process or on a server. Only a call hands one back: nothing declared constructs it.",
+            init,
+            {"Any"},
+            set(),
+        )
     runner = RUNNER[ir.Execution(threading)]
-    name = (f", name={f'huggorm-affine-{svc}'!r}"
-            if threading is Threading.AFFINE
-            else "")
+    name = f", name={f'huggorm-affine-{svc}'!r}" if threading is Threading.AFFINE else ""
     # A zero-argument lambda over __init__'s parameters, so the object
     # is built on the runner's thread, not the caller's. Each argument
     # goes through unwrap_arg: a wrapper passed in contributes its
     # target object, not the async shell. Only a bare proxy is widened
     # to take the sync object or its async wrapper.
-    init = _code("""
+    init = _code(
+        """
         def __init__(self) -> None:
             self._backend = $runner(lambda: $svc($values)$name)
-        """, _arguments([ast.arg(arg="self")], c.ctor, spell, f"{svc}.__init__",
-                        lambda t: _widened(spell, model, t)),
-        runner=runner, svc=svc, name=name,
-        values=", ".join(f"unwrap_arg({p.name})" for p in c.ctor))
+        """,
+        _arguments([ast.arg(arg="self")], c.ctor, spell, f"{svc}.__init__", lambda t: _widened(spell, model, t)),
+        runner=runner,
+        svc=svc,
+        name=name,
+        values=", ".join(f"unwrap_arg({p.name})" for p in c.ctor),
+    )
     # `unwrap_arg` only when the factory calls it: an unused import is
     # what `test_no_unused_imports` rejects.
     return _async_module(
-        model, c, spell, doc,
+        model,
+        c,
+        spell,
+        doc,
         f"A {svc}, in this process or on a server. Constructed here, it is "
         f"built lazily on its runner thread; `NixClient.acquire` builds one "
         f"on a server.",
-        init, set(), {runner} | ({"unwrap_arg"} if c.ctor else set()))
+        init,
+        set(),
+        {runner} | ({"unwrap_arg"} if c.ctor else set()),
+    )
 
 
 def _future_annotations() -> ast.ImportFrom:
@@ -694,8 +771,7 @@ def _future_annotations() -> ast.ImportFrom:
     defers evaluation on 3.14; the package also runs on 3.11 and up,
     where an async wrapper's method returning its own class needs this
     (nixidae/nixidae#658)."""
-    return ast.ImportFrom(module="__future__",
-                          names=[ast.alias(name="annotations")], level=0)
+    return ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
 
 
 def protocol_module(model: ir.Model) -> ast.Module:
@@ -709,39 +785,62 @@ def protocol_module(model: ir.Model) -> ast.Module:
     classes: list[ast.stmt] = []
     for model_cls in model.called_back:
         cls = ast.ClassDef(
-            name=model_cls.async_name, bases=[ast.Name(id="Protocol")],
-            keywords=[], decorator_list=[], type_params=[], body=[
-                ast.Expr(value=ast.Constant(value=(
-                    f"A {model_cls.name} written for the event loop, in "
-                    f"process or on a remote client.\n\n"
-                    f"    Nix calls each method from the thread of the call "
-                    f"that reads it, and\n    the method runs on the loop, "
-                    f"in that call's task. It may await\n    other calls, "
-                    f"the same EvalState's included.\n    ")))])
+            name=model_cls.async_name,
+            bases=[ast.Name(id="Protocol")],
+            keywords=[],
+            decorator_list=[],
+            type_params=[],
+            body=[
+                ast.Expr(
+                    value=ast.Constant(
+                        value=(
+                            f"A {model_cls.name} written for the event loop, in "
+                            f"process or on a remote client.\n\n"
+                            f"    Nix calls each method from the thread of the call "
+                            f"that reads it, and\n    the method runs on the loop, "
+                            f"in that call's task. It may await\n    other calls, "
+                            f"the same EvalState's included.\n    "
+                        )
+                    )
+                )
+            ],
+        )
         for m in model_cls.hooks:
-            cls.body.append(_def(
-                f"async def {m.name}()", doc=m.doc,
-                signature=_arguments([ast.arg(arg="self")], m.params, spell,
-                                     f"{model_cls.async_name}.{m.name}"),
-                returns=spell.returns(m.returns)))
+            cls.body.append(
+                _def(
+                    f"async def {m.name}()",
+                    doc=m.doc,
+                    signature=_arguments([ast.arg(arg="self")], m.params, spell, f"{model_cls.async_name}.{m.name}"),
+                    returns=spell.returns(m.returns),
+                )
+            )
         classes.append(cls)
 
-    mod = ast.Module(type_ignores=[], body=[
-        ast.Expr(value=ast.Constant(value=(
-            "Generated protocols: the objects a program writes for Nix to "
-            "call - do not edit."))),
-        _future_annotations(),
-        import_from("typing", "Protocol"),
-        *spell.imports(),
-        *classes,
-    ])
+    mod = ast.Module(
+        type_ignores=[],
+        body=[
+            ast.Expr(
+                value=ast.Constant(
+                    value=("Generated protocols: the objects a program writes for Nix to call - do not edit.")
+                )
+            ),
+            _future_annotations(),
+            import_from("typing", "Protocol"),
+            *spell.imports(),
+            *classes,
+        ],
+    )
     ast.fix_missing_locations(mod)
     return mod
 
 
-def _spec(index: int, name: str, params: Sequence[ir.ParamModel],
-          returns: ir.TypeRef | None,
-          subscription: shapes.Subscription | None = None) -> cs.Call:
+def _spec(
+    index: int,
+    name: str,
+    params: Sequence[ir.ParamModel],
+    returns: ir.TypeRef | None,
+    subscription: shapes.Subscription | None = None,
+) -> cs.Call:
     """One call's spec.
 
     A typed value, not a dict literal. A checker sees nothing in a
@@ -753,8 +852,7 @@ def _spec(index: int, name: str, params: Sequence[ir.ParamModel],
     call reached the runtime, so every argument a spec describes is
     present, and carrying a default here would suggest the runtime
     fills one in."""
-    return cs.Call(index, name, _args([(p.name, p.type) for p in params]),
-                   _wire(returns), subscription)
+    return cs.Call(index, name, _args([(p.name, p.type) for p in params]), _wire(returns), subscription)
 
 
 def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
@@ -770,40 +868,60 @@ def _directory(model: ir.Model, specs: _Specs) -> list[ast.stmt]:
     to construct into - a caller builds it locally and passes it as an
     argument - and a class only a call hands back is never built
     remotely."""
-    acquires = [(c.name, specs.add(f"_acquire_{c.name}", cs.Acquire(
-        specs.next, c.name, _args([(p.name, p.type) for p in c.ctor]),
-        sum(1 for p in c.ctor if p.default is ir.NoDefault.REQUIRED))))
-        for c in model.acquirable]
+    acquires = [
+        (
+            c.name,
+            specs.add(
+                f"_acquire_{c.name}",
+                cs.Acquire(
+                    specs.next,
+                    c.name,
+                    _args([(p.name, p.type) for p in c.ctor]),
+                    sum(1 for p in c.ctor if p.default is ir.NoDefault.REQUIRED),
+                ),
+            ),
+        )
+        for c in model.acquirable
+    ]
     functions = [model.functions[n] for n in sorted(model.functions)]
-    free = [(fn.name, specs.add(_function_spec(fn.name), _spec(
-        specs.next, fn.name, fn.params, fn.returns, fn.subscription)))
-        for fn in functions if not model.function_blockers(fn)]
+    free = [
+        (
+            fn.name,
+            specs.add(_function_spec(fn.name), _spec(specs.next, fn.name, fn.params, fn.returns, fn.subscription)),
+        )
+        for fn in functions
+        if not model.function_blockers(fn)
+    ]
     # Every other coroutine still hands its runner a spec, which says
     # how to adapt its arguments and adopt its return.
     offered = {name for name, _ in free}
-    local = [ast.Assign(
-        targets=[ast.Name(id=_function_spec(fn.name))],
-        value=_literal(cs.Local(fn.name, _wire(fn.returns), _refusal(model, fn))))
-        for fn in async_functions(model) if fn.name not in offered]
+    local = [
+        ast.Assign(
+            targets=[ast.Name(id=_function_spec(fn.name))],
+            value=_literal(cs.Local(fn.name, _wire(fn.returns), _refusal(model, fn))),
+        )
+        for fn in async_functions(model)
+        if fn.name not in offered
+    ]
     # ...and the ones the wire cannot carry, with the reason.
     #
     # A separate table rather than absence, because the two answers
     # differ and a caller can act on the difference: a name nobody
     # declared is a typo, and a declared function with no RPC surface
     # is a policy the build decided and printed.
-    blocked = [(fn.name, "; ".join(model.function_blockers(fn)))
-               for fn in functions if model.function_blockers(fn)]
-    return [*local,
-            _table("ACQUIRE", "dict[str, Acquire]", acquires),
-            _table("FREE", "dict[str, Call]", free),
-            _table("NO_RPC", "dict[str, str]", blocked)]
+    blocked = [(fn.name, "; ".join(model.function_blockers(fn))) for fn in functions if model.function_blockers(fn)]
+    return [
+        *local,
+        _table("ACQUIRE", "dict[str, Acquire]", acquires),
+        _table("FREE", "dict[str, Call]", free),
+        _table("NO_RPC", "dict[str, str]", blocked),
+    ]
 
 
 def _refusal(model: ir.Model, fn: ir.FunctionModel) -> str:
     """Why a module-level coroutine has no RPC."""
     if fn.calls is not None:
-        return (f"the async form of {fn.calls.cls}.{fn.calls.method}, and "
-                f"a value's method runs where the value is")
+        return f"the async form of {fn.calls.cls}.{fn.calls.method}, and a value's method runs where the value is"
     return "; ".join(model.function_blockers(fn))
 
 
@@ -840,25 +958,30 @@ def classes_module(model: ir.Model) -> ast.Module:
     imports `_policy`."""
     served = model.ordered_served
     hooked = [c.name for c in model.called_back]
-    mod = ast.Module(type_ignores=[], body=[
-        ast.Expr(value=ast.Constant(value=(
-            "Generated: the classes the runner finds by a spec's declared "
-            "name - do not edit."))),
-        import_from("typing", "Any"),
-        *([import_from("huggorm_bindings", *hooked)] if hooked else []),
-        *(import_from(f"async_{c.name.lower()}", c.async_name, level=1)
-          for c in served),
-        _table("CLASSES", "dict[str, type[Any]]",
-               [(c.name, ast.Name(id=c.async_name)) for c in served]),
-        ast.AnnAssign(
-            target=ast.Name(id="DECLARED"),
-            annotation=_ann("dict[type[Any], str]", "DECLARED"),
-            value=ast.Dict(keys=[ast.Name(id=c.async_name) for c in served],
-                           values=[ast.Constant(value=c.name) for c in served]),
-            simple=1),
-        _table("CALLED_BACK", "dict[str, type[Any]]",
-               [(n, ast.Name(id=n)) for n in hooked]),
-    ])
+    mod = ast.Module(
+        type_ignores=[],
+        body=[
+            ast.Expr(
+                value=ast.Constant(
+                    value=("Generated: the classes the runner finds by a spec's declared name - do not edit.")
+                )
+            ),
+            import_from("typing", "Any"),
+            *([import_from("huggorm_bindings", *hooked)] if hooked else []),
+            *(import_from(f"async_{c.name.lower()}", c.async_name, level=1) for c in served),
+            _table("CLASSES", "dict[str, type[Any]]", [(c.name, ast.Name(id=c.async_name)) for c in served]),
+            ast.AnnAssign(
+                target=ast.Name(id="DECLARED"),
+                annotation=_ann("dict[type[Any], str]", "DECLARED"),
+                value=ast.Dict(
+                    keys=[ast.Name(id=c.async_name) for c in served],
+                    values=[ast.Constant(value=c.name) for c in served],
+                ),
+                simple=1,
+            ),
+            _table("CALLED_BACK", "dict[str, type[Any]]", [(n, ast.Name(id=n)) for n in hooked]),
+        ],
+    )
     ast.fix_missing_locations(mod)
     return mod
 
@@ -885,46 +1008,51 @@ def free_function_module(model: ir.Model) -> ast.Module:
         if fn.calls is not None:
             spell.need(fn.calls.cls, BINDINGS)
         ret = _returning(spell, model, fn.returns)
-        target = ("_" + fn.name if fn.calls is None
-                  else f"{fn.calls.cls}.{fn.calls.method}")
-        call = (f"call_function({_function_spec(fn.name)}, {target}, "
-                f"[{', '.join(p.name for p in fn.params)}])")
-        defs.append(_def(f"async def {fn.name}()",
-                         _handing_back(call, fn.returns, ret), fn.doc,
-                         _arguments([], fn.params, spell, fn.name,
-                                    lambda t: _widened(spell, model, t,
-                                                       client=True)),
-                         ret))
+        target = "_" + fn.name if fn.calls is None else f"{fn.calls.cls}.{fn.calls.method}"
+        call = f"call_function({_function_spec(fn.name)}, {target}, [{', '.join(p.name for p in fn.params)}])"
+        defs.append(
+            _def(
+                f"async def {fn.name}()",
+                _handing_back(call, fn.returns, ret),
+                fn.doc,
+                _arguments([], fn.params, spell, fn.name, lambda t: _widened(spell, model, t, client=True)),
+                ret,
+            )
+        )
 
     mod = ast.Module(body=[], type_ignores=[])
-    mod.body.append(ast.Expr(value=ast.Constant(
-        value="Generated async wrappers for the bindings' module-level "
-              "functions - do not edit. Built via ast at Nix build time.")))
+    mod.body.append(
+        ast.Expr(
+            value=ast.Constant(
+                value="Generated async wrappers for the bindings' module-level "
+                "functions - do not edit. Built via ast at Nix build time."
+            )
+        )
+    )
     mod.body.append(_future_annotations())
     mod.body.append(import_from("collections.abc", "Awaitable", "Callable"))
-    mod.body.append(import_from("typing", "Any", *(
-        ["cast"] if _casts(f.returns for f in fns) else [])))
+    mod.body.append(import_from("typing", "Any", *(["cast"] if _casts(f.returns for f in fns) else [])))
     mod.body.extend(spell.imports())
-    mod.body.append(ast.ImportFrom(
-        module="huggorm_bindings",
-        names=[ast.alias(name=f.name, asname="_" + f.name)
-               for f in fns if f.calls is None],
-        level=0))
+    mod.body.append(
+        ast.ImportFrom(
+            module="huggorm_bindings",
+            names=[ast.alias(name=f.name, asname="_" + f.name) for f in fns if f.calls is None],
+            level=0,
+        )
+    )
     mod.body.append(import_from("_runtime", "call_function", level=1))
     if fns:
-        mod.body.append(import_from(
-            "_policy", *(_function_spec(fn.name) for fn in fns), level=1))
+        mod.body.append(import_from("_policy", *(_function_spec(fn.name) for fn in fns), level=1))
 
     mod.body.extend(defs)
 
     # The server finds the coroutine a wire call names here, not by an
     # attribute lookup on the package.
-    mod.body.append(_table("FUNCTIONS", "dict[str, Callable[..., Awaitable[Any]]]",
-                           [(fn.name, ast.Name(id=fn.name)) for fn in fns]))
+    mod.body.append(
+        _table("FUNCTIONS", "dict[str, Callable[..., Awaitable[Any]]]", [(fn.name, ast.Name(id=fn.name)) for fn in fns])
+    )
     ast.fix_missing_locations(mod)
     return mod
-
-
 
 
 STUB_PACKAGE = "huggorm_bindings-stubs"
@@ -934,10 +1062,14 @@ STUB_PACKAGE = "huggorm_bindings-stubs"
 # answer False, and typing it as the class would make asking it an
 # error.
 _DUNDER_SIGS = {
-    "__eq__": ("object", "bool"), "__ne__": ("object", "bool"),
-    "__lt__": ("object", "bool"), "__le__": ("object", "bool"),
-    "__gt__": ("object", "bool"), "__ge__": ("object", "bool"),
-    "__hash__": (None, "int"), "__repr__": (None, "str"),
+    "__eq__": ("object", "bool"),
+    "__ne__": ("object", "bool"),
+    "__lt__": ("object", "bool"),
+    "__le__": ("object", "bool"),
+    "__gt__": ("object", "bool"),
+    "__ge__": ("object", "bool"),
+    "__hash__": (None, "int"),
+    "__repr__": (None, "str"),
     "__str__": (None, "str"),
 }
 
@@ -962,52 +1094,63 @@ def _stub_dunders(name: str, dunders: list[str]) -> list[ast.stmt]:
     return out
 
 
-def _stub_class(c: ir.ClassModel, spell: Spelling, produced: bool,
-                coroutines: Mapping[ir.MethodRef | None, str]) -> ast.ClassDef:
+def _stub_class(
+    c: ir.ClassModel, spell: Spelling, produced: bool, coroutines: Mapping[ir.MethodRef | None, str]
+) -> ast.ClassDef:
     name = c.name
     bases: list[ast.expr] = []
     if c.base:
         spell.need(c.base, BINDINGS)
         bases.append(ast.Name(id=c.base))
-    cls = ast.ClassDef(name=name, bases=bases, keywords=[], body=[],
-                       decorator_list=[], type_params=[])
-    cls.body.append(ast.Expr(value=ast.Constant(value=(
-        c.doc or f"Binding for the C++ {c.binds}. Threading "
-                 f"'{c.threading}', wire '{c.wire}'."))))
+    cls = ast.ClassDef(name=name, bases=bases, keywords=[], body=[], decorator_list=[], type_params=[])
+    cls.body.append(
+        ast.Expr(
+            value=ast.Constant(
+                value=(c.doc or f"Binding for the C++ {c.binds}. Threading '{c.threading}', wire '{c.wire}'.")
+            )
+        )
+    )
     # The one class attribute the runtime reads off a binding.
     cls.body.append(_code("_copied: bool"))
     if produced:
-        cls.body.append(_def(
-            "def __init__(self) -> NoReturn",
-            doc=f"Always raises: a {name} is produced by another object, "
-                f"never constructed."))
+        cls.body.append(
+            _def(
+                "def __init__(self) -> NoReturn",
+                doc=f"Always raises: a {name} is produced by another object, never constructed.",
+            )
+        )
     else:
-        cls.body.append(_def(
-            "def __init__() -> None",
-            signature=_arguments([ast.arg(arg="self")], c.ctor, spell,
-                                 f"{name}.__init__")))
+        cls.body.append(
+            _def(
+                "def __init__() -> None", signature=_arguments([ast.arg(arg="self")], c.ctor, spell, f"{name}.__init__")
+            )
+        )
     cls.body.extend(_stub_dunders(name, c.dunders))
     for m in c.methods:
         doc = m.doc
         if (coroutine := coroutines.get(ir.MethodRef(name, m.name))) is not None:
-            doc = (f"{doc}\n\n" if doc else "") + (
-                f"Blocks. From async code, await `huggorm.{coroutine}`.")
-        cls.body.append(_def(
-            f"def {m.name}()", doc=doc,
-            signature=_arguments([ast.arg(arg="self")], m.params, spell,
-                                 f"{name}.{m.name}"),
-            returns=spell.returns(m.returns)))
+            doc = (f"{doc}\n\n" if doc else "") + (f"Blocks. From async code, await `huggorm.{coroutine}`.")
+        cls.body.append(
+            _def(
+                f"def {m.name}()",
+                doc=doc,
+                signature=_arguments([ast.arg(arg="self")], m.params, spell, f"{name}.{m.name}"),
+                returns=spell.returns(m.returns),
+            )
+        )
     if len(cls.body) == 1:
         # Docstring only: a class body needs a statement.
         cls.body.append(ast.Expr(value=ast.Constant(value=Ellipsis)))
     return cls
 
 
-def _stub_function(fn: ir.FunctionModel, spell: Spelling,
-                   where: str) -> ast.stmt:
-    return _def(f"def {fn.name}()", doc=fn.doc,
-                signature=_arguments([], fn.params, spell, where),
-                returns=spell.returns(fn.returns))
+def _stub_function(fn: ir.FunctionModel, spell: Spelling, where: str) -> ast.stmt:
+    return _def(
+        f"def {fn.name}()",
+        doc=fn.doc,
+        signature=_arguments([], fn.params, spell, where),
+        returns=spell.returns(fn.returns),
+    )
 
 
 def _homes(model: ir.Model) -> dict[str, str]:
@@ -1035,38 +1178,35 @@ def stub_module(model: ir.Model, module: str) -> ast.Module:
     A union is written out as its arms. The alias is Python in the
     generated `_unions` module, and a compiled binding module holds no
     such name, so a stub that NAMED it would name nothing."""
-    spell = Spelling(_as_binding, expand={n: u.arms for n, u
-                                          in model.unions.items()})
-    classes = [c for c in (*model.handed_back, *model.constructed)
-               if c.qualified_module == module]
-    functions = [model.functions[n] for n in sorted(model.functions)
-                 if model.functions[n].module == module]
-    produced = {c.name for c in classes
-                if c.name in model.returned or c.produced}
+    spell = Spelling(_as_binding, expand={n: u.arms for n, u in model.unions.items()})
+    classes = [c for c in (*model.handed_back, *model.constructed) if c.qualified_module == module]
+    functions = [model.functions[n] for n in sorted(model.functions) if model.functions[n].module == module]
+    produced = {c.name for c in classes if c.name in model.returned or c.produced}
     short = module.rsplit(".", 1)[-1]
     coroutines = {f.calls: f.name for f in model.blocking_methods}
-    defs: list[ast.stmt] = [_stub_class(c, spell, c.name in produced,
-                                        coroutines)
-                            for c in classes]
-    defs += [_stub_function(fn, spell, f"{short}.{fn.name}")
-             for fn in functions]
+    defs: list[ast.stmt] = [_stub_class(c, spell, c.name in produced, coroutines) for c in classes]
+    defs += [_stub_function(fn, spell, f"{short}.{fn.name}") for fn in functions]
 
     mod = ast.Module(body=[], type_ignores=[])
-    mod.body.append(ast.Expr(value=ast.Constant(value=(
-        f"Generated type stubs for {module} - do not edit.\n\n"
-        f"The module itself is a compiled extension, which carries no "
-        f"signatures a typechecker can read. Built via ast at Nix build "
-        f"time, from the same model as every other surface."))))
+    mod.body.append(
+        ast.Expr(
+            value=ast.Constant(
+                value=(
+                    f"Generated type stubs for {module} - do not edit.\n\n"
+                    f"The module itself is a compiled extension, which carries no "
+                    f"signatures a typechecker can read. Built via ast at Nix build "
+                    f"time, from the same model as every other surface."
+                )
+            )
+        )
+    )
     if produced:
-        mod.body.append(ast.ImportFrom(
-            module="typing", names=[ast.alias(name="NoReturn")], level=0))
+        mod.body.append(ast.ImportFrom(module="typing", names=[ast.alias(name="NoReturn")], level=0))
     mod.body.extend(spell.module_imports())
     home = _homes(model)
     for name in sorted(spell.bindings):
         if home.get(name, module) != module:
-            mod.body.append(ast.ImportFrom(
-                module=home[name].rsplit(".", 1)[-1],
-                names=[ast.alias(name=name)], level=1))
+            mod.body.append(ast.ImportFrom(module=home[name].rsplit(".", 1)[-1], names=[ast.alias(name=name)], level=1))
     mod.body.extend(defs)
     ast.fix_missing_locations(mod)
     return mod
@@ -1081,8 +1221,9 @@ def stub_package(model: ir.Model) -> dict[str, ast.Module]:
     to read the real module for anything these stubs do not cover.
     Only __init__.pyi mentions them, because it must re-export what
     the package does."""
-    modules = sorted({c.qualified_module for c in model.classes.values()}
-                     | {f.module for f in model.functions.values()})
+    modules = sorted(
+        {c.qualified_module for c in model.classes.values()} | {f.module for f in model.functions.values()}
+    )
     out: dict[str, ast.Module] = {}
     for module in modules:
         out[f"{module.rsplit('.', 1)[-1]}.pyi"] = stub_module(model, module)
@@ -1094,19 +1235,16 @@ def stub_init_module(by_module: dict[str, list[str]]) -> ast.Module:
     """The stub package's __init__.pyi: re-export exactly what the real
     __init__ exports, in the same order."""
     mod = ast.Module(body=[], type_ignores=[])
-    mod.body.append(ast.Expr(value=ast.Constant(value=(
-        "Generated type stubs for huggorm_bindings - do not edit."))))
+    mod.body.append(ast.Expr(value=ast.Constant(value=("Generated type stubs for huggorm_bindings - do not edit."))))
     names = []
     for module, exported in by_module.items():
         # `X as X` is what marks a name re-exported from a stub; a plain
         # import is private to the stub and invisible to consumers.
-        mod.body.append(ast.ImportFrom(
-            module=module,
-            names=[ast.alias(name=n, asname=n) for n in exported], level=1))
+        mod.body.append(ast.ImportFrom(module=module, names=[ast.alias(name=n, asname=n) for n in exported], level=1))
         names += exported
-    mod.body.append(ast.Assign(
-        targets=[ast.Name(id="__all__")],
-        value=ast.List(elts=[ast.Constant(value=n) for n in names])))
+    mod.body.append(
+        ast.Assign(targets=[ast.Name(id="__all__")], value=ast.List(elts=[ast.Constant(value=n) for n in names]))
+    )
     ast.fix_missing_locations(mod)
     return mod
 
@@ -1118,28 +1256,18 @@ def init_module(model: ir.Model) -> ast.Module:
     free_names = wrapped_functions(model)
     mod = ast.Module(body=[], type_ignores=[])
     mod.body.append(
-        ast.Expr(
-            value=ast.Constant(
-                value="Generated surface - do not edit. Built via ast at Nix build time."
-            )
-        )
+        ast.Expr(value=ast.Constant(value="Generated surface - do not edit. Built via ast at Nix build time."))
     )
     for c in served:
         mod.body.append(import_from(f"async_{c.name.lower()}", c.async_name, level=1))
     if model.called_back:
-        mod.body.append(import_from(
-            PROTOCOL_MODULE, *(c.async_name for c in model.called_back), level=1))
+        mod.body.append(import_from(PROTOCOL_MODULE, *(c.async_name for c in model.called_back), level=1))
     if free_names:
-        mod.body.append(ast.ImportFrom(
-            module=FREE_MODULE,
-            names=[ast.alias(name=n) for n in free_names],
-            level=1))
+        mod.body.append(ast.ImportFrom(module=FREE_MODULE, names=[ast.alias(name=n) for n in free_names], level=1))
     mod.body.append(
         ast.Assign(
             targets=[ast.Name(id="__all__")],
-            value=ast.List(
-                elts=[ast.Constant(value=n)
-                      for n in package_exports(model)]),
+            value=ast.List(elts=[ast.Constant(value=n) for n in package_exports(model)]),
         )
     )
     ast.fix_missing_locations(mod)
@@ -1149,8 +1277,7 @@ def init_module(model: ir.Model) -> ast.Module:
 def async_functions(model: ir.Model) -> list[ir.FunctionModel]:
     """Every module-level coroutine, by name: each free function with an
     async form, and the async form of each method a value blocks in."""
-    return sorted([*(f for f in model.functions.values() if f.wrapped),
-                   *model.blocking_methods], key=lambda f: f.name)
+    return sorted([*(f for f in model.functions.values() if f.wrapped), *model.blocking_methods], key=lambda f: f.name)
 
 
 def wrapped_functions(model: ir.Model) -> list[str]:
@@ -1166,6 +1293,8 @@ def package_exports(model: ir.Model) -> list[str]:
     front door is emitted too (nixidae/nixidae#601). Computing it there as well
     would be one list stated twice, which is exactly the thing that
     front door existed as."""
-    return ([c.async_name for c in model.ordered_served]
-            + [c.async_name for c in model.called_back]
-            + wrapped_functions(model))
+    return (
+        [c.async_name for c in model.ordered_served]
+        + [c.async_name for c in model.called_back]
+        + wrapped_functions(model)
+    )

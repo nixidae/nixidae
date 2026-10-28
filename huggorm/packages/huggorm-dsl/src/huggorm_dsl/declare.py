@@ -122,16 +122,15 @@ class Local:
 type Include = Std | Local
 
 
-def require_includes(said: str,
-                     headers: tuple[object, ...]) -> tuple[Include, ...]:
+def require_includes(said: str, headers: tuple[object, ...]) -> tuple[Include, ...]:
     """`headers`, refused unless each is an `Include`. The kind says
     whether it renders `<x>` or `"x"`, and a bare string says neither."""
     out: list[Include] = []
     for h in headers:
         if not isinstance(h, Std | Local):
             raise TypeError(
-                f"{said} takes Std(\"x\") or Local(\"x\"), not {h!r}: the "
-                f"kind says whether it renders <x> or \"x\"")
+                f'{said} takes Std("x") or Local("x"), not {h!r}: the kind says whether it renders <x> or "x"'
+            )
         out.append(h)
     return tuple(out)
 
@@ -164,8 +163,7 @@ class Cxx:
     @property
     def param(self) -> tuple[str, str | None]:
         """The parameter spelling and its caster."""
-        return (f"const {self.spelling} &" if self.by_ref else self.spelling,
-                self.caster)
+        return (f"const {self.spelling} &" if self.by_ref else self.spelling, self.caster)
 
 
 @dataclass(frozen=True)
@@ -265,8 +263,7 @@ STRING = Cxx("std::string", "string", by_ref=True, includes=(Std("string"),))
 Str = Annotated[str, STRING]
 # nanobind's string_view caster copies the text into a Python str, so
 # a view that outlives its owner never reaches Python.
-StrView = Annotated[str, Cxx("std::string_view", "string_view",
-                             includes=(Std("string_view"),))]
+StrView = Annotated[str, Cxx("std::string_view", "string_view", includes=(Std("string_view"),))]
 Bint = Annotated[bool, Cxx("bool")]
 # Bytes, not text. The difference is above the boundary: a store holds
 # FILES, and the hash that names a store path is a hash of exactly
@@ -287,8 +284,7 @@ Bytes = Annotated[bytes, Cxx("nb::bytes", by_ref=True)]
 # and `registration_time` is a time_t the shim narrows to int64_t, so
 # a declaration that said `int` for both would leave the emitter to
 # guess, and it would guess the same for two fields that differ.
-U64 = Annotated[int, Cxx("std::uint64_t", width=Scalar.UINT,
-                         includes=(Std("cstdint"),))]
+U64 = Annotated[int, Cxx("std::uint64_t", width=Scalar.UINT, includes=(Std("cstdint"),))]
 I64 = Annotated[int, Cxx("std::int64_t", includes=(Std("cstdint"),))]
 # A Nix float is a C++ double (`NixFloat`), and so is a Python float.
 F64 = Annotated[float, Cxx("double")]
@@ -298,10 +294,11 @@ F64 = Annotated[float, Cxx("double")]
 # `print_store_path` answers in the STORE's terms, which may name a
 # directory this machine does not have, and `real_path` answers where
 # the bytes are here. Only the second is a path a caller can open.
-Path = Annotated[pathlib.Path,
-                 Cxx("std::filesystem::path", "filesystem", by_ref=True,
-                     includes=(Std("filesystem"),)),
-                 Async("anyio.Path")]
+Path = Annotated[
+    pathlib.Path,
+    Cxx("std::filesystem::path", "filesystem", by_ref=True, includes=(Std("filesystem"),)),
+    Async("anyio.Path"),
+]
 # A SPAN of time, and the resolution is the fact this states.
 # Upstream keeps a build's CPU time as `std::chrono::microseconds`, and
 # nanobind's own chrono caster hands one to Python as a
@@ -312,9 +309,7 @@ Path = Annotated[pathlib.Path,
 # that shows why: a Unix time is a POINT, which is an integer and
 # means nothing without an epoch, while a span is a quantity a caller
 # can add up. Declaring both as `int` would have made them look alike.
-Duration = Annotated[datetime.timedelta,
-                     Cxx("std::chrono::microseconds", "chrono",
-                         includes=(Std("chrono"),))]
+Duration = Annotated[datetime.timedelta, Cxx("std::chrono::microseconds", "chrono", includes=(Std("chrono"),))]
 # A Python callable the BINDING keeps and calls back.
 #
 # The only type here that does not describe a C++ value. `nb::object`
@@ -357,8 +352,7 @@ type Vec[T] = Annotated[list[T], VEC]
 # `std::map`, which is what libstore keeps every map in - `OutputPathMap`
 # and `SingleDrvOutputs` are both one. Keyed by a name only: the codec
 # unpacks with `strict_map_key`, and a Nix attribute name is a string.
-MAP = Cxx("std::map<std::string, {}>", "map",
-          includes=(Std("map"), Std("string")))
+MAP = Cxx("std::map<std::string, {}>", "map", includes=(Std("map"), Std("string")))
 type Map[V] = Annotated[dict[str, V], MAP]
 OPT = Cxx("std::optional<{}>", "optional", includes=(Std("optional"),))
 type Opt[T] = Annotated[T | None, OPT]
@@ -692,8 +686,7 @@ class Apply(Protocol):
 
 
 class _Make(Protocol):
-    def __call__[**P](self, spec: Callable[P, object], /
-                      ) -> Callable[P, Apply]: ...
+    def __call__[**P](self, spec: Callable[P, object], /) -> Callable[P, Apply]: ...
 
 
 def _held(obj: object) -> object:
@@ -720,11 +713,9 @@ def _record[T](obj: T, mark: Mark) -> T:
     return obj
 
 
-def _register(spec: Callable[..., object], target: tuple[Target, ...],
-              arity: Arity, field: str | None) -> Marker:
+def _register(spec: Callable[..., object], target: tuple[Target, ...], arity: Arity, field: str | None) -> Marker:
     name = spec.__name__
-    rule = Marker(name, frozenset(target), arity,
-                  name if field == "" else field)
+    rule = Marker(name, frozenset(target), arity, name if field == "" else field)
     MARKERS[name] = rule
     return rule
 
@@ -744,35 +735,37 @@ def _requires(a: Callable[..., object], b: Callable[..., object]) -> None:
     REQUIRES[_rule(a)] = REQUIRES.get(_rule(a), frozenset()) | {_rule(b)}
 
 
-def flag(*target: Target, field: str | None = "",
-         ) -> Callable[[Callable[[], object]], Apply]:
+def flag(
+    *target: Target,
+    field: str | None = "",
+) -> Callable[[Callable[[], object]], Apply]:
     """Make a marker written bare: `@local`.
 
     The body answers the value, or True when it answers nothing. The
     marker fills the field it is named after unless `field` names
     another."""
+
     def make(spec: Callable[[], object]) -> Apply:
         said = spec()
-        mark = Mark(_register(spec, target, Arity.FLAG, field),
-                    True if said is None else said)
+        mark = Mark(_register(spec, target, Arity.FLAG, field), True if said is None else said)
 
         def apply[T](obj: T) -> T:
             return _record(obj, mark)
+
         functools.update_wrapper(apply, spec)
         return apply
+
     return make
 
 
-def marker(*target: Target, repeatable: bool = False,
-           field: str | None = "") -> _Make:
+def marker(*target: Target, repeatable: bool = False, field: str | None = "") -> _Make:
     """Make a marker written with arguments: `@reads("narSize")`.
 
     The body's signature is the marker's, and the body answers the
     value. A `repeatable` marker's values concatenate."""
+
     def make[**P](spec: Callable[P, object]) -> Callable[P, Apply]:
-        rule = _register(
-            spec, target, Arity.REPEATABLE if repeatable else Arity.ONCE,
-            field)
+        rule = _register(spec, target, Arity.REPEATABLE if repeatable else Arity.ONCE, field)
 
         def factory(*args: P.args, **kwargs: P.kwargs) -> Apply:
             if len(args) == 1 and not kwargs and _marks_it(rule, args[0]):
@@ -783,17 +776,19 @@ def marker(*target: Target, repeatable: bool = False,
 
             def apply[T](obj: T) -> T:
                 return _record(obj, mark)
+
             return apply
+
         functools.update_wrapper(factory, spec)
         return factory
+
     return make
 
 
 def _marks_it(rule: Marker, arg: object) -> bool:
     if isinstance(arg, type):
         return bool(rule.target & {Target.CLASS, Target.ERROR})
-    return isinstance(arg, types.FunctionType | property | staticmethod
-                      | classmethod)
+    return isinstance(arg, types.FunctionType | property | staticmethod | classmethod)
 
 
 @flag(Target.CLASS, field="wire")
@@ -827,10 +822,13 @@ def abstract() -> None:
 
 
 @marker(Target.CLASS)
-def tree(kind: str,
-         kinds: dict[str, Leaf[str] | Items[str] | Entries[str] | Null],
-         identity: str | None = None, force: str | None = None,
-         stop: str | None = None) -> Tree[str]:
+def tree(
+    kind: str,
+    kinds: dict[str, Leaf[str] | Items[str] | Entries[str] | Null],
+    identity: str | None = None,
+    force: str | None = None,
+    stop: str | None = None,
+) -> Tree[str]:
     """How a value TREE is walked, for a type that holds others.
 
     The RPC layer reads it, so no layer above this declaration knows
@@ -841,8 +839,9 @@ def tree(kind: str,
 
 
 @marker(Target.CLASS)
-def builds(null: str, leaves: dict[Scalar, str], items: str, add_item: str,
-           entries: str, add_entry: str) -> Builds[str]:
+def builds(
+    null: str, leaves: dict[Scalar, str], items: str, add_item: str, entries: str, add_entry: str
+) -> Builds[str]:
     """How Python data becomes a value, for a type that makes values.
 
     The RPC layer reads it and builds a whole value in one hop, so no
@@ -903,8 +902,7 @@ def throws(cxx: str, header: Include) -> Throws:
     Own-class, as every mark is: a subclass inherits its base's catch,
     and an inherited mark would emit a second catch of the base type."""
     if not isinstance(cxx, str) or not cxx:
-        raise TypeError(f"@throws names C++, so it takes a string, not "
-                        f"{cxx!r}")
+        raise TypeError(f"@throws names C++, so it takes a string, not {cxx!r}")
     (checked,) = require_includes("@throws", (header,))
     return Throws(cxx, checked)
 
@@ -948,8 +946,10 @@ class _Words(Fields):
 
 
 @marker(Target.CLASS)
-def words(parsed_by: str = "", enumerated: Enumerated | None = None,
-          ) -> _Words:
+def words(
+    parsed_by: str = "",
+    enumerated: Enumerated | None = None,
+) -> _Words:
     """This class is a VOCABULARY: the words a Nix parser takes.
 
     A StrEnum, so a member IS the string libstore parses. Passing
@@ -1011,11 +1011,14 @@ class _Binding(Fields):
 
 
 @marker(Target.CLASS)
-def binding(cxx: str = "",
-            threading: Literal["pool", "affine"] = "pool",
-            holder: Literal["", "shared_ptr"] = "",
-            blocking: bool = True, via: str = "",
-            collection: str = "") -> _Binding:
+def binding(
+    cxx: str = "",
+    threading: Literal["pool", "affine"] = "pool",
+    holder: Literal["", "shared_ptr"] = "",
+    blocking: bool = True,
+    via: str = "",
+    collection: str = "",
+) -> _Binding:
     """The C++ class this binds, and how it may be called.
 
     `blocking=False` means no method here can wait: every one is a
@@ -1037,9 +1040,7 @@ def binding(cxx: str = "",
     than to what it points at says so with its own `@cxx_body`, and
     the census counts it - which is the honest split, because those
     are the only lines that are about the handle at all."""
-    return _Binding(cxx, Threading(threading),
-                    Holder(holder) if holder else None, blocking, via,
-                    collection)
+    return _Binding(cxx, Threading(threading), Holder(holder) if holder else None, blocking, via, collection)
 
 
 @dataclass(frozen=True)
@@ -1054,11 +1055,14 @@ class _WireValue(Fields):
 
 
 @marker(Target.CLASS)
-def wire_value(fields: tuple[Field | str, ...] = (),
-               compare: Literal["parts", "cxx"] = "parts",
-               text: str = "", order: bool = False,
-               shown: str = "", unit: bool = False,
-               ) -> _WireValue:
+def wire_value(
+    fields: tuple[Field | str, ...] = (),
+    compare: Literal["parts", "cxx"] = "parts",
+    text: str = "",
+    order: bool = False,
+    shown: str = "",
+    unit: bool = False,
+) -> _WireValue:
     """This class serializes, and here is what it is made of.
 
     `unit` says the value has NO parts, and that is the whole fact:
@@ -1100,8 +1104,7 @@ def wire_value(fields: tuple[Field | str, ...] = (),
     the accessor a repr identifies the value by, which every value
     has. A value with a `text` is shown by it unless it says
     otherwise."""
-    return _WireValue(fields, Compare(compare), text, order, shown or text,
-                      unit)
+    return _WireValue(fields, Compare(compare), text, order, shown or text, unit)
 
 
 @marker(Target.METHOD)
@@ -1111,8 +1114,7 @@ def cxx_name(name: str) -> str:
 
 
 @marker(Target.CLASS)
-def tagged(reach: str, ask: str,
-           **names: str) -> tuple[str, str, dict[str, str]]:
+def tagged(reach: str, ask: str, **names: str) -> tuple[str, str, dict[str, str]]:
     """This class is a handle over a TAGGED UNION.
 
     `reach` hands the union over. `ask` says which arm it holds. The
@@ -1312,8 +1314,7 @@ def wire_read(accessor: str) -> str:
     return accessor
 
 
-@marker(Target.CLASS, Target.METHOD, Target.FREE, repeatable=True,
-        field="headers")
+@marker(Target.CLASS, Target.METHOD, Target.FREE, repeatable=True, field="headers")
 def needs(*headers: Include) -> tuple[Include, ...]:
     """C++ headers this method's body needs, beyond its class's.
 
@@ -1389,7 +1390,8 @@ def threading(policy: Literal["pool"]) -> Threading:
         raise ValueError(
             f"a free function may only declare 'pool' threading (got "
             f"{policy!r}). It has no instance, so there is no thread for "
-            f"it to be affine to.")
+            f"it to be affine to."
+        )
     return Threading(policy)
 
 

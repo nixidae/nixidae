@@ -30,11 +30,7 @@ _drift_reported = False
 
 
 def _changes(old: dict[str, str], new: dict[str, str]) -> list[str]:
-    return sorted(
-        f"{name}: {old.get(name)!r} -> {value!r}"
-        for name, value in new.items()
-        if old.get(name) != value
-    )
+    return sorted(f"{name}: {old.get(name)!r} -> {value!r}" for name, value in new.items() if old.get(name) != value)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -82,9 +78,7 @@ def no_process_wide_nix_setting_survives_a_test(request: pytest.FixtureRequest) 
     if _settled is None:
         _settled = after
         return
-    changed = _changes(
-        before, {name: value for name, value in after.items() if _settled.get(name) != value}
-    )
+    changed = _changes(before, {name: value for name, value in after.items() if _settled.get(name) != value})
     if changed:
         pytest.fail(
             "this test left a Nix setting changed in the pytest process, where every "

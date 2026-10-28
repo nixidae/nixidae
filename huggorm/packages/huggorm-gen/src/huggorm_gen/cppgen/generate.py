@@ -17,6 +17,7 @@ module is C++ written from a declaration, and `declared_model` is how
 the generated layer above learns what is in them - without importing
 a compiled extension or parsing a pxd.
 """
+
 import argparse
 import ast
 import functools
@@ -69,13 +70,15 @@ def declared_model() -> ir.Model:
         for u in mod.unions:
             unions[u.name] = ir.UnionModel.of(u, resolver)
     vocabularies = tuple(
-        ir.VocabularyModel(vocab.name, vocab.doc, tuple(
-            ir.EnumModel.of(cls, PACKAGE, vocab.name)
-            for cls in vocab.classes if cls.is_words))
-        for vocab in map(have.module, have.vocabularies))
+        ir.VocabularyModel(
+            vocab.name,
+            vocab.doc,
+            tuple(ir.EnumModel.of(cls, PACKAGE, vocab.name) for cls in vocab.classes if cls.is_words),
+        )
+        for vocab in map(have.module, have.vocabularies)
+    )
     enums = {e.name: e for vocab in vocabularies for e in vocab.enums}
-    return ir.Model(classes, functions, unions, enums, _errors(), tuple(modules),
-                    vocabularies)
+    return ir.Model(classes, functions, unions, enums, _errors(), tuple(modules), vocabularies)
 
 
 def _errors() -> ir.Errors:
@@ -174,12 +177,10 @@ def _sections(text: str) -> dict[str, str]:
     (nixidae/nixidae#875)."""
     opens = [(m.start(), m.group(1)) for m in CLASS_OPENS.finditer(text)]
     bounds = [at for at, _ in opens] + [len(text)]
-    return {name: text[at:end]
-            for (at, name), end in zip(opens, bounds[1:], strict=True)}
+    return {name: text[at:end] for (at, name), end in zip(opens, bounds[1:], strict=True)}
 
 
-def census_written(mod: Module, bound: Sequence[ir.ClassModel],
-                   text: str) -> None:
+def census_written(mod: Module, bound: Sequence[ir.ClassModel], text: str) -> None:
     """Every method the reader kept is a name the emitter wrote.
 
     The SECOND of the two seams nixidae/nixidae#618 names. The reader's
@@ -226,11 +227,13 @@ def census_written(mod: Module, bound: Sequence[ir.ClassModel],
         raise TypeError(
             f"{mod.name}.py: the reader kept {', '.join(bad)} and the "
             f"emitted C++ binds no such name. An emitter dropped it, and "
-            f"a drop reads as an absence - see nixidae/nixidae#618.")
+            f"a drop reads as an absence - see nixidae/nixidae#618."
+        )
 
 
-def emit_module(mod: Module, dotted: str, out: str,
-                chain: list[str], headers: list[declare.Include] | None = None) -> int:
+def emit_module(
+    mod: Module, dotted: str, out: str, chain: list[str], headers: list[declare.Include] | None = None
+) -> int:
     """One declaration, as the one C++ translation unit it owns.
 
     A file, not a class: a nanobind extension is one translation unit,
@@ -256,16 +259,20 @@ def emit_module(mod: Module, dotted: str, out: str,
     if not bound and not mod.functions:
         print(f"{decl}: nothing to bind", file=sys.stderr)
         return 2
-    written = extension(unit, dotted, declared_model(),
-                        chain=chain,
-                        errors=errors_module(),
-                        error_headers=headers or (),
-                        prelude=PRELUDE)
+    written = extension(
+        unit,
+        dotted,
+        declared_model(),
+        chain=chain,
+        errors=errors_module(),
+        error_headers=headers or (),
+        prelude=PRELUDE,
+    )
     census_written(mod, bound, written)
-    pathlib.Path(out).write_text(
-        nbemit.placed_lines(written, pathlib.Path(out).name))
+    pathlib.Path(out).write_text(nbemit.placed_lines(written, pathlib.Path(out).name))
     pathlib.Path(out).with_name(nbemit.RUNTIME_HEADER).write_text(
-        (pathlib.Path(__file__).parent / nbemit.RUNTIME_HEADER).read_text())
+        (pathlib.Path(__file__).parent / nbemit.RUNTIME_HEADER).read_text()
+    )
     header = nbemit.records_header(unit, PACKAGE, declared_model())
     if header is not None:
         target = pathlib.Path(out).with_name(f"{mod.name}_records.hpp")
@@ -279,8 +286,7 @@ def emit_module(mod: Module, dotted: str, out: str,
     # in a build log is cheaper than a review that has to notice.
     for cls in bound:
         c = nbemit.census(cls)
-        hatch = (f", {c['hatched']} hatched ({c['hatch_lines']} lines)"
-                 if c["hatched"] else "")
+        hatch = f", {c['hatched']} hatched ({c['hatch_lines']} lines)" if c["hatched"] else ""
         print(f"  {cls.name}: {c['derived']} derived{hatch}")
     # What was left out, and why. A declaration under way declares
     # more than the emitter can carry, and a count that only ever
@@ -310,15 +316,16 @@ def emit_module(mod: Module, dotted: str, out: str,
     # of the declaration sees the decision - but it is still C++ a
     # person wrote, and counting only the first would let the second
     # absorb it silently.
-    bodies = sum(_code_lines(m.cxx_body.text)
-                 for m in (*(m for c in mod.classes
-                             for m in (*c.methods, c.ctor, c.from_parts)
-                             if m is not None),
-                           *mod.functions)
-                 if m.cxx_body is not None)
+    bodies = sum(
+        _code_lines(m.cxx_body.text)
+        for m in (
+            *(m for c in mod.classes for m in (*c.methods, c.ctor, c.from_parts) if m is not None),
+            *mod.functions,
+        )
+        if m.cxx_body is not None
+    )
     if hand or bodies:
-        print(f"  hand-written C++: {hand} in cpp/{helper.name}, "
-              f"{bodies} in Cxx bodies")
+        print(f"  hand-written C++: {hand} in cpp/{helper.name}, {bodies} in Cxx bodies")
     return 0
 
 
@@ -346,8 +353,10 @@ def census_cpp(claimed: set[str]) -> None:
     print(f"hand-written C++ in cpp/: {total} lines in {len(files)} file(s)")
     orphans = [f for f in files if f.stem not in claimed]
     for f in orphans:
-        print(f"  {f.name}: {_code_lines(f.read_text())} lines, claimed by "
-              f"no module - no declaration is emitted beside it")
+        print(
+            f"  {f.name}: {_code_lines(f.read_text())} lines, claimed by "
+            f"no module - no declaration is emitted beside it"
+        )
 
 
 def census_markers(have: Any) -> None:
@@ -374,11 +383,9 @@ def census_markers(have: Any) -> None:
     used = {m for name in names for m in have.module(name).markers}
     declared = set(declare.MARKERS)
     unused = sorted(declared - used)
-    print(f"markers: {len(declared)} declared, "
-          f"{len(declared) - len(unused)} used")
+    print(f"markers: {len(declared)} declared, {len(declared) - len(unused)} used")
     for name in unused:
-        print(f"  @{name}: no declaration carries it - the emitter "
-              f"branches behind it have never run")
+        print(f"  @{name}: no declaration carries it - the emitter branches behind it have never run")
 
 
 # A member that HOLDS a Python object, as opposed to a parameter that
@@ -446,8 +453,7 @@ def census_gc_slots(have: Any) -> None:
     slotted: dict[str, set[str]] = {}
     for cls in have.classes:
         if cls.decl.header is not None:
-            says = slotted.setdefault(
-                pathlib.Path(cls.decl.header.name).name, set())
+            says = slotted.setdefault(pathlib.Path(cls.decl.header.name).name, set())
             if cls.decl.gc_slots:
                 says.add(cls.name)
     for f in sorted(CPP.glob("*.hpp")):
@@ -456,12 +462,13 @@ def census_gc_slots(have: Any) -> None:
             continue
         says = slotted.get(f.name, set())
         if says:
-            print(f"gc slots: {f.name} stores a Python object, and "
-                  f"{', '.join(sorted(says))} says how to traverse it")
+            print(f"gc slots: {f.name} stores a Python object, and {', '.join(sorted(says))} says how to traverse it")
             continue
-        print(f"  {f.name}: stores a Python object and NO declaration "
-              f"over it carries @gc_slots - such a class leaks itself "
-              f"whenever that object closes over it (nixidae/nixidae#630)")
+        print(
+            f"  {f.name}: stores a Python object and NO declaration "
+            f"over it carries @gc_slots - such a class leaks itself "
+            f"whenever that object closes over it (nixidae/nixidae#630)"
+        )
         for line in members:
             print(f"    {line}")
 
@@ -474,14 +481,17 @@ def census_checked(units: Sequence[str]) -> None:
     no signature, only by `@spells`, so a vocabulary that nothing
     names is a check that never ran. Read from the emitted text, as
     `census_written` is."""
-    unchecked = [e.name for e in declared_model().enums.values()
-                 if e.cxx is not None
-                 and not any(nbemit.conversion_signature(e) in u for u in units)]
+    unchecked = [
+        e.name
+        for e in declared_model().enums.values()
+        if e.cxx is not None and not any(nbemit.conversion_signature(e) in u for u in units)
+    ]
     if unchecked:
         raise SystemExit(
             f"no unit converts {', '.join(sorted(unchecked))}, so nothing "
             f"checks it against its C++ enum. Name it with @spells on the "
-            f"method that reads one.")
+            f"method that reads one."
+        )
 
 
 def main(out_dir: str) -> int:

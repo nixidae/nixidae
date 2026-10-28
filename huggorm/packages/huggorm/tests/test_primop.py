@@ -38,8 +38,7 @@ def test_a_python_function_answers_as_a_builtin(state: Any) -> None:
     `builtins.add2` is Python. The evaluator forces both arguments,
     reacquires the GIL, calls the function, and takes the Value it
     returns as the result of the primop."""
-    state.register_primop(
-        "add2", 2, lambda a, b: state.make_int(a.integer() + b.integer()))
+    state.register_primop("add2", 2, lambda a, b: state.make_int(a.integer() + b.integer()))
 
     got = state.eval_expr("builtins.add2 40 2")
     assert got.integer() == 42
@@ -78,6 +77,7 @@ def test_a_python_exception_becomes_a_nix_error(state: Any) -> None:
 
     The message carries the Python one, so a caller can tell WHICH
     call failed rather than only that something did."""
+
     def boom(v: Any) -> Any:
         raise ValueError("the primop said no")
 
@@ -88,8 +88,7 @@ def test_a_python_exception_becomes_a_nix_error(state: Any) -> None:
     assert "the primop said no" in str(caught.value)
 
 
-def test_a_failing_primop_names_the_class_and_not_the_traceback(
-        state: Any) -> None:
+def test_a_failing_primop_names_the_class_and_not_the_traceback(state: Any) -> None:
     def boom(v: Any) -> Any:
         raise ValueError("the primop said no")
 
@@ -121,8 +120,7 @@ def test_a_primop_raising_a_nix_error_shows_it_bare(state: Any) -> None:
     assert text.count(f"{STRING_ORIGIN}:1:1") == 1, text
 
 
-def test_returning_something_that_is_not_a_value_is_an_error(
-        state: Any) -> None:
+def test_returning_something_that_is_not_a_value_is_an_error(state: Any) -> None:
     """The failure a too-narrow catch would have let escape.
 
     A Python function returning a plain `int` fails in `nb::cast`,
@@ -183,8 +181,7 @@ def test_a_primop_belongs_to_one_state(state: Any) -> None:
     assert "mine" in str(caught.value)
 
 
-def test_filling_the_base_environment_raises_rather_than_corrupts(
-        state: Any) -> None:
+def test_filling_the_base_environment_raises_rather_than_corrupts(state: Any) -> None:
     """The gate the carried patch exists for.
 
     Stock nix allocates the base environment at BASE_ENV_SIZE = 128
@@ -332,8 +329,7 @@ def test_a_primop_closing_over_its_state_does_not_leak_it() -> None:
     gc.collect()
     gc.collect()
 
-    assert died == ["collected"], \
-        "the state and its callable survived a full collection"
+    assert died == ["collected"], "the state and its callable survived a full collection"
 
 
 def test_a_primop_closing_over_a_value_of_its_state_does_not_leak_it() -> None:
@@ -360,8 +356,7 @@ def test_a_primop_closing_over_a_value_of_its_state_does_not_leak_it() -> None:
     gc.collect()
     gc.collect()
 
-    assert died == ["collected"], \
-        "the closure and the Value it holds survived a full collection"
+    assert died == ["collected"], "the closure and the Value it holds survived a full collection"
 
 
 def test_a_primop_closing_over_a_value_a_repl_made_does_not_leak_it() -> None:
@@ -393,13 +388,11 @@ def test_a_primop_closing_over_a_value_a_repl_made_does_not_leak_it() -> None:
     gc.collect()
     gc.collect()
 
-    assert died == ["collected"], \
-        "the closure and the Value it holds survived a full collection"
+    assert died == ["collected"], "the closure and the Value it holds survived a full collection"
 
 
 @pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
-def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(
-        parallel_state: Any) -> None:
+def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(parallel_state: Any) -> None:
     """`builtins.parallel` hands each call to an evaluator thread, which
     runs it on a fiber's stack. CPython 3.14 measures its stack margin
     against the thread's own stack, read a fiber's as overflowing, and
@@ -415,8 +408,7 @@ def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(
 
     parallel_state.register_primop("drop", 1, drop)
     # The main thread forces none of the list, so no call runs on it.
-    parallel_state.eval_expr(
-        "builtins.parallel (builtins.genList (x: builtins.drop x) 100) null")
+    parallel_state.eval_expr("builtins.parallel (builtins.genList (x: builtins.drop x) 100) null")
     deadline = time.monotonic() + 10
     while len(calls) < 100 and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -444,8 +436,7 @@ def test_the_callable_still_works_while_the_state_is_reachable() -> None:
 def test_a_python_function_becomes_a_nix_function(state: Any) -> None:
     """`make_primop` answers a function value that no name in
     `builtins` holds, and applying it calls Python."""
-    inc = state.make_primop(
-        "inc", 1, lambda v: state.make_int(v.integer() + 1))
+    inc = state.make_primop("inc", 1, lambda v: state.make_int(v.integer() + 1))
 
     assert inc.is_primop()
     assert inc.primop_name() == "inc"
@@ -456,15 +447,14 @@ def test_a_python_function_becomes_a_nix_function(state: Any) -> None:
 def test_a_primop_can_answer_a_function(state: Any) -> None:
     """The shape a primop that returns a set of functions needs: the
     inner function closes over the outer argument."""
+
     def adder(a: Any) -> Any:
-        return state.make_primop(
-            "add", 1, lambda b: state.make_int(a.integer() + b.integer()))
+        return state.make_primop("add", 1, lambda b: state.make_int(a.integer() + b.integer()))
 
     state.register_primop("adder", 1, adder)
 
     assert state.eval_expr("builtins.adder 40 2").integer() == 42
-    assert state.eval_expr("map (builtins.adder 1) [ 1 2 ]").to_json(False) \
-        == "[2,3]"
+    assert state.eval_expr("map (builtins.adder 1) [ 1 2 ]").to_json(False) == "[2,3]"
 
 
 def test_a_made_function_names_itself_in_its_errors(state: Any) -> None:
@@ -474,8 +464,7 @@ def test_a_made_function_names_itself_in_its_errors(state: Any) -> None:
 
     with pytest.raises(Exception) as caught:
         wrong(state.make_int(1)).integer()
-    assert "implementation of wrong did not return a Value" \
-        in str(caught.value)
+    assert "implementation of wrong did not return a Value" in str(caught.value)
 
 
 def test_a_made_function_needs_an_argument(state: Any) -> None:
@@ -505,5 +494,4 @@ def test_a_made_function_closing_over_its_state_does_not_leak_it() -> None:
     gc.collect()
     gc.collect()
 
-    assert died == ["collected"], \
-        "the state and its callable survived a full collection"
+    assert died == ["collected"], "the state and its callable survived a full collection"

@@ -75,8 +75,7 @@ async def test_the_async_form_adopts_a_wrapper_class() -> None:
 async def test_a_remote_parse_answers_a_handle(client: Any) -> None:
     """Over the wire the same call answers a handle the server leased,
     and the handle's methods reach the adopted object."""
-    ref = await client.call_function("parse_store_reference",
-                                     "daemon?trusted=true")
+    ref = await client.call_function("parse_store_reference", "daemon?trusted=true")
     assert handle_of(ref)
     assert await ref.params() == {"trusted": "true"}
     assert await ref.render() == "unix://?trusted=true"
@@ -93,5 +92,4 @@ def test_the_store_registry_names_nix_s_own_types() -> None:
     assert "local" in local["uri-schemes"]
     assert "root" in local["settings"]
     assert local["experimentalFeature"] is None
-    assert types["Experimental Local Overlay Store"]["experimentalFeature"] \
-        == "local-overlay-store"
+    assert types["Experimental Local Overlay Store"]["experimentalFeature"] == "local-overlay-store"

@@ -218,9 +218,7 @@ def _start_daemon(root: Path) -> _Daemon:
 
 
 @contextlib.contextmanager
-def nix_environment(
-    backend: str, root: Path, *, allow_system_store: bool = True
-) -> Iterator[NixTestEnvironment]:
+def nix_environment(backend: str, root: Path, *, allow_system_store: bool = True) -> Iterator[NixTestEnvironment]:
     """A store endpoint under *root*, removed with *root* on exit.
 
     *allow_system_store* is False for a store a test may collect garbage in:
@@ -236,9 +234,7 @@ def nix_environment(
             yield NixTestEnvironment(backend=backend, root=root, store_uri=f"local://?root={root}")
         elif backend == "daemon":
             daemon = _start_daemon(root)
-            yield NixTestEnvironment(
-                backend=backend, root=root, store_uri=f"unix://{daemon.socket_path}?root={root}"
-            )
+            yield NixTestEnvironment(backend=backend, root=root, store_uri=f"unix://{daemon.socket_path}?root={root}")
         else:
             raise ValueError(f"unknown Nix test backend: {backend!r}")
     finally:
@@ -282,9 +278,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if marker.kwargs or len(marker.args) != 1 or not isinstance(marker.args[0], str):
             raise pytest.UsageError("nix_platform requires one platform name")
         if sys.platform != marker.args[0]:
-            item.add_marker(
-                pytest.mark.skip(reason=f"needs {marker.args[0]}, and this host is {sys.platform}")
-            )
+            item.add_marker(pytest.mark.skip(reason=f"needs {marker.args[0]}, and this host is {sys.platform}"))
 
 
 @pytest.fixture(scope="session")
@@ -293,13 +287,9 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture(scope="session")
-def shared_nix_environment(
-    nix_backend: str, tmp_path_factory: pytest.TempPathFactory
-) -> Iterator[NixTestEnvironment]:
+def shared_nix_environment(nix_backend: str, tmp_path_factory: pytest.TempPathFactory) -> Iterator[NixTestEnvironment]:
     """One store per backend, shared by every test that asks for it."""
-    with nix_environment(
-        nix_backend, tmp_path_factory.mktemp(f"nix-{nix_backend}-shared")
-    ) as environment:
+    with nix_environment(nix_backend, tmp_path_factory.mktemp(f"nix-{nix_backend}-shared")) as environment:
         yield environment
 
 

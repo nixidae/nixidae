@@ -66,10 +66,10 @@ class OutputsSpec:
     request from "every output" - so the two are different fields and
     the constructor will not let them blur.
     """
+
     # nixidae/nixidae#578
 
-    def __init__(self, all: Bint = False,
-                 names: Opt[Vec[Str]] = None) -> None:
+    def __init__(self, all: Bint = False, names: Opt[Vec[Str]] = None) -> None:
         """`OutputsSpec(names=["out", "dev"])` names them.
         `OutputsSpec(all=True)` is every output.
 
@@ -163,8 +163,7 @@ SingleDerivedPath = Annotated[
         # alias the SAME struct, and each says so for itself: a
         # union that borrowed the fact from its neighbour would
         # stop being readable on its own.
-        wraps={"StorePath": Wrap("nix::DerivedPathOpaque",
-                                 holds="path")},
+        wraps={"StorePath": Wrap("nix::DerivedPathOpaque", holds="path")},
     ),
 ]
 """A path, or ONE output of a derivation.
@@ -192,8 +191,7 @@ class DerivedPathBuilt:
     - and keeps it because building is what wants it.
     """
 
-    def __init__(self, drv_path: SingleDerivedPath,
-                 outputs: OutputsSpec) -> None:
+    def __init__(self, drv_path: SingleDerivedPath, outputs: OutputsSpec) -> None:
         """Ask for some outputs of one derivation."""
         Cxx("""
 new (self) nix::DerivedPathBuilt{
@@ -220,8 +218,7 @@ DerivedPath = Annotated[
         # alias the SAME struct, and each says so for itself: a
         # union that borrowed the fact from its neighbour would
         # stop being readable on its own.
-        wraps={"StorePath": Wrap("nix::DerivedPathOpaque",
-                                 holds="path")},
+        wraps={"StorePath": Wrap("nix::DerivedPathOpaque", holds="path")},
     ),
 ]
 """A path to fetch, or outputs to build.

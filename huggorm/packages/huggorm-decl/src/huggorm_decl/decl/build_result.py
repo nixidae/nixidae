@@ -125,6 +125,7 @@ class KeyedBuildResult:
     with the typed error rather than throwing it, and it is the
     caller who decides what to do with one.
     """
+
     # nixidae/nixidae#608
 
     # WIRE ORDER: what was asked, which arm answered, and the facts

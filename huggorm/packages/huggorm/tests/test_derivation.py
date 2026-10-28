@@ -14,28 +14,37 @@ from nixversion import FLOATING_OUTPUT
 
 from huggorm_generated import AsyncEvalState, AsyncStore
 
-LEAF = ('derivation { name = "leaf"; system = "x86_64-linux"; '
-        'builder = "/bin/sh"; args = [ "-c" "echo" ]; '
-        'outputs = [ "out" "dev" ]; FOO = "bar"; }')
+LEAF = (
+    'derivation { name = "leaf"; system = "x86_64-linux"; '
+    'builder = "/bin/sh"; args = [ "-c" "echo" ]; '
+    'outputs = [ "out" "dev" ]; FOO = "bar"; }'
+)
 # Like LEAF, but with the builder `nix develop` accepts. Nothing
 # builds here, so the path never has to exist.
-BASH_LEAF = ('derivation { name = "leaf"; system = "x86_64-linux"; '
-             'builder = "/bin/bash"; args = [ "-c" "echo" ]; '
-             'outputs = [ "out" "dev" ]; FOO = "bar"; }')
-ROOT = (f'derivation {{ name = "root"; system = "x86_64-linux"; '
-        f'builder = "/bin/sh"; dep = ({LEAF}).dev; src = ./src; }}')
-FIXED = ('derivation { name = "fixed"; system = "x86_64-linux"; '
-         'builder = "/bin/sh"; outputHashMode = "flat"; '
-         'outputHashAlgo = "sha256"; outputHash = '
-         '"sha256-47DEQpj8HBSa+/TWmW+nGUhGKf1Kq8BQi/ljyeGd3sQ="; }')
+BASH_LEAF = (
+    'derivation { name = "leaf"; system = "x86_64-linux"; '
+    'builder = "/bin/bash"; args = [ "-c" "echo" ]; '
+    'outputs = [ "out" "dev" ]; FOO = "bar"; }'
+)
+ROOT = f'derivation {{ name = "root"; system = "x86_64-linux"; builder = "/bin/sh"; dep = ({LEAF}).dev; src = ./src; }}'
+FIXED = (
+    'derivation { name = "fixed"; system = "x86_64-linux"; '
+    'builder = "/bin/sh"; outputHashMode = "flat"; '
+    'outputHashAlgo = "sha256"; outputHash = '
+    '"sha256-47DEQpj8HBSa+/TWmW+nGUhGKf1Kq8BQi/ljyeGd3sQ="; }'
+)
 # `outer` needs `out` of the derivation that building `inner` makes:
 # the one shape that gives an input a child node.
-INNER = ('derivation { name = "inner"; system = "x86_64-linux"; '
-         'builder = "/bin/sh"; __contentAddressed = true; '
-         'outputHashMode = "text"; outputHashAlgo = "sha256"; }')
-OUTER = (f'derivation {{ name = "outer"; system = "x86_64-linux"; '
-         f'builder = "/bin/sh"; '
-         f'args = [ (builtins.outputOf ({INNER}).outPath "out") ]; }}')
+INNER = (
+    'derivation { name = "inner"; system = "x86_64-linux"; '
+    'builder = "/bin/sh"; __contentAddressed = true; '
+    'outputHashMode = "text"; outputHashAlgo = "sha256"; }'
+)
+OUTER = (
+    f'derivation {{ name = "outer"; system = "x86_64-linux"; '
+    f'builder = "/bin/sh"; '
+    f'args = [ (builtins.outputOf ({INNER}).outPath "out") ]; }}'
+)
 
 
 @pytest.fixture
@@ -51,8 +60,7 @@ def dynamic_derivations() -> Iterator[None]:
     from huggorm_bindings import get_setting, set_setting
 
     before = get_setting("experimental-features") or ""
-    set_setting("extra-experimental-features",
-                "ca-derivations dynamic-derivations")
+    set_setting("extra-experimental-features", "ca-derivations dynamic-derivations")
     try:
         yield
     finally:
@@ -66,8 +74,7 @@ def instantiate(tmp_path: pathlib.Path, expr: str) -> Any:
     return EvalState(Store(str(tmp_path))).eval_expr(expr, str(tmp_path)).drv_path()
 
 
-def test_the_plain_fields_read_back(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_the_plain_fields_read_back(store: Any, tmp_path: pathlib.Path) -> None:
     drv = store.read_derivation(instantiate(tmp_path, LEAF))
     assert drv.name() == "leaf"
     assert drv.system() == "x86_64-linux"
@@ -77,8 +84,7 @@ def test_the_plain_fields_read_back(
     assert drv.structured_attrs() is None
 
 
-def test_an_input_addressed_output_names_its_path(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_an_input_addressed_output_names_its_path(store: Any, tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import DerivationOutputInputAddressed
 
     path = instantiate(tmp_path, LEAF)
@@ -89,8 +95,7 @@ def test_an_input_addressed_output_names_its_path(
     assert out.path() == store.query_derivation_output_map(path)["out"]
 
 
-def test_a_fixed_output_carries_its_content_address(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_a_fixed_output_carries_its_content_address(store: Any, tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import DerivationOutputCAFixed
 
     out = store.read_derivation(instantiate(tmp_path, FIXED)).outputs()["out"]
@@ -99,8 +104,7 @@ def test_a_fixed_output_carries_its_content_address(
     assert out.ca().hash().algorithm() == "sha256"
 
 
-def test_inputs_are_the_derivations_and_sources_it_needs(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_inputs_are_the_derivations_and_sources_it_needs(store: Any, tmp_path: pathlib.Path) -> None:
     leaf = instantiate(tmp_path, LEAF)
     root = store.read_derivation(instantiate(tmp_path, ROOT))
     [(name, node)] = root.input_drvs().items()
@@ -112,10 +116,8 @@ def test_inputs_are_the_derivations_and_sources_it_needs(
 
 
 @pytest.mark.usefixtures("dynamic_derivations")
-def test_an_output_of_an_output_is_a_child_node(
-        store: Any, tmp_path: pathlib.Path) -> None:
-    [node] = store.read_derivation(
-        instantiate(tmp_path, OUTER)).input_drvs().values()
+def test_an_output_of_an_output_is_a_child_node(store: Any, tmp_path: pathlib.Path) -> None:
+    [node] = store.read_derivation(instantiate(tmp_path, OUTER)).input_drvs().values()
     assert node.outputs() == []
     [(output, child)] = node.dynamic_outputs().items()
     assert output == "out"
@@ -123,8 +125,7 @@ def test_an_output_of_an_output_is_a_child_node(
     assert child.dynamic_outputs() == {}
 
 
-def test_a_derivation_value_names_its_outputs(
-        tmp_path: pathlib.Path) -> None:
+def test_a_derivation_value_names_its_outputs(tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import EvalState, Store
 
     store = Store(str(tmp_path))
@@ -134,21 +135,18 @@ def test_a_derivation_value_names_its_outputs(
     assert paths == store.query_derivation_output_map(value.drv_path())
 
 
-async def test_output_paths_cross_the_socket(
-        client: Any, tmp_path: pathlib.Path) -> None:
+async def test_output_paths_cross_the_socket(client: Any, tmp_path: pathlib.Path) -> None:
     """`dict[str, StorePath | None]`: an element that may be None
     crosses as nil (nixidae/nixidae#714)."""
     from huggorm_bindings import EvalState, Store
 
     store = await client.acquire(AsyncStore, str(tmp_path))
-    value = await (await client.acquire(AsyncEvalState, store)).eval_expr(
-        LEAF, str(tmp_path))
+    value = await (await client.acquire(AsyncEvalState, store)).eval_expr(LEAF, str(tmp_path))
     local = EvalState(Store(str(tmp_path))).eval_expr(LEAF, str(tmp_path))
     assert await value.output_paths() == local.output_paths()
 
 
-def test_a_floating_output_is_not_a_store_path_yet(
-        tmp_path: pathlib.Path, dynamic_derivations: None) -> None:
+def test_a_floating_output_is_not_a_store_path_yet(tmp_path: pathlib.Path, dynamic_derivations: None) -> None:
     from huggorm_bindings import EvalState, Store
     from huggorm_bindings.errors import EvalError
 
@@ -157,8 +155,7 @@ def test_a_floating_output_is_not_a_store_path_yet(
         value.output_paths()
 
 
-def test_a_build_reads_its_derivation_from_the_eval_store(
-        tmp_path: pathlib.Path) -> None:
+def test_a_build_reads_its_derivation_from_the_eval_store(tmp_path: pathlib.Path) -> None:
     """A fixed output already valid in the build store needs no
     builder: only the `.drv`, which the eval store holds and the
     build store does not."""
@@ -171,19 +168,16 @@ def test_a_build_reads_its_derivation_from_the_eval_store(
     )
 
     built = Store(str(tmp_path / "build"))
-    held = built.add_to_store("fixed", b"", ContentAddressMethod.FLAT,
-                              HashAlgorithm.SHA256)
+    held = built.add_to_store("fixed", b"", ContentAddressMethod.FLAT, HashAlgorithm.SHA256)
     ca = built.query_path_info(held).ca()
     assert ca is not None
     sri = ca.hash().sri()
     (tmp_path / "eval").mkdir()
-    drv = instantiate(tmp_path / "eval", FIXED.replace(
-        "sha256-47DEQpj8HBSa+/TWmW+nGUhGKf1Kq8BQi/ljyeGd3sQ=", sri))
+    drv = instantiate(tmp_path / "eval", FIXED.replace("sha256-47DEQpj8HBSa+/TWmW+nGUhGKf1Kq8BQi/ljyeGd3sQ=", sri))
     evaluated = Store(str(tmp_path / "eval"))
     target = DerivedPathBuilt(drv, OutputsSpec(names=["out"]))
 
-    [result] = built.build_paths_with_results([target],
-                                              eval_store=evaluated)
+    [result] = built.build_paths_with_results([target], eval_store=evaluated)
     assert result.error() is None
     assert not built.is_valid_path(drv)
 
@@ -191,16 +185,14 @@ def test_a_build_reads_its_derivation_from_the_eval_store(
     assert alone.error() is not None
 
 
-def test_json_round_trips_to_the_same_path(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_json_round_trips_to_the_same_path(store: Any, tmp_path: pathlib.Path) -> None:
     """`add` of what `show` printed writes the same `.drv`."""
     path = instantiate(tmp_path, ROOT)
     document = store.read_derivation(path).to_json()
     assert store.add_derivation(document) == path
 
 
-def test_a_dev_shell_derivation_from_generated_operations(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_a_dev_shell_derivation_from_generated_operations(store: Any, tmp_path: pathlib.Path) -> None:
     """What `nix develop` does to a derivation, as one operation.
 
     Read it, change the document, add the script, write it back.
@@ -213,28 +205,23 @@ def test_a_dev_shell_derivation_from_generated_operations(
 
     path = instantiate(tmp_path, BASH_LEAF)
     script = b"echo env\n"
-    shell = store.read_derivation(
-        write_dev_shell_derivation(store, path, script))
+    shell = store.read_derivation(write_dev_shell_derivation(store, path, script))
 
     assert shell.name() == "leaf-env"
     assert len(shell.args()) == 1 and shell.args()[0].endswith("get-env.sh")
-    assert any(p.to_string().endswith("get-env.sh")
-               for p in shell.input_srcs())
+    assert any(p.to_string().endswith("get-env.sh") for p in shell.input_srcs())
     for output in shell.outputs().values():
         assert isinstance(output, DerivationOutputInputAddressed)
-    assert shell.outputs()["out"].path() != \
-        store.read_derivation(path).outputs()["out"].path()
+    assert shell.outputs()["out"].path() != store.read_derivation(path).outputs()["out"].path()
 
 
-async def test_an_async_dev_shell_derivation_rewrites(
-        store: Any, tmp_path: pathlib.Path) -> None:
+async def test_an_async_dev_shell_derivation_rewrites(store: Any, tmp_path: pathlib.Path) -> None:
     """The async flavour, over a local `AsyncStore`."""
     from huggorm.devshell import awrite_dev_shell_derivation
     from huggorm_bindings import DerivationOutputInputAddressed
 
     path = instantiate(tmp_path, BASH_LEAF)
-    shell_path = await awrite_dev_shell_derivation(
-        AsyncStore(str(tmp_path)), path, b"echo env\n")
+    shell_path = await awrite_dev_shell_derivation(AsyncStore(str(tmp_path)), path, b"echo env\n")
     shell = store.read_derivation(shell_path)
 
     assert shell.name() == "leaf-env"
@@ -242,8 +229,7 @@ async def test_an_async_dev_shell_derivation_rewrites(
         assert isinstance(output, DerivationOutputInputAddressed)
 
 
-def test_a_dev_shell_derivation_refuses_a_non_bash_builder(
-        store: Any, tmp_path: pathlib.Path) -> None:
+def test_a_dev_shell_derivation_refuses_a_non_bash_builder(store: Any, tmp_path: pathlib.Path) -> None:
     """The refusal `nix develop` makes, at rewrite time.
 
     LEAF builds with `/bin/sh`, so rewriting it fails here rather
@@ -275,9 +261,14 @@ def test_a_dev_shell_rewrite_strips_flat_reference_checks() -> None:
     """A shell answers no reference checks, so none cross."""
     from huggorm.devshell import _rewrite
 
-    env = {"name": "leaf", "allowedReferences": ["x"],
-           "allowedRequisites": ["x"], "disallowedReferences": ["x"],
-           "disallowedRequisites": ["x"], "KEEP": "yes"}
+    env = {
+        "name": "leaf",
+        "allowedReferences": ["x"],
+        "allowedRequisites": ["x"],
+        "disallowedReferences": ["x"],
+        "disallowedRequisites": ["x"],
+        "KEEP": "yes",
+    }
     out = _rewrite(_leaf_document(env=env), "/nix/store/s.sh", "/nix/store/s.sh")
     assert out["env"] == {"name": "leaf-env", "KEEP": "yes", "out": ""}
 
@@ -287,8 +278,7 @@ def test_a_dev_shell_rewrite_strips_structured_output_checks() -> None:
     from huggorm.devshell import _rewrite
 
     attrs = {"outputChecks": {"out": {}}, "other": True}
-    out = _rewrite(_leaf_document(structuredAttrs=attrs),
-                   "/nix/store/s.sh", "/nix/store/s.sh")
+    out = _rewrite(_leaf_document(structuredAttrs=attrs), "/nix/store/s.sh", "/nix/store/s.sh")
     assert out["structuredAttrs"] == {"other": True}
 
 
@@ -296,15 +286,10 @@ def test_a_dev_shell_rewrite_keeps_outputs_without_a_path() -> None:
     """Only addressed outputs invalidate: the rest have no path."""
     from huggorm.devshell import _rewrite
 
-    outputs = {"out": {"path": "/nix/store/x-out"},
-               "fixed": {"hash": "sha256:abc"},
-               "float": {"CAFloating": True}}
-    env = {"name": "leaf", "out": "/nix/store/x-out",
-           "fixed": "/nix/store/x-fixed", "float": "keep"}
-    out = _rewrite(_leaf_document(outputs=outputs, env=env),
-                   "/nix/store/s.sh", "/nix/store/s.sh")
-    assert out["outputs"] == {"out": {}, "fixed": {},
-                              "float": {"CAFloating": True}}
+    outputs = {"out": {"path": "/nix/store/x-out"}, "fixed": {"hash": "sha256:abc"}, "float": {"CAFloating": True}}
+    env = {"name": "leaf", "out": "/nix/store/x-out", "fixed": "/nix/store/x-fixed", "float": "keep"}
+    out = _rewrite(_leaf_document(outputs=outputs, env=env), "/nix/store/s.sh", "/nix/store/s.sh")
+    assert out["outputs"] == {"out": {}, "fixed": {}, "float": {"CAFloating": True}}
     assert out["env"]["out"] == "" and out["env"]["fixed"] == ""
     assert out["env"]["float"] == "keep"
 

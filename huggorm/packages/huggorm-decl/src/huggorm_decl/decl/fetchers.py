@@ -75,9 +75,11 @@ class Input:
         Cxx("return self.getFingerprint(*store);")
 
     @staticmethod
-    @needs(Local("huggorm_decl/cpp/call_settings.hpp"),
-           Local("huggorm_decl/cpp/fetchers.hpp"),
-           Local("nix/fetchers/fetch-settings.hh"))
+    @needs(
+        Local("huggorm_decl/cpp/call_settings.hpp"),
+        Local("huggorm_decl/cpp/fetchers.hpp"),
+        Local("nix/fetchers/fetch-settings.hh"),
+    )
     def _from_parts() -> Input:
         """Rebuild one from its attributes, with the process's fetcher
         settings, as `FlakeRef` does."""
@@ -87,8 +89,12 @@ return huggorm::input_of_attrs(*fetch, std::move(to_attrs));
         """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/fetchers.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"), Local("nix/fetchers/fetchers.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/fetchers.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/fetchers.hh"),
+)
 @threading("pool")
 def input_from_url(url: Str) -> Input:
     """Parse `url` as `builtins.fetchTree` parses a URL.
@@ -101,8 +107,12 @@ return huggorm::input_of(*fetch, url);
     """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/fetchers.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"), Local("nix/fetchers/fetchers.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/fetchers.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/fetchers.hh"),
+)
 @threading("pool")
 def input_from_attrs(attrs: Map[Attr]) -> Input:
     """Build an input from its attributes, as `builtins.fetchTree` does

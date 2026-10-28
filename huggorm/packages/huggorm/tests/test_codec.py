@@ -22,8 +22,7 @@ def _no_proxy(_: Any) -> Any:
 
 
 def _across(codec: Codec, w: Wire, value: Any) -> Any:
-    return codec.decode(w, unpack(pack(codec.encode(w, value, _no_proxy))),
-                        _no_proxy)
+    return codec.decode(w, unpack(pack(codec.encode(w, value, _no_proxy))), _no_proxy)
 
 
 @pytest.mark.usefixtures("flakes")
@@ -86,8 +85,7 @@ def test_absence() -> None:
         codec.decode(item, None, _no_proxy)
     # A container keeps None apart from empty only where the
     # declaration allows None.
-    assert _across(codec, Wire(WireKind.LIST, item=item, optional=True),
-                   None) is None
+    assert _across(codec, Wire(WireKind.LIST, item=item, optional=True), None) is None
     assert _across(codec, Wire(WireKind.LIST, item=item), None) == []
     assert _across(codec, Wire(WireKind.MAP, item=item), None) == {}
 
@@ -106,24 +104,23 @@ def test_a_tree_crosses() -> None:
     codec = Codec()
     held, root, xs = object(), object(), object()
     names = {id(held): "h1", id(root): "h2", id(xs): "h3"}
-    node = tree.Entries("Value", root, {
-        "b": tree.Items("Value", xs, [tree.Leaf("int", 1),
-                                      tree.Leaf("bool", True),
-                                      tree.Leaf("float", 0.5)]),
-        "a": tree.Leaf("str", "x"),
-        "c": tree.Stays("Value", held),
-    })
+    node = tree.Entries(
+        "Value",
+        root,
+        {
+            "b": tree.Items("Value", xs, [tree.Leaf("int", 1), tree.Leaf("bool", True), tree.Leaf("float", 0.5)]),
+            "a": tree.Leaf("str", "x"),
+            "c": tree.Stays("Value", held),
+        },
+    )
     raw = unpack(pack(codec.encode_tree(node, lambda cls, obj: names[id(obj)])))
     # A container decodes as its handle beside its contents, so a
     # caller can hand it back (nixidae/nixidae#721).
-    back = codec.decode_tree(raw, lambda cls, hid: (cls, hid),
-                             lambda cls, hid, contents: (hid, contents))
-    assert back == ("h2", {"a": "x", "b": ("h3", [1, True, 0.5]),
-                           "c": ("Value", "h1")})
+    back = codec.decode_tree(raw, lambda cls, hid: (cls, hid), lambda cls, hid, contents: (hid, contents))
+    assert back == ("h2", {"a": "x", "b": ("h3", [1, True, 0.5]), "c": ("Value", "h1")})
     assert list(back[1]) == ["a", "b", "c"], "attribute names come back sorted"
     with pytest.raises(TypeError, match="tree node"):
-        codec.decode_tree([Node.STAYS, "Value"], lambda cls, hid: None,
-                          lambda cls, hid, contents: None)
+        codec.decode_tree([Node.STAYS, "Value"], lambda cls, hid: None, lambda cls, hid, contents: None)
 
 
 def test_a_malformed_union_is_refused() -> None:

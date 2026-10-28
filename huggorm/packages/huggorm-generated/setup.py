@@ -60,9 +60,7 @@ class build_with_stubs(build_py):
 
     def run(self) -> None:
         super().run()
-        shutil.copytree(HERE / STUB_PACKAGE,
-                        pathlib.Path(self.build_lib) / STUB_PACKAGE,
-                        dirs_exist_ok=True)
+        shutil.copytree(HERE / STUB_PACKAGE, pathlib.Path(self.build_lib) / STUB_PACKAGE, dirs_exist_ok=True)
 
 
 # package_data lives in pyproject.toml, not here: this table would

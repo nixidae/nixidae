@@ -41,8 +41,7 @@ def class_def(enum: ir.EnumModel) -> ast.ClassDef:
     docstring, then each member and the docstring under it."""
     body: list[ast.stmt] = [_text(enum.doc)] if enum.doc else []
     for word in enum.members:
-        body.append(ast.Assign(targets=[ast.Name(id=word.name, ctx=ast.Store())],
-                               value=ast.Constant(value=word.value)))
+        body.append(ast.Assign(targets=[ast.Name(id=word.name, ctx=ast.Store())], value=ast.Constant(value=word.value)))
         if word.doc:
             body.append(_text(word.doc))
     return ast.ClassDef(
@@ -64,13 +63,10 @@ def module(vocab: ir.VocabularyModel) -> str:
     bases = sorted({enum.base for enum in vocab.enums})
     out: list[ast.stmt] = [
         _text(_doc(vocab)),
-        ast.ImportFrom(module="enum",
-                       names=[ast.alias(name=base) for base in bases],
-                       level=0),
+        ast.ImportFrom(module="enum", names=[ast.alias(name=base) for base in bases], level=0),
         *(class_def(enum) for enum in vocab.enums),
     ]
-    return reflow(ast.unparse(
-        ast.fix_missing_locations(ast.Module(body=out, type_ignores=[]))))
+    return reflow(ast.unparse(ast.fix_missing_locations(ast.Module(body=out, type_ignores=[]))))
 
 
 def reflow(text: str) -> str:
@@ -94,13 +90,13 @@ def reflow(text: str) -> str:
             continue
         try:
             value = ast.literal_eval(body)
-        except (ValueError, SyntaxError):
+        except ValueError, SyntaxError:
             out.append(line)
             continue
         if not isinstance(value, str):
             out.append(line)
             continue
-        pad = line[:len(line) - len(line.lstrip())]
+        pad = line[: len(line) - len(line.lstrip())]
         block = value.splitlines()
         out.append(f'{pad}"""{block[0]}')
         out += [each.rstrip() for each in block[1:-1]]
@@ -118,8 +114,7 @@ def _spaced(lines: list[str]) -> list[str]:
     of bare words stays together."""
     out: list[str] = []
     for line in lines:
-        word = (line.startswith("    ") and " = " in line
-                and line.lstrip()[:1].isupper())
+        word = line.startswith("    ") and " = " in line and line.lstrip()[:1].isupper()
         if word and out and out[-1].endswith('"""'):
             out.append("")
         out.append(line)
@@ -133,10 +128,8 @@ def _doc(vocab: ir.VocabularyModel) -> str:
     that no member carries, and a reader checking the list against
     upstream needs it. `@words(parsed_by=...)` says it once per
     class; this collects them."""
-    named = [f"{enum.name} -> {enum.parsed_by}"
-             for enum in vocab.enums if enum.parsed_by]
-    lines = [vocab.doc.strip(), "",
-             "GENERATED from the declaration - do not edit."]
+    named = [f"{enum.name} -> {enum.parsed_by}" for enum in vocab.enums if enum.parsed_by]
+    lines = [vocab.doc.strip(), "", "GENERATED from the declaration - do not edit."]
     if named:
         lines += ["", "The words go to:", *[f"- {line}" for line in named]]
     return "\n".join(lines) + "\n"

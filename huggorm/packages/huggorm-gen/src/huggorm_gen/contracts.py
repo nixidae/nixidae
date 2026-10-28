@@ -23,15 +23,15 @@ def wrap(model: ir.Model) -> list[str]:
         if c.wrapped:
             continue
         if c.threading is not Threading.POOL:
-            bad.append(f"{c.name}: an unwrapped class must be threading "
-                       f"'pool', not '{c.threading}'")
+            bad.append(f"{c.name}: an unwrapped class must be threading 'pool', not '{c.threading}'")
         for m in c.methods:
             if (a := model.adopted(m.returns)) is not None and a.wrapped:
                 bad.append(
                     f"{c.name}.{m.name} returns {m.return_spelling}, which "
                     f"needs a wrapper. An unwrapped class cannot attach "
                     f"one; declare _blocking on one side or the other so "
-                    f"the two agree.")
+                    f"the two agree."
+                )
     return bad
 
 
@@ -49,9 +49,9 @@ def collection(model: ir.Model) -> list[str]:
         f"holding {m.returns.name}. Nothing attaches a runner to the "
         f"elements of a container. Return the container's owner and let "
         f"the caller walk it, or realize it as a value tree (nixidae/nixidae#567)."
-        for c in model.classes.values() for m in c.methods
-        if m.returns is not None and m.returns.name in wrapped
-        and m.returns.required.origin
+        for c in model.classes.values()
+        for m in c.methods
+        if m.returns is not None and m.returns.name in wrapped and m.returns.required.origin
     ]
 
 
@@ -67,10 +67,10 @@ def affine_from_pool(model: ir.Model) -> list[str]:
         f"{c.name}.{m.name} returns {m.return_spelling}, which is affine, "
         f"from a pool class: it would live on a thread nothing owns. "
         f"Return it from an affine class instead."
-        for c in model.classes.values() if c.threading is Threading.POOL
+        for c in model.classes.values()
+        if c.threading is Threading.POOL
         for m in c.methods
-        if (a := model.adopted(m.returns)) is not None
-        and a.wrapped and a.threading is Threading.AFFINE
+        if (a := model.adopted(m.returns)) is not None and a.wrapped and a.threading is Threading.AFFINE
     ]
 
 
@@ -82,8 +82,7 @@ def free_functions(model: ir.Model) -> list[str]:
     needs a home thread, and a free function has none. Otherwise the
     coroutine hands a sync object to an async caller."""
     bad = []
-    for fn in (*(f for f in model.functions.values() if f.wrapped),
-               *model.blocking_methods):
+    for fn in (*(f for f in model.functions.values() if f.wrapped), *model.blocking_methods):
         r = fn.returns
         if r is None or r.leaf.kind != ir.Kind.PROXY:
             continue
@@ -93,13 +92,15 @@ def free_functions(model: ir.Model) -> list[str]:
                 f"free function {fn.name} returns {r.spelling}, and "
                 f"{r.leaf.name} cannot be adopted into an async form "
                 f"from a free function. Return a served class on its "
-                f"own or as `X | None`.")
+                f"own or as `X | None`."
+            )
         elif adopted.threading is not Threading.POOL:
             bad.append(
                 f"free function {fn.name} returns {adopted.name}, which is "
                 f"{adopted.threading}: it needs a home thread and a free "
                 f"function has none. Return it from a method of the class "
-                f"that owns the thread instead.")
+                f"that owns the thread instead."
+            )
     return bad
 
 
@@ -113,20 +114,20 @@ def wire(model: ir.Model) -> list[str]:
     for c in model.classes.values():
         if c.wire is not Crossing.VALUE:
             if c.wire_fields:
-                bad.append(f"{c.name}: only a wire value crosses as its "
-                           f"parts, drop _wire_fields")
+                bad.append(f"{c.name}: only a wire value crosses as its parts, drop _wire_fields")
             continue
         if not c.wire_fields and not c.semantics.unit:
-            bad.append(f"{c.name}: wire-value needs _wire_fields describing "
-                       f"its message, or @wire_value(unit=True) if it has "
-                       f"none")
+            bad.append(
+                f"{c.name}: wire-value needs _wire_fields describing "
+                f"its message, or @wire_value(unit=True) if it has "
+                f"none"
+            )
         if c.wire_fields and c.semantics.unit:
             bad.append(f"{c.name}: a unit value has no parts, drop unit=True")
         if c.threading is not Threading.POOL:
             # A value that may not leave its thread cannot be
             # serialised off it.
-            bad.append(f"{c.name}: wire-value must be threading 'pool', "
-                       f"not '{c.threading}'")
+            bad.append(f"{c.name}: wire-value must be threading 'pool', not '{c.threading}'")
         for f in c.wire_fields:
             bad += _field(model, c.name, f)
     return bad
@@ -140,19 +141,25 @@ def _field(model: ir.Model, owner: str, f: ir.FieldModel) -> list[str]:
         # A wire-value is rebuilt on the far side by _from_parts, which
         # needs a local object for every part, and a proxy has none
         # there (nixidae/nixidae#568).
-        return [f"{where}: {f.type.leaf.name} is a proxy, so _from_parts has "
-                f"nothing to rebuild it from on the far side. A wire-value "
-                f"copies all the way down. Carry the proxy as a method "
-                f"parameter or return instead."]
+        return [
+            f"{where}: {f.type.leaf.name} is a proxy, so _from_parts has "
+            f"nothing to rebuild it from on the far side. A wire-value "
+            f"copies all the way down. Carry the proxy as a method "
+            f"parameter or return instead."
+        ]
     return []
 
 
 def complaints(model: ir.Model) -> list[tuple[str, str]]:
     """Every broken rule, as (rule, complaint)."""
-    return [(rule, why)
-            for rule, check in (("wrap contract", wrap),
-                                ("collection contract", collection),
-                                ("policy", affine_from_pool),
-                                ("free function contract", free_functions),
-                                ("wire contract", wire))
-            for why in check(model)]
+    return [
+        (rule, why)
+        for rule, check in (
+            ("wrap contract", wrap),
+            ("collection contract", collection),
+            ("policy", affine_from_pool),
+            ("free function contract", free_functions),
+            ("wire contract", wire),
+        )
+        for why in check(model)
+    ]

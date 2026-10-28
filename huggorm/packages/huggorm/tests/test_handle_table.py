@@ -28,8 +28,7 @@ def _step(table: HandleTable, rng: random.Random) -> str:
     tokens = list(table.connections)
     hids = list(table.entries)
     claimable = list(table.escrow)
-    op = rng.choice(["bind", "claim", "put", "put", "put", "release",
-                     "release", "share", "detach", "die"])
+    op = rng.choice(["bind", "claim", "put", "put", "put", "release", "release", "share", "detach", "die"])
     if op == "bind" or not tokens:
         table.bind()
         return "bind"
@@ -47,8 +46,7 @@ def _step(table: HandleTable, rng: random.Random) -> str:
     if op == "release":
         table.release(token, hid)
     elif op == "share":
-        table.share(token, rng.choice(tokens), hid,
-                    mode=rng.choice(list(ShareMode)))
+        table.share(token, rng.choice(tokens), hid, mode=rng.choice(list(ShareMode)))
     elif op == "detach":
         table.detach(token, hid if rng.random() < 0.5 else None)
     else:
@@ -69,8 +67,7 @@ def test_every_operation_keeps_the_lease_count(seed: int) -> None:
         try:
             table.audit()
         except AssertionError as broken:
-            raise AssertionError(
-                f"seed {seed}, step {step}, after {op}: {broken}") from None
+            raise AssertionError(f"seed {seed}, step {step}, after {op}: {broken}") from None
 
 
 def test_the_sequences_reach_every_operation() -> None:
@@ -83,7 +80,6 @@ def test_the_sequences_reach_every_operation() -> None:
         for _ in range(STEPS):
             try:
                 seen.add(_step(table, rng))
-            except (KeyError, ValueError):
+            except KeyError, ValueError:
                 seen.add("refused")
-    assert {"bind", "claim", "put", "release", "share", "detach", "die",
-            "refused"} <= seen, seen
+    assert {"bind", "claim", "put", "release", "share", "detach", "die", "refused"} <= seen, seen

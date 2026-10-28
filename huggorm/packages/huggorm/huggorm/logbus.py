@@ -108,8 +108,7 @@ class Fanout:
     second, which the binding answers by replacing the first.
     """
 
-    def __init__(self, open_sub: Callable[[int, int], Awaitable[Any]],
-                 drop_sub: Callable[[], Awaitable[None]]) -> None:
+    def __init__(self, open_sub: Callable[[int, int], Awaitable[Any]], drop_sub: Callable[[], Awaitable[None]]) -> None:
         self._open = open_sub
         self._drop = drop_sub
         self._lock = anyio.Lock()
@@ -130,14 +129,12 @@ class Fanout:
         """A reader, and the subscription behind it if it is the first."""
         reader = Reader(self, capacity, level)
         async with self._lock:
-            if self._sub is not None and (
-                    level > self._level or capacity > self._capacity):
+            if self._sub is not None and (level > self._level or capacity > self._capacity):
                 await self._pull()
                 await self._close()
             if self._sub is None:
                 self._level = max(level, widest(self._readers))
-                self._capacity = max(
-                    [capacity, *(r.capacity for r in self._readers)])
+                self._capacity = max([capacity, *(r.capacity for r in self._readers)])
                 self._sub = await self._open(self._capacity, self._level)
                 self._fd = await self._sub.fileno()
                 self.dropped = 0
@@ -180,6 +177,7 @@ class Fanout:
         self._watching = True
         try:
             async with anyio.create_task_group() as tg:
+
                 async def readable() -> None:
                     await anyio.wait_readable(fd)
                     tg.cancel_scope.cancel()

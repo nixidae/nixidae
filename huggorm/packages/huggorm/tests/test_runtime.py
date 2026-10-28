@@ -75,8 +75,7 @@ async def collect() -> None:
     await huggorm_generated.collect_garbage()
 
 
-async def test_a_pool_store_hands_back_a_store_path_itself(
-        tmp_path: pathlib.Path) -> None:
+async def test_a_pool_store_hands_back_a_store_path_itself(tmp_path: pathlib.Path) -> None:
     """StorePath is pool AND non-blocking, so it has no wrapper: an
     awaited store method hands back the binding object itself, and
     reading it is a plain call (nixidae/nixidae#562)."""
@@ -96,8 +95,7 @@ async def test_a_pool_store_hands_back_a_store_path_itself(
     await local.aclose()
 
 
-async def test_a_pool_runner_constructs_once_under_concurrent_first_calls(
-        ) -> None:
+async def test_a_pool_runner_constructs_once_under_concurrent_first_calls() -> None:
     """Each stray factory call once built a diverging underlying
     store, through an unlocked `_resolve`."""
     from huggorm_generated import _runtime
@@ -168,8 +166,7 @@ async def test_an_unbuilt_affine_object_is_built_on_its_own_thread() -> None:
     assert _runtime.unwrap_arg(pool) == {"ok": True}
 
 
-async def test_calls_on_one_thread_run_in_the_order_they_were_made(
-        ) -> None:
+async def test_calls_on_one_thread_run_in_the_order_they_were_made() -> None:
     """A server runs the calls of one state in the order a client sent
     them. Building an argument, or the target itself, must not let a
     later call go first (nixidae/nixidae#740)."""
@@ -488,8 +485,7 @@ async def test_a_wrong_access_says_which(access: str) -> None:
     builder = AsyncEvalState(AsyncStore(URI))
     attrs = await builder.make_attrs()
     await builder.attrs_set(attrs, "a", await builder.make_int(1))
-    call = {"integer": lambda: attrs.integer(), "at": lambda: attrs.at(0),
-            "name_at": lambda: attrs.name_at(99)}[access]
+    call = {"integer": lambda: attrs.integer(), "at": lambda: attrs.at(0), "name_at": lambda: attrs.name_at(99)}[access]
     with pytest.raises(Exception) as refused:
         await call()
     # The runtime wraps a non-Nix binding failure in InternalError, so
@@ -531,8 +527,7 @@ async def test_children_survive_collection_through_the_parent() -> None:
 
 
 @needs_collector
-async def test_closing_an_affine_wrapper_leaves_its_thread_unregistered(
-        ) -> None:
+async def test_closing_an_affine_wrapper_leaves_its_thread_unregistered() -> None:
     """A closed affine wrapper's thread leaves the collector's list
     before it dies. Boehm stops the world by signalling every
     registered thread and waiting for each; a dead one never answers,
@@ -633,7 +628,7 @@ async def test_a_dropped_value_releases_its_root() -> None:
     # Garbage an earlier test left would leave the count during the test.
     await collect()
     before = huggorm_bindings.gc_stats()["live_roots"]
-    kept = [await state.make_string(f'{"p" * 200}-{i}') for i in range(200)]
+    kept = [await state.make_string(f"{'p' * 200}-{i}") for i in range(200)]
     assert huggorm_bindings.gc_stats()["live_roots"] >= before + 200
 
     del kept

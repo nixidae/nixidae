@@ -63,26 +63,25 @@ async def spawned(options: ServerOptions | None = None) -> AsyncIterator[str]:
 
     The server inherits stderr, so its reason for failing reaches the
     caller's terminal. Leaving the block stops it with SIGTERM."""
-    directory = await anyio.to_thread.run_sync(
-        lambda: tempfile.mkdtemp(prefix="huggorm-"))
+    directory = await anyio.to_thread.run_sync(lambda: tempfile.mkdtemp(prefix="huggorm-"))
     path = os.path.join(directory, "server.sock")
     read_fd, write_fd = os.pipe()
     try:
         try:
             process = await anyio.open_process(
-                [sys.executable, "-c", _MAIN, path, *_argv(options),
-                 "--ready-fd", str(write_fd)],
-                stdin=subprocess.DEVNULL, stdout=None, stderr=None,
-                pass_fds=(write_fd,))
+                [sys.executable, "-c", _MAIN, path, *_argv(options), "--ready-fd", str(write_fd)],
+                stdin=subprocess.DEVNULL,
+                stdout=None,
+                stderr=None,
+                pass_fds=(write_fd,),
+            )
         finally:
             os.close(write_fd)
         async with process:
             try:
                 await anyio.wait_readable(read_fd)
                 if not os.read(read_fd, 64):
-                    raise ServerExited(
-                        f"the server exited with status {await process.wait()} "
-                        f"before it listened")
+                    raise ServerExited(f"the server exited with status {await process.wait()} before it listened")
                 yield path
             finally:
                 with anyio.CancelScope(shield=True):
@@ -99,23 +98,21 @@ async def spawned(options: ServerOptions | None = None) -> AsyncIterator[str]:
 
 
 @contextlib.asynccontextmanager
-async def spawned_stdio(options: ServerOptions | None = None, *,
-                        python: str = sys.executable
-                        ) -> AsyncIterator[transport.Dialer]:
+async def spawned_stdio(
+    options: ServerOptions | None = None, *, python: str = sys.executable
+) -> AsyncIterator[transport.Dialer]:
     """Run `huggorm.server --stdio` under `python`, set up as `options`
     says, and yield a dialer for its one connection.
 
     The server inherits stderr. Leaving the block closes its stdin; the
     server ends its connection at EOF and exits. One that has not exited
     after `STOP_GRACE` seconds is terminated, then killed."""
-    process = await anyio.open_process(
-        [python, "-c", _MAIN, "--stdio", *_argv(options)], stderr=None)
+    process = await anyio.open_process([python, "-c", _MAIN, "--stdio", *_argv(options)], stderr=None)
     async with process:
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("open_process gave no stdin or stdout pipe")
         try:
-            yield transport.once(StapledByteStream(process.stdin, process.stdout),
-                                 "a stdio server")
+            yield transport.once(StapledByteStream(process.stdin, process.stdout), "a stdio server")
         finally:
             with anyio.CancelScope(shield=True):
                 await process.stdin.aclose()
@@ -131,9 +128,9 @@ async def spawned_stdio(options: ServerOptions | None = None, *,
 
 
 @contextlib.asynccontextmanager
-async def spawned_process(options: ServerOptions | None = None, *,
-                          method: str = "forkserver"
-                          ) -> AsyncIterator[transport.Dialer]:
+async def spawned_process(
+    options: ServerOptions | None = None, *, method: str = "forkserver"
+) -> AsyncIterator[transport.Dialer]:
     """Run a server in a `multiprocessing` child started by `method`,
     set up as `options` says, and yield a dialer for its one connection.
 
@@ -150,9 +147,7 @@ async def spawned_process(options: ServerOptions | None = None, *,
     if method == "forkserver":
         context.set_forkserver_preload(FORKSERVER_PRELOAD)
     ours, theirs = socket.socketpair()
-    process = context.Process(target=server.serve_on_socket,
-                              args=(theirs, options or ServerOptions()),
-                              daemon=True)
+    process = context.Process(target=server.serve_on_socket, args=(theirs, options or ServerOptions()), daemon=True)
     try:
         await anyio.to_thread.run_sync(process.start)
     finally:

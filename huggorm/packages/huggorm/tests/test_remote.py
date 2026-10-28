@@ -35,6 +35,7 @@ async def typed_failure(coro: Any) -> dict[str, str]:
 
 # -- values and proxies ----------------------------------------------------
 
+
 async def test_acquire_returns_a_handle(client: Any) -> None:
     store = await client.acquire(AsyncStore, "dummy://")
     assert handle_of(store)
@@ -46,8 +47,7 @@ async def test_acquire_returns_a_handle(client: Any) -> None:
         handle_of(store)
 
 
-async def test_wire_value_arrives_as_a_local_object(
-        client: Any, tmp_path: Any) -> None:
+async def test_wire_value_arrives_as_a_local_object(client: Any, tmp_path: Any) -> None:
     store = await client.acquire(AsyncStore, str(tmp_path))
     with anyio.fail_after(10):
         p = await store.add_to_store("hello.txt", b"world")
@@ -60,8 +60,7 @@ async def test_wire_value_arrives_as_a_local_object(
     await store.aclose()
 
 
-async def test_a_value_argument_crosses_as_a_copy(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_value_argument_crosses_as_a_copy(client: Any, tmp_path: Any) -> None:
     store = await client.acquire(AsyncStore, str(tmp_path))
     held = await store.add_to_store("mysite", b"contents")
     # A wire value going the OTHER way: the StorePath was rebuilt
@@ -81,7 +80,6 @@ async def test_a_proxy_stays_remote(client: Any) -> None:
     # plain AttributeError from Python - not a lookup by name that
     # produces a coroutine either way.
     from huggorm import remote
-
 
     assert not hasattr(remote, "RemoteObj")
     # It answers, which means the call landed on the state's own
@@ -129,6 +127,7 @@ async def test_thunks_force_remotely(client: Any) -> None:
 
 # -- error fidelity --------------------------------------------------------
 
+
 async def test_a_decoded_cause_survives_the_wire(client: Any) -> None:
     """A C++ failure crosses as a rebuilt InternalError whose cause
     survives: __cause__ must be the original ValueError, not None -
@@ -169,8 +168,7 @@ async def test_a_nix_error_keeps_its_type_and_its_colour(client: Any) -> None:
     await store.aclose()
 
 
-async def test_a_nix_error_in_no_encoding_crosses_as_bytes(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_nix_error_in_no_encoding_crosses_as_bytes(client: Any, tmp_path: Any) -> None:
     """A fault carries bytes, because the info parts do.
 
     The message and the colour decode lossily on the raising side,
@@ -216,15 +214,14 @@ async def test_a_released_handle_fails_typed(client: Any) -> None:
 
 
 async def test_an_unknown_handle_fails_typed(client: Any) -> None:
-    threw = await typed_failure(
-        client.proxy(AsyncStore, "0" * 32).get_uri())
+    threw = await typed_failure(client.proxy(AsyncStore, "0" * 32).get_uri())
     assert threw["cause_type"] == "KeyError", threw
 
 
 # -- what cannot be acquired -----------------------------------------------
 
-async def test_a_produced_class_refuses_remote_construction(
-        client: Any) -> None:
+
+async def test_a_produced_class_refuses_remote_construction(client: Any) -> None:
     """A produced class has no constructor to construct with. It comes
     back from the method that makes it, and nowhere else.
 
@@ -241,18 +238,17 @@ async def test_a_produced_class_refuses_remote_construction(
         await client.acquire(AsyncValue)
     said = str(refused.value)
     assert "Value" in said, said
-    assert "Store" in said and "EvalState" in said, \
-        "it names what a caller can construct instead"
+    assert "Store" in said and "EvalState" in said, "it names what a caller can construct instead"
 
     with pytest.raises(TypeError) as unknown:
         await client.acquire(PathInfo)
     said = str(unknown.value)
     assert "PathInfo" in said, said
-    assert "AsyncStore" in said and "AsyncEvalState" in said, \
-        "it names the classes the build offers"
+    assert "AsyncStore" in said and "AsyncEvalState" in said, "it names the classes the build offers"
 
 
 # -- free functions --------------------------------------------------------
+
 
 @needs_collector
 async def test_a_free_function_crosses(client: Any) -> None:
@@ -274,8 +270,7 @@ async def test_a_free_function_crosses(client: Any) -> None:
 # bound Store handle, and the state it makes is affine.
 
 
-async def test_a_proxy_argument_resolves_against_another_object(
-        client: Any) -> None:
+async def test_a_proxy_argument_resolves_against_another_object(client: Any) -> None:
     """A handle passed as an ARGUMENT is resolved from the table, not
     from whatever object received the call.
 
@@ -309,8 +304,7 @@ async def test_a_dict_return_crosses_as_a_map(client: Any) -> None:
     assert set(stats) == set(huggorm_bindings.gc_stats()), sorted(stats)
 
 
-async def test_a_list_return_crosses_as_a_repeated_field(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_list_return_crosses_as_a_repeated_field(client: Any, tmp_path: Any) -> None:
     """A list, the other container besides a map.
 
     Every element is a wire VALUE and crosses as its own parts: a
@@ -339,8 +333,7 @@ async def test_a_list_return_crosses_as_a_repeated_field(
     paths = await store.query_all_valid_paths()
 
     # Real local objects rebuilt from their parts, not handles.
-    assert all(type(p).__module__ == "huggorm_bindings.path"
-               for p in paths), [type(p) for p in paths]
+    assert all(type(p).__module__ == "huggorm_bindings.path" for p in paths), [type(p) for p in paths]
     assert [p.to_string() for p in paths] == expected
     # ...and that order is not the one by NAME, which is what makes a
     # client that imposed its own ordering observable at all.
@@ -359,21 +352,18 @@ async def test_bytes_cross_as_bytes(client: Any, tmp_path: Any) -> None:
     it does only if nothing tried to decode it on the way."""
     store = await client.acquire(AsyncStore, str(tmp_path))
     blob = bytes(range(256))
-    path = await store.add_to_store(
-        "blob", blob, CA.FLAT, HashAlgorithm.SHA256)
+    path = await store.add_to_store("blob", blob, CA.FLAT, HashAlgorithm.SHA256)
 
     # The name is the hash of exactly those bytes, so computing the
     # same path locally is what proves they survived. Nothing here
     # compares the payload to itself.
     local = huggorm_bindings.Store(str(tmp_path))
-    assert path.to_string() == local.add_to_store(
-        "blob", blob, CA.FLAT, HashAlgorithm.SHA256).to_string()
+    assert path.to_string() == local.add_to_store("blob", blob, CA.FLAT, HashAlgorithm.SHA256).to_string()
     assert await store.is_valid_path(path)
     await store.aclose()
 
 
-async def test_a_default_means_the_same_thing_remotely(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_default_means_the_same_thing_remotely(client: Any, tmp_path: Any) -> None:
     """The short call answers the same on both sides of the socket.
 
     A default is a fact about the SIGNATURE, so the generated RPC
@@ -388,14 +378,13 @@ async def test_a_default_means_the_same_thing_remotely(
     path = await store.add_to_store("greeting", b"hello world\n")
 
     local = huggorm_bindings.Store(str(tmp_path))
-    assert path.to_string() == local.add_to_store(
-        "greeting", b"hello world\n",
-        CA.NAR, HashAlgorithm.SHA256).to_string()
+    assert (
+        path.to_string() == local.add_to_store("greeting", b"hello world\n", CA.NAR, HashAlgorithm.SHA256).to_string()
+    )
     await store.aclose()
 
 
-async def test_a_vocabulary_of_our_own_words_crosses_as_the_word(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_vocabulary_of_our_own_words_crosses_as_the_word(client: Any, tmp_path: Any) -> None:
     """A build mode over the wire, and back as the enum.
 
     `string mode = 3` in the request, not a number. The decision is
@@ -426,8 +415,7 @@ async def test_a_vocabulary_of_our_own_words_crosses_as_the_word(
     await store.aclose()
 
 
-async def test_a_word_outside_the_vocabulary_stops_before_the_wire(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_word_outside_the_vocabulary_stops_before_the_wire(client: Any, tmp_path: Any) -> None:
     """The codec refuses it here, not on the far side.
 
     The codec encodes a vocabulary word through its enum CLASS, so a
@@ -447,8 +435,7 @@ async def test_a_word_outside_the_vocabulary_stops_before_the_wire(
         await store.build_paths([], "rebuild")
 
 
-async def test_a_path_is_read_on_the_store_side(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_path_is_read_on_the_store_side(client: Any, tmp_path: Any) -> None:
     """add_path_to_store names a file the STORE reads, not one the
     caller sends.
 
@@ -470,14 +457,12 @@ async def test_a_path_is_read_on_the_store_side(
     path = await store.add_path_to_store("tree", str(src))
 
     local = huggorm_bindings.Store(str(tmp_path / "store"))
-    assert path.to_string() == local.add_path_to_store(
-        "tree", str(src)).to_string()
+    assert path.to_string() == local.add_path_to_store("tree", str(src)).to_string()
     assert await store.is_valid_path(path)
     await store.aclose()
 
 
-async def test_a_path_info_crosses_as_a_value(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_path_info_crosses_as_a_value(client: Any, tmp_path: Any) -> None:
     """A PathInfo is what the store SAID, so it crosses as a copy.
 
     No handle, no lease, no second round trip: a caller reads every
@@ -517,15 +502,13 @@ async def test_a_path_info_crosses_as_a_value(
     assert isinstance(info.sigs(), list)
 
     local = huggorm_bindings.Store(str(tmp_path / "store"))
-    same = local.query_path_info(local.parse_store_path(
-        local.print_store_path(path)))
+    same = local.query_path_info(local.parse_store_path(local.print_store_path(path)))
     assert info.nar_hash() == same.nar_hash()
     assert info.nar_size() == same.nar_size()
     await store.aclose()
 
 
-async def test_a_store_location_crosses_as_a_value(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_store_location_crosses_as_a_value(client: Any, tmp_path: Any) -> None:
     """to_store_path answers in the SERVER's terms, and the answer is
     a copy.
 
@@ -554,8 +537,7 @@ async def test_a_store_location_crosses_as_a_value(
     await store.aclose()
 
 
-async def test_the_reference_graph_crosses_both_ways(
-        client: Any, tmp_path: Any) -> None:
+async def test_the_reference_graph_crosses_both_ways(client: Any, tmp_path: Any) -> None:
     """query_referrers over the wire, against the edge that made it.
 
     The same list machinery in both directions and at two levels: a
@@ -564,8 +546,7 @@ async def test_the_reference_graph_crosses_both_ways(
     what proves they agree - one edge, read forwards and backwards."""
     store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     target = await store.add_to_store("target", b"pointed at\n")
-    holder = await store.add_to_store(
-        "holder", b"points at a target\n", references=[target])
+    holder = await store.add_to_store("holder", b"points at a target\n", references=[target])
 
     referrers = await store.query_referrers(target)
     assert [r.to_string() for r in referrers] == [holder.to_string()]
@@ -579,8 +560,7 @@ async def test_the_reference_graph_crosses_both_ways(
     await store.aclose()
 
 
-async def test_a_closure_crosses_as_a_set(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_closure_crosses_as_a_set(client: Any, tmp_path: Any) -> None:
     """A list of wire values in BOTH directions of one call.
 
     Every other list so far crossed one way: `references` goes out as
@@ -601,20 +581,20 @@ async def test_a_closure_crosses_as_a_set(
 
     # The short call and the spelled-out one, on the arm where the
     # default matters.
-    assert {p.to_string() for p in
-            await store.compute_fs_closure([b], False, False, False)} == {
-        a.to_string(), b.to_string()}
-    assert {p.to_string() for p in
-            await store.compute_fs_closure([a], flip_direction=True)} == {
-        a.to_string(), b.to_string()}
+    assert {p.to_string() for p in await store.compute_fs_closure([b], False, False, False)} == {
+        a.to_string(),
+        b.to_string(),
+    }
+    assert {p.to_string() for p in await store.compute_fs_closure([a], flip_direction=True)} == {
+        a.to_string(),
+        b.to_string(),
+    }
 
-    assert {p.to_string() for p in await store.query_valid_paths([a, b])} == {
-        a.to_string(), b.to_string()}
+    assert {p.to_string() for p in await store.query_valid_paths([a, b])} == {a.to_string(), b.to_string()}
     await store.aclose()
 
 
-async def test_absence_crosses_as_absence(
-        client: Any, tmp_path: Any) -> None:
+async def test_absence_crosses_as_absence(client: Any, tmp_path: Any) -> None:
     """A `T | None` return, both arms, over the wire.
 
     Absence needs no new machinery: it crosses as nil. That is the
@@ -642,8 +622,7 @@ async def test_absence_crosses_as_absence(
     await store.aclose()
 
 
-async def test_a_link_is_followed_on_the_store_side(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_link_is_followed_on_the_store_side(client: Any, tmp_path: Any) -> None:
     """The symlinks are read where the STORE is, not where the caller
     is.
 
@@ -664,13 +643,11 @@ async def test_a_link_is_followed_on_the_store_side(
     link.symlink_to(f"{printed}/a.txt")
 
     assert await store.follow_links_to_store(str(link)) == f"{printed}/a.txt"
-    assert (await store.follow_links_to_store_path(
-        str(link))).to_string() == path.to_string()
+    assert (await store.follow_links_to_store_path(str(link))).to_string() == path.to_string()
     await store.aclose()
 
 
-async def test_a_filesystem_path_crosses_as_a_path(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_filesystem_path_crosses_as_a_path(client: Any, tmp_path: Any) -> None:
     """A pathlib.Path crosses as its str and arrives as an anyio.Path,
     as it does from the in-process async wrapper.
 
@@ -707,8 +684,7 @@ async def test_a_filesystem_path_crosses_as_a_path(
     await store.aclose()
 
 
-async def test_a_reference_list_crosses_both_ways(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_reference_list_crosses_both_ways(client: Any, tmp_path: Any) -> None:
     """A container of wire values, in a parameter and in a return.
 
     This is the round trip an empty list cannot prove. Going out, a
@@ -719,8 +695,7 @@ async def test_a_reference_list_crosses_both_ways(
     and an absent list is an empty one."""
     store = await client.acquire(AsyncStore, str(tmp_path / "store"))
     target = await store.add_to_store("target", b"pointed at\n")
-    holder = await store.add_to_store(
-        "holder", b"points at a target\n", references=[target])
+    holder = await store.add_to_store("holder", b"points at a target\n", references=[target])
 
     info = await store.query_path_info(holder)
     references = info.references()
@@ -731,8 +706,7 @@ async def test_a_reference_list_crosses_both_ways(
     await store.aclose()
 
 
-async def test_a_NESTED_value_crosses_as_an_argument(
-        client: Any, tmp_path: Any) -> None:
+async def test_a_NESTED_value_crosses_as_an_argument(client: Any, tmp_path: Any) -> None:
     """`query_realisation` takes a DrvOutput, which holds a Hash.
 
     A wire value has crossed as an argument since `is_valid_path` took
@@ -769,8 +743,7 @@ async def test_an_unknown_free_function_fails_typed(client: Any) -> None:
         await client.call_function("nope")
 
 
-async def test_acquire_refuses_the_wrong_number_of_arguments(
-        client: Any) -> None:
+async def test_acquire_refuses_the_wrong_number_of_arguments(client: Any) -> None:
     """The arity check beside it, and it was ungated too.
 
     A constructor's arguments cross exactly like a method's, so a
@@ -807,8 +780,7 @@ async def test_concurrent_first_calls_build_one_object(client: Any) -> None:
     paths: list[Any] = [None] * 16
 
     async def first(i: int) -> None:
-        paths[i] = await store.add_to_store(
-            f"p{i}", f"{i}".encode(), CA.TEXT, HashAlgorithm.SHA256)
+        paths[i] = await store.add_to_store(f"p{i}", f"{i}".encode(), CA.TEXT, HashAlgorithm.SHA256)
 
     async with anyio.create_task_group() as tg:
         for i in range(len(paths)):
@@ -818,8 +790,7 @@ async def test_concurrent_first_calls_build_one_object(client: Any) -> None:
         assert await store.is_valid_path(p), p
 
 
-def test_a_call_nothing_serves_stops_the_server(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_call_nothing_serves_stops_the_server(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every numbered call needs a handler. One with none would fail at
     its first call, so the server refuses to start instead."""
     from huggorm import server
@@ -829,8 +800,7 @@ def test_a_call_nothing_serves_stops_the_server(
         server.Dispatcher(None)
 
 
-async def test_a_client_of_another_build_is_refused(
-        server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_client_of_another_build_is_refused(server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Calls cross by number and values by position, so a client from
     another build would decode every answer wrongly and without an
     error. HELLO carries the build identity, and the server refuses a

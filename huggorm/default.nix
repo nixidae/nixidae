@@ -661,6 +661,7 @@ rec {
       ${frontDoor}
       echo "--- lint ---"
       ruff check --no-cache packages examples
+      ruff format --no-cache --check packages examples
       # `mypy.ini` names every tree, so an editor and this read one
       # configuration. The two setup scripts are both module `setup`,
       # and the emitted package lives in the store, so each is its

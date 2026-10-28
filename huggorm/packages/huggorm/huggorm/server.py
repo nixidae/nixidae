@@ -156,8 +156,7 @@ class TreeWalk:
     forcing would instantiate.
     """
 
-    def __init__(self, spec: Tree[Accessor], depth: int, budget: int,
-                 force: bool = False) -> None:
+    def __init__(self, spec: Tree[Accessor], depth: int, budget: int, force: bool = False) -> None:
         self.spec = spec
         self.forcing = force and spec.force is not None
         self.depth = depth
@@ -207,15 +206,17 @@ class TreeWalk:
             case Null():
                 return tree.Leaf("null", None)
             case Items(size=size, item=item):
-                return tree.Items(type(obj).__name__, obj,
-                                  [self.node(item(obj, i), depth + 1)
-                                   for i in range(size(obj))])
+                return tree.Items(
+                    type(obj).__name__, obj, [self.node(item(obj, i), depth + 1) for i in range(size(obj))]
+                )
             case Entries(size=size, name=name, value=value):
                 if self.forcing and self._stops(obj):
                     return tree.Stays(type(obj).__name__, obj)
-                return tree.Entries(type(obj).__name__, obj,
-                                    {name(obj, i): self.node(value(obj, i), depth + 1)
-                                     for i in range(size(obj))})
+                return tree.Entries(
+                    type(obj).__name__,
+                    obj,
+                    {name(obj, i): self.node(value(obj, i), depth + 1) for i in range(size(obj))},
+                )
             case None:
                 # A kind nothing describes: it stays where it is.
                 self.truncated = True
@@ -300,28 +301,31 @@ def _method(spec: Call) -> Callable[..., Awaitable[Any]]:
     """The call on the object a handle names. By the method, not
     through a runner: a log reader is a fan-out `Reader`, duck-typed as
     the class the spec belongs to."""
+
     async def run(token: str, target: Any, *args: Any) -> Any:
         return await getattr(target, spec.name)(*args)
+
     return run
 
 
 def _construct(wrapper_cls: Any) -> Callable[..., Awaitable[Any]]:
     async def run(token: str, *args: Any) -> Any:
         return wrapper_cls(*args)
+
     return run
 
 
 def _function(fn: Any) -> Callable[..., Awaitable[Any]]:
     async def run(token: str, *args: Any) -> Any:
         return await fn(*args)
+
     return run
 
 
 class Dispatcher:
-    def __init__(self, tasks: Any,
-                 lease_ttl: float = DEFAULT_TTL,
-                 escrow_ttl: float | None = 300.0,
-                 callbacks: bool = False) -> None:
+    def __init__(
+        self, tasks: Any, lease_ttl: float = DEFAULT_TTL, escrow_ttl: float | None = 300.0, callbacks: bool = False
+    ) -> None:
         """Every table it reads is emitted, in
         `huggorm_generated._policy`, so this reads them by name.
 
@@ -363,8 +367,7 @@ class Dispatcher:
         # leaves only the readers that connection opened. Keyed by the
         # declared role, so no layer above the bindings names a method
         # or a type (`test_no_hardcoded_domain_types`).
-        self._subscriptions = {cls: _roles(specs)
-                               for cls, specs in METHODS.items()}
+        self._subscriptions = {cls: _roles(specs) for cls, specs in METHODS.items()}
         self._method_roles: dict[Subscription, Callable[..., Awaitable[Any]]] = {
             Subscription.OPEN: self._subscribe_logs,
             Subscription.CLOSE: self._unsubscribe_logs,
@@ -378,9 +381,9 @@ class Dispatcher:
         # for the same reason.
         process = _roles(FREE.values())
         self._process_fanout = Fanout(
-            lambda capacity, level: FUNCTIONS[
-                process[Subscription.OPEN].name](capacity, level),
-            lambda: FUNCTIONS[process[Subscription.CLOSE].name]())
+            lambda capacity, level: FUNCTIONS[process[Subscription.OPEN].name](capacity, level),
+            lambda: FUNCTIONS[process[Subscription.CLOSE].name](),
+        )
         # Weak, because the handle table and the fan-out are what keep
         # a reader alive.
         self._handle_readers: dict[tuple[str, int], weakref.WeakSet[Reader]] = {}
@@ -401,14 +404,13 @@ class Dispatcher:
             roles = self._subscriptions[DECLARED[type(target)]]
             runner = _runner(target)
             fan = Fanout(
-                lambda capacity, level: runner.call(
-                    roles[Subscription.OPEN], [capacity, level]),
-                lambda: runner.call(roles[Subscription.CLOSE], []))
+                lambda capacity, level: runner.call(roles[Subscription.OPEN], [capacity, level]),
+                lambda: runner.call(roles[Subscription.CLOSE], []),
+            )
             self._log_fanouts[key] = fan
         return fan
 
-    async def _join(self, fan: Fanout, key: tuple[str, int],
-                    capacity: int, level: int) -> Reader:
+    async def _join(self, fan: Fanout, key: tuple[str, int], capacity: int, level: int) -> Reader:
         reader = await fan.join(capacity, level)
         self._handle_readers.setdefault(key, weakref.WeakSet()).add(reader)
         return reader
@@ -417,18 +419,14 @@ class Dispatcher:
         for reader in list(self._handle_readers.pop(key, ())):
             await reader.close()
 
-    async def _subscribe_logs(self, token: str, target: Any,
-                              capacity: int, level: int) -> Reader:
-        return await self._join(self._fanout(target), (token, id(target)),
-                                capacity, level)
+    async def _subscribe_logs(self, token: str, target: Any, capacity: int, level: int) -> Reader:
+        return await self._join(self._fanout(target), (token, id(target)), capacity, level)
 
     async def _unsubscribe_logs(self, token: str, target: Any) -> None:
         await self._leave_all((token, id(target)))
 
-    async def _subscribe_process_logs(self, token: str,
-                                      capacity: int, level: int) -> Reader:
-        return await self._join(self._process_fanout, (token, 0),
-                                capacity, level)
+    async def _subscribe_process_logs(self, token: str, capacity: int, level: int) -> Reader:
+        return await self._join(self._process_fanout, (token, 0), capacity, level)
 
     async def _unsubscribe_process_logs(self, token: str) -> None:
         await self._leave_all((token, 0))
@@ -446,13 +444,13 @@ class Dispatcher:
 
         `start_soon` is a plain method, not a coroutine, so a
         callback the sweep calls synchronously can still use it."""
+
         async def _close() -> None:
             # Shielded: a server that stops cancels this group, and a
             # state must still leave its own thread.
             # Nothing to report a failure to: the connection that owned
             # this handle is already gone.
-            with anyio.CancelScope(shield=True), \
-                    contextlib.suppress(Exception):
+            with anyio.CancelScope(shield=True), contextlib.suppress(Exception):
                 await obj.aclose()
 
         # The fan-out goes with the state. It is the one removal that
@@ -462,8 +460,7 @@ class Dispatcher:
         self.tasks.start_soon(_close)
 
     # -- handles ---------------------------------------------------------
-    def put(self, obj: Any, token: str,
-            parents: Iterable[str] = ()) -> str:
+    def put(self, obj: Any, token: str, parents: Iterable[str] = ()) -> str:
         return self.table.put(obj, token, parents)
 
     def get(self, hid: str) -> Any:
@@ -509,9 +506,7 @@ class Dispatcher:
         name = type(obj).__name__
         cls = CLASSES.get(name)
         if cls is None:
-            raise TypeError(
-                f"{name} has no async wrapper, so it cannot be handed out "
-                f"as a handle")
+            raise TypeError(f"{name} has no async wrapper, so it cannot be handed out as a handle")
         return cls._adopt(obj, _runner(parent))
 
     def _handlers(self) -> dict[int, CallHandler]:
@@ -536,42 +531,40 @@ class Dispatcher:
             for m in methods:
                 handlers[m.index] = CallHandler(
                     Target.HANDLE,
-                    (self._method_roles[m.subscription] if m.subscription
-                     else _method(m)),
-                    f"{cls_name}.{m.name}")
+                    (self._method_roles[m.subscription] if m.subscription else _method(m)),
+                    f"{cls_name}.{m.name}",
+                )
         for cls_name, acquire in ACQUIRE.items():
-            handlers[acquire.index] = CallHandler(
-                Target.NEW, _construct(CLASSES[cls_name]),
-                f"{cls_name}.Acquire")
+            handlers[acquire.index] = CallHandler(Target.NEW, _construct(CLASSES[cls_name]), f"{cls_name}.Acquire")
         for fname, call in FREE.items():
             handlers[call.index] = CallHandler(
                 Target.NONE,
-                (self._free_roles[call.subscription] if call.subscription
-                 else _function(FUNCTIONS[fname])),
-                f"Functions.{fname}")
+                (self._free_roles[call.subscription] if call.subscription else _function(FUNCTIONS[fname])),
+                f"Functions.{fname}",
+            )
         listed = {c.index for c in CALLS}
         if handlers.keys() != listed:
             raise RuntimeError(
                 f"calls {sorted(listed - handlers.keys())} have no handler, "
                 f"and handlers {sorted(handlers.keys() - listed)} answer no "
-                f"listed call")
+                f"listed call"
+            )
         return handlers
 
-    def _arguments(self, spec: Call | Acquire, raw: list[Any],
-                   resolve: Callable[[str], Any],
-                   back: Callbacks | None = None) -> list[Any]:
+    def _arguments(
+        self, spec: Call | Acquire, raw: list[Any], resolve: Callable[[str], Any], back: Callbacks | None = None
+    ) -> list[Any]:
         """A call's decoded arguments. A constructor may be sent fewer
         than it declares, and the binding fills in the defaults."""
         least = spec.required if isinstance(spec, Acquire) else len(spec.args)
         if not least <= len(raw) <= len(spec.args):
-            raise TypeError(
-                f"{len(raw)} argument(s) for {least}..{len(spec.args)}")
+            raise TypeError(f"{len(raw)} argument(s) for {least}..{len(spec.args)}")
         client_obj = None if back is None else back.obj
-        return [self.codec.decode(a.type, v, resolve, client_obj=client_obj)
-                for a, v in zip(spec.args, raw, strict=False)]
+        return [
+            self.codec.decode(a.type, v, resolve, client_obj=client_obj) for a, v in zip(spec.args, raw, strict=False)
+        ]
 
-    async def _run_call(self, token: str, index: int, hid: Any,
-                        raw: list[Any], back: Callbacks | None = None) -> Any:
+    async def _run_call(self, token: str, index: int, hid: Any, raw: list[Any], back: Callbacks | None = None) -> Any:
         """One CALL, answered as a codec value.
 
         A proxy answer leases to the caller's connection. A method's
@@ -590,20 +583,13 @@ class Dispatcher:
                 if type(hid) is not str:
                     raise ProtocolError(f"{h.label} names no handle")
                 target = resolve(hid)
-                result = await h.run(token, target,
-                                     *self._arguments(spec, raw, resolve, back))
-                return self.codec.encode(
-                    returns, result,
-                    lambda obj: self.put(obj, token, parents=[hid]))
+                result = await h.run(token, target, *self._arguments(spec, raw, resolve, back))
+                return self.codec.encode(returns, result, lambda obj: self.put(obj, token, parents=[hid]))
             case Target.NEW:
-                return self.put(
-                    await h.run(token, *self._arguments(spec, raw, resolve, back)),
-                    token)
+                return self.put(await h.run(token, *self._arguments(spec, raw, resolve, back)), token)
             case Target.NONE:
-                result = await h.run(token,
-                                     *self._arguments(spec, raw, resolve, back))
-                return self.codec.encode(returns, result,
-                                         lambda obj: self.put(obj, token))
+                result = await h.run(token, *self._arguments(spec, raw, resolve, back))
+                return self.codec.encode(returns, result, lambda obj: self.put(obj, token))
 
     # -- session operations ---------------------------------------------
     def bind(self, claim: str | None) -> tuple[str, float]:
@@ -616,8 +602,7 @@ class Dispatcher:
         a fact about the connection, not a failure of this call."""
         return self.table.alive(token)
 
-    def share(self, token: str, to_token: str, hid: str,
-              mode: ShareMode) -> None:
+    def share(self, token: str, to_token: str, hid: str, mode: ShareMode) -> None:
         self.table.share(token, to_token, hid, mode=mode)
 
     def detach(self, token: str, hid: str | None, all: bool) -> bool:
@@ -646,9 +631,14 @@ class Dispatcher:
                 unknown += 1
         return released, unknown
 
-    async def realize(self, token: str, hid: str, depth: int,
-                      budget: int, force: bool = False,
-                      ) -> tuple[Any, tree.Node, TreeWalk]:
+    async def realize(
+        self,
+        token: str,
+        hid: str,
+        depth: int,
+        budget: int,
+        force: bool = False,
+    ) -> tuple[Any, tree.Node, TreeWalk]:
         """One round trip for a whole value tree: the target, the tree,
         and the walk that built it.
 
@@ -665,10 +655,8 @@ class Dispatcher:
         target = self.resolve(hid, token)
         spec = TREES.get(DECLARED.get(type(target), ""))
         if spec is None:
-            raise TypeError(
-                f"{hid[:8]} is not a value tree: its type declares no walk")
-        walk = TreeWalk(spec, depth if depth > 0 else DEFAULT_DEPTH,
-                        budget if budget > 0 else DEFAULT_BUDGET, force)
+            raise TypeError(f"{hid[:8]} is not a value tree: its type declares no walk")
+        walk = TreeWalk(spec, depth if depth > 0 else DEFAULT_DEPTH, budget if budget > 0 else DEFAULT_BUDGET, force)
         # ONE hop for the whole tree, on the value's own thread.
         root = await _runner(target).run(lambda obj: walk.node(obj, 0))
         return target, root, walk
@@ -687,19 +675,17 @@ class Dispatcher:
         target = self.resolve(hid, token)
         spec = BUILDERS.get(DECLARED.get(type(target), ""))
         if spec is None:
-            raise TypeError(
-                f"{hid[:8]} makes no values: its type declares no builders")
+            raise TypeError(f"{hid[:8]} makes no values: its type declares no builders")
         given = {h: self.resolve(h, token) for h in Build.handles(data)}
         _check_isolation(_runner(target), given.values())
         build = Build(spec, {h: unwrap_arg(w) for h, w in given.items()})
         root = await _runner(target).run(lambda obj: build.root(obj, data))
         known = {id(obj): h for h, obj in build.given.items()}
         return self.codec.encode_tree(
-            root, lambda _cls, obj: known.get(id(obj)) or self.put(
-                self.adopt(obj, target), token, parents=[hid]))
+            root, lambda _cls, obj: known.get(id(obj)) or self.put(self.adopt(obj, target), token, parents=[hid])
+        )
 
-    async def logs(self, token: str, hid: str | None, capacity: int,
-                   level: int) -> str:
+    async def logs(self, token: str, hid: str | None, capacity: int, level: int) -> str:
         """A log reader's handle: on the state `hid` names, or on the
         process sink when it names none.
 
@@ -713,8 +699,7 @@ class Dispatcher:
             reader = await self._process_fanout.join(capacity, level)
             return self.put(reader, token)
         fan = self._fanout(self.resolve(hid, token))
-        return self.put(await fan.join(capacity, level), token,
-                        parents=[hid])
+        return self.put(await fan.join(capacity, level), token, parents=[hid])
 
     async def logs_next(self, token: str, hid: str) -> list[Any]:
         """The next batch of the log reader `hid` names, and its drop
@@ -731,9 +716,7 @@ class Dispatcher:
             if token not in self.table.connections:
                 raise _swept(token)
             raise RuntimeError(f"log reader {hid} was closed")
-        return [self.codec.encode(LOG_DRAIN.returns, records,
-                                  lambda obj: self.put(obj, token)),
-                await reader.dropped()]
+        return [self.codec.encode(LOG_DRAIN.returns, records, lambda obj: self.put(obj, token)), await reader.dropped()]
 
     async def logs_barrier(self, token: str, hid: str) -> int:
         """The request id whose "finalized" ends the records so far.
@@ -748,13 +731,10 @@ class Dispatcher:
         target = self.resolve(hid, token)
         request: int = await _runner(target).run(lambda _: current_request())
         if not request:
-            raise TypeError(
-                f"{hid[:8]} runs no call of its own, so no marker can end "
-                f"its records")
+            raise TypeError(f"{hid[:8]} runs no call of its own, so no marker can end its records")
         return request
 
-    async def _control(self, token: str, control: Control,
-                       args: list[Any]) -> Any:
+    async def _control(self, token: str, control: Control, args: list[Any]) -> Any:
         """One session operation, answered as a codec value."""
         match control, args:
             case Control.PING, []:
@@ -767,15 +747,13 @@ class Dispatcher:
             case Control.RELEASE, [str(hid)]:
                 self.release(token, hid)
                 return None
-            case Control.REALIZE, [str(hid), int(depth), int(budget),
-                                   bool(force)]:
-                target, root, _walk = await self.realize(token, hid, depth,
-                                                         budget, force)
+            case Control.REALIZE, [str(hid), int(depth), int(budget), bool(force)]:
+                target, root, _walk = await self.realize(token, hid, depth, budget, force)
                 # Every node the walk stopped at leases to the caller
                 # and pins the root, exactly as a proxy return does.
                 return self.codec.encode_tree(
-                    root, lambda _cls, obj: self.put(
-                        self.adopt(obj, target), token, parents=[hid]))
+                    root, lambda _cls, obj: self.put(self.adopt(obj, target), token, parents=[hid])
+                )
             case Control.BUILD, [str(hid), list(data)]:
                 return await self.build(token, hid, data)
             case Control.LOGS_BARRIER, [str(hid)]:
@@ -823,11 +801,20 @@ class Dispatcher:
             case _:
                 raise ProtocolError(f"a connection opened with {hello!r:.80}")
         if identity != build_identity():
-            await channel.send([Op.FAULT, None, self.faults.encode(Refused(
-                Refusal.IDENTITY,
-                f"the client runs build {identity[:12]} and this server "
-                f"runs {build_identity()[:12]}: connect with the server's "
-                f"huggorm"))])
+            await channel.send(
+                [
+                    Op.FAULT,
+                    None,
+                    self.faults.encode(
+                        Refused(
+                            Refusal.IDENTITY,
+                            f"the client runs build {identity[:12]} and this server "
+                            f"runs {build_identity()[:12]}: connect with the server's "
+                            f"huggorm",
+                        )
+                    ),
+                ]
+            )
             return
         token, ttl = self.bind(claim)
         bound = self.table.connections[token]
@@ -846,8 +833,7 @@ class Dispatcher:
             finally:
                 peer.close()
 
-    async def _frames(self, peer: Peer, token: str, calls: TaskGroup,
-                      back: Callbacks | None = None) -> None:
+    async def _frames(self, peer: Peer, token: str, calls: TaskGroup, back: Callbacks | None = None) -> None:
         """Read frames until EOF. Each CALL and CONTROL runs in its own
         task, so a slow call does not hold up the next."""
         while True:
@@ -857,37 +843,47 @@ class Dispatcher:
                 return
             match frame:
                 case [Op.CALL, int(cid), int(index), hid, list(args)]:
-                    label = (self.handlers[index].label
-                             if index in self.handlers else f"call {index}")
-                    peer.serve(calls, cid, functools.partial(
-                        self._answer, token, cid, label,
-                        functools.partial(self._run_call, token, index, hid,
-                                          args, back)))
+                    label = self.handlers[index].label if index in self.handlers else f"call {index}"
+                    peer.serve(
+                        calls,
+                        cid,
+                        functools.partial(
+                            self._answer,
+                            token,
+                            cid,
+                            label,
+                            functools.partial(self._run_call, token, index, hid, args, back),
+                        ),
+                    )
                 case [Op.CONTROL, int(cid), int(number), list(args)]:
                     try:
                         control = Control(number)
                     except ValueError:
-                        raise ProtocolError(
-                            f"no control numbered {number}") from None
-                    peer.serve(calls, cid, functools.partial(
-                        self._answer, token, cid,
-                        f"Session/{control.name.lower()}",
-                        functools.partial(self._control, token, control,
-                                          args),
-                        control is Control.PING))
+                        raise ProtocolError(f"no control numbered {number}") from None
+                    peer.serve(
+                        calls,
+                        cid,
+                        functools.partial(
+                            self._answer,
+                            token,
+                            cid,
+                            f"Session/{control.name.lower()}",
+                            functools.partial(self._control, token, control, args),
+                            control is Control.PING,
+                        ),
+                    )
                 case [Op.CANCEL, int(cid)]:
                     peer.cancel(cid)
-                case [Op.DROP, list(hids)] if all(type(h) is str
-                                                  for h in hids):
+                case [Op.DROP, list(hids)] if all(type(h) is str for h in hids):
                     self.release_many(token, hids)
                 case [Op.RESULT | Op.FAULT, int(), _] if back is not None:
                     peer.deliver(frame)
                 case _:
                     raise ProtocolError(f"a frame arrived as {frame!r:.80}")
 
-    async def _answer(self, token: str, cid: int, label: str,
-                      run: Callable[[], Awaitable[Any]],
-                      after_sweep: bool = False) -> list[Any]:
+    async def _answer(
+        self, token: str, cid: int, label: str, run: Callable[[], Awaitable[Any]], after_sweep: bool = False
+    ) -> list[Any]:
         """Run one call, and answer its RESULT or FAULT frame.
 
         A swept connection's token is gone, and every lease with it.
@@ -902,15 +898,13 @@ class Dispatcher:
 
 
 def _swept(token: str) -> Refused:
-    return Refused(Refusal.SWEPT,
-                   f"connection {token[:8]} was swept, and its handles "
-                   f"with it")
+    return Refused(Refusal.SWEPT, f"connection {token[:8]} was swept, and its handles with it")
 
 
 @contextlib.asynccontextmanager
-async def dispatching(lease_ttl: float = DEFAULT_TTL, *,
-                      escrow_ttl: float | None = 300.0,
-                      callbacks: bool = False) -> AsyncIterator[Dispatcher]:
+async def dispatching(
+    lease_ttl: float = DEFAULT_TTL, *, escrow_ttl: float | None = 300.0, callbacks: bool = False
+) -> AsyncIterator[Dispatcher]:
     """A dispatcher, and the two scopes every background task lives in.
     A connection source serves its connections through it.
 
@@ -934,10 +928,8 @@ async def dispatching(lease_ttl: float = DEFAULT_TTL, *,
     # One `with`, two groups, and the ORDER inside it is the whole
     # point: `loops` is entered second, so it exits first. Ruff asks
     # for the combined form and it says the same thing.
-    async with (anyio.create_task_group() as work,
-                anyio.create_task_group() as loops):
-        dispatcher = Dispatcher(work, lease_ttl=lease_ttl,
-                                escrow_ttl=escrow_ttl, callbacks=callbacks)
+    async with anyio.create_task_group() as work, anyio.create_task_group() as loops:
+        dispatcher = Dispatcher(work, lease_ttl=lease_ttl, escrow_ttl=escrow_ttl, callbacks=callbacks)
 
         # Connection liveness: transports never report death; the
         # sweeper notices silence past the TTL and releases what
@@ -956,9 +948,7 @@ async def dispatching(lease_ttl: float = DEFAULT_TTL, *,
                     # writing hundreds of lines into someone
                     # else's log is the same mistake as writing
                     # them to stdout.
-                    logger.info("swept %d handle(s): %s", len(dropped),
-                                ", ".join(hid[:8]
-                                          for hid in sorted(dropped)))
+                    logger.info("swept %d handle(s): %s", len(dropped), ", ".join(hid[:8] for hid in sorted(dropped)))
 
         if ttls:
             loops.start_soon(sweeper)
@@ -972,19 +962,21 @@ async def dispatching(lease_ttl: float = DEFAULT_TTL, *,
             logger.info("stopping: closing %d handle(s)", len(dropped))
 
 
-async def serve(path: str, lease_ttl: float = DEFAULT_TTL, *,
-                escrow_ttl: float | None = 300.0,
-                callbacks: bool = False,
-                task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+async def serve(
+    path: str,
+    lease_ttl: float = DEFAULT_TTL,
+    *,
+    escrow_ttl: float | None = 300.0,
+    callbacks: bool = False,
+    task_status: Any = anyio.TASK_STATUS_IGNORED,
+) -> None:
     """The server on the Unix socket at `path`.
 
     The socket is mode 0600, and a connection checks the peer's uid
     as well: only this uid may connect."""
-    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl,
-                           callbacks=callbacks) as dispatcher:
+    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl, callbacks=callbacks) as dispatcher:
         listener = await anyio.create_unix_listener(path, mode=0o600)
-        logger.info("listening on %s (lease ttl: %s)", path,
-                    lease_ttl if lease_ttl else "off")
+        logger.info("listening on %s (lease ttl: %s)", path, lease_ttl if lease_ttl else "off")
         task_status.started()
         try:
             await listener.serve(dispatcher.connection)
@@ -993,18 +985,21 @@ async def serve(path: str, lease_ttl: float = DEFAULT_TTL, *,
                 os.unlink(path)
 
 
-async def serve_stream(stream: ByteStream, lease_ttl: float = DEFAULT_TTL, *,
-                       escrow_ttl: float | None = 300.0,
-                       callbacks: bool = False,
-                       task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+async def serve_stream(
+    stream: ByteStream,
+    lease_ttl: float = DEFAULT_TTL,
+    *,
+    escrow_ttl: float | None = 300.0,
+    callbacks: bool = False,
+    task_status: Any = anyio.TASK_STATUS_IGNORED,
+) -> None:
     """The server on one stream whose other end started this process,
     until that end closes it: the stdin and stdout of a spawned server,
     or the channel of an SSH session.
 
     One connection, so a client cannot detach and claim it back over
     another. No `--ready-fd`: WELCOME is the ready signal."""
-    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl,
-                           callbacks=callbacks) as dispatcher:
+    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl, callbacks=callbacks) as dispatcher:
         task_status.started()
         await dispatcher.connection(stream, trusted=True)
 
@@ -1028,11 +1023,9 @@ def main(argv: list[str] | None = None) -> None:
     with _owned(options):
         _configure(options)
         if args.stdio:
-            serving = functools.partial(serve_stream, _stdio_stream(), options.ttl,
-                                        callbacks=options.callbacks)
+            serving = functools.partial(serve_stream, _stdio_stream(), options.ttl, callbacks=options.callbacks)
         else:
-            serving = functools.partial(serve, args.path, options.ttl,
-                                        callbacks=options.callbacks)
+            serving = functools.partial(serve, args.path, options.ttl, callbacks=options.callbacks)
         anyio.run(_until_signalled, serving, args.ready_fd)
 
 
@@ -1042,8 +1035,7 @@ def serve_on_socket(sock: socket.socket, options: ServerOptions) -> None:
 
     async def serving(*, task_status: anyio.abc.TaskStatus[None]) -> None:
         stream = await anyio.abc.SocketStream.from_socket(sock)
-        await serve_stream(stream, options.ttl, callbacks=options.callbacks,
-                           task_status=task_status)
+        await serve_stream(stream, options.ttl, callbacks=options.callbacks, task_status=task_status)
 
     with _owned(options):
         _configure(options)
@@ -1053,44 +1045,50 @@ def serve_on_socket(sock: socket.socket, options: ServerOptions) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="huggorm.server")
     parser.add_argument("path", nargs="?")
-    parser.add_argument("--ttl", type=float, default=DEFAULT_TTL,
-                        help="seconds a silent connection lives before "
-                             "the server sweeps it")
-    parser.add_argument("--option", nargs=2, action="append", default=[],
-                        metavar=("NAME", "VALUE"))
     parser.add_argument(
-        "--experimental-callbacks", action="store_true",
+        "--ttl", type=float, default=DEFAULT_TTL, help="seconds a silent connection lives before the server sweeps it"
+    )
+    parser.add_argument("--option", nargs=2, action="append", default=[], metavar=("NAME", "VALUE"))
+    parser.add_argument(
+        "--experimental-callbacks",
+        action="store_true",
         help="let a client hand over objects this server calls back, "
-             "such as a SourceAccessor (nixidae/nixidae#738). EXPERIMENTAL and "
-             "unsafe for a state that several clients share")
-    parser.add_argument("--load-config", action="store_true",
-                        help="read nix.conf and NIX_CONFIG as nix does")
-    parser.add_argument("--overlay", metavar="ROOT",
-                        help="serve in a user namespace over an overlay "
-                             "store under ROOT (nixidae/nixidae#1060)")
-    parser.add_argument("--lower-store", default="daemon",
-                        help="the overlay's lower store")
-    parser.add_argument("--lower-dir", default=namespace.STORE_DIR,
-                        help="the directory of the lower store's paths. "
-                             "It must hold this server's own closure: the "
-                             "overlay hides the rest of /nix/store")
-    parser.add_argument("--remove-overlay", action="store_true",
-                        help="hold the overlay ROOT, and remove it at exit")
-    parser.add_argument("--ready-fd", type=int, metavar="FD",
-                        help="write one line to FD once listening, and "
-                             "close it")
-    parser.add_argument("--stdio", action="store_true",
-                        help="serve one connection on stdin and stdout, "
-                             "and exit when it ends")
+        "such as a SourceAccessor (nixidae/nixidae#738). EXPERIMENTAL and "
+        "unsafe for a state that several clients share",
+    )
+    parser.add_argument("--load-config", action="store_true", help="read nix.conf and NIX_CONFIG as nix does")
+    parser.add_argument(
+        "--overlay",
+        metavar="ROOT",
+        help="serve in a user namespace over an overlay store under ROOT (nixidae/nixidae#1060)",
+    )
+    parser.add_argument("--lower-store", default="daemon", help="the overlay's lower store")
+    parser.add_argument(
+        "--lower-dir",
+        default=namespace.STORE_DIR,
+        help="the directory of the lower store's paths. "
+        "It must hold this server's own closure: the "
+        "overlay hides the rest of /nix/store",
+    )
+    parser.add_argument("--remove-overlay", action="store_true", help="hold the overlay ROOT, and remove it at exit")
+    parser.add_argument("--ready-fd", type=int, metavar="FD", help="write one line to FD once listening, and close it")
+    parser.add_argument(
+        "--stdio", action="store_true", help="serve one connection on stdin and stdout, and exit when it ends"
+    )
     return parser
 
 
 def _options(args: argparse.Namespace) -> ServerOptions:
     return ServerOptions(
-        settings=dict(args.option), load_config=args.load_config,
-        overlay=args.overlay, lower_store=args.lower_store,
-        lower_dir=args.lower_dir, remove_overlay=args.remove_overlay,
-        ttl=args.ttl, callbacks=args.experimental_callbacks)
+        settings=dict(args.option),
+        load_config=args.load_config,
+        overlay=args.overlay,
+        lower_store=args.lower_store,
+        lower_dir=args.lower_dir,
+        remove_overlay=args.remove_overlay,
+        ttl=args.ttl,
+        callbacks=args.experimental_callbacks,
+    )
 
 
 def _owned(options: ServerOptions) -> contextlib.AbstractContextManager[None]:
@@ -1137,9 +1135,7 @@ def _stdio_stream() -> transport.FdStream:
     return transport.FdStream(read_fd, write_fd)
 
 
-async def _until_signalled(
-        serving: Callable[..., Coroutine[Any, Any, None]],
-        ready_fd: int | None = None) -> None:
+async def _until_signalled(serving: Callable[..., Coroutine[Any, Any, None]], ready_fd: int | None = None) -> None:
     """Serve until SIGTERM or SIGINT, then stop as a cancel does: the
     calls in flight are interrupted, and every state is closed on its
     own thread.
@@ -1157,8 +1153,7 @@ async def _until_signalled(
             tg.cancel_scope.cancel()
 
         # The receiver first: a caller told "listening" may signal at once.
-        with anyio.open_signal_receiver(signal.SIGTERM,
-                                        signal.SIGINT) as signals:
+        with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGINT) as signals:
             await tg.start(serve_then_stop)
             if ready_fd is not None:
                 os.write(ready_fd, b"listening\n")

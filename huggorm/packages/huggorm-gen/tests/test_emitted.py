@@ -33,29 +33,42 @@ def test_parse(out: pathlib.Path) -> None:
         ast.parse(py.read_text(), filename=str(py))
 
 
-def _cls(name: str, *, threading: Threading = Threading.POOL,
-         blocking: bool = True,
-         wire: Crossing = Crossing.PROXY, fields: tuple[Any, ...] = (),
-         returns: tuple[tuple[str, Any], ...] = ()) -> Any:
+def _cls(
+    name: str,
+    *,
+    threading: Threading = Threading.POOL,
+    blocking: bool = True,
+    wire: Crossing = Crossing.PROXY,
+    fields: tuple[Any, ...] = (),
+    returns: tuple[tuple[str, Any], ...] = (),
+) -> Any:
     """One class model, built by hand for a contract the corpus does
     not break."""
     from huggorm_gen import ir
 
     return ir.ClassModel(
-        name=name, package="pkg", module="mod", doc="",
-        wire=wire, threading=threading, blocking=blocking,
-        is_value=wire is Crossing.VALUE, produced=False, constructs=True,
-        wire_fields=fields, ctor=(),
-        bound=tuple(ir.MethodModel(m, (), t, "") for m, t in returns))
+        name=name,
+        package="pkg",
+        module="mod",
+        doc="",
+        wire=wire,
+        threading=threading,
+        blocking=blocking,
+        is_value=wire is Crossing.VALUE,
+        produced=False,
+        constructs=True,
+        wire_fields=fields,
+        ctor=(),
+        bound=tuple(ir.MethodModel(m, (), t, "") for m, t in returns),
+    )
 
 
 def _model(*classes: Any, enums: tuple[str, ...] = ()) -> Any:
     from huggorm_gen import ir
 
-    return ir.Model({c.name: c for c in classes}, {}, {},
-                    {n: ir.EnumModel(n, "pkg.mod", (), "")
-                     for n in enums},
-                    ir.Errors("", {}))
+    return ir.Model(
+        {c.name: c for c in classes}, {}, {}, {n: ir.EnumModel(n, "pkg.mod", (), "") for n in enums}, ir.Errors("", {})
+    )
 
 
 def test_a_container_of_wrapped_types_is_refused() -> None:
@@ -65,10 +78,18 @@ def test_a_container_of_wrapped_types_is_refused() -> None:
     from huggorm_gen import contracts, ir
 
     v = ir.TypeRef.named("V", ir.Kind.PROXY)
-    model = _model(_cls("V", returns=(
-        ("attrs", ir.TypeRef.dict_of(v)), ("items", ir.TypeRef.list_of(v)),
-        ("one", v), ("maybe", ir.TypeRef.optional_of(v)),
-        ("n", ir.TypeRef.named("int", ir.Kind.SCALAR)))))
+    model = _model(
+        _cls(
+            "V",
+            returns=(
+                ("attrs", ir.TypeRef.dict_of(v)),
+                ("items", ir.TypeRef.list_of(v)),
+                ("one", v),
+                ("maybe", ir.TypeRef.optional_of(v)),
+                ("n", ir.TypeRef.named("int", ir.Kind.SCALAR)),
+            ),
+        )
+    )
     bad = contracts.collection(model)
     assert len(bad) == 2, bad
     assert all("attrs" in b or "items" in b for b in bad), bad
@@ -90,30 +111,33 @@ def _untwinned(x: object) -> object:
     return x
 
 
-@pytest.mark.parametrize(("shape", "answer", "built"), [
-    ("leaf", "p", ("twin", "p")),
-    ("opt", None, None),
-    ("opt", "p", ("twin", "p")),
-    ("list", ["p", "q"], [("twin", "p"), ("twin", "q")]),
-    ("dict", {"a": "p"}, {"a": ("twin", "p")}),
-    ("dict_of_lists", {"a": ["p"], "b": []}, {"a": [("twin", "p")], "b": []}),
-    ("list_of_opts", ["p", None], [("twin", "p"), None]),
-])
-def test_a_twin_is_built_wherever_the_signature_spells_one(
-        shape: str, answer: object, built: object) -> None:
+@pytest.mark.parametrize(
+    ("shape", "answer", "built"),
+    [
+        ("leaf", "p", ("twin", "p")),
+        ("opt", None, None),
+        ("opt", "p", ("twin", "p")),
+        ("list", ["p", "q"], [("twin", "p"), ("twin", "q")]),
+        ("dict", {"a": "p"}, {"a": ("twin", "p")}),
+        ("dict_of_lists", {"a": ["p"], "b": []}, {"a": [("twin", "p")], "b": []}),
+        ("list_of_opts", ["p", None], [("twin", "p"), None]),
+    ],
+)
+def test_a_twin_is_built_wherever_the_signature_spells_one(shape: str, answer: object, built: object) -> None:
     """The body builds the twin under every nesting `Spelling` spells
     it under, so the signature and the value agree."""
     from huggorm_gen import ir
     from huggorm_gen.pygen.emitter import _twinned
 
     leaf = ir.TypeRef("Path", None, (), ir.Kind.SCALAR, "Path", twin="_Twin")
-    t = {"leaf": leaf,
-         "opt": ir.TypeRef.optional_of(leaf),
-         "list": ir.TypeRef.list_of(leaf),
-         "dict": ir.TypeRef.dict_of(leaf),
-         "dict_of_lists": ir.TypeRef.dict_of(ir.TypeRef.list_of(leaf)),
-         "list_of_opts": ir.TypeRef.list_of(ir.TypeRef.optional_of(leaf)),
-         }[shape]
+    t = {
+        "leaf": leaf,
+        "opt": ir.TypeRef.optional_of(leaf),
+        "list": ir.TypeRef.list_of(leaf),
+        "dict": ir.TypeRef.dict_of(leaf),
+        "dict_of_lists": ir.TypeRef.dict_of(ir.TypeRef.list_of(leaf)),
+        "list_of_opts": ir.TypeRef.list_of(ir.TypeRef.optional_of(leaf)),
+    }[shape]
 
     async def call() -> object:
         return answer
@@ -135,8 +159,7 @@ def test_a_constructor_imports_the_vocabulary_its_default_names() -> None:
     from huggorm_gen import ir
     from huggorm_gen.pygen.emitter import wrapper_module
 
-    mode = ir.ParamModel("mode", ir.TypeRef.named("int", ir.Kind.SCALAR),
-                         ir.Member("Mode", "FAST"))
+    mode = ir.ParamModel("mode", ir.TypeRef.named("int", ir.Kind.SCALAR), ir.Member("Mode", "FAST"))
     c = dataclasses.replace(_cls("Opener"), ctor=(mode,))
     src = ast.unparse(wrapper_module(_model(c, enums=("Mode",)), c))
     assert "mode: int=Mode.FAST" in src
@@ -169,9 +192,7 @@ def test_an_enum_is_a_scalar_everywhere() -> None:
         assert ir.wire_blocker(t, frozenset()) is None, t.spelling
 
     def probe(t: ir.TypeRef) -> Any:
-        return _model(_cls("Probe", wire=Crossing.VALUE,
-                           fields=(ir.FieldModel("kind", t),)),
-                      enums=("Word",))
+        return _model(_cls("Probe", wire=Crossing.VALUE, fields=(ir.FieldModel("kind", t),)), enums=("Word",))
 
     for t in (word, ir.TypeRef.list_of(word)):
         assert contracts.wire(probe(t)) == [], t.spelling
@@ -181,8 +202,7 @@ def test_an_enum_is_a_scalar_everywhere() -> None:
     assert len(complaints) == 1 and "not data" in complaints[0]
 
 
-def test_an_optional_return_names_a_value_or_nothing(
-        out: pathlib.Path) -> None:
+def test_an_optional_return_names_a_value_or_nothing(out: pathlib.Path) -> None:
     """`T | None` is a real return type, and only for some T.
 
     Absence is msgpack's nil, so any T may be optional: a scalar, a
@@ -197,12 +217,15 @@ def test_an_optional_return_names_a_value_or_nothing(
     T = ir.TypeRef
     path = T.named("StorePath", ir.Kind.VALUE)
     served = frozenset({"Store"})
-    for good in (path, T.named("str", ir.Kind.SCALAR), T.named("int", ir.Kind.SCALAR),
-                 T.named("Word", ir.Kind.ENUM), T.named("Store", ir.Kind.PROXY)):
+    for good in (
+        path,
+        T.named("str", ir.Kind.SCALAR),
+        T.named("int", ir.Kind.SCALAR),
+        T.named("Word", ir.Kind.ENUM),
+        T.named("Store", ir.Kind.PROXY),
+    ):
         assert ir.wire_blocker(T.optional_of(good), served) is None, good
-    for shape in (T.optional_of(T.list_of(path)),
-                  T.dict_of(T.optional_of(path)),
-                  T.list_of(T.optional_of(path))):
+    for shape in (T.optional_of(T.list_of(path)), T.dict_of(T.optional_of(path)), T.list_of(T.optional_of(path))):
         assert ir.wire_blocker(shape, served) is None, shape.spelling
     # An unserved proxy is refused whether or not it may be None.
     lost = T.named("Lost", ir.Kind.PROXY)
@@ -235,21 +258,17 @@ def test_a_free_function_adopts_one_pool_object() -> None:
     from huggorm_gen import contracts, ir
 
     def fn(name: str, returns: Any) -> Any:
-        return ir.FunctionModel(name, "pkg.mod", Threading.POOL, (), returns,
-                               "")
+        return ir.FunctionModel(name, "pkg.mod", Threading.POOL, (), returns, "")
 
     pool = ir.TypeRef.named("Pool", ir.Kind.PROXY)
     state = ir.TypeRef.named("State", ir.Kind.PROXY)
     model = _model(_cls("Pool"), _cls("State", threading=Threading.AFFINE))
     for good in (pool, ir.TypeRef.optional_of(pool)):
         functions = {"make": fn("make", good)}
-        assert contracts.free_functions(
-            dataclasses.replace(model, functions=functions)) == []
-    for bad, why in ((state, "needs a home thread"),
-                     (ir.TypeRef.list_of(pool), "cannot be adopted")):
+        assert contracts.free_functions(dataclasses.replace(model, functions=functions)) == []
+    for bad, why in ((state, "needs a home thread"), (ir.TypeRef.list_of(pool), "cannot be adopted")):
         functions = {"make": fn("make", bad)}
-        complaints = contracts.free_functions(
-            dataclasses.replace(model, functions=functions))
+        complaints = contracts.free_functions(dataclasses.replace(model, functions=functions))
         assert len(complaints) == 1 and why in complaints[0], complaints
 
 
@@ -273,15 +292,11 @@ def test_each_wrapper_constructor_is_the_declared_one(out: pathlib.Path) -> None
             # No handle was emitted, so there is no emitted __init__
             # to check. What must hold instead is that nothing was
             # emitted at all.
-            assert not py.exists(), (
-                f"{cls_name} is not a proxy, yet {py.name} exists")
+            assert not py.exists(), f"{cls_name} is not a proxy, yet {py.name} exists"
             not_wrapped.append(cls_name)
             continue
         tree = ast.parse(py.read_text(), filename=str(py.name))
-        init = next(
-            n for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
-        )
+        init = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "__init__")
         if not c.constructs:
             # A class with no door has one constructor, and it refuses.
             # Keyed on the DOOR, not on `abstract`: nix::Store states
@@ -291,23 +306,20 @@ def test_each_wrapper_constructor_is_the_declared_one(out: pathlib.Path) -> None
             )
             abstract.append(cls_name)
             continue
-        assert init.args.vararg is None and init.args.kwarg is None, (
-            f"{py.name}.__init__ still takes *args/**kwargs"
-        )
+        assert init.args.vararg is None and init.args.kwarg is None, f"{py.name}.__init__ still takes *args/**kwargs"
         declared = [p.name for p in c.ctor]
         emitted = [a.arg for a in init.args.args[1:]]  # drop self
-        assert emitted == declared, (
-            f"{py.name}.__init__ takes {emitted}, the declaration says {declared}"
-        )
+        assert emitted == declared, f"{py.name}.__init__ takes {emitted}, the declaration says {declared}"
         unwrapped = {
             c.args[0].id
             for c in ast.walk(init)
-            if isinstance(c, ast.Call) and getattr(c.func, "id", "") == "unwrap_arg"
-            and c.args and isinstance(c.args[0], ast.Name)
+            if isinstance(c, ast.Call)
+            and getattr(c.func, "id", "") == "unwrap_arg"
+            and c.args
+            and isinstance(c.args[0], ast.Name)
         }
         assert unwrapped == set(declared), (
-            f"{py.name}.__init__ unwraps {sorted(unwrapped)}, "
-            f"must unwrap every declared parameter {declared}"
+            f"{py.name}.__init__ unwraps {sorted(unwrapped)}, must unwrap every declared parameter {declared}"
         )
         n_optional = sum(1 for p in c.ctor if p.default is not NoDefault.REQUIRED)
         assert len(init.args.defaults) == n_optional, (
@@ -339,21 +351,16 @@ def test_a_constructor_takes_a_served_object_in_either_form(out: pathlib.Path) -
             continue
         py = out / f"async_{c.name.lower()}.py"
         init = next(
-            n for n in ast.walk(ast.parse(py.read_text()))
-            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
+            n for n in ast.walk(ast.parse(py.read_text())) if isinstance(n, ast.FunctionDef) and n.name == "__init__"
         )
-        hints = {a.arg: ast.unparse(a.annotation) for a in init.args.args[1:]
-                 if a.annotation is not None}
+        hints = {a.arg: ast.unparse(a.annotation) for a in init.args.args[1:] if a.annotation is not None}
         for p in c.ctor:
             leaf = p.type.required
-            if (leaf.kind is not ir.Kind.PROXY or leaf.origin
-                    or leaf.name not in model.served):
+            if leaf.kind is not ir.Kind.PROXY or leaf.origin or leaf.name not in model.served:
                 continue
             arms = hints[p.name].split(" | ")
-            assert {leaf.name, f"Async{leaf.name}"} <= set(arms), (
-                f"{py.name}: {p.name} is {hints[p.name]}")
-            assert ("None" in arms) is p.type.optional, (
-                f"{py.name}: {p.name} is {hints[p.name]}")
+            assert {leaf.name, f"Async{leaf.name}"} <= set(arms), f"{py.name}: {p.name} is {hints[p.name]}"
+            assert ("None" in arms) is p.type.optional, f"{py.name}: {p.name} is {hints[p.name]}"
             checked.append(f"{c.name}.{p.name}")
     assert "EvalState.build_store" in checked, checked
 
@@ -381,19 +388,32 @@ def test_the_wire_refuses_what_it_cannot_carry() -> None:
     i, s = T.named("int", ir.Kind.SCALAR), T.named("str", ir.Kind.SCALAR)
     value, path = T.named("Value", ir.Kind.PROXY), T.named("StorePath", ir.Kind.VALUE)
     served = frozenset({"Value"})
-    for t in (T.dict_of(value), T.list_of(value),
-              T.list_of(T.dict_of(value)), T.dict_of(T.optional_of(value)),
-              T.named("object", ir.Kind.OPAQUE),
-              T.named("decimal.Decimal", ir.Kind.MODULE)):
+    for t in (
+        T.dict_of(value),
+        T.list_of(value),
+        T.list_of(T.dict_of(value)),
+        T.dict_of(T.optional_of(value)),
+        T.named("object", ir.Kind.OPAQUE),
+        T.named("decimal.Decimal", ir.Kind.MODULE),
+    ):
         assert ir.wire_blocker(t, served), f"{t.spelling} should be blocked"
-    for t in (s, i, value, path, T.dict_of(i), T.dict_of(path),
-              T.list_of(i), T.list_of(path), T.dict_of(T.dict_of(i)),
-              T.dict_of(T.list_of(i)), T.list_of(T.list_of(i)),
-              T.list_of(T.dict_of(path)),
-              T.named("datetime.timedelta", ir.Kind.MODULE),
-              T.named("pathlib.Path", ir.Kind.MODULE)):
-        assert not ir.wire_blocker(t, served), (t.spelling,
-                                                ir.wire_blocker(t, served))
+    for t in (
+        s,
+        i,
+        value,
+        path,
+        T.dict_of(i),
+        T.dict_of(path),
+        T.list_of(i),
+        T.list_of(path),
+        T.dict_of(T.dict_of(i)),
+        T.dict_of(T.list_of(i)),
+        T.list_of(T.list_of(i)),
+        T.list_of(T.dict_of(path)),
+        T.named("datetime.timedelta", ir.Kind.MODULE),
+        T.named("pathlib.Path", ir.Kind.MODULE),
+    ):
+        assert not ir.wire_blocker(t, served), (t.spelling, ir.wire_blocker(t, served))
 
 
 def test_no_unused_imports(out: pathlib.Path) -> None:
@@ -416,11 +436,7 @@ def test_no_unused_imports(out: pathlib.Path) -> None:
         used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         # __init__ re-exports rather than uses; __all__ names it instead.
         if py.name == "__init__.py":
-            used |= {
-                n.value
-                for n in ast.walk(tree)
-                if isinstance(n, ast.Constant) and isinstance(n.value, str)
-            }
+            used |= {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
         unused = sorted(imported - used)
         if unused:
             offenders.append(f"{py.name}: {unused}")
@@ -430,8 +446,7 @@ def test_no_unused_imports(out: pathlib.Path) -> None:
 _ISSUE = re.compile(r"\b[\w-]+#\d+")
 _UPSTREAM_LINE = re.compile(r"\b[\w-]+\.(?:cc|hh|hpp|cpp):\d+")
 # Not "no longer": "outputs that no longer hash to its name" is a fact.
-_HISTORY = re.compile(
-    r"\b(?:used to|any more|earlier draft|until huggorm#|a year ago)\b")
+_HISTORY = re.compile(r"\b(?:used to|any more|earlier draft|until huggorm#|a year ago)\b")
 
 
 def _shipped(out: pathlib.Path) -> list[pathlib.Path]:
@@ -439,16 +454,14 @@ def _shipped(out: pathlib.Path) -> list[pathlib.Path]:
     return sorted([*out.glob("*.py"), *stubs.glob("*.pyi")])
 
 
-def test_the_declaration_and_the_runtime_share_one_shape(
-        out: pathlib.Path) -> None:
+def test_the_declaration_and_the_runtime_share_one_shape(out: pathlib.Path) -> None:
     """A declaration builds the same `Tree` and `Builds` classes that
     `_policy` builds, so no copy between them can drop or swap a field
     (nixidae/nixidae#886). The package ships the DSL's file itself."""
     from huggorm_dsl import declare, shapes
     from huggorm_gen.payload import _shapes
 
-    names = ("Builds", "Entries", "Items", "Leaf", "Null", "Subscription",
-             "Tree")
+    names = ("Builds", "Entries", "Items", "Leaf", "Null", "Subscription", "Tree")
     for name in names:
         assert getattr(declare, name) is getattr(shapes, name), name
         assert getattr(_shapes, name) is getattr(shapes, name), name
@@ -456,8 +469,7 @@ def test_the_declaration_and_the_runtime_share_one_shape(
     assert shipped == pathlib.Path(shapes.__file__).read_text()
 
 
-def test_shipped_docstrings_cite_no_issue_or_upstream_line(
-        out: pathlib.Path) -> None:
+def test_shipped_docstrings_cite_no_issue_or_upstream_line(out: pathlib.Path) -> None:
     """A docstring reaches every reader of every lane. An issue number
     sends that reader to a tracker, and an upstream line number is true
     for one Nix release. Both belong in a `#` comment in the
@@ -465,24 +477,23 @@ def test_shipped_docstrings_cite_no_issue_or_upstream_line(
     offenders = []
     for path in _shipped(out):
         for node in ast.walk(ast.parse(path.read_text(), filename=path.name)):
-            if not isinstance(node, (ast.Module, ast.ClassDef,
-                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             doc = ast.get_docstring(node, clean=False) or ""
             where = f"{path.name}:{getattr(node, 'name', '<module>')}"
-            offenders += [f"{where}: {m.group()}"
-                          for pat in (_ISSUE, _UPSTREAM_LINE)
-                          for m in pat.finditer(doc)]
+            offenders += [f"{where}: {m.group()}" for pat in (_ISSUE, _UPSTREAM_LINE) for m in pat.finditer(doc)]
     assert not offenders, "\n".join(offenders)
 
 
 def test_shipped_text_tells_no_history(out: pathlib.Path) -> None:
     """Shipped prose says what the code is. What it was lives in the
     commit that changed it."""
-    offenders = [f"{path.name}:{n}: {line.strip()}"
-                 for path in _shipped(out)
-                 for n, line in enumerate(path.read_text().splitlines(), 1)
-                 if _HISTORY.search(line)]
+    offenders = [
+        f"{path.name}:{n}: {line.strip()}"
+        for path in _shipped(out)
+        for n, line in enumerate(path.read_text().splitlines(), 1)
+        if _HISTORY.search(line)
+    ]
     assert not offenders, "\n".join(offenders)
 
 
@@ -508,8 +519,7 @@ def _emitted_classes(out: pathlib.Path) -> dict[str, Any]:
                 args = f.args.args[1:]  # drop self
                 methods[f.name] = {
                     "params": [a.arg for a in args],
-                    "annotations": [ast.unparse(a.annotation) if a.annotation
-                                    else None for a in args],
+                    "annotations": [ast.unparse(a.annotation) if a.annotation else None for a in args],
                     # Aligned to the END of the parameter list, the way
                     # Python aligns them, so a comparison across the
                     # three surfaces is between the same parameters.
@@ -518,8 +528,7 @@ def _emitted_classes(out: pathlib.Path) -> dict[str, Any]:
                     "is_async": isinstance(f, ast.AsyncFunctionDef),
                     "where": py.name,
                 }
-            found[node.name] = ([b.id for b in node.bases
-                                 if isinstance(b, ast.Name)], methods)
+            found[node.name] = ([b.id for b in node.bases if isinstance(b, ast.Name)], methods)
     return found
 
 
@@ -544,9 +553,11 @@ def _defaults(params: Any) -> list[str]:
     """The declared defaults, each as the source a surface writes."""
     from huggorm_gen import ir
 
-    return [_expr(f"{p.default.vocabulary}.{p.default.name}"
-                  if isinstance(p.default, ir.Member) else repr(p.default))
-            for p in params if p.default is not ir.NoDefault.REQUIRED]
+    return [
+        _expr(f"{p.default.vocabulary}.{p.default.name}" if isinstance(p.default, ir.Member) else repr(p.default))
+        for p in params
+        if p.default is not ir.NoDefault.REQUIRED
+    ]
 
 
 def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
@@ -580,16 +591,14 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
             checked += 1
             want_names = [p.name for p in m.params]
             if sig["params"] != want_names:
-                failures.append(
-                    f"{c.name}.{m.name} takes {sig['params']}, the "
-                    f"declaration says {want_names}")
+                failures.append(f"{c.name}.{m.name} takes {sig['params']}, the declaration says {want_names}")
             # Defaults align to the END of the parameter list, the way
             # Python aligns them.
             want_defaults = _defaults(m.params)
             if [_expr(d) for d in sig["defaults"]] != want_defaults:
                 failures.append(
-                    f"{c.name}.{m.name} defaults to {sig['defaults']}, the "
-                    f"declaration says {want_defaults}")
+                    f"{c.name}.{m.name} defaults to {sig['defaults']}, the declaration says {want_defaults}"
+                )
 
     # ...and the CONSTRUCTORS, read off the stubs. That is where a
     # constructor default actually lands: the only class with one is a
@@ -605,37 +614,28 @@ def test_the_declaration_is_what_got_written(out: pathlib.Path) -> None:
     for pyi in sorted((out.parent / STUB_PACKAGE).glob("*.pyi")):
         tree = ast.parse(pyi.read_text(), filename=pyi.name)
         for node in tree.body:
-            if (not isinstance(node, ast.ClassDef)
-                    or node.name not in declared_classes):
+            if not isinstance(node, ast.ClassDef) or node.name not in declared_classes:
                 continue
-            init = next((f for f in node.body
-                         if isinstance(f, ast.FunctionDef)
-                         and f.name == "__init__"), None)
+            init = next((f for f in node.body if isinstance(f, ast.FunctionDef) and f.name == "__init__"), None)
             if init is None:
                 continue
             want = _defaults(declared_classes[node.name].ctor)
             got = [_expr(ast.unparse(d)) for d in init.args.defaults]
             if got != want:
-                failures.append(
-                    f"{pyi.name}:{node.name}.__init__ defaults to {got}, "
-                    f"the declaration says {want}")
+                failures.append(f"{pyi.name}:{node.name}.__init__ defaults to {got}, the declaration says {want}")
             ctor_checked += 1
 
-    assert not failures, ("the emitted surface and the declaration "
-                          "disagree:\n  " + "\n  ".join(failures))
-    assert any(p.default is not NoDefault.REQUIRED
-               for c in declared_classes.values() for p in c.ctor), (
-        "no constructor declares a default; that half proves nothing")
-    assert ctor_checked >= len(served) // 2, (
-        f"checked only {ctor_checked} constructor(s) in the stubs")
-    assert checked >= 3 * len(served), (
-        f"checked only {checked} method(s) across {len(served)} classes")
+    assert not failures, "the emitted surface and the declaration disagree:\n  " + "\n  ".join(failures)
+    assert any(p.default is not NoDefault.REQUIRED for c in declared_classes.values() for p in c.ctor), (
+        "no constructor declares a default; that half proves nothing"
+    )
+    assert ctor_checked >= len(served) // 2, f"checked only {ctor_checked} constructor(s) in the stubs"
+    assert checked >= 3 * len(served), f"checked only {checked} method(s) across {len(served)} classes"
     # Non-vacuity: something must actually HAVE a default, or the
     # comparison is between two empty lists everywhere.
-    assert any(p.default is not NoDefault.REQUIRED
-               for c in declared_classes.values()
-               for m in c.methods for p in m.params), (
-        "no method declares a default; this gate now proves nothing")
+    assert any(
+        p.default is not NoDefault.REQUIRED for c in declared_classes.values() for m in c.methods for p in m.params
+    ), "no method declares a default; this gate now proves nothing"
 
 
 def test_a_free_function_returns_what_a_method_would(out: pathlib.Path) -> None:
@@ -654,8 +654,7 @@ def test_a_free_function_returns_what_a_method_would(out: pathlib.Path) -> None:
     model = declared_model()
     emitted = {
         node.name: ast.unparse(node.returns) if node.returns else "None"
-        for node in ast.parse(
-            (out / "free_functions.py").read_text()).body
+        for node in ast.parse((out / "free_functions.py").read_text()).body
         if isinstance(node, ast.AsyncFunctionDef)
     }
     failures, adopted, twinned = [], 0, 0
@@ -664,16 +663,14 @@ def test_a_free_function_returns_what_a_method_would(out: pathlib.Path) -> None:
             continue
         rt = fn.returns
         expected = rt.spelling if rt is not None else "None"
-        if rt is not None and rt.origin in (None, ir.Origin.OPTIONAL) \
-                and rt.kind == ir.Kind.PROXY:
+        if rt is not None and rt.origin in (None, ir.Origin.OPTIONAL) and rt.kind == ir.Kind.PROXY:
             adopted += 1
             expected = expected.replace(rt.name, f"Async{rt.name}")
         if rt is not None and rt.leaf.twin:
             twinned += 1
             expected = expected.replace(rt.leaf.spelling, rt.leaf.twin)
         if _expr(emitted[name]) != _expr(expected):
-            failures.append(f"{name}: emitted {emitted[name]}, "
-                            f"expected {expected}")
+            failures.append(f"{name}: emitted {emitted[name]}, expected {expected}")
     assert not failures, "\n  ".join(failures)
     assert adopted, "no free function returns a proxy; this gate is vacuous"
     assert twinned, "no free function returns a twinned type; this gate is vacuous"

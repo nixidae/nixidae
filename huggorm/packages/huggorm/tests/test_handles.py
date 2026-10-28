@@ -13,7 +13,6 @@ by accident stayed invisible until a handle leaked much later.
 Run:  nix develop --file . shell --command pytest huggorm/tests
 """
 
-
 from typing import Any
 
 import anyio
@@ -75,9 +74,7 @@ def test_identity_is_per_connection() -> None:
     assert t.get(ha) is t.get(hb) is obj, "both handles resolve to the same object"
     t.release(a, ha)
     t.audit()
-    assert (
-        ha not in t.entries and hb in t.entries
-    ), "one connection releasing does not drop the other's handle"
+    assert ha not in t.entries and hb in t.entries, "one connection releasing does not drop the other's handle"
 
 
 def test_index_does_not_outlive_the_entry() -> None:
@@ -125,9 +122,9 @@ def test_share_indexes_the_target() -> None:
     hb = t.put(obj, b)
     t.audit()
     assert hb == ha, "put after share reuses the shared handle"
-    assert (
-        len(t.entries) == 1 and t.entries[ha].leases == 3
-    ), f"and it took a lease rather than a second handle :: {t.entries[ha].leases}"
+    assert len(t.entries) == 1 and t.entries[ha].leases == 3, (
+        f"and it took a lease rather than a second handle :: {t.entries[ha].leases}"
+    )
 
 
 def test_transfer_leaves_the_source_indexed() -> None:
@@ -199,9 +196,7 @@ def test_bad_producer_leaves_no_trace() -> None:
         t.put(Obj("drv"), a, parents=[parent, "nope"])
     t.audit()
     assert len(t.entries) == before, "the failed put registered nothing"
-    assert (
-        not t.entries[parent].children
-    ), f"the real producer kept no dangling child :: {t.entries[parent].children}"
+    assert not t.entries[parent].children, f"the real producer kept no dangling child :: {t.entries[parent].children}"
     t.release(a, parent)
     t.audit()
     assert parent not in t.entries, "so the producer still reaps"
@@ -224,9 +219,7 @@ def test_producer_pinning_with_a_reused_child() -> None:
     t.release(a, d1)
     t.release(a, d1)
     t.audit()
-    assert (
-        d1 not in t.entries and store not in t.entries
-    ), "dropping the child cascades to the producer"
+    assert d1 not in t.entries and store not in t.entries, "dropping the child cascades to the producer"
 
 
 def test_audit_catches_an_invented_lease() -> None:
@@ -300,9 +293,7 @@ def test_touch_takes_ownership_back_after_detach() -> None:
     assert ha not in t.connections[a].leases, "detach left the connection holding nothing"
     assert t.touch(a, ha) is True, "calling through it grants again"
     t.audit()
-    assert (
-        t.escrow[a][ha] == 1 and t.entries[ha].leases == 2
-    ), "escrow still holds the detached lease"
+    assert t.escrow[a][ha] == 1 and t.entries[ha].leases == 2, "escrow still holds the detached lease"
 
 
 def test_a_closed_stream_forgets_a_token_that_holds_nothing() -> None:
@@ -378,8 +369,7 @@ async def test_a_server_forgets_a_closed_connection() -> None:
     from huggorm import remote, server
 
     path = socket_path()
-    async with (anyio.create_task_group() as work,
-                anyio.create_task_group() as loops):
+    async with anyio.create_task_group() as work, anyio.create_task_group() as loops:
         dispatcher = server.Dispatcher(work, lease_ttl=0)
         listener = await anyio.create_unix_listener(path)
 

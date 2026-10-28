@@ -43,8 +43,7 @@ async def test_plain_data_crosses_both_ways(state: Any) -> None:
     got = await state.eval_expr('builtins.echo { a = [ 1 "two" false null ]; }')
 
     assert seen == [{"a": [1, "two", False, None]}]
-    assert json.loads(await got.to_json()) == {
-        "got": {"a": [1, "two", False, None]}, "n": 1.5, "t": True, "none": None}
+    assert json.loads(await got.to_json()) == {"got": {"a": [1, "two", False, None]}, "n": 1.5, "t": True, "none": None}
 
 
 async def test_a_value_error_shows_bare(state: Any) -> None:

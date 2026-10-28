@@ -28,30 +28,32 @@ from huggorm_dsl.declare import DETERMINATE, Enumerated, Local, Wrap, header, wo
 
 
 @header(Local("nix/store/content-address.hh"))
-@words(parsed_by="nix::ContentAddressMethod::parse",
-       enumerated=Enumerated(
-           "nix::ContentAddressMethod::Raw",
-           # EVERY word, not just the one that reads differently.
-           # A vocabulary spells its words the way Python spells a
-           # constant and upstream spells this enum the way C++
-           # spells a type, so the default - the word's own name -
-           # is right for `nix::HashAlgorithm` by coincidence and
-           # wrong for all four of these.
-           #
-           # `nar` is the one that is not a case difference:
-           # upstream calls the method NixArchive, and the word is
-           # what a store URI and a .narinfo carry. Both names are
-           # right and neither derives the other.
-           spelled={
-               "FLAT": "Flat",
-               "NAR": "NixArchive",
-               "GIT": "Git",
-               "TEXT": "Text",
-           },
-           # A struct with one member, and a method that answers
-           # one answers the struct.
-           wrapped=Wrap("nix::ContentAddressMethod", holds="raw"),
-       ))
+@words(
+    parsed_by="nix::ContentAddressMethod::parse",
+    enumerated=Enumerated(
+        "nix::ContentAddressMethod::Raw",
+        # EVERY word, not just the one that reads differently.
+        # A vocabulary spells its words the way Python spells a
+        # constant and upstream spells this enum the way C++
+        # spells a type, so the default - the word's own name -
+        # is right for `nix::HashAlgorithm` by coincidence and
+        # wrong for all four of these.
+        #
+        # `nar` is the one that is not a case difference:
+        # upstream calls the method NixArchive, and the word is
+        # what a store URI and a .narinfo carry. Both names are
+        # right and neither derives the other.
+        spelled={
+            "FLAT": "Flat",
+            "NAR": "NixArchive",
+            "GIT": "Git",
+            "TEXT": "Text",
+        },
+        # A struct with one member, and a method that answers
+        # one answers the struct.
+        wrapped=Wrap("nix::ContentAddressMethod", holds="raw"),
+    ),
+)
 class ContentAddressMethod(StrEnum):
     """How the hash that names a store path is computed.
 
@@ -83,8 +85,7 @@ class ContentAddressMethod(StrEnum):
 
 
 @header(Local("nix/util/hash.hh"))
-@words(parsed_by="nix::parseHashAlgo",
-       enumerated=Enumerated("nix::HashAlgorithm"))
+@words(parsed_by="nix::parseHashAlgo", enumerated=Enumerated("nix::HashAlgorithm"))
 class HashAlgorithm(StrEnum):
     """The digest used to content-address a store object.
 
@@ -106,11 +107,13 @@ class HashAlgorithm(StrEnum):
 
 
 @header(Local("nix/util/file-content-address.hh"))
-@words(parsed_by="nix::parseFileSerialisationMethod",
-       enumerated=Enumerated(
-           "nix::FileSerialisationMethod",
-           spelled={"FLAT": "Flat", "NAR": "NixArchive"},
-       ))
+@words(
+    parsed_by="nix::parseFileSerialisationMethod",
+    enumerated=Enumerated(
+        "nix::FileSerialisationMethod",
+        spelled={"FLAT": "Flat", "NAR": "NixArchive"},
+    ),
+)
 class FileSerialisationMethod(StrEnum):
     """How a file system object becomes bytes: one regular file's
     contents, or a NAR of the whole tree."""
@@ -129,9 +132,7 @@ class FileSerialisationMethod(StrEnum):
     # checks the list.
     enumerated=Enumerated(
         "nix::BuildMode",
-        spelled={"NORMAL": "bmNormal",
-                 "REPAIR": "bmRepair",
-                 "CHECK": "bmCheck"},
+        spelled={"NORMAL": "bmNormal", "REPAIR": "bmRepair", "CHECK": "bmCheck"},
     ),
 )
 class BuildMode(StrEnum):
@@ -422,8 +423,7 @@ class GCAction(StrEnum):
     # words are the enumerators' names, lower case.
     enumerated=Enumerated(
         "nix::fetchers::Registry::RegistryType",
-        spelled={"FLAG": "Flag", "USER": "User", "SYSTEM": "System",
-                 "GLOBAL": "Global", "CUSTOM": "Custom"},
+        spelled={"FLAG": "Flag", "USER": "User", "SYSTEM": "System", "GLOBAL": "Global", "CUSTOM": "Custom"},
     ),
 )
 class RegistryType(StrEnum):
@@ -453,10 +453,16 @@ class RegistryType(StrEnum):
     # The words are `Stat::typeString`'s, which Nix prints in errors.
     enumerated=Enumerated(
         "nix::SourceAccessor::Type",
-        spelled={"REGULAR": "tRegular", "SYMLINK": "tSymlink",
-                 "DIRECTORY": "tDirectory", "CHAR": "tChar",
-                 "BLOCK": "tBlock", "SOCKET": "tSocket", "FIFO": "tFifo",
-                 "UNKNOWN": "tUnknown"},
+        spelled={
+            "REGULAR": "tRegular",
+            "SYMLINK": "tSymlink",
+            "DIRECTORY": "tDirectory",
+            "CHAR": "tChar",
+            "BLOCK": "tBlock",
+            "SOCKET": "tSocket",
+            "FIFO": "tFifo",
+            "UNKNOWN": "tUnknown",
+        },
     ),
 )
 class FileType(StrEnum):

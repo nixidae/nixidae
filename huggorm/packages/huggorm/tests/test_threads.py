@@ -34,8 +34,7 @@ def test_nothing_runs_until_there_is_an_evaluator() -> None:
     `unshare(CLONE_NEWUSER)` refuses a process with more than one
     thread, so a caller that imports huggorm before it enters a
     namespace needs the import to start none."""
-    out = subprocess.run([sys.executable, "-c", PROBE], capture_output=True,
-                         text=True, check=True)
+    out = subprocess.run([sys.executable, "-c", PROBE], capture_output=True, text=True, check=True)
     imported, opened, evaluating = map(int, out.stdout.split())
     assert (imported, opened) == (1, 1)
     assert evaluating > 1
@@ -53,8 +52,7 @@ print(len(os.listdir("/proc/self/task")))
 def test_a_caller_can_start_the_collector_before_an_evaluator() -> None:
     """For a caller that reads `nix-path` first: `start_collector` is
     where Nix copies `NIX_PATH` into it."""
-    out = subprocess.run([sys.executable, "-c", START], capture_output=True,
-                         text=True, check=True)
+    out = subprocess.run([sys.executable, "-c", START], capture_output=True, text=True, check=True)
     assert int(out.stdout) > 1
 
 

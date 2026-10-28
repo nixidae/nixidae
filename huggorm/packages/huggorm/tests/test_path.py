@@ -161,8 +161,7 @@ def test_every_value_type_has_value_semantics(model: ir.Model) -> None:
     for name in values:
         cls = getattr(huggorm_bindings, name)
         for dunder in ("__eq__", "__hash__", "__repr__"):
-            assert getattr(cls, dunder) is not getattr(object, dunder), (
-                f"{name}.{dunder}")
+            assert getattr(cls, dunder) is not getattr(object, dunder), f"{name}.{dunder}"
 
 
 def test_an_explicit_DEFAULT_is_not_an_absent_field() -> None:

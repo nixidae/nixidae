@@ -66,8 +66,7 @@ async def _holder(root: str) -> anyio.abc.Process:
     return process
 
 
-async def test_the_sweep_leaves_a_held_root_and_removes_it_when_the_holder_dies(
-        tmpdir_here: pathlib.Path) -> None:
+async def test_the_sweep_leaves_a_held_root_and_removes_it_when_the_holder_dies(tmpdir_here: pathlib.Path) -> None:
     root = tempfile.mkdtemp(prefix=TEMPORARY_PREFIX)
     async with await _holder(root) as process:
         assert sweep(min_age=0) == []
@@ -84,8 +83,7 @@ async def test_the_sweep_leaves_a_young_root(tmpdir_here: pathlib.Path) -> None:
     assert sweep(min_age=0) == [root]
 
 
-def test_the_sweep_removes_a_root_without_a_lock_and_leaves_other_names(
-        tmpdir_here: pathlib.Path) -> None:
+def test_the_sweep_removes_a_root_without_a_lock_and_leaves_other_names(tmpdir_here: pathlib.Path) -> None:
     root = tempfile.mkdtemp(prefix=TEMPORARY_PREFIX)
     other = tempfile.mkdtemp(prefix="pynix-overlay-")
     assert sweep(min_age=0) == [root]
@@ -110,8 +108,7 @@ class _Fails:
         raise RuntimeError("the server failed")
 
 
-async def test_a_worker_removes_its_temporary_root_when_the_work_fails(
-        tmpdir_here: pathlib.Path) -> None:
+async def test_a_worker_removes_its_temporary_root_when_the_work_fails(tmpdir_here: pathlib.Path) -> None:
     with pytest.raises(RuntimeError, match="the server failed"):
         async with worker(ServerOptions(overlay=TEMPORARY), via=_Fails()):
             pass
@@ -119,14 +116,16 @@ async def test_a_worker_removes_its_temporary_root_when_the_work_fails(
 
 
 async def test_a_cleanup_failure_is_logged_and_never_hides_the_error(
-        tmpdir_here: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture) -> None:
+    tmpdir_here: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     def refuse(root: str | os.PathLike[str]) -> None:
         raise PermissionError(13, "refused", os.fspath(root))
 
     monkeypatch.setattr(namespace, "remove_layers", refuse)
-    with caplog.at_level(logging.WARNING, logger="huggorm.namespace"), \
-            pytest.raises(RuntimeError, match="the server failed"):
+    with (
+        caplog.at_level(logging.WARNING, logger="huggorm.namespace"),
+        pytest.raises(RuntimeError, match="the server failed"),
+    ):
         async with worker(ServerOptions(overlay=TEMPORARY), via=_Fails()):
             pass
     assert "cannot remove the overlay layers" in caplog.text
@@ -151,8 +150,7 @@ async def child(tmpdir_here: pathlib.Path) -> AsyncIterator[anyio.abc.Process]:
         pytest.skip(reason)
     await anyio.to_thread.run_sync(remove_layers, probe)
     held = str(pathlib.PurePath(*pathlib.Path(sys.executable).resolve().parts[:4]))
-    async with await anyio.open_process(
-            [sys.executable, "-c", CHILD, held], stderr=None) as process:
+    async with await anyio.open_process([sys.executable, "-c", CHILD, held], stderr=None) as process:
         assert process.stdout is not None
         with anyio.fail_after(60):
             assert await process.stdout.receive() == b"ready\n"
@@ -169,8 +167,7 @@ async def _released(root: pathlib.Path) -> None:
     fd = os.open(root / OWNER_FILE, os.O_RDONLY | os.O_CLOEXEC)
     try:
         with anyio.fail_after(30):
-            await anyio.to_thread.run_sync(fcntl.flock, fd, fcntl.LOCK_EX,
-                                           abandon_on_cancel=True)
+            await anyio.to_thread.run_sync(fcntl.flock, fd, fcntl.LOCK_EX, abandon_on_cancel=True)
     finally:
         os.close(fd)
 
@@ -182,8 +179,7 @@ def _server_of(process: anyio.abc.Process) -> int:
 
 
 @pytest.mark.live
-async def test_a_killed_parent_leaves_nothing(
-        tmpdir_here: pathlib.Path, child: anyio.abc.Process) -> None:
+async def test_a_killed_parent_leaves_nothing(tmpdir_here: pathlib.Path, child: anyio.abc.Process) -> None:
     """The server sees its connection end, exits, and removes the root."""
     [root] = _roots(tmpdir_here)
     assert await anyio.Path(root / "upper").is_dir()
@@ -193,8 +189,7 @@ async def test_a_killed_parent_leaves_nothing(
 
 
 @pytest.mark.live
-async def test_a_killed_server_leaves_nothing(
-        tmpdir_here: pathlib.Path, child: anyio.abc.Process) -> None:
+async def test_a_killed_server_leaves_nothing(tmpdir_here: pathlib.Path, child: anyio.abc.Process) -> None:
     """The worker's next call fails, and the worker removes the root.
     An idle session learns of a dead server only when it calls."""
     assert len(_roots(tmpdir_here)) == 1
@@ -208,7 +203,8 @@ async def test_a_killed_server_leaves_nothing(
 
 @pytest.mark.live
 async def test_the_sweep_removes_what_a_killed_parent_and_server_leave(
-        tmpdir_here: pathlib.Path, child: anyio.abc.Process) -> None:
+    tmpdir_here: pathlib.Path, child: anyio.abc.Process
+) -> None:
     [root] = _roots(tmpdir_here)
     server = _server_of(child)
     os.kill(server, signal.SIGSTOP)

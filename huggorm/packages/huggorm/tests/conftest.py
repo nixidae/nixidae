@@ -42,6 +42,7 @@ def runner_of(obj: Any) -> BaseRunner:
     assert isinstance(backend, BaseRunner), backend
     return backend
 
+
 @pytest.fixture
 def flakes() -> Iterator[None]:
     """The `flakes` feature, on for one test and put back after.
@@ -94,13 +95,14 @@ def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
     conf.mkdir()
     sock = tmp_path / "sock"
     log = tmp_path / "daemon.log"
-    env = {**os.environ, "NIX_CONF_DIR": str(conf), "NIX_USER_CONF_FILES": "",
-           "NIX_DAEMON_SOCKET_PATH": str(sock)}
+    env = {**os.environ, "NIX_CONF_DIR": str(conf), "NIX_USER_CONF_FILES": "", "NIX_DAEMON_SOCKET_PATH": str(sock)}
     with log.open("wb") as out:
         proc = subprocess.Popen(
-            [nix, "daemon", "--store", str(tmp_path / "store"),
-             "--extra-experimental-features", "nix-command"],
-            env=env, stdout=out, stderr=subprocess.STDOUT)
+            [nix, "daemon", "--store", str(tmp_path / "store"), "--extra-experimental-features", "nix-command"],
+            env=env,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+        )
     try:
         # A poll, bounded: the daemon says nothing when its socket is
         # up, and a file appearing sends no notification.
@@ -126,6 +128,7 @@ def ambient_store() -> Any:
     from huggorm_bindings import Store
 
     return Store("auto")
+
 
 # The lifetime suite waits out a sweep. Short enough to be quick, long
 # enough that a slow machine does not reap a connection mid-test.
@@ -164,8 +167,7 @@ async def wait_socket(path: pathlib.Path, timeout: float = 20) -> None:
 class Server:
     """One running server, and the log it produced."""
 
-    def __init__(self, path: pathlib.Path, process: Any,
-                 logs: list[str]) -> None:
+    def __init__(self, path: pathlib.Path, process: Any, logs: list[str]) -> None:
         self.path = path
         self.process = process
         self.logs = logs
@@ -190,9 +192,7 @@ async def _serve(ttl: float | None, *extra: str) -> AsyncIterator[Server]:
     argv += ["--option", "extra-experimental-features", "flakes", *extra]
     logs: list[str] = []
 
-    async with await anyio.open_process(
-        argv, stdout=None, stderr=None
-    ) as process, anyio.create_task_group() as tg:
+    async with await anyio.open_process(argv, stdout=None, stderr=None) as process, anyio.create_task_group() as tg:
 
         async def drain(stream: Any) -> None:
             async for text in TextReceiveStream(stream, errors="replace"):

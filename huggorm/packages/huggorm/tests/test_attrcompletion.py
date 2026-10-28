@@ -62,9 +62,7 @@ async def state() -> AsyncIterator[Any]:
         ("nixos.config.system.", []),
     ],
 )
-async def test_the_file_branch_offers_the_whole_path(
-    state: Any, prefix: str, candidates: list[str]
-) -> None:
+async def test_the_file_branch_offers_the_whole_path(state: Any, prefix: str, candidates: list[str]) -> None:
     root = await state.eval_expr(FILE)
     assert await complete_file_attr_path(state, root, prefix) == candidates
 

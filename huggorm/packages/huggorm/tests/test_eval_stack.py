@@ -42,8 +42,6 @@ anyio.run(main)
 
 def test_runaway_recursion_raises_rather_than_crashing() -> None:
     depth = [str(ASAN_DEPTH)] if UNDER_ASAN else []
-    done = subprocess.run(
-        [sys.executable, "-c", CHILD, *depth],
-        capture_output=True, text=True, timeout=120)
+    done = subprocess.run([sys.executable, "-c", CHILD, *depth], capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
     assert "raised:" in done.stdout and STACK_OVERFLOW in done.stdout, done.stdout

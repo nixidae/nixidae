@@ -68,8 +68,8 @@ def _declared(cls: type[Any]) -> str:
         return DECLARED[cls]
     except (KeyError, TypeError):
         raise TypeError(
-            f"{cls!r} is not a generated class; the build offers "
-            f"{sorted(c.__name__ for c in DECLARED)}") from None
+            f"{cls!r} is not a generated class; the build offers {sorted(c.__name__ for c in DECLARED)}"
+        ) from None
 
 
 class ConnectionExpired(RuntimeError):
@@ -88,8 +88,8 @@ class ConnectionExpired(RuntimeError):
 
 def _swept(token: str) -> ConnectionExpired:
     return ConnectionExpired(
-        f"connection {token!r} was swept by the server; its handles are "
-        f"gone. Call bind() and re-acquire.")
+        f"connection {token!r} was swept by the server; its handles are gone. Call bind() and re-acquire."
+    )
 
 
 def handle_of(obj: Any) -> str:
@@ -102,8 +102,8 @@ def handle_of(obj: Any) -> str:
     backend = getattr(obj, "_backend", None)
     if not isinstance(backend, Remote):
         raise TypeError(
-            f"{type(obj).__name__} is not a handle on this server: a "
-            f"remote call takes an object the server holds")
+            f"{type(obj).__name__} is not a handle on this server: a remote call takes an object the server holds"
+        )
     if backend.handle_id is None:
         raise ValueError(f"this {type(obj).__name__} was already released")
     return backend.handle_id
@@ -134,8 +134,9 @@ class _Link:
 
 
 class NixClient:
-    def __init__(self, server: str | os.PathLike[str] | transport.Dialer, *,
-                 experimental_callbacks: bool = False) -> None:
+    def __init__(
+        self, server: str | os.PathLike[str] | transport.Dialer, *, experimental_callbacks: bool = False
+    ) -> None:
         """`server` is a Unix socket's path, or a dialer for any other
         transport (`huggorm.transport`)."""
         if callable(server):
@@ -191,9 +192,7 @@ class NixClient:
         try:
             cls = CLASSES[cls_name]
         except KeyError:
-            raise TypeError(
-                f"{cls_name!r} has no generated class; the build "
-                f"offers {sorted(CLASSES)}") from None
+            raise TypeError(f"{cls_name!r} has no generated class; the build offers {sorted(CLASSES)}") from None
         obj = cls._on(Remote(self, handle_id))
         self._track(obj, handle_id)
         return obj
@@ -286,8 +285,7 @@ class NixClient:
             link.expired = True
             raise _swept(link.token) from None
 
-    async def _read(self, link: _Link,
-                    tasks: anyio.abc.TaskGroup) -> None:
+    async def _read(self, link: _Link, tasks: anyio.abc.TaskGroup) -> None:
         """Hand each frame to the link's peer, until the connection
         closes. Then end the link."""
         peer = link.peer
@@ -297,32 +295,28 @@ class NixClient:
                 match frame:
                     case [Op.RESULT | Op.FAULT, int(), _]:
                         peer.deliver(frame)
-                    case [Op.CALL, int(n), int(client_id), str(name),
-                          list(raw)] if self.experimental_callbacks:
-                        peer.serve(tasks, n, functools.partial(
-                            self._answer_callback, n, client_id, name, raw))
+                    case [Op.CALL, int(n), int(client_id), str(name), list(raw)] if self.experimental_callbacks:
+                        peer.serve(tasks, n, functools.partial(self._answer_callback, n, client_id, name, raw))
                     case [Op.CANCEL, int(n)] if self.experimental_callbacks:
                         peer.cancel(n)
                     case _:
-                        raise ProtocolError(
-                            f"a frame arrived as {frame!r:.80}")
-        except (anyio.EndOfStream, anyio.BrokenResourceError,
-                anyio.ClosedResourceError):
+                        raise ProtocolError(f"a frame arrived as {frame!r:.80}")
+        except (anyio.EndOfStream, anyio.BrokenResourceError, anyio.ClosedResourceError):
             pass
         except ProtocolError:
-            logger.warning("closing the connection to %s", self.address,
-                           exc_info=True)
+            logger.warning("closing the connection to %s", self.address, exc_info=True)
         link.scope.cancel()
 
-    async def _run(self, link: _Link, interval: float, *,
-                   task_status: anyio.abc.TaskStatus[None]
-                   = anyio.TASK_STATUS_IGNORED) -> None:
+    async def _run(
+        self, link: _Link, interval: float, *, task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED
+    ) -> None:
         """The link's tasks, under its one scope. Wakes every call
         still waiting when they end, and closes the socket.
 
         Started with `tg.start`, so the `finally` is entered before
         `bind` returns: a task cancelled before its first step would
         skip it and leak the socket."""
+
         async def ping() -> None:
             with link.pinger:
                 await self._ping_loop(link, interval)
@@ -356,8 +350,7 @@ class NixClient:
         the fixture and the test do not share a task. Measured, not
         assumed: the probe failed at teardown with an exception
         group."""
-        self._tasks = await self._exit.enter_async_context(
-            anyio.create_task_group())
+        self._tasks = await self._exit.enter_async_context(anyio.create_task_group())
         # Runs first on exit: a link's tasks never return on their
         # own, and the group waits for them.
         self._exit.callback(self._close)
@@ -404,7 +397,8 @@ class NixClient:
                 "task needs a scope, so a NixClient owns a task group "
                 "and `bind` starts the loop inside it. Use "
                 "`async with remote.connect(path) as client:` - or "
-                "`async with NixClient(path)` if you are binding by hand.")
+                "`async with NixClient(path)` if you are binding by hand."
+            )
         await self._end()
         stream = await self._dial()
         channel = Channel(stream)
@@ -416,8 +410,7 @@ class NixClient:
                 case [Op.FAULT, None, fault]:
                     raise self.faults.decode(fault)
                 case frame:
-                    raise ProtocolError(
-                        f"the server answered HELLO with {frame!r:.80}")
+                    raise ProtocolError(f"the server answered HELLO with {frame!r:.80}")
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await channel.aclose()
@@ -442,8 +435,9 @@ class NixClient:
                     # unrelated (nixidae/nixidae#586).
                     link.expired = True
                     logger.warning(
-                        "connection %r was swept by the server; its handles "
-                        "are gone. Call bind() and re-acquire.", link.token)
+                        "connection %r was swept by the server; its handles are gone. Call bind() and re-acquire.",
+                        link.token,
+                    )
                     return
                 # The ping loop is the flush's home: it already runs on
                 # the event loop on a timer, which is exactly what a
@@ -488,10 +482,8 @@ class NixClient:
         except (ConnectionExpired, TimeoutError, OSError):
             return False
 
-    async def share(self, obj: Any, to_token: str,
-                    mode: ShareMode = ShareMode.COPY) -> None:
-        await self._ask(Op.CONTROL, Control.SHARE,
-                        [to_token, handle_of(obj), mode.value])
+    async def share(self, obj: Any, to_token: str, mode: ShareMode = ShareMode.COPY) -> None:
+        await self._ask(Op.CONTROL, Control.SHARE, [to_token, handle_of(obj), mode.value])
 
     async def detach(self, obj: Any = None, all: bool = False) -> bool:
         """Hand our claim back as escrow under our own token. With no
@@ -499,11 +491,11 @@ class NixClient:
         hid = None if obj is None else handle_of(obj)
         return bool(await self._ask(Op.CONTROL, Control.DETACH, [hid, all]))
 
-    def _encode_args(self, spec: Call | Acquire, args: tuple[Any, ...] | list[Any]
-                     ) -> list[Any]:
+    def _encode_args(self, spec: Call | Acquire, args: tuple[Any, ...] | list[Any]) -> list[Any]:
         client_id = self._client_id if self.experimental_callbacks else None
-        return [self.codec.encode(a.type, v, handle_of, client_id=client_id)
-                for a, v in zip(spec.args, args, strict=False)]
+        return [
+            self.codec.encode(a.type, v, handle_of, client_id=client_id) for a, v in zip(spec.args, args, strict=False)
+        ]
 
     def _client_id(self, cls: str, obj: Any) -> int:
         """This client's id for an object the server will call back."""
@@ -513,8 +505,7 @@ class NixClient:
             self._objects[n] = (cls, obj)
         return n
 
-    async def _answer_callback(self, n: int, client_id: int, name: str,
-                               raw: list[Any]) -> list[Any]:
+    async def _answer_callback(self, n: int, client_id: int, name: str, raw: list[Any]) -> list[Any]:
         """Answer one CALL from the server with its RESULT or FAULT. In
         its own task, so the reader keeps reading. An async method (`AsyncSourceAccessor`)
         is awaited, and may call the server meanwhile. A sync one, such
@@ -523,16 +514,13 @@ class NixClient:
         try:
             cls, obj = self._objects[client_id]
             spec = next(h.call for h in CALLBACKS[cls] if h.call.name == name)
-            args = [self.codec.decode(a.type, v, _no_handle)
-                    for a, v in zip(spec.args, raw, strict=True)]
+            args = [self.codec.decode(a.type, v, _no_handle) for a, v in zip(spec.args, raw, strict=True)]
             answer = getattr(obj, name)(*args)
             if inspect.isawaitable(answer):
                 answer = await answer
-            return [Op.RESULT, n,
-                    self.codec.encode(spec.returns, answer, _no_handle)]
+            return [Op.RESULT, n, self.codec.encode(spec.returns, answer, _no_handle)]
         except Exception as e:
-            return [Op.FAULT, n, self.faults.encode(
-                typed_or_internal(f"callback {name}", e))]
+            return [Op.FAULT, n, self.faults.encode(typed_or_internal(f"callback {name}", e))]
 
     async def acquire(self, cls: type[T], *args: Any) -> T:
         """Construct one instance of `cls` remotely, from typed
@@ -545,16 +533,14 @@ class NixClient:
             # Not every constructible class is remotely constructible.
             # One that crosses as a value has no handle to construct
             # INTO: build it locally and pass it as an argument.
-            raise ValueError(
-                f"{cls_name!r} cannot be constructed remotely; the bindings "
-                f"offer {sorted(ACQUIRE)}")
+            raise ValueError(f"{cls_name!r} cannot be constructed remotely; the bindings offer {sorted(ACQUIRE)}")
         if len(args) < spec.required or len(args) > len(spec.args):
             raise TypeError(
                 f"{cls_name} takes {spec.required}..{len(spec.args)} "
                 f"argument(s) ({', '.join(a.name for a in spec.args)}), "
-                f"got {len(args)}")
-        hid = await self._ask(Op.CALL, spec.index, None,
-                              self._encode_args(spec, args))
+                f"got {len(args)}"
+            )
+        hid = await self._ask(Op.CALL, spec.index, None, self._encode_args(spec, args))
         return cast("T", self._proxy(cls_name, hid))
 
     async def release(self, handle: Remote) -> None:
@@ -564,8 +550,7 @@ class NixClient:
         self._untrack(handle.handle_id)
         handle.handle_id = None
 
-    async def realize(self, obj: Any, depth: int = 0,
-                      budget: int = 0, force: bool = False) -> Any:
+    async def realize(self, obj: Any, depth: int = 0, budget: int = 0, force: bool = False) -> Any:
         """A whole value tree in one round trip.
 
         Walking a value one call at a time costs a round trip and a
@@ -591,8 +576,7 @@ class NixClient:
         bounds. It does not enter a derivation, and a node whose force
         throws comes back as a proxy whose first read raises that
         error, so the rest of the tree still arrives (nixidae/nixidae#721)."""
-        raw = await self._ask(Op.CONTROL, Control.REALIZE,
-                              [handle_of(obj), depth, budget, force])
+        raw = await self._ask(Op.CONTROL, Control.REALIZE, [handle_of(obj), depth, budget, force])
         return self.codec.decode_tree(raw, self._proxy, self.view)
 
     async def value(self, state: Any, data: Any) -> Any:
@@ -616,17 +600,17 @@ class NixClient:
             passed[hid] = obj
             return hid
 
-        raw = await self._ask(Op.CONTROL, Control.BUILD, [
-            hid_state, self.codec.encode_data(data, handle_id)])
+        raw = await self._ask(Op.CONTROL, Control.BUILD, [hid_state, self.codec.encode_data(data, handle_id)])
         return self.codec.decode_tree(
             # Not `passed.get(hid) or`: an empty view is falsy.
-            raw, lambda cls, hid: (passed[hid] if hid in passed
-                                   else self._proxy(cls, hid)),
-            self.view)
+            raw,
+            lambda cls, hid: passed[hid] if hid in passed else self._proxy(cls, hid),
+            self.view,
+        )
 
-    async def logs(self, obj: Any, capacity: int = 0,
-                   level: int | None = None) -> AsyncGenerator[
-                       tuple[list[Any], int]]:
+    async def logs(
+        self, obj: Any, capacity: int = 0, level: int | None = None
+    ) -> AsyncGenerator[tuple[list[Any], int]]:
         """Records Nix raises while this state works, as they arrive.
 
         A reader is a handle the server opens on the state's own
@@ -664,9 +648,7 @@ class NixClient:
         async for batch in self._log_batches(handle_of(obj), capacity, level):
             yield batch
 
-    async def process_logs(self, capacity: int = 0,
-                           level: int | None = None) -> AsyncGenerator[
-                               tuple[list[Any], int]]:
+    async def process_logs(self, capacity: int = 0, level: int | None = None) -> AsyncGenerator[tuple[list[Any], int]]:
         """Records no subscribed thread claimed, as they arrive.
 
         The same reader with nothing to name. `logs` takes a state
@@ -683,29 +665,28 @@ class NixClient:
         async for batch in self._log_batches(None, capacity, level):
             yield batch
 
-    async def _log_batches(self, hid: str | None, capacity: int,
-                           level: int | None) -> AsyncGenerator[
-                               tuple[list[Any], int]]:
+    async def _log_batches(
+        self, hid: str | None, capacity: int, level: int | None
+    ) -> AsyncGenerator[tuple[list[Any], int]]:
         """Open a reader, wait on it until the caller stops, then
         release it. Each LOGS_NEXT waits on the server until the reader
         has records.
 
         Shielded on the way out, because a caller that stops by
         cancellation still owes the server the release."""
-        reader = self._proxy(LOG_READER.name, await self._ask(
-            Op.CONTROL, Control.LOGS,
-            [hid, capacity or LOG_CAPACITY,
-             LOG_LEVEL if level is None else level]))
+        reader = self._proxy(
+            LOG_READER.name,
+            await self._ask(
+                Op.CONTROL, Control.LOGS, [hid, capacity or LOG_CAPACITY, LOG_LEVEL if level is None else level]
+            ),
+        )
         try:
             yield [], 0
             while True:
-                raw, dropped = await self._ask(
-                    Op.CONTROL, Control.LOGS_NEXT, [handle_of(reader)])
-                yield (self.codec.decode(LOG_DRAIN.returns, raw, _no_handle),
-                       dropped)
+                raw, dropped = await self._ask(Op.CONTROL, Control.LOGS_NEXT, [handle_of(reader)])
+                yield (self.codec.decode(LOG_DRAIN.returns, raw, _no_handle), dropped)
         finally:
-            with anyio.CancelScope(shield=True), contextlib.suppress(
-                    ConnectionExpired, ConnectionLost):
+            with anyio.CancelScope(shield=True), contextlib.suppress(ConnectionExpired, ConnectionLost):
                 await reader.aclose()
 
     async def logs_barrier(self, obj: Any) -> int:
@@ -715,8 +696,7 @@ class NixClient:
         The server runs one call on the state's own thread, so its
         marker is queued after everything that thread raised before.
         A reader that sees the marker holds all of it."""
-        return int(await self._ask(Op.CONTROL, Control.LOGS_BARRIER,
-                                   [handle_of(obj)]))
+        return int(await self._ask(Op.CONTROL, Control.LOGS_BARRIER, [handle_of(obj)]))
 
     async def call_function(self, name: str, *args: Any) -> Any:
         """Call one of the bindings' module-level functions remotely.
@@ -729,19 +709,13 @@ class NixClient:
             # difference. A declared function the wire cannot carry is
             # a policy the build decided, and it says which.
             if name in NO_RPC:
-                raise TypeError(
-                    f"{name!r} has no RPC surface: {NO_RPC[name]}")
-            raise ValueError(
-                f"{name!r} is not a binding function; the bindings offer "
-                f"{sorted(FREE)}")
+                raise TypeError(f"{name!r} has no RPC surface: {NO_RPC[name]}")
+            raise ValueError(f"{name!r} is not a binding function; the bindings offer {sorted(FREE)}")
         if len(args) != len(spec.args):
-            raise TypeError(f"{name} takes {len(spec.args)} argument(s), "
-                            f"got {len(args)}")
-        return self._result(spec, await self._ask(
-            Op.CALL, spec.index, None, self._encode_args(spec, args)))
+            raise TypeError(f"{name} takes {len(spec.args)} argument(s), got {len(args)}")
+        return self._result(spec, await self._ask(Op.CALL, spec.index, None, self._encode_args(spec, args)))
 
-    async def invoke(self, m: Call, handle_id: str | None,
-                     args: list[Any]) -> Any:
+    async def invoke(self, m: Call, handle_id: str | None, args: list[Any]) -> Any:
         """Make one call.
 
         `m` is the spec the generated method carries - a `Call`, built
@@ -756,25 +730,20 @@ class NixClient:
             # arrives here as None.
             raise ValueError(f"{m.name}: this handle was already released")
         if len(args) != len(m.args):
-            raise TypeError(f"{m.name} takes {len(m.args)} argument(s), "
-                            f"got {len(args)}")
-        return self._result(m, await self._ask(
-            Op.CALL, m.index, handle_id, self._encode_args(m, args)))
+            raise TypeError(f"{m.name} takes {len(m.args)} argument(s), got {len(args)}")
+        return self._result(m, await self._ask(Op.CALL, m.index, handle_id, self._encode_args(m, args)))
 
     def _result(self, spec: Call, raw: Any) -> Any:
         """Proxies stay remote behind a handle; values come back as
         real local objects."""
         returned = spec.returns
-        return self.codec.decode(
-            returned, raw,
-            lambda hid: self._proxy(returned.name if returned else "", hid))
+        return self.codec.decode(returned, raw, lambda hid: self._proxy(returned.name if returned else "", hid))
 
 
 @contextlib.asynccontextmanager
-async def connect(server: str | os.PathLike[str] | transport.Dialer,
-                  claim: str | None = None, *,
-                  experimental_callbacks: bool = False
-                  ) -> AsyncIterator[NixClient]:
+async def connect(
+    server: str | os.PathLike[str] | transport.Dialer, claim: str | None = None, *, experimental_callbacks: bool = False
+) -> AsyncIterator[NixClient]:
     """Connect to the server at `path` and bind a connection identity,
     claiming escrow when a detached session's token is presented.
 
@@ -783,7 +752,6 @@ async def connect(server: str | os.PathLike[str] | transport.Dialer,
     something has to hold the scope open, and the client is the only
     thing with the right lifetime (nixidae/nixidae#572). The loops cannot
     outlive the client and cannot be forgotten."""
-    async with NixClient(
-            server, experimental_callbacks=experimental_callbacks) as client:
+    async with NixClient(server, experimental_callbacks=experimental_callbacks) as client:
         await client.bind(claim)
         yield client

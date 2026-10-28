@@ -41,8 +41,8 @@ class Read:
         self.data, self.size = data, size
 
     async def read(self, n: int) -> bytes:
-        out = self.data[:min(n, self.size)]
-        self.data = self.data[len(out):]
+        out = self.data[: min(n, self.size)]
+        self.data = self.data[len(out) :]
         return out
 
 
@@ -70,8 +70,7 @@ async def test_a_nar_comes_in_from_an_async_source() -> None:
     sync, path, nar = held()
     store = AsyncStore(DUMMY)
     with anyio.fail_after(30):
-        await store.add_to_store_nar(sync.query_path_info(path), Read(nar),
-                                     check_sigs=False)
+        await store.add_to_store_nar(sync.query_path_info(path), Read(nar), check_sigs=False)
         assert await store.is_valid_path(path)
 
 
@@ -137,27 +136,21 @@ async def test_a_cancelled_call_frees_a_writer_that_hangs() -> None:
         assert await store.is_valid_path(path)
 
 
-async def test_the_server_streams_a_nar_to_the_client(
-        callback_server: Server) -> None:
+async def test_the_server_streams_a_nar_to_the_client(callback_server: Server) -> None:
     sync, path, nar = held()
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
-            await store.add_to_store_nar(sync.query_path_info(path),
-                                         Chunks(nar, 4096), check_sigs=False)
+            await store.add_to_store_nar(sync.query_path_info(path), Chunks(nar, 4096), check_sigs=False)
             out = Written()
             await store.nar_from_path(path, out)
     assert out.nar() == nar
 
 
-async def test_the_server_reads_a_nar_from_an_async_client_source(
-        callback_server: Server) -> None:
+async def test_the_server_reads_a_nar_from_an_async_client_source(callback_server: Server) -> None:
     sync, path, nar = held()
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
-            await store.add_to_store_nar(sync.query_path_info(path),
-                                         Read(nar, 4096), check_sigs=False)
+            await store.add_to_store_nar(sync.query_path_info(path), Read(nar, 4096), check_sigs=False)
             assert await store.is_valid_path(path)

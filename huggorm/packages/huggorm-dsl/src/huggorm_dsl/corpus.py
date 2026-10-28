@@ -62,10 +62,14 @@ class Corpus:
     and a C++ catch chain.
     """
 
-    def __init__(self, root: pathlib.Path, *,
-                 nanobind: tuple[str, ...] = (),
-                 vocabularies: tuple[str, ...] = (),
-                 errors: str = "") -> None:
+    def __init__(
+        self,
+        root: pathlib.Path,
+        *,
+        nanobind: tuple[str, ...] = (),
+        vocabularies: tuple[str, ...] = (),
+        errors: str = "",
+    ) -> None:
         self.root = pathlib.Path(root)
         self._nanobind = nanobind
         self._vocabularies = vocabularies
@@ -227,8 +231,7 @@ class Corpus:
         would answer "not a declared type" about a type the set
         declares."""
         out: dict[str, Class] = {}
-        for mod in (*self.modules,
-                    *(self.module(n) for n in self._vocabularies)):
+        for mod in (*self.modules, *(self.module(n) for n in self._vocabularies)):
             for cls in (*mod.classes, *mod.unions):
                 out[cls.name] = cls
         return out

@@ -71,8 +71,7 @@ class CapturedLogs:
     dropped: int = 0
 
 
-_FANOUTS: weakref.WeakKeyDictionary[AsyncEvalState, Fanout] = (
-    weakref.WeakKeyDictionary())
+_FANOUTS: weakref.WeakKeyDictionary[AsyncEvalState, Fanout] = weakref.WeakKeyDictionary()
 
 
 def _fanout(state: AsyncEvalState) -> Fanout:
@@ -172,8 +171,7 @@ class _Pump:
     pass before the caller learns its id, and then the tail is already
     handed over."""
 
-    def __init__(self, it: AsyncIterator[LogBatch],
-                 callback: Callable[[LogRecord], None]) -> None:
+    def __init__(self, it: AsyncIterator[LogBatch], callback: Callable[[LogRecord], None]) -> None:
         self.it = it
         self.callback = callback
         self.barrier: int | None = None
@@ -193,9 +191,9 @@ class _Pump:
 
 @contextlib.asynccontextmanager
 async def _forward_remote(
-        stream: AsyncGenerator[LogBatch],
-        callback: Callable[[LogRecord], None],
-        finish: Callable[[_Pump, anyio.CancelScope], Awaitable[None]],
+    stream: AsyncGenerator[LogBatch],
+    callback: Callable[[LogRecord], None],
+    finish: Callable[[_Pump, anyio.CancelScope], Awaitable[None]],
 ) -> AsyncIterator[None]:
     """Pump a remote stream into `callback` while the block runs, then
     let `finish` decide when the tail is in. Errors as `_forward`."""
@@ -306,10 +304,7 @@ class AsyncSession:
         session would silently keep the wrong one.
         """
         if store not in self._stores:
-            raise ValueError(
-                "this store belongs to another session; "
-                "make the evaluator where the store was made"
-            )
+            raise ValueError("this store belongs to another session; make the evaluator where the store was made")
         state = AsyncEvalState(store, settings, build_store)
         self._evals.add(state)
         return state
@@ -628,12 +623,8 @@ class AsyncRemoteSession:
         here would pull it out from under its owner.
         """
         if store not in self._stores:
-            raise ValueError(
-                "this store belongs to another session; "
-                "make the evaluator where the store was made"
-            )
-        proxy = await self._client.acquire(
-            AsyncEvalState, store, settings, build_store)
+            raise ValueError("this store belongs to another session; make the evaluator where the store was made")
+        proxy = await self._client.acquire(AsyncEvalState, store, settings, build_store)
         self._evals.add(proxy)
         return proxy
 
@@ -654,8 +645,7 @@ class AsyncRemoteSession:
                 self._stores.discard(obj)
         return done
 
-    async def share(self, obj: Any, to_token: str,
-                    mode: ShareMode = ShareMode.COPY) -> None:
+    async def share(self, obj: Any, to_token: str, mode: ShareMode = ShareMode.COPY) -> None:
         """Give another live connection a lease on `obj`."""
         await self._client.share(obj, to_token, mode)
 
@@ -672,8 +662,7 @@ class AsyncRemoteSession:
         # Before `proxy`: an object made and dropped releases the handle.
         kind: type[Any] = cls
         if kind is not AsyncStore and kind is not AsyncEvalState:
-            raise ValueError(
-                f"only AsyncStore and AsyncEvalState attach to a session, not {cls!r}")
+            raise ValueError(f"only AsyncStore and AsyncEvalState attach to a session, not {cls!r}")
         obj = self._client.proxy(cls, handle_id)
         if isinstance(obj, AsyncStore):
             self._stores.add(obj)
@@ -769,13 +758,11 @@ class AsyncRemoteSession:
             barrier = await self._client.logs_barrier(state)
             async for records, dropped in it:
                 for at, record in enumerate(records):
-                    if (record.action() == "finalized"
-                            and record.request() == barrier):
+                    if record.action() == "finalized" and record.request() == barrier:
                         take(records[:at], dropped)
                         return
                 take(records, dropped)
-            raise RuntimeError(
-                "the log stream ended before the barrier's marker arrived")
+            raise RuntimeError("the log stream ended before the barrier's marker arrived")
         finally:
             await stream.aclose()
 
@@ -811,8 +798,7 @@ class AsyncRemoteSession:
             if pump.barrier in pump.seen:
                 scope.cancel()
 
-        async with _forward_remote(self._client.logs(state, capacity, level),
-                                   callback, finish):
+        async with _forward_remote(self._client.logs(state, capacity, level), callback, finish):
             yield
 
     @contextlib.asynccontextmanager
@@ -830,8 +816,7 @@ class AsyncRemoteSession:
             await anyio.sleep(settle)
             scope.cancel()
 
-        async with _forward_remote(self._client.process_logs(capacity, level),
-                                   callback, finish):
+        async with _forward_remote(self._client.process_logs(capacity, level), callback, finish):
             yield
 
     async def aclose(self) -> None:

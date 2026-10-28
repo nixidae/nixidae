@@ -22,5 +22,4 @@ def test_a_tab_becomes_spaces_to_the_next_stop() -> None:
 
 
 def test_width_counts_printable_characters_only() -> None:
-    assert filter_ansi_escapes(f"{RED}abcdef{RESET}", filter_all=True,
-                               width=3) == "abc"
+    assert filter_ansi_escapes(f"{RED}abcdef{RESET}", filter_all=True, width=3) == "abc"

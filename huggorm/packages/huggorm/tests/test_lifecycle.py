@@ -63,16 +63,15 @@ async def wrapper_error(coro: Any) -> dict[str, str]:
 # tmp_path rather than sharing one. Found in review before it hung
 # anything, not after.
 
+
 async def test_distinct_clients_get_distinct_tokens(ttl_server: Server) -> None:
-    async with (remote.connect(ttl_server.path) as a,
-                remote.connect(ttl_server.path) as b):
+    async with remote.connect(ttl_server.path) as a, remote.connect(ttl_server.path) as b:
         assert a.token != b.token
 
 
 async def test_a_handle_is_a_capability(ttl_server: Server) -> None:
     """Anyone holding the id may call. Lifetime is what tokens govern."""
-    async with (remote.connect(ttl_server.path) as a,
-                remote.connect(ttl_server.path) as b):
+    async with remote.connect(ttl_server.path) as a, remote.connect(ttl_server.path) as b:
         store = await a.acquire(AsyncStore, "dummy://")
         cross = b.proxy(AsyncStore, remote.handle_of(store))
         assert await cross.get_uri() == "dummy://"
@@ -82,8 +81,7 @@ async def test_naming_a_handle_makes_you_a_holder(ttl_server: Server) -> None:
     """Two processes share one object by passing its id between them
     however they like: the second calls, and the object stays alive for
     it without the first arranging anything (nixidae/nixidae#568)."""
-    async with (remote.connect(ttl_server.path) as a,
-                remote.connect(ttl_server.path) as b):
+    async with remote.connect(ttl_server.path) as a, remote.connect(ttl_server.path) as b:
         shared = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(shared)
         borrowed = b.proxy(AsyncStore, hid)
@@ -121,9 +119,9 @@ async def test_double_release_fails_typed(ttl_server: Server) -> None:
 
 # -- share -----------------------------------------------------------------
 
+
 async def test_share_copy_survives_the_granter(ttl_server: Server) -> None:
-    async with (remote.connect(ttl_server.path) as a,
-                remote.connect(ttl_server.path) as b):
+    async with remote.connect(ttl_server.path) as a, remote.connect(ttl_server.path) as b:
         assert b.token is not None  # connect() binds
         store = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(store)
@@ -133,8 +131,7 @@ async def test_share_copy_survives_the_granter(ttl_server: Server) -> None:
 
 
 async def test_share_transfer_moves_ownership(ttl_server: Server) -> None:
-    async with (remote.connect(ttl_server.path) as a,
-                remote.connect(ttl_server.path) as b):
+    async with remote.connect(ttl_server.path) as a, remote.connect(ttl_server.path) as b:
         assert b.token is not None
         store = await a.acquire(AsyncStore, "dummy://")
         hid = remote.handle_of(store)
@@ -145,6 +142,7 @@ async def test_share_transfer_moves_ownership(ttl_server: Server) -> None:
 
 
 # -- producer pinning ------------------------------------------------------
+
 
 async def test_producer_pinning_and_cascade_reap(ttl_server: Server) -> None:
     """A child pins the producer that made it, and dropping the child
@@ -168,13 +166,16 @@ async def test_producer_pinning_and_cascade_reap(ttl_server: Server) -> None:
         hid_v = remote.handle_of(v)
         await v.aclose()
         for cls, hid in ((AsyncValue, hid_v), (AsyncEvalState, hid_state)):
-            gone = await wrapper_error(a.proxy(AsyncValue, hid).is_gc_managed()
-                                       if cls is AsyncValue
-                                       else a.proxy(AsyncEvalState, hid).get_store_uri())
+            gone = await wrapper_error(
+                a.proxy(AsyncValue, hid).is_gc_managed()
+                if cls is AsyncValue
+                else a.proxy(AsyncEvalState, hid).get_store_uri()
+            )
             assert gone["cause_type"] == "KeyError", (cls, gone)
 
 
 # -- everything that has to outlast the sweeper ----------------------------
+
 
 @dataclass
 class Swept:
@@ -216,9 +217,9 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
     reaps it. Closing the client would do that too, and it would also
     end the scenario the wait is for."""
     async with contextlib.AsyncExitStack() as stack:
+
         async def client() -> Any:
-            return await stack.enter_async_context(
-                remote.connect(ttl_server.path))
+            return await stack.enter_async_context(remote.connect(ttl_server.path))
 
         # 1. detached leases, whose owner then dies.
         a = await client()
@@ -248,8 +249,7 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
         warm_file.write_text("40 + 2\n")
         assert await (await warm.eval_file(str(warm_file))).integer() == 42
         warm_file.unlink()
-        state_id, bag_id, lazy_id = (
-            remote.handle_of(warm), remote.handle_of(bag), remote.handle_of(lazy))
+        state_id, bag_id, lazy_id = (remote.handle_of(warm), remote.handle_of(bag), remote.handle_of(lazy))
         assert await maker.detach(all=True)
         maker.stop_pinging()
 
@@ -267,9 +267,19 @@ async def swept(ttl_server: Server, tmp_path_factory: Any) -> Any:
         assert a.token is not None and maker.token is not None
 
         await anyio.sleep(SHORT_TTL * 1.5 + 1.0)
-        yield Swept(ttl_server.path, a.token, thunk_id, maker.token,
-                    state_id, bag_id, lazy_id, str(warm_file), doomed_id,
-                    d, alive)
+        yield Swept(
+            ttl_server.path,
+            a.token,
+            thunk_id,
+            maker.token,
+            state_id,
+            bag_id,
+            lazy_id,
+            str(warm_file),
+            doomed_id,
+            d,
+            alive,
+        )
 
 
 async def test_pinging_client_survives_the_sweeper(swept: Swept) -> None:
@@ -337,7 +347,8 @@ async def _keep() -> None:
 
 
 async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
-        ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
+    ttl_server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Each link keeps its own waiting calls (nixidae/nixidae#882).
 
     `bind` ends the old link before it connects, so a call on the new
@@ -358,8 +369,7 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
 
             async def ask() -> None:
                 asked.set()
-                answer.append(await new.peer.ask(
-                    Op.CONTROL, Control.PING, []))
+                answer.append(await new.peer.ask(Op.CONTROL, Control.PING, []))
 
             async with anyio.create_task_group() as tg:
                 tg.start_soon(ask)
@@ -369,8 +379,7 @@ async def test_an_old_link_ending_wakes_no_call_on_the_new_one(
             assert answer == [True]
 
 
-async def test_a_second_bind_closes_the_old_socket_first(
-        ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_second_bind_closes_the_old_socket_first(ttl_server: Server, monkeypatch: pytest.MonkeyPatch) -> None:
     """The old socket is closed before the new one connects, so the
     server sees the old connection end before the new HELLO
     (nixidae/nixidae#935). Perturbation: `bind` connects right after
@@ -378,8 +387,7 @@ async def test_a_second_bind_closes_the_old_socket_first(
     with anyio.fail_after(20):
         async with remote.connect(ttl_server.path) as c:
             assert c._link is not None
-            sock = c._link.peer.channel.stream.extra(
-                anyio.abc.SocketAttribute.raw_socket)
+            sock = c._link.peer.channel.stream.extra(anyio.abc.SocketAttribute.raw_socket)
             connect = anyio.connect_unix
             at_connect: list[int] = []
 
@@ -393,8 +401,7 @@ async def test_a_second_bind_closes_the_old_socket_first(
             assert at_connect == [-1]
 
 
-async def test_a_swept_client_stops_rather_than_rebinding(
-        swept: Swept) -> None:
+async def test_a_swept_client_stops_rather_than_rebinding(swept: Swept) -> None:
     """What the client DOES about it, which is the decision this task
     actually carried.
 
@@ -463,8 +470,7 @@ async def test_the_evaluator_outlives_its_creator(swept: Swept) -> None:
         assert await fresh.string_value() == "after the handover"
 
 
-async def test_a_claimed_state_answers_for_a_file_it_can_no_longer_read(
-        swept: Swept) -> None:
+async def test_a_claimed_state_answers_for_a_file_it_can_no_longer_read(swept: Swept) -> None:
     """The milestone, as `CLAUDE.md` words it: a second client claims a
     live EvalState, and re-evaluating unchanged input does no
     re-evaluation.
@@ -503,6 +509,7 @@ async def test_a_claimed_state_answers_for_a_file_it_can_no_longer_read(
 # which is exactly why they matter. Before this, the only way such a
 # connection ever gave a handle back was an explicit release, so every
 # proxy it was granted stayed alive for the life of the connection.
+
 
 async def test_dropping_the_last_reference_releases(client: Any) -> None:
     # Held, so the only drops the queue sees are the values below.

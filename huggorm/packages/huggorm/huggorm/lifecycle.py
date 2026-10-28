@@ -85,8 +85,7 @@ class Connection:
 class HandleTable:
     """Owns entries, connections and escrow; knows nothing about the transport."""
 
-    def __init__(self, ttl: float | None = 120.0,
-                 escrow_ttl: float | None = 300.0):
+    def __init__(self, ttl: float | None = 120.0, escrow_ttl: float | None = 300.0):
         self.ttl = ttl
         self.escrow_ttl = escrow_ttl
         self.entries: dict[str, Entry] = {}
@@ -176,8 +175,7 @@ class HandleTable:
         return conn
 
     # -- handles --------------------------------------------------------
-    def put(self, obj: Any, holder_token: str,
-            parents: Iterable[str] = ()) -> str:
+    def put(self, obj: Any, holder_token: str, parents: Iterable[str] = ()) -> str:
         """Grant the holder one lease on this object, and return its
         handle. The holder gets the handle it already has for this
         object, or a new one."""
@@ -266,8 +264,7 @@ class HandleTable:
         conn = self._require_conn(token)
         held = conn.leases.get(hid, 0)
         if held < n:
-            raise ValueError(
-                f"connection does not hold {n} lease(s) on {hid[:8]} (has {held})")
+            raise ValueError(f"connection does not hold {n} lease(s) on {hid[:8]} (has {held})")
         if held == n:
             del conn.leases[hid]
         else:
@@ -275,8 +272,7 @@ class HandleTable:
         self.entries[hid].leases -= n
         self._reap([hid])
 
-    def share(self, from_token: str, to_token: str, hid: str,
-              mode: ShareMode = ShareMode.COPY) -> None:
+    def share(self, from_token: str, to_token: str, hid: str, mode: ShareMode = ShareMode.COPY) -> None:
         """Duplicate or move one lease onto another LIVE connection."""
         src = self._require_conn(from_token)
         if to_token == (from_token or ANON):
@@ -357,8 +353,7 @@ class HandleTable:
         now = now if now is not None else time.monotonic()
         released: list[str] = []
         if self.escrow_ttl:
-            stale = [t for t, at in self._escrowed_at.items()
-                     if now - at > self.escrow_ttl]
+            stale = [t for t, at in self._escrowed_at.items() if now - at > self.escrow_ttl]
             for t in stale:
                 del self._escrowed_at[t]
                 for hid, n in self.escrow.pop(t, {}).items():

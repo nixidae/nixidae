@@ -31,8 +31,7 @@ def test_no_hardcoded_domain_types(model: ir.Model) -> None:
     domain |= set(model.errors.classes)
     here = pathlib.Path(huggorm.__file__).resolve().parent
     offenders = []
-    for mod in ("server.py", "remote.py", "lifecycle.py", "codec.py",
-                "protocol.py"):
+    for mod in ("server.py", "remote.py", "lifecycle.py", "codec.py", "protocol.py"):
         tree = ast.parse((here / mod).read_text(), filename=mod)
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and node.value in domain:
@@ -52,14 +51,12 @@ def test_a_declared_error_crosses_as_its_own_message() -> None:
     from huggorm_generated._runtime import InternalError
 
     faults = Faults()
-    failed = InternalError("Store.parse_store_path failed",
-                           cause=BadStorePath("plain", "coloured"))
+    failed = InternalError("Store.parse_store_path failed", cause=BadStorePath("plain", "coloured"))
     raw = faults.encode(failed)
     assert raw[4] == list(ERROR_FIELDS).index("BadStorePath"), raw
 
     # An UNDECLARED cause crosses by name, with no parts.
-    plain = faults.encode(InternalError("something else failed",
-                                        cause=ValueError("nope")))
+    plain = faults.encode(InternalError("something else failed", cause=ValueError("nope")))
     assert plain[2:] == ["ValueError", "nope", None, None], plain
 
 
@@ -76,12 +73,10 @@ def test_every_declared_error_has_its_parts(model: ir.Model) -> None:
     assert declared, "the bindings declare no errors at all"
     assert set(ERROR_FIELDS) == set(declared)
     for name, error in declared.items():
-        assert [a.name for a in ERROR_FIELDS[name]] == [
-            f.name for f in error.wire_fields], name
+        assert [a.name for a in ERROR_FIELDS[name]] == [f.name for f in error.wire_fields], name
 
 
-def test_every_declared_error_rebuilds_from_its_parts(
-        model: ir.Model) -> None:
+def test_every_declared_error_rebuilds_from_its_parts(model: ir.Model) -> None:
     """An error must survive its own round trip.
 
     An error crosses as its declared parts and comes back as
@@ -105,9 +100,7 @@ def test_every_declared_error_rebuilds_from_its_parts(
     module = importlib.import_module(module_name)
     for name, error in model.errors.classes.items():
         fields = error.wire_fields
-        assert fields, (
-            f"{name}: no wire_fields, so nothing says how to rebuild it "
-            f"on the far side")
+        assert fields, f"{name}: no wire_fields, so nothing says how to rebuild it on the far side"
         # Distinct values, so a swap is visible. A reordering that kept
         # the same string in both slots would otherwise pass.
         probe = [f"<{f.name}>" for f in fields]
@@ -116,7 +109,8 @@ def test_every_declared_error_rebuilds_from_its_parts(
             got = getattr(built, f.name, None)
             assert got == sent, (
                 f"{name}.wire_fields names {f.name!r}, but building it from "
-                f"its parts leaves {f.name} = {got!r}, not {sent!r}")
+                f"its parts leaves {f.name} = {got!r}, not {sent!r}"
+            )
 
 
 def test_a_string_enum_decodes_to_its_class(model: ir.Model) -> None:
@@ -148,27 +142,23 @@ def test_a_string_enum_decodes_to_its_class(model: ir.Model) -> None:
 def test_the_front_door_covers_the_surface() -> None:
     """One import, and nothing real left behind it.
 
-    `import huggorm` used to export two mock DEMO classes, so a user
-    faced three packages and no guidance on which to import - the
-    build topology as the first thing to learn (nixidae/nixidae#588).
+        `import huggorm` used to export two mock DEMO classes, so a user
+        faced three packages and no guidance on which to import - the
+        build topology as the first thing to learn (nixidae/nixidae#588).
 
-    Derived rather than listed twice: this asks the two packages what
-    they export and requires the front door to carry all of it. A new
-    binding that lands without reaching the front door fails here
-    rather than being missed by a reader.
+        Derived rather than listed twice: this asks the two packages what
+        they export and requires the front door to carry all of it. A new
+        binding that lands without reaching the front door fails here
+        rather than being missed by a reader.
 
-Everything behind the front door
-    has to reach it, with no exception left: the Mock* classes were the
-    last one, and they are gone (nixidae/nixidae#597)."""
+    Everything behind the front door
+        has to reach it, with no exception left: the Mock* classes were the
+        last one, and they are gone (nixidae/nixidae#597)."""
     import huggorm
     import huggorm_bindings
     import huggorm_generated
 
-    behind = {
-        name
-        for pkg in (huggorm_bindings, huggorm_generated)
-        for name in pkg.__all__
-    }
+    behind = {name for pkg in (huggorm_bindings, huggorm_generated) for name in pkg.__all__}
     missing = sorted(behind - set(huggorm.__all__))
     assert not missing, f"not reachable from `import huggorm`: {missing}"
     assert all(hasattr(huggorm, n) for n in huggorm.__all__)
@@ -225,18 +215,17 @@ def test_every_name_the_model_DECLARES_reaches_the_front_door() -> None:
     declared = {
         name
         for table in tables
-        if isinstance(table, Mapping) and table
-        and all(str(k).isidentifier() for k in table)
+        if isinstance(table, Mapping) and table and all(str(k).isidentifier() for k in table)
         for name in table
     }
-    assert "DerivedPath" in declared, (
-        "the union table stopped being read, so this gate is asleep")
+    assert "DerivedPath" in declared, "the union table stopped being read, so this gate is asleep"
 
     missing = sorted(declared - set(huggorm.__all__))
     assert not missing, (
         f"the model declares {missing}, and `import huggorm` does not "
         f"reach them. A declared name that no front door carries is a "
-        f"name only a reader of the model knows about.")
+        f"name only a reader of the model knows about."
+    )
 
 
 def test_the_package_ships_no_demos() -> None:
@@ -248,9 +237,9 @@ def test_the_package_ships_no_demos() -> None:
     import huggorm
 
     installed = pathlib.Path(huggorm.__file__).parent
-    demos = sorted(f.name for f in installed.glob("*.py")
-                   if f.stem.endswith("_demo") or f.stem in
-                   ("custom", "run_remote"))
+    demos = sorted(
+        f.name for f in installed.glob("*.py") if f.stem.endswith("_demo") or f.stem in ("custom", "run_remote")
+    )
     assert demos == [], demos
 
 
@@ -283,8 +272,7 @@ def test_an_enum_survives_a_container() -> None:
         Codec().decode(words, ["sha256", "nonsense"], lambda _: None)
 
 
-def test_a_method_with_no_wire_form_is_absent_everywhere(
-        model: ir.Model) -> None:
+def test_a_method_with_no_wire_form_is_absent_everywhere(model: ir.Model) -> None:
     """A method the wire cannot carry has no wire number.
 
     Not everything a binding offers is a remote call. EvalState's
@@ -323,8 +311,7 @@ def test_an_untyped_cause_rebuilds_from_builtins_only() -> None:
     from huggorm.protocol import _approximate
 
     # A builtin exception rebuilds as itself.
-    for name in ("ValueError", "KeyError", "OSError", "IndexError",
-                 "ZeroDivisionError", "StopAsyncIteration"):
+    for name in ("ValueError", "KeyError", "OSError", "IndexError", "ZeroDivisionError", "StopAsyncIteration"):
         out = _approximate(name, "boom")
         assert type(out).__name__ == name, out
 
@@ -341,8 +328,7 @@ def test_an_untyped_cause_rebuilds_from_builtins_only() -> None:
     assert type(out) is Exception and "UnicodeDecodeError" in str(out)
 
 
-def test_a_declared_order_is_an_order_that_works(
-        model: ir.Model) -> None:
+def test_a_declared_order_is_an_order_that_works(model: ir.Model) -> None:
     """A type the declaration says compares must actually compare.
 
     The stubs are generated from `dunders`, so a type listed there as
@@ -379,8 +365,7 @@ def test_a_declared_order_is_an_order_that_works(
     assert checked, "no ordered type in the model was constructible"
 
 
-def test_reflection_would_still_get_the_order_wrong(
-        model: ir.Model) -> None:
+def test_reflection_would_still_get_the_order_wrong(model: ir.Model) -> None:
     """Why `dunders` cannot be reflected, held as a fact.
 
     A bound class defining any rich comparison gets `tp_richcompare`,
@@ -407,8 +392,7 @@ def test_reflection_would_still_get_the_order_wrong(
     assert found, "no value type without a declared order was found"
 
 
-def test_the_stubs_promise_the_same_order_the_model_does(
-        model: ir.Model) -> None:
+def test_the_stubs_promise_the_same_order_the_model_does(model: ir.Model) -> None:
     """The stubs are what a caller's typechecker reads.
 
     nixidae/nixidae#589 was a complaint about the STUBS. Stubs that come from a
@@ -427,13 +411,10 @@ def test_the_stubs_promise_the_same_order_the_model_does(
     # Found on the path, not beside the bindings. A PEP 561 stub
     # package is its own distribution and Nix installs it in its own
     # store path, so `huggorm_bindings.__file__` is the wrong anchor.
-    stubs = next((d for entry in sys.path
-                  if (d := pathlib.Path(entry) / "huggorm_bindings-stubs")
-                  .is_dir()), None)
+    stubs = next((d for entry in sys.path if (d := pathlib.Path(entry) / "huggorm_bindings-stubs").is_dir()), None)
     assert stubs is not None, "huggorm_bindings-stubs is not on sys.path"
 
-    declared = {name: set(c.dunders)
-                for name, c in model.classes.items()}
+    declared = {name: set(c.dunders) for name, c in model.classes.items()}
     checked = 0
     for pyi in sorted(stubs.glob("*.pyi")):
         for node in ast.parse(pyi.read_text()).body:
@@ -441,19 +422,22 @@ def test_the_stubs_promise_the_same_order_the_model_does(
                 continue
             # A taught dunder is a declared METHOD; this compares the
             # derived value dunders.
-            stubbed = {n.name for n in node.body
-                       if isinstance(n, ast.FunctionDef)
-                       and n.name.startswith("__") and n.name != "__init__"
-                       and n.name not in DECLARED_DUNDERS}
+            stubbed = {
+                n.name
+                for n in node.body
+                if isinstance(n, ast.FunctionDef)
+                and n.name.startswith("__")
+                and n.name != "__init__"
+                and n.name not in DECLARED_DUNDERS
+            }
             assert stubbed == declared[node.name], (
-                f"{pyi.name}:{node.name} stubs {sorted(stubbed)}, "
-                f"the declaration says {sorted(declared[node.name])}")
+                f"{pyi.name}:{node.name} stubs {sorted(stubbed)}, the declaration says {sorted(declared[node.name])}"
+            )
             checked += 1
     assert checked, "no stubbed class was found in the model"
 
 
-def test_a_blocking_method_on_a_value_gets_a_coroutine(
-        model: ir.Model) -> None:
+def test_a_blocking_method_on_a_value_gets_a_coroutine(model: ir.Model) -> None:
     """`@blocks` on a value is awaitable, as a free coroutine.
 
     A value has no wrapper, so without one an async caller stalls its
@@ -469,19 +453,18 @@ def test_a_blocking_method_on_a_value_gets_a_coroutine(
     assert found.get(MethodRef("Input", "fingerprint")) == "input_fingerprint", found
     assert "input_fingerprint" in package_exports(model)
 
-    stubs = next(pathlib.Path(entry) / "huggorm_bindings-stubs"
-                 for entry in sys.path
-                 if (pathlib.Path(entry) / "huggorm_bindings-stubs").is_dir())
+    stubs = next(
+        pathlib.Path(entry) / "huggorm_bindings-stubs"
+        for entry in sys.path
+        if (pathlib.Path(entry) / "huggorm_bindings-stubs").is_dir()
+    )
     tree = ast.parse((stubs / "fetchers.pyi").read_text())
-    cls = next(n for n in tree.body
-               if isinstance(n, ast.ClassDef) and n.name == "Input")
-    method = next(n for n in cls.body
-                  if isinstance(n, ast.FunctionDef) and n.name == "fingerprint")
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Input")
+    method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "fingerprint")
     assert "huggorm.input_fingerprint" in (ast.get_docstring(method) or "")
 
 
-def test_a_class_with_no_door_refuses_to_be_built(
-        model: ir.Model) -> None:
+def test_a_class_with_no_door_refuses_to_be_built(model: ir.Model) -> None:
     """A class the declaration says does not construct must refuse.
 
     Every layer above reads `constructs` and declines to offer a
@@ -547,8 +530,7 @@ def test_every_declared_constructor_default_reaches_the_binding() -> None:
         if not declared:
             continue
         init = getattr(huggorm_bindings, cls.name).__init__
-        bound = [len(defaults or ()) for _, _, defaults in
-                 init.__nb_signature__]
+        bound = [len(defaults or ()) for _, _, defaults in init.__nb_signature__]
         assert declared in bound, (cls.name, declared, bound)
         checked.append(cls.name)
     assert "EvalState" in checked, checked

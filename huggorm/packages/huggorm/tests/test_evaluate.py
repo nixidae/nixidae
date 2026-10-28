@@ -22,8 +22,7 @@ from nixversion import (
     SUGGESTION,
 )
 
-DRV = ('derivation { name = "joined"; system = "x86_64-linux"; '
-       'builder = "/bin/sh"; }')
+DRV = 'derivation { name = "joined"; system = "x86_64-linux"; builder = "/bin/sh"; }'
 
 
 @pytest.fixture
@@ -54,8 +53,7 @@ def test_the_wrong_type_is_nix_s_own_type_error(state: Any) -> None:
     caller catches one error for Nix and for the binding."""
     from huggorm_bindings.errors import NixTypeError
 
-    with pytest.raises(NixTypeError,
-                       match="expected a set but found an integer"):
+    with pytest.raises(NixTypeError, match="expected a set but found an integer"):
         state.eval_expr("1").has("x")
     items = state.make_attrs()
     with pytest.raises(NixTypeError, match="expected a list but found a set"):
@@ -65,8 +63,7 @@ def test_the_wrong_type_is_nix_s_own_type_error(state: Any) -> None:
 def test_a_size_of_neither_collection_is_a_type_error(state: Any) -> None:
     from huggorm_bindings.errors import NixTypeError
 
-    with pytest.raises(NixTypeError,
-                       match="expected a list or a set but found an integer"):
+    with pytest.raises(NixTypeError, match="expected a list or a set but found an integer"):
         state.eval_expr("1").size()
 
 
@@ -88,8 +85,7 @@ def test_a_missing_attribute_is_nix_s_own_error(state: Any) -> None:
     ranks from the set's own names."""
     from huggorm_bindings.errors import MissingAttribute
 
-    with pytest.raises(MissingAttribute,
-                       match="attribute 'fo' missing") as caught:
+    with pytest.raises(MissingAttribute, match="attribute 'fo' missing") as caught:
         state.eval_expr("{ foo = 1; bar = 2; }").get("fo")
     assert f"{SUGGESTION} foo?" in str(caught.value)
 
@@ -105,8 +101,7 @@ def test_a_missing_attribute_carries_its_suggestions(state: Any) -> None:
     assert info.suggestions()[0] == "foo"
 
 
-def test_a_thrown_message_in_no_encoding_survives_translation(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_thrown_message_in_no_encoding_survives_translation(state: Any, tmp_path: pathlib.Path) -> None:
     """The translator decodes lossily, so the error survives it.
 
     `throw` carries whatever string it was given, and a file holds
@@ -129,8 +124,7 @@ def test_a_thrown_message_in_no_encoding_survives_translation(
     assert info.msg_bytes() == b"\xff\xfe"
 
 
-def test_a_suggestion_in_no_encoding_reads_as_bytes(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_suggestion_in_no_encoding_reads_as_bytes(state: Any, tmp_path: pathlib.Path) -> None:
     """A suggestion is an attr name, and names are bytes too.
 
     The set holds a quoted name no decoder accepts, so looking up a
@@ -151,8 +145,7 @@ def test_a_suggestion_in_no_encoding_reads_as_bytes(
     assert info.suggestions_bytes() == [b"caf\xe9"]
 
 
-def test_a_position_in_no_encoding_reads_as_bytes(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_position_in_no_encoding_reads_as_bytes(state: Any, tmp_path: pathlib.Path) -> None:
     """A position names a file, and filenames are bytes.
 
     The path cannot cross into `eval_file` as text, so a wrapper
@@ -199,8 +192,7 @@ def test_a_deep_trace_keeps_the_frames_nearest_the_error(state: Any) -> None:
     rest: the error crosses the wire in a status header."""
     from huggorm_bindings.errors import EvalError
 
-    deep = ('let f = n: if n == 0 then throw "x" else { a = f (n - 1); }; '
-            "in builtins.toJSON (f 40)")
+    deep = 'let f = n: if n == 0 then throw "x" else { a = f (n - 1); }; in builtins.toJSON (f 40)'
     with pytest.raises(EvalError) as caught:
         state.eval_expr(deep).string_value()
     info = caught.value.info
@@ -211,15 +203,17 @@ def test_a_deep_trace_keeps_the_frames_nearest_the_error(state: Any) -> None:
     assert info.is_from_expr()
 
 
-@pytest.mark.parametrize(("expr", "name"), [
-    ('throw "boom"', "ThrownError"),
-    ("assert false; 1", "NixAssertionError"),
-    ('abort "stop"', "Abort"),
-    ("undefined_name", "UndefinedVarError"),
-    ("1 +", "ParseError"),
-])
-def test_each_evaluation_error_raises_its_own_class(
-        state: Any, expr: str, name: str) -> None:
+@pytest.mark.parametrize(
+    ("expr", "name"),
+    [
+        ('throw "boom"', "ThrownError"),
+        ("assert false; 1", "NixAssertionError"),
+        ('abort "stop"', "Abort"),
+        ("undefined_name", "UndefinedVarError"),
+        ("1 +", "ParseError"),
+    ],
+)
+def test_each_evaluation_error_raises_its_own_class(state: Any, expr: str, name: str) -> None:
     """The class libexpr throws, so `except ThrownError` means `throw`
     and nothing else."""
     from huggorm_bindings import errors
@@ -251,14 +245,12 @@ def test_an_index_past_the_end_names_both_numbers(state: Any) -> None:
 
     items = state.eval_expr("[ 1 2 ]")
     for index in (2, -1):
-        with pytest.raises(ListIndex, match=f"list index {index} is out of "
-                           "bounds for a list of size 2") as caught:
+        with pytest.raises(ListIndex, match=f"list index {index} is out of bounds for a list of size 2") as caught:
             items.at(index)
         assert isinstance(caught.value, EvalError)
 
 
-def test_an_attribute_set_that_is_not_a_derivation_refuses(
-        state: Any) -> None:
+def test_an_attribute_set_that_is_not_a_derivation_refuses(state: Any) -> None:
     from huggorm_bindings.errors import NixError
 
     # Nix words this per caller; this is nanopynix's, which pynix reads.
@@ -266,44 +258,38 @@ def test_an_attribute_set_that_is_not_a_derivation_refuses(
         state.eval_expr("{ a = 1; }").drv_path()
 
 
-def test_it_joins_to_what_a_store_plans(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_it_joins_to_what_a_store_plans(state: Any, tmp_path: pathlib.Path) -> None:
     """The whole join: evaluate, name the `.drv`, ask the store what
     building it would take. Nothing here can build, so the answer is
     a plan and not a build."""
     from huggorm_bindings import DerivedPathBuilt, OutputsSpec, Store
 
     drv = state.eval_expr(DRV).drv_path()
-    missing = Store(str(tmp_path)).query_missing(
-        [DerivedPathBuilt(drv, OutputsSpec(all=True))])
+    missing = Store(str(tmp_path)).query_missing([DerivedPathBuilt(drv, OutputsSpec(all=True))])
     assert missing.will_build() == [drv]
 
 
-def test_a_relative_path_names_from_the_base(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_relative_path_names_from_the_base(state: Any, tmp_path: pathlib.Path) -> None:
     got = state.eval_expr("toString ./foo", str(tmp_path))
     assert got.string_value() == f"{tmp_path}/foo"
 
 
 def test_without_a_base_it_names_from_the_working_directory(
-        state: Any, monkeypatch: pytest.MonkeyPatch,
-        tmp_path: pathlib.Path) -> None:
+    state: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """What `nix eval --expr` does."""
     monkeypatch.chdir(tmp_path)
-    assert state.eval_expr("toString ./foo").string_value() == \
-        f"{tmp_path}/foo"
+    assert state.eval_expr("toString ./foo").string_value() == f"{tmp_path}/foo"
 
 
 def test_json_is_what_nix_eval_prints(state: Any) -> None:
     import json
 
     got = state.eval_expr('{ a = [ 1 2.5 "x" null true ]; b.c = 1 + 1; }')
-    assert json.loads(got.to_json()) == {
-        "a": [1, 2.5, "x", None, True], "b": {"c": 2}}
+    assert json.loads(got.to_json()) == {"a": [1, 2.5, "x", None, True], "b": {"c": 2}}
 
 
-def test_a_path_stays_a_path_unless_copied(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_path_stays_a_path_unless_copied(state: Any, tmp_path: pathlib.Path) -> None:
     (tmp_path / "f").write_text("hi\n")
     got = state.eval_expr("./f", str(tmp_path))
     assert got.to_json() == f'"{tmp_path}/f"'
@@ -318,13 +304,11 @@ def test_a_function_has_no_json(state: Any) -> None:
         state.eval_expr("{ f = x: x; }").to_json()
 
 
-def test_a_string_with_nothing_to_build_realises_as_itself(
-        state: Any) -> None:
+def test_a_string_with_nothing_to_build_realises_as_itself(state: Any) -> None:
     assert state.eval_expr('"plain"').realise_string() == "plain"
 
 
-def test_a_realised_string_names_a_path_that_is_there(
-        state: Any, tmp_path: pathlib.Path) -> None:
+def test_a_realised_string_names_a_path_that_is_there(state: Any, tmp_path: pathlib.Path) -> None:
     """A path interpolated into a string is copied to the store, and
     the context names it. Realising it answers a path the state's
     store holds."""
@@ -350,29 +334,25 @@ def test_an_unbuildable_context_raises(state: Any) -> None:
         state.eval_expr(f'"${{{DRV}}}"').realise_string()
 
 
-def test_realising_is_not_an_import_from_derivation(
-        tmp_path: pathlib.Path) -> None:
+def test_realising_is_not_an_import_from_derivation(tmp_path: pathlib.Path) -> None:
     """With IFD off, the realise still tries the build. It fails
     here, because the builder does not exist, and the failure must be
     the build's own, not the IFD refusal."""
     from huggorm_bindings import EvalState, Store
     from huggorm_bindings.errors import NixError
 
-    state = EvalState(Store(str(tmp_path)),
-                      {"allow-import-from-derivation": "false"})
+    state = EvalState(Store(str(tmp_path)), {"allow-import-from-derivation": "false"})
     with pytest.raises(NixError) as caught:
         state.eval_expr(f'"${{{DRV}}}"').realise_string()
     assert IFD_SETTING not in str(caught.value)
 
 
-def test_a_build_store_is_taken_with_the_state(
-        tmp_path: pathlib.Path) -> None:
+def test_a_build_store_is_taken_with_the_state(tmp_path: pathlib.Path) -> None:
     """A state accepts a second store to build in. No build runs here,
     because the gate's sandbox cannot run a builder."""
     from huggorm_bindings import EvalState, Store
 
-    state = EvalState(Store(str(tmp_path / "evals")), None,
-                      Store(str(tmp_path / "builds")))
+    state = EvalState(Store(str(tmp_path / "evals")), None, Store(str(tmp_path / "builds")))
     assert state.eval_expr("1 + 1").integer() == 2
 
 

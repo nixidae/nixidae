@@ -45,8 +45,7 @@ print((libc.mallinfo2().uordblks - before) // 50)
 
 @needs_collector
 def test_a_dropped_state_frees_its_primops() -> None:
-    done = subprocess.run([sys.executable, "-c", CHILD],
-                          capture_output=True, text=True, timeout=120)
+    done = subprocess.run([sys.executable, "-c", CHILD], capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr[-2000:]
     per_state = int(done.stdout.split()[-1])
     # 84.5 KiB before the patch. What is left is allocator noise.

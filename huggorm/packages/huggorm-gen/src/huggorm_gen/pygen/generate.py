@@ -76,8 +76,7 @@ def _vendor(src: pathlib.Path, dst: pathlib.Path) -> None:
 def main(argv: list[str] | None = None) -> None:
     """The build: derive once, then emit."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True,
-                        help="output directory for huggorm_generated")
+    parser.add_argument("--out", required=True, help="output directory for huggorm_generated")
     args = parser.parse_args(argv)
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -104,24 +103,18 @@ def main(argv: list[str] | None = None) -> None:
     # addressability, not affinity.
     for cls in model.ordered_served:
         fname = f"async_{cls.name.lower()}.py"
-        emit = (returned_module if cls.name in model.returned
-                else wrapper_module)
+        emit = returned_module if cls.name in model.returned else wrapper_module
         (out / fname).write_text(ast.unparse(emit(model, cls)) + "\n")
         print(f"generated {fname} for {cls.name} ({cls.threading})")
 
     free_names = wrapped_functions(model)
     if free_names:
-        (out / f"{FREE_MODULE}.py").write_text(ast.unparse(
-            free_function_module(model)) + "\n")
-        print(f"generated {FREE_MODULE}.py for {len(free_names)} free "
-              f"function(s): {', '.join(free_names)}")
+        (out / f"{FREE_MODULE}.py").write_text(ast.unparse(free_function_module(model)) + "\n")
+        print(f"generated {FREE_MODULE}.py for {len(free_names)} free function(s): {', '.join(free_names)}")
 
-    (out / f"{CLASSES_MODULE}.py").write_text(
-        ast.unparse(classes_module(model)) + "\n")
-    (out / f"{PROTOCOL_MODULE}.py").write_text(
-        ast.unparse(protocol_module(model)) + "\n")
-    print(f"generated {PROTOCOL_MODULE}.py for "
-          f"{len(model.ordered_served)} class(es)")
+    (out / f"{CLASSES_MODULE}.py").write_text(ast.unparse(classes_module(model)) + "\n")
+    (out / f"{PROTOCOL_MODULE}.py").write_text(ast.unparse(protocol_module(model)) + "\n")
+    print(f"generated {PROTOCOL_MODULE}.py for {len(model.ordered_served)} class(es)")
     (out / "__init__.py").write_text(ast.unparse(init_module(model)) + "\n")
 
     # Type stubs for the bindings themselves (nixidae/nixidae#564). The bindings
@@ -145,13 +138,10 @@ def main(argv: list[str] | None = None) -> None:
     # these stubs exist because a compiled extension carries no
     # signatures, and a .py file needs no help.
     (stub_dir / "py.typed").write_text("partial\n")
-    modules = sorted(f.removesuffix(".pyi") for f in stubs
-                     if f != "__init__.pyi")
-    print(f"generated {STUB_PACKAGE}/ for {len(modules)} binding module(s): "
-          + ", ".join(modules))
+    modules = sorted(f.removesuffix(".pyi") for f in stubs if f != "__init__.pyi")
+    print(f"generated {STUB_PACKAGE}/ for {len(modules)} binding module(s): " + ", ".join(modules))
 
-    print(f"derived {len(model.constructed)} constructed and "
-          f"{len(model.handed_back)} returned class(es)")
+    print(f"derived {len(model.constructed)} constructed and {len(model.handed_back)} returned class(es)")
     # A call with no rpc keeps its in-process form and leaves the
     # protocol, which is a quiet change unless the build says it.
     for fn in model.functions.values():
@@ -160,8 +150,7 @@ def main(argv: list[str] | None = None) -> None:
     for c in model.ordered_served:
         for m in c.methods:
             for why in ir.blockers(m.params, m.returns, model.served):
-                print(f"warning: {c.name}.{m.name} has no RPC surface "
-                      f"and is not on the protocol - {why}")
+                print(f"warning: {c.name}.{m.name} has no RPC surface and is not on the protocol - {why}")
 
     # The payload ships rather than runs, so it lives beside the
     # two backends rather than inside either one.
@@ -175,8 +164,7 @@ def main(argv: list[str] | None = None) -> None:
     # ...and the wire policy of every declared type, which the codec
     # reads and no caller does.
     (out / "_policy.py").write_text(policy_module(model))
-    print(f"generated _unions.py for {len(model.unions)} sum type(s): "
-          f"{', '.join(model.unions) or 'none'}")
+    print(f"generated _unions.py for {len(model.unions)} sum type(s): {', '.join(model.unions) or 'none'}")
     # Not the payload: it is hand-written and keeps its source's layout.
     # By file, because setuptools runs this twice and the second run
     # finds the first run's copy in `out`.

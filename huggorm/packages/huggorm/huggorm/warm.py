@@ -106,8 +106,7 @@ class ChangeSource(Protocol):
     here.
     """
 
-    async def next_change(self) -> list[str]:
-        ...
+    async def next_change(self) -> list[str]: ...
 
 
 class Warmer:
@@ -194,8 +193,7 @@ class Warmer:
         return done
 
     # -- when ------------------------------------------------------------
-    async def follow(self, source: ChangeSource,
-                     settle: float = SETTLE) -> None:
+    async def follow(self, source: ChangeSource, settle: float = SETTLE) -> None:
         """Refresh whenever the source says something changed. Forever.
 
         The only part of this module that waits on a clock. One save

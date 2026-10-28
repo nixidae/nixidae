@@ -46,16 +46,13 @@ class Callbacks:
         """The proxy for the client's object `client_id`, made once."""
         proxy = self._proxies.get(client_id)
         if proxy is None:
-            proxy = self._proxies[client_id] = _proxy_class(cls)(
-                self, client_id)
+            proxy = self._proxies[client_id] = _proxy_class(cls)(self, client_id)
         return proxy
 
-    async def call(self, client_id: int, spec: Call,
-                   args: tuple[Any, ...]) -> Any:
+    async def call(self, client_id: int, spec: Call, args: tuple[Any, ...]) -> Any:
         """Call one method of the client's object, and answer what the
         client answers."""
-        raw = [self.codec.encode(a.type, v, _no_proxy)
-               for a, v in zip(spec.args, args, strict=True)]
+        raw = [self.codec.encode(a.type, v, _no_proxy) for a, v in zip(spec.args, args, strict=True)]
         value = await self.peer.ask(Op.CALL, client_id, spec.name, raw)
         return self.codec.decode(spec.returns, value, _no_proxy)
 
@@ -72,10 +69,9 @@ def _proxy_class(cls: str) -> type:
     def method(spec: Call) -> Callable[..., Coroutine[Any, Any, Any]]:
         async def call(self: Any, *args: Any) -> Any:
             return await self._callbacks.call(self._client_id, spec, args)
+
         call.__name__ = spec.name
         return call
 
-    namespace = {"__init__": __init__,
-                 **{h.call.name: method(h.call) for h in CALLBACKS[cls]}}
-    return types.new_class(f"Client{cls}", (), {},
-                           lambda ns: ns.update(namespace))
+    namespace = {"__init__": __init__, **{h.call.name: method(h.call) for h in CALLBACKS[cls]}}
+    return types.new_class(f"Client{cls}", (), {}, lambda ns: ns.update(namespace))

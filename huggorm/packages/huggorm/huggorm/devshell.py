@@ -65,24 +65,26 @@ if TYPE_CHECKING:
 #: What `to_bash` leaves out. `Common::ignoreVars` in `develop.cc`,
 #: verbatim: the caller already has a terminal, a shell and a temp
 #: dir, so the build's copies would only break them.
-IGNORE_VARS: Final[frozenset[str]] = frozenset({
-    "BASHOPTS",
-    "HOME",
-    "NIX_BUILD_TOP",
-    "NIX_ENFORCE_PURITY",
-    "NIX_LOG_FD",
-    "NIX_REMOTE",
-    "PPID",
-    "SHELLOPTS",
-    "SSL_CERT_FILE",
-    "TEMP",
-    "TEMPDIR",
-    "TERM",
-    "TMP",
-    "TMPDIR",
-    "TZ",
-    "UID",
-})
+IGNORE_VARS: Final[frozenset[str]] = frozenset(
+    {
+        "BASHOPTS",
+        "HOME",
+        "NIX_BUILD_TOP",
+        "NIX_ENFORCE_PURITY",
+        "NIX_LOG_FD",
+        "NIX_REMOTE",
+        "PPID",
+        "SHELLOPTS",
+        "SSL_CERT_FILE",
+        "TEMP",
+        "TEMPDIR",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "UID",
+    }
+)
 
 #: Kept usable by prepending rather than overwriting. Upstream keeps
 #: the list minimal to avoid impurities, and so does this.
@@ -137,8 +139,7 @@ class BuildEnvironment:
         for name, info in document["variables"].items():
             kind = info["type"]
             if kind == "var" or kind == "exported":
-                vars[name] = Var(exported=kind == "exported",
-                                 value=info["value"])
+                vars[name] = Var(exported=kind == "exported", value=info["value"])
             elif kind == "array":
                 vars[name] = list(info["value"])
             elif kind == "associative":
@@ -148,8 +149,7 @@ class BuildEnvironment:
         if "structuredAttrs" in document:
             attrs = document["structuredAttrs"]
             structured = (attrs[".attrs.json"], attrs[".attrs.sh"])
-        return cls(vars=vars, bash_functions=functions,
-                   structured_attrs=structured)
+        return cls(vars=vars, bash_functions=functions, structured_attrs=structured)
 
     @classmethod
     def parse(cls, data: bytes) -> BuildEnvironment:
@@ -179,20 +179,16 @@ class BuildEnvironment:
             elif isinstance(value, list):
                 variables[name] = {"type": "array", "value": list(value)}
             else:
-                variables[name] = {
-                    "type": "associative", "value": dict(value)}
+                variables[name] = {"type": "associative", "value": dict(value)}
         document: dict[str, Any] = {
             "variables": variables,
             "bashFunctions": dict(self.bash_functions),
         }
         if self.structured_attrs is not None:
             attrs_json, attrs_sh = self.structured_attrs
-            document["structuredAttrs"] = {
-                ".attrs.sh": attrs_sh, ".attrs.json": attrs_json}
+            document["structuredAttrs"] = {".attrs.sh": attrs_sh, ".attrs.json": attrs_json}
         if BuildEnvironment.from_json(document) != self:
-            raise NixError(
-                "a build environment that does not survive its own "
-                "JSON round trip")
+            raise NixError("a build environment that does not survive its own JSON round trip")
         return document
 
     def to_bash(self, ignore_vars: frozenset[str] = IGNORE_VARS) -> str:
@@ -215,18 +211,21 @@ class BuildEnvironment:
                     chunks.append(f"export {name}\n")
             elif isinstance(value, list):
                 chunks.append(
-                    "declare -a " + name + "=("
-                    + "".join(_escape_shell_arg(item) + " "
-                              for item in value) + ")\n")
+                    "declare -a " + name + "=(" + "".join(_escape_shell_arg(item) + " " for item in value) + ")\n"
+                )
             else:
                 chunks.append(
-                    "declare -A " + name + "=("
-                    + "".join("[" + _escape_shell_arg(key) + "]="
-                              + _escape_shell_arg(value[key]) + " "
-                              for key in sorted(value)) + ")\n")
+                    "declare -A "
+                    + name
+                    + "=("
+                    + "".join(
+                        "[" + _escape_shell_arg(key) + "]=" + _escape_shell_arg(value[key]) + " "
+                        for key in sorted(value)
+                    )
+                    + ")\n"
+                )
         for name in sorted(self.bash_functions):
-            chunks.append(
-                name + " ()\n{\n" + self.bash_functions[name] + "}\n")
+            chunks.append(name + " ()\n{\n" + self.bash_functions[name] + "}\n")
         return "".join(chunks)
 
     def _require_string(self, name: str) -> str:
@@ -238,14 +237,12 @@ class BuildEnvironment:
         """
         value = self.vars.get(name)
         if value is None:
-            raise NixError(
-                f"variable '{name}' is not set in this environment")
+            raise NixError(f"variable '{name}' is not set in this environment")
         if not isinstance(value, Var):
             raise NixError("bash variable is not a string")
         return value.value
 
-    def to_rc_script(self, outputs_dir: str | None = None,
-                     tmp_dir: str | None = None) -> str:
+    def to_rc_script(self, outputs_dir: str | None = None, tmp_dir: str | None = None) -> str:
         """Shell code that reproduces this environment when sourced.
 
         Nix's `makeRcScript` minus the CLI: the saved-variable dance,
@@ -263,8 +260,7 @@ class BuildEnvironment:
             chunks.append(f'nix_saved_{var}="${var}"\n')
         chunks.append(self.to_bash())
         for var in SAVED_VARS:
-            chunks.append(var + '="$' + var + '${nix_saved_' + var
-                           + ':+:$nix_saved_' + var + '}"\n')
+            chunks.append(var + '="$' + var + "${nix_saved_" + var + ":+:$nix_saved_" + var + '}"\n')
         chunks.append('export NIX_BUILD_TOP="$(mktemp -d -t nix-shell.XXXXXX)"\n')
         for var in ("TMP", "TMPDIR", "TEMP", "TEMPDIR"):
             chunks.append(f'export {var}="$NIX_BUILD_TOP"\n')
@@ -273,8 +269,7 @@ class BuildEnvironment:
 
         outputs = self.vars.get("outputs")
         if outputs is None:
-            raise NixError(
-                "derivation does not have an 'outputs' attribute")
+            raise NixError("derivation does not have an 'outputs' attribute")
         base = outputs_dir or os.path.join(os.getcwd(), "outputs")
         # ONE map and one pass, as upstream builds them: the output
         # rewrites and the two attrs files go in together, and
@@ -296,8 +291,7 @@ class BuildEnvironment:
             else:
                 names = outputs
             for name in names:
-                rewrites[self._require_string(name)] = os.path.join(
-                    base, name)
+                rewrites[self._require_string(name)] = os.path.join(base, name)
 
         if self.structured_attrs is not None:
             attrs_json, attrs_sh = self.structured_attrs
@@ -334,15 +328,13 @@ def _rewrite_strings(script: str, rewrites: dict[str, str]) -> str:
     """
     for old, new in rewrites.items():
         if old != new and old in new:
-            raise ValueError(
-                f"rewrite of {old!r} to {new!r} never ends: the target "
-                f"contains its source")
+            raise ValueError(f"rewrite of {old!r} to {new!r} never ends: the target contains its source")
     for old, new in sorted(rewrites.items()):
         if old == new:
             continue
         start = 0
         while (at := script.find(old, start)) != -1:
-            script = script[:at] + new + script[at + len(old):]
+            script = script[:at] + new + script[at + len(old) :]
             start = at
     return script
 
@@ -363,8 +355,7 @@ def _rewrite(document: dict[str, Any], args_path: str, srcs_path: str) -> dict[s
     rather than in a store.
     """
     if os.path.basename(document["builder"]) != "bash":
-        raise NixError(
-            "'nix develop' only works on derivations that use 'bash' as their builder")
+        raise NixError("'nix develop' only works on derivations that use 'bash' as their builder")
     document["args"] = [args_path]
     # A dev shell is not the build, so the build's reference checks
     # do not apply.
@@ -386,7 +377,9 @@ def _rewrite(document: dict[str, Any], args_path: str, srcs_path: str) -> dict[s
 
 
 def write_dev_shell_derivation(
-    store: Store, drv_path: StorePath, get_env_script: bytes,
+    store: Store,
+    drv_path: StorePath,
+    get_env_script: bytes,
 ) -> StorePath:
     """Store a rewrite of `drv_path` whose builder dumps its environment.
 
@@ -401,16 +394,15 @@ def write_dev_shell_derivation(
     which is the same refusal `nix develop` makes.
     """
     document = json.loads(store.read_derivation(drv_path).to_json())
-    script = store.add_to_store(
-        "get-env.sh", get_env_script, ContentAddressMethod.TEXT,
-        HashAlgorithm.SHA256)
-    rewritten = _rewrite(
-        document, store.print_store_path(script), script.to_string())
+    script = store.add_to_store("get-env.sh", get_env_script, ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    rewritten = _rewrite(document, store.print_store_path(script), script.to_string())
     return store.add_derivation(json.dumps(rewritten))
 
 
 async def awrite_dev_shell_derivation(
-    store: AsyncStore, drv_path: StorePath, get_env_script: bytes,
+    store: AsyncStore,
+    drv_path: StorePath,
+    get_env_script: bytes,
 ) -> StorePath:
     """The async flavour, over any `AsyncStore`: in this process or
     on a server, by the same code.
@@ -420,11 +412,8 @@ async def awrite_dev_shell_derivation(
     stays where the environment will be sourced.
     """
     document = json.loads(await (await store.read_derivation(drv_path)).to_json())
-    script = await store.add_to_store(
-        "get-env.sh", get_env_script, ContentAddressMethod.TEXT,
-        HashAlgorithm.SHA256)
-    rewritten = _rewrite(
-        document, await store.print_store_path(script), script.to_string())
+    script = await store.add_to_store("get-env.sh", get_env_script, ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    rewritten = _rewrite(document, await store.print_store_path(script), script.to_string())
     return await store.add_derivation(json.dumps(rewritten))
 
 
@@ -447,8 +436,7 @@ def _first_env_output(store: Store, shell_drv: StorePath) -> StorePath:
     raise NixError("get-env.sh failed to produce an environment")
 
 
-async def _afirst_env_output(store: AsyncStore,
-                             shell_drv: StorePath) -> StorePath:
+async def _afirst_env_output(store: AsyncStore, shell_drv: StorePath) -> StorePath:
     """The async half of the file search above."""
     for path in (await store.query_derivation_output_map(shell_drv)).values():
         with contextlib.suppress(FileNotFoundError, NotADirectoryError):
@@ -459,7 +447,9 @@ async def _afirst_env_output(store: AsyncStore,
 
 
 def get_build_environment(
-    store: Store, drv_path: StorePath, get_env_script: bytes,
+    store: Store,
+    drv_path: StorePath,
+    get_env_script: bytes,
 ) -> tuple[BuildEnvironment, StorePath]:
     """The build environment of this derivation, built and read.
 
@@ -482,13 +472,13 @@ def get_build_environment(
     try:
         return BuildEnvironment.parse(data), env_path
     except (UnicodeDecodeError, json.JSONDecodeError) as broken:
-        raise NixError(
-            "cannot parse build environment at "
-            f"{env_path.to_string()}: {broken}") from broken
+        raise NixError(f"cannot parse build environment at {env_path.to_string()}: {broken}") from broken
 
 
 async def aget_build_environment(
-    store: AsyncStore, drv_path: StorePath, get_env_script: bytes,
+    store: AsyncStore,
+    drv_path: StorePath,
+    get_env_script: bytes,
 ) -> tuple[BuildEnvironment, StorePath]:
     """The async flavour, over a local `AsyncStore`.
 
@@ -496,24 +486,23 @@ async def aget_build_environment(
     pool. The parse is sync - bytes already in hand - and the file
     reads through `anyio.Path`, which is the async spelling of one.
     """
-    shell_drv = await awrite_dev_shell_derivation(
-        store, drv_path, get_env_script)
-    await store.build_paths([DerivedPathBuilt(
-        shell_drv, OutputsSpec(all=True))])
+    shell_drv = await awrite_dev_shell_derivation(store, drv_path, get_env_script)
+    await store.build_paths([DerivedPathBuilt(shell_drv, OutputsSpec(all=True))])
     env_path = await _afirst_env_output(store, shell_drv)
     await store.add_temp_root(env_path)
     data = await (await store.real_path(env_path)).read_bytes()
     try:
         return BuildEnvironment.parse(data), env_path
     except (UnicodeDecodeError, json.JSONDecodeError) as broken:
-        raise NixError(
-            "cannot parse build environment at "
-            f"{env_path.to_string()}: {broken}") from broken
+        raise NixError(f"cannot parse build environment at {env_path.to_string()}: {broken}") from broken
 
 
 def print_dev_env(
-    store: Store, drv_path: StorePath, get_env_script: bytes,
-    outputs_dir: str | None = None, tmp_dir: str | None = None,
+    store: Store,
+    drv_path: StorePath,
+    get_env_script: bytes,
+    outputs_dir: str | None = None,
+    tmp_dir: str | None = None,
 ) -> str:
     """Shell code that reproduces this derivation's environment.
 
@@ -528,10 +517,12 @@ def print_dev_env(
 
 
 async def aprint_dev_env(
-    store: AsyncStore, drv_path: StorePath, get_env_script: bytes,
-    outputs_dir: str | None = None, tmp_dir: str | None = None,
+    store: AsyncStore,
+    drv_path: StorePath,
+    get_env_script: bytes,
+    outputs_dir: str | None = None,
+    tmp_dir: str | None = None,
 ) -> str:
     """The async flavour, over a local `AsyncStore`."""
-    environment, _ = await aget_build_environment(
-        store, drv_path, get_env_script)
+    environment, _ = await aget_build_environment(store, drv_path, get_env_script)
     return environment.to_rc_script(outputs_dir=outputs_dir, tmp_dir=tmp_dir)

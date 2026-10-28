@@ -87,8 +87,7 @@ async def test_a_state_its_caller_closed_closes_again_with_the_session() -> None
     await session.aclose()
 
 
-async def test_close_asks_for_no_collection_without_a_collector(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_close_asks_for_no_collection_without_a_collector(monkeypatch: pytest.MonkeyPatch) -> None:
     """A Nix without Boehm refuses `collect_garbage`, and it finalizes
     nothing a collection could free. Closing a session that evaluated
     therefore asks for none. The base lane has the collector, so this
@@ -106,10 +105,7 @@ async def test_close_asks_for_no_collection_without_a_collector(
 
 
 def _params(fn: Callable[..., Any], drop: int) -> list[tuple[str, object]]:
-    return [
-        (name, param.default)
-        for name, param in list(inspect.signature(fn).parameters.items())[drop:]
-    ]
+    return [(name, param.default) for name, param in list(inspect.signature(fn).parameters.items())[drop:]]
 
 
 def test_session_passes_constructors_through() -> None:
@@ -193,8 +189,7 @@ async def test_remote_swept_connection_reports(ttl_server: Any) -> None:
         await session.aclose()
 
 
-async def test_remote_eval_takes_a_build_store_of_its_own(
-        server: Any) -> None:
+async def test_remote_eval_takes_a_build_store_of_its_own(server: Any) -> None:
     """`build_store` is a handle on the server, as `store` is."""
     ctx = _connect(server)
     async with ctx as session:
@@ -233,8 +228,7 @@ def test_remote_session_follows_the_acquire_table() -> None:
     assert eval_names == [a.name for a in ACQUIRE["EvalState"].args]
 
 
-async def test_warm_state_survives_its_client(
-        server: Any, tmp_path: Any) -> None:
+async def test_warm_state_survives_its_client(server: Any, tmp_path: Any) -> None:
     """The shareable-server property: a client leaves, the state stays.
 
     The first session evaluates a file, detaches everything into
@@ -282,8 +276,7 @@ async def test_local_capture_collects_evaluation_logs() -> None:
     assert caught.dropped == 0
 
 
-async def test_forward_hands_over_the_tail(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_forward_hands_over_the_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     """The record raised last still reaches the callback.
 
     The pump never wakes, so no drain runs while the block does: the
@@ -345,8 +338,7 @@ async def test_capture_process_is_complete_beside_a_forward() -> None:
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         seen: list[str] = []
-        async with (session.forward_process(lambda r: seen.append(r.text())),
-                    session.capture_process() as logs):
+        async with session.forward_process(lambda r: seen.append(r.text())), session.capture_process() as logs:
             await state.eval_expr(TRACE % "captured")
     assert any("trace: captured" in r.text() for r in logs.records), logs.records
     assert any("trace: captured" in s for s in seen), seen
@@ -470,8 +462,7 @@ async def test_remote_capture_collects(server: Any) -> None:
     assert len(finals) == 1, finals
 
 
-async def test_a_remote_warning_crosses_with_its_error_info(
-        server: Any) -> None:
+async def test_a_remote_warning_crosses_with_its_error_info(server: Any) -> None:
     """A record raised by `logEI` crosses with its parts: the same
     `ErrorInfo` a failed call's error carries (nixidae/nixidae#622, gap 4)."""
     ctx = _connect(server)
@@ -502,8 +493,7 @@ def _late(monkeypatch: pytest.MonkeyPatch, stream: str) -> None:
     monkeypatch.setattr(NixClient, stream, late)
 
 
-async def test_remote_forward_hands_over_the_tail(
-        server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_remote_forward_hands_over_the_tail(server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Records cross a socket, so the block ending is not the last one
     landing: the barrier is what brings the trace in."""
     _late(monkeypatch, "logs")
@@ -515,8 +505,7 @@ async def test_remote_forward_hands_over_the_tail(
     assert any("trace: remote-tail" in s for s in seen), seen
 
 
-async def test_remote_forward_raises_the_block_error_as_itself(
-        server: Any) -> None:
+async def test_remote_forward_raises_the_block_error_as_itself(server: Any) -> None:
     from huggorm.errors import NixError
 
     async with _connect(server) as session:
@@ -526,8 +515,7 @@ async def test_remote_forward_raises_the_block_error_as_itself(
                 await state.eval_expr('throw "no such thing"')
 
 
-async def test_remote_forward_process_takes_what_no_state_claims(
-        server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_remote_forward_process_takes_what_no_state_claims(server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """As locally: a state nobody subscribed stands in for a build. The
     process stream has no barrier, so `settle` brings the late tail in."""
     _late(monkeypatch, "process_logs")
@@ -548,8 +536,7 @@ async def test_remote_capture_process_collects(server: Any) -> None:
 
 
 @pytest.mark.parametrize("error", [ValueError("mine"), SystemExit(3)])
-async def test_a_block_error_leaves_the_client_as_itself(
-        server: Any, error: BaseException) -> None:
+async def test_a_block_error_leaves_the_client_as_itself(server: Any, error: BaseException) -> None:
     """Not in the ping loop's ExceptionGroup, which `except NixError`
     and `except SystemExit` around the block would miss."""
     with pytest.raises(type(error)) as caught:
@@ -568,22 +555,18 @@ async def test_remote_process_logs_opens(server: Any) -> None:
         await it.aclose()
 
 
-async def test_local_capture_collects_bytes_it_cannot_decode(
-        tmp_path: Any) -> None:
+async def test_local_capture_collects_bytes_it_cannot_decode(tmp_path: Any) -> None:
     """A capture holds the bytes, not the decoding of them."""
     blob = tmp_path / "blob"
     blob.write_bytes(b"\xff\xfe")
     async with AsyncSession("dummy://") as session:
         state = session.eval(session.store())
         async with session.capture(state) as caught:
-            await state.eval_expr(
-                f'builtins.trace (builtins.readFile "{blob}") 1')
-    assert b"trace: \xff\xfe" in [r.text_bytes() for r in caught.records
-                                  if r.action() == "msg"]
+            await state.eval_expr(f'builtins.trace (builtins.readFile "{blob}") 1')
+    assert b"trace: \xff\xfe" in [r.text_bytes() for r in caught.records if r.action() == "msg"]
 
 
-async def test_remote_capture_collects_bytes_it_cannot_decode(
-        server: Any, tmp_path: Any) -> None:
+async def test_remote_capture_collects_bytes_it_cannot_decode(server: Any, tmp_path: Any) -> None:
     """The same, across the socket: the bytes cross as bytes."""
     blob = tmp_path / "blob"
     blob.write_bytes(b"\xff\xfe")
@@ -591,7 +574,5 @@ async def test_remote_capture_collects_bytes_it_cannot_decode(
     async with ctx as session:
         state = await session.eval(await session.store())
         async with session.capture(state) as caught:
-            await state.eval_expr(
-                f'builtins.trace (builtins.readFile "{blob}") 1')
-    assert b"trace: \xff\xfe" in [r.text_bytes() for r in caught.records
-                                  if r.action() == "msg"]
+            await state.eval_expr(f'builtins.trace (builtins.readFile "{blob}") 1')
+    assert b"trace: \xff\xfe" in [r.text_bytes() for r in caught.records if r.action() == "msg"]

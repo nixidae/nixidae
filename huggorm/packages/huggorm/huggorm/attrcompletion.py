@@ -31,9 +31,7 @@ async def _attr_names(state: AsyncEvalState, value: AsyncValue) -> tuple[str, ..
     return tuple(await value.names())
 
 
-async def complete_file_attr_path(
-    state: AsyncEvalState, root: AsyncValue, prefix: str
-) -> list[str]:
+async def complete_file_attr_path(state: AsyncEvalState, root: AsyncValue, prefix: str) -> list[str]:
     """The paths of `root` that `prefix` could mean: the `--file` branch.
 
     `root` is the file's value, already auto-called. A candidate is the

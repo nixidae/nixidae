@@ -45,6 +45,7 @@ def fn(state: Any, expr: str) -> Any:
 
 # -- applying --------------------------------------------------------------
 
+
 def test_one_argument_applies(state: Any) -> None:
     """`f x`, which is how every Nix function is called."""
     f = fn(state, "x: x + 1")
@@ -96,8 +97,7 @@ def test_applying_a_non_function_is_nix_s_own_refusal(state: Any) -> None:
     """What `42 1` raises, from `callFunction` itself."""
     from huggorm_bindings.errors import NixTypeError
 
-    with pytest.raises(NixTypeError, match=f"{NOT_A_FUNCTION} "
-                       "an integer"):
+    with pytest.raises(NixTypeError, match=f"{NOT_A_FUNCTION} an integer"):
         state.eval_expr("42")(state.make_int(1))
 
 
@@ -107,6 +107,7 @@ def test_a_functor_set_applies_as_nix_calls_it(state: Any) -> None:
 
 
 # -- the three shapes ------------------------------------------------------
+
 
 def test_a_lambda_and_a_builtin_are_both_functions(state: Any) -> None:
     """One type name, told apart by the shape accessors.
@@ -158,8 +159,7 @@ def test_a_builtin_read_as_a_lambda_is_refused(state: Any) -> None:
     Both directions, because a guard that only refuses one way is
     half a guard."""
     builtin = fn(state, "builtins.add")
-    for read in ("lambda_name", "lambda_arg", "has_formals",
-                 "accepts_extra", "formal_names", "defaulted_formals"):
+    for read in ("lambda_name", "lambda_arg", "has_formals", "accepts_extra", "formal_names", "defaulted_formals"):
         with pytest.raises(Exception, match="not a lambda"):
             getattr(builtin, read)()
 
@@ -170,6 +170,7 @@ def test_a_builtin_read_as_a_lambda_is_refused(state: Any) -> None:
 
 
 # -- reading a lambda ------------------------------------------------------
+
 
 def test_a_simple_lambda_names_its_argument(state: Any) -> None:
     """`x: body` binds the whole argument and declares no formals."""
@@ -246,6 +247,7 @@ def test_a_lambda_carries_the_name_it_was_bound_to(state: Any) -> None:
 
 # -- reading a builtin -----------------------------------------------------
 
+
 def test_a_builtin_declares_an_arity_and_its_arguments(state: Any) -> None:
     """The one place an arity is honest.
 
@@ -269,14 +271,12 @@ def test_a_builtin_has_documentation(state: Any) -> None:
     assert doc.path() is None, "a primop has no position"
 
 
-def test_a_value_that_is_not_a_function_has_no_documentation(
-        state: Any) -> None:
+def test_a_value_that_is_not_a_function_has_no_documentation(state: Any) -> None:
     assert state.eval_expr("1").doc() is None
     assert state.eval_expr("{ a = 1; }").doc() is None
 
 
-def test_a_functor_is_documented_by_its_functor(
-        state: Any, tmp_path: Any) -> None:
+def test_a_functor_is_documented_by_its_functor(state: Any, tmp_path: Any) -> None:
     """getDoc applies `__functor` to the set, and documents what that
     answers."""
     src = tmp_path / "functor.nix"
@@ -286,8 +286,7 @@ def test_a_functor_is_documented_by_its_functor(
     assert "The inner one." in doc.doc()
 
 
-def test_a_lambda_doc_is_prose_and_reads_the_source(
-        state: Any, tmp_path: Any) -> None:
+def test_a_lambda_doc_is_prose_and_reads_the_source(state: Any, tmp_path: Any) -> None:
     """`doc()` answers a DIFFERENT shape per kind, and says so.
 
     A lambda gets prose built for the REPL - "Function `name` defined
@@ -314,8 +313,7 @@ def test_a_lambda_doc_is_prose_and_reads_the_source(
     assert doc.arity() == 0 and doc.args() == []
 
 
-def test_an_attribute_is_documented_where_the_set_defines_it(
-        state: Any, tmp_path: Any) -> None:
+def test_an_attribute_is_documented_where_the_set_defines_it(state: Any, tmp_path: Any) -> None:
     src = tmp_path / "set.nix"
     src.write_text("{\n  /** Foo it is. */\n  foo = 1;\n  bar = 2;\n}\n")
     attrs = state.eval_file(str(src))
@@ -335,16 +333,14 @@ def test_an_attribute_from_a_string_is_in_nixs_string(state: Any) -> None:
     assert doc is not None and doc.path() == "«string»" and doc.line() == 1
 
 
-def test_a_lambda_is_edited_where_it_is_defined(
-        state: Any, tmp_path: Any) -> None:
+def test_a_lambda_is_edited_where_it_is_defined(state: Any, tmp_path: Any) -> None:
     src = tmp_path / "edit.nix"
     src.write_text("\n\nx: x\n")
     where = state.eval_file(str(src)).edit_location()
     assert (where.path(), where.line()) == (str(src), 3)
 
 
-def test_a_path_is_edited_as_the_whole_file(
-        state: Any, tmp_path: Any) -> None:
+def test_a_path_is_edited_as_the_whole_file(state: Any, tmp_path: Any) -> None:
     target = tmp_path / "some.nix"
     target.write_text("1\n")
     where = state.eval_expr(f"{target}").edit_location()
@@ -356,8 +352,7 @@ def test_a_lambda_from_a_string_cannot_be_edited(state: Any) -> None:
         state.eval_expr("x: x").edit_location()
 
 
-def test_a_lambda_doc_reports_a_source_that_went_away(
-        state: Any, tmp_path: Any) -> None:
+def test_a_lambda_doc_reports_a_source_that_went_away(state: Any, tmp_path: Any) -> None:
     """A missing source RAISES, with a message about the source.
 
     Written expecting "" - `getSource` catches its own read error and
@@ -386,6 +381,7 @@ def test_a_lambda_doc_reports_a_source_that_went_away(
 
 
 # -- by name ---------------------------------------------------------------
+
 
 def test_an_attribute_set_applies_by_name(state: Any) -> None:
     """`autoCallFunction`: one round trip for a whole argument set."""
@@ -462,6 +458,7 @@ def test_a_required_argument_with_no_value_raises_nix(state: Any) -> None:
 
 
 # -- the two duals, composed -----------------------------------------------
+
 
 def test_python_calls_nix_calling_python(state: Any) -> None:
     """The collision point of nixidae/nixidae#570 and nixidae/nixidae#571.

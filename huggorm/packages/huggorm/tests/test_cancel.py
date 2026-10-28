@@ -79,8 +79,7 @@ def cancel_later(request: int) -> threading.Timer:
     return timer
 
 
-def test_a_cancelled_request_stops_its_evaluation(
-        state: Any, request_id: int) -> None:
+def test_a_cancelled_request_stops_its_evaluation(state: Any, request_id: int) -> None:
     from huggorm_bindings.errors import Interrupted
 
     spin = Spin(state)
@@ -94,13 +93,14 @@ def test_a_cancelled_request_stops_its_evaluation(
 
 
 # Pure: no primop and no printing. About 7s uncancelled on dynhetz.
-PURE_SLOW = ("let sum = builtins.foldl' (a: b: a + b) 0; "
-             "range = n: builtins.genList (x: x) n; in "
-             "builtins.foldl' (a: _: a + sum (range 1000)) 0 (range 100000)")
+PURE_SLOW = (
+    "let sum = builtins.foldl' (a: b: a + b) 0; "
+    "range = n: builtins.genList (x: x) n; in "
+    "builtins.foldl' (a: _: a + sum (range 1000)) 0 (range 100000)"
+)
 
 
-def test_a_cancelled_request_stops_a_pure_evaluation(
-        state: Any, request_id: int) -> None:
+def test_a_cancelled_request_stops_a_pure_evaluation(state: Any, request_id: int) -> None:
     """Upstream libexpr calls `checkInterrupt` only while it prints a
     value. Without the patch, this runs to its end."""
     from huggorm_bindings.errors import Interrupted
@@ -135,8 +135,7 @@ def test_another_request_is_not_stopped(state: Any, request_id: int) -> None:
     assert got.string_value().startswith("[0,1,2")
 
 
-def test_an_interrupted_value_evaluates_again(
-        state: Any, request_id: int) -> None:
+def test_an_interrupted_value_evaluates_again(state: Any, request_id: int) -> None:
     """Nix caches an error in the thunk that raised it, and it cached
     an interruption too, so every later force of `a` rethrew it. The
     patch `nix-interrupted-thunk-recovers.patch` keeps a recovery
@@ -160,13 +159,14 @@ def test_an_interrupted_value_evaluates_again(
 # `a` starts itself on an evaluator thread, which then waits on this one.
 # A sum, not `toJSON`: that forces the list in parallel, and the primop
 # would run on the evaluator threads.
-AWAITED = ("rec { a = builtins.parallel [ a ] (builtins.foldl' "
-           f"(acc: x: acc + builtins.spin x) 0 (builtins.genList (x: x) {ELEMENTS})); }}")
+AWAITED = (
+    "rec { a = builtins.parallel [ a ] (builtins.foldl' "
+    f"(acc: x: acc + builtins.spin x) 0 (builtins.genList (x: x) {ELEMENTS})); }}"
+)
 
 
 @pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
-def test_an_interrupted_value_another_thread_awaits_evaluates_again(
-        parallel_state: Any, request_id: int) -> None:
+def test_an_interrupted_value_another_thread_awaits_evaluates_again(parallel_state: Any, request_id: int) -> None:
     """Determinate Nix's thunk that another thread waits on became
     `Failed` on an interrupt, so the value was poisoned for good. The
     waiting thread stops too: it does not finish the cancelled work
@@ -211,8 +211,7 @@ def scope_id() -> Iterator[int]:
         forget_interrupt_scope(scope)
 
 
-def test_a_cancelled_scope_stops_a_request_inside_it(
-        state: Any, scope_id: int, request_id: int) -> None:
+def test_a_cancelled_scope_stops_a_request_inside_it(state: Any, scope_id: int, request_id: int) -> None:
     """The scope is armed first and a request is named inside it, the
     order nanopynix uses. The request must not replace the scope.
 
@@ -230,8 +229,7 @@ def test_a_cancelled_scope_stops_a_request_inside_it(
     assert spin.calls < ELEMENTS, "the work ran to its end"
 
 
-def test_a_scope_and_a_request_with_one_number_are_two_things(
-        state: Any, request_id: int) -> None:
+def test_a_scope_and_a_request_with_one_number_are_two_things(state: Any, request_id: int) -> None:
     """Two tables: cancelling scope N does not stop request N."""
     from huggorm_bindings import cancel_interrupt_scope, forget_interrupt_scope
 
@@ -271,8 +269,7 @@ async def test_a_cancelled_await_stops_the_thread() -> None:
 
 # Interruptible with no primop, which has no rpc: `toJSON` calls
 # `checkInterrupt` once per element. About 1s uncancelled on dynhetz.
-REMOTE_SLOW = ("builtins.stringLength (builtins.toJSON "
-               "(builtins.genList (x: x * x) 6000000))")
+REMOTE_SLOW = "builtins.stringLength (builtins.toJSON (builtins.genList (x: x * x) 6000000))"
 
 
 async def test_a_dropped_remote_call_stops_its_work(client: Any) -> None:
@@ -283,8 +280,7 @@ async def test_a_dropped_remote_call_stops_its_work(client: Any) -> None:
     The uncancelled work is timed in the same run, and the next call
     must answer in under half of it. A fast machine therefore cannot
     pass this by finishing the work before anyone waits on it."""
-    state = await client.acquire(
-        AsyncEvalState, await client.acquire(AsyncStore, URI))
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, URI))
     started = time.monotonic()
     await state.eval_expr(REMOTE_SLOW)
     full = time.monotonic() - started

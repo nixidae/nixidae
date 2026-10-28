@@ -67,8 +67,8 @@ def set_pool_size(workers: int) -> None:
     with _POOL_LOCK:
         if _POOL is not None:
             raise RuntimeError(
-                "the shared pool is already running; set_pool_size must be "
-                "called before the first pool-threaded call")
+                "the shared pool is already running; set_pool_size must be called before the first pool-threaded call"
+            )
         _POOL_SIZE = workers
 
 
@@ -214,8 +214,7 @@ class _Pool(concurrent.futures.Executor):
         self._shutdown = False
         _POOLS.add(self)
 
-    def submit(self, fn: Callable[..., Any], /, *args: Any,
-               **kwargs: Any) -> concurrent.futures.Future[Any]:
+    def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> concurrent.futures.Future[Any]:
         job = _Job(functools.partial(fn, *args, **kwargs))
         with self._lock:
             if self._shutdown:
@@ -228,8 +227,7 @@ class _Pool(concurrent.futures.Executor):
         """Under the lock: one more thread, when none is idle and fewer
         run than the size and the waiting threads allow."""
         if self._idle == 0 and len(self._threads) < self._size + self._waiting:
-            thread = threading.Thread(
-                target=self._work, name=f"{self._name}_{self._started}")
+            thread = threading.Thread(target=self._work, name=f"{self._name}_{self._started}")
             self._started += 1
             self._threads.add(thread)
             thread.start()
@@ -254,8 +252,7 @@ class _Pool(concurrent.futures.Executor):
             job.run()
             del job
 
-    def wait(self, done: concurrent.futures.Future[Any],
-             start: Callable[[], None] = lambda: None) -> None:
+    def wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
         """Wait for `done` on a thread of this pool, which counts as
         not running meanwhile. `start` begins what completes `done`."""
         with self._lock:
@@ -269,8 +266,7 @@ class _Pool(concurrent.futures.Executor):
             with self._lock:
                 self._waiting -= 1
 
-    def shutdown(self, wait: bool = True, *,
-                 cancel_futures: bool = False) -> None:
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         with self._lock:
             self._shutdown = True
             threads = list(self._threads)
@@ -305,14 +301,12 @@ class _Home(concurrent.futures.Executor):
     queued, so it still runs after the call that waits."""
 
     def __init__(self, name: str) -> None:
-        self._pool = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=name)
+        self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=name)
         _start_with_eval_stack(self._pool)
         self._lock = threading.Lock()
         self._inbox: queue.SimpleQueue[_Job | None] | None = None
 
-    def submit(self, fn: Callable[..., Any], /, *args: Any,
-               **kwargs: Any) -> concurrent.futures.Future[Any]:
+    def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> concurrent.futures.Future[Any]:
         with self._lock:
             if self._inbox is None:
                 return self._pool.submit(fn, *args, **kwargs)
@@ -320,12 +314,10 @@ class _Home(concurrent.futures.Executor):
             self._inbox.put(job)
             return job.future
 
-    def shutdown(self, wait: bool = True, *,
-                 cancel_futures: bool = False) -> None:
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         self._pool.shutdown(wait=wait, cancel_futures=cancel_futures)
 
-    def wait(self, done: concurrent.futures.Future[Any],
-             start: Callable[[], None] = lambda: None) -> None:
+    def wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
         """Run what is submitted here until `done` completes. Only on
         this executor's own thread, from inside a job it runs.
 
@@ -403,25 +395,22 @@ class _Hooks:
     only when it finds `_asked` empty, under the same lock. So a run of
     posted hooks costs one hop to the loop, not one each."""
 
-    __slots__ = ("_asked", "_awake", "_broken", "_closed", "_lock",
-                 "_posted", "_token", "executor", "wake")
+    __slots__ = ("_asked", "_awake", "_broken", "_closed", "_lock", "_posted", "_token", "executor", "wake")
 
     def __init__(self, executor: concurrent.futures.Executor) -> None:
         self._token = anyio.lowlevel.current_token()
-        self.executor = (executor if isinstance(executor, _Home | _Pool)
-                         else None)
+        self.executor = executor if isinstance(executor, _Home | _Pool) else None
         self._lock = threading.Lock()
-        self._asked: collections.deque[
-            tuple[Callable[[], Awaitable[Any]],
-                  concurrent.futures.Future[Any], bool]] = collections.deque()
+        self._asked: collections.deque[tuple[Callable[[], Awaitable[Any]], concurrent.futures.Future[Any], bool]] = (
+            collections.deque()
+        )
         self._awake = False
         self._closed = False
         # The first posted hook that failed. The ones after it do not
         # run: a stream with a gap is worse than one that stops.
         self._broken: Exception | None = None
         # Worker side: the answers of posted hooks, oldest first.
-        self._posted: collections.deque[
-            concurrent.futures.Future[Any]] = collections.deque()
+        self._posted: collections.deque[concurrent.futures.Future[Any]] = collections.deque()
         self.wake = anyio.Event()
 
     def ask(self, hook: Callable[[], Awaitable[Any]]) -> Any:
@@ -440,8 +429,7 @@ class _Hooks:
             # call that waits for the hook, and neither ends.
             self.ask(hook)
             return
-        while self._posted and (self._posted[0].done()
-                                or len(self._posted) >= _POSTED_WINDOW):
+        while self._posted and (self._posted[0].done() or len(self._posted) >= _POSTED_WINDOW):
             self._wait(self._posted[0])
             self._posted.popleft().result()
         answer: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -459,16 +447,14 @@ class _Hooks:
                 failure = done.exception()
         return failure
 
-    def _wait(self, done: concurrent.futures.Future[Any],
-              start: Callable[[], None] = lambda: None) -> None:
+    def _wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
         if self.executor is not None:
             self.executor.wait(done, start)
         else:
             start()
             concurrent.futures.wait([done])
 
-    def _put(self, hook: Callable[[], Awaitable[Any]],
-             answer: concurrent.futures.Future[Any], posted: bool) -> None:
+    def _put(self, hook: Callable[[], Awaitable[Any]], answer: concurrent.futures.Future[Any], posted: bool) -> None:
         with self._lock:
             if self._closed:
                 answer.set_exception(_cancelled())
@@ -556,21 +542,17 @@ def _stub_class(base: type) -> type:
         def call(self: Any, *args: Any) -> Any:
             hooks: _Hooks | None = getattr(_CALLING, "hooks", None)
             if hooks is None:
-                raise RuntimeError(
-                    f"{name} is an async hook, and no huggorm call runs on "
-                    f"this thread to run it from")
+                raise RuntimeError(f"{name} is an async hook, and no huggorm call runs on this thread to run it from")
             run = functools.partial(getattr(self._target, name), *args)
             if posted:
                 hooks.post(run)
                 return None
             return hooks.ask(run)
+
         return functools.update_wrapper(call, getattr(base, name))
 
-    namespace = {"__init__": __init__,
-                 **{h.call.name: hook(h.call.name, h.posted)
-                    for h in callbacks[base.__name__]}}
-    return types.new_class(f"Hooked{base.__name__}", (base,), {},
-                           lambda ns: ns.update(namespace))
+    namespace = {"__init__": __init__, **{h.call.name: hook(h.call.name, h.posted) for h in callbacks[base.__name__]}}
+    return types.new_class(f"Hooked{base.__name__}", (base,), {}, lambda ns: ns.update(namespace))
 
 
 class _InRequest:
@@ -609,8 +591,7 @@ class _InRequest:
 
         try:
             # The call ends only once its posted hooks have run.
-            failure = (self._hooks.flush() if self._hooks is not None
-                       else None)
+            failure = self._hooks.flush() if self._hooks is not None else None
             if failure is not None and kind is None:
                 raise failure
         finally:
@@ -620,8 +601,7 @@ class _InRequest:
             huggorm_bindings.end_request(self._previous)
 
 
-async def _until_done(future: asyncio.Future[Any], request: int,
-                      hooks: _Hooks) -> Any:
+async def _until_done(future: asyncio.Future[Any], request: int, hooks: _Hooks) -> Any:
     """Await work on an executor thread, and stop it when cancelled.
 
     Cancelling the awaiting task does not stop a thread that is
@@ -664,8 +644,7 @@ async def _until_done(future: asyncio.Future[Any], request: int,
     return future.result()
 
 
-async def _hop(executor: concurrent.futures.Executor, label: str,
-               fn: Callable[[], Any]) -> Any:
+async def _hop(executor: concurrent.futures.Executor, label: str, fn: Callable[[], Any]) -> Any:
     """Run `fn` on `executor` as one wrapped call: named, with its
     hooks run on the loop, stopped when cancelled, and failing as
     `typed_or_internal` says.
@@ -680,9 +659,7 @@ async def _hop(executor: concurrent.futures.Executor, label: str,
         with _typed(label), _InRequest(request, hooks):
             return fn()
 
-    return await _until_done(
-        asyncio.get_running_loop().run_in_executor(executor, invoke),
-        request, hooks)
+    return await _until_done(asyncio.get_running_loop().run_in_executor(executor, invoke), request, hooks)
 
 
 def _refuse_foreign(callee: Any, arg: Any, x: Any) -> None:
@@ -721,7 +698,8 @@ def _refuse_foreign(callee: Any, arg: Any, x: Any) -> None:
         f"attribute name is an index into that state's own symbol "
         f"table - so this would read the wrong table rather than fail. "
         f"Force it to data and copy it across, or do the work on the "
-        f"state that owns it.")
+        f"state that owns it."
+    )
 
 
 def unwrap_arg(x: Any) -> Any:
@@ -737,8 +715,7 @@ def unwrap_arg(x: Any) -> Any:
     if r is None:
         return x
     if not isinstance(r, BaseRunner):
-        raise TypeError(f"{type(x).__name__} is a handle on a server, and an "
-                        f"in-process call needs the object itself")
+        raise TypeError(f"{type(x).__name__} is a handle on a server, and an in-process call needs the object itself")
     obj = r.ensure()
     # Every wrapper the build emits states `_copied`, so a missing one
     # is an AttributeError rather than a proxy by default.
@@ -774,8 +751,8 @@ def _check_isolation(callee: Any, args: Iterable[Any]) -> None:
             # One class holds either backend, so the location is
             # checked here, not by a typechecker (nixidae/nixidae#563).
             raise TypeError(
-                f"{type(x).__name__} is a handle on a server, and an "
-                f"in-process call needs the object itself")
+                f"{type(x).__name__} is a handle on a server, and an in-process call needs the object itself"
+            )
         if x._copied:
             # A wire value crosses as a COPY, so it carries no tie to
             # whatever made it. That is the one crossing the rule
@@ -810,8 +787,7 @@ class BaseRunner:
     # their own thread; pool runners may construct anywhere.
     dedicated_thread = False
 
-    def __init__(self, factory: Callable[[], Any] | None,
-                 obj: Any = None) -> None:
+    def __init__(self, factory: Callable[[], Any] | None, obj: Any = None) -> None:
         # Either a lazy factory (constructed on first use, on this
         # runner's thread) or an already-built obj — never both.
         self._factory = factory
@@ -868,7 +844,8 @@ class BaseRunner:
             raise TypeError(
                 "affine wrapper used as an argument before its first "
                 "call: it can only be constructed on its own thread. "
-                "Call a method on it first, or declare the type 'pool'.")
+                "Call a method on it first, or declare the type 'pool'."
+            )
         return self._resolve()
 
     @staticmethod
@@ -925,8 +902,7 @@ class BaseRunner:
         many times - walking a value that holds values - and must not
         pay a handover for every visit. The function runs on the home
         thread, so everything it touches is on that thread too."""
-        return await _hop(self._executor(), "run",
-                          lambda: fn(self._resolve()))
+        return await _hop(self._executor(), "run", lambda: fn(self._resolve()))
 
     def _adopted(self, returns: Wire | None, result: Any) -> Any:
         """`result` in its async form when the call returns a served
@@ -941,9 +917,10 @@ class BaseRunner:
         it. A `Local` spec declares no parameter of that kind."""
         if isinstance(spec, Local):
             return args
-        return [adapt(_classes().CALLED_BACK[a.type.name], x)
-                if a.type.kind is WireKind.CLIENT else x
-                for a, x in zip(spec.args, args, strict=True)]
+        return [
+            adapt(_classes().CALLED_BACK[a.type.name], x) if a.type.kind is WireKind.CLIENT else x
+            for a, x in zip(spec.args, args, strict=True)
+        ]
 
     async def call(self, spec: Call | Local, args: list[Any]) -> Any:
         args = self._adapted_args(spec, args)
@@ -955,9 +932,9 @@ class BaseRunner:
         # that lives on another thread.
         if not self.dedicated_thread:
             await _materialize_args(args)
-        return self._adopted(spec.returns, await _hop(
-            self._executor(), spec.name,
-            lambda: self._invoke(spec.name, args)))
+        return self._adopted(
+            spec.returns, await _hop(self._executor(), spec.name, lambda: self._invoke(spec.name, args))
+        )
 
 
 def _release_gc_thread() -> None:
@@ -976,8 +953,7 @@ class AffineRunner(BaseRunner):
 
     dedicated_thread = True
 
-    def __init__(self, factory: Callable[[], Any],
-                 name: str = "huggorm-affine") -> None:
+    def __init__(self, factory: Callable[[], Any], name: str = "huggorm-affine") -> None:
         super().__init__(factory)
         self._pool = _Home(name)
         self._closed = False
@@ -1089,8 +1065,7 @@ class Client(Protocol):
     """What a `Remote` needs from its client. The client owns the
     connection, the codec and the handle's lifetime."""
 
-    async def invoke(self, spec: Call, handle_id: str | None,
-                     args: list[Any]) -> Any: ...
+    async def invoke(self, spec: Call, handle_id: str | None, args: list[Any]) -> Any: ...
 
     async def release(self, handle: Remote) -> None: ...
 
@@ -1120,8 +1095,7 @@ class Remote:
 Backend = BaseRunner | Remote
 
 
-async def call_function(spec: Call | Local, fn: Callable[..., Any],
-                        args: list[Any]) -> Any:
+async def call_function(spec: Call | Local, fn: Callable[..., Any], args: list[Any]) -> Any:
     """Run a module-level binding function on the shared pool.
 
     Free functions have no instance, so there is no runner to own them
@@ -1132,7 +1106,6 @@ async def call_function(spec: Call | Local, fn: Callable[..., Any],
     return as a method's does, with the pool as the producer."""
     args = BaseRunner._adapted_args(spec, args)
     await _materialize_args(args)
-    return PoolRunner(None)._adopted(spec.returns, await _hop(
-        _shared_pool(), fn.__name__,
-        lambda: fn(*[unwrap_arg(a) for a in args])))
-
+    return PoolRunner(None)._adopted(
+        spec.returns, await _hop(_shared_pool(), fn.__name__, lambda: fn(*[unwrap_arg(a) for a in args]))
+    )

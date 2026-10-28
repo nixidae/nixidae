@@ -37,9 +37,7 @@ if EMITTED:
     os.makedirs(PACKAGE, exist_ok=True)
     for name in os.listdir(EMITTED):
         shutil.copyfile(os.path.join(EMITTED, name), os.path.join(PACKAGE, name))
-    MODULES = tuple(sorted(name.removesuffix(".cpp")
-                           for name in os.listdir(EMITTED)
-                           if name.endswith(".cpp")))
+    MODULES = tuple(sorted(name.removesuffix(".cpp") for name in os.listdir(EMITTED) if name.endswith(".cpp")))
     DECL_INCLUDE = os.environ["HUGGORM_DECL_INCLUDE"]
 else:
     import huggorm_decl
@@ -57,9 +55,9 @@ def pkg_config(*packages: str) -> dict[str, list[str]]:
     -std=c++23, a Requires chain into nix-util and nlohmann_json, and
     a private link line nobody should be reconstructing by hand
     (nixidae/nixidae#552)."""
+
     def run(flag: str) -> list[str]:
-        out = subprocess.run(["pkg-config", flag, *packages],
-                             capture_output=True, text=True, check=True)
+        out = subprocess.run(["pkg-config", flag, *packages], capture_output=True, text=True, check=True)
         return shlex.split(out.stdout)
 
     cflags, ldflags = run("--cflags"), run("--libs")
@@ -71,10 +69,10 @@ def pkg_config(*packages: str) -> dict[str, list[str]]:
         "libraries": [f[2:] for f in ldflags if f.startswith("-l")],
         # rpath, or the extension imports and then cannot find
         # libnixstore. Nix has no global library path to fall back on.
-        "extra_link_args": [f for f in ldflags
-                            if not f.startswith(("-L", "-l"))]
+        "extra_link_args": [f for f in ldflags if not f.startswith(("-L", "-l"))]
         + [f"-Wl,-rpath,{d}" for d in library_dirs],
     }
+
 
 # Real Nix, and nothing else. nix-expr for the evaluator, nix-flake
 # for flake references, nix-cmd for `lookupFileArg`, and nix-store for
@@ -101,6 +99,7 @@ _nix = pkg_config("nix-store", "nix-expr", "nix-flake", "nix-cmd")
 # includes as well as the units do (nixidae/nixidae#640).
 _nix["include_dirs"] = [DECL_INCLUDE, HERE] + _nix["include_dirs"]
 
+
 # Every module in the package, through nanobind.
 #
 # Their C++ is written before this runs, by
@@ -120,8 +119,7 @@ def nb_runtime() -> str:
     absolute path in `sources`, and nanobind's is in its wheel."""
     name = "_nb_combined.cpp"
     target = os.path.join(HERE, "huggorm_bindings", name)
-    shutil.copyfile(os.path.join(nanobind.source_dir(), "nb_combined.cpp"),
-                    target)
+    shutil.copyfile(os.path.join(nanobind.source_dir(), "nb_combined.cpp"), target)
     return f"huggorm_bindings/{name}"
 
 
@@ -152,8 +150,7 @@ def nanobind_extension(module: str) -> Extension:
         # silently rendering it as something else. It is an error
         # rather than a warning because a warning in a build that
         # prints thousands of lines is a warning nobody reads.
-        extra_compile_args=[*flags["extra_compile_args"],
-                            "-fvisibility=hidden", "-Werror=switch"],
+        extra_compile_args=[*flags["extra_compile_args"], "-fvisibility=hidden", "-Werror=switch"],
         include_dirs=flags["include_dirs"],
         library_dirs=flags["library_dirs"],
         libraries=flags["libraries"],

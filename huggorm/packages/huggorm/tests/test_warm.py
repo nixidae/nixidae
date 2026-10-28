@@ -70,8 +70,7 @@ class Evaluations(list[str]):
                 await self._grew.wait()
 
 
-async def test_a_registered_root_is_stale_until_it_is_evaluated(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_registered_root_is_stale_until_it_is_evaluated(state: Any, tmp_path: Any) -> None:
     """Registering evaluates nothing, and says so.
 
     A root with no snapshot is stale whether it was forgotten or was
@@ -91,8 +90,7 @@ async def test_a_registered_root_is_stale_until_it_is_evaluated(
     assert warm.stale() == [], "and now it is warm"
 
 
-async def test_a_change_makes_a_registered_root_stale_again(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_change_makes_a_registered_root_stale_again(state: Any, tmp_path: Any) -> None:
     """The whole mechanism, with the noticing taken out.
 
     `changed()` forgets the root, which drops its snapshot, which is
@@ -115,8 +113,7 @@ async def test_a_change_makes_a_registered_root_stale_again(
     assert await (await w.eval_file(outer)).integer() == 2
 
 
-async def test_an_unregistered_root_is_never_refreshed(
-        state: Any, tmp_path: Any) -> None:
+async def test_an_unregistered_root_is_never_refreshed(state: Any, tmp_path: Any) -> None:
     """Registration is what this class adds, so it has to bite.
 
     A watcher records every root anyone evaluated through it.
@@ -140,8 +137,7 @@ async def test_an_unregistered_root_is_never_refreshed(
     assert w.roots == [kept]
 
 
-async def test_a_root_that_does_not_parse_is_recorded_not_raised(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_root_that_does_not_parse_is_recorded_not_raised(state: Any, tmp_path: Any) -> None:
     """A file saved mid-edit is the normal case, not an error.
 
     An eager pass has no caller to raise to, so raising would take
@@ -174,8 +170,7 @@ async def test_a_root_that_does_not_parse_is_recorded_not_raised(
     assert warm.failures == {}, "a success clears the failure"
 
 
-async def test_unregistering_stops_the_pass_and_drops_the_failure(
-        state: Any, tmp_path: Any) -> None:
+async def test_unregistering_stops_the_pass_and_drops_the_failure(state: Any, tmp_path: Any) -> None:
     """A failure is about the next attempt, and there will not be one."""
     root = write(tmp_path / "root.nix", "1 + \n")
 
@@ -191,8 +186,7 @@ async def test_unregistering_stops_the_pass_and_drops_the_failure(
     assert warm.failures == {}
 
 
-async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_saved_file_is_re_evaluated_with_nobody_asking(state: Any, tmp_path: Any) -> None:
     """The destination, in one test.
 
     Nobody calls anything after the save. A file event reaches the
@@ -238,8 +232,7 @@ async def test_a_saved_file_is_re_evaluated_with_nobody_asking(
         tg.cancel_scope.cancel()
 
 
-async def test_every_save_is_re_evaluated_not_only_the_first(
-        state: Any, tmp_path: Any) -> None:
+async def test_every_save_is_re_evaluated_not_only_the_first(state: Any, tmp_path: Any) -> None:
     """Three saves, three evaluations (nixidae/nixidae#878).
 
     The first save forgets the root, and a notifier that re-synced
@@ -278,8 +271,7 @@ async def test_every_save_is_re_evaluated_not_only_the_first(
         tg.cancel_scope.cancel()
 
 
-async def test_one_save_is_one_evaluation(
-        state: Any, tmp_path: Any) -> None:
+async def test_one_save_is_one_evaluation(state: Any, tmp_path: Any) -> None:
     """One save is one evaluation, and the settle window is why.
 
     This gate earned its place by catching a measurement that was

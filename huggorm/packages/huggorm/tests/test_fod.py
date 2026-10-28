@@ -62,9 +62,7 @@ def test_extract_unique_fod_hash_mismatch_rejects_multiple_events() -> None:
         "  specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
         "  got: sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
     )
-    second = first.replace(
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
-    )
+    second = first.replace("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
 
     assert extract_unique_fod_hash_mismatch([first]) == extract_fod_hash_mismatch(first)
     assert extract_unique_fod_hash_mismatch([first, second]) is None
@@ -106,10 +104,7 @@ in [ first second ]
 
     assert literal.derivation_name == "second"
     assert (
-        replace_fod_hash(
-            source, literal, "sha256-XG19bBLOoknhsnwV5rVaVGB8DYUiNPMklhyNotZNcD4="
-        ).count("sha256-")
-        == 1
+        replace_fod_hash(source, literal, "sha256-XG19bBLOoknhsnwV5rVaVGB8DYUiNPMklhyNotZNcD4=").count("sha256-") == 1
     )
 
 
@@ -161,9 +156,7 @@ _REAL = "sha256-XG19bBLOoknhsnwV5rVaVGB8DYUiNPMklhyNotZNcD4="
         ("hash", "pkgs.lib.fakeHash", _FAKE_SRI),
     ],
 )
-def test_updates_a_fake_hash_symbol_as_if_it_were_a_literal(
-    attribute: str, symbol: str, specified: str
-) -> None:
+def test_updates_a_fake_hash_symbol_as_if_it_were_a_literal(attribute: str, symbol: str, specified: str) -> None:
     """The nixpkgs convention for "not computed yet" is a symbol, not a string.
 
     An author writes `hash = lib.fakeHash` far more often than the zero string
@@ -175,10 +168,7 @@ def test_updates_a_fake_hash_symbol_as_if_it_were_a_literal(
     literal = find_fod_hash_literal(source, specified)
 
     assert literal.value == specified
-    assert (
-        replace_fod_hash(source, literal, _REAL)
-        == f'fetchurl {{ url = "u"; {attribute} = "{_REAL}"; }}'
-    )
+    assert replace_fod_hash(source, literal, _REAL) == f'fetchurl {{ url = "u"; {attribute} = "{_REAL}"; }}'
 
 
 def test_a_real_hash_elsewhere_survives_an_update_of_a_fake_one() -> None:
@@ -270,9 +260,7 @@ FIXED = fixed("fixed", _REAL)
 # The same name and another hash: what Nix builds for a FOD whose hash is empty.
 RESOLVED = fixed("fixed", "sha256-47DEQpj8HBSa+/TWmW+nGUhGKf1Kq8BQi/ljyeGd3sQ=")
 OTHER = fixed("other", _REAL)
-ROOT = (
-    f'derivation {{ name = "root"; system = "x86_64-linux"; builder = "/bin/sh"; dep = {FIXED}; }}'
-)
+ROOT = f'derivation {{ name = "root"; system = "x86_64-linux"; builder = "/bin/sh"; dep = {FIXED}; }}'
 
 
 @pytest.fixture
@@ -292,12 +280,8 @@ def mismatch(drv_path: str | None) -> FodHashMismatch:
     return FodHashMismatch(specified=_FAKE_SRI, got=_REAL, drv_path=drv_path)
 
 
-@pytest.mark.parametrize(
-    "expr", ["1", "{ }", '{ type = "derivation"; }', '{ type = "other"; drvPath = "x"; }']
-)
-async def test_a_value_that_is_not_a_derivation_has_no_drv_path(
-    nix: tuple[Any, Any], expr: str
-) -> None:
+@pytest.mark.parametrize("expr", ["1", "{ }", '{ type = "derivation"; }', '{ type = "other"; drvPath = "x"; }'])
+async def test_a_value_that_is_not_a_derivation_has_no_drv_path(nix: tuple[Any, Any], expr: str) -> None:
     _, state = nix
     assert await evaluated_derivation_path(state, await state.eval_expr(expr)) is None
 
@@ -343,14 +327,10 @@ async def test_a_mismatch_with_no_derivation_is_taken_on_the_diagnostic(
 async def test_a_target_that_is_not_a_derivation_owns_no_mismatch(nix: tuple[Any, Any]) -> None:
     store, state = nix
     outside = await store.print_store_path(await drv(nix, OTHER))
-    assert not await mismatch_is_target_fod(
-        store, state, await state.eval_expr("{ }"), mismatch(outside)
-    )
+    assert not await mismatch_is_target_fod(store, state, await state.eval_expr("{ }"), mismatch(outside))
 
 
 async def test_a_fixed_target_owns_its_resolved_copy(nix: tuple[Any, Any]) -> None:
     store, state = nix
     outside = await store.print_store_path(await drv(nix, OTHER))
-    assert await mismatch_is_target_fod(
-        store, state, await state.eval_expr(FIXED), mismatch(outside)
-    )
+    assert await mismatch_is_target_fod(store, state, await state.eval_expr(FIXED), mismatch(outside))

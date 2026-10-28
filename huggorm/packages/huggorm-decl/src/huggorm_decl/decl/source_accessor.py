@@ -61,8 +61,7 @@ class Stat:
 
     # WIRE ORDER: the parts, in the order the constructor takes them.
 
-    def __init__(self, type: FileType, file_size: Opt[U64] = None,
-                 is_executable: Bint = False) -> None:
+    def __init__(self, type: FileType, file_size: Opt[U64] = None, is_executable: Bint = False) -> None:
         """Describe an object. Only a regular file has a size or an
         executable bit."""
         Cxx("""
@@ -86,8 +85,7 @@ new (self) nix::SourceAccessor::Stat{
 @in_process
 @calls_back
 @header(Local("huggorm_decl/cpp/source_accessor.hpp"))
-@binding(cxx="huggorm::SourceAccessor", holder="shared_ptr",
-         threading="pool", blocking=True)
+@binding(cxx="huggorm::SourceAccessor", holder="shared_ptr", threading="pool", blocking=True)
 class SourceAccessor:
     """A file tree Nix reads. See the module."""
 

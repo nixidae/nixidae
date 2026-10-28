@@ -103,26 +103,21 @@ if TYPE_CHECKING:
 # change. Over-reporting costs a call that forgets nothing;
 # under-reporting is silent staleness. `opened` and `closed_no_write`
 # are reads, and an evaluation reads.
-CHANGES = frozenset({EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED,
-                     EVENT_TYPE_DELETED, EVENT_TYPE_MOVED})
+CHANGES = frozenset({EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED, EVENT_TYPE_DELETED, EVENT_TYPE_MOVED})
 
 
 class _Forward(FileSystemEventHandler):
     """Runs on the observer's thread, and only hands events over."""
 
-    def __init__(self, send: MemoryObjectSendStream[FileSystemEvent],
-                 token: EventLoopToken) -> None:
+    def __init__(self, send: MemoryObjectSendStream[FileSystemEvent], token: EventLoopToken) -> None:
         self._send = send
         self._token = token
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         # The loop has ended, or the notifier closed its stream: either
         # way nobody will receive this event, and the thread just ends.
-        with contextlib.suppress(anyio.RunFinishedError,
-                                 anyio.ClosedResourceError,
-                                 anyio.BrokenResourceError):
-            from_thread.run_sync(self._send.send_nowait, event,
-                                 token=self._token)
+        with contextlib.suppress(anyio.RunFinishedError, anyio.ClosedResourceError, anyio.BrokenResourceError):
+            from_thread.run_sync(self._send.send_nowait, event, token=self._token)
 
 
 class Notifier:
@@ -144,8 +139,7 @@ class Notifier:
         self._watcher = watcher
         # Unbounded: a bound would drop an event when full, and a
         # dropped event is silent staleness. An event is a few paths.
-        self._send, self._receive = anyio.create_memory_object_stream[
-            FileSystemEvent](float("inf"))
+        self._send, self._receive = anyio.create_memory_object_stream[FileSystemEvent](float("inf"))
         self._observer: Any = None
         self._handler: _Forward | None = None
         # directory -> the watch on it. The key is what `sync` diffs,
@@ -216,8 +210,7 @@ class Notifier:
                 # directory, but the check does not depend on that.
                 if not os.path.isdir(new):
                     raise FileNotFoundError(new)
-                self._watches[new] = self._started().schedule(
-                    self._handler, new, recursive=False)
+                self._watches[new] = self._started().schedule(self._handler, new, recursive=False)
             except OSError:
                 # The directory is not there. Every file the watcher
                 # holds under it is therefore gone, which is a change

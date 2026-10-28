@@ -168,13 +168,17 @@ class RegistryWrite:
         that is not locked still moves when its branch does."""
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("nix/fetchers/fetch-settings.hh"),
-       Local("nix/fetchers/registry.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/registry.hh"),
+)
 @threading("pool")
 @blocks
-def registry_entries(store: Store,
-                     settings: Opt[Map[Str]] = None,
-                     ) -> Vec[RegistryEntry]:
+def registry_entries(
+    store: Store,
+    settings: Opt[Map[Str]] = None,
+) -> Vec[RegistryEntry]:
     """Every entry of every layer, in the order Nix consults them.
 
     THIS CAN DOWNLOAD. The global layer is the file `flake-registry`
@@ -205,15 +209,19 @@ return nix::fetchers::getUserRegistryPath().string();
     """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"),
-       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
-       Local("nix/util/source-path.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/flakeref.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/registry.hh"),
+    Local("nix/flake/flakeref.hh"),
+    Local("nix/util/source-path.hh"),
+)
 @threading("pool")
 @blocks
-def registry_add(path: Opt[Str], source: Str, target: Str,
-                 base: Opt[Str] = None,
-                 settings: Opt[Map[Str]] = None) -> RegistryWrite:
+def registry_add(
+    path: Opt[Str], source: Str, target: Str, base: Opt[Str] = None, settings: Opt[Map[Str]] = None
+) -> RegistryWrite:
     """`nix registry add`: resolve `source` to `target` from now on.
 
     `path` is the file, None for the user's. Both references parse as
@@ -242,15 +250,19 @@ return huggorm::RegistryWrite{file.string(), removed, to.input.to_string(), std:
     """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"),
-       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
-       Local("nix/util/source-path.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/flakeref.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/registry.hh"),
+    Local("nix/flake/flakeref.hh"),
+    Local("nix/util/source-path.hh"),
+)
 @threading("pool")
 @blocks
-def registry_remove(path: Opt[Str], source: Str,
-                    base: Opt[Str] = None,
-                    settings: Opt[Map[Str]] = None) -> RegistryWrite:
+def registry_remove(
+    path: Opt[Str], source: Str, base: Opt[Str] = None, settings: Opt[Map[Str]] = None
+) -> RegistryWrite:
     """`nix registry remove`: drop every entry for `source`.
 
     Whole references compare, so `nixpkgs` does not remove an entry
@@ -272,16 +284,24 @@ return huggorm::RegistryWrite{file.string(), removed, std::nullopt, std::nullopt
     """)
 
 
-@needs(Local("huggorm_decl/cpp/call_settings.hpp"), Local("huggorm_decl/cpp/flakeref.hpp"),
-       Local("nix/fetchers/fetch-settings.hh"),
-       Local("nix/fetchers/registry.hh"), Local("nix/flake/flakeref.hh"),
-       Local("nix/util/source-path.hh"))
+@needs(
+    Local("huggorm_decl/cpp/call_settings.hpp"),
+    Local("huggorm_decl/cpp/flakeref.hpp"),
+    Local("nix/fetchers/fetch-settings.hh"),
+    Local("nix/fetchers/registry.hh"),
+    Local("nix/flake/flakeref.hh"),
+    Local("nix/util/source-path.hh"),
+)
 @threading("pool")
 @blocks
-def registry_pin(store: Store, path: Opt[Str], source: Str,
-                 target: Opt[Str] = None,
-                 base: Opt[Str] = None,
-                 settings: Opt[Map[Str]] = None) -> RegistryWrite:
+def registry_pin(
+    store: Store,
+    path: Opt[Str],
+    source: Str,
+    target: Opt[Str] = None,
+    base: Opt[Str] = None,
+    settings: Opt[Map[Str]] = None,
+) -> RegistryWrite:
     """`nix registry pin`: resolve `source` to what `target` is NOW.
 
     `target` None pins `source` to itself. THIS FETCHES: resolving

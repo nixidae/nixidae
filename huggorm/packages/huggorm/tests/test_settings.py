@@ -30,13 +30,11 @@ print(EvalState(Store("dummy://")).eval_expr("builtins ? currentTime").boolean()
 """
 
 
-def has_current_time(nix_config: str, *, load: bool,
-                     reset: bool = False) -> bool:
+def has_current_time(nix_config: str, *, load: bool, reset: bool = False) -> bool:
     env = {**os.environ, "NIX_CONFIG": nix_config}
     mode = "reset" if reset else "load" if load else "skip"
     argv = [sys.executable, "-c", PROBE, mode]
-    out = subprocess.run(argv, env=env, capture_output=True, text=True,
-                         check=True)
+    out = subprocess.run(argv, env=env, capture_output=True, text=True, check=True)
     return {"True": True, "False": False}[out.stdout.strip()]
 
 
@@ -49,8 +47,7 @@ def test_the_config_reaches_the_state_after_the_marks_are_reset() -> None:
     """nanopynix resets the overridden marks right after loading, to
     tell the file's settings from its own. The values stay, and a
     state reads the values."""
-    assert has_current_time("pure-eval = true", load=True,
-                            reset=True) is False
+    assert has_current_time("pure-eval = true", load=True, reset=True) is False
 
 
 def test_import_alone_reads_no_config() -> None:
@@ -59,18 +56,18 @@ def test_import_alone_reads_no_config() -> None:
     assert has_current_time("pure-eval = true", load=False) is True
 
 
-def test_nix_path_from_the_environment_reaches_the_state(
-        tmp_path: pathlib.Path) -> None:
+def test_nix_path_from_the_environment_reaches_the_state(tmp_path: pathlib.Path) -> None:
     """`initGC` copies NIX_PATH into the `nix-path` setting, through
     `globalConfig`. So it was lost with pure-eval: before the settings
     were registered, `<probe>` did not resolve."""
     (tmp_path / "default.nix").write_text("42")
-    probe = ("from huggorm_bindings import EvalState, Store;"
-             "print(EvalState(Store('dummy://')).eval_expr('import <probe>')"
-             ".integer())")
+    probe = (
+        "from huggorm_bindings import EvalState, Store;"
+        "print(EvalState(Store('dummy://')).eval_expr('import <probe>')"
+        ".integer())"
+    )
     env = {**os.environ, "NIX_CONFIG": "", "NIX_PATH": f"probe={tmp_path}"}
-    out = subprocess.run([sys.executable, "-c", probe], env=env,
-                         capture_output=True, text=True, check=True)
+    out = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "42"
 
 
@@ -124,11 +121,10 @@ def test_an_eval_setting_is_known_before_any_state() -> None:
 
     A fresh interpreter, because building a state registers them too,
     and every earlier test file in a run has built one."""
-    probe = ("from huggorm_bindings import get_setting;"
-             "print(get_setting('pure-eval'))")
-    out = subprocess.run([sys.executable, "-c", probe],
-                         env={**os.environ, "NIX_CONFIG": ""},
-                         capture_output=True, text=True, check=True)
+    probe = "from huggorm_bindings import get_setting;print(get_setting('pure-eval'))"
+    out = subprocess.run(
+        [sys.executable, "-c", probe], env={**os.environ, "NIX_CONFIG": ""}, capture_output=True, text=True, check=True
+    )
     assert out.stdout.strip() == "false"
 
 
@@ -148,13 +144,19 @@ def test_a_setting_only_nix_registers_reads_without_a_warning() -> None:
     a program on these bindings warned `unknown setting` at
     `init_plugins` on every start. Proved by breaking it: without the
     registration this prints both warnings and reads None."""
-    probe = ("from huggorm_bindings import get_setting, init_plugins, load_config;"
-             "load_config(); init_plugins();"
-             "print(get_setting('trusted-users')); print(get_setting('bash-prompt'))")
+    probe = (
+        "from huggorm_bindings import get_setting, init_plugins, load_config;"
+        "load_config(); init_plugins();"
+        "print(get_setting('trusted-users')); print(get_setting('bash-prompt'))"
+    )
     nix_config = "trusted-users = root alice\nallowed-users = *\nbash-prompt = nix> "
-    out = subprocess.run([sys.executable, "-c", probe],
-                         env={**os.environ, "NIX_CONFIG": nix_config},
-                         capture_output=True, text=True, check=True)
+    out = subprocess.run(
+        [sys.executable, "-c", probe],
+        env={**os.environ, "NIX_CONFIG": nix_config},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     assert "unknown setting" not in out.stderr
     assert out.stdout.splitlines() == ["root alice", "nix>"]
 
@@ -174,8 +176,7 @@ def test_an_unknown_name_refuses_to_be_set() -> None:
         set_setting("no-such-setting", "1")
 
 
-def test_a_set_value_reaches_the_next_state(
-        setting: Callable[[str, str], None]) -> None:
+def test_a_set_value_reaches_the_next_state(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import EvalState, Store
 
     probe = "builtins ? currentTime"
@@ -184,8 +185,7 @@ def test_a_set_value_reaches_the_next_state(
     assert EvalState(Store("dummy://")).eval_expr(probe).boolean() is False
 
 
-def test_overridden_only_names_what_was_set(
-        setting: Callable[[str, str], None]) -> None:
+def test_overridden_only_names_what_was_set(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import list_settings
 
     setting("pure-eval", "true")
@@ -244,8 +244,7 @@ def test_a_state_takes_its_own_settings() -> None:
     assert EvalState(Store("dummy://")).eval_expr(probe).boolean() is True
 
 
-def test_a_state_setting_beats_the_process_one(
-        setting: Callable[[str, str], None]) -> None:
+def test_a_state_setting_beats_the_process_one(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import EvalState, Store
 
     setting("pure-eval", "true")
@@ -315,8 +314,7 @@ def test_the_current_system_is_what_the_evaluator_answers() -> None:
     assert current_system() == answered.string_value()
 
 
-def test_eval_system_moves_the_current_system(
-        setting: Callable[[str, str], None]) -> None:
+def test_eval_system_moves_the_current_system(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import current_system
 
     setting("eval-system", "riscv64-linux")
@@ -350,8 +348,7 @@ def test_a_build_without_the_collector_refuses_by_name() -> None:
             refused()
 
 
-def test_reset_forgets_the_mark_and_keeps_the_value(
-        setting: Callable[[str, str], None]) -> None:
+def test_reset_forgets_the_mark_and_keeps_the_value(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import get_setting, list_settings, reset_overridden
 
     setting("warn-dirty", "false")
@@ -364,8 +361,11 @@ def test_reset_forgets_the_mark_and_keeps_the_value(
 def test_a_url_in_the_search_path_is_one_entry() -> None:
     from huggorm_bindings import parse_nix_path
 
-    assert parse_nix_path("a=/x:nixpkgs=https://example.org/n.tar.gz:/y") \
-        == ["a=/x", "nixpkgs=https://example.org/n.tar.gz", "/y"]
+    assert parse_nix_path("a=/x:nixpkgs=https://example.org/n.tar.gz:/y") == [
+        "a=/x",
+        "nixpkgs=https://example.org/n.tar.gz",
+        "/y",
+    ]
     assert parse_nix_path("") == []
 
 
@@ -389,12 +389,11 @@ def test_a_flake_setting_from_the_config_is_read() -> None:
     registration nix.conf's line goes to `unknownSettings`, and the
     name is unknown to the process. `get_setting` lists no setting
     whose feature is off, so the feature is on too."""
-    probe = ("from huggorm_bindings import get_setting, load_config;"
-             "load_config(); print(get_setting('accept-flake-config'))")
-    env = {**os.environ, "NIX_CONFIG": "experimental-features = flakes\n"
-                                       "accept-flake-config = true"}
-    out = subprocess.run([sys.executable, "-c", probe], env=env,
-                         capture_output=True, text=True, check=True)
+    probe = (
+        "from huggorm_bindings import get_setting, load_config;load_config(); print(get_setting('accept-flake-config'))"
+    )
+    env = {**os.environ, "NIX_CONFIG": "experimental-features = flakes\naccept-flake-config = true"}
+    out = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "true"
 
 
@@ -406,14 +405,15 @@ def test_a_feature_name_is_known_or_not() -> None:
 
 
 def test_enabling_a_feature_adds_it_and_marks_nothing() -> None:
-    probe = ("from huggorm_bindings import enable_experimental_feature,"
-             " get_setting, list_settings, reset_overridden;"
-             "reset_overridden();"
-             "enable_experimental_feature('fetch-closure');"
-             "print('fetch-closure' in get_setting('experimental-features').split(),"
-             " 'experimental-features' in list_settings(overridden_only=True))")
-    out = subprocess.run([sys.executable, "-c", probe], capture_output=True,
-                         text=True, check=True)
+    probe = (
+        "from huggorm_bindings import enable_experimental_feature,"
+        " get_setting, list_settings, reset_overridden;"
+        "reset_overridden();"
+        "enable_experimental_feature('fetch-closure');"
+        "print('fetch-closure' in get_setting('experimental-features').split(),"
+        " 'experimental-features' in list_settings(overridden_only=True))"
+    )
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
     assert out.stdout.split() == ["True", "False"]
 
 

@@ -114,7 +114,7 @@ UNIONS_MODULE = "huggorm_generated._unions"
 BINDINGS = "huggorm_bindings"
 GENERATED = "huggorm_generated"
 
-DOC = '''
+DOC = """
 Nix, from Python.
 
     import huggorm
@@ -151,11 +151,10 @@ gone (nixidae/nixidae#597). Every name the two packages behind this one export
 reaches this front door - and it is derived from them now rather than
 listed by hand, so a new binding arrives here without anyone
 noticing (nixidae/nixidae#601).
-'''
+"""
 
 
-def exports(bindings: list[str], generated: list[str],
-            unions: list[str]) -> dict[str, list[str]]:
+def exports(bindings: list[str], generated: list[str], unions: list[str]) -> dict[str, list[str]]:
     """Every name the front door offers, by the module it comes from.
 
     The three derived groups, then the hand-written layer's own. Each
@@ -185,8 +184,7 @@ def exports(bindings: list[str], generated: list[str],
     return out
 
 
-def module(bindings: list[str], generated: list[str],
-           unions: list[str]) -> str:
+def module(bindings: list[str], generated: list[str], unions: list[str]) -> str:
     """The front door, as source.
 
     `X as X` on every import, unlike the bindings' front door. There
@@ -200,25 +198,24 @@ def module(bindings: list[str], generated: list[str],
     by_module = exports(bindings, generated, unions)
     body: list[ast.stmt] = [ast.Expr(value=ast.Constant(value=DOC))]
     for name in LOCAL_MODULES:
-        body.append(ast.ImportFrom(
-            module=None, names=[ast.alias(name=name, asname=name)], level=1))
+        body.append(ast.ImportFrom(module=None, names=[ast.alias(name=name, asname=name)], level=1))
     for module_name, names in by_module.items():
         level = 1 if module_name.startswith(".") else 0
-        body.append(ast.ImportFrom(
-            module=module_name.lstrip("."),
-            names=[ast.alias(name=n, asname=n) for n in names],
-            level=level))
-    everything = sorted({n for names in by_module.values() for n in names}
-                        | set(LOCAL_MODULES))
-    body.append(ast.Assign(
-        targets=[ast.Name(id="__all__")],
-        value=ast.List(elts=[ast.Constant(value=n) for n in everything])))
+        body.append(
+            ast.ImportFrom(
+                module=module_name.lstrip("."), names=[ast.alias(name=n, asname=n) for n in names], level=level
+            )
+        )
+    everything = sorted({n for names in by_module.values() for n in names} | set(LOCAL_MODULES))
+    body.append(
+        ast.Assign(targets=[ast.Name(id="__all__")], value=ast.List(elts=[ast.Constant(value=n) for n in everything]))
+    )
     out = ast.Module(body=body, type_ignores=[])
     ast.fix_missing_locations(out)
     return ast.unparse(out)
 
 
-AIO_DOC = '''
+AIO_DOC = """
 The async free functions, under the names of the sync ones.
 
     from huggorm import aio
@@ -230,7 +227,7 @@ The async free functions, under the names of the sync ones.
 which takes a `Store` or an `AsyncStore` and runs the call on the
 shared pool. One name cannot hold both, so the front door keeps the
 binding and this module keeps the coroutine.
-'''
+"""
 
 
 def aio_module(coroutines: list[str]) -> str:
@@ -238,11 +235,8 @@ def aio_module(coroutines: list[str]) -> str:
     names = sorted(coroutines)
     body: list[ast.stmt] = [
         ast.Expr(value=ast.Constant(value=AIO_DOC)),
-        ast.ImportFrom(module=GENERATED,
-                       names=[ast.alias(name=n, asname=n) for n in names],
-                       level=0),
-        ast.Assign(targets=[ast.Name(id="__all__")],
-                   value=ast.List(elts=[ast.Constant(value=n) for n in names])),
+        ast.ImportFrom(module=GENERATED, names=[ast.alias(name=n, asname=n) for n in names], level=0),
+        ast.Assign(targets=[ast.Name(id="__all__")], value=ast.List(elts=[ast.Constant(value=n) for n in names])),
     ]
     out = ast.Module(body=body, type_ignores=[])
     ast.fix_missing_locations(out)

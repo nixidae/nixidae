@@ -113,6 +113,7 @@ def test_a_store_opens_from_a_uri(store: Store) -> None:
 
 
 if NIX_2_36:
+
     def test_only_a_builder_rpc_store_takes_a_submitted_output(store: Store) -> None:
         """Every store but the restricted one of a `builder-rpc-v0` build
         refuses, and libstore's message names the store."""
@@ -141,8 +142,7 @@ def test_parsing_checks_the_store_directory(store: Store) -> None:
         store.parse_store_path("/somewhere/else/x")
 
 
-def test_an_empty_string_is_refused_and_does_not_end_the_process(
-        store: Store) -> None:
+def test_an_empty_string_is_refused_and_does_not_end_the_process(store: Store) -> None:
     """Nix's `parseStorePath("")` asserts in `canonPath`, and the
     assertion ends the process - this test ended pytest before the
     guard. `parse_derived_path` reaches the same assertion."""
@@ -152,8 +152,7 @@ def test_an_empty_string_is_refused_and_does_not_end_the_process(
         store.parse_derived_path("")
 
 
-def test_a_store_names_its_directory_and_its_reference(
-        tmp_path: pathlib.Path) -> None:
+def test_a_store_names_its_directory_and_its_reference(tmp_path: pathlib.Path) -> None:
     """A chroot store keeps the LOGICAL directory; its files are under
     the root, and `real_path` is the question for those."""
     store = Store(f"local?root={tmp_path}")
@@ -162,8 +161,7 @@ def test_a_store_names_its_directory_and_its_reference(
     assert Store(store.reference()).reference() == store.reference()
 
 
-def test_closing_a_store_with_no_connections_changes_nothing(
-        store: Store) -> None:
+def test_closing_a_store_with_no_connections_changes_nothing(store: Store) -> None:
     store.close()
     assert store.is_valid_path(StorePath(HELLO)) is False
 
@@ -172,8 +170,7 @@ def test_an_empty_store_holds_nothing(store: Store) -> None:
     assert store.is_valid_path(StorePath(HELLO)) is False
 
 
-def test_a_store_says_whether_it_trusts_us_or_says_nothing(
-        store: Store) -> None:
+def test_a_store_says_whether_it_trusts_us_or_says_nothing(store: Store) -> None:
     """Three answers, and two of them are reachable with no daemon.
 
     `is_trusted_client` is `std::optional<TrustedFlag>` upstream, so
@@ -244,22 +241,18 @@ def test_a_store_takes_bytes_and_names_the_result(chroot: Store) -> None:
     and it is why `data` is bytes rather than str: the hash is of
     exactly these bytes, and an encoding guess would change the name
     of the thing."""
-    path = chroot.add_to_store(
-        "greeting", b"hello world\n", CA.TEXT, HashAlgorithm.SHA256)
+    path = chroot.add_to_store("greeting", b"hello world\n", CA.TEXT, HashAlgorithm.SHA256)
     assert path.name() == "greeting"
     assert chroot.is_valid_path(path)
 
-    again = chroot.add_to_store(
-        "greeting", b"hello world\n", CA.TEXT, HashAlgorithm.SHA256)
+    again = chroot.add_to_store("greeting", b"hello world\n", CA.TEXT, HashAlgorithm.SHA256)
     assert again.to_string() == path.to_string()
 
-    other = chroot.add_to_store(
-        "greeting", b"goodbye\n", CA.TEXT, HashAlgorithm.SHA256)
+    other = chroot.add_to_store("greeting", b"goodbye\n", CA.TEXT, HashAlgorithm.SHA256)
     assert other.to_string() != path.to_string()
 
     # ...and the method is part of the name too, not a formality.
-    flat = chroot.add_to_store(
-        "greeting", b"hello world\n", CA.FLAT, HashAlgorithm.SHA256)
+    flat = chroot.add_to_store("greeting", b"hello world\n", CA.FLAT, HashAlgorithm.SHA256)
     assert flat.to_string() != path.to_string()
 
 
@@ -275,12 +268,10 @@ def test_the_defaults_are_libstores_own(chroot: Store) -> None:
     method gives a different path. Without it, "the default matches
     NAR" would also pass if the argument were ignored."""
     short = chroot.add_to_store("greeting", b"hello world\n")
-    spelled = chroot.add_to_store(
-        "greeting", b"hello world\n", CA.NAR, HashAlgorithm.SHA256)
+    spelled = chroot.add_to_store("greeting", b"hello world\n", CA.NAR, HashAlgorithm.SHA256)
     assert short.to_string() == spelled.to_string()
 
-    flat = chroot.add_to_store(
-        "greeting", b"hello world\n", CA.FLAT, HashAlgorithm.SHA256)
+    flat = chroot.add_to_store("greeting", b"hello world\n", CA.FLAT, HashAlgorithm.SHA256)
     assert flat.to_string() != short.to_string()
 
 
@@ -295,8 +286,7 @@ def source(tmp_path: pathlib.Path) -> pathlib.Path:
     return src
 
 
-def test_a_store_takes_a_path_and_reads_it(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_store_takes_a_path_and_reads_it(chroot: Store, source: pathlib.Path) -> None:
     """add_path_to_store, on a DIRECTORY.
 
     The reason this overload exists. A directory has no contents to
@@ -316,8 +306,7 @@ def test_a_store_takes_a_path_and_reads_it(
     assert (real / "sub" / "b.txt").read_text() == "world\n"
 
 
-def test_a_computed_path_is_the_added_one_and_writes_nothing(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_computed_path_is_the_added_one_and_writes_nothing(chroot: Store, source: pathlib.Path) -> None:
     """compute_store_path answers what add_path_to_store will give.
 
     Before the add, the store does not hold the path, so the answer
@@ -331,8 +320,7 @@ def test_a_computed_path_is_the_added_one_and_writes_nothing(
         assert computed.to_string() == added.to_string(), method
 
 
-def test_the_two_overloads_agree_about_one_file(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_the_two_overloads_agree_about_one_file(chroot: Store, source: pathlib.Path) -> None:
     """A regular file added either way lands on the same path.
 
     Which is the sharpest thing that can be said about them: the name
@@ -340,16 +328,12 @@ def test_the_two_overloads_agree_about_one_file(
     same bytes under the same method. Checked for both, because the
     method changes the hash and could hide a disagreement."""
     for method in (CA.FLAT, CA.NAR):
-        by_path = chroot.add_path_to_store(
-            "one", str(source / "a.txt"), method, HashAlgorithm.SHA256)
-        by_bytes = chroot.add_to_store(
-            "one", b"hello\n", method, HashAlgorithm.SHA256)
+        by_path = chroot.add_path_to_store("one", str(source / "a.txt"), method, HashAlgorithm.SHA256)
+        by_bytes = chroot.add_to_store("one", b"hello\n", method, HashAlgorithm.SHA256)
         assert by_path.to_string() == by_bytes.to_string(), method
 
 
-def test_a_store_says_where_its_files_really_are(
-        chroot: Store, source: pathlib.Path,
-        tmp_path: pathlib.Path) -> None:
+def test_a_store_says_where_its_files_really_are(chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """real_path, and why it is not print_store_path.
 
     A chroot store keeps /nix/store as its store DIRECTORY and puts
@@ -381,8 +365,7 @@ def test_a_store_with_no_filesystem_has_no_real_path(store: Store) -> None:
         store.real_path(StorePath(HELLO))
 
 
-def test_a_chroot_store_keeps_its_directories_under_its_root(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_chroot_store_keeps_its_directories_under_its_root(chroot: Store, tmp_path: pathlib.Path) -> None:
     assert chroot.root_dir() == tmp_path
     assert chroot.state_dir() == tmp_path / "nix/var/nix"
     assert chroot.log_dir() == tmp_path / "nix/var/log/nix"
@@ -399,9 +382,7 @@ def test_a_store_with_no_filesystem_has_no_directories(store: Store) -> None:
     assert store.build_dir() is None
 
 
-def test_a_store_answers_for_a_path_it_holds(
-        chroot: Store, source: pathlib.Path,
-        tmp_path: pathlib.Path) -> None:
+def test_a_store_answers_for_a_path_it_holds(chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """query_path_info, on a path this store just took.
 
     Every field comes from the store's own database rather than from
@@ -467,8 +448,7 @@ def test_a_store_answers_for_a_path_it_holds(
     assert info.sigs() == []
 
 
-def test_a_store_records_the_references_it_is_told(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_store_records_the_references_it_is_told(chroot: Store, source: pathlib.Path) -> None:
     """The other direction of the same field.
 
     Nix does not scan an added path for references - it is told them -
@@ -477,8 +457,7 @@ def test_a_store_records_the_references_it_is_told(
     query_path_info is what proves the two halves name the same
     thing."""
     target = chroot.add_path_to_store("tree", str(source))
-    holder = chroot.add_to_store("holder", b"points at a tree\n",
-                                 references=[target])
+    holder = chroot.add_to_store("holder", b"points at a tree\n", references=[target])
 
     info = chroot.query_path_info(holder)
     assert info.references() == [target]
@@ -488,13 +467,11 @@ def test_a_store_records_the_references_it_is_told(
     # could mean.
     nothing: list[list[StorePath] | None] = [None, []]
     for empty in nothing:
-        alone = chroot.add_to_store("alone", b"points at nothing\n",
-                                    references=empty)
+        alone = chroot.add_to_store("alone", b"points at nothing\n", references=empty)
         assert chroot.query_path_info(alone).references() == []
 
 
-def test_a_store_reads_the_reference_graph_backwards(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_store_reads_the_reference_graph_backwards(chroot: Store, source: pathlib.Path) -> None:
     """query_referrers is the inverse of PathInfo.references.
 
     One says what a path points at, the other says what points at it.
@@ -507,8 +484,7 @@ def test_a_store_reads_the_reference_graph_backwards(
     implementation raises, the way query_all_valid_paths does, because
     a substituter has no such index."""
     target = chroot.add_path_to_store("tree", str(source))
-    holder = chroot.add_to_store("holder", b"points at a tree\n",
-                                 references=[target])
+    holder = chroot.add_to_store("holder", b"points at a tree\n", references=[target])
 
     assert chroot.query_referrers(target) == [holder]
     # And the edge the other way round is the one PathInfo carries.
@@ -555,8 +531,7 @@ def test_a_closure_is_the_whole_chain(chroot: Store) -> None:
     assert chroot.compute_fs_closure([]) == []
 
 
-def test_a_closure_sorts_so_a_path_precedes_what_it_needs(
-        chroot: Store) -> None:
+def test_a_closure_sorts_so_a_path_precedes_what_it_needs(chroot: Store) -> None:
     """topo_sort_paths, which is what makes a closure actionable.
 
     `compute_fs_closure` answers WHICH paths; this answers in what
@@ -606,8 +581,7 @@ def test_a_path_no_cache_has_is_not_substitutable(chroot: Store) -> None:
     assert chroot.query_substitutable_paths([]) == []
 
 
-def test_a_path_is_kept_from_the_collector_while_the_store_is_open(
-        chroot: Store) -> None:
+def test_a_path_is_kept_from_the_collector_while_the_store_is_open(chroot: Store) -> None:
     """add_temp_root, and ensure_path beside it.
 
     Both are void, so what they PROMISE is the whole of what can be
@@ -649,8 +623,7 @@ def test_ensuring_a_path_no_cache_has_raises(chroot: Store) -> None:
 
     The parse is asserted first, so this cannot pass because that
     line threw instead."""
-    absent = chroot.parse_store_path(
-        "/nix/store/00000000000000000000000000000000-nothing")
+    absent = chroot.parse_store_path("/nix/store/00000000000000000000000000000000-nothing")
     assert not chroot.is_valid_path(absent)
 
     with pytest.raises(NixError):
@@ -673,16 +646,14 @@ def test_a_store_filters_the_paths_it_holds(chroot: Store) -> None:
     assert chroot.is_valid_path(missing) is False
 
 
-def test_a_store_without_a_database_cannot_read_backwards(
-        store: Store) -> None:
+def test_a_store_without_a_database_cannot_read_backwards(store: Store) -> None:
     """The dummy store, which is what nix::Store's own implementation
     answers for."""
     with pytest.raises(Unsupported, match=NOT_SUPPORTED_BY_STORE):
         store.query_referrers(StorePath(HELLO))
 
 
-def test_an_added_path_has_no_derivers(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_an_added_path_has_no_derivers(chroot: Store, source: pathlib.Path) -> None:
     """query_valid_derivers, and empty is a normal answer.
 
     A different question from PathInfo.deriver, which names the .drv
@@ -704,13 +675,10 @@ def test_a_reference_must_be_a_store_path(chroot: Store) -> None:
     it. A base name is not a StorePath even when it reads like one:
     only the class has parsed it."""
     with pytest.raises(TypeError):
-        chroot.add_to_store(
-            "holder", b"x",
-            references=[HELLO])  # type: ignore[list-item]
+        chroot.add_to_store("holder", b"x", references=[HELLO])  # type: ignore[list-item]
 
 
-def test_a_store_says_which_path_holds_a_file(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_store_says_which_path_holds_a_file(chroot: Store, source: pathlib.Path) -> None:
     """to_store_path, which is not parse_store_path.
 
     `parse_store_path` takes a store path and refuses anything below
@@ -758,7 +726,8 @@ def test_a_file_outside_the_store_has_no_holder(chroot: Store) -> None:
     with pytest.raises(NixError, match=NOT_IN_STORE) as caught:
         chroot.to_store_path("/somewhere/else/x")
     assert not isinstance(caught.value, BadStorePath), (
-        "upstream narrowed the type; the binding can stop warning about it")
+        "upstream narrowed the type; the binding can stop warning about it"
+    )
 
     # The store directory itself is not IN the store either: isInStore
     # is strictly inside.
@@ -766,8 +735,7 @@ def test_a_file_outside_the_store_has_no_holder(chroot: Store) -> None:
         chroot.to_store_path("/nix/store")
 
 
-def test_a_store_follows_a_link_into_itself(
-        chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
+def test_a_store_follows_a_link_into_itself(chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """What to_store_path cannot do, and why the second call exists.
 
     A `result` symlink is not in the store; it POINTS at something
@@ -796,8 +764,7 @@ def test_a_store_follows_a_link_into_itself(
     assert chroot.follow_links_to_store_path(f"{printed}/sub/b.txt") == path
 
 
-def test_a_store_finds_a_path_by_its_hash_part(
-        chroot: Store, source: pathlib.Path) -> None:
+def test_a_store_finds_a_path_by_its_hash_part(chroot: Store, source: pathlib.Path) -> None:
     """The lookup a substituter makes: a bare hash back to a name.
 
     A store path's name begins with a 32-character base-32 hash, and
@@ -819,8 +786,7 @@ def test_an_unknown_hash_part_is_none_not_an_error(chroot: Store) -> None:
     assert chroot.query_path_from_hash_part("0" * 32) is None
 
 
-def test_following_a_link_keeps_the_sub_path(
-        chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
+def test_following_a_link_keeps_the_sub_path(chroot: Store, source: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """The half follow_links_to_store_path drops.
 
     A `result` symlink pointing INTO a package resolves to the file,
@@ -850,8 +816,7 @@ def test_following_a_link_keeps_the_sub_path(
     assert (chroot.real_path(path) / "sub" / "b.txt").exists()
 
 
-def test_a_link_that_leads_nowhere_near_the_store_is_refused(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_link_that_leads_nowhere_near_the_store_is_refused(chroot: Store, tmp_path: pathlib.Path) -> None:
     """BadStorePath, the narrow type - unlike to_store_path, which
     answers the wide one for the same fact. The asymmetry is
     upstream's and this asserts both halves of it."""
@@ -892,8 +857,7 @@ def test_a_store_refuses_a_path_it_does_not_hold(chroot: Store) -> None:
         chroot.query_path_info(chroot.parse_store_path("/somewhere/else/x"))
 
 
-def test_a_missing_path_is_libstores_error(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_missing_path_is_libstores_error(chroot: Store, tmp_path: pathlib.Path) -> None:
     """The shim canonicalises weakly, which does not require the path
     to exist. So the error comes from the layer that knows what the
     path was for.
@@ -939,15 +903,13 @@ def test_the_store_names_the_vocabulary_it_accepts(chroot: Store) -> None:
     stays the authority, and a str still works at runtime because a
     StrEnum member IS one."""
     with pytest.raises(UsageError, match=INGESTION_METHODS):
-        chroot.add_to_store(
-            "x", b"y", "nonsense", HashAlgorithm.SHA256)  # type: ignore[arg-type]
+        chroot.add_to_store("x", b"y", "nonsense", HashAlgorithm.SHA256)  # type: ignore[arg-type]
     with pytest.raises(UsageError, match=UNKNOWN_HASH):
         chroot.add_to_store("x", b"y", CA.TEXT, "md6")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("method", list(CA))
-def test_every_declared_method_is_a_word_libstore_knows(
-        chroot: Store, method: CA) -> None:
+def test_every_declared_method_is_a_word_libstore_knows(chroot: Store, method: CA) -> None:
     """The vocabulary is Nix's, so Nix is what checks it.
 
     A real round trip through libstore, not a table compared to
@@ -967,8 +929,7 @@ def test_every_declared_method_is_a_word_libstore_knows(
 
 
 @pytest.mark.parametrize("algo", list(HashAlgorithm))
-def test_every_declared_algorithm_is_a_word_libstore_knows(
-        chroot: Store, algo: HashAlgorithm) -> None:
+def test_every_declared_algorithm_is_a_word_libstore_knows(chroot: Store, algo: HashAlgorithm) -> None:
     """The same round trip, for the other vocabulary."""
     try:
         chroot.add_to_store("probe", b"x", CA.FLAT, algo)
@@ -986,8 +947,7 @@ def test_a_member_is_the_string(chroot: Store) -> None:
     working - including a value that came from a config file."""
     assert isinstance(CA.TEXT, str) and CA.TEXT == "text"
     typed = chroot.add_to_store("same", b"x", CA.TEXT, HashAlgorithm.SHA256)
-    plain = chroot.add_to_store(
-        "same", b"x", "text", "sha256")  # type: ignore[arg-type]
+    plain = chroot.add_to_store("same", b"x", "text", "sha256")  # type: ignore[arg-type]
     assert typed.to_string() == plain.to_string()
 
 
@@ -998,8 +958,11 @@ def test_bytes_are_bytes(chroot: Store) -> None:
     the caller passed, under a name that is the hash of the guess."""
     with pytest.raises(TypeError):
         chroot.add_to_store(
-            "x", "not bytes",  # type: ignore[arg-type]
-            CA.TEXT, HashAlgorithm.SHA256)
+            "x",
+            "not bytes",  # type: ignore[arg-type]
+            CA.TEXT,
+            HashAlgorithm.SHA256,
+        )
 
 
 @pytest.mark.live
@@ -1023,8 +986,7 @@ def test_a_populated_store_hands_over_every_path(ambient_store: Store) -> None:
     for path in paths[:50]:
         assert ambient_store.is_valid_path(path)
         printed = ambient_store.print_store_path(path)
-        assert ambient_store.parse_store_path(printed).to_string() \
-            == path.to_string()
+        assert ambient_store.parse_store_path(printed).to_string() == path.to_string()
 
     # Ask twice with everything from the first answer dropped in
     # between. A double free takes the process with it, so surviving
@@ -1079,13 +1041,11 @@ def test_a_built_path_names_what_built_it(ambient_store: Store) -> None:
     references = info.references()
     assert references, "an interpreter references what it links against"
     assert all(isinstance(r, StorePath) for r in references)
-    assert sorted(r.to_string() for r in references) == [
-        r.to_string() for r in references], "a set's order is sorted"
+    assert sorted(r.to_string() for r in references) == [r.to_string() for r in references], "a set's order is sorted"
 
 
 @pytest.mark.live
-def test_a_built_path_names_the_derivations_that_make_it(
-        ambient_store: Store) -> None:
+def test_a_built_path_names_the_derivations_that_make_it(ambient_store: Store) -> None:
     """query_valid_derivers against a path something really built.
 
     Two things it can promise, and one it cannot. Every deriver is a
@@ -1101,8 +1061,7 @@ def test_a_built_path_names_the_derivations_that_make_it(
     path = ambient_store.to_store_path(sys.prefix).path()
     derivers = ambient_store.query_valid_derivers(path)
 
-    assert all(d.is_derivation() for d in derivers), [
-        d.to_string() for d in derivers]
+    assert all(d.is_derivation() for d in derivers), [d.to_string() for d in derivers]
 
     deriver = ambient_store.query_path_info(path).deriver()
     assert deriver is not None
@@ -1111,8 +1070,7 @@ def test_a_built_path_names_the_derivations_that_make_it(
 
 
 @pytest.mark.live
-def test_a_real_file_names_the_path_that_holds_it(
-        ambient_store: Store) -> None:
+def test_a_real_file_names_the_path_that_holds_it(ambient_store: Store) -> None:
     """The question sys.executable asks and parse_store_path cannot
     answer.
 
@@ -1122,15 +1080,12 @@ def test_a_real_file_names_the_path_that_holds_it(
     the split lands on a path that exists."""
     where = ambient_store.to_store_path(sys.executable)
 
-    assert where.sub_path().endswith(
-        "/bin/" + pathlib.Path(sys.executable).name), where.sub_path()
-    assert sys.prefix.startswith(
-        ambient_store.print_store_path(where.path()) + "/"), sys.prefix
+    assert where.sub_path().endswith("/bin/" + pathlib.Path(sys.executable).name), where.sub_path()
+    assert sys.prefix.startswith(ambient_store.print_store_path(where.path()) + "/"), sys.prefix
 
     # And it round-trips against the other direction: the store path
     # plus the sub-path is where the file really is.
-    assert (ambient_store.real_path(where.path())
-            / where.sub_path().lstrip("/")) == pathlib.Path(sys.executable)
+    assert (ambient_store.real_path(where.path()) / where.sub_path().lstrip("/")) == pathlib.Path(sys.executable)
 
 
 def test_the_binding_initialises_libstore() -> None:
@@ -1144,8 +1099,7 @@ def test_the_binding_initialises_libstore() -> None:
     assert huggorm_bindings.store.Store is Store
 
 
-async def test_the_async_wrapper_hands_back_an_anyio_path(
-        tmp_path: pathlib.Path, source: pathlib.Path) -> None:
+async def test_the_async_wrapper_hands_back_an_anyio_path(tmp_path: pathlib.Path, source: pathlib.Path) -> None:
     """Same location, awaitable.
 
     The binding returns a pathlib.Path and says nothing about threads.
@@ -1198,8 +1152,7 @@ async def test_an_optional_path_is_twinned_too(tmp_path: pathlib.Path) -> None:
 # --- realisations ---------------------------------------------------
 
 
-def test_a_store_with_no_ca_derivations_realises_nothing(
-        chroot: Store) -> None:
+def test_a_store_with_no_ca_derivations_realises_nothing(chroot: Store) -> None:
     """None, and it is the store's answer rather than a gap.
 
     `ca-derivations` is an experimental feature and it is off here, so
@@ -1255,8 +1208,7 @@ else:
         assert str(key).startswith("sha256:0101")
 
 
-def test_a_realisation_compares_on_its_signatures_where_nix_does_not(
-        chroot: Store) -> None:
+def test_a_realisation_compares_on_its_signatures_where_nix_does_not(chroot: Store) -> None:
     """A deliberate divergence, pinned so it cannot drift back.
 
     `nix::UnkeyedRealisation` compares on `outPath` alone - upstream
@@ -1290,8 +1242,7 @@ def test_a_realisation_compares_on_its_signatures_where_nix_does_not(
 # --- sum types ------------------------------------------------------
 
 
-def test_an_outputs_spec_refuses_the_two_states_that_blur_its_arms(
-) -> None:
+def test_an_outputs_spec_refuses_the_two_states_that_blur_its_arms() -> None:
     """`all` is a TAG, not "no names", and the pair is checked.
 
     Upstream is a `variant<All, Names>`, so the two are exclusive by
@@ -1336,8 +1287,7 @@ def test_a_blurred_outputs_spec_does_not_get_PAST_the_wire() -> None:
         made._from_parts(False, [])
 
 
-def test_a_derived_path_is_printed_and_parsed_BY_THE_STORE(
-        chroot: Store) -> None:
+def test_a_derived_path_is_printed_and_parsed_BY_THE_STORE(chroot: Store) -> None:
     """Rendering needs a store, so it is the store that does it.
 
     `DerivedPath::to_string` takes a StoreDirConfig by upstream's own
@@ -1371,8 +1321,7 @@ def test_a_derived_path_is_printed_and_parsed_BY_THE_STORE(
         assert isinstance(back, DerivedPathBuilt)
 
 
-def test_a_store_says_what_building_these_would_have_to_do(
-        chroot: Store) -> None:
+def test_a_store_says_what_building_these_would_have_to_do(chroot: Store) -> None:
     """query_missing, on a store that holds what is asked for.
 
     Nothing is built, fetched or locked. A path already valid here is
@@ -1429,16 +1378,13 @@ def test_building_what_is_already_there_does_nothing(chroot: Store) -> None:
     assert set(chroot.query_all_valid_paths()) == before
 
 
-def test_a_validity_registration_is_what_dump_db_prints(
-        chroot: Store) -> None:
+def test_a_validity_registration_is_what_dump_db_prints(chroot: Store) -> None:
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
     info = chroot.query_path_info(held)
     printed = chroot.print_store_path(held)
 
     full = chroot.make_validity_registration([held])
-    assert full.splitlines() == [
-        printed, info.nar_hash().base16(),
-        str(info.nar_size()), "", "0"]
+    assert full.splitlines() == [printed, info.nar_hash().base16(), str(info.nar_size()), "", "0"]
     bare = chroot.make_validity_registration([held], False, False)
     assert bare.splitlines() == [printed, "", "0"]
 
@@ -1559,8 +1505,7 @@ def test_an_unknown_build_mode_is_refused_by_name(chroot: Store) -> None:
         chroot.build_paths([], cast(BuildMode, "rebuild"))
 
 
-def test_building_a_path_the_store_lacks_is_libstores_error(
-        chroot: Store) -> None:
+def test_building_a_path_the_store_lacks_is_libstores_error(chroot: Store) -> None:
     """A target that cannot be reached RAISES, and says so as Nix does.
 
     This is the difference from `buildPathsWithResults`, which reports
@@ -1572,8 +1517,7 @@ def test_building_a_path_the_store_lacks_is_libstores_error(
     substitute and nothing to build from - which is a failure rather
     than a no-op, and the message is libstore's rather than this
     binding's."""
-    absent = chroot.parse_store_path(
-        "/nix/store/00000000000000000000000000000000-nothing")
+    absent = chroot.parse_store_path("/nix/store/00000000000000000000000000000000-nothing")
     # Parsing SUCCEEDS - the name is well-formed. Asserted, because
     # without it a `raises` below would pass just as happily if this
     # line were the thing that threw.
@@ -1617,9 +1561,7 @@ def test_a_union_nested_past_the_limit_is_refused_by_name() -> None:
     assert across(w, fine) == fine
 
 
-
-@pytest.mark.parametrize("arm", [StoreReferenceAuto, StoreReferenceDaemon,
-                                 StoreReferenceLocal])
+@pytest.mark.parametrize("arm", [StoreReferenceAuto, StoreReferenceDaemon, StoreReferenceLocal])
 def test_a_unit_arm_of_a_union_crosses_as_itself(arm: Any) -> None:
     """An arm with no fields still names itself on the wire: a union
     crosses as its arm index and the arm's parts, and a unit arm's
@@ -1639,8 +1581,7 @@ def _wire_values() -> dict[str, str]:
     """Every type the build says crosses as its PARTS."""
     from conftest import load_model
 
-    return {n: c.qualified_module for n, c in load_model().classes.items()
-            if c.wire == "value"}
+    return {n: c.qualified_module for n, c in load_model().classes.items() if c.wire == "value"}
 
 
 def _wire_field_names(name: str) -> list[str]:
@@ -1676,13 +1617,19 @@ def _failed_result() -> Any:
     on the way through, which is the point: what a producer makes is
     what has to survive."""
     seed = _rebuild(
-        KeyedBuildResult, StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
-        None, BuildError("it timed out", "", BuildFailureStatus.TIMED_OUT,
-                         True),
+        KeyedBuildResult,
+        StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
+        None,
+        BuildError("it timed out", "", BuildFailureStatus.TIMED_OUT, True),
         # No CPU times, which is the other half of the pair below: a
         # target that never ran has none to report, and upstream's
         # own `std::optional` is what says so.
-        2, 300, 400, None, None)
+        2,
+        300,
+        400,
+        None,
+        None,
+    )
     return _rebuild(KeyedBuildResult, *seed._parts())
 
 
@@ -1711,15 +1658,15 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
     # operator<. An unsorted list would come back sorted and the round
     # trip would read as broken when it is not.
     populated: tuple[Any, ...] = (
-        other,                          # path
-        "/other/store",                 # store_dir
-        other_info.nar_hash(),          # nar_hash
-        info.nar_size() + 1,            # nar_size
-        held,                           # deriver
-        1_700_000_000,                  # registration_time
-        True,                           # ultimate
-        other_info.ca(),                # ca
-        sorted([held, other]),          # references
+        other,  # path
+        "/other/store",  # store_dir
+        other_info.nar_hash(),  # nar_hash
+        info.nar_size() + 1,  # nar_size
+        held,  # deriver
+        1_700_000_000,  # registration_time
+        True,  # ultimate
+        other_info.ca(),  # ca
+        sorted([held, other]),  # references
         [Signature("key-1", bytes(64))],  # sigs
     )
 
@@ -1738,17 +1685,15 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # a CALLER builds - it is what you have when you have read one
         # from somewhere Nix did not print it - so both cases are
         # constructed, and neither is a producer's answer.
-        "Hash": (Hash(HashAlgorithm.SHA256, bytes(range(32))),
-                 [(HashAlgorithm.SHA1, bytes(range(20)))]),
+        "Hash": (Hash(HashAlgorithm.SHA256, bytes(range(32))), [(HashAlgorithm.SHA1, bytes(range(20)))]),
         # A value with a value inside it. The second case differs in
         # BOTH halves, so neither the method nor the nested hash can
         # be dropped without this saying which.
         "ContentAddress": (
-            ContentAddress(CA.NAR, Hash(HashAlgorithm.SHA256,
-                                        bytes(range(32)))),
-            [(CA.FLAT, Hash(HashAlgorithm.SHA1, bytes(range(20))))]),
-        "Signature": (Signature("cache.nixos.org-1", bytes(range(64))),
-                      [("builder-2", bytes(range(1, 65)))]),
+            ContentAddress(CA.NAR, Hash(HashAlgorithm.SHA256, bytes(range(32)))),
+            [(CA.FLAT, Hash(HashAlgorithm.SHA1, bytes(range(20))))],
+        ),
+        "Signature": (Signature("cache.nixos.org-1", bytes(range(64))), [("builder-2", bytes(range(1, 65)))]),
         # A CA derivation's output, and what it turned out to be. Both
         # constructed: a hermetic store answers None for every id,
         # because `ca-derivations` is off and there is no mapping to
@@ -1757,7 +1702,8 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         "DrvOutput": (drv_output(0, "out"), [drv_output_parts(1, "dev")]),
         "Realisation": (
             _rebuild(Realisation, drv_output(0, "out"), held, []),
-            [(drv_output(1, "dev"), other, [Signature("k", bytes(64))])]),
+            [(drv_output(1, "dev"), other, [Signature("k", bytes(64))])],
+        ),
         # The SUM types. `drv_path` is a union, so the second case
         # takes the OTHER arm - and for the Single one that arm is
         # another SingleDerivedPathBuilt, which is the recursion.
@@ -1766,28 +1712,26 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         "OutputsSpec": (OutputsSpec(all=True), [(False, ["dev", "out"])]),
         "SingleDerivedPathBuilt": (
             SingleDerivedPathBuilt(held, "out"),
-            [(SingleDerivedPathBuilt(other, "dev"), "man")]),
+            [(SingleDerivedPathBuilt(other, "dev"), "man")],
+        ),
         "DerivedPathBuilt": (
             DerivedPathBuilt(held, OutputsSpec(all=True)),
-            [(SingleDerivedPathBuilt(other, "out"),
-              OutputsSpec(all=False, names=["dev"]))]),
+            [(SingleDerivedPathBuilt(other, "out"), OutputsSpec(all=False, names=["dev"]))],
+        ),
         # Five fields, and the second case differs in every one -
         # including the two widths, which a swap would otherwise hide.
-        "MissingPaths": (
-            _rebuild(MissingPaths, [held], [], [other], 1, 2),
-            [([], [other], [held, other], 3, 4)]),
+        "MissingPaths": (_rebuild(MissingPaths, [held], [], [other], 1, 2), [([], [other], [held, other], 3, 4)]),
         "StorePath": (held, [(other.to_string(),)]),
         "PathInfo": (info, [populated]),
-        "StoreLocation": (
-            chroot.to_store_path(chroot.print_store_path(held)),
-            [(other, "/bin/sh")]),
+        "StoreLocation": (chroot.to_store_path(chroot.print_store_path(held)), [(other, "/bin/sh")]),
         # The success ARM of a build result. Both constructed: a
         # hermetic store builds nothing, so no producer here answers
         # one - and `built_outputs` is only ever non-empty under
         # `ca-derivations`, which is off.
         "BuildSuccess": (
             _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}),
-            [(BuildSuccessStatus.SUBSTITUTED, {"out": built_output(held)})]),
+            [(BuildSuccessStatus.SUBSTITUTED, {"out": built_output(held)})],
+        ),
         # The two ARMS, one case each, because a result holds exactly
         # one of them and a single case would leave the other dark.
         #
@@ -1796,17 +1740,24 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # is the whole of what `error()` promises - and it compares
         # equal because a declared error compares by its parts.
         "KeyedBuildResult": (
-            _rebuild(KeyedBuildResult, held,
-                     _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}),
-                     None, 1, 100, 200,
-                     # Durations that are not whole seconds, so a wire
-                     # that rounded to seconds would be caught here.
-                     # Microseconds all the way through is what makes
-                     # this exact, and 7 of them is under any coarser
-                     # unit (nixidae/nixidae#608).
-                     datetime.timedelta(seconds=1, microseconds=250),
-                     datetime.timedelta(microseconds=7)),
-            [_failed_result()._parts()]),
+            _rebuild(
+                KeyedBuildResult,
+                held,
+                _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}),
+                None,
+                1,
+                100,
+                200,
+                # Durations that are not whole seconds, so a wire
+                # that rounded to seconds would be caught here.
+                # Microseconds all the way through is what makes
+                # this exact, and 7 of them is under any coarser
+                # unit (nixidae/nixidae#608).
+                datetime.timedelta(seconds=1, microseconds=250),
+                datetime.timedelta(microseconds=7),
+            ),
+            [_failed_result()._parts()],
+        ),
         # The options a caller BUILDS, so both cases are constructed
         # and neither is a producer's answer. Every field differs
         # between them, the two widths included.
@@ -1816,111 +1767,108 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # leave upstream's default alone, and what the member then
         # holds is what has to survive.
         "GCOptions": (
-            GCOptions(GCAction.DELETE_SPECIFIC, True,
-                      some_paths(sorted([held, other])), 1 << 30),
-            [(GCAction.RETURN_LIVE, False, some_paths([held]), 4096)]),
+            GCOptions(GCAction.DELETE_SPECIFIC, True, some_paths(sorted([held, other])), 1 << 30),
+            [(GCAction.RETURN_LIVE, False, some_paths([held]), 4096)],
+        ),
         # Strings, not store paths - the field is a `StringSet`
         # upstream, because a root can be a path outside the store.
         # Sorted, because the set's order is what comes back.
-        "GCResults": (
-            _rebuild(GCResults, sorted(["/nix/store/a", "/nix/store/b"]), 8192),
-            [(["/other/root"], 1)]),
+        "GCResults": (_rebuild(GCResults, sorted(["/nix/store/a", "/nix/store/b"]), 8192), [(["/other/root"], 1)]),
         # The five arms of a derivation output, each constructed: the
         # round trip is about the parts, and a hermetic store cannot
         # produce a floating or an impure one. `Deferred` has no parts,
         # so its one case is the whole test.
-        "DerivationOutputInputAddressed": (
-            DerivationOutputInputAddressed(held), [(other,)]),
+        "DerivationOutputInputAddressed": (DerivationOutputInputAddressed(held), [(other,)]),
         "DerivationOutputCAFixed": (
-            DerivationOutputCAFixed(ContentAddress(
-                CA.NAR, Hash(HashAlgorithm.SHA256, bytes(range(32))))),
-            [(ContentAddress(CA.FLAT, Hash(HashAlgorithm.SHA1,
-                                           bytes(range(20)))),)]),
+            DerivationOutputCAFixed(ContentAddress(CA.NAR, Hash(HashAlgorithm.SHA256, bytes(range(32))))),
+            [(ContentAddress(CA.FLAT, Hash(HashAlgorithm.SHA1, bytes(range(20)))),)],
+        ),
         "DerivationOutputCAFloating": (
             DerivationOutputCAFloating(CA.NAR, HashAlgorithm.SHA256),
-            [(CA.FLAT, HashAlgorithm.SHA1)]),
+            [(CA.FLAT, HashAlgorithm.SHA1)],
+        ),
         "DerivationOutputImpure": (
             DerivationOutputImpure(CA.NAR, HashAlgorithm.SHA256),
-            [(CA.TEXT, HashAlgorithm.SHA512)]),
+            [(CA.TEXT, HashAlgorithm.SHA512)],
+        ),
         "DerivationOutputDeferred": (DerivationOutputDeferred(), []),
         # A node holds itself, so the first case nests one level and
         # the second nests none: a dropped child map fails the pair.
         "InputDrvNode": (
-            _rebuild(InputDrvNode, ["dev", "out"],
-                     {"out": _rebuild(InputDrvNode, ["lib"], {})}),
-            [(["out"], {})]),
+            _rebuild(InputDrvNode, ["dev", "out"], {"out": _rebuild(InputDrvNode, ["lib"], {})}),
+            [(["out"], {})],
+        ),
         # A registry entry's attributes hold all three arms of an
         # `Attr` in the second case, and the first holds only the one a
         # registry file can: `dir`.
         "RegistryEntry": (
-            _rebuild(RegistryEntry, RegistryType.USER, "flake:a",
-                     "github:o/a", {"dir": "sub"}, False),
-            [(RegistryType.GLOBAL, "flake:b", "path:/b",
-              {"n": 7, "f": True}, True)]),
+            _rebuild(RegistryEntry, RegistryType.USER, "flake:a", "github:o/a", {"dir": "sub"}, False),
+            [(RegistryType.GLOBAL, "flake:b", "path:/b", {"n": 7, "f": True}, True)],
+        ),
         # One part, the attributes, and the second case holds the two
         # arms the first does not.
         "FlakeRef": (
-            _rebuild(FlakeRef, {"type": "github", "owner": "o", "repo": "r",
-                                "dir": "sub"}),
-            [({"type": "path", "path": "/x", "lastModified": 5},)]),
+            _rebuild(FlakeRef, {"type": "github", "owner": "o", "repo": "r", "dir": "sub"}),
+            [({"type": "path", "path": "/x", "lastModified": 5},)],
+        ),
         "Input": (
             _rebuild(Input, {"type": "github", "owner": "o", "repo": "r"}),
-            [({"type": "path", "path": "/x", "lastModified": 5},)]),
+            [({"type": "path", "path": "/x", "lastModified": 5},)],
+        ),
         # Two references and a flag, each different in the second case.
         "LockedInput": (
-            _rebuild(LockedInput,
-                     _rebuild(FlakeRef, {"type": "path", "path": "/a",
-                                         "lastModified": 1}),
-                     _rebuild(FlakeRef, {"type": "path", "path": "/a"}),
-                     True),
-            [(_rebuild(FlakeRef, {"type": "github", "owner": "o",
-                                  "repo": "r", "rev": "0" * 40}),
-              _rebuild(FlakeRef, {"type": "github", "owner": "o",
-                                  "repo": "r"}),
-              False)]),
-        "Doc": (
-            _rebuild(Doc, "add", 2, ["e1", "e2"], "Add.", None, 0),
-            [(None, 0, [], "Function.", "/a.nix", 3)]),
-        "AttrDoc": (
-            _rebuild(AttrDoc, "/a.nix", 3, "Foo."),
-            [("«string»", 1, None)]),
-        "SourceLocation": (
-            _rebuild(SourceLocation, "/a.nix", 0),
-            [("/b.nix", 7)]),
-        "GcRoot": (
-            _rebuild(GcRoot, "/a/result", held),
-            [("{censored}", other)]),
+            _rebuild(
+                LockedInput,
+                _rebuild(FlakeRef, {"type": "path", "path": "/a", "lastModified": 1}),
+                _rebuild(FlakeRef, {"type": "path", "path": "/a"}),
+                True,
+            ),
+            [
+                (
+                    _rebuild(FlakeRef, {"type": "github", "owner": "o", "repo": "r", "rev": "0" * 40}),
+                    _rebuild(FlakeRef, {"type": "github", "owner": "o", "repo": "r"}),
+                    False,
+                )
+            ],
+        ),
+        "Doc": (_rebuild(Doc, "add", 2, ["e1", "e2"], "Add.", None, 0), [(None, 0, [], "Function.", "/a.nix", 3)]),
+        "AttrDoc": (_rebuild(AttrDoc, "/a.nix", 3, "Foo."), [("«string»", 1, None)]),
+        "SourceLocation": (_rebuild(SourceLocation, "/a.nix", 0), [("/b.nix", 7)]),
+        "GcRoot": (_rebuild(GcRoot, "/a/result", held), [("{censored}", other)]),
         # What an error carries. The second case has a position where
         # the first has none, and a trace where the first has none.
         # Bytes throughout, and bytes no decoder accepts in the
         # second cases: the parts cross as the `*_bytes` readers read
         # them, never decoded.
-        "Position": (
-            _rebuild(Position, b"/a.nix", 3, 5),
-            [(b"/b/\xff", 1, 1)]),
+        "Position": (_rebuild(Position, b"/a.nix", 3, 5), [(b"/b/\xff", 1, 1)]),
         "Trace": (
             _rebuild(Trace, b"while evaluating 'x'", None),
-            [(b"while calling \xff",
-              _rebuild(Position, b"/b.nix", 2, 4))]),
+            [(b"while calling \xff", _rebuild(Position, b"/b.nix", 2, 4))],
+        ),
         "ErrorInfo": (
             _rebuild(ErrorInfo, 0, b"boom", None, False, 1, [], False, []),
-            [(1, b"attribute '\xff' missing",
-              _rebuild(Position, b"/c.nix", 7, 9), True, 100,
-              [_rebuild(Trace, b"while evaluating 'y'", None)], True,
-              [b"foo"])]),
+            [
+                (
+                    1,
+                    b"attribute '\xff' missing",
+                    _rebuild(Position, b"/c.nix", 7, 9),
+                    True,
+                    100,
+                    [_rebuild(Trace, b"while evaluating 'y'", None)],
+                    True,
+                    [b"foo"],
+                )
+            ],
+        ),
         # A pin answers `locked`, an add does not, and a removal has no
         # target.
-        "RegistryWrite": (
-            _rebuild(RegistryWrite, "/a.json", 0, "github:o/a", None),
-            [("/b.json", 2, None, True)]),
+        "RegistryWrite": (_rebuild(RegistryWrite, "/a.json", 0, "github:o/a", None), [("/b.json", 2, None, True)]),
         # The arms of a store reference. Three have no parts; the
         # fourth's second case differs in both.
         "StoreReferenceAuto": (StoreReferenceAuto(), []),
         "StoreReferenceDaemon": (StoreReferenceDaemon(), []),
         "StoreReferenceLocal": (StoreReferenceLocal(), []),
-        "StoreReferenceSpecified": (
-            StoreReferenceSpecified("ssh-ng", "user@host"),
-            [("file", "/var/cache")]),
+        "StoreReferenceSpecified": (StoreReferenceSpecified("ssh-ng", "user@host"), [("file", "/var/cache")]),
         # A log field is upstream's hand-rolled variant: a flag and
         # the two values it chooses between. Both cases are
         # constructed, because a producer here raises only messages
@@ -1933,8 +1881,7 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # Bytes no decoder accepts in the second case, which is the
         # point of carrying them: the parts cross as `text_bytes`
         # reads them, never decoded.
-        "LogField": (_rebuild(LogField, True, 42, b""),
-                     [(False, 0, b"\xff\xfe")]),
+        "LogField": (_rebuild(LogField, True, 42, b""), [(False, 0, b"\xff\xfe")]),
         # A record is either a message or a piece of an activity tree,
         # and the two cases are one of each. So every field differs:
         # a message has no activity, no parent, no type and no fields,
@@ -1947,38 +1894,59 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # `info` too: None for a start, and the parts for a warning
         # `logEI` raised. `payload`: empty, and a JSON result's text.
         "LogRecord": (
-            _rebuild(LogRecord, "msg", 1, 0, 0, 0, 0, b"warning: hi", [],
-                     _rebuild(ErrorInfo, 1, b"hi",
-                              _rebuild(Position, b"/w.nix", 1, 1), True, 0,
-                              [], False, []), ""),
-            [("start", 3, 7, 2, 105, 41, b"copying '/tmp/x' to the store",
-              [_rebuild(LogField, False, 0, b"/tmp/x")], None,
-              '{"httpStatus":200}')]),
+            _rebuild(
+                LogRecord,
+                "msg",
+                1,
+                0,
+                0,
+                0,
+                0,
+                b"warning: hi",
+                [],
+                _rebuild(ErrorInfo, 1, b"hi", _rebuild(Position, b"/w.nix", 1, 1), True, 0, [], False, []),
+                "",
+            ),
+            [
+                (
+                    "start",
+                    3,
+                    7,
+                    2,
+                    105,
+                    41,
+                    b"copying '/tmp/x' to the store",
+                    [_rebuild(LogField, False, 0, b"/tmp/x")],
+                    None,
+                    '{"httpStatus":200}',
+                )
+            ],
+        ),
         "Stat": (Stat(FileType.DIRECTORY), [(FileType.REGULAR, 7, True)]),
         # A generation's number, link and time all differ.
-        "Generation": (_rebuild(Generation, 1, pathlib.Path("/p/salt-1-link"), 100),
-                       [(2, pathlib.Path("/p/salt-2-link"), 200)]),
+        "Generation": (
+            _rebuild(Generation, 1, pathlib.Path("/p/salt-1-link"), 100),
+            [(2, pathlib.Path("/p/salt-2-link"), 200)],
+        ),
     }
 
     if NIX_2_35:
         # What 2.35 declares and 2.34 does not: the key-less realisation
         # a build answers with, the two places a collection looks, and
         # a fetcher attribute computed when it is read.
-        samples.update({
-            "UnkeyedRealisation": (
-                _rebuild(UnkeyedRealisation, held, []),
-                [(other, [Signature("k", bytes(64))])]),
-            "GCWholeStore": (GCWholeStore(), []),
-            "GCSpecificPaths": (GCSpecificPaths([held]),
-                                [([held, other], True)]),
-            "LazyAttr": (_rebuild(LazyAttr, 7), [(8,), ("7",), (True,)]),
-        })
+        samples.update(
+            {
+                "UnkeyedRealisation": (_rebuild(UnkeyedRealisation, held, []), [(other, [Signature("k", bytes(64))])]),
+                "GCWholeStore": (GCWholeStore(), []),
+                "GCSpecificPaths": (GCSpecificPaths([held]), [([held, other], True)]),
+                "LazyAttr": (_rebuild(LazyAttr, 7), [(8,), ("7",), (True,)]),
+            }
+        )
     return samples
 
 
 @pytest.mark.usefixtures("flakes")
-def test_every_wire_value_survives_its_own_round_trip(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_every_wire_value_survives_its_own_round_trip(chroot: Store, tmp_path: pathlib.Path) -> None:
     """A wire value must rebuild from the parts it hands over.
 
     `_parts()` renders one; `_from_parts(*parts)` rebuilds it. The two
@@ -2025,7 +1993,8 @@ def test_every_wire_value_survives_its_own_round_trip(
     assert not missing, (
         f"the model declares {missing} as wire values and this test "
         f"cannot build one. Add a sample - the round trip is not "
-        f"optional for a type that crosses as its parts.")
+        f"optional for a type that crosses as its parts."
+    )
 
     for name in sorted(declared):
         built, extra = samples[name]
@@ -2033,33 +2002,30 @@ def test_every_wire_value_survives_its_own_round_trip(
         cases = [built._parts(), *extra]
         for parts in cases:
             back = type(built)._from_parts(*parts)._parts()
-            lost = [f for f, sent, got in zip(fields, parts, back, strict=True)
-                    if sent != got]
+            lost = [f for f, sent, got in zip(fields, parts, back, strict=True) if sent != got]
             assert not lost, (
                 f"{name} does not survive its own round trip. "
                 f"{lost} changed:\n"
                 f"  sent:      {parts}\n"
-                f"  came back: {back}")
+                f"  came back: {back}"
+            )
         # ...and the rebuilt one must BE equal, not merely carry the
         # same parts. A type whose __eq__ reads something the parts do
         # not would pass the line above and fail a caller.
-        assert type(built)._from_parts(*cases[0]) == built, (
-            f"{name} rebuilt unequal to the original")
+        assert type(built)._from_parts(*cases[0]) == built, f"{name} rebuilt unequal to the original"
         # Equal values hash equal, and a list or dict part must not make
         # the hash raise (nixidae/nixidae#710: `Input` and `InputDrvNode` did).
-        assert hash(type(built)._from_parts(*cases[0])) == hash(built), (
-            f"{name} rebuilt with a different hash")
+        assert hash(type(built)._from_parts(*cases[0])) == hash(built), f"{name} rebuilt with a different hash"
 
         # No part may hold one value across every case. A part that
         # does is a part this test cannot see, however many times it
         # round-trips - which is what let a dropped `ultimate` pass.
-        asleep = [fields[i] for i, column in
-                  enumerate(zip(*cases, strict=True))
-                  if len({repr(v) for v in column}) < 2]
+        asleep = [fields[i] for i, column in enumerate(zip(*cases, strict=True)) if len({repr(v) for v in column}) < 2]
         assert not asleep, (
             f"{name}: {asleep} holds one value in every case, so this "
             f"test would pass with it dropped from _from_parts. Give a "
-            f"case where it differs.")
+            f"case where it differs."
+        )
 
 
 def test_a_duration_crosses_as_whole_microseconds() -> None:
@@ -2085,18 +2051,21 @@ def test_a_duration_crosses_as_whole_microseconds() -> None:
     from huggorm_generated._callspec import Wire, WireKind
     from huggorm_generated._policy import WIRE_FIELDS
 
-    durations = {a.type.kind for a in WIRE_FIELDS["KeyedBuildResult"]
-                 if a.type.name == "datetime.timedelta"}
-    assert durations == {"scalar"}, (
-        "a duration goes in a scalar field; nothing else can carry it")
+    durations = {a.type.kind for a in WIRE_FIELDS["KeyedBuildResult"] if a.type.name == "datetime.timedelta"}
+    assert durations == {"scalar"}, "a duration goes in a scalar field; nothing else can carry it"
     w = Wire(WireKind.VALUE, "KeyedBuildResult")
 
     sent = _rebuild(
-        KeyedBuildResult, StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
-        _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}), None,
-        1, 100, 200,
+        KeyedBuildResult,
+        StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
+        _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}),
+        None,
+        1,
+        100,
+        200,
         datetime.timedelta(seconds=1, microseconds=250),
-        datetime.timedelta(microseconds=7))
+        datetime.timedelta(microseconds=7),
+    )
     raw = crossed(w, sent)
     assert part("KeyedBuildResult", raw, "cpu_user") == 1_000_250
     assert part("KeyedBuildResult", raw, "cpu_system") == 7
@@ -2109,16 +2078,22 @@ def test_a_duration_crosses_as_whole_microseconds() -> None:
     # ...and ABSENCE crosses as absence rather than as a zero
     # duration, which is what lets a target that never ran say so.
     none = _rebuild(
-        KeyedBuildResult, StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
-        _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}), None,
-        0, 0, 0, None, None)
+        KeyedBuildResult,
+        StorePath("dc7sp11s8vykw8xq6a64hn9kzpvhdpji-x"),
+        _rebuild(BuildSuccess, BuildSuccessStatus.BUILT, {}),
+        None,
+        0,
+        0,
+        0,
+        None,
+        None,
+    )
     assert part("KeyedBuildResult", crossed(w, none), "cpu_user") is None
     assert across(w, none).cpu_user() is None
 
 
 @pytest.mark.live
-def test_a_real_store_object_survives_its_own_round_trip(
-        ambient_store: Store) -> None:
+def test_a_real_store_object_survives_its_own_round_trip(ambient_store: Store) -> None:
     """The half the hermetic gate cannot reach: a REAL object.
 
     The gate above builds its second PathInfo from a hand-written
@@ -2154,12 +2129,10 @@ def test_a_real_store_object_survives_its_own_round_trip(
     parts = built._parts()
     fields = _wire_field_names(type(built).__name__)
     back = type(built)._from_parts(*parts)._parts()
-    lost = [f for f, sent, got in zip(fields, parts, back, strict=True)
-            if sent != got]
+    lost = [f for f, sent, got in zip(fields, parts, back, strict=True) if sent != got]
     assert not lost, (
-        f"a store's own PathInfo loses {lost} on the round trip:\n"
-        f"  sent:      {parts}\n"
-        f"  came back: {back}")
+        f"a store's own PathInfo loses {lost} on the round trip:\n  sent:      {parts}\n  came back: {back}"
+    )
 
 
 def test_gc_options_take_every_default_from_upstream() -> None:
@@ -2192,10 +2165,9 @@ def test_gc_options_read_back_what_was_asked_for() -> None:
     A set of store paths goes in as a list and comes back as one,
     sorted, because libstore holds them in a `nix::StorePathSet`."""
     path = StorePath("00000000000000000000000000000000-a")
-    options = GCOptions(action=GCAction.DELETE_SPECIFIC,
-                        ignore_liveness=True,
-                        paths_to_delete=some_paths([path]),
-                        max_freed=1 << 30)
+    options = GCOptions(
+        action=GCAction.DELETE_SPECIFIC, ignore_liveness=True, paths_to_delete=some_paths([path]), max_freed=1 << 30
+    )
     assert options.action() == GCAction.DELETE_SPECIFIC
     assert options.ignore_liveness() is True
     assert [p.to_string() for p in paths_of(options)] == [path.to_string()]
@@ -2214,8 +2186,7 @@ def test_a_store_with_no_collector_refuses_to_collect() -> None:
         Store("dummy://").collect_garbage(GCOptions())
 
 
-def test_a_perm_root_is_a_link_the_store_registers(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_perm_root_is_a_link_the_store_registers(chroot: Store, tmp_path: pathlib.Path) -> None:
     """The link points at the path, and `gcroots/auto` points at the
     link, because the link is outside the store's own roots."""
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
@@ -2238,8 +2209,7 @@ def test_a_perm_root_must_be_absolute(chroot: Store) -> None:
         chroot.add_perm_root(held, "")
 
 
-def test_a_store_with_no_filesystem_refuses_a_perm_root(
-        store: Store, tmp_path: pathlib.Path) -> None:
+def test_a_store_with_no_filesystem_refuses_a_perm_root(store: Store, tmp_path: pathlib.Path) -> None:
     path = StorePath("00000000000000000000000000000000-a")
     with pytest.raises(Unsupported, match="not supported by store"):
         store.add_perm_root(path, str(tmp_path / "result"))
@@ -2247,9 +2217,7 @@ def test_a_store_with_no_filesystem_refuses_a_perm_root(
 
 def test_optimising_links_identical_files(chroot: Store) -> None:
     """Two paths with the same contents share one inode after."""
-    first, second = (
-        chroot.add_to_store(name, b"same", CA.NAR, HashAlgorithm.SHA256)
-        for name in ("first", "second"))
+    first, second = (chroot.add_to_store(name, b"same", CA.NAR, HashAlgorithm.SHA256) for name in ("first", "second"))
     files = [chroot.real_path(p) for p in (first, second)]
     assert files[0].stat().st_ino != files[1].stat().st_ino
 
@@ -2265,8 +2233,7 @@ def _roots(store: Store, censor: bool) -> list[tuple[str, StorePath]]:
     return [(root.link(), root.path()) for root in store.find_roots(censor)]
 
 
-def test_an_indirect_root_keeps_the_path_its_link_names(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_an_indirect_root_keeps_the_path_its_link_names(chroot: Store, tmp_path: pathlib.Path) -> None:
     """The caller writes the link; the store registers it and then
     counts it among its roots."""
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
@@ -2281,14 +2248,12 @@ def test_an_indirect_root_keeps_the_path_its_link_names(
     assert (str(link), held) in _roots(chroot, True)
 
 
-def test_a_store_with_no_filesystem_refuses_an_indirect_root(
-        store: Store, tmp_path: pathlib.Path) -> None:
+def test_a_store_with_no_filesystem_refuses_an_indirect_root(store: Store, tmp_path: pathlib.Path) -> None:
     with pytest.raises(Unsupported, match="not supported by store"):
         store.add_indirect_root(str(tmp_path / "result"))
 
 
-def test_censoring_hides_which_process_holds_a_temp_root(
-        chroot: Store) -> None:
+def test_censoring_hides_which_process_holds_a_temp_root(chroot: Store) -> None:
     """`add_to_store` takes a temp root for this process, and the
     root's name says so unless censored."""
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
@@ -2306,8 +2271,7 @@ def test_censoring_hides_which_process_holds_a_temp_root(
     assert ("{censored}", held) in _roots(chroot, True)
 
 
-def test_the_roots_arrive_sorted_by_link(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_the_roots_arrive_sorted_by_link(chroot: Store, tmp_path: pathlib.Path) -> None:
     held = chroot.add_to_store("held", b"x", CA.NAR, HashAlgorithm.SHA256)
     for name in ("b", "c", "a"):
         chroot.add_perm_root(held, str(tmp_path / name))
@@ -2316,8 +2280,7 @@ def test_the_roots_arrive_sorted_by_link(
     assert len(links) >= 3
 
 
-def test_a_store_that_does_not_collect_has_no_roots_to_find(
-        store: Store) -> None:
+def test_a_store_that_does_not_collect_has_no_roots_to_find(store: Store) -> None:
     with pytest.raises(Unsupported, match="not supported by store"):
         store.find_roots(True)
 
@@ -2360,8 +2323,7 @@ def test_a_path_this_process_added_is_not_garbage(chroot: Store) -> None:
 
     Both halves are asserted. The path is absent from the answer, and
     it is still valid afterwards."""
-    path = chroot.add_to_store(
-        "kept", b"this process is holding me\n", CA.TEXT, HashAlgorithm.SHA256)
+    path = chroot.add_to_store("kept", b"this process is holding me\n", CA.TEXT, HashAlgorithm.SHA256)
 
     results = chroot.collect_garbage(GCOptions(action=GCAction.RETURN_DEAD))
     assert chroot.print_store_path(path) not in results.paths()
@@ -2385,20 +2347,17 @@ def test_deleting_a_path_this_process_holds_is_refused(chroot: Store) -> None:
     part-way through adding is protected either way. That is the
     right design and it is why this test asserts a raise rather than
     a deletion."""
-    path = chroot.add_to_store(
-        "doomed", b"nothing points at me\n", CA.TEXT, HashAlgorithm.SHA256)
+    path = chroot.add_to_store("doomed", b"nothing points at me\n", CA.TEXT, HashAlgorithm.SHA256)
 
     with pytest.raises(NixError, match=STILL_ALIVE):
-        chroot.collect_garbage(GCOptions(
-            action=GCAction.DELETE_SPECIFIC,
-            ignore_liveness=True,
-            paths_to_delete=some_paths([path])))
+        chroot.collect_garbage(
+            GCOptions(action=GCAction.DELETE_SPECIFIC, ignore_liveness=True, paths_to_delete=some_paths([path]))
+        )
     assert chroot.is_valid_path(path)
 
 
 @pytest.mark.live
-def test_asking_a_real_store_what_is_dead_deletes_nothing(
-        ambient_store: Store) -> None:
+def test_asking_a_real_store_what_is_dead_deletes_nothing(ambient_store: Store) -> None:
     """`RETURN_DEAD` against a store with real content in it.
 
     What this proves, exactly: the call runs against a LocalStore
@@ -2424,8 +2383,7 @@ def test_asking_a_real_store_what_is_dead_deletes_nothing(
     is the store's own answer to "is this mine", and it refuses a
     path under another store directory - which a prefix written here
     would have to guess at."""
-    results = ambient_store.collect_garbage(
-        GCOptions(action=GCAction.RETURN_DEAD))
+    results = ambient_store.collect_garbage(GCOptions(action=GCAction.RETURN_DEAD))
     assert results.bytes_freed() == 0
     for printed in results.paths():
         assert ambient_store.parse_store_path(printed).to_string()
@@ -2458,8 +2416,7 @@ def test_the_default_max_freed_crosses_the_wire() -> None:
 
     w = Wire(WireKind.VALUE, "GCOptions")
     sent = GCOptions()
-    assert sent.max_freed() is None, (
-        "no limit is an absence, not the sentinel upstream stores")
+    assert sent.max_freed() is None, "no limit is an absence, not the sentinel upstream stores"
     assert part("GCOptions", crossed(w, sent), "max_freed") is None
     back = across(w, sent)
     assert back.max_freed() is None
@@ -2499,8 +2456,7 @@ def test_a_limit_above_the_signed_range_crosses_as_itself() -> None:
     assert across(w, sent).max_freed() == huge
 
 
-def test_a_closure_copies_with_what_it_references(
-        tmp_path: pathlib.Path) -> None:
+def test_a_closure_copies_with_what_it_references(tmp_path: pathlib.Path) -> None:
     """`nix copy`, between two chroot stores. Asking for the holder
     brings the path it refers to as well; that is the closure."""
     here = Store(str(tmp_path / "here"))
@@ -2516,8 +2472,7 @@ def test_a_closure_copies_with_what_it_references(
     assert there.query_path_info(holder).references() == [target]
 
 
-def test_a_copy_of_what_the_destination_has_is_a_no_op(
-        tmp_path: pathlib.Path) -> None:
+def test_a_copy_of_what_the_destination_has_is_a_no_op(tmp_path: pathlib.Path) -> None:
     here = Store(str(tmp_path / "here"))
     there = Store(str(tmp_path / "there"))
     path = here.add_to_store("once", b"once\n")
@@ -2540,8 +2495,7 @@ def test_a_path_with_no_log_reads_as_none(chroot: Store) -> None:
     assert chroot.get_build_log(path) is None
 
 
-def test_two_stores_on_one_directory_keep_their_own_temp_roots(
-        tmp_path: pathlib.Path) -> None:
+def test_two_stores_on_one_directory_keep_their_own_temp_roots(tmp_path: pathlib.Path) -> None:
     """Each LocalStore holds its own temp-roots file, and neither
     deletes the other's.
 
@@ -2566,5 +2520,4 @@ def test_two_stores_on_one_directory_keep_their_own_temp_roots(
             held.append(target)
     assert len(held) == 2, held
     assert not [h for h in held if h.endswith(" (deleted)")], held
-    assert sorted(p.name for p in temp_roots.iterdir()) == sorted(
-        os.path.basename(h) for h in held)
+    assert sorted(p.name for p in temp_roots.iterdir()) == sorted(os.path.basename(h) for h in held)

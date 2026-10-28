@@ -42,11 +42,9 @@ async def evaluated(state: Any, store: Any, path: Any) -> Any:
         return json.loads(await (await state.eval_file(entry)).to_json())
 
 
-async def test_the_server_evaluates_the_clients_files(
-        callback_server: Server) -> None:
+async def test_the_server_evaluates_the_clients_files(callback_server: Server) -> None:
     tree = Counted(SOURCE)
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
         path = local_path(SOURCE)
@@ -59,10 +57,8 @@ async def test_the_server_evaluates_the_clients_files(
     assert "/sub/x.nix" in tree.reads
 
 
-async def test_mounting_without_a_path_hashes_through_the_client(
-        callback_server: Server) -> None:
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+async def test_mounting_without_a_path_hashes_through_the_client(callback_server: Server) -> None:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
         with anyio.fail_after(30):
@@ -71,22 +67,18 @@ async def test_mounting_without_a_path_hashes_through_the_client(
         assert (await evaluated(state, store, path))["imported"] == 42
 
 
-async def test_a_failing_client_hook_fails_the_call(
-        callback_server: Server) -> None:
+async def test_a_failing_client_hook_fails_the_call(callback_server: Server) -> None:
     class Broken(Memory):
         def read_file(self, path: str) -> bytes:
             raise RuntimeError(f"cannot read {path}")
 
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
-        with anyio.fail_after(30), pytest.raises(Exception,
-                                                 match="callback read_file"):
+        with anyio.fail_after(30), pytest.raises(Exception, match="callback read_file"):
             await store.add_accessor_to_store("tree", Broken(SOURCE))
 
 
-async def test_a_client_that_leaves_mid_callback_fails_the_call(
-        callback_server: Server) -> None:
+async def test_a_client_that_leaves_mid_callback_fails_the_call(callback_server: Server) -> None:
     """The waiting thread fails rather than waits forever, so the
     server goes on serving."""
 
@@ -98,69 +90,56 @@ async def test_a_client_that_leaves_mid_callback_fails_the_call(
             return super().read_file(path)
 
     tree = Leaves(SOURCE)
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         tree.client = client
         store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30), pytest.raises(remote.ConnectionLost):
             await store.add_accessor_to_store("tree", tree)
 
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         with anyio.fail_after(30):
-            assert await store.add_accessor_to_store(
-                "source", Memory(SOURCE)) == local_path(SOURCE)
+            assert await store.add_accessor_to_store("source", Memory(SOURCE)) == local_path(SOURCE)
 
 
-async def test_a_client_without_the_flag_refuses_before_sending(
-        client: Any) -> None:
-    state = await client.acquire(AsyncEvalState,
-                                 await client.acquire(AsyncStore, DUMMY))
+async def test_a_client_without_the_flag_refuses_before_sending(client: Any) -> None:
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
     with pytest.raises(TypeError, match="enables experimental callbacks"):
         await state.mount(Memory(SOURCE))
 
 
 async def test_a_server_without_the_flag_refuses(server: Server) -> None:
-    async with remote.connect(server.path,
-                              experimental_callbacks=True) as client:
-        state = await client.acquire(
-            AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
+    async with remote.connect(server.path, experimental_callbacks=True) as client:
+        state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
         with anyio.fail_after(30), pytest.raises(Exception) as caught:
             await state.mount(Memory(SOURCE))
     assert "--experimental-callbacks" in str(caught.value.__cause__)
 
 
-async def test_the_server_evaluates_a_directory_on_the_client(
-        callback_server: Server, tmp_path: pathlib.Path) -> None:
+async def test_the_server_evaluates_a_directory_on_the_client(callback_server: Server, tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import filesystem_accessor
 
     root = tmp_path / "project"
     (root / "sub").mkdir(parents=True)
-    (root / "default.nix").write_text(
-        '{ answer = import ./sub/x.nix; text = builtins.readFile ./hello.txt; }')
+    (root / "default.nix").write_text("{ answer = import ./sub/x.nix; text = builtins.readFile ./hello.txt; }")
     (root / "sub" / "x.nix").write_text("41 + 1")
     (root / "hello.txt").write_text("hello\n")
     path = Store(DUMMY).compute_store_path("source", str(root))
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
-        assert await state.mount(filesystem_accessor(root), "source",
-                                 path) == path
+        assert await state.mount(filesystem_accessor(root), "source", path) == path
         got = await evaluated(state, store, path)
     assert got == {"answer": 42, "text": "hello\n"}
 
 
-async def test_an_async_client_tree_calls_the_server_back(
-        callback_server: Server) -> None:
+async def test_an_async_client_tree_calls_the_server_back(callback_server: Server) -> None:
     """The client's hook awaits a call on the state that waits for it.
     The state's thread runs that call while it waits (nixidae/nixidae#740)."""
     from test_async_accessor import Tree
 
     answers: list[int] = []
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
 
@@ -176,8 +155,7 @@ async def test_an_async_client_tree_calls_the_server_back(
     assert answers and set(answers) == {2}
 
 
-async def test_a_cancelled_call_frees_a_state_whose_client_hangs(
-        callback_server: Server) -> None:
+async def test_a_cancelled_call_frees_a_state_whose_client_hangs(callback_server: Server) -> None:
     from test_async_accessor import Tree
 
     """The server cancels the client's hook too, while the client stays
@@ -191,8 +169,7 @@ async def test_a_cancelled_call_frees_a_state_whose_client_hangs(
         finally:
             stopped.set()
 
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
 
@@ -209,8 +186,7 @@ async def test_a_cancelled_call_frees_a_state_whose_client_hangs(
 
 
 @pytest.mark.usefixtures("flakes")
-async def test_the_server_locks_a_flake_on_the_client(
-        callback_server: Server, tmp_path: pathlib.Path) -> None:
+async def test_the_server_locks_a_flake_on_the_client(callback_server: Server, tmp_path: pathlib.Path) -> None:
     """The tree is copied to the server's store, then locked as the
     `path:` flake of that store path. The flake's own `path:` inputs
     still name the server's disk."""
@@ -218,17 +194,13 @@ async def test_the_server_locks_a_flake_on_the_client(
 
     root = tmp_path / "project"
     root.mkdir()
-    (root / "flake.nix").write_text(
-        '{ description = "client"; outputs = _: { x = import ./x.nix; }; }')
+    (root / "flake.nix").write_text('{ description = "client"; outputs = _: { x = import ./x.nix; }; }')
     (root / "x.nix").write_text("41 + 1")
-    async with remote.connect(callback_server.path,
-                              experimental_callbacks=True) as client:
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, str(tmp_path / "server"))
-        state = await client.acquire(AsyncEvalState, store,
-                                     {"flake-registry": ""})
+        state = await client.acquire(AsyncEvalState, store, {"flake-registry": ""})
         with anyio.fail_after(30):
-            path = await store.add_accessor_to_store(
-                "source", filesystem_accessor(root))
+            path = await store.add_accessor_to_store("source", filesystem_accessor(root))
             ref = parse_flake_ref(f"path:{await store.print_store_path(path)}")
             locked = await state.lock_flake(ref, write_lock_file=False)
             assert await locked.description() == "client"

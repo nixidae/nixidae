@@ -222,8 +222,7 @@ class Watcher:
             # Stat everything first, then forget. `_forget` prunes
             # `_seen`, so acting inside the walk would step on the
             # collection it is walking.
-            moved = [p for p, was in sorted(self._seen.items())
-                     if _stamp(p) != was]
+            moved = [p for p, was in sorted(self._seen.items()) if _stamp(p) != was]
             forgotten: list[str] = []
             for real in moved:
                 self._seen[real] = _stamp(real)
@@ -282,4 +281,3 @@ def _stamp(path: str) -> tuple[int, int]:
     except OSError:
         return (-1, -1)
     return (st.st_mtime_ns, st.st_size)
-

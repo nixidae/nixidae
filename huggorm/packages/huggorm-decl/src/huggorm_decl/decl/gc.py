@@ -69,8 +69,7 @@ if NIX_2_35:
         An empty set collects nothing: upstream returns before it
         reads a root."""
 
-        def __init__(self, paths: Vec[StorePath],
-                     delete_referrers: Bint = False) -> None:
+        def __init__(self, paths: Vec[StorePath], delete_referrers: Bint = False) -> None:
             """The paths, and whether their dead referrers may go too."""
             Cxx("""
 new (self) nix::GCOptions::SpecificPaths{
@@ -119,10 +118,14 @@ class GCOptions:
     """
 
     if NIX_2_35:
-        def __init__(self, action: GCAction = GCAction.DELETE_DEAD,
-                     ignore_liveness: Bint = False,
-                     paths_to_delete: Opt[GCPaths] = None,
-                     max_freed: Opt[U64] = None) -> None:
+
+        def __init__(
+            self,
+            action: GCAction = GCAction.DELETE_DEAD,
+            ignore_liveness: Bint = False,
+            paths_to_delete: Opt[GCPaths] = None,
+            max_freed: Opt[U64] = None,
+        ) -> None:
             """Say what to collect. Every answer has an upstream default.
 
             `paths_to_delete` None leaves upstream's default, the whole
@@ -139,10 +142,14 @@ if (max_freed)
     self->maxFreed = *max_freed;
             """)
     else:
-        def __init__(self, action: GCAction = GCAction.DELETE_DEAD,
-                     ignore_liveness: Bint = False,
-                     paths_to_delete: Opt[Vec[StorePath]] = None,
-                     max_freed: Opt[U64] = None) -> None:
+
+        def __init__(
+            self,
+            action: GCAction = GCAction.DELETE_DEAD,
+            ignore_liveness: Bint = False,
+            paths_to_delete: Opt[Vec[StorePath]] = None,
+            max_freed: Opt[U64] = None,
+        ) -> None:
             """Say what to collect. Every answer has an upstream default.
 
             `max_freed` is None rather than a number, and that is not a
@@ -160,6 +167,7 @@ self->pathsToDelete = as_set<nix::StorePathSet>(paths_to_delete);
 if (max_freed)
     self->maxFreed = *max_freed;
             """)
+
     @reads("action")
     def action(self) -> GCAction:
         """Which of the four operations to run."""
@@ -173,16 +181,19 @@ if (max_freed)
         half of the check and keeps the reference half."""
 
     if NIX_2_35:
+
         @reads("pathsToDelete")
         def paths_to_delete(self) -> GCPaths:
             """Where the collection looks: the whole store, or some paths."""
     else:
+
         @reads("pathsToDelete")
         def paths_to_delete(self) -> Vec[StorePath]:
             """The paths `DELETE_SPECIFIC` should try to delete.
 
             Read by no other action. Sorted, because Nix keeps them in a
             set and the order is that set's."""
+
     def max_freed(self) -> Opt[U64]:
         """Stop once this many bytes have been freed, or None for no
         limit.

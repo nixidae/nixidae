@@ -78,8 +78,7 @@ async def store(request: Any, client: Any) -> Any:
     return await client.acquire(AsyncStore, URI)
 
 
-async def open_state(surface: str, client: Any,
-                     settings: dict[str, str] | None = None) -> Any:
+async def open_state(surface: str, client: Any, settings: dict[str, str] | None = None) -> Any:
     """One evaluator of the named surface.
 
     A function rather than only a fixture, because a test that is
@@ -122,8 +121,7 @@ async def state(surface: str, client: Any) -> Any:
 # survive.
 
 
-async def test_a_store_reports_the_uri_it_was_opened_with(
-        store: Any) -> None:
+async def test_a_store_reports_the_uri_it_was_opened_with(store: Any) -> None:
     assert await call(store, "get_uri") == URI
 
 
@@ -147,8 +145,7 @@ async def test_printing_a_path_gives_the_same_string(store: Any) -> None:
 # equals the one the other two never sent anywhere.
 
 
-async def test_a_parsed_path_comes_back_equal_everywhere(
-        store: Any) -> None:
+async def test_a_parsed_path_comes_back_equal_everywhere(store: Any) -> None:
     from huggorm_bindings import StorePath
 
     got = await call(store, "parse_store_path", f"/nix/store/{ABSENT}")
@@ -157,8 +154,7 @@ async def test_a_parsed_path_comes_back_equal_everywhere(
     assert got.to_string() == ABSENT
 
 
-async def test_a_value_that_crossed_still_compares_and_hashes(
-        store: Any) -> None:
+async def test_a_value_that_crossed_still_compares_and_hashes(store: Any) -> None:
     """Not just equal to itself: usable as a value.
 
     A wire value declares an ordering and a hash, and the rebuilt one
@@ -188,16 +184,14 @@ async def test_a_value_that_crossed_still_compares_and_hashes(
 # the three interchangeable.
 
 
-async def test_a_bad_path_raises_the_same_class_everywhere(
-        store: Any) -> None:
+async def test_a_bad_path_raises_the_same_class_everywhere(store: Any) -> None:
     from huggorm_bindings.errors import BadStorePath
 
     with pytest.raises(BadStorePath):
         await call(store, "parse_store_path", "/somewhere/else/x")
 
 
-async def test_an_unsupported_operation_raises_the_same_class(
-        store: Any) -> None:
+async def test_an_unsupported_operation_raises_the_same_class(store: Any) -> None:
     """A statement about the store, not a failure of the call.
 
     nix::Store gives a default implementation for methods only some
@@ -218,15 +212,13 @@ async def test_an_unsupported_operation_raises_the_same_class(
 # tell.
 
 
-async def test_an_evaluated_integer_is_the_same_everywhere(
-        state: Any) -> None:
+async def test_an_evaluated_integer_is_the_same_everywhere(state: Any) -> None:
     v = await call(state, "eval_expr", "1 + 2")
     assert await call(v, "type_name") == "int"
     assert await call(v, "integer") == 3
 
 
-async def test_an_evaluated_float_is_the_same_everywhere(
-        state: Any) -> None:
+async def test_an_evaluated_float_is_the_same_everywhere(state: Any) -> None:
     """A double on the wire, so a value no int can carry must survive."""
     v = await call(state, "eval_expr", "0.1 + 0.2")
     assert await call(v, "type_name") == "float"
@@ -241,8 +233,7 @@ async def test_an_int_is_not_a_float(state: Any) -> None:
         await call(v, "floating")
 
 
-async def test_a_state_takes_its_own_settings_everywhere(
-        surface: str, client: Any) -> None:
+async def test_a_state_takes_its_own_settings_everywhere(surface: str, client: Any) -> None:
     """The service case: a remote client asks for a pure evaluator.
     The settings cross as a map, in `Acquire` on the rpc surface."""
     probe = "builtins ? currentTime"
@@ -252,8 +243,7 @@ async def test_a_state_takes_its_own_settings_everywhere(
     assert await call(await call(plain, "eval_expr", probe), "boolean") is True
 
 
-async def test_a_built_value_reads_back_the_same_everywhere(
-        state: Any) -> None:
+async def test_a_built_value_reads_back_the_same_everywhere(state: Any) -> None:
     """Built rather than evaluated, which is the other direction: a
     scalar goes IN as itself and comes back as a proxy."""
     v = await call(state, "make_string", "hello")
@@ -272,8 +262,7 @@ async def test_a_list_walks_the_same_everywhere(state: Any) -> None:
     assert items == [1, 2, 3]
 
 
-async def test_an_attribute_set_reads_the_same_everywhere(
-        state: Any) -> None:
+async def test_an_attribute_set_reads_the_same_everywhere(state: Any) -> None:
     v = await call(state, "eval_expr", '{ a = 1; b = "two"; }')
     assert await call(v, "type_name") == "attrs"
     assert await call(v, "size") == 2
@@ -282,8 +271,7 @@ async def test_an_attribute_set_reads_the_same_everywhere(
     assert await call(await call(v, "get", "b"), "string_value") == "two"
 
 
-async def test_a_bad_expression_raises_the_same_class_everywhere(
-        state: Any) -> None:
+async def test_a_bad_expression_raises_the_same_class_everywhere(state: Any) -> None:
     """An error from the EVALUATOR, which is a different translator
     from the store's and reaches a caller by the same route."""
     from huggorm_bindings.errors import NixError
@@ -292,8 +280,7 @@ async def test_a_bad_expression_raises_the_same_class_everywhere(
         await call(state, "eval_expr", "not an expression")
 
 
-async def test_a_file_evaluated_twice_is_read_once(
-        surface: str, state: Any, client: Any, tmp_path: Any) -> None:
+async def test_a_file_evaluated_twice_is_read_once(surface: str, state: Any, client: Any, tmp_path: Any) -> None:
     """The warm cache, on every surface.
 
     `evalFile` keeps a `fileEvalCache` keyed by resolved path, and a
@@ -333,8 +320,7 @@ async def test_a_file_evaluated_twice_is_read_once(
     assert "answer.nix" in str(caught.value)
 
 
-async def test_a_file_reached_by_import_is_in_the_cache_too(
-        state: Any, tmp_path: Any) -> None:
+async def test_a_file_reached_by_import_is_in_the_cache_too(state: Any, tmp_path: Any) -> None:
     """What a watcher would watch, and why it is not our own boundary.
 
     nixidae/nixidae#553 wants a change to a file an evaluation read to
@@ -384,8 +370,7 @@ async def _closure(state: Any, path: str) -> list[str]:
     return [f for f in await call(state, "cached_files") if f not in before]
 
 
-async def test_forgetting_a_closure_picks_up_an_edited_import(
-        state: Any, tmp_path: Any) -> None:
+async def test_forgetting_a_closure_picks_up_an_edited_import(state: Any, tmp_path: Any) -> None:
     """Per-path invalidation, which is what a reload server needs.
 
     Carl's requirement, in his words: a live-reloading evaluation
@@ -451,8 +436,7 @@ async def test_forgetting_a_path_drops_its_cached_stat(state: Any, tmp_path: Any
     assert await call(again, "integer") == 2
 
 
-async def test_forgetting_only_the_edited_file_leaves_the_importer_stale(
-        state: Any, tmp_path: Any) -> None:
+async def test_forgetting_only_the_edited_file_leaves_the_importer_stale(state: Any, tmp_path: Any) -> None:
     """The negative control for the test above, and a real limit.
 
     Identical, except that it forgets the file that CHANGED instead of
@@ -480,8 +464,7 @@ async def test_forgetting_only_the_edited_file_leaves_the_importer_stale(
     assert await call(again, "integer") == 42, "no edge means no cascade"
 
 
-async def test_forgetting_a_directory_forgets_its_default_nix(
-        state: Any, tmp_path: Any) -> None:
+async def test_forgetting_a_directory_forgets_its_default_nix(state: Any, tmp_path: Any) -> None:
     """The other spelling, which the closure gate cannot reach.
 
     `fileEvalCache` is keyed by the RESOLVED path and
@@ -514,13 +497,14 @@ async def test_forgetting_a_directory_forgets_its_default_nix(
 
 # A derivation `nix develop` accepts: its builder is bash. Nothing
 # builds here, so the builder never has to exist.
-BASH_LEAF = ('derivation { name = "leaf"; system = "x86_64-linux"; '
-             'builder = "/bin/bash"; args = [ "-c" "echo" ]; '
-             'outputs = [ "out" "dev" ]; }')
+BASH_LEAF = (
+    'derivation { name = "leaf"; system = "x86_64-linux"; '
+    'builder = "/bin/bash"; args = [ "-c" "echo" ]; '
+    'outputs = [ "out" "dev" ]; }'
+)
 
 
-async def test_one_consumer_rewrites_a_derivation_everywhere(
-        surface: str, client: Any, tmp_path: Any) -> None:
+async def test_one_consumer_rewrites_a_derivation_everywhere(surface: str, client: Any, tmp_path: Any) -> None:
     """One body over all three surfaces, end to end (nixidae/nixidae#667).
 
     Evaluate, force, read the derivation path, then rewrite it as
@@ -544,7 +528,6 @@ async def test_one_consumer_rewrites_a_derivation_everywhere(
         store: Any = Store(uri)
         state: Any = EvalState(store)
     elif surface == "async":
-
         store = AsyncStore(uri)
         state = AsyncEvalState(store)
     else:
@@ -563,5 +546,4 @@ async def test_one_consumer_rewrites_a_derivation_everywhere(
     assert await call(read, "name") == "leaf-env"
     reference = Store(uri)
     expected = write_dev_shell_derivation(reference, drv, script)
-    assert await call(store, "print_store_path", shell) \
-        == reference.print_store_path(expected)
+    assert await call(store, "print_store_path", shell) == reference.print_store_path(expected)

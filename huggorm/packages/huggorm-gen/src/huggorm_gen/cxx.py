@@ -77,7 +77,8 @@ def bare(cls: Class, known: Mapping[str, Class]) -> str:
     if not cls.decl.cxx and not cls.decl.produced:
         raise TypeError(
             f"'{cls.name}' has no C++ type behind it. Only a class with "
-            f"@binding(cxx=...) or @produced can cross as one.")
+            f"@binding(cxx=...) or @produced can cross as one."
+        )
     return held(cls)
 
 
@@ -108,8 +109,8 @@ def fact(python: str, said: Cxx | None) -> Cxx:
     """The C++ an alias carries, or a refusal."""
     if said is None:
         raise TypeError(
-            f"'{python}' has no C++ spelling. A bound class names types "
-            f"through an Annotated alias in declare.py.")
+            f"'{python}' has no C++ spelling. A bound class names types through an Annotated alias in declare.py."
+        )
     return said
 
 
@@ -148,8 +149,7 @@ def value(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # is the declaration saying the factory hands back a
             # reference-counted handle, so Python has to keep a share
             # or the object closes under the name for it.
-            return (f"std::{other.decl.holder}<{spelled}>",
-                    other.decl.holder)
+            return (f"std::{other.decl.holder}<{spelled}>", other.decl.holder)
         if other.is_union:
             # <nanobind/stl/variant.h>, and the ARMS' casters too: a
             # variant of bound classes needs none of its own, but one
@@ -193,8 +193,7 @@ def param(t: TypeRef, known: Mapping[str, Class]) -> tuple[str, str | None]:
             # Its share, as `self` is: a Python-made object has
             # `shared_from_this()` only while a C++ share of it lives,
             # and a body that keeps the object needs one.
-            return (f"const std::{other.decl.holder}<{bare(other, known)}> &",
-                    other.decl.holder)
+            return (f"const std::{other.decl.holder}<{bare(other, known)}> &", other.decl.holder)
         # A wire value is a copy the call reads, so const. A proxy is an
         # object the call may act on: `nix::copyClosure` writes into the
         # destination `Store &`, and a const reference cannot reach it.

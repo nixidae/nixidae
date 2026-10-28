@@ -21,8 +21,7 @@ def chroot(tmp_path: pathlib.Path) -> Store:
     return Store(str(tmp_path / "store"))
 
 
-def test_a_profile_points_at_a_new_generation_only_on_a_change(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_profile_points_at_a_new_generation_only_on_a_change(chroot: Store, tmp_path: pathlib.Path) -> None:
     one = chroot.add_to_store("one", b"1", CA.NAR, HashAlgorithm.SHA256)
     two = chroot.add_to_store("two", b"2", CA.NAR, HashAlgorithm.SHA256)
     profile = tmp_path / "profiles" / "salt"
@@ -43,8 +42,7 @@ def test_a_profile_points_at_a_new_generation_only_on_a_change(
     assert [g.path() for g in find_generations(profile)] == [first, second]
 
 
-def test_deleting_old_generations_keeps_the_current_one(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_deleting_old_generations_keeps_the_current_one(chroot: Store, tmp_path: pathlib.Path) -> None:
     profile = tmp_path / "p"
     for name in ("a", "b", "c"):
         path = chroot.add_to_store(name, name.encode(), CA.NAR, HashAlgorithm.SHA256)
@@ -54,8 +52,7 @@ def test_deleting_old_generations_keeps_the_current_one(
     assert current_generation(profile) == 3
 
 
-def test_a_rollback_points_at_the_previous_generation(
-        chroot: Store, tmp_path: pathlib.Path) -> None:
+def test_a_rollback_points_at_the_previous_generation(chroot: Store, tmp_path: pathlib.Path) -> None:
     from huggorm_bindings.errors import NixError
 
     profile = tmp_path / "p"
