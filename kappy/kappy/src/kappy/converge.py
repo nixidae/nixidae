@@ -634,7 +634,7 @@ def settled(last_progress: float, now: float, settle_seconds: float) -> bool:
 
 
 def _backoff(attempt: int) -> float:
-    return min(INITIAL_BACKOFF_SECONDS * (2**attempt), MAX_BACKOFF_SECONDS)
+    return min(INITIAL_BACKOFF_SECONDS * (2.0**attempt), MAX_BACKOFF_SECONDS)
 
 
 def _wait_before_retrying(attempt: int, asked_by_server: float | None) -> float:

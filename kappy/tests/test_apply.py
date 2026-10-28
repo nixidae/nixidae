@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import anyio
 import pytest
@@ -10,10 +10,13 @@ from kappy.apply import (
     JsonValue,
     Manifest,
     Resource,
-    _wait_established,  # pyright: ignore[reportPrivateUsage]
+    _wait_established,
     discover,
 )
 from kappy.testing import FakeApi
+
+if TYPE_CHECKING:
+    from kr8s.asyncio.objects import APIObject
 
 
 @pytest.fixture(scope="module")
@@ -495,7 +498,7 @@ class TestWaitEstablished:
     async def test_an_established_crd_is_waited_for_once(self) -> None:
         crd = FakeCrd()
 
-        await _wait_established(crd, 5)  # type: ignore[arg-type] -- a stand-in for kr8s' APIObject
+        await _wait_established(cast("APIObject", crd), 5)
 
         assert crd.calls == 1
 
@@ -512,4 +515,4 @@ class TestWaitEstablished:
         crd = FakeCrd(ever_establishes=False)
 
         with pytest.raises(TimeoutError, match=r"applicationsets\.argoproj\.io did not become Established within"):
-            await _wait_established(crd, 0.05)  # type: ignore[arg-type] -- see above
+            await _wait_established(cast("APIObject", crd), 0.05)

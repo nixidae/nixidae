@@ -42,7 +42,7 @@ in
     packages = [
       devEnv
       pkgs.ruff
-      pkgs.pyright
+      pkgs.zuban
     ];
   };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;

@@ -37,7 +37,7 @@
       }
       {
         name = "Check types";
-        run = "nix-shell --run 'pyright --project kappy'";
+        run = "nix-shell --run 'zuban mypy'";
       }
     ];
   };

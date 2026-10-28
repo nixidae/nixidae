@@ -31,7 +31,7 @@ from kappy.converge import (
     RECREATE_OPT_OUT_ANNOTATION,
     AfterRef,
     Disposition,
-    _wait_before_retrying,  # pyright: ignore[reportPrivateUsage]
+    _wait_before_retrying,
     after_refs,
     classify,
     converge_barrier,

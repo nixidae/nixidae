@@ -35,7 +35,7 @@ from .converge import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from kr8s.asyncio import Api
     from kr8s.asyncio.objects import APIObject
@@ -63,7 +63,7 @@ def _applier(  # noqa: PLR0913 -- one caller, and each argument is a piece of wh
     desired: dict[tuple[str, str, str], type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
-):
+) -> Callable[[Manifest], Awaitable[APIObject]]:
     """The apply step, recording what it built into `desired` for the prune.
 
     Recorded after `build_object` and **before** the apply, for two reasons.
@@ -102,7 +102,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     unit_label: str,
     desired: dict[tuple[str, str, str], type[APIObject]],
     unit_managers: Mapping[str, str] | None = None,
-):
+) -> Callable[[Manifest], Awaitable[bool]]:
     """The skip step: leave an object alone, and still call it desired.
 
     **The `desired` entry is the whole safety of this.** A prune deletes what
@@ -147,7 +147,7 @@ def _skipper(  # noqa: PLR0913 -- one caller, and each argument is part of what 
     return should_skip
 
 
-def _gater(api: Api):
+def _gater(api: Api) -> Callable[[Manifest], Awaitable[tuple[str, ...]]]:
     """The gate step: what an object is `after` that does not exist yet.
 
     Asked only of an object that does not exist itself. The annotation orders
@@ -190,7 +190,7 @@ def _gater(api: Api):
     return gate
 
 
-def _deleter(api: Api):
+def _deleter(api: Api) -> Callable[[Manifest], Awaitable[None]]:
     """A delete that does not return until the object is gone.
 
     `DeleteOne` requires this, and the requirement is not pedantry: a delete

@@ -148,7 +148,7 @@ async def _discovery(api: Api, *, uncached: bool) -> list[Resource]:
     # the boundary: everything past it is typed.
     fetch = cast(
         "Awaitable[list[Resource]]",
-        api.async_api_resources_uncached() if uncached else api.async_api_resources(),  # pyright: ignore[reportUnknownMemberType] -- unannotated upstream
+        api.async_api_resources_uncached() if uncached else api.async_api_resources(),
     )
     return await fetch
 
@@ -241,7 +241,7 @@ async def ssa_apply(
     """
     result = cast(
         "JsonValue",
-        await obj.async_apply(  # pyright: ignore[reportUnknownMemberType] -- unannotated upstream
+        await obj.async_apply(
             server_side=True,
             field_manager=field_manager,
             force_conflicts=force,
@@ -762,12 +762,9 @@ async def _list_for_prune(
     cannot be listed is ordinary, and a delete that fails is not.
     """
     try:
-        # kr8s.Api.async_get's `label_selector`/`field_selector` params and its
-        # `APIObject | dict` yield type are both bare-`dict`/unannotated
-        # upstream, so pyright can't resolve the member or the loop variable.
         return [
             obj
-            async for obj in api.async_get(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType] -- kr8s Api.async_get's selector params and yield type are unannotated upstream
+            async for obj in api.async_get(
                 target,
                 namespace=kr8s.ALL,
                 label_selector=selector,

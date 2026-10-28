@@ -40,7 +40,7 @@ def _fake_configmap(name: str, namespace: str = "ns") -> APIObject:
         },
         api=cast("Api", SimpleNamespace(namespace=None)),
     )
-    obj.delete = AsyncMock()  # pyright: ignore[reportAttributeAccessIssue] -- instance-level override for the test
+    obj.delete = AsyncMock()  # type: ignore[method-assign]  # instance-level override for the test
     return obj
 
 

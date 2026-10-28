@@ -23,7 +23,7 @@ jobs:
     - name: Check Python formatting
       run: nix-shell --run 'ruff format --check'
     - name: Check types
-      run: nix-shell --run 'pyright --project kappy'
+      run: nix-shell --run 'zuban mypy'
 name: 'kappy: tests'
 'on':
   pull_request: null

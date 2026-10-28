@@ -136,14 +136,14 @@ class FakeApi:
         content: str | None = None,
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
-    ):
+    ) -> AsyncIterator[_FakeResponse]:
         if method == "GET":
             yield _FakeResponse(self._metadata_list(version, url, params or {}, headers or {}))
             return
         if method != "PATCH":
             raise AssertionError(f"FakeApi serves GET and PATCH, not {method}")
         body = json.loads(content or "{}")
-        key = (namespace or "none", body["kind"], body["metadata"]["name"])
+        key: tuple[str, str, str] = (namespace or "none", body["kind"], body["metadata"]["name"])
         self.patched.append(key)
         # Which manager each object was applied as. SSA sends it as a query
         # parameter, so this is the only place a test can see it.
@@ -152,11 +152,12 @@ class FakeApi:
         # *moves* the resourceVersion when the apply changed something. The
         # `--assume-unchanged` gate is exactly that behaviour, so a fake that
         # bumped on every apply would make the gate untestable.
+        namespace_: str | None = body["metadata"].get("namespace")
         stored = self.live.setdefault(
             key,
             {
                 "name": key[2],
-                "namespace": body["metadata"].get("namespace"),
+                "namespace": namespace_,
                 "resourceVersion": str(len(self.live) + 1),
             },
         )
