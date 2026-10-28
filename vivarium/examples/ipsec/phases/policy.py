@@ -76,7 +76,7 @@ async def test(vms: Machines) -> None:
         tg.start_soon(watch, "esp-east", east, "internet", f"esp and dst {cfg['westAddress']}", 3, "-Q out")
         tg.start_soon(watch, "plain", west, "internet", "icmp", 1, "-Q out")
         tg.start_soon(watch, "plain-east", east, "internet", "icmp", 1, "-Q out")
-        tg.start_soon(watch, "bob", bob, "lan", f"icmp and src {alice_address}", 3)
+        tg.start_soon(watch, "bob", bob, "lan", f"icmp and src {alice_address}", 3)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         await anyio.sleep(2)
         out = await alice.succeed(ping(bob_address))
         print(f"[test] alice -> bob: {out.strip().splitlines()[-2]}")

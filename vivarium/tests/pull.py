@@ -65,7 +65,7 @@ async def test(vms: Machines) -> None:
 
     await kubectl(cp, f"create --filename - <<'EOF'\n{POD}\nEOF")
 
-    async def ran():
+    async def ran() -> tuple[bool, str]:
         out = await kubectl(cp, "get pod pulled --output jsonpath='{.status.phase}'")
         return out.strip() == "Succeeded", out.strip() or "(no phase yet)"
 

@@ -59,7 +59,7 @@ USERNS = {
 }
 
 
-def pod(name: str, network: int = NODE_NETWORK, userns: bool = False) -> dict:
+def pod(name: str, network: int = NODE_NETWORK, userns: bool = False) -> dict[str, object]:
     return {
         "metadata": {"name": name, "namespace": "default", "uid": f"{name}-uid"},
         # A container's log_path is relative to this, and without it the
@@ -78,7 +78,7 @@ def pod(name: str, network: int = NODE_NETWORK, userns: bool = False) -> dict:
     }
 
 
-def container(image: str) -> dict:
+def container(image: str) -> dict[str, object]:
     return {
         "metadata": {"name": "probe"},
         "image": {"image": image},
@@ -101,7 +101,7 @@ def container(image: str) -> dict:
     }
 
 
-async def write_json(vm: Machine, path: str, data: dict) -> None:
+async def write_json(vm: Machine, path: str, data: dict[str, object]) -> None:
     await vm.succeed(f"cat <<'EOF' > {path}\n{json.dumps(data, indent=2)}\nEOF")
 
 

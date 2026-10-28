@@ -18,6 +18,13 @@ from typing import Any
 CHANNEL = "notifications/claude/channel"
 
 
+def _object(value: object) -> dict[str, Any]:
+    """A JSON value that must be an object; anything else is a broken server."""
+    if not isinstance(value, dict):
+        raise RuntimeError(f"vivarium-mcp sent {value!r}, not a JSON object")
+    return value
+
+
 class Client:
     def __init__(self, process: asyncio.subprocess.Process) -> None:
         self.process = process
@@ -34,7 +41,7 @@ class Client:
         line = await self.process.stdout.readline()
         if not line:
             raise RuntimeError("vivarium-mcp closed its stdout")
-        message = json.loads(line)
+        message = _object(json.loads(line))
         if message.get("method") == CHANNEL:
             self.channel.append(message["params"])
             print(f"[mcp] channel: {json.dumps(message['params'])[:300]}", flush=True)
@@ -48,7 +55,7 @@ class Client:
             if message.get("id") == self.next_id:
                 if "error" in message:
                     raise RuntimeError(f"{method}: {message['error']}")
-                return message["result"]
+                return _object(message["result"])
 
     async def tool(self, name: str, **arguments: Any) -> Any:
         result = await self.call("tools/call", {"name": name, "arguments": arguments})

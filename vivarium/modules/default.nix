@@ -545,7 +545,7 @@ in
         default = true;
         example = false;
         description = ''
-          Run pyright over the test's script, as an input of the test
+          Run zuban over the test's script, as an input of the test
           derivation.
 
           A script is Python that nothing imports until the guests have
@@ -564,7 +564,7 @@ in
         description = ''
           Python packages the script imports beyond `vivarium_runner`.
 
-          Without them pyright reports the import as an error, which is
+          Without them zuban reports the import as an error, which is
           the right answer: an import it cannot resolve is a name it
           cannot check.
         '';
@@ -572,27 +572,26 @@ in
 
       strict = lib.mkOption {
         type = lib.types.bool;
-        default = false;
-        example = true;
+        default = true;
+        example = false;
         description = ''
-          Use pyright's `strict` mode rather than `standard`.
+          Use mypy's `strict` mode.
 
-          `reportMissingParameterType` is on either way, because without
-          it an unannotated parameter is Unknown and nothing done to it is
-          checked at all.
+          Off, an unannotated function is still an error, because mypy
+          checks nothing inside one.
         '';
       };
 
       ignore = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        example = lib.literalExpression ''[ "reportMissingImports" ]'';
+        example = lib.literalExpression ''[ "import-not-found" ]'';
         description = ''
-          pyright rules to turn off for the whole script, the way
+          mypy error codes to turn off for the whole script, the way
           `pkgs.writers.writePython3Bin` takes `flakeIgnore`.
 
-          Each name becomes `"<rule>": "none"` in the generated
-          `pyrightconfig.json`.  For a check that is right about something
+          They go to `disable_error_code` in the generated `mypy.ini`.
+          For a check that is right about something
           the author cannot fix -- an import that only exists inside a
           guest, say -- rather than for one that is inconvenient.
         '';

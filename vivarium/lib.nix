@@ -23,7 +23,7 @@ rec {
   /*
     The library a test script imports, reachable without evaluating a
     guest: a caller puts it in the Python it type checks with.  It carries
-    `py.typed`, so pyright reads `vms.node` as a `Machine`.
+    `py.typed`, so a type checker reads `vms.node` as a `Machine`.
 
         nixvenv { python = pkgs.python3; packages = _: [ vivarium.runner ]; }
   */
@@ -56,7 +56,7 @@ rec {
   images = pkgs.callPackage ./images.nix { };
 
   /*
-    pyright over a caller's test scripts, against this library.
+    zuban over a caller's test scripts, against this library.
 
         typeCheck { scripts = [ ./tests/vivarium/run.py ]; }
 
@@ -68,7 +68,7 @@ rec {
       name ? "vivarium-test-scripts",
       scripts,
       extraPackages ? [ ],
-      strict ? false,
+      strict ? true,
       ignore ? [ ],
       # Directories of helper modules the scripts import; `mkTest`'s
       # `pythonPath`.
@@ -88,60 +88,49 @@ rec {
           ++ extraPackages;
       };
 
-      # pyright's rule names, the way `writePython3Bin`'s `flakeIgnore`
-      # is flake8's codes.
-      rules = lib.listToAttrs (map (rule: lib.nameValuePair rule "none") ignore);
-
-      settings = {
-        typeCheckingMode = if strict then "strict" else "standard";
-        pythonVersion = lib.versions.majorMinor python.python.version;
-        reportMissingImports = "error";
-        # Neither standard nor strict turns this on, and it is what makes
-        # the rest worth running: an unannotated parameter is Unknown, and
-        # nothing done to an Unknown is checked. Measured -- without it,
-        # `await vms.node.succeed(123)` and a call to a method that does
-        # not exist both passed.
-        reportMissingParameterType = "error";
-        extraPaths = map (path: "${path}") extraPaths;
-      }
-      // rules;
+      config = pkgs.writeText "mypy.ini" (
+        lib.generators.toINI { } {
+          mypy = {
+            python_version = lib.versions.majorMinor python.python.version;
+            # Interpolated, so each directory is copied to the store.
+            mypy_path = lib.concatMapStringsSep ", " (path: "${path}") extraPaths;
+            # mypy's error codes, the way `writePython3Bin`'s `flakeIgnore`
+            # is flake8's codes.
+            disable_error_code = lib.concatStringsSep ", " ignore;
+          }
+          // (
+            if strict then
+              { strict = true; }
+            else
+              # An unannotated function is not checked at all, so a typo
+              # in it costs a boot to find.
+              {
+                disallow_untyped_defs = true;
+                check_untyped_defs = true;
+              }
+          );
+        }
+      );
     in
     pkgs.runCommand "typecheck-${name}"
       {
         nativeBuildInputs = [
-          pkgs.pyright
-          python
+          pkgs.zuban
         ];
       }
       ''
-        # Copied in rather than checked in place: pyright follows a path,
-        # and a store path is read-only.
-        #
-        # One directory each, numbered. Two scripts may share a basename
-        # -- `recipes/boot.py` and `tests/phases/boot.py` do -- and
-        # copying both to `scripts/boot.py` failed with "Permission
-        # denied", because the first arrived read-only from the store and
-        # the second tried to overwrite it. A collision must not depend
-        # on which two files a caller happens to pass.
-        ${lib.concatStringsSep "\n" (
-          # `-r`: a pytest phase is a directory of tests.
-          lib.imap0 (index: script: ''
-            mkdir -p scripts/${toString index}
-            cp -r ${script} scripts/${toString index}/${baseNameOf script}
-            chmod -R +w scripts/${toString index}/${baseNameOf script}
-          '') scripts
-        )}
-        cp ${pkgs.writeText "pyrightconfig.json" (builtins.toJSON settings)} \
-          pyrightconfig.json
-        # Offline: pyright downloads a node runtime unless it is told
-        # which one to use, and a build sandbox has no network.
-        export HOME=$TMPDIR
-        pyright --pythonpath ${python}/bin/python --outputjson scripts > report.json || {
-          cat report.json
+        # One run per script: two scripts may share a basename --
+        # `recipes/boot.py` and `tests/phases/boot.py` do -- and one run
+        # refuses two modules of the same name.
+        ${lib.concatMapStrings (script: ''
+          zuban mypy --config-file ${config} --python-executable ${python}/lib/venv/bin/python3 ${script} \
+            || failed=1
+        '') scripts}
+        if [ -n "''${failed:-}" ]; then
           echo "the scripts above do not type check against vivarium_runner" >&2
           exit 1
-        }
-        cp report.json $out
+        fi
+        touch $out
       '';
 
   /**
@@ -417,7 +406,7 @@ rec {
         async def test(vms: Machines) -> None: ...
 
     It is imported rather than executed, so it may import whatever it
-    likes and pyright checks it.
+    likes and zuban checks it.
 
     **`after` is a dependency, not a hint.** A phase whose `after` failed
     is skipped, because running it against a world that was never built

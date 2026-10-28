@@ -136,7 +136,7 @@ in
                   A Python module exporting `async def test(vms: Machines)`.
 
                   Imported, not executed as a script, so it may import
-                  whatever it likes and pyright can check it. Set this or
+                  whatever it likes and zuban can check it. Set this or
                   `pytest`, not both.
                 '';
               };
@@ -302,7 +302,7 @@ in
       default = [ ];
       example = lib.literalExpression "[ ./tests/lib ]";
       description = ''
-        Directories every phase script can import from, and that pyright
+        Directories every phase script can import from, and that zuban
         reads when it checks them.
 
         A phase script is copied into the store on its own, so a helper

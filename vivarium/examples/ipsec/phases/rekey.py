@@ -8,6 +8,8 @@ where the first CHILD_SA rode on IKE_AUTH's keys. On the routed tunnel
 the BGP session over it never drops.
 """
 
+from typing import Any
+
 import anyio
 from lab import child, established, lab, loss, ping, vtysh
 from vivarium_runner import Machine, Machines
@@ -15,7 +17,7 @@ from vivarium_runner import Machine, Machines
 
 async def rekey_under_load(
     gateway: Machine, sender: Machine, target: str, connection: str
-) -> tuple[dict, dict, dict, dict]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     before = await established(gateway, connection)
     old = child(before, connection)
     assert old is not None

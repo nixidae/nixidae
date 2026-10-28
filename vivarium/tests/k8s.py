@@ -144,7 +144,7 @@ async def check_storage(cp: Machine, image: str) -> None:
     token = "kept-across-pods"
 
     async def ran(pod: str) -> None:
-        async def check():
+        async def check() -> tuple[bool, str]:
             out = await kubectl(cp, f"get pod {pod} --output jsonpath='{{.status.phase}}'")
             return out.strip() == "Succeeded", out.strip() or "(no phase yet)"
 
@@ -195,7 +195,7 @@ async def check_cluster_networking(cp: Machine, vms: Machines, image: str) -> No
     for pod in ("web", "probe"):
         await wait_for_pods(cp, f"--field-selector metadata.name={pod}", namespace="default")
 
-    async def check():
+    async def check() -> tuple[bool, str]:
         rc, out = await cp.execute(
             "kubectl exec probe -- wget -T 10 -qO- http://web.default.svc.cluster.local/",
             timeout=120,

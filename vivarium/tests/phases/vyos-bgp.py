@@ -3,6 +3,7 @@ built. VyOS runs the vivarium agent, so its FRR answers vtysh as FRR's
 does."""
 
 import json
+from typing import TypedDict
 
 import anyio
 from vivarium_runner import Machine, Machines
@@ -10,9 +11,24 @@ from vivarium_runner import Machine, Machines
 CONVERGE = 120
 
 
+class BgpPeer(TypedDict, total=False):
+    state: str
+
+
+class BgpSummary(TypedDict, total=False):
+    """`show bgp ipv4 unicast summary json`. FRR omits `peers` with no neighbours."""
+
+    peers: dict[str, BgpPeer]
+
+
+class RouteEntry(TypedDict, total=False):
+    protocol: str
+
+
 async def established(vm: Machine, peer: str) -> bool:
-    peers = json.loads(await vm.succeed("vtysh -c 'show bgp ipv4 unicast summary json'")).get("peers", {})
-    return peers.get(peer, {}).get("state") == "Established"
+    summary: BgpSummary = json.loads(await vm.succeed("vtysh -c 'show bgp ipv4 unicast summary json'"))
+    neighbour = summary.get("peers", {}).get(peer, {})
+    return neighbour.get("state") == "Established"
 
 
 async def test(vms: Machines) -> None:
@@ -32,7 +48,9 @@ async def test(vms: Machines) -> None:
     for vm, prefix in ((r1, "10.2.0.0/24"), (f1, "10.1.0.0/24")):
         with anyio.fail_after(CONVERGE):
             while True:
-                routes = json.loads(await vm.succeed(f"vtysh -c 'show ip route {prefix} json'"))
+                routes: dict[str, list[RouteEntry]] = json.loads(
+                    await vm.succeed(f"vtysh -c 'show ip route {prefix} json'")
+                )
                 if routes.get(prefix, [{}])[0].get("protocol") == "bgp":
                     break
                 await anyio.sleep(1)

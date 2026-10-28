@@ -92,10 +92,10 @@ async def test(vms: Machines) -> None:
                 results[name] = await capture(vm, interface, expression, count, seconds, flags)
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(watch, "target", target, "lan", f"icmp and src {seen_as} and dst {address}", 3)
-                tg.start_soon(watch, "decrypted", vms[far], "any", f"icmp and src {seen_as} and dst {reach}", 3)
-                tg.start_soon(watch, "plain-west", west, "internet", "icmp", 1, "-Q out", 5)
-                tg.start_soon(watch, "plain-east", east, "internet", "icmp", 1, "-Q out", 5)
+                tg.start_soon(watch, "target", target, "lan", f"icmp and src {seen_as} and dst {address}", 3)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
+                tg.start_soon(watch, "decrypted", vms[far], "any", f"icmp and src {seen_as} and dst {reach}", 3)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
+                tg.start_soon(watch, "plain-west", west, "internet", "icmp", 1, "-Q out", 5)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
+                tg.start_soon(watch, "plain-east", east, "internet", "icmp", 1, "-Q out", 5)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
                 await anyio.sleep(2)
                 await source.succeed(ping(reach))
             if results["target"][0] != 0:

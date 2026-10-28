@@ -2603,7 +2603,7 @@ let
     check-scripts = vivarium.typeCheck {
       name = "own-scripts";
       # `.py` only: a run outside the sandbox leaves `__pycache__` beside
-      # them, and pyright has nothing to say about a `.pyc`.
+      # them, and zuban has nothing to say about a `.pyc`.
       scripts = lib.filter (p: lib.hasSuffix ".py" (toString p)) (
         # `recipes` as well as `tests`: a recipe is shipped for other
         # projects to enable, so one that does not type check breaks a
@@ -2611,6 +2611,26 @@ let
         lib.filesystem.listFilesRecursive ./recipes ++ lib.filesystem.listFilesRecursive ./tests
       );
     };
+
+    # zuban, strict, over `runner` and `session` and their unit tests. Each
+    # package's `mypy.ini` sets its own floor.
+    check-python =
+      let
+        python = nixvenv {
+          python = pkgs.python3;
+          packages = ps: [
+            runner
+            session
+            ps.pytest
+          ];
+        };
+      in
+      pkgs.runCommand "vivarium-check-python" { nativeBuildInputs = [ pkgs.zuban ]; } ''
+        for package in ${./pkgs/vivarium-runner} ${./pkgs/vivarium}; do
+          (cd $package && zuban mypy --python-executable ${python}/lib/venv/bin/python3)
+        done
+        touch $out
+      '';
   };
 in
 tests

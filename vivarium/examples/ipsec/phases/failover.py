@@ -50,7 +50,7 @@ async def test(vms: Machines) -> None:
         await cut(east, tunnels["1"]["eastAddress"])
         cut_at = anyio.current_time()
 
-        async def withdrawn():
+        async def withdrawn() -> str | None:
             peers = await bgp_peers(west)
             route = await west.succeed(f"ip route show {prefix}")
             if peers.get(first, {}).get("state") != "Established" and nexthops(route) == ["ipsec2"]:
@@ -70,7 +70,7 @@ async def test(vms: Machines) -> None:
     print(f"[test] carol -> dave across the failure: {received}/{sent} answered ({sent - received} lost)")
     await carol.succeed(ping(dave))
 
-    async def dead():
+    async def dead() -> bool | None:
         sa = (await sas(west)).get("tunnel1")
         return True if not sa or sa.get("state") != "ESTABLISHED" else None
 
@@ -83,7 +83,7 @@ async def test(vms: Machines) -> None:
     await established(west, "tunnel1")
     await bgp_up(west, [first, second])
 
-    async def ecmp():
+    async def ecmp() -> str | None:
         route = await west.succeed(f"ip route show {prefix}")
         return route if sorted(nexthops(route)) == ["ipsec1", "ipsec2"] else None
 

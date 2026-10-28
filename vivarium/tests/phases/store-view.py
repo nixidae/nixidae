@@ -42,9 +42,9 @@ async def test(vms: Machines) -> None:
             system = systems[other]
             await vm.fail(f"nix-store --check-validity {system}")
             assert peer.spec.store_paths is not None
-            added = await vm.add_closure(str(peer.spec.store_paths.parent))
-            if system not in added:
-                raise AssertionError(f"{name} was not given {other}'s system: {added}")
+            closure = await vm.add_closure(str(peer.spec.store_paths.parent))
+            if system not in closure:
+                raise AssertionError(f"{name} was not given {other}'s system: {closure}")
             await vm.succeed(f"test -x {system}/init")
             await vm.succeed(f"nix-store --verify-path {system}")
-            print(f"[test] {name} took {other}'s closure while running: {len(added)} paths")
+            print(f"[test] {name} took {other}'s closure while running: {len(closure)} paths")

@@ -25,8 +25,8 @@ POD_NETWORK = 0
 POD_CIDR = "10.244.0.0/24"
 
 
-def pod(name: str, userns: bool) -> dict:
-    options: dict = {"network": POD_NETWORK, **(USERNS if userns else {})}
+def pod(name: str, userns: bool) -> dict[str, object]:
+    options: dict[str, object] = {"network": POD_NETWORK, **(USERNS if userns else {})}
     return {
         "metadata": {"name": name, "namespace": "zero-layers", "uid": name},
         "log_directory": f"/tmp/zero-layers/{name}",
@@ -34,7 +34,7 @@ def pod(name: str, userns: bool) -> dict:
     }
 
 
-def container(image: str, busybox: str, userns: bool) -> dict:
+def container(image: str, busybox: str, userns: bool) -> dict[str, object]:
     return {
         "metadata": {"name": "c"},
         "image": {"image": image},

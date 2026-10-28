@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 import anyio
 from vivarium_runner import Machine, Machines
@@ -22,8 +23,12 @@ def loopbacks(vms: Machines) -> dict[str, str]:
     return {name: one["loopback"] for name, one in {**clos["spines"], **clos["leaves"]}.items()}
 
 
-async def vtysh(vm: Machine, command: str) -> dict:
-    return json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+async def vtysh(vm: Machine, command: str) -> dict[str, Any]:
+    """Run a `vtysh` command with `json` appended, and parse its object."""
+    value: object = json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+    if not isinstance(value, dict):
+        raise AssertionError(f"vtysh {command!r} printed {type(value).__name__}, not an object")
+    return value
 
 
 async def established(vm: Machine, timeout: float = CONVERGE) -> None:

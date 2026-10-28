@@ -72,10 +72,10 @@ async def test(vms: Machines) -> None:
     block = next(b for b in devices.split("\n\n") if "Virtio Tablet" in b)
     # `Handlers=event4` when the tablet has no mouse handler, so a word
     # split never sees one that starts with `event`.
-    found = re.search(r"\bevent\d+", block)
-    if found is None:
+    node = re.search(r"\bevent\d+", block)
+    if node is None:
         raise AssertionError(f"no event node for the tablet in {block!r}")
-    tablet = found[0]
+    tablet = node[0]
 
     # Read the tablet's events while the click happens.
     captured: list[list[tuple[int, int, int]]] = []

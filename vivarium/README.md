@@ -92,7 +92,7 @@ async def test(vms: Machines) -> None:
 
 Guests on the same `network` share a LAN. Every guest has the other
 guests in `/etc/hosts`, and gets the `nodes` module argument, as in
-`nixosTest`. Nix type-checks each phase script with pyright before the
+`nixosTest`. Nix type-checks each phase script with zuban before the
 run.
 
 A phase that fails skips the phases that come `after` it. A phase that

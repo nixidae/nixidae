@@ -33,7 +33,11 @@ def esp_inner_mtu(outer: int) -> int:
 
 
 def lab(vms: Machines) -> dict[str, Any]:
-    return vms.settings["lab"]
+    """The lab's topology, as Nix declared it; its keys are read where used."""
+    value = vms.settings["lab"]
+    if not isinstance(value, dict):
+        raise AssertionError(f"settings.lab is {type(value).__name__}, not an object")
+    return value
 
 
 async def eventually(vm: Machine, command: str, timeout: float = CONVERGE) -> str:
@@ -104,7 +108,9 @@ async def sas(vm: Machine) -> dict[str, dict[str, Any]]:
 
 def child(sa: dict[str, Any], name: str) -> dict[str, Any] | None:
     """The INSTALLED CHILD_SA *name* of an IKE_SA, newest first."""
-    found = [c for c in sa.get("child-sas", {}).values() if c.get("name") == name and c.get("state") == "INSTALLED"]
+    found: list[dict[str, Any]] = [
+        c for c in sa.get("child-sas", {}).values() if c.get("name") == name and c.get("state") == "INSTALLED"
+    ]
     found.sort(key=lambda c: int(c.get("uniqueid", "0")), reverse=True)
     return found[0] if found else None
 
@@ -112,7 +118,7 @@ def child(sa: dict[str, Any], name: str) -> dict[str, Any] | None:
 async def established(vm: Machine, connection: str, child_name: str | None = None) -> dict[str, Any]:
     """Wait for *connection* ESTABLISHED with *child_name* INSTALLED."""
 
-    async def check():
+    async def check() -> dict[str, Any] | None:
         sa = (await sas(vm)).get(connection)
         if not sa or sa.get("state") != "ESTABLISHED":
             return None
@@ -124,16 +130,22 @@ async def established(vm: Machine, connection: str, child_name: str | None = Non
 
 
 async def vtysh(vm: Machine, command: str) -> dict[str, Any]:
-    return json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+    """Run a `vtysh` command with `json` appended, and parse its object."""
+    value: object = json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+    if not isinstance(value, dict):
+        raise AssertionError(f"vtysh {command!r} printed {type(value).__name__}, not an object")
+    return value
 
 
 async def bgp_peers(vm: Machine) -> dict[str, dict[str, Any]]:
     summary = await vtysh(vm, "show bgp ipv4 unicast summary")
-    return summary.get("peers", summary.get("ipv4Unicast", {}).get("peers", {}))
+    # FRR puts the peers at the top level on some releases and under `ipv4Unicast` on others.
+    peers: dict[str, dict[str, Any]] = summary.get("peers", summary.get("ipv4Unicast", {}).get("peers", {}))
+    return peers
 
 
 async def bgp_up(vm: Machine, peers: list[str], timeout: float = CONVERGE) -> dict[str, dict[str, Any]]:
-    async def check():
+    async def check() -> dict[str, dict[str, Any]] | None:
         state = await bgp_peers(vm)
         if all(state.get(p, {}).get("state") == "Established" for p in peers):
             return state

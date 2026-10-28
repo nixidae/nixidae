@@ -35,7 +35,8 @@ SETTLED = f"ip -4 -brief addr show vec0 | grep -qF {SW_ADDRESS} && ip -4 route s
 
 
 def _get(where: str) -> str:
-    return urllib.request.urlopen(f"http://{where}/probe", timeout=5).read().decode().strip()
+    body: bytes = urllib.request.urlopen(f"http://{where}/probe", timeout=5).read()
+    return body.decode().strip()
 
 
 async def _fetch(where: str, timeout: float = 30) -> str:

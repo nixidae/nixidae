@@ -44,14 +44,17 @@ async def serve(vm: Machine, port: int) -> None:
     )
 
 
+def _get(where: str) -> str:
+    body: bytes = urllib.request.urlopen(f"http://{where}/probe", timeout=5).read()
+    return body.decode().strip()
+
+
 async def fetch(where: str, timeout: float = 30) -> str:
     """GET /probe from the host side, giving the guest time to bind."""
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         try:
-            return await asyncio.to_thread(
-                lambda: urllib.request.urlopen(f"http://{where}/probe", timeout=5).read().decode().strip()
-            )
+            return await asyncio.to_thread(_get, where)
         except (urllib.error.URLError, OSError) as error:
             if asyncio.get_running_loop().time() > deadline:
                 raise AssertionError(f"nothing answered on {where}: {error}") from error

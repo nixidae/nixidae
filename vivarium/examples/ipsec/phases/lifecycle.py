@@ -20,6 +20,7 @@ error counter moving; a rekey lost none in any try.
 """
 
 import re
+from typing import Any
 
 import anyio
 from lab import epoch, established, eventually, journal_since, lab, loss, ping, until
@@ -39,7 +40,7 @@ async def swap(vm: Machine, files: dict[str, str]) -> None:
     await vm.succeed(f"{installs} && swanctl --load-creds --clear --noprompt")
 
 
-def ike_spis(sa: dict) -> tuple[str, str]:
+def ike_spis(sa: dict[str, Any]) -> tuple[str, str]:
     return sa["initiator-spi"], sa["responder-spi"]
 
 

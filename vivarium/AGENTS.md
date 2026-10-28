@@ -224,11 +224,9 @@ one out of `tests/` means it should be a method on `Machine`.
 vivarium.typeCheck { name = "mine"; scripts = [ ./tests/vivarium/check.py ]; }
 ```
 
-pyright against `vivarium_runner` in a derivation. **Annotate the parameter** —
-`async def test(vms: Machines) -> None`. Unannotated, `vms` is Unknown and
-nothing done to it is checked: measured, `await vms.node.succeed(123)` and
-a call to a nonexistent method both passed. `reportMissingParameterType`
-is on, so an unannotated script does not build.
+zuban (mypy's rules), strict by default, against `vivarium_runner` in a
+derivation. An unannotated function is not checked at all, so even with
+`strict = false` an unannotated script does not build.
 
 A phase can be a pytest run instead of a script:
 
