@@ -2177,10 +2177,7 @@ class Emitter:
         day a stale copy of it turned every nix error into a
         RuntimeError. So the emitter states it once per unit that needs
         it, and the declaration's body reads it by name."""
-        for _, t in _sites(classes, functions):
-            if t is not None and t.leaf.kind == ir.Kind.ERROR:
-                return True
-        return False
+        return any(t is not None and t.leaf.kind == ir.Kind.ERROR for _, t in _sites(classes, functions))
 
     def module(self, classes: Sequence[ir.ClassModel],
                functions: Sequence[ir.FunctionModel],

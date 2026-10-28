@@ -16,8 +16,7 @@ from nixversion import NO_SUBSTITUTER, NOT_IN_STORE, drv_output, needs_collector
 
 import huggorm_bindings
 from huggorm.remote import handle_of
-from huggorm_bindings import ContentAddressMethod as CA
-from huggorm_bindings import HashAlgorithm, PathInfo
+from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm, PathInfo
 from huggorm_bindings.errors import BadStorePath, NixError, NixTypeError
 from huggorm_generated import AsyncEvalState, AsyncStore, AsyncValue
 from huggorm_generated._runtime import InternalError

@@ -379,7 +379,16 @@ rec {
         huggorm = self.callPackage ./packages/huggorm { };
         # nix build --file . suite, or 'lanes."nix_2_34-tsan".suite'
         suite = self.callPackage ./packages/huggorm/suite.nix {
-          ruffConfig = ./ruff.toml;
+          # With the shared base it extends, at the same relative path.
+          ruffConfig =
+            lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./ruff.toml
+                ./nix/shared
+              ];
+            }
+            + "/ruff.toml";
         };
         ourPython = nixvenv {
           python = python3;

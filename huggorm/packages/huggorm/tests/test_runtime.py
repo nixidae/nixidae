@@ -80,8 +80,7 @@ async def test_a_pool_store_hands_back_a_store_path_itself(
     """StorePath is pool AND non-blocking, so it has no wrapper: an
     awaited store method hands back the binding object itself, and
     reading it is a plain call (nixidae/nixidae#562)."""
-    from huggorm_bindings import ContentAddressMethod as CA
-    from huggorm_bindings import HashAlgorithm, StorePath
+    from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm, StorePath
     from huggorm_generated import AsyncStore
 
     local = AsyncStore(str(tmp_path))

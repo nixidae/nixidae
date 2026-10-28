@@ -43,8 +43,7 @@ if EMITTED:
     DECL_INCLUDE = os.environ["HUGGORM_DECL_INCLUDE"]
 else:
     import huggorm_decl
-    from huggorm_gen.cppgen.generate import main as emit
-    from huggorm_gen.cppgen.generate import nanobind_modules
+    from huggorm_gen.cppgen.generate import main as emit, nanobind_modules
 
     emit(PACKAGE)
     MODULES = nanobind_modules()

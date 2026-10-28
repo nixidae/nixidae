@@ -26,8 +26,7 @@ async def main(path: str | Path) -> None:
         state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
 
         print("=== wire-value returns are real local objects ===")
-        from huggorm_bindings import ContentAddressMethod as CA
-        from huggorm_bindings import HashAlgorithm
+        from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm
         p = await store.add_to_store("hello.txt", b"world",
                                      CA.NAR, HashAlgorithm.SHA256)
         print(f"{type(p).__module__}.{type(p).__name__}: {p.to_string()}")

@@ -41,6 +41,7 @@ from huggorm_bindings import (
     BuildSuccess,
     BuildSuccessStatus,
     ContentAddress,
+    ContentAddressMethod as CA,
     DerivationOutputCAFixed,
     DerivationOutputCAFloating,
     DerivationOutputDeferred,
@@ -86,7 +87,6 @@ from huggorm_bindings import (
     Trace,
     TrustedFlag,
 )
-from huggorm_bindings import ContentAddressMethod as CA
 from huggorm_bindings.errors import (
     BadStorePath,
     BuildError,

@@ -7,8 +7,7 @@ from typing import Any
 
 import anyio
 
-from huggorm_bindings import ContentAddressMethod as CA
-from huggorm_bindings import HashAlgorithm, StorePath
+from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm, StorePath
 from huggorm_generated import (
     AsyncEvalState,
     AsyncStore,

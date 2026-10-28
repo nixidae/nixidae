@@ -48,8 +48,8 @@ from huggorm_dsl.read import (
     Method,
     Module,
     read,
+    resolved as resolve_tree,
 )
-from huggorm_dsl.read import resolved as resolve_tree
 
 
 class Corpus:

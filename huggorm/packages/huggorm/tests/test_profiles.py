@@ -6,8 +6,7 @@ import pathlib
 
 import pytest
 
-from huggorm_bindings import ContentAddressMethod as CA
-from huggorm_bindings import HashAlgorithm, Store
+from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm, Store
 from huggorm_bindings.profiles import (
     current_generation,
     delete_old_generations,

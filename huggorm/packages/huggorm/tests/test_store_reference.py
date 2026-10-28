@@ -64,8 +64,7 @@ def test_what_libstore_cannot_read_raises() -> None:
 async def test_the_async_form_adopts_a_wrapper_class() -> None:
     """A free function that returns a WRAPPER class hands back its
     async form, through `_adopt`, as a returned type's does."""
-    from huggorm_generated import AsyncStoreReference
-    from huggorm_generated import parse_store_reference as aparse
+    from huggorm_generated import AsyncStoreReference, parse_store_reference as aparse
 
     ref = await aparse("ssh-ng://user@host?compress=true")
     assert isinstance(ref, AsyncStoreReference)

@@ -262,8 +262,7 @@ def test_an_enum_survives_a_container() -> None:
     from conftest import across, crossed
 
     from huggorm.codec import Codec
-    from huggorm_bindings import ContentAddressMethod as CA
-    from huggorm_bindings import HashAlgorithm
+    from huggorm_bindings import ContentAddressMethod as CA, HashAlgorithm
     from huggorm_generated._callspec import Wire, WireKind
 
     words = Wire(WireKind.LIST, item=Wire(WireKind.ENUM, "HashAlgorithm"))

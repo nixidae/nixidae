@@ -41,11 +41,11 @@ from huggorm_dsl.read import (
     Class,
     Method,
     Module,
+    Origin as Origin,
     Param,
     Type,
     is_surface,
 )
-from huggorm_dsl.read import Origin as Origin
 from huggorm_gen import cxx
 from huggorm_gen.payload import _callspec as callspec
 from huggorm_gen.payload._wiretypes import SPELLED

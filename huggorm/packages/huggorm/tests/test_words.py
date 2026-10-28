@@ -29,8 +29,7 @@ from typing import Any
 
 import pytest
 
-from huggorm_bindings import ContentAddress, Hash, HashAlgorithm
-from huggorm_bindings import ContentAddressMethod as CA
+from huggorm_bindings import ContentAddress, ContentAddressMethod as CA, Hash, HashAlgorithm
 from huggorm_bindings.errors import NixError
 
 # Words the parser this binding uses refuses without an experimental

@@ -46,6 +46,7 @@ from .protocol import (
     LOG_DRAIN,
     LOG_READER,
     Channel,
+    ConnectionLost as ConnectionLost,
     Control,
     Faults,
     Op,
@@ -55,7 +56,6 @@ from .protocol import (
     Refused,
     build_identity,
 )
-from .protocol import ConnectionLost as ConnectionLost
 
 logger = logging.getLogger(__name__)
 

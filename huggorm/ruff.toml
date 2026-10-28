@@ -8,24 +8,10 @@
 # docstring on every module and class, signatures agreeing across the
 # three surfaces) and which a linter cannot express.
 
-# 100, not the default 88. The prose in this repo wraps at about 72
-# and the code sits comfortably under 100; setting 88 would report
-# thirty-odd lines that are fine and teach everyone to ignore E501.
-# At 100 it only fires on a line that has genuinely run away.
-line-length = 100
-target-version = "py314"
+# The rule set and the line length are nixidae's shared base.
+extend = "nix/shared/ruff.toml"
 
-[lint]
-select = [
-  "E",     # pycodestyle
-  "F",     # pyflakes: dead imports, dead variables, real mistakes
-  "I",     # import sorting
-  "UP",    # pyupgrade: syntax this Python version supersedes
-  "B",     # bugbear: closures over loop variables, mutable defaults
-  "SIM",   # simplifiable constructs
-  "PIE",   # small redundancies
-  "RUF",   # ruff's own
-]
+target-version = "py314"
 
 # Deliberately not selected:
 #
