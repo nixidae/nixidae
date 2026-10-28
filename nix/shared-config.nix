@@ -1,24 +1,44 @@
-# The tool configuration every Python source shares, copied into each one.
-# nixidae/nixidae#1104.
+# The files every source shares, copied into each one. nixidae/nixidae#1104.
 #
-# The originals live in `nix/shared/`. Each source gets a byte-for-byte copy
-# at `<source>/nix/shared/<file>`, because josh exports a source alone and a
-# sandboxed check sees only the source's own store path.
+# The originals live in `nix/shared/`. josh exports a source alone and a
+# sandboxed check sees only the source's own store path, so each source gets
+# its own copy:
+#
+# - the tool configuration, byte for byte, at `<source>/nix/shared/<file>`;
+# - `<source>/nix/sources.nix`, from `sources.nix.in` with the source's name.
 {
   lib,
   pkgs,
+  # The sources that get the tool configuration.
   sources,
+  # The sources that get `nix/sources.nix`.
+  wired,
 }:
 let
-  files = [
+  toolFiles = [
     "ruff.toml"
     "ruff-anyio.toml"
   ];
 
-  original = file: ./shared + "/${file}";
+  sourcesNix =
+    source:
+    pkgs.writeText "sources.nix" (
+      builtins.replaceStrings [ "@name@" ] [ source ] (builtins.readFile ./shared/sources.nix.in)
+    );
 
-  # A `<source>/nix/shared/<file>` for each pair.
-  copies = lib.concatMap (source: map (file: { inherit source file; }) files) sources;
+  # Each copy as the path it has in the tree and the file it must equal.
+  copies =
+    lib.concatMap (
+      source:
+      map (file: {
+        path = "${source}/nix/shared/${file}";
+        original = ./shared + "/${file}";
+      }) toolFiles
+    ) sources
+    ++ map (source: {
+      path = "${source}/nix/sources.nix";
+      original = sourcesNix source;
+    }) wired;
 in
 {
   # Writes every copy.
@@ -32,10 +52,10 @@ in
     fi
     cd "$root"
     ${lib.concatMapStrings (
-      { source, file }:
+      { path, original }:
       ''
-        mkdir -p ${source}/nix/shared
-        cp --no-preserve=mode ${original file} ${source}/nix/shared/${file}
+        mkdir -p ${dirOf path}
+        cp --no-preserve=mode ${original} ${path}
       ''
     ) copies}
   '';
@@ -43,13 +63,13 @@ in
   # Is every copy the same bytes as its original?
   check = pkgs.runCommand "shared-config-in-step" { } ''
     ${lib.concatMapStrings (
-      { source, file }:
+      { path, original }:
       let
-        copy = ../. + "/${source}/nix/shared/${file}";
+        copy = ../. + "/${path}";
       in
       ''
-        if ! ${if builtins.pathExists copy then "cmp --quiet ${original file} ${copy}" else "false"}; then
-          echo "${source}/nix/shared/${file} differs from nix/shared/${file}. Run: nix run --file . shared-config-update" >&2
+        if ! ${if builtins.pathExists copy then "cmp --quiet ${original} ${copy}" else "false"}; then
+          echo "${path} differs from what nix/shared/ makes. Run: nix run --file . shared-config-update" >&2
           exit 1
         fi
       ''

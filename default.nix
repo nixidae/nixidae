@@ -117,7 +117,7 @@ rec {
   };
   ci-workflow-update = ci.update;
 
-  # The ruff configuration every Python source shares. nix/shared-config.nix.
+  # The files every source shares. nix/shared-config.nix.
   sharedConfig = import ./nix/shared-config.nix {
     inherit (pkgs) lib;
     inherit pkgs;
@@ -129,6 +129,17 @@ rec {
       "nanopynix"
       "nixkube"
       "nixvenv"
+      "pydd"
+      "pynixd"
+      "vivarium"
+    ];
+    wired = [
+      "easykubenix"
+      "havsorm"
+      "huggorm"
+      "kappy"
+      "nanopynix"
+      "nixkube"
       "pydd"
       "pynixd"
       "vivarium"

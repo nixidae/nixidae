@@ -74,7 +74,7 @@ checks where it is:
   files against its siblings at that commit.
 
 Every source's `nix/sources.nix` comes from one template,
-`nix/shared/sources.nix.in`.
+`nix/shared/sources.nix.in`. `shared-config-update` writes it (see below).
 
 ## Exported repositories
 
@@ -101,6 +101,7 @@ root check that fails when the committed file differs:
 | --- | --- | --- | --- |
 | `.github/workflows/<source>-*.yml` | each source's `ciTestWorkflows`, through `nix/ci.nix` and ghanix | `nix run --file . ci-workflow-update` | `checks.ciWorkflows` |
 | `<source>/nix/shared/ruff*.toml` | `nix/shared/`, through `nix/shared-config.nix` | `nix run --file . shared-config-update` | `checks.sharedConfig` |
+| `<source>/nix/sources.nix` | `nix/shared/sources.nix.in`, through `nix/shared-config.nix` | `nix run --file . shared-config-update` | `checks.sharedConfig` |
 
 Edit the source, run the command, and commit both. Never edit the written
 file by hand.
