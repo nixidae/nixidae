@@ -40,9 +40,6 @@ nix build              # the default package
 nix flake check        # whatever gates that repo defines
 ```
 
-Repositories with a `justfile` usually wrap the common tasks; `just --list`
-will tell you what is available.
-
 ## Making the change
 
 - **Match the surrounding code.** Naming, comment density and idiom vary
