@@ -9,8 +9,7 @@ reaches `boot-complete.target`: two tries, then systemd-boot picks `good`.
 import re
 
 import anyio
-
-from vivarium_runner import MachineError, Machine, Machines
+from vivarium_runner import Machine, MachineError, Machines
 
 BACK_WITHIN = 300
 COUNTED = "/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"

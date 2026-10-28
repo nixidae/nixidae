@@ -9,7 +9,8 @@ ast.literal_eval, never run: it comes from a downloaded image.
 import ast
 import sys
 
-tree = ast.parse(open(sys.argv[1]).read())
+with open(sys.argv[1]) as cache:
+    tree = ast.parse(cache.read())
 reference = next(
     node.value
     for node in tree.body

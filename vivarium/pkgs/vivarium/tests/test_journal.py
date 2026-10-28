@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from vivarium.events import Event, Kind, Level, render
 from vivarium.journal import Entry, Tail, level, parse, split
 

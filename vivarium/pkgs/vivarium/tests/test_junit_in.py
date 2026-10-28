@@ -1,5 +1,4 @@
 import pytest
-
 from vivarium.junit_in import Case, parse
 
 # The shape pytest's --junitxml writes, trimmed.

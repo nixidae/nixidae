@@ -1,7 +1,7 @@
 """Switch a running guest between its configurations; see `switch` in
 default.nix."""
 
-from vivarium_runner import Machines, MachineError
+from vivarium_runner import MachineError, Machines
 
 
 async def agent_pid(vms: Machines) -> str:

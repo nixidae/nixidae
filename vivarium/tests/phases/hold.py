@@ -1,7 +1,6 @@
 """A phase that holds its guest until the run is signalled; see `cleanup`."""
 
 import anyio
-
 from vivarium_runner import Machines
 
 

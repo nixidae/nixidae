@@ -22,7 +22,6 @@ error counter moving; a rekey lost none in any try.
 import re
 
 import anyio
-
 from lab import epoch, established, eventually, journal_since, lab, loss, ping, until
 from vivarium_runner import Machine, Machines
 

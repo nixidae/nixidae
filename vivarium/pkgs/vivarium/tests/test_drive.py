@@ -14,12 +14,11 @@ from pathlib import Path
 
 import anyio
 import pytest
-from vivarium_runner import MachineError
-
 from vivarium.cli import drive
 from vivarium.control import SOCKET, Op, request
 from vivarium.phases import PhaseState
 from vivarium.spec import PhaseSpec, Spec
+from vivarium_runner import MachineError
 
 
 class FakeSession:

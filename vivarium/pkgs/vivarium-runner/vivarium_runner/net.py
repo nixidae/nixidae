@@ -72,7 +72,7 @@ class Lan:
             # Point to point: no host involvement, no copying.
             a, b = self._pair()
             self._guest_ends = [a, b]
-            self.fds = dict(zip(members, (a.fileno(), b.fileno())))
+            self.fds = dict(zip(members, (a.fileno(), b.fileno()), strict=False))
         else:
             for member in members:
                 host_end, guest_end = self._pair()

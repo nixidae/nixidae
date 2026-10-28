@@ -6,7 +6,6 @@ from pathlib import Path
 
 import anyio
 import pytest
-
 from vivarium.monitor import LIVE, PAUSED, SOCKET, follow, follow_file, line, locate, paused_now, status
 
 
@@ -69,12 +68,11 @@ def test_locate_takes_a_directory_or_an_id(tmp_path: Path):
 
 async def _serve(path: Path, events: list[dict]) -> None:
     """One client, these events, then close."""
-    async with await anyio.create_unix_listener(str(path)) as listener:
-        async with await listener.accept() as stream:
-            # A client that exits at a pause leaves before the rest.
-            with contextlib.suppress(anyio.BrokenResourceError):
-                for event in events:
-                    await stream.send(json.dumps(event).encode() + b"\n")
+    async with await anyio.create_unix_listener(str(path)) as listener, await listener.accept() as stream:
+        # A client that exits at a pause leaves before the rest.
+        with contextlib.suppress(anyio.BrokenResourceError):
+            for event in events:
+                await stream.send(json.dumps(event).encode() + b"\n")
 
 
 @pytest.mark.anyio

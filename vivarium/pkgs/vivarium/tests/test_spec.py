@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from vivarium.spec import Spec, SpecError
 
 
@@ -17,7 +16,7 @@ class TestAFieldThisRunnerDoesNotKnow:
         """Measured on nixkube: an older runner dropped `pythonPath`
         silently, and a phase failed on the import it existed for."""
         path = write(tmp_path, vivarium="/nix/store/x-vivarium", fromTheFuture=[1])
-        with pytest.raises(SpecError, match="fromTheFuture.*/nix/store/x-vivarium"):
+        with pytest.raises(SpecError, match=r"fromTheFuture.*/nix/store/x-vivarium"):
             Spec.read(path)
 
     def test_inside_a_phase_too(self, tmp_path: Path):

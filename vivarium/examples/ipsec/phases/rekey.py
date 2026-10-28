@@ -9,7 +9,6 @@ the BGP session over it never drops.
 """
 
 import anyio
-
 from lab import child, established, lab, loss, ping, vtysh
 from vivarium_runner import Machine, Machines
 

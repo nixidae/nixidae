@@ -4,7 +4,6 @@ BGP built."""
 import json
 
 import anyio
-
 from vivarium_runner import Machines
 
 CONVERGE = 60

@@ -25,7 +25,7 @@ from vivarium_runner.cluster import KUBE_DNS, KUBE_PROXY, bring_up, kubectl, unt
 # store: the only way this pod runs is a pull over the network.
 WORKLOAD = "registry.k8s.io/e2e-test-images/busybox:1.29-4"
 
-POD = """
+POD = f"""
 apiVersion: v1
 kind: Pod
 metadata:
@@ -34,9 +34,9 @@ spec:
   restartPolicy: Never
   containers:
     - name: pulled
-      image: %s
+      image: {WORKLOAD}
       command: ["sh", "-c", "echo pulled-ok"]
-""" % WORKLOAD
+"""
 
 
 async def test(vms: Machines) -> None:

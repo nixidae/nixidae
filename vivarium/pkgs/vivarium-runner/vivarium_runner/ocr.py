@@ -20,7 +20,7 @@ from pathlib import Path
 
 import anyio
 
-__all__ = ["OcrError", "Text", "Word", "Screen", "parse_tsv", "ppm_size", "read"]
+__all__ = ["OcrError", "Screen", "Text", "Word", "parse_tsv", "ppm_size", "read"]
 
 
 class OcrError(Exception):

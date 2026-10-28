@@ -6,7 +6,6 @@ import json
 import time
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 CONVERGE = 90.0

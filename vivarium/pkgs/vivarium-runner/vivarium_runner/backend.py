@@ -812,7 +812,7 @@ class Qemu:
         except OSError as error:
             listener.close()
             client.close()
-            raise BackendError(f"could not make a socket at {socket_path}: {error}")
+            raise BackendError(f"could not make a socket at {socket_path}: {error}") from error
         finally:
             socket_path.unlink(missing_ok=True)
 

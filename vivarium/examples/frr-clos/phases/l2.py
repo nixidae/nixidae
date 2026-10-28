@@ -30,4 +30,4 @@ async def test(vms: Machines) -> None:
     print(f"[test] with vni{vni} down on {far_leaf}, {near} no longer reaches {far}")
     await vms[far_leaf].succeed(f"ip link set vni{vni} up")
     await eventually(vms[near], ping(servers[far]["address"]))
-    print(f"[test] and again once it is up")
+    print("[test] and again once it is up")

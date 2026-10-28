@@ -12,7 +12,6 @@ other in either direction, and nothing leaves a gateway in the clear.
 """
 
 import anyio
-
 from lab import bgp_up, capture, child, established, lab, nexthops, ping, vtysh
 from vivarium_runner import Machine, Machines
 

@@ -16,11 +16,12 @@ import urllib.request
 
 from vivarium_runner import Machines
 
+
 def link_local(mac: str) -> str:
     """The EUI-64 IPv6 link-local address RouterOS derives from *mac*."""
     octets = [int(part, 16) for part in mac.split(":")]
     octets[0] ^= 0x02
-    eui = octets[:3] + [0xFF, 0xFE] + octets[3:]
+    eui = [*octets[:3], 255, 254, *octets[3:]]
     groups = [f"{eui[i] << 8 | eui[i + 1]:x}" for i in range(0, 8, 2)]
     return "fe80::" + ":".join(groups)
 
@@ -40,7 +41,7 @@ async def rest(where: str, path: str) -> object:
             return json.loads(body)
         except OSError as error:
             if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError(f"no REST answer on {where}: {error}")
+                raise AssertionError(f"no REST answer on {where}: {error}") from error
             await asyncio.sleep(1)
 
 

@@ -7,6 +7,7 @@ filter is one function, and a renderer is pure.
 """
 
 import json
+from typing import ClassVar
 
 from vivarium.events import Event, Kind, Level, junit, render, wanted
 from vivarium.sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
@@ -93,7 +94,7 @@ class TestAnEventIsNotALogLine:
 
 
 class TestJunit:
-    FINISHED = [
+    FINISHED: ClassVar = [
         Event(
             at=1.0,
             kind=Kind.PHASE_FINISHED,

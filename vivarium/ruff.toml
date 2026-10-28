@@ -1,0 +1,5 @@
+extend = "nix/shared/ruff.toml"
+
+# A spike run by hand for the measurements in
+# docs/design/console-guests.md. No build reads it.
+extend-exclude = ["tests/fixtures/routeros/probe.py"]

@@ -10,7 +10,6 @@ new kernel parameters and initrd, on the disk the guest wrote.
 import json
 
 import anyio
-
 from vivarium_runner import MachineError, Machines
 
 PARAM = "vivarium.reboot=next"

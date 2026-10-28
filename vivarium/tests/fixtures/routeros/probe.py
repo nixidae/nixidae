@@ -10,7 +10,13 @@ Writes <workdir>/transcript.raw (every byte read) and events.jsonl
 (time, direction, text; large, since the serial port gives about a byte
 per read).
 """
-import json, os, re, socket, subprocess, sys, time
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
 
 work, user, img, *extra = sys.argv[1:]
 os.makedirs(work, exist_ok=True)
@@ -49,7 +55,7 @@ def read_until(pat: bytes, timeout: float = 60) -> bytes | None:
             return out
         try:
             d = s.recv(65536)
-        except socket.timeout:
+        except TimeoutError:
             continue
         if d:
             raw.write(d); raw.flush(); note("in", d); buf += d
@@ -81,6 +87,8 @@ F = ':put "{n}-B"; :do {{ {call} }} on-error={{ :put "{n}-E" }}; :put "{n}-D"'
 O = ':put "{n}-B"; :onerror e in={{ {call} }} do={{ :put "{n}-E $e" }}; :put "{n}-D"'
 long = "x" * 3000
 import base64
+
+
 def b64(s: str) -> str:
     return base64.b64encode(s.encode()).decode()
 B = (':put "{n}-B"; :onerror e in={{ :put [:convert to=base64 [:execute script=[:convert from=base64 "{p}"] as-string]] }}'

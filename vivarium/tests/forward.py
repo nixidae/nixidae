@@ -63,7 +63,7 @@ async def fetch(where: str, timeout: float = 30) -> str:
             )
         except (urllib.error.URLError, OSError) as error:
             if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError(f"nothing answered on {where}: {error}")
+                raise AssertionError(f"nothing answered on {where}: {error}") from error
             await asyncio.sleep(0.5)
 
 

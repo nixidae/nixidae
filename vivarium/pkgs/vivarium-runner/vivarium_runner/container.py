@@ -19,6 +19,7 @@ Three pieces, each for a fact measured before it was written:
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import json
 import os
@@ -46,15 +47,7 @@ leaves a service that runs as it unable to start."""
 
 CAPABILITIES = [
     "CAP_" + name
-    for name in (
-        "CHOWN DAC_OVERRIDE DAC_READ_SEARCH FOWNER FSETID KILL SETGID SETUID "
-        "SETPCAP LINUX_IMMUTABLE NET_BIND_SERVICE NET_BROADCAST NET_ADMIN "
-        "NET_RAW IPC_LOCK IPC_OWNER SYS_MODULE SYS_RAWIO SYS_CHROOT "
-        "SYS_PTRACE SYS_PACCT SYS_ADMIN SYS_BOOT SYS_NICE SYS_RESOURCE "
-        "SYS_TIME SYS_TTY_CONFIG MKNOD LEASE AUDIT_WRITE AUDIT_CONTROL "
-        "SETFCAP MAC_OVERRIDE MAC_ADMIN SYSLOG WAKE_ALARM BLOCK_SUSPEND "
-        "AUDIT_READ PERFMON BPF CHECKPOINT_RESTORE"
-    ).split()
+    for name in ["CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "LINUX_IMMUTABLE", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_ADMIN", "NET_RAW", "IPC_LOCK", "IPC_OWNER", "SYS_MODULE", "SYS_RAWIO", "SYS_CHROOT", "SYS_PTRACE", "SYS_PACCT", "SYS_ADMIN", "SYS_BOOT", "SYS_NICE", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "MKNOD", "LEASE", "AUDIT_WRITE", "AUDIT_CONTROL", "SETFCAP", "MAC_OVERRIDE", "MAC_ADMIN", "SYSLOG", "WAKE_ALARM", "BLOCK_SUSPEND", "AUDIT_READ", "PERFMON", "BPF", "CHECKPOINT_RESTORE"]
 ]
 """Every capability, in the guest's own user namespace only. An empty set
 is what crun gives when the field is left out, and systemd then fails
@@ -750,11 +743,9 @@ def tap_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
                 return 0
             if not frame:
                 return 0
-            try:
+            # A full queue drops the frame, as a wire would.
+            with contextlib.suppress(OSError):
                 os.write(key.data, frame)
-            except (BlockingIOError, OSError):
-                # A full queue drops the frame, as a wire would.
-                pass
 
 
 def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen:

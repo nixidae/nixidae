@@ -266,7 +266,7 @@ def resolve(
 
     resolved: list[Rule] = []
     notes: list[str] = []
-    for rule, (_, said) in zip(rules, remapped):
+    for rule, (_, said) in zip(rules, remapped, strict=False):
         if rule.wide or rule.ports:
             resolved.append(rule)
         notes.extend(f"{rule.address}: {note}" for note in said)
@@ -316,7 +316,7 @@ def _specs(rule: Rule, start: int) -> list[str]:
         excluded.append(f"~{first}-{last}")
         remapped.append(f"{rule.address}/{first}-{last}:1-{start - 1}")
 
-    return [f"{rule.address}/" + ",".join(excluded)] + remapped
+    return [f"{rule.address}/" + ",".join(excluded), *remapped]
 
 
 def to_args(rules: list[Rule], start: int | None = None) -> list[str]:

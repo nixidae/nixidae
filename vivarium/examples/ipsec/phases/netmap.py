@@ -15,7 +15,6 @@ side.
 import re
 
 import anyio
-
 from lab import bgp_up, capture, child, established, lab, nexthops, ping
 from vivarium_runner import Machine, Machines
 
@@ -24,7 +23,7 @@ PORT = 7000
 
 def host(cidr: str, address: str) -> str:
     """*address*'s host bits in the /24 *cidr*."""
-    return ".".join(cidr.split("/")[0].split(".")[:3] + [address.split(".")[3]])
+    return ".".join([*cidr.split("/")[0].split(".")[:3], address.split(".")[3]])
 
 
 async def test(vms: Machines) -> None:
@@ -79,7 +78,14 @@ async def test(vms: Machines) -> None:
 
             # A leak check waits out its whole window; 5 s covers the ping.
             async def watch(
-                name: str, vm: Machine, interface: str, expression: str, count: int, flags: str = "", seconds: float = 12
+                name: str,
+                vm: Machine,
+                interface: str,
+                expression: str,
+                count: int,
+                flags: str = "",
+                seconds: float = 12,
+                results: dict[str, tuple[int, str]] = results,
             ) -> None:
                 results[name] = await capture(vm, interface, expression, count, seconds, flags)
 

@@ -14,7 +14,6 @@ file does not know which kind of machine it started.
 
 from __future__ import annotations
 
-import anyio
 import asyncio
 import collections
 import contextlib
@@ -30,30 +29,23 @@ import subprocess as sync_subprocess
 import sys
 import tempfile
 import time
+
 # asyncio's subprocess, kept on purpose: its StreamReader gives the console
 # pump a readline that anyio's process stdout has no equivalent for. It runs
 # under anyio's asyncio backend unchanged.
 from asyncio import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import anyio
 from anyio.abc import UNIXSocketStream
 
+from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, routeros, sonic, storeview
 from .agent import AGENT_READY
 from .arpyc import AsyncConnection, connect
 from .control import ConsoleControl, ConsoleError, Control, ControlKind, Dialect
-from . import backend as backends
-from . import routeros, sonic
-from . import container
-from . import display
-from . import forward
-from . import mconsole
-from . import ocr
-from . import qmp
-from . import report
-from . import storeview
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _CONSOLE_HISTORY = 2000
@@ -241,10 +233,8 @@ def _killpg(pid: int, sig: int) -> None:
     itself one of several -- and signalling only the leader leaves the
     rest running with nothing to report to.
     """
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(os.getpgid(pid), sig)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def _running(pid: int) -> bool:
@@ -723,13 +713,11 @@ class Machine:
 
         if self._memory is not None:
             memory, self._memory = self._memory, None
-            try:
+            # The guest is already gone by here in the ordinary case, and a
+            # monitor that cannot be said goodbye to must not stop the rest
+            # of the teardown.
+            with contextlib.suppress(OSError, EOFError, mconsole.MconsoleError, qmp.QmpError):
                 await memory.close()
-            except (OSError, EOFError, mconsole.MconsoleError, qmp.QmpError):
-                # The guest is already gone by here in the ordinary case,
-                # and a monitor that cannot be said goodbye to must not
-                # stop the rest of the teardown.
-                pass
 
         for directory in self._cleanup:
             shutil.rmtree(directory, ignore_errors=True)
@@ -1455,7 +1443,7 @@ class Machine:
         ``"ctrl-alt-f2"``, ``"shift-tab"``, ``"meta_l-d"``.
         """
         for key in keys:
-            await self._qmp(lambda monitor: monitor.sendkey(key))
+            await self._qmp(lambda monitor, key=key: monitor.sendkey(key))
             await anyio.sleep(delay)
 
     async def send_chars(self, text: str, delay: float = 0.01) -> None:

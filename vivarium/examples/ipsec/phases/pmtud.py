@@ -16,7 +16,6 @@
 import re
 
 import anyio
-
 from lab import capture, captured_during, esp_inner_mtu, lab, ping, route_mtu
 from vivarium_runner import Machine, Machines
 
@@ -30,7 +29,7 @@ async def test(vms: Machines) -> None:
 
     for df, flag, want in (("do", "[DF]", "with DF"), ("dont", "[none]", "without DF")):
         rc, out = await captured_during(
-            west, "internet", f"esp and {westward}", 1, lambda: alice.succeed(ping(bob, count=1, extra=f"-M {df}")), "-v"
+            west, "internet", f"esp and {westward}", 1, lambda df=df: alice.succeed(ping(bob, count=1, extra=f"-M {df}")), "-v"
         )
         if rc != 0 or f"flags {flag}" not in out:
             raise AssertionError(f"ping -M {df}: outer ESP header should be {want}:\n{out}")

@@ -1,12 +1,11 @@
 """OCR parsing and input events, without a guest."""
 
 import pytest
-
 from vivarium_runner import display, ocr
 
 # tesseract 4.1's TSV for two lines, trimmed to the rows that matter.
 TSV = "\t".join(
-    "level page_num block_num par_num line_num word_num left top width height conf text".split()
+    ["level", "page_num", "block_num", "par_num", "line_num", "word_num", "left", "top", "width", "height", "conf", "text"]
 ) + "\n" + "\n".join(
     "\t".join(str(cell) for cell in row)
     for row in [

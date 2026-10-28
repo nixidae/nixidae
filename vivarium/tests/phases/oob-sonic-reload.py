@@ -10,7 +10,6 @@ The pulled config is a scratch base, not a record of config management.
 """
 
 import anyio
-
 from vivarium_runner import Machines
 
 OPTS = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"

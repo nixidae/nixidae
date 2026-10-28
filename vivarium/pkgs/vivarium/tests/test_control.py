@@ -5,7 +5,6 @@ import shlex
 from pathlib import Path
 
 import pytest
-
 from vivarium.control import Console, Op, commands, parse_request, split_last_expression
 
 

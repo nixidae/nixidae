@@ -15,13 +15,12 @@ from textwrap import dedent
 
 import anyio
 import pytest
-from vivarium_runner import Machines
-
 from vivarium.control import Controller
 from vivarium.events import Event, Kind, junit
 from vivarium.phases import PhaseState
 from vivarium.session import CasesFailed, Session
 from vivarium.spec import PhaseSpec, PytestSpec, Spec
+from vivarium_runner import Machines
 
 
 class Machine:
@@ -215,7 +214,7 @@ class TestAFailingRun:
     async def test_arguments_pytest_rejects_are_named(self, tmp_path: Path):
         sink = Collect()
         session = session_for(tmp_path, sink, "-k", "bad((")
-        with pytest.raises(CasesFailed, match="rejected its arguments.*bad"):
+        with pytest.raises(CasesFailed, match=r"rejected its arguments.*bad"):
             await session._pytest("cases", PytestSpec(tests=write_tests(tmp_path, BAD)), session.vms)
 
     async def test_a_module_that_does_not_import(self, tmp_path: Path):

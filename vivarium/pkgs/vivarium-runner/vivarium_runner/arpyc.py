@@ -15,6 +15,7 @@ Payload:  [1B message type] + brine.dump((seq, args))
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import struct
 import sys
@@ -132,10 +133,8 @@ class FdStream:
         self._loop.remove_reader(self._fd)
         self._reader.feed_eof()
         if self._saved_tty is not None:
-            try:
+            with contextlib.suppress(termios.error):
                 termios.tcsetattr(self._fd, termios.TCSANOW, self._saved_tty)
-            except termios.error:
-                pass
         os.close(self._fd)
 
 
@@ -192,7 +191,7 @@ class _Pending:
     """One in-flight call, waiting for its reply. anyio's answer to a
     Future: the serve task fills `result` or `exc` and sets the event."""
 
-    __slots__ = ("event", "result", "exc")
+    __slots__ = ("event", "exc", "result")
 
     def __init__(self) -> None:
         self.event = anyio.Event()

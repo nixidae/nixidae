@@ -12,7 +12,6 @@ import re
 import anyio
 import pytest
 from anyio.abc import ByteStream
-
 from vivarium_runner import shell, sonic
 from vivarium_runner.control import ConsoleControl, Result
 

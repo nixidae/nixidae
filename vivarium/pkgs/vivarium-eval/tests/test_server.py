@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import anyio
 import pytest
-
 from vivarium.control import Reply
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain

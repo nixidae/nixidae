@@ -14,7 +14,6 @@ not know: their path MTU is the XFRM interface's 1400, so TCP sends
 import re
 
 import anyio
-
 from lab import capture, lab, ping
 from vivarium_runner import Machine, Machines
 

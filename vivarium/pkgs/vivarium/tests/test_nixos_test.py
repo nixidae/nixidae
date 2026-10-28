@@ -6,7 +6,6 @@ from typing import Any
 
 import anyio
 import pytest
-
 from vivarium_runner import nixos_test
 
 

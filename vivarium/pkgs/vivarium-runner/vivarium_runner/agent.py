@@ -122,7 +122,8 @@ class Agent(Service):
         ports = set()
         for family in ("tcp", "tcp6"):
             try:
-                lines = open(f"/proc/net/{family}").read().splitlines()[1:]
+                with open(f"/proc/net/{family}") as table:
+                    lines = table.read().splitlines()[1:]
             except OSError:
                 continue
             for line in lines:
@@ -148,8 +149,10 @@ class Agent(Service):
             if not entry.name.isdigit():
                 continue
             try:
-                stat = open(f"/proc/{entry.name}/stat").read()
-                raw = open(f"/proc/{entry.name}/cmdline", "rb").read()
+                with open(f"/proc/{entry.name}/stat") as file:
+                    stat = file.read()
+                with open(f"/proc/{entry.name}/cmdline", "rb") as file:
+                    raw = file.read()
             except OSError:
                 # It exited between the listing and the read, which is
                 # the answer: it is not running.

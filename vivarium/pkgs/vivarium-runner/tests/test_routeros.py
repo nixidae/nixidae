@@ -13,7 +13,6 @@ from pathlib import Path
 import anyio
 import pytest
 from anyio.abc import ByteStream
-
 from vivarium_runner import routeros
 from vivarium_runner.control import ConsoleControl, ConsoleError, Result
 
@@ -209,7 +208,7 @@ def recorded() -> dict[str, Result]:
     starts = [(m.start(), m.group(1).decode()) for m in FRAME_LINE.finditer(data)]
     ends = [start for start, _ in starts[1:]] + [len(data)]
     results = {}
-    for (start, nonce), end in zip(starts, ends):
+    for (start, nonce), end in zip(starts, ends, strict=False):
         result = routeros.parse(data[start:end], nonce)
         assert result is not None, f"frame {nonce} did not parse"
         results[nonce] = result

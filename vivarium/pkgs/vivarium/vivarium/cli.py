@@ -24,7 +24,6 @@ import sys
 from collections.abc import Collection
 from pathlib import Path
 
-
 import anyio
 from vivarium_runner import MachineError
 
@@ -32,12 +31,9 @@ from . import monitor, namespace, repl, runroot
 from .control import SOCKET, Controller, Op, request
 from .events import Kind, Level
 from .phases import PhaseState, launchable, ready, summarise
-from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .session import Session, SessionError
+from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
-
-
-
 
 
 def _absolute(value: str) -> Path:

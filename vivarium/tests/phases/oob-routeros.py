@@ -11,7 +11,6 @@ rather than an exit status, which is why they are not `wait_until_succeeds`.
 """
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 MGMT_HOST = "10.42.0.1"

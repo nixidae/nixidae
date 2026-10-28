@@ -5,7 +5,6 @@ does."""
 import json
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 CONVERGE = 120

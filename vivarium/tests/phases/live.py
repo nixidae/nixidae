@@ -1,7 +1,6 @@
 """Holds its guest until something outside the phase makes /tmp/go; see `live-exec`."""
 
 import anyio
-
 from vivarium_runner import Machines
 
 

@@ -30,7 +30,7 @@ async def test(vms: Machines) -> None:
     version = await sw1.succeed("show version", timeout=60)
     if "SONiC.202505" not in version:
         raise AssertionError(f"`show version` does not name the build:\n{version}")
-    line = next(l for l in version.splitlines() if "SONiC Software Version" in l)
+    line = next(row for row in version.splitlines() if "SONiC Software Version" in row)
     print(f"[test] the SONiC CLI answers: {line.strip()}")
 
     try:

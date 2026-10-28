@@ -9,7 +9,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 T = TypeVar("T")
@@ -48,7 +47,7 @@ async def eventually(vm: Machine, command: str, timeout: float = CONVERGE) -> st
         await anyio.sleep(1)
 
 
-async def until(vm: Machine, what: str, check: Callable[[], Awaitable[T | None]], timeout: float = CONVERGE) -> T:
+async def until[T](vm: Machine, what: str, check: Callable[[], Awaitable[T | None]], timeout: float = CONVERGE) -> T:
     """Poll the async *check* until it returns something truthy."""
     deadline = time.monotonic() + timeout
     with vm.waiting(what):

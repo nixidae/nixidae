@@ -15,7 +15,6 @@ import re
 import struct
 
 import anyio
-
 from vivarium_runner import Machine, MachineError, Machines
 
 TOKEN = r"^answer 42$"

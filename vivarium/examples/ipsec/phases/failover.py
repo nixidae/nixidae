@@ -13,8 +13,7 @@ Not `ip link set down`: under UML a link once down never comes back
 """
 
 import anyio
-
-from lab import bgp_up, bgp_peers, established, lab, loss, nexthops, ping, sas, until
+from lab import bgp_peers, bgp_up, established, lab, loss, nexthops, ping, sas, until
 from vivarium_runner import Machine, Machines
 
 

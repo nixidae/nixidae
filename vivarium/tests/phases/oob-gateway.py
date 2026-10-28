@@ -19,7 +19,6 @@ import urllib.request
 
 import anyio
 import anyio.to_thread
-
 from vivarium_runner import Machines
 
 PAGE = "hello-from-behind-the-gateway"

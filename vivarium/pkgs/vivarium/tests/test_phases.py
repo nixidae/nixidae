@@ -7,9 +7,9 @@ where those two disagree with this.
 """
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
-
 from vivarium.phases import (
     PhaseState,
     dependents,
@@ -96,7 +96,7 @@ class TestAlways:
 
     JOURNAL = phase("journal", "cluster", always=True)
     AFTER_JOURNAL = phase("summary", "journal")
-    WITH_JOURNAL = [BOOT, CLUSTER, JOURNAL, AFTER_JOURNAL]
+    WITH_JOURNAL: ClassVar = [BOOT, CLUSTER, JOURNAL, AFTER_JOURNAL]
 
     def test_an_always_phase_is_not_skipped(self):
         assert "journal" not in skipped_by("cluster", self.WITH_JOURNAL)

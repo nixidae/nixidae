@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from vivarium_eval.cli import entry, parse, split_attr
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-__all__ = ["Button", "ABS_MAX", "key_for", "move_events", "button_events"]
+__all__ = ["ABS_MAX", "Button", "button_events", "key_for", "move_events"]
 
 ABS_MAX = 0x7FFF
 """QEMU's absolute axis runs 0 to this whatever the screen's size

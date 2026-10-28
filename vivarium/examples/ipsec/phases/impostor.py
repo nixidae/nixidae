@@ -16,7 +16,6 @@ end, and alice still reaches bob.
 """
 
 import anyio
-
 from lab import capture, epoch, established, journal_since, lab, ping, until, xfrm_stats
 from vivarium_runner import Machines
 
@@ -37,7 +36,7 @@ async def test(vms: Machines) -> None:
         since = await epoch(east)
         out = await mallory.fail(f"swanctl --initiate --ike {name} --child steal --timeout 15", timeout=30)
         # charon's lines reach the journal after mallory has its answer.
-        async def logged() -> str | None:
+        async def logged(since: float = since, needle: str = needle, notify: str = notify) -> str | None:
             log = await journal_since(east, "strongswan-swanctl.service", since)
             return log if needle in log and notify in log else None
 
@@ -45,7 +44,9 @@ async def test(vms: Machines) -> None:
             log = await until(east, f"east to log the {name} refusal", logged, 15)
         except AssertionError:
             log = await journal_since(east, "strongswan-swanctl.service", since)
-            raise AssertionError(f"{name}: east did not refuse with {needle!r} and {notify}.\nmallory:\n{out}\neast:\n{log}")
+            raise AssertionError(
+                f"{name}: east did not refuse with {needle!r} and {notify}.\nmallory:\n{out}\neast:\n{log}"
+            ) from None
         reason = next(line for line in log.splitlines() if needle in line)
         print(f"[test] {name}: east answers {notify}: {reason.strip()}")
 
