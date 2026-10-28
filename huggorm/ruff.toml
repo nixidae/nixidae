@@ -59,6 +59,8 @@ target-version = "py314"
 "**/huggorm/*.py" = "py311"
 "**/payload/*.py" = "py311"
 "**/huggorm_dsl/shapes.py" = "py311"
+"packages/huggorm-bindings/**" = "py311"
+"packages/huggorm-generated/**" = "py311"
 # The suite runs on the build's Python. A glob's `*` crosses `/`, so from
 # the repo root `**/huggorm/*.py` also matches `packages/huggorm/tests/`,
 # and from the package root in the build it does not. Measured: this

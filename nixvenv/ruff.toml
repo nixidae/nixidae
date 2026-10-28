@@ -1,5 +1,7 @@
 extend = "nix/shared/ruff.toml"
 
+target-version = "py311"
+
 # entry-points.py is formatted at 88. Every venv nixvenv builds runs it, so
 # reformatting it rebuilds every Python environment in nixidae.
 line-length = 88
