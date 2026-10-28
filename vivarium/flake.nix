@@ -31,8 +31,8 @@
     in
     {
       packages.${system} = {
-        inherit (built)
-          umlKernel
+        inherit (built.packages) umlKernel;
+        inherit (built.checks)
           lan
           forward
           fuse

@@ -40,8 +40,7 @@
     in
     {
       packages = builtins.mapAttrs (_: p: {
-        default = p.havsorm;
-        inherit (p) havsorm;
+        inherit (p.packages) default havsorm;
       }) each;
     };
 }

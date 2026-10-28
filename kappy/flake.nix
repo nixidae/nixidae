@@ -27,8 +27,7 @@
     in
     {
       packages = builtins.mapAttrs (_: p: {
-        default = p.kappy;
-        inherit (p) kappy;
+        inherit (p.packages) default kappy;
       }) each;
     };
 }

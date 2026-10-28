@@ -38,8 +38,7 @@
     in
     {
       packages = builtins.mapAttrs (_: p: {
-        default = p.huggorm;
-        inherit (p) huggorm huggorm-bindings;
+        inherit (p.packages) default huggorm huggorm-bindings;
       }) each;
     };
 }
