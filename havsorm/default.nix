@@ -220,4 +220,19 @@ rec {
     ]
     ++ saltExecutables;
   };
+
+  # The schema of nixidae/nixidae#1103. Every other name in this set is
+  # internal. `lib` is set after the set closes: inside it, `lib` is
+  # nixpkgs' own.
+  packages = {
+    inherit havsorm saltEnv;
+    default = havsorm;
+  };
+  nixosModules.default = nixosModule;
+  checks = { inherit suite bundle fleet; };
+  docs = { };
+  ciTestWorkflows = { };
+}
+// {
+  lib = { };
 }
