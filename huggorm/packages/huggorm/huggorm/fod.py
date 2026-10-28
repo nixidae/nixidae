@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-import tree_sitter_nix  # type: ignore[import-untyped] -- tree-sitter-nix ships no stubs
+import tree_sitter_nix  # type: ignore[import-untyped]  # tree-sitter-nix ships no stubs
 from tree_sitter import Language, Parser
 
 from huggorm_bindings import DerivationOutputCAFixed, StorePath, filter_ansi_escapes
