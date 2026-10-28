@@ -3,13 +3,13 @@ from typing import Any
 
 import pytest
 import salt.config
-import salt.loader
+import salt.loader  # type: ignore[no-redef]  # zuban 0.9.1 reports a second `import salt.X`
 
 
 @pytest.fixture
 def opts(tmp_path: pathlib.Path) -> dict[str, Any]:
     """A minion's options with every directory in `tmp_path`."""
-    config = salt.config.minion_config(None)
+    config: dict[str, Any] = salt.config.minion_config(None)
     config.update(
         file_client="local",
         root_dir=str(tmp_path),

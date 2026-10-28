@@ -12,7 +12,12 @@ from typing import Any
 
 from salt.exceptions import SaltRenderError
 
+from havsorm.loader import Config, Functions, Grains, Opts
 from havsorm.nixeval import evaluate
+
+__opts__: Opts
+__grains__: Grains
+__salt__: Functions
 
 
 def _ordered(data: Any) -> Any:
@@ -81,9 +86,8 @@ def render(template: Any, saltenv: str = "base", sls: str = "", tmplpath: str | 
     }
     # The reactor renders with the event that matched.
     args.update((name, kws[name]) for name in ("tag", "data") if name in kws)
-    config = __opts__.get("havsorm") or {}
-    store = config.get("eval_store", "dummy://")
+    config = Config.from_opts(__opts__)
     # The reactor renders every event in one long-lived process, one at
     # a time, so its evaluator stays warm by default.
-    keep = bool(config.get("warm", "tag" in kws))
-    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep, functions=__salt__))
+    keep = config.warm if config.warm is not None else "tag" in kws
+    return _ordered(evaluate(load, args, config.eval_store, sls, SaltRenderError, keep=keep, functions=__salt__))

@@ -13,11 +13,16 @@ from typing import Any
 
 from salt.exceptions import CommandExecutionError
 
+from havsorm.loader import Functions, Opts, StateReturn
 
-def realised(name: str, root: str | None = None, store: str | None = None) -> dict[str, Any]:
+__opts__: Opts
+__salt__: Functions
+
+
+def realised(name: str, root: str | None = None, store: str | None = None) -> StateReturn:
     """The store holds `name`, substituted if it did not, and `root` keeps
     it from the collector."""
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
         valid = __salt__["havsorm.is_realised"](name, store=store)
     except CommandExecutionError as e:
@@ -47,7 +52,7 @@ def realised(name: str, root: str | None = None, store: str | None = None) -> di
     return {**ret, "changes": want, "comment": f"{name} was " + " and ".join(steps)}
 
 
-def profile(name: str, path: str, store: str | None = None) -> dict[str, Any]:
+def profile(name: str, path: str, store: str | None = None) -> StateReturn:
     """The profile `name` points at `path`, substituted if the store did
     not hold it. A change makes a new generation, as `nix ... --profile`
     does, so the old one stays for a rollback until it is collected.
@@ -57,7 +62,7 @@ def profile(name: str, path: str, store: str | None = None) -> dict[str, Any]:
             - name: /nix/var/nix/profiles/salt
             - path: /nix/store/...-salt-env
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     current = __salt__["havsorm.profile_target"](name)
     if current == path:
         return {**ret, "comment": f"{name} points at {path}"}
@@ -73,7 +78,7 @@ def profile(name: str, path: str, store: str | None = None) -> dict[str, Any]:
     return {**ret, "changes": change, "comment": f"{name} points at {path}"}
 
 
-def generations_deleted(name: str, older_than: str | None = None) -> dict[str, Any]:
+def generations_deleted(name: str, older_than: str | None = None) -> StateReturn:
     """The profile `name` keeps no generation but the current one, or none
     older than `older_than`, such as `30d`. The store paths stay until
     the collector runs.
@@ -83,7 +88,7 @@ def generations_deleted(name: str, older_than: str | None = None) -> dict[str, A
             - name: /nix/var/nix/profiles/salt
             - older_than: 30d
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
         doomed = __salt__["havsorm.profile_delete_generations"](name, older_than=older_than, test=True)
         if not doomed:
@@ -103,7 +108,7 @@ def generations_deleted(name: str, older_than: str | None = None) -> dict[str, A
 
 def unit(
     name: str, path: str, root: str | None = None, unit_dir: str = "/etc/systemd/system", store: str | None = None
-) -> dict[str, Any]:
+) -> StateReturn:
     """The systemd unit `name` is the file `path` in the Nix store.
 
     The store path that holds the file is substituted if needed, with
@@ -122,7 +127,7 @@ def unit(
             - watch:
               - havsorm: nginx-unit
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     link = os.path.join(unit_dir, name)
     root = root or os.path.join("/nix/var/nix/gcroots/salt", name)
     try:
@@ -171,7 +176,7 @@ def system(
     profile: str = "/nix/var/nix/profiles/system",
     install_bootloader: bool = False,
     store: str | None = None,
-) -> dict[str, Any]:
+) -> StateReturn:
     """A NixOS host runs the system `name`, a store path a builder made
     (`config.system.build.toplevel`), as `nixos-rebuild switch` makes it.
 
@@ -186,7 +191,7 @@ def system(
           havsorm.system:
             - name: /nix/store/...-nixos-system-web1-26.05
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     if action not in ("switch", "boot", "test"):
         return {**ret, "result": False, "comment": f"havsorm.system has no action {action!r}"}
     running = os.path.realpath("/run/current-system") if os.path.lexists("/run/current-system") else None
@@ -219,7 +224,7 @@ def system(
 
 def rolled_back(
     name: str, generation: int | None = None, action: str = "switch", profile: str = "/nix/var/nix/profiles/system"
-) -> dict[str, Any]:
+) -> StateReturn:
     """The system profile points at the generation before the current
     one, or at `generation`, and the host runs it. For an orchestration's
     `onfail`, after a `havsorm.system` that broke the host:
@@ -235,7 +240,7 @@ def rolled_back(
     Every run of it steps back one generation, so it is not idempotent
     without `generation`.
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
         change = __salt__["havsorm.profile_rollback"](profile, generation, test=True)
         if __opts__["test"]:
@@ -267,7 +272,7 @@ def _bytes(size: int | str) -> int:
 
 def garbage_collected(
     name: str, keep_free: int | str | None = None, max_freed: int | str | None = None, store: str | None = None
-) -> dict[str, Any]:
+) -> StateReturn:
     """The store holds no path that no root reaches, or, with
     `keep_free`, its file system has at least that much free.
 
@@ -278,7 +283,7 @@ def garbage_collected(
           havsorm.garbage_collected:
             - keep_free: 10G
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
         if keep_free is not None:
             free = __salt__["havsorm.free_bytes"](store=store)
@@ -316,7 +321,7 @@ def store_present(
     unit_dir: str = "/etc/systemd/system",
     release_url: str | None = None,
     store: str | None = None,
-) -> dict[str, Any]:
+) -> StateReturn:
     """Nix is installed: the store exists, the default profile points at
     Nix, `nix.conf` holds `settings`, and nix-daemon runs from Nix's own
     units. No installer script and no distribution package: the minion
@@ -335,7 +340,7 @@ def store_present(
     Build users are Salt's `group.present` and `user.present`, as for
     any service account.
     """
-    ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
+    ret: StateReturn = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
         path = path or __salt__["havsorm.release_path"](version=version, url=release_url)
         root = __salt__["havsorm.store_root"](store=store)
@@ -349,7 +354,7 @@ def store_present(
         conf = os.path.join(conf_dir, "nix.conf")
         text = "".join(f"{key} = {value}\n" for key, value in sorted(settings.items()))
         current = pathlib.Path(conf).read_text() if os.path.exists(conf) else None
-        part: dict[str, Any] = {"name": conf, "result": True, "changes": {}, "comment": ""}
+        part: StateReturn = {"name": conf, "result": True, "changes": {}, "comment": ""}
         if current != text:
             part["changes"] = {"nix.conf": {"old": current, "new": text}}
             if __opts__["test"]:

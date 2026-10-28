@@ -1,11 +1,12 @@
 """A `#!nix` reactor SLS, rendered by Salt's own reactor on a master."""
 
+import os
 import pathlib
 from typing import Any
 
 import pytest
 import salt.config
-import salt.utils.reactor
+import salt.utils.reactor  # type: ignore[no-redef]  # zuban 0.9.1 reports a second `import salt.X`
 
 from havsorm import nixeval
 
@@ -78,7 +79,7 @@ def test_the_reactor_evaluator_stays_warm_and_sees_an_edit(reactor: Any, tmp_pat
 
 def test_a_fork_makes_its_own_evaluator(monkeypatch: Any) -> None:
     parent = nixeval.warm("dummy://")
-    monkeypatch.setattr(nixeval.os, "getpid", lambda: parent.pid + 1)
+    monkeypatch.setattr(os, "getpid", lambda: parent.pid + 1)
     child = nixeval.warm("dummy://")
     assert child is not parent
     assert child.pid == parent.pid + 1

@@ -20,15 +20,19 @@ from typing import Any
 
 from salt.exceptions import CommandExecutionError
 
+from havsorm.loader import Config, Functions, Grains, Opts
 from havsorm.nixeval import evaluate
+
+__opts__: Opts
+__grains__: Grains
+__salt__: Functions
 
 # Salt's spelling for a function whose name is a Python builtin.
 __func_alias__ = {"eval_": "eval"}
 
 
-def _config() -> dict[str, Any]:
-    config: dict[str, Any] = __opts__.get("havsorm") or {}
-    return config
+def _config() -> Config:
+    return Config.from_opts(__opts__)
 
 
 def eval_(expr: str, store: str | None = None) -> Any:
@@ -41,7 +45,7 @@ def eval_(expr: str, store: str | None = None) -> Any:
 
         salt '*' havsorm.eval '1 + 1'
     """
-    store = store or _config().get("eval_store", "dummy://")
+    store = store or _config().eval_store
 
     def load(evaluator: Any) -> Any:
         return evaluator.state.eval_expr(expr, os.getcwd())
@@ -58,9 +62,10 @@ def _store(store: str | None) -> Any:
     """
     import huggorm_bindings
 
-    for name, value in (_config().get("nix_settings") or {}).items():
-        huggorm_bindings.set_setting(name, value if isinstance(value, str) else str(value))
-    return huggorm_bindings.Store(store or _config().get("store", "auto"))
+    config = _config()
+    for name, value in config.nix_settings.items():
+        huggorm_bindings.set_setting(name, value)
+    return huggorm_bindings.Store(store or config.store)
 
 
 def _call(what: str, fn: Any) -> Any:

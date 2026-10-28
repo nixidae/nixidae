@@ -21,11 +21,21 @@ from typing import Any
 
 from salt.exceptions import SaltException
 
+from havsorm.loader import DEFAULT_EVAL_STORE, Config, Functions, Grains, Opts
 from havsorm.nixeval import evaluate
+
+__opts__: Opts
+__grains__: Grains
+__salt__: Functions
 
 
 def ext_pillar(
-    minion_id: str, pillar: dict[str, Any], *args: Any, file: str | None = None, store: str = "dummy://", **kwargs: Any
+    minion_id: str,
+    pillar: dict[str, Any],
+    *args: Any,
+    file: str | None = None,
+    store: str = DEFAULT_EVAL_STORE,
+    **kwargs: Any,
 ) -> Any:
     path = file or (args[0] if args else None)
     if not path:
@@ -35,7 +45,7 @@ def ext_pillar(
     def load(evaluator: Any) -> Any:
         return evaluator.state.eval_file(path)
 
-    keep = bool((__opts__.get("havsorm") or {}).get("warm", False))
+    keep = bool(Config.from_opts(__opts__).warm)
     data = evaluate(
         load,
         {"id": minion_id, "grains": dict(__grains__), "pillar": pillar},

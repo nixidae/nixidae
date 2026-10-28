@@ -58,32 +58,42 @@ rec {
 
   # nix build --file . suite
   #
-  # Lints, then runs the suite against the installed package in a venv:
-  # the loader finds the renderer through the installed entry point, and
-  # `salt-call --local` renders an SLS.
+  # Lints and type-checks, then runs the suite against the installed
+  # package in a venv: the loader finds the renderer through the installed
+  # entry point, and `salt-call --local` renders an SLS.
   suite =
     let
       src = lib.fileset.toSource {
         root = ./.;
         fileset = lib.fileset.unions [
           ./pyproject.toml
+          ./mypy.ini
           ./nix/shared
           ./src
           ./tests
         ];
       };
     in
-    pkgs.runCommand "havsorm-suite" { nativeBuildInputs = [ pkgs.ruff ]; } ''
-      cp -r --no-preserve=mode ${src} source
-      cd source
-      export HOME=$TMPDIR
-      ruff check --no-cache src tests
-      ruff format --no-cache --check src tests
-      # The `pytest` script, not `python -m`, so `src/` stays off sys.path
-      # and the installed package is tested.
-      ${python}/bin/pytest -p no:cacheprovider tests
-      touch $out
-    '';
+    pkgs.runCommand "havsorm-suite"
+      {
+        nativeBuildInputs = [
+          pkgs.ruff
+          pkgs.zuban
+        ];
+      }
+      ''
+        cp -r --no-preserve=mode ${src} source
+        cd source
+        export HOME=$TMPDIR
+        ruff check --no-cache src tests
+        ruff format --no-cache --check src tests
+        # The venv's own interpreter: zuban reads the pyvenv.cfg beside it.
+        zuban mypy --python-executable ${python}/lib/venv/bin/python3
+        # The `pytest` script, not `python -m`, so `src/` stays off sys.path
+        # and the installed package is tested.
+        ${python}/bin/pytest -p no:cacheprovider tests
+        touch $out
+      '';
 
   # The Salt bundle Uyuni and SUSE Multi-Linux Manager put on a client:
   # Salt 3006.0 on its own Python 3.11. The EL8 build, for PyPA's
