@@ -34,7 +34,4 @@ in
   checks = pkgs.callPackages ./checks.nix { inherit nixvenv; };
   docs = { };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
-
-  # Most sources, croshome and solid-kubernetes read these. nixidae/nixidae#1103.
-  inherit nixvenv ps;
 }

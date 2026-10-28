@@ -28,7 +28,7 @@
 }:
 let
   inherit (pkgs) lib;
-  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
 
   vivarium = import ./lib.nix { inherit pkgs lib sources; };
   inherit (vivarium)

@@ -23,7 +23,7 @@ let
   python3 = huggorm.python;
   # nixpkgs builds Salt as an application. The tests import it.
   salt = python3.pkgs.toPythonModule pkgs.salt;
-  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
   saltExecutables = [
     "salt"
     "salt-call"

@@ -7,7 +7,7 @@ gets the same answer as the interpreter.
 
 ```nix
 let
-  inherit (import ./nixvenv { inherit pkgs; }) nixvenv;
+  inherit ((import ./nixvenv { inherit pkgs; }).lib) nixvenv;
 in
 nixvenv {
   python = pkgs.python3;

@@ -11,7 +11,7 @@
 let
   # nanopynix resolves `kr8s` to the fork this tree builds against.
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
-  inherit (import sources.nixvenv { inherit pkgs sources; }) ps;
+  inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
 
   pythonSet = nanopynix.lib.pythonSetWith {
     projectRoots = [ ./kappy ];

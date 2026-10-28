@@ -82,7 +82,7 @@ rec {
   };
   versions = import ./nix/versions.nix { inherit pkgs sources; };
   # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
-  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
   # The Nixes this nixpkgs gets lanes for. A pin skips the master lane:
   # a release holds an older master than the minor the lane states.
   nixes = lib.filterAttrs (_: v: v ? components && !(pin && v.master or false)) versions;

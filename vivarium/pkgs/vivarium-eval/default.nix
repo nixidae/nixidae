@@ -20,7 +20,7 @@ let
   # The umbrella's sources, handed on, as easykubenix does: from a store
   # path nanopynix would otherwise find no umbrella and fetch its own.
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
-  inherit (import sources.nixvenv { inherit pkgs sources; }) ps;
+  inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
 
   projects = {
     vivarium-runner = ../vivarium-runner;

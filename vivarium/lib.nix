@@ -17,7 +17,7 @@
   lib ? pkgs.lib,
 }:
 let
-  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
 in
 rec {
   /*
