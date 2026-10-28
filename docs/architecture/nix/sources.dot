@@ -1,0 +1,79 @@
+// How the Nix code of nixidae comes together. README.md beside this file
+// explains each arrow.
+//
+//   nix shell --file '<nixpkgs>' graphviz --command dot -Tsvg docs/architecture/nix/sources.dot -o sources.svg
+digraph nixidae {
+  rankdir = LR;
+  node [shape = box, fontname = "monospace", fontsize = 10];
+  edge [fontname = "sans-serif", fontsize = 9];
+
+  subgraph cluster_pins {
+    label = "pins";
+    style = dashed;
+    flakeNix [label = "flake.nix\n(inputs, flake = false)"];
+    flakeLock [label = "flake.lock"];
+    compat [label = "nix/compat.nix"];
+    checkouts [label = "./kr8s ./containerd\n./flake-compatish\n(ignored checkouts)", style = dotted];
+  }
+
+  subgraph cluster_wiring {
+    label = "wiring";
+    style = dashed;
+    members [label = "nix/members.nix"];
+    wire [label = "nix/wire.nix\n= sources"];
+    callFlake [label = "nix/call-flake.nix"];
+  }
+
+  root [label = "default.nix\n(the root)", style = bold];
+
+  subgraph cluster_source {
+    label = "one source, e.g. easykubenix/";
+    style = dashed;
+    srcDefault [label = "<source>/default.nix"];
+    srcSources [label = "<source>/nix/sources.nix"];
+    srcFlake [label = "<source>/flake.nix"];
+    srcLock [label = "<source>/flake.lock\n(names a nixidae commit)"];
+    srcShared [label = "<source>/nix/shared/\n(copies)"];
+  }
+
+  subgraph cluster_generated {
+    label = "generated, then checked";
+    style = dashed;
+    ciNix [label = "nix/ci.nix"];
+    workflows [label = ".github/workflows/\n<source>-*.yml"];
+    sharedConfig [label = "nix/shared-config.nix"];
+    shared [label = "nix/shared/"];
+  }
+
+  subgraph cluster_export {
+    label = "export";
+    style = dashed;
+    lockSubtrees [label = "lock-subtrees"];
+    josh [label = "josh-export\n(CI only)"];
+    exported [label = "github.com/nixidae/<source>"];
+  }
+
+  flakeNix -> flakeLock [label = "nix flake update"];
+  flakeLock -> compat [label = "fetchTree per node"];
+  compat -> wire [label = "inputs"];
+  checkouts -> wire [label = "replace a pin"];
+  members -> wire [label = "names the sources"];
+  wire -> root [label = "sources"];
+  wire -> callFlake;
+
+  root -> srcDefault [label = "import sources.<name>\n{ inherit pkgs sources; }"];
+  srcDefault -> srcSources [label = "default `sources`\n(when called alone)", style = dashed];
+  srcSources -> wire [label = "in the tree:\n../../nix/wire.nix"];
+  srcSources -> srcLock [label = "exported:\nfetch that commit's wire.nix"];
+  srcFlake -> srcDefault [label = "public surface only"];
+
+  root -> ciNix [label = "each ciTestWorkflows"];
+  ciNix -> workflows [label = "ci-workflow-update"];
+  shared -> sharedConfig;
+  sharedConfig -> srcShared [label = "shared-config-update"];
+
+  lockSubtrees -> srcLock [label = "writes"];
+  flakeLock -> lockSubtrees [label = "revisions"];
+  josh -> exported [label = "push main"];
+  srcDefault -> josh [label = "--verify: the flake package\n= the root attribute"];
+}

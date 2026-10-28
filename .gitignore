@@ -11,6 +11,7 @@
 !/LICENSE
 !/README.md
 !/default.nix
+!/docs/
 !/flake.nix
 !/flake.lock
 !/shell.nix
