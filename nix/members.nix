@@ -17,7 +17,7 @@
     repo = "nixidae/easykubenix";
     package = {
       flake = "default";
-      root = "easykubenix.passthru.ekn";
+      root = "easykubenix.packages.default";
     };
   };
   ghanix = {
@@ -28,35 +28,35 @@
     repo = "nixidae/havsorm";
     package = {
       flake = "default";
-      root = "havsorm.havsorm";
+      root = "havsorm.packages.default";
     };
   };
   huggorm = {
     repo = "nixidae/huggorm";
     package = {
       flake = "default";
-      root = "huggorm.huggorm";
+      root = "huggorm.packages.default";
     };
   };
   kappy = {
     repo = "nixidae/kappy";
     package = {
       flake = "default";
-      root = "kappy.kappy";
+      root = "kappy.packages.default";
     };
   };
   nanopynix = {
     repo = "nixidae/nanopynix";
     package = {
       flake = "default";
-      root = "nanopynix.pynix";
+      root = "nanopynix.packages.default";
     };
   };
   nixkube = {
     repo = "nixidae/nixkube";
     package = {
       flake = "default";
-      root = "nixkube.nixkube-docs";
+      root = "nixkube.docs.default";
     };
   };
   nixvenv = {
@@ -67,21 +67,21 @@
     repo = "nixidae/pydd";
     package = {
       flake = "default";
-      root = "pydd.pydd-drv";
+      root = "pydd.packages.default";
     };
   };
   pynixd = {
     repo = "nixidae/pynixd";
     package = {
       flake = "default";
-      root = "pynixd.package";
+      root = "pynixd.packages.default";
     };
   };
   vivarium = {
     repo = "nixidae/vivarium";
     package = {
       flake = "umlKernel";
-      root = "vivarium.umlKernel";
+      root = "vivarium.packages.umlKernel";
     };
   };
 }

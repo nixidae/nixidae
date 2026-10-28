@@ -59,9 +59,9 @@ let
 
   workflows = lib.concatMapAttrs (
     source: set:
-    lib.mapAttrs' (name: workflow: lib.nameValuePair "${source}-${name}" (place source workflow)) (
-      set.ciTestWorkflows or { }
-    )
+    lib.mapAttrs' (
+      name: workflow: lib.nameValuePair "${source}-${name}" (place source workflow)
+    ) set.ciTestWorkflows
   ) sets;
 
   files = lib.mapAttrs (
@@ -82,7 +82,7 @@ let
         {
           echo "# GENERATED FILE -- do not edit by hand."
           echo "# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update"
-          python3 ${ghanix.toYamlScript} "$valuePath"
+          python3 ${ghanix.lib.toYamlScript} "$valuePath"
         } > $out
       ''
   ) workflows;

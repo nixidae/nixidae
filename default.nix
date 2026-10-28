@@ -82,7 +82,7 @@ rec {
   # huggorm, and kappy's closure holds none.
   lanes = pkgs.lib.mapAttrs (name: lane: {
     inherit (lane) pynix pynix-lsp;
-    inherit (easykubenix.passthru.lanes.${name}) ekn;
+    inherit (easykubenix.internal.lanes.${name}) ekn;
     inherit
       (
         (import sources.havsorm {
@@ -103,7 +103,7 @@ rec {
   ci = import ./nix/ci.nix {
     inherit (pkgs) lib;
     inherit pkgs ghanix;
-    inherit (nixvenv) nixvenv;
+    inherit (nixvenv.lib) nixvenv;
     sets = {
       inherit
         easykubenix
