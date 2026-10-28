@@ -5,6 +5,10 @@
   # huggorm brings the nixpkgs and the Python every package here builds
   # on, so the bindings and havsorm share one interpreter.
   huggorm ? import sources.huggorm { inherit sources system; },
+  # The huggorm package havsorm links: one lane's, such as
+  # `huggorm.lanes.determinate.huggorm`. nixidae's `lanes.<lane>.havsorm`
+  # passes each one (nixidae/nixidae#1108).
+  huggormPackage ? huggorm.huggorm,
 }:
 let
   pkgs = huggorm.pkgs.extend (
@@ -49,7 +53,7 @@ rec {
       ];
     };
     build-system = [ python3.pkgs.setuptools ];
-    dependencies = [ huggorm.huggorm ];
+    dependencies = [ huggormPackage ];
   };
 
   # nix build --file . suite
