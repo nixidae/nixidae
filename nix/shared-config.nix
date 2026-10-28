@@ -18,6 +18,7 @@ let
   toolFiles = [
     "ruff.toml"
     "ruff-anyio.toml"
+    "ruff-strict.toml"
   ];
 
   sourcesNix =
