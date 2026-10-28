@@ -9,9 +9,11 @@ from __future__ import annotations
 from functools import partial
 from typing import Final
 
-from kappy.apply import apply_and_prune as _apply_and_prune
-from kappy.apply import field_manager_for as _field_manager_for
-from kappy.apply import prune_selector as _prune_selector
+from kappy.apply import (
+    apply_and_prune as _apply_and_prune,
+    field_manager_for as _field_manager_for,
+    prune_selector as _prune_selector,
+)
 from kappy.directapply import converge_direct as _converge_direct
 
 ENVIRONMENT_LABEL: Final = "ekn.dev/environment"

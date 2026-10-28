@@ -925,7 +925,7 @@ class TestAfter:
         ],
     )
     def test_a_malformed_annotation_names_itself(self, raw: str) -> None:
-        with pytest.raises(ValueError, match="."):
+        with pytest.raises(ValueError, match=r"."):
             after_refs(manifest(annotations={AFTER_ANNOTATION: raw}))
 
     async def test_it_waits_past_the_settle_window_without_sending(self) -> None:
