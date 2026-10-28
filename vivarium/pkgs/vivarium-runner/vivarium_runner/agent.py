@@ -17,11 +17,33 @@ import contextlib
 import os
 import socket
 import subprocess
+from collections.abc import Mapping
+from typing import TypedDict
 
 import anyio
 import anyio.to_thread
 
-from .arpyc import Service, listen
+from .arpyc import AsyncConnection, Service, listen
+
+
+class UnitInfo(TypedDict):
+    """One line of ``systemctl list-units``."""
+
+    name: str
+    load: str
+    active: str
+    sub: str
+    description: str
+
+
+class ProcessInfo(TypedDict):
+    """One entry of ``/proc``: see :meth:`Agent.exposed_processes`."""
+
+    pid: int
+    ppid: int
+    name: str
+    cmdline: str
+
 
 AGENT_READY = "vivarium-agent: ready"
 """Printed on the guest console once the agent is reading :data:`TTY`;
@@ -38,7 +60,7 @@ GUEST_PATH = os.environ.get("VIVARIUM_GUEST_PATH", "/run/current-system/sw/bin:/
 own; see modules/image-guest.nix."""
 
 
-def _sh(command: str, timeout: float, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         shell=True,
@@ -56,7 +78,7 @@ def _sh(command: str, timeout: float, env: dict[str, str] | None = None) -> subp
 class Agent(Service):
     """What the host may ask this guest to do."""
 
-    def on_disconnect(self, conn) -> None:
+    def on_disconnect(self, conn: AsyncConnection) -> None:
         print("vivarium-agent: host disconnected", flush=True)
 
     def exposed_run(
@@ -86,10 +108,10 @@ class Agent(Service):
         pairs = (line.partition("=") for line in out.strip().splitlines())
         return {key: value for key, sep, value in pairs if sep}
 
-    def exposed_list_units(self, pattern: str = "*") -> list[dict]:
+    def exposed_list_units(self, pattern: str = "*") -> list[UnitInfo]:
         """Units matching *pattern*, one dict per systemctl column."""
         out = _sh(f"systemctl list-units --all --no-legend -- {pattern!r}", 30).stdout
-        units = []
+        units: list[UnitInfo] = []
         for line in out.splitlines():
             fields = line.split(maxsplit=4)
             if len(fields) >= 4:
@@ -115,7 +137,7 @@ class Agent(Service):
         told about a new one -- so this is here to say what is reachable
         and what came up somewhere nothing is listening for it.
         """
-        ports = set()
+        ports: set[int] = set()
         for family in ("tcp", "tcp6"):
             try:
                 with open(f"/proc/net/{family}") as table:
@@ -129,7 +151,7 @@ class Agent(Service):
                     ports.add(int(fields[1].rsplit(":", 1)[1], 16))
         return sorted(ports)
 
-    def exposed_processes(self) -> list[dict]:
+    def exposed_processes(self) -> list[ProcessInfo]:
         """Every process in this guest: pid, ppid, name and command line.
 
         Out of ``/proc`` and not asked of ``ps``, for the reason
@@ -140,15 +162,15 @@ class Agent(Service):
         executable's name and nothing longer.  Match on ``cmdline`` for
         anything named longer than that.
         """
-        found = []
+        found: list[ProcessInfo] = []
         for entry in os.scandir("/proc"):
             if not entry.name.isdigit():
                 continue
             try:
-                with open(f"/proc/{entry.name}/stat") as file:
-                    stat = file.read()
-                with open(f"/proc/{entry.name}/cmdline", "rb") as file:
-                    raw = file.read()
+                with open(f"/proc/{entry.name}/stat") as stat_file:
+                    stat = stat_file.read()
+                with open(f"/proc/{entry.name}/cmdline", "rb") as cmdline_file:
+                    raw = cmdline_file.read()
             except OSError:
                 # It exited between the listing and the read, which is
                 # the answer: it is not running.

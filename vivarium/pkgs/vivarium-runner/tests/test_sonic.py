@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import re
+from collections.abc import Callable
 
 import anyio
 import pytest
@@ -34,8 +35,9 @@ def test_a_frame_is_one_line_of_shell_and_base64() -> None:
     (line,) = shell.frame(command, "v0a1b2c3d")
     assert line.endswith(b"\n") and line.count(b"\n") == 1
     assert b"\t" not in line and b"grep" not in line and b"EOF" not in line
-    payload = CMD.search(line).group(1)
-    assert base64.b64decode(payload).decode() == command
+    match = CMD.search(line)
+    assert match is not None
+    assert base64.b64decode(match.group(1)).decode() == command
 
 
 def test_a_command_too_long_for_a_line_is_refused() -> None:
@@ -84,7 +86,7 @@ class FakeSonic(ByteStream):
     answered by *answer*, which gets the decoded command and returns
     `(status, output)`."""
 
-    def __init__(self, answer) -> None:
+    def __init__(self, answer: Callable[[str], tuple[int, str]]) -> None:
         self._answer = answer
         self._out = b"\r\nDebian GNU/Linux 12 sonic ttyS0\r\n\r\nsonic login: "
         self._ready = anyio.Event()
@@ -111,7 +113,9 @@ class FakeSonic(ByteStream):
         elif line == sonic.PASSWORD.encode():
             self._say(b"\r\nLinux sonic 6.1.0 x86_64\r\nLast login: now" + PROMPT)
         elif cmd := CMD.search(line):
-            nonce = NONCE.search(line).group(1).decode()
+            nonce_match = NONCE.search(line)
+            assert nonce_match is not None
+            nonce = nonce_match.group(1).decode()
             status, output = self._answer(base64.b64decode(cmd.group(1)).decode())
             self._say(line + reply(nonce, output.encode(), status))
         elif line == b"\x03":

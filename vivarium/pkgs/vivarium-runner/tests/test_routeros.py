@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import anyio
@@ -42,7 +43,11 @@ def test_a_large_command_goes_in_chunks_through_a_global() -> None:
     lines = routeros.frame(command, "v00000001")
     assert len(lines) > 2
     assert all(len(line) < routeros.CHUNK + 200 for line in lines)
-    chunks = [re.search(rb'"([A-Za-z0-9+/=]+)"', line).group(1) for line in lines[:-1]]
+    chunks: list[bytes] = []
+    for line in lines[:-1]:
+        match = re.search(rb'"([A-Za-z0-9+/=]+)"', line)
+        assert match is not None
+        chunks.append(match.group(1))
     assert base64.b64decode(b"".join(chunks)).decode() == command
     assert b"$vivv00000001" in lines[-1].replace(b"\\$", b"$")
     assert b"environment remove" in lines[-1]
@@ -79,7 +84,7 @@ class FakeChr(ByteStream):
     """CHR's console as the probe saw it: the login screens, then each
     frame answered by *answer*, which gets the decoded command."""
 
-    def __init__(self, answer) -> None:
+    def __init__(self, answer: Callable[[str], tuple[bool, str]]) -> None:
         self._answer = answer
         self._out = b"\x1b[1;1H\x1b[H\x1b[J\x1bcMikroTik 7.24.5 (stable)\r\r\nCHR Login: "
         self._ready = anyio.Event()
@@ -224,7 +229,7 @@ def test_every_recorded_frame_parses() -> None:
     assert imported.ok and "#line 1" in imported.output
     assert identity == Result(True, "r1")
     assert "10.255.0.1/32" in address.output
-    assert not bad.ok and bad.error.startswith("invalid value for argument address")
+    assert not bad.ok and bad.error is not None and bad.error.startswith("invalid value for argument address")
     assert lines.output.splitlines() == [f"line {i}" for i in range(1, 3001)]
     assert version.output.startswith("7.24.5")
 

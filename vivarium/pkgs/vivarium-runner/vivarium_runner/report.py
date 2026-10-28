@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 # Enough to recognise a command, short enough that a few thousand of them
 # stay a file somebody will open.
@@ -39,21 +41,45 @@ class Step:
     seconds: float
 
 
+class BootFacts(TypedDict):
+    """What a guest says about itself when it is up."""
+
+    backend: str
+    cpus: int
+    memory: str
+
+
+class BootRecord(BootFacts):
+    boot_seconds: float
+
+
+class CommandRow(TypedDict):
+    command: str
+    calls: int
+    seconds: float
+
+
+@dataclass
+class _Total:
+    calls: int = 0
+    seconds: float = 0.0
+
+
 @dataclass
 class Report:
     started: float = field(default_factory=time.monotonic)
-    machines: dict = field(default_factory=dict)
-    steps: list = field(default_factory=list)
+    machines: dict[str, BootRecord] = field(default_factory=dict)
+    steps: list[Step] = field(default_factory=list)
 
-    def booted(self, name: str, seconds: float, facts: dict) -> None:
-        self.machines[name] = dict(facts, boot_seconds=round(seconds, 3))
+    def booted(self, name: str, seconds: float, facts: BootFacts) -> None:
+        self.machines[name] = {**facts, "boot_seconds": round(seconds, 3)}
         # A step as well, so booting counts as time the run accounted
         # for. Guests boot together, and two overlapping steps are
         # counted once, so this is wall clock and not the sum.
         self.step(name, "boot", f"boot {name}", seconds)
 
     @contextmanager
-    def waiting(self, machine: str, what: str):
+    def waiting(self, machine: str, what: str) -> Iterator[None]:
         """Time a poll loop as one step, whatever it does inside."""
         started = time.monotonic()
         try:
@@ -72,22 +98,22 @@ class Report:
             )
         )
 
-    def _by_command(self) -> list[dict]:
+    def _by_command(self) -> list[CommandRow]:
         """Round trips grouped by the program they ran.
 
         The first two words, because `kubectl get pod ...` and `kubectl
         get node ...` are different questions while a thousand distinct
         pod names are not.
         """
-        totals: dict[str, list] = {}
+        totals: dict[str, _Total] = {}
         for s in self.steps:
             if s.kind != "rpc":
                 continue
             key = " ".join(s.what.split()[:2])
-            entry = totals.setdefault(key, [0, 0.0])
-            entry[0] += 1
-            entry[1] += s.seconds
-        rows = [{"command": k, "calls": n, "seconds": round(t, 3)} for k, (n, t) in totals.items()]
+            entry = totals.setdefault(key, _Total())
+            entry.calls += 1
+            entry.seconds += s.seconds
+        rows = [CommandRow(command=k, calls=t.calls, seconds=round(t.seconds, 3)) for k, t in totals.items()]
         return sorted(rows, key=lambda r: -r["seconds"])[:30]
 
     def write(self, path: Path, passed: bool, error: str | None = None) -> None:
@@ -140,7 +166,7 @@ class Report:
         return "\n".join(lines)
 
 
-def _toplevel(steps: list) -> float:
+def _toplevel(steps: list[Step]) -> float:
     """Seconds covered by the steps, counting nesting once.
 
     Steps are appended when they finish, so a wait lands after everything

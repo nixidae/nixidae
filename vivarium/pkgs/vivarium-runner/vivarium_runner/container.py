@@ -19,6 +19,7 @@ Three pieces, each for a fact measured before it was written:
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import ctypes
 import json
@@ -33,6 +34,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
+from typing import TypedDict, cast
 
 from . import storeview
 
@@ -117,14 +120,37 @@ def subordinate(path: Path, user: str, uid: int) -> Range | None:
     return None
 
 
-def _mapping(host: int, extra: Range) -> list[dict]:
+class IdMap(TypedDict):
+    """One line of an OCI ``uidMappings`` or ``gidMappings``."""
+
+    containerID: int
+    hostID: int
+    size: int
+
+
+class Mount(TypedDict):
+    """One entry of an OCI ``mounts``."""
+
+    destination: str
+    type: str
+    source: str
+    options: list[str]
+
+
+class CrunState(TypedDict):
+    """The part of ``crun state`` output that is read."""
+
+    pid: int
+
+
+def _mapping(host: int, extra: Range) -> list[IdMap]:
     return [
         {"containerID": 0, "hostID": host, "size": 1},
         {"containerID": 1, "hostID": extra.start, "size": SUBORDINATE_IDS},
     ]
 
 
-def _bind(source: str, destination: str, *options: str) -> dict:
+def _bind(source: str, destination: str, *options: str) -> Mount:
     return {
         "destination": destination,
         "type": "bind",
@@ -133,7 +159,7 @@ def _bind(source: str, destination: str, *options: str) -> dict:
     }
 
 
-def _fs(kind: str, destination: str, *options: str) -> dict:
+def _fs(kind: str, destination: str, *options: str) -> Mount:
     return {
         "destination": destination,
         "type": kind,
@@ -157,7 +183,8 @@ def oci_config(
     subgid: Range | None,
     writable_store: bool = True,
     store_view: bool = False,
-) -> dict:
+) -> dict[str, object]:
+    # The OCI runtime spec is an open JSON document; crun reads its keys, not this code.
     """The ``config.json`` for one guest.
 
     The mounts are in the order crun applies them, and the order matters:
@@ -597,7 +624,7 @@ def _die_with_parent() -> None:
     die_with_parent()
 
 
-def _relay(master: int, crun: subprocess.Popen) -> None:
+def _relay(master: int, crun: subprocess.Popen[bytes]) -> None:
     """Copy the guest's console to stdout until the guest is gone."""
     out = sys.stdout.buffer
     selector = selectors.DefaultSelector()
@@ -674,7 +701,7 @@ STATE_WAIT = 10.0
 """Seconds for crun to record a container it has already sent a pty for."""
 
 
-def _init_pid(crun: list[str], name: str, proc: subprocess.Popen) -> int:
+def _init_pid(crun: list[str], name: str, proc: subprocess.Popen[bytes]) -> int:
     """The container's init, once crun has written down that it exists.
 
     The two come from different processes in crun 1.29: the container's
@@ -687,13 +714,14 @@ def _init_pid(crun: list[str], name: str, proc: subprocess.Popen) -> int:
     while True:
         done = subprocess.run([*crun, "state", name], capture_output=True, text=True)
         if done.returncode == 0:
-            return json.loads(done.stdout)["pid"]
+            # crun writes this JSON, so its shape is crun's, not the parser's.
+            return cast(CrunState, json.loads(done.stdout))["pid"]
         if proc.poll() is not None or time.monotonic() > deadline:
             raise RuntimeError(f"crun state {name} failed ({done.returncode}): {done.stderr.strip()}")
         time.sleep(0.02)
 
 
-def _uplink(pid: int, log: Path, pasta: list[str]) -> subprocess.Popen:
+def _uplink(pid: int, log: Path, pasta: list[str]) -> subprocess.Popen[bytes]:
     """Start pasta in the guest's namespaces: ``vec0``, as passt gives the
     other backends, with its DHCP, its DNS and its forwards.
 
@@ -783,7 +811,7 @@ def tap_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
                 os.write(key.data, frame)
 
 
-def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen:
+def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         [
             sys.executable,
@@ -857,9 +885,7 @@ def _report(tun: bool) -> int:
     return 0
 
 
-def _parse(argv: list[str]):
-    import argparse
-
+def _parse(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="vivarium_runner.crun_launch")
     sub = parser.add_subparsers(dest="mode", required=True)
     run = sub.add_parser("run")
@@ -929,14 +955,14 @@ def main(argv: list[str] | None = None) -> int:
         preexec_fn=_die_with_parent,
     )
 
-    def stop(signum: int, _frame) -> None:
+    def stop(signum: int, _frame: FrameType | None) -> None:
         subprocess.run([*crun, "kill", name, "KILL"], capture_output=True)
 
     signal.signal(signal.SIGTERM, stop)
 
     listener.settimeout(0.5)
     master: int | None = None
-    helpers: list[subprocess.Popen] = []
+    helpers: list[subprocess.Popen[bytes]] = []
     try:
         while master is None and proc.poll() is None:
             try:

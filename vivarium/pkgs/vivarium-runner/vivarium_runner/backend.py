@@ -37,8 +37,13 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from . import container, forward, mconsole, qmp
+
+if TYPE_CHECKING:
+    from .krun_launch import KrunSpecJson
+    from .machine import BootSpec, Machine, MachineSpec, MemoryControl, Toolchain
 
 
 class BackendError(Exception):
@@ -241,7 +246,7 @@ class Launch:
     argv: list[str]
     pass_fds: tuple[int, ...]
     env: dict[str, str] = field(default_factory=dict)
-    helpers: list[subprocess.Popen] = field(default_factory=list)
+    helpers: list[subprocess.Popen[bytes]] = field(default_factory=list)
     """Side processes the guest needs -- virtiofsd, passt -- for the
     backends that do not hide them behind something else.  Killed when the
     guest is torn down, in this order."""
@@ -266,6 +271,29 @@ class Launch:
     outlives the process that wrote it."""
 
 
+class Backend(Protocol):
+    """What `Machine` asks of a backend.
+
+    `boot` and `disk_fds` are for a reboot, which only `Qemu` takes
+    (`reboots`); the other backends accept them and ignore them.
+    """
+
+    name: str
+    reboots: bool
+
+    def launch(
+        self,
+        machine: Machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: BootSpec | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch: ...
+
+    def memory_control(self, path: Path) -> MemoryControl: ...
+
+
 class Uml:
     """A guest as an ordinary Linux process.
 
@@ -274,8 +302,17 @@ class Uml:
     """
 
     name = "uml"
+    reboots = False
 
-    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+    def launch(
+        self,
+        machine: Machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: BootSpec | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch:
         spec, tools = machine.spec, machine.tools
         ram = physmem_dir(spec.memory)
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
@@ -361,7 +398,7 @@ class Uml:
         return mconsole.Mconsole(path, path.with_name("client"))
 
     @staticmethod
-    def _root(tools, rundir: Path, spec) -> list[str]:
+    def _root(tools: Toolchain, rundir: Path, spec: MachineSpec) -> list[str]:
         """The disks and the root, for a NixOS image, a cloud image or VyOS.
 
         A cloud image is qcow2, which ubd cannot read. It becomes a raw
@@ -422,11 +459,11 @@ class Qemu:
 
     def launch(
         self,
-        machine,
+        machine: Machine,
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: dict | None = None,
+        boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         disk_boot = "image" in machine.spec.boot
@@ -440,7 +477,7 @@ class Qemu:
                 "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
                 "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
             )
-        helpers: list[subprocess.Popen] = []
+        helpers: list[subprocess.Popen[bytes]] = []
         opened: list[int] = []
         try:
             if disk_boot:
@@ -460,7 +497,14 @@ class Qemu:
                 os.close(fd)
             raise
 
-    def _uplink_netdev(self, machine, rundir, lan_fds, helpers, opened) -> tuple[str, int | None]:
+    def _uplink_netdev(
+        self,
+        machine: Machine,
+        rundir: Path,
+        lan_fds: dict[str, int],
+        helpers: list[subprocess.Popen[bytes]],
+        opened: list[int],
+    ) -> tuple[str, int | None]:
         """The `vec0` QEMU netdev, and the passt fd to keep open (or None).
 
         passt by default. When the spec names an uplink segment, vec0 is a
@@ -478,13 +522,13 @@ class Qemu:
 
     def _launch(
         self,
-        machine,
+        machine: Machine,
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        helpers: list[subprocess.Popen],
+        helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
-        boot: dict | None = None,
+        boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec, tools = machine.spec, machine.tools
@@ -591,10 +635,10 @@ class Qemu:
             f"unix:{sockets}/qmp,server=on,wait=off",
         ]
         # A firmware boot has no kernel: systemd-boot on the ESP picks one.
-        if boot.get("kernel"):
+        if kernel := boot.get("kernel"):
             argv += [
                 "-kernel",
-                boot["kernel"],
+                kernel,
                 "-initrd",
                 boot["initrd"],
                 "-append",
@@ -665,11 +709,11 @@ class Qemu:
 
     def _launch_disk(
         self,
-        machine,
+        machine: Machine,
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        helpers: list[subprocess.Popen],
+        helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
     ) -> Launch:
         """Another operating system from its own disk: its own bootloader
@@ -750,7 +794,7 @@ class Qemu:
         return qmp.Qmp(path)
 
     @staticmethod
-    def _scratch_disk(tools, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
+    def _scratch_disk(tools: Toolchain, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
         """A writable layer over the read-only root image, with no name.
 
         The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -797,7 +841,9 @@ class Qemu:
         return fds
 
     @staticmethod
-    def _virtiofsd(tools, rundir: Path, socket_name: str, shared: str) -> tuple[int, subprocess.Popen]:
+    def _virtiofsd(
+        tools: Toolchain, rundir: Path, socket_name: str, shared: str
+    ) -> tuple[int, subprocess.Popen[bytes]]:
         """Serve a host directory, and leave no socket behind.
 
         *socket_name* keeps the store's and the artifacts' sockets apart
@@ -877,7 +923,9 @@ class Qemu:
         return client.detach(), proc
 
     @staticmethod
-    def _passt(tools, rundir: Path, rules, offline: bool = False) -> tuple[int, subprocess.Popen]:
+    def _passt(
+        tools: Toolchain, rundir: Path, rules: list[forward.Rule], offline: bool = False
+    ) -> tuple[int, subprocess.Popen[bytes]]:
         """Start passt on one end of a socketpair; return QEMU's end.
 
         No bridge: passt frames with a 4-byte big-endian length prefix,
@@ -947,14 +995,14 @@ class Appliance(Qemu):
 
     def launch(
         self,
-        machine,
+        machine: Machine,
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: dict | None = None,
+        boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        helpers: list[subprocess.Popen] = []
+        helpers: list[subprocess.Popen[bytes]] = []
         opened: list[int] = []
         try:
             return self._appliance(machine, rundir, lan_fds, helpers, opened)
@@ -969,10 +1017,10 @@ class Appliance(Qemu):
 
     def _appliance(
         self,
-        machine,
+        machine: Machine,
         rundir: Path,
         lan_fds: dict[str, int],
-        helpers: list[subprocess.Popen],
+        helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
     ) -> Launch:
         spec, tools = machine.spec, machine.tools
@@ -1065,8 +1113,21 @@ class Krun:
     """
 
     name = "krun"
+    reboots = False
 
-    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+    @staticmethod
+    def memory_control(path: Path) -> MemoryControl:
+        raise BackendError("a krun guest has no memory control channel")
+
+    def launch(
+        self,
+        machine: Machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: BootSpec | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch:
         # libkrun's virtio-fs serves a file as the guest user that made it,
         # the same as virtiofsd: see Qemu.launch.
         if not container.owns_ids():
@@ -1078,7 +1139,7 @@ class Krun:
             )
         spec, tools = machine.spec, machine.tools
         opened: list[int] = []
-        helpers: list[subprocess.Popen] = []
+        helpers: list[subprocess.Popen[bytes]] = []
         try:
             disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
             opened += [disk_rw, disk_ro]
@@ -1097,7 +1158,7 @@ class Krun:
         os.close(disk_ro)
 
         boot = spec.boot
-        launch_spec = {
+        launch_spec: KrunSpecJson = {
             "libkrun": str(tools.libkrun),
             "cpus": spec.cpus,
             "memory_mib": memory_bytes(spec.memory) >> 20,
@@ -1137,8 +1198,21 @@ class Container:
     """
 
     name = "container"
+    reboots = False
 
-    def launch(self, machine, rundir: Path, agent_fd: int, lan_fds: dict[str, int]) -> Launch:
+    @staticmethod
+    def memory_control(path: Path) -> MemoryControl:
+        raise BackendError("a container guest has no memory control channel")
+
+    def launch(
+        self,
+        machine: Machine,
+        rundir: Path,
+        agent_fd: int,
+        lan_fds: dict[str, int],
+        boot: BootSpec | None = None,
+        disk_fds: tuple[int, ...] = (),
+    ) -> Launch:
         spec, tools = machine.spec, machine.tools
         missing = container.probe(tun=bool(lan_fds))
         if missing:
@@ -1166,9 +1240,9 @@ class Container:
         tun = bool(lan_fds) or container.tap_fails() is None
 
         uid, gid = os.getuid(), os.getgid()
-        if container.owns_ids():
-            subuid = subgid = None
-        else:
+        subuid: container.Range | None = None
+        subgid: container.Range | None = None
+        if not container.owns_ids():
             user = pwd.getpwuid(uid).pw_name
             subuid = container.subordinate(Path("/etc/subuid"), user, uid)
             subgid = container.subordinate(Path("/etc/subgid"), user, uid)
@@ -1259,10 +1333,10 @@ class Container:
         return [*args, *extra]
 
 
-BACKENDS = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)}
+BACKENDS: dict[str, Backend] = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)}
 
 
-def get(name: str):
+def get(name: str) -> Backend:
     """The backend called *name*, as the spec's ``backend`` field names it."""
     try:
         return BACKENDS[name]

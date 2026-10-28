@@ -104,8 +104,8 @@ class Mconsole:
             )
 
         sock = self._open()
-        message = _REQUEST.pack(MAGIC, VERSION, len(payload)) + payload
-        sock.sendto(message, str(self.path))
+        request = _REQUEST.pack(MAGIC, VERSION, len(payload)) + payload
+        sock.sendto(request, str(self.path))
 
         parts: list[str] = []
         failed = False
@@ -123,10 +123,10 @@ class Mconsole:
             failed = failed or bool(err)
             if not more:
                 break
-        message = "".join(parts)
+        reply = "".join(parts)
         if failed:
-            raise MconsoleError(f"{command}: {message}")
-        return message
+            raise MconsoleError(f"{command}: {reply}")
+        return reply
 
     async def balloon(self, delta: int) -> None:
         """Move this guest's memory by *delta* bytes.

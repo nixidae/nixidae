@@ -18,6 +18,8 @@ from typing import cast
 import anyio
 from qemu.qmp import QMPClient, QMPError
 
+from .display import InputEvent
+
 __all__ = ["Qmp", "QmpError"]
 
 QmpError = QMPError
@@ -76,14 +78,15 @@ class Qmp:
         if reply:
             raise QmpError(f"sendkey {keys}: {reply}")
 
-    async def input(self, events: list[dict]) -> None:
+    async def input(self, events: list[InputEvent]) -> None:
         """Send ``input-send-event`` events, as one batch."""
         client = await self._connected()
         await client.execute("input-send-event", {"events": events})
 
     @staticmethod
     async def _actual(client: QMPClient) -> int:
-        reply = cast(dict, await client.execute("query-balloon"))
+        # qemu.qmp returns `object`; QEMU's query-balloon reply is `{"actual": int, ...}`.
+        reply = cast("dict[str, int]", await client.execute("query-balloon"))
         return int(reply["actual"])
 
     async def balloon(self, delta: int, timeout: float = 60.0) -> None:

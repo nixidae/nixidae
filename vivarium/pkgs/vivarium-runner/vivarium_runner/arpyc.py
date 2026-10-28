@@ -18,11 +18,10 @@ import asyncio
 import contextlib
 import os
 import struct
-import sys
 import termios
 import tty
 import zlib
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from rpyc.core import brine, consts, vinegar
@@ -37,19 +36,25 @@ LABEL_DICT = 99
 """Box label for dicts; brine has no dict support and rpyc's own labels
 stop at 4."""
 
+type Boxed = tuple[int, Any]
+"""A value with its brine label. The payload's shape follows the label,
+so it has no static type."""
+
 _FRAME_HEADER = struct.Struct("!LB")
 _FLUSHER = b"\n"
 _READ_CHUNK = 65536
 
 
-def _dump_exc(typ, val, tb) -> tuple:
+def _dump_exc(exc: BaseException) -> tuple[object, ...]:
     """Serialise an exception; vinegar takes every flag positionally."""
-    return vinegar.dump(typ, val, tb, True, True)
+    # rpyc is untyped, so vinegar.dump returns Any.
+    return cast("tuple[object, ...]", vinegar.dump(type(exc), exc, exc.__traceback__, True, True))
 
 
-def _load_exc(raw: tuple) -> BaseException:
+def _load_exc(raw: tuple[object, ...]) -> BaseException:
     """Rebuild a serialised exception, refusing to import guest modules."""
-    return vinegar.load(raw, False, False, False)
+    # rpyc is untyped, so vinegar.load returns Any.
+    return cast("BaseException", vinegar.load(raw, False, False, False))
 
 
 class Service:
@@ -94,7 +99,7 @@ class FdStream:
         self._loop = loop
         self._closed = False
         self._reader = asyncio.StreamReader()
-        self._saved_tty = termios.tcgetattr(fd) if raw_tty else None
+        self._saved_tty: list[Any] | None = termios.tcgetattr(fd) if raw_tty else None
         if raw_tty:
             # TCSANOW, not tty.setraw's default TCSAFLUSH: this is a data
             # channel, and discarding whatever the peer has already sent
@@ -168,8 +173,8 @@ class _RemoteMethod:
         self._conn = conn
         self._name = name
 
-    def __call__(self, *args: Any, **kwargs: Any):
-        return self._conn.call(self._name, args, kwargs)
+    async def __call__(self, *args: object, **kwargs: object) -> Any:
+        return await self._conn.call(self._name, args, kwargs)
 
 
 class _RemoteRoot:
@@ -195,6 +200,7 @@ class _Pending:
 
     def __init__(self) -> None:
         self.event = anyio.Event()
+        # The reply's shape is set by the method the peer ran.
         self.result: Any = None
         self.exc: BaseException | None = None
 
@@ -214,7 +220,7 @@ class AsyncConnection:
 
     # ── serialisation ──────────────────────────────────────────────
 
-    def _box(self, obj: Any) -> tuple:
+    def _box(self, obj: object) -> Boxed:
         """Wrap *obj* in a label so brine can carry lists and dicts."""
         if brine.dumpable(obj):
             return consts.LABEL_VALUE, obj
@@ -224,7 +230,7 @@ class AsyncConnection:
             return LABEL_DICT, tuple((k, self._box(v)) for k, v in obj.items())
         return consts.LABEL_VALUE, obj
 
-    def _unbox(self, package: tuple) -> Any:
+    def _unbox(self, package: Boxed) -> Any:
         label, value = package
         if label == consts.LABEL_TUPLE:
             return tuple(self._unbox(item) for item in value)
@@ -237,7 +243,7 @@ class AsyncConnection:
 
     # ── serving ────────────────────────────────────────────────────
 
-    async def _dispatch(self, seq: int, args: tuple) -> None:
+    async def _dispatch(self, seq: int, args: tuple[int, Boxed]) -> None:
         handler_id, boxed_args = args
         try:
             if handler_id == HANDLE_METHOD:
@@ -251,8 +257,8 @@ class AsyncConnection:
                 return
             else:
                 raise ValueError(f"unknown handler {handler_id}")
-        except Exception:
-            await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(*sys.exc_info()))
+        except Exception as exc:
+            await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
         else:
             await self._send(consts.MSG_REPLY, seq, self._box(result))
 
@@ -300,7 +306,7 @@ class AsyncConnection:
 
     # ── calling ────────────────────────────────────────────────────
 
-    async def call(self, method: str, args: tuple, kwargs: dict) -> Any:
+    async def call(self, method: str, args: tuple[object, ...], kwargs: dict[str, object]) -> Any:
         """Invoke ``exposed_<method>`` on the peer and await its result."""
         seq = self._seq
         self._seq += 1

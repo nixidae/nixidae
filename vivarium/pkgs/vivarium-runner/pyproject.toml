@@ -7,7 +7,8 @@ name = "vivarium-runner"
 license = "Apache-2.0"
 version = "0.2.0"
 description = "Run NixOS systems under User-Mode Linux and drive them from Python"
-requires-python = ">=3.10"
+# `os.unshare` and `os.setns` are 3.12.
+requires-python = ">=3.12"
 dependencies = ["rpyc", "qemu.qmp"]
 
 [project.scripts]
@@ -18,5 +19,5 @@ vivarium-agent = "vivarium_runner.agent:main"
 packages = ["vivarium_runner"]
 
 # PEP 561: the annotations have to survive the install, or a consumer's
-# pyright reads every `vms.node` as Unknown.
+# type checker reads every `vms.node` as Any.
 artifacts = ["vivarium_runner/py.typed"]

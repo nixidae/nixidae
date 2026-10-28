@@ -22,10 +22,12 @@ objects, so nothing here assumes the guests came from this repository's
 
 import json
 import time
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any, cast
 
 import anyio
 
-from .machine import MachineError
+from .machine import Machine, MachineError
 
 # These are stuck-detectors, and that is the only thing they are.
 #
@@ -91,16 +93,22 @@ KUBE_DNS = "--selector k8s-app=kube-dns"
 DEFAULT_ADDONS = (KUBE_PROXY, KUBE_DNS)
 
 
-async def kubectl(cp, args, timeout=120):
+async def kubectl(cp: Machine, args: str, timeout: float = 120) -> str:
     """Run kubectl on the control plane; returns its output."""
     return await cp.succeed(f"kubectl {args}", timeout=timeout)
 
 
-async def get_json(cp, args, timeout=120):
-    return json.loads(await kubectl(cp, f"{args} --output json", timeout=timeout))
+async def get_json(cp: Machine, args: str, timeout: float = 120) -> dict[str, Any]:
+    # kubectl prints the object's JSON; its keys are the Kubernetes API's, read where used.
+    return cast(dict[str, Any], json.loads(await kubectl(cp, f"{args} --output json", timeout=timeout)))
 
 
-async def until(what, check, timeout, machine):
+async def until[T](
+    what: str,
+    check: Callable[[], Awaitable[tuple[bool, T]]],
+    timeout: float,
+    machine: Machine,
+) -> T:
     """Poll *check* until it says yes; returns what it last saw.
 
     *check* returns ``(done, evidence)``.  The evidence is reported on
@@ -126,11 +134,16 @@ async def until(what, check, timeout, machine):
         return await _until(what, check, timeout, machine)
 
 
-async def _until(what, check, timeout, machine):
+async def _until[T](
+    what: str,
+    check: Callable[[], Awaitable[tuple[bool, T]]],
+    timeout: float,
+    machine: Machine,
+) -> T:
     started = time.monotonic()
     deadline = started + timeout
-    said = None
-    seen = None
+    said: float | None = None
+    seen: object = None
     changed = started
 
     # `anyio.fail_after`, and not a deadline tested between polls.
@@ -176,7 +189,7 @@ async def _until(what, check, timeout, machine):
         ) from None
 
 
-async def unscheduled(vm):
+async def unscheduled(vm: Machine) -> str:
     """The events, and a describe of every pod that is not Running.
 
     **A pod that never leaves Pending leaves no other trace.** It starts no
@@ -210,7 +223,7 @@ async def unscheduled(vm):
     )[1]
 
 
-async def diagnose(vm):
+async def diagnose(vm: Machine) -> str:
     """Everything worth knowing about a node that would not come up.
 
     A CI round trip on a cluster test is the better part of an hour, so a
@@ -258,7 +271,7 @@ async def diagnose(vm):
     )
 
 
-async def wait_for_images(vms):
+async def wait_for_images(vms: Mapping[str, Machine]) -> None:
     """No node is any use to kubeadm until containerd has the images.
 
     `UNIT_TIMEOUT` and not a number of its own.  This unit reads tarballs
@@ -281,7 +294,7 @@ async def wait_for_images(vms):
 INIT_LOG = "/tmp/kubeadm-init.log"
 
 
-async def init_control_plane(cp, nix_images=True):
+async def init_control_plane(cp: Machine, nix_images: bool = True) -> None:
     print("[k8s] cp: kubeadm init ...", flush=True)
     # Redirected and then printed, rather than piped through `tee`: a pipe
     # would report tee's exit status, and /bin/sh here has no `pipefail`.
@@ -348,7 +361,7 @@ KUBE_PROXY_PATCH = json.dumps(
 )
 
 
-async def patch_kube_proxy(cp):
+async def patch_kube_proxy(cp: Machine) -> None:
     """Give kube-proxy the store, since kubeadm will not."""
     rc, out = await cp.execute(
         f"kubectl --namespace kube-system patch daemonset kube-proxy --type strategic --patch '{KUBE_PROXY_PATCH}'",
@@ -359,7 +372,7 @@ async def patch_kube_proxy(cp):
     print("[k8s] cp: kube-proxy has the store", flush=True)
 
 
-async def join(cp, workers):
+async def join(cp: Machine, workers: Sequence[Machine]) -> None:
     """Bring the workers in with a token minted for this run.
 
     The token and the CA hash come from kubeadm rather than being read
@@ -392,9 +405,11 @@ async def join(cp, workers):
         digest = fields[fields.index("--discovery-token-ca-cert-hash") + 1]
     except (ValueError, IndexError):
         raise MachineError(f"[cp] could not read a join command out of:\n{printed}") from None
+    if cp.ip is None:
+        raise MachineError("[cp] has no address to join")
     endpoint = f"[{cp.ip}]:6443" if ":" in cp.ip else f"{cp.ip}:6443"
 
-    async def one(worker):
+    async def one(worker: Machine) -> None:
         print(f"[k8s] {worker.name}: kubeadm join ...", flush=True)
         # Kept on the node for the same reason as `INIT_LOG`.
         log = "/tmp/kubeadm-join.log"
@@ -421,7 +436,7 @@ async def join(cp, workers):
             group.start_soon(one, worker)
 
 
-async def wire_pod_network(cp, vms):
+async def wire_pod_network(cp: Machine, vms: Mapping[str, Machine]) -> None:
     """Give each node its CNI config, and a route to everyone else's pods.
 
     kube-controller-manager hands out a /24 per node, but nothing sets up
@@ -435,9 +450,9 @@ async def wire_pod_network(cp, vms):
     # the same instant kube-controller-manager's IPAM has given it a
     # /24: reading the node list straight afterwards is a race that a
     # fast join loses.
-    cidrs = {}
+    cidrs: dict[str, str | None] = {}
 
-    async def assigned():
+    async def assigned() -> tuple[bool, str]:
         nodes = await get_json(cp, "get nodes")
         cidrs.clear()
         cidrs.update({item["metadata"]["name"]: item["spec"].get("podCIDR") for item in nodes["items"]})
@@ -452,7 +467,7 @@ async def wire_pod_network(cp, vms):
     if set(cidrs) != set(vms):
         raise MachineError(f"[cp] the cluster has {sorted(cidrs)}, the test booted {sorted(vms)}")
 
-    async def one(vm):
+    async def one(vm: Machine) -> None:
         await vm.succeed(f"vivarium-k8s-cni {cidrs[vm.name]}")
         for peer in vms.values():
             if peer.name != vm.name:
@@ -463,8 +478,8 @@ async def wire_pod_network(cp, vms):
             group.start_soon(one, vm)
 
 
-async def wait_for_ready_nodes(cp, expected):
-    async def check():
+async def wait_for_ready_nodes(cp: Machine, expected: int) -> None:
+    async def check() -> tuple[bool, str]:
         out = await kubectl(cp, "get nodes --no-headers")
         ready = [line for line in out.splitlines() if " Ready " in f" {line} "]
         return len(ready) == expected, out
@@ -473,10 +488,10 @@ async def wait_for_ready_nodes(cp, expected):
     print(f"[k8s] all {expected} nodes Ready", flush=True)
 
 
-async def wait_for_pods(cp, selector, namespace="kube-system"):
+async def wait_for_pods(cp: Machine, selector: str, namespace: str = "kube-system") -> None:
     """Wait until every pod matching *selector* is Ready."""
 
-    async def check():
+    async def check() -> tuple[bool, str]:
         pods = await get_json(cp, f"get pods --namespace {namespace} {selector}")
         items = pods["items"]
         ready = [
@@ -490,7 +505,7 @@ async def wait_for_pods(cp, selector, namespace="kube-system"):
     await until(f"pods {selector}", check, READY_TIMEOUT, cp)
 
 
-async def wait_for_dns(vm, host="registry.k8s.io", timeout=120):
+async def wait_for_dns(vm: Machine, host: str = "registry.k8s.io", timeout: float = 120) -> None:
     """A node that pulls its images has to resolve a name first.
 
     kubeadm asks containerd for an image within seconds of the guest
@@ -515,7 +530,7 @@ async def wait_for_dns(vm, host="registry.k8s.io", timeout=120):
     is the 127.0.0.53 stub whatever happens.
     """
 
-    async def check():
+    async def check() -> tuple[bool, str]:
         rc, out = await vm.execute(f"getent hosts {host}")
         if rc == 0:
             return True, out.strip()
@@ -525,7 +540,7 @@ async def wait_for_dns(vm, host="registry.k8s.io", timeout=120):
     await until(f"{vm.name} to resolve {host}", check, timeout, vm)
 
 
-async def untaint(cp):
+async def untaint(cp: Machine) -> None:
     """Let workloads run on the control plane.
 
     kubeadm taints it so that nothing schedules there, which is right for a
@@ -538,7 +553,7 @@ async def untaint(cp):
     print("[k8s] control plane will schedule workloads", flush=True)
 
 
-async def provision_storage(cp, vms):
+async def provision_storage(cp: Machine, vms: Mapping[str, Machine]) -> None:
     """Apply the PersistentVolumes every node declares, if any does.
 
     A node writes ``STORAGE_MANIFEST`` when
@@ -555,7 +570,7 @@ async def provision_storage(cp, vms):
         print(f"[k8s] {name} offers storage", flush=True)
 
 
-async def provision_runtimes(cp, vms):
+async def provision_runtimes(cp: Machine, vms: Mapping[str, Machine]) -> None:
     """Apply the RuntimeClasses every node declares, if any does.
 
     ``services.vivarium-k8s.runtimes`` writes ``RUNTIME_MANIFEST``, on the same
@@ -565,9 +580,9 @@ async def provision_runtimes(cp, vms):
         print(f"[k8s] {name} offers runtime classes", flush=True)
 
 
-async def _apply_node_manifests(cp, vms, path):
+async def _apply_node_manifests(cp: Machine, vms: Mapping[str, Machine], path: str) -> list[str]:
     """Apply *path* from every node that has it; return those nodes' names."""
-    applied = []
+    applied: list[str] = []
     for name, vm in vms.items():
         rc, _ = await vm.execute(f"test -e {path}")
         if rc != 0:
@@ -578,7 +593,13 @@ async def _apply_node_manifests(cp, vms, path):
     return applied
 
 
-async def bring_up(vms, cp_name="cp", schedulable=None, addons=DEFAULT_ADDONS, nix_images=True):
+async def bring_up(
+    vms: Mapping[str, Machine],
+    cp_name: str = "cp",
+    schedulable: bool | None = None,
+    addons: Sequence[str] = DEFAULT_ADDONS,
+    nix_images: bool = True,
+) -> Machine:
     """The whole sequence, from booted guests to a cluster that works.
 
     Returns the control plane machine.

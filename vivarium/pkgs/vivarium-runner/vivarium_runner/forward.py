@@ -33,8 +33,9 @@ import os
 import socket
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Final, Literal, TypedDict
 
-ALL = "all"
+ALL: Final = "all"
 """``ports`` value meaning every port passt is willing to bind."""
 
 _UNPRIVILEGED_START = Path("/proc/sys/net/ipv4/ip_unprivileged_port_start")
@@ -61,6 +62,21 @@ class ForwardError(Exception):
     """A forward cannot be set up: a collision, or nowhere to put it."""
 
 
+class PortMapJson(TypedDict):
+    host: int
+    guest: int
+
+
+class RuleJson(TypedDict, total=False):
+    """A `Rule` as Nix wrote it. `ports` is ``"all"`` or a list of ports."""
+
+    address: str
+    ports: Literal["all"] | list[PortMapJson | int]
+    protocols: list[str]
+    remapPrivileged: bool
+    privilegedOffset: int
+
+
 @dataclass(frozen=True)
 class PortMap:
     """One host port and the guest port it reaches."""
@@ -69,7 +85,7 @@ class PortMap:
     guest: int
 
     @classmethod
-    def from_json(cls, data: dict | int) -> PortMap:
+    def from_json(cls, data: PortMapJson | int) -> PortMap:
         if isinstance(data, int):
             return cls(host=data, guest=data)
         return cls(host=data["host"], guest=data["guest"])
@@ -87,17 +103,17 @@ class Rule:
     """
 
     address: str | None = None
-    ports: str | tuple[PortMap, ...] = ALL
+    ports: Literal["all"] | tuple[PortMap, ...] = ALL
     protocols: tuple[str, ...] = ("tcp",)
     remap_privileged: bool = True
     privileged_offset: int = 10000
 
     @classmethod
-    def from_json(cls, data: dict) -> Rule:
+    def from_json(cls, data: RuleJson) -> Rule:
         ports = data.get("ports", ALL)
         return cls(
             address=data.get("address"),
-            ports=(ALL if ports == ALL else tuple(PortMap.from_json(port) for port in ports)),
+            ports=(ALL if isinstance(ports, str) else tuple(PortMap.from_json(port) for port in ports)),
             protocols=tuple(data.get("protocols", ["tcp"])),
             remap_privileged=data.get("remapPrivileged", True),
             privileged_offset=data.get("privilegedOffset", 10000),
@@ -114,7 +130,7 @@ class Rule:
         checked exhaustively; :data:`_SENTINEL_PORT` stands in for it,
         which is enough to notice another guest already living here.
         """
-        if self.wide:
+        if isinstance(self.ports, str):
             return [_SENTINEL_PORT]
         return [port.host for port in self.ports]
 
@@ -159,7 +175,7 @@ def _remap(rule: Rule, start: int) -> tuple[Rule, list[str]]:
         return rule, []
 
     offset = rule.privileged_offset
-    if rule.wide:
+    if isinstance(rule.ports, str):
         if not rule.remap_privileged:
             return rule, [f"ports below {start} are not forwarded (remapPrivileged is off)"]
         return rule, [
@@ -280,7 +296,7 @@ def probe(rules: list[Rule]) -> None:
 
 def _specs(rule: Rule, start: int) -> list[str]:
     """The one or two passt port specs a rule turns into."""
-    if not rule.wide:
+    if not isinstance(rule.ports, str):
         return [f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host))]
 
     low, high = ephemeral_range()
@@ -323,7 +339,7 @@ def reachable(rules: list[Rule], guest_port: int, start: int) -> list[str]:
     low, high = ephemeral_range()
     found: list[str] = []
     for rule in rules:
-        if rule.wide:
+        if isinstance(rule.ports, str):
             if low <= guest_port <= high:
                 continue
             if guest_port >= start:

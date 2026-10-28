@@ -20,8 +20,9 @@ import os
 import re
 import time
 import unittest
-from collections.abc import Callable, Iterator
-from typing import Any
+from collections.abc import Callable, Coroutine, Iterator
+from datetime import timedelta
+from typing import Any, NoReturn
 
 import anyio
 import anyio.from_thread
@@ -29,6 +30,9 @@ import anyio.to_thread
 
 from . import display
 from .machine import Machine as Guest
+
+type Duration = float | timedelta | None
+"""A wait or key delay as nixos-test takes it: seconds, a timedelta, or None."""
 
 DEFAULT_TIMEOUT = 900
 """nixos-test's default for every wait, in seconds."""
@@ -41,18 +45,22 @@ def pythonize(name: str) -> str:
     return name.replace("-", "_")
 
 
-def _seconds(timeout: Any) -> float:
+def _seconds(timeout: Duration) -> float:
     """A timeout as nixos-test takes it: seconds, or a timedelta."""
     if timeout is None:
         return DEFAULT_TIMEOUT
-    return timeout.total_seconds() if hasattr(timeout, "total_seconds") else float(timeout)
+    if isinstance(timeout, timedelta):
+        return timeout.total_seconds()
+    return float(timeout)
 
 
-def _delay(delay: Any) -> float:
+def _delay(delay: Duration) -> float:
     """A key delay as nixos-test takes it: seconds, a timedelta, or None."""
     if delay is None:
         return 0.0
-    return delay.total_seconds() if hasattr(delay, "total_seconds") else float(delay)
+    if isinstance(delay, timedelta):
+        return delay.total_seconds()
+    return float(delay)
 
 
 class Unsupported(NotImplementedError, AttributeError):
@@ -67,10 +75,10 @@ class Machine:
         self._guest = guest
         self.name = guest.name
 
-    def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    def _call[T](self, fn: Callable[..., Coroutine[Any, Any, T]], *args: object, **kwargs: object) -> T:
         return anyio.from_thread.run(functools.partial(fn, *args, **kwargs))
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> NoReturn:
         if name.startswith("__"):
             raise AttributeError(name)
         raise Unsupported(f"nixos-test's Machine.{name} has no equivalent here")
@@ -90,7 +98,7 @@ class Machine:
         command: str,
         check_return: bool = True,
         check_output: bool = True,
-        timeout: Any = DEFAULT_TIMEOUT,
+        timeout: Duration = DEFAULT_TIMEOUT,
     ) -> tuple[int, str]:
         # nixos-test's backdoor shell: root's login environment, so root's
         # per-user packages are on PATH (simple-container's `hello` needs
@@ -105,7 +113,7 @@ class Machine:
         )
         return self._call(self._guest.execute, wrapped, timeout=_seconds(timeout))
 
-    def succeed(self, *commands: str, timeout: Any = None) -> str:
+    def succeed(self, *commands: str, timeout: Duration = None) -> str:
         output = ""
         for command in commands:
             status, out = self.execute(command, timeout=_seconds(timeout))
@@ -114,7 +122,7 @@ class Machine:
             output += out
         return output
 
-    def fail(self, *commands: str, timeout: Any = None) -> str:
+    def fail(self, *commands: str, timeout: Duration = None) -> str:
         output = ""
         for command in commands:
             status, out = self.execute(command, timeout=_seconds(timeout))
@@ -123,14 +131,14 @@ class Machine:
             output += out
         return output
 
-    def _until(self, what: str, check: Callable[[], bool], timeout: Any) -> None:
+    def _until(self, what: str, check: Callable[[], bool], timeout: Duration) -> None:
         deadline = time.monotonic() + _seconds(timeout)
         while not check():
             if time.monotonic() > deadline:
                 raise Exception(f"timed out waiting for {what} on {self.name}")
             time.sleep(POLL)
 
-    def wait_until_succeeds(self, command: str, timeout: Any = DEFAULT_TIMEOUT) -> str:
+    def wait_until_succeeds(self, command: str, timeout: Duration = DEFAULT_TIMEOUT) -> str:
         result: list[str] = []
 
         def ok() -> bool:
@@ -141,7 +149,7 @@ class Machine:
         self._until(f"`{command}` to succeed", ok, timeout)
         return result[0]
 
-    def wait_until_fails(self, command: str, timeout: Any = DEFAULT_TIMEOUT) -> str:
+    def wait_until_fails(self, command: str, timeout: Duration = DEFAULT_TIMEOUT) -> str:
         result: list[str] = []
 
         def failed() -> bool:
@@ -173,7 +181,7 @@ class Machine:
         if state != require_state:
             raise Exception(f"Expected unit '{unit}' to be in state '{require_state}' but it is in state '{state}'")
 
-    def wait_for_unit(self, unit: str, user: str | None = None, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_unit(self, unit: str, user: str | None = None, timeout: Duration = DEFAULT_TIMEOUT) -> None:
         def active() -> bool:
             info = self.get_unit_info(unit, user)
             state = info.get("ActiveState")
@@ -185,19 +193,21 @@ class Machine:
 
         self._until(f"unit {unit}", active, timeout)
 
-    def wait_for_file(self, filename: str, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_file(self, filename: str, timeout: Duration = DEFAULT_TIMEOUT) -> None:
         self._until(f"file {filename}", lambda: self.execute(f"test -e {filename}")[0] == 0, timeout)
 
     def _port(self, port: int, addr: str) -> bool:
         return self.execute(f"bash -c '</dev/tcp/{addr}/{port}' 2>/dev/null")[0] == 0
 
-    def wait_for_open_port(self, port: int, addr: str = "localhost", timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_open_port(self, port: int, addr: str = "localhost", timeout: Duration = DEFAULT_TIMEOUT) -> None:
         self._until(f"port {addr}:{port} to open", lambda: self._port(port, addr), timeout)
 
-    def wait_for_closed_port(self, port: int, addr: str = "localhost", timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_closed_port(self, port: int, addr: str = "localhost", timeout: Duration = DEFAULT_TIMEOUT) -> None:
         self._until(f"port {addr}:{port} to close", lambda: not self._port(port, addr), timeout)
 
-    def wait_for_open_unix_socket(self, addr: str, is_datagram: bool = False, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_open_unix_socket(
+        self, addr: str, is_datagram: bool = False, timeout: Duration = DEFAULT_TIMEOUT
+    ) -> None:
         self._until(f"socket {addr}", lambda: self.execute(f"test -S {addr}")[0] == 0, timeout)
 
     def start_job(self, jobname: str, user: str | None = None) -> tuple[int, str]:
@@ -209,7 +219,7 @@ class Machine:
     def sleep(self, secs: float) -> None:
         time.sleep(secs)
 
-    def wait_for_console_text(self, regex: str, timeout: Any = None) -> None:
+    def wait_for_console_text(self, regex: str, timeout: Duration = None) -> None:
         self._call(self._guest.wait_for_console_text, regex, timeout=_seconds(timeout))
 
     # The screen: a guest needs `vivarium.display`, which nixos-test.nix
@@ -218,10 +228,10 @@ class Machine:
     def screenshot(self, filename: str) -> None:
         print(f"[{self.name}] screenshot {self._call(self._guest.screenshot, filename)}", flush=True)
 
-    def send_key(self, key: str, delay: Any = 0.01, log: bool = True) -> None:
+    def send_key(self, key: str, delay: Duration = 0.01, log: bool = True) -> None:
         self._call(self._guest.send_key, display.CHAR_TO_KEY.get(key, key), delay=_delay(delay))
 
-    def send_chars(self, chars: str, delay: Any = 0.01) -> None:
+    def send_chars(self, chars: str, delay: Duration = 0.01) -> None:
         self._call(self._guest.send_chars, chars, delay=_delay(delay))
 
     def get_screen_text_variants(self) -> list[str]:
@@ -230,7 +240,7 @@ class Machine:
     def get_screen_text(self) -> str:
         return self._call(self._guest.screen_text)
 
-    def wait_for_text(self, regex: str, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_text(self, regex: str, timeout: Duration = DEFAULT_TIMEOUT) -> None:
         # nixos-test searches the whole text, across lines; find_text
         # matches within one, for a box. So poll the text.
         pattern = re.compile(regex)
@@ -247,7 +257,7 @@ class Machine:
                 )
             time.sleep(POLL)
 
-    def wait_for_x(self, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_x(self, timeout: Duration = DEFAULT_TIMEOUT) -> None:
         self._until(
             "the X11 server",
             lambda: (
@@ -263,7 +273,7 @@ class Machine:
     def get_window_names(self) -> list[str]:
         return self.succeed(r"xwininfo -root -tree | sed 's/.*0x[0-9a-f]* \"\([^\"]*\)\".*/\1/; t; d'").splitlines()
 
-    def wait_for_window(self, regexp: str, timeout: Any = DEFAULT_TIMEOUT) -> None:
+    def wait_for_window(self, regexp: str, timeout: Duration = DEFAULT_TIMEOUT) -> None:
         pattern = re.compile(regexp)
         self._until(
             f"a window {regexp}",
@@ -344,4 +354,5 @@ async def run(guests: dict[str, Guest], script: str) -> None:
     """Run a nixos-test `testScript` against *guests*."""
     code = compile(script, "testScript", "exec")
     namespace = symbols(guests)
-    await anyio.to_thread.run_sync(exec, code, namespace)
+    # exec's locals are its globals when None, which is what a bare exec(code, namespace) does.
+    await anyio.to_thread.run_sync(exec, code, namespace, None)

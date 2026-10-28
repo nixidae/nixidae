@@ -7,8 +7,9 @@ the monitor.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import TypedDict
 
-__all__ = ["ABS_MAX", "Button", "button_events", "key_for", "move_events"]
+__all__ = ["ABS_MAX", "Button", "InputEvent", "button_events", "key_for", "move_events"]
 
 ABS_MAX = 0x7FFF
 """QEMU's absolute axis runs 0 to this whatever the screen's size
@@ -21,6 +22,13 @@ class Button(StrEnum):
     RIGHT = "right"
     WHEEL_UP = "wheel-up"
     WHEEL_DOWN = "wheel-down"
+
+
+class InputEvent(TypedDict):
+    """One ``input-send-event`` event. ``data`` depends on ``type``."""
+
+    type: str
+    data: dict[str, object]
 
 
 # nixos-test's CHAR_TO_KEY: `sendkey` names for what a US layout types
@@ -55,7 +63,7 @@ def _axis(value: int, size: int) -> int:
     return round(value * ABS_MAX / max(size - 1, 1))
 
 
-def move_events(x: int, y: int, width: int, height: int) -> list[dict]:
+def move_events(x: int, y: int, width: int, height: int) -> list[InputEvent]:
     """``input-send-event`` events that put the pointer on pixel (x, y)."""
     return [
         {"type": "abs", "data": {"axis": "x", "value": _axis(x, width)}},
@@ -63,5 +71,5 @@ def move_events(x: int, y: int, width: int, height: int) -> list[dict]:
     ]
 
 
-def button_events(button: Button, down: bool) -> list[dict]:
+def button_events(button: Button, down: bool) -> list[InputEvent]:
     return [{"type": "btn", "data": {"button": str(button), "down": down}}]

@@ -34,16 +34,16 @@ import time
 # pump a readline that anyio's process stdout has no equivalent for. It runs
 # under anyio's asyncio backend unchanged.
 from asyncio import subprocess
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 import anyio
 from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, routeros, sonic, storeview
-from .agent import AGENT_READY
+from .agent import AGENT_READY, ProcessInfo, UnitInfo
 from .arpyc import AsyncConnection, connect
 from .control import ConsoleControl, ConsoleError, Control, ControlKind, Dialect
 
@@ -64,6 +64,122 @@ The guest's `installBootLoader` writes it; see modules/guest.nix."""
 _SYSTEMD_TIMEOUT = 60
 """How long to wait for one `systemctl` round trip.  The agent gives the
 command itself 30s, so anything past this is the guest, not systemd."""
+
+
+class Display(TypedDict):
+    """`boot.display`: the screen's size in pixels."""
+
+    width: int
+    height: int
+
+
+class EfiBoot(TypedDict):
+    """`boot.efi`: OVMF's firmware and variable store, and the ESP image."""
+
+    firmware: str
+    variables: str
+    esp: str
+
+
+class ImageBoot(TypedDict, total=False):
+    """`boot.image`: a root disk the guest boots from, not a kernel."""
+
+    control: str
+    configDisk: str
+    format: str
+    seed: str
+    partition: int
+    init: str
+    initrd: str
+    kernelParams: list[str]
+
+
+class ApplianceBoot(TypedDict, total=False):
+    """`boot.appliance`: a vendor image's own kernel, and the console line
+    that says it is ready."""
+
+    kernel: str
+    initrd: str
+    cmdline: str
+    format: str
+    uplink: bool
+    ready: str
+
+
+class BootSpec(TypedDict, total=False):
+    """What a guest boots, as Nix wrote it. See ``modules/qemu.nix``."""
+
+    kernel: str | None
+    initrd: str
+    cmdline: str
+    toplevel: str
+    nested: bool
+    display: Display | None
+    efi: EfiBoot
+    vmlinux: str
+    image: ImageBoot
+    appliance: ApplianceBoot
+
+
+class BootloaderSpec(TypedDict):
+    """The bootspec the guest's bootloader wrote, for the system it boots next."""
+
+    kernel: str
+    initrd: str
+    kernelParams: list[str]
+    toplevel: str
+
+
+class ToolchainJson(TypedDict, total=False):
+    """`Toolchain` as Nix wrote it. Every value is a path."""
+
+    passt: str
+    kernel: str
+    bridge: str
+    qemu: str
+    qemuImg: str
+    virtiofsd: str
+    libkrun: str
+    crun: str
+    setpriv: str
+    tesseract: str
+    magick: str
+
+
+class InterfaceJson(TypedDict, total=False):
+    """`Interface` as Nix wrote it."""
+
+    name: str
+    nic: int
+    segment: str
+    addresses: list[str]
+    mac: str
+
+
+class MachineSpecJson(TypedDict, total=False):
+    """`MachineSpec` as Nix wrote it. See ``mkTest`` in flake.nix."""
+
+    name: str
+    backend: str
+    index: int
+    image: str
+    memory: str
+    seccomp: str
+    cpus: int
+    sshPort: int
+    mtu: int
+    network: str
+    address: str
+    store: str
+    storePaths: str
+    boot: BootSpec
+    toplevel: str
+    configurations: dict[str, str]
+    kubernetes: bool
+    cni: str
+    interfaces: list[InterfaceJson]
+    uplink: str
+    forward: list[forward.RuleJson]
 
 
 class MachineError(Exception):
@@ -93,23 +209,22 @@ class Toolchain:
     magick: Path | None = None
 
     @classmethod
-    def from_json(cls, data: dict) -> Toolchain:
-        def maybe(key: str) -> Path | None:
-            value = data.get(key)
+    def from_json(cls, data: ToolchainJson) -> Toolchain:
+        def maybe(value: str | None) -> Path | None:
             return Path(value) if value else None
 
         return cls(
             passt=Path(data["passt"]),
-            kernel=maybe("kernel"),
-            bridge=maybe("bridge"),
-            qemu=maybe("qemu"),
-            qemu_img=maybe("qemuImg"),
-            virtiofsd=maybe("virtiofsd"),
-            libkrun=maybe("libkrun"),
-            crun=maybe("crun"),
-            setpriv=maybe("setpriv"),
-            tesseract=maybe("tesseract"),
-            magick=maybe("magick"),
+            kernel=maybe(data.get("kernel")),
+            bridge=maybe(data.get("bridge")),
+            qemu=maybe(data.get("qemu")),
+            qemu_img=maybe(data.get("qemuImg")),
+            virtiofsd=maybe(data.get("virtiofsd")),
+            libkrun=maybe(data.get("libkrun")),
+            crun=maybe(data.get("crun")),
+            setpriv=maybe(data.get("setpriv")),
+            tesseract=maybe(data.get("tesseract")),
+            magick=maybe(data.get("magick")),
         )
 
 
@@ -124,7 +239,7 @@ class Interface:
     mac: str
 
     @classmethod
-    def from_json(cls, data: dict) -> Interface:
+    def from_json(cls, data: InterfaceJson) -> Interface:
         return cls(
             name=data["name"],
             nic=data["nic"],
@@ -155,7 +270,7 @@ class MachineSpec:
     store_paths: Path | None = None
     """A closureInfo's `store-paths`: the guest's closure, and all its view
     holds."""
-    boot: dict = field(default_factory=dict)
+    boot: BootSpec = field(default_factory=BootSpec)
     """What a QEMU guest boots: kernel, initrd, toplevel and cmdline, as
     ``modules/qemu.nix`` worked them out.  Empty under UML, which boots the
     root image instead."""
@@ -182,7 +297,7 @@ class MachineSpec:
     run at once, which `vivarium run` does before it boots any."""
 
     @classmethod
-    def from_json(cls, data: dict) -> MachineSpec:
+    def from_json(cls, data: MachineSpecJson) -> MachineSpec:
         image = data.get("image")
         return cls(
             name=data["name"],
@@ -256,20 +371,42 @@ DIALECTS: dict[ControlKind, Dialect] = {
 }
 
 
+type MemoryControl = mconsole.Mconsole | qmp.Qmp
+"""A guest's channel for resizing its memory: UML's console or QEMU's monitor."""
+
+
+class AgentRpc(Protocol):
+    """The agent's methods as the host calls them. See `agent.Agent`."""
+
+    async def run(self, command: str, timeout: float, env: dict[str, str] | None) -> tuple[int, str]: ...
+    async def unit_state(self, unit: str) -> str: ...
+    async def unit_info(self, unit: str) -> dict[str, str]: ...
+    async def list_units(self, pattern: str) -> list[UnitInfo]: ...
+    async def listening(self) -> list[int]: ...
+    async def processes(self) -> list[ProcessInfo]: ...
+    async def journal(self, unit: str | None, lines: int) -> str: ...
+
+
+def _agent_rpc(conn: AsyncConnection) -> AgentRpc:
+    # rpyc reaches the peer's methods by name, so it carries no types.
+    return cast(AgentRpc, conn.root)
+
+
 @dataclass(frozen=True)
 class AgentControl:
     """`Control` through the vivarium agent: a shell, with its exit status."""
 
     conn: AsyncConnection
 
-    async def execute(self, command: str, timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
-        return await self.conn.root.run(command, timeout=timeout, env=env)
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
+        # The wire carries a dict; another Mapping would not pickle.
+        return await _agent_rpc(self.conn).run(command, timeout=timeout, env=None if env is None else dict(env))
 
     async def aclose(self) -> None:
         self.conn.close()
 
 
-def _command_outcome(result: tuple[int, str]) -> dict[str, Any]:
+def _command_outcome(result: tuple[int, str]) -> dict[str, object]:
     rc, out = result
     return {"exit": rc, "output": out[-OUTPUT_LIMIT:]}
 
@@ -296,7 +433,7 @@ class Machine:
         recorder: report.Report | None = None,
         offline: bool = False,
         on_console: Callable[[str, str], None] | None = None,
-        on_command: Callable[[str, str, float, dict[str, Any]], None] | None = None,
+        on_command: Callable[[str, str, float, dict[str, object]], None] | None = None,
     ) -> None:
         self.spec = spec
         self.tools = tools
@@ -332,14 +469,14 @@ class Machine:
         self._agent_sock: socket.socket | None = None
         self._guest_sock: socket.socket | None = None
         self._conn: AsyncConnection | None = None
-        self._helpers: list[sync_subprocess.Popen] = []
+        self._helpers: list[sync_subprocess.Popen[bytes]] = []
         self._spare_fds: list[int] = []
-        self._memory: mconsole.Mconsole | qmp.Qmp | None = None
+        self._memory: MemoryControl | None = None
         self._pid_file: Path | None = None
         self._cleanup: list[Path] = []
         self._disk_fds: tuple[int, ...] = ()
         self._lan_kept: dict[str, int] = {}
-        self._watcher: asyncio.Task | None = None
+        self._watcher: asyncio.Task[None] | None = None
         self._stopping = False
         self._reboot_error: str | None = None
         self._control: Control | None = None
@@ -353,7 +490,8 @@ class Machine:
     def control_kind(self) -> ControlKind:
         """How the host drives this guest: the agent, or a console dialect.
         A console guest's `execute` runs its own command language."""
-        return ControlKind(self.spec.boot.get("image", {}).get("control", ControlKind.AGENT))
+        image = self.spec.boot.get("image")
+        return ControlKind(image.get("control", ControlKind.AGENT) if image else ControlKind.AGENT)
 
     @property
     def ip(self) -> str | None:
@@ -401,11 +539,11 @@ class Machine:
             self.spec = replace(self.spec, store=str(view))
         # The session closes its copies of the segment fds once every guest
         # has started, so a guest that boots again needs its own.
-        if getattr(self.backend, "reboots", False):
+        if self.backend.reboots:
             self._lan_kept = {nic: os.dup(fd) for nic, fd in self.lan_fds.items()}
         await self._boot(None)
 
-    async def _boot(self, boot: dict | None) -> None:
+    async def _boot(self, boot: BootSpec | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
         assert self._rundir is not None
         self._agent_sock, self._guest_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -510,7 +648,7 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
-        if getattr(self.backend, "reboots", False):
+        if self.backend.reboots:
             self._watcher = asyncio.ensure_future(self._watch())
 
     async def _watch(self) -> None:
@@ -532,14 +670,15 @@ class Machine:
             self._reboot_error = str(error)
             self._log(f"did not come back from its reboot: {error}")
 
-    def _bootloader(self) -> dict | None:
+    def _bootloader(self) -> BootSpec | None:
         """The spec's boot, with what the guest's bootloader chose since."""
         if "efi" in self.spec.boot:
             return {**self.spec.boot, "kernel": None}
         path = self.artifacts / BOOTLOADER if self.artifacts is not None else None
         if path is None or not path.exists():
             return None
-        chosen = json.loads(path.read_text())["org.nixos.bootspec.v1"]
+        # The bootloader writes this file, so its shape is Nix's, not the parser's.
+        chosen = cast(BootloaderSpec, json.loads(path.read_text())["org.nixos.bootspec.v1"])
         return {
             **self.spec.boot,
             "kernel": chosen["kernel"],
@@ -814,7 +953,7 @@ class Machine:
             self._history.append(line)
             self._console_send.send_nowait(line)
 
-    async def _wait_for_line(self, pattern: re.Pattern) -> str:
+    async def _wait_for_line(self, pattern: re.Pattern[str]) -> str:
         """Match *pattern* against console output, past or future."""
         for line in self._history:
             if pattern.search(line):
@@ -838,7 +977,7 @@ class Machine:
     # ── commands ───────────────────────────────────────────────────
 
     @property
-    def _agent(self):
+    def _agent(self) -> AgentRpc:
         if self.appliance:
             raise MachineError(f"[{self.name}] is an appliance: it has no agent, reach it over the network")
         if self.control_kind != ControlKind.AGENT:
@@ -847,15 +986,15 @@ class Machine:
             )
         if self._conn is None:
             raise MachineError(f"[{self.name}] agent is not connected")
-        return self._conn.root
+        return _agent_rpc(self._conn)
 
-    async def _ask(
+    async def _ask[T](
         self,
         what: str,
-        call,
+        call: Awaitable[T],
         timeout: float,
-        outcome: Callable[[Any], dict[str, Any]] | None = None,
-    ):
+        outcome: Callable[[T], dict[str, object]] | None = None,
+    ) -> T:
         """Await one agent call, turning silence into a real error.
 
         Every call goes through here.  A guest that has wedged or run out
@@ -871,7 +1010,7 @@ class Machine:
         that it ran.
         """
         started = time.monotonic()
-        data: dict[str, Any] = {}
+        data: dict[str, object] = {}
         try:
             with anyio.fail_after(timeout):
                 result = await call
@@ -908,7 +1047,7 @@ class Machine:
         command: str,
         timeout: float | None = None,
         label: str | None = None,
-        env: dict[str, str] | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> tuple[int, str]:
         """Run a shell command in the guest; returns (exit code, output).
 
@@ -934,7 +1073,7 @@ class Machine:
         )
 
     async def _execute(
-        self, control: Control, command: str, timeout: float, env: dict[str, str] | None
+        self, control: Control, command: str, timeout: float, env: Mapping[str, str] | None
     ) -> tuple[int, str]:
         try:
             return await control.execute(command, timeout, env)
@@ -945,7 +1084,7 @@ class Machine:
         self,
         command: str,
         timeout: float | None = None,
-        env: dict[str, str] | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> str:
         """Run a command that must succeed; returns its output."""
         rc, out = await self.execute(command, timeout=timeout, env=env)
@@ -957,7 +1096,7 @@ class Machine:
         self,
         command: str,
         timeout: float | None = None,
-        env: dict[str, str] | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> str:
         """Run a command that must fail; returns its output."""
         rc, out = await self.execute(command, timeout=timeout, env=env)
@@ -998,7 +1137,7 @@ class Machine:
         else:
             known = ", ".join(sorted(self.spec.configurations)) or "none"
             raise MachineError(f"[{self.name}] no configuration {name!r}; this guest has: {known}")
-        steps = []
+        steps: list[str] = []
         if action in ("switch", "boot"):
             steps.append(f"nix-env --profile /nix/var/nix/profiles/system --set {shlex.quote(system)}")
         steps.append(
@@ -1078,7 +1217,7 @@ class Machine:
         """Every property ``systemctl show`` reports for *unit*."""
         return await self._ask(f"unit_info {unit}", self._agent.unit_info(unit), _SYSTEMD_TIMEOUT)
 
-    async def list_units(self, pattern: str = "*") -> list[dict]:
+    async def list_units(self, pattern: str = "*") -> list[UnitInfo]:
         """Units matching *pattern*, as dicts of the systemctl columns."""
         return await self._ask(
             f"list_units {pattern}",
@@ -1107,7 +1246,7 @@ class Machine:
         """
         return forward.reachable(self.forward, guest_port, forward.unprivileged_start())
 
-    async def processes(self) -> list[dict]:
+    async def processes(self) -> list[ProcessInfo]:
         """Every process in the guest: pid, ppid, name and cmdline.
 
         For proving that the thing under test left nothing running.  A
@@ -1300,7 +1439,7 @@ class Machine:
             )
         return self._memory, (size["width"], size["height"])
 
-    async def _qmp(self, call: Callable[[qmp.Qmp], Any]) -> Any:
+    async def _qmp[T](self, call: Callable[[qmp.Qmp], Awaitable[T]]) -> T:
         monitor, _ = self._screen()
         try:
             return await call(monitor)
@@ -1450,7 +1589,7 @@ class Machine:
         await self.click(*found.center, button=button)
         return found
 
-    def waiting(self, what: str):
+    def waiting(self, what: str) -> contextlib.AbstractContextManager[None]:
         """Record a wait of the test's own as one step.
 
         `wait_for_unit` and friends are timed already.  A loop a test
@@ -1512,7 +1651,8 @@ class Machines(dict[str, Machine]):
     ``items()`` Unknown, and a caller's pyright then checks nothing.
     """
 
-    settings: dict
+    # Any: a test's own settings, read by the test that set them.
+    settings: dict[str, Any]
     """Whatever the spec's ``settings`` held -- values a test needs that
     only Nix knows, such as a package version or an image tag.  Empty
     unless ``mkTest`` was given some."""
@@ -1530,6 +1670,7 @@ class Machines(dict[str, Machine]):
     one whose variable is unset carries its declared default, which is
     what a sandboxed check always gets."""
 
+    # Any: each phase defines its own findings, and the key says what type.
     shared: dict[str, Any]
     """One phase's findings for a later phase of the same run.
 

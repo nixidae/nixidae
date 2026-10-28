@@ -16,7 +16,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, TypedDict, cast
 
 DISK_FORMAT_QCOW2: Final = 1
 KERNEL_FORMAT_ELF: Final = 1
@@ -39,6 +39,30 @@ receive buffers and drops every frame above that: passt's 65520 and a
 segment's 65000. With one, it posts 64 KiB "big packets". No transmit
 offload: the virtio-net header does not cross a segment or passt, so a
 guest must send whole frames with their checksums done."""
+
+
+class NicJson(TypedDict):
+    fd: int
+    mac: str
+
+
+class KrunSpecJson(TypedDict):
+    """The JSON `backend.Krun` writes and `KrunSpec.from_json` reads."""
+
+    libkrun: str
+    cpus: int
+    memory_mib: int
+    vmlinux: str
+    initrd: str
+    cmdline: str
+    nested: bool
+    disk: str
+    store: str
+    dax_window: int
+    agent_fd: int
+    uplink: NicJson
+    lan: list[NicJson]
+    artifacts: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +89,7 @@ class KrunSpec:
     artifacts: str | None
 
     @classmethod
-    def from_json(cls, data: dict) -> KrunSpec:
+    def from_json(cls, data: KrunSpecJson) -> KrunSpec:
         return cls(
             libkrun=data["libkrun"],
             cpus=data["cpus"],
@@ -94,7 +118,7 @@ def _bind(lib: ctypes.CDLL) -> None:
     u32, i32, u64 = ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint64
     cstr, boolean = ctypes.c_char_p, ctypes.c_bool
     mac = ctypes.POINTER(ctypes.c_uint8)
-    signatures = {
+    signatures: dict[str, list[type]] = {
         "krun_set_log_level": [u32],
         "krun_create_ctx": [],
         "krun_set_vm_config": [u32, ctypes.c_uint8, u32],
@@ -129,7 +153,8 @@ def run(spec: KrunSpec) -> None:
     _bind(lib)
 
     def call(name: str, *args: object) -> int:
-        result = getattr(lib, name)(*args)
+        # ctypes resolves the symbol at run time, so the call is Any.
+        result: int = getattr(lib, name)(*args)
         if result < 0:
             raise KrunError(f"{name}: {os.strerror(-result)} ({result})")
         return result
@@ -213,7 +238,7 @@ def main() -> int:
         print("usage: python -m vivarium_runner.krun_launch SPEC", file=sys.stderr)
         return 2
     try:
-        run(KrunSpec.from_json(json.loads(sys.argv[1])))
+        run(KrunSpec.from_json(cast(KrunSpecJson, json.loads(sys.argv[1]))))
     except KrunError as error:
         print(f"krun: {error}", file=sys.stderr)
         return 1
