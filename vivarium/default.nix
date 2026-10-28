@@ -2716,6 +2716,17 @@ tests
   # `.github/workflows/vivarium-<name>.yml`.
   ciTestWorkflows = ci.workflows;
 
+  # The rest of the schema of nixidae/nixidae#1103, with `lib`, `checks`
+  # and `ciTestWorkflows` above. Every other name in this set is internal.
+  packages = {
+    inherit cli runner session;
+    vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
+    umlKernel = k8sConfig.system.build.umlKernel;
+    default = cli;
+  };
+  nixosModules = { };
+  docs = { };
+
   /*
     Name a run and it is evaluated, built and run, with no `nix build`
     first:
