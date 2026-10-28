@@ -18,9 +18,6 @@
 }:
 let
   nixvenv = pkgs.callPackage ./nixvenv.nix { };
-in
-{
-  inherit nixvenv;
   ps =
     if sources == null then
       throw "nixvenv: `ps` needs `sources`, for pyproject.nix"
@@ -28,6 +25,15 @@ in
       pkgs.callPackage ./python-set.nix {
         pyproject-nix = import sources.pyproject-nix { inherit (pkgs) lib; };
       };
+in
+{
+  packages = { };
+  lib = { inherit nixvenv ps; };
+  nixosModules = { };
   checks = pkgs.callPackages ./checks.nix { inherit nixvenv; };
+  docs = { };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+
+  # Most sources, croshome and solid-kubernetes read these. nixidae/nixidae#1103.
+  inherit nixvenv ps;
 }
