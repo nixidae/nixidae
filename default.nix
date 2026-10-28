@@ -173,5 +173,7 @@ rec {
     licenses = pkgs.callPackage ./nix/licenses.nix { inherit sources; };
 
     pythonpath = pkgs.callPackage ./nix/pythonpath.nix { inherit sources; };
+
+    mypyIni = pkgs.callPackage ./nix/mypy-ini.nix { inherit sources; };
   };
 }

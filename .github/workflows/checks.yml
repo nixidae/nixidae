@@ -1,7 +1,8 @@
 # The checks of the root itself: every rendered `<source>-*.yml` is what its
 # source says, calling a flake we do not own uses our pins, every source
-# is Apache-2.0, no source sets PYTHONPATH, and every source's copy of
-# nix/shared/ is current. Each source's own tests run in its `<source>-*.yml`.
+# is Apache-2.0, no source sets PYTHONPATH, every mypy.ini is strict at
+# its project's Python floor, and every source's copy of nix/shared/ is
+# current. Each source's own tests run in its `<source>-*.yml`.
 name: checks
 
 on:
@@ -20,4 +21,4 @@ jobs:
             access-tokens = github.com=${{ github.token }}
         timeout-minutes: 15
       - name: Root checks
-        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.sharedConfig checks.nixfmt --no-link --print-build-logs
+        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.mypyIni checks.sharedConfig checks.nixfmt --no-link --print-build-logs

@@ -34,7 +34,7 @@ Landing from a secondary workspace: then advance the default workspace, `~/Code/
 ## Gates
 
 ```sh
-nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.sharedConfig checks.nixfmt
+nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.mypyIni checks.sharedConfig checks.nixfmt
 nix run --file . lock-subtrees -- --check
 ```
 
