@@ -27,7 +27,7 @@ jobs:
     - name: Check Python formatting
       run: nix-shell --run 'ruff format --check'
     - name: Check types
-      run: nix-shell --run 'pyright ekn'
+      run: nix-shell --run 'zuban mypy'
 name: 'easykubenix: tests'
 'on':
   pull_request: null
