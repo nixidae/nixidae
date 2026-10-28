@@ -6,14 +6,16 @@ appended it. ruff owns the order and the layout instead, so an emitter
 appends each import it needs and nothing else.
 
 `--isolated`: the build sandbox holds no `ruff.toml`, and a checkout
-holds the lab's. The settings are stated here so both agree; the
-first-party list is the lab's, so the front door lints clean there.
+holds the lab's. The settings are stated here so both agree: the line
+length and `combine-as-imports` are nixidae's shared base
+(`nix/shared/ruff.toml`), and the first-party list is the lab's, so the
+front door lints clean there.
 """
 
 import pathlib
 import subprocess
 
-SETTINGS = ["--isolated", "--line-length", "100", "--target-version", "py314"]
+SETTINGS = ["--isolated", "--line-length", "120", "--target-version", "py314"]
 SORT = [
     "--select",
     "I,RUF022",
@@ -21,6 +23,8 @@ SORT = [
     "--quiet",
     "--config",
     'lint.isort.known-first-party = ["huggorm", "huggorm_bindings", "huggorm_generated"]',
+    "--config",
+    "lint.isort.combine-as-imports = true",
 ]
 
 
