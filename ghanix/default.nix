@@ -12,7 +12,7 @@
 # edit to any of them.
 #
 # Usage:
-#   ghalib = import sources.ghanix { inherit lib; };
+#   ghalib = (import sources.ghanix { inherit lib; }).lib;
 #   ghalib.evalWorkflow {
 #     name = "On commit";
 #     on = { push = { }; };
