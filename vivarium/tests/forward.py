@@ -38,13 +38,9 @@ runner is expected to have moved it up by `privilegedOffset`."""
 
 async def serve(vm: Machine, port: int) -> None:
     """Start a web server in the guest on *port* and leave it running."""
+    await vm.succeed(f"mkdir -p {DOC_ROOT} && echo {PAGE} > {DOC_ROOT}/probe")
     await vm.succeed(
-        f"mkdir -p {DOC_ROOT} && echo {PAGE} > {DOC_ROOT}/probe"
-    )
-    await vm.succeed(
-        f"systemd-run --unit=probe-{port} --collect"
-        f" --working-directory={DOC_ROOT}"
-        f" python3 -m http.server {port}"
+        f"systemd-run --unit=probe-{port} --collect --working-directory={DOC_ROOT} python3 -m http.server {port}"
     )
 
 
@@ -54,12 +50,7 @@ async def fetch(where: str, timeout: float = 30) -> str:
     while True:
         try:
             return await asyncio.to_thread(
-                lambda: urllib.request.urlopen(
-                    f"http://{where}/probe", timeout=5
-                )
-                .read()
-                .decode()
-                .strip()
+                lambda: urllib.request.urlopen(f"http://{where}/probe", timeout=5).read().decode().strip()
             )
         except (urllib.error.URLError, OSError) as error:
             if asyncio.get_running_loop().time() > deadline:
@@ -104,4 +95,3 @@ async def test(vms: Machines) -> None:
     low, _ = ephemeral_range()
     assert vm.reachable(low) == [], f"{low} should not be forwarded"
     print(f"[test] ephemeral {low} correctly reports as not forwarded")
-

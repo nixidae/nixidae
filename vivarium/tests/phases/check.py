@@ -10,6 +10,4 @@ from vivarium_runner import Machines
 
 
 async def test(vms: Machines) -> None:
-    raise AssertionError(
-        "check ran although cluster failed; the skip rule is broken"
-    )
+    raise AssertionError("check ran although cluster failed; the skip rule is broken")

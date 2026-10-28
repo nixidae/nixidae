@@ -84,8 +84,8 @@ async def _writable_store(one: Machine) -> None:
     built = (
         await one.succeed(
             "nix-build --no-out-link --option sandbox true -E "
-            "'derivation { name = \"in-the-guest\"; system = builtins.currentSystem;"
-            " builder = \"/bin/sh\"; args = [ \"-c\" \"echo built > $out\" ]; }'"
+            '\'derivation { name = "in-the-guest"; system = builtins.currentSystem;'
+            ' builder = "/bin/sh"; args = [ "-c" "echo built > $out" ]; }\''
             # The agent returns stderr after stdout; the path is stdout.
             " 2>/dev/null"
         )

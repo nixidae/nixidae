@@ -27,9 +27,7 @@ async def test(vms: Machines) -> None:
     vm = vms.one
     stream = vms.artifacts / "one" / "journal.jsonl"
 
-    await vm.succeed(
-        f"systemd-run --unit=probe --wait /run/current-system/sw/bin/echo {MARK}"
-    )
+    await vm.succeed(f"systemd-run --unit=probe --wait /run/current-system/sw/bin/echo {MARK}")
 
     # On the host while the guest still runs: the stream, not a copy
     # taken at the end. The exact MESSAGE, because systemd's "Started

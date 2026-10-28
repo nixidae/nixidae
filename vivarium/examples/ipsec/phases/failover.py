@@ -58,7 +58,9 @@ async def test(vms: Machines) -> None:
             return None
 
         await until(west, "the route to fall back to ipsec2", withdrawn, 15)
-        print(f"[test] tunnel 1 cut: BGP to {first} down, {prefix} only via ipsec2 after {anyio.current_time() - cut_at:.1f}s")
+        print(
+            f"[test] tunnel 1 cut: BGP to {first} down, {prefix} only via ipsec2 after {anyio.current_time() - cut_at:.1f}s"
+        )
 
     sent, received = loss(outcome["ping"])
     # Measured: 22 of 150 lost, 2.2 s at one ping per 100 ms, under the

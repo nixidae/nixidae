@@ -34,10 +34,7 @@ async def test(vms: Machines) -> None:
     # inline loop runs with every variable empty and writes nothing.
     # A bash `echo` is one write(2) per line -- no userspace buffer
     # stands between it and the kernel.
-    await vm.succeed(
-        "printf '%s\\n' 'for i in 1 2 3 4 5 6; do echo line-$i; sleep 1; done' "
-        "> /tmp/drip.sh"
-    )
+    await vm.succeed("printf '%s\\n' 'for i in 1 2 3 4 5 6; do echo line-$i; sleep 1; done' > /tmp/drip.sh")
     await vm.succeed(
         "systemd-run --unit=drip --no-block --service-type=exec "
         "--property=StandardOutput=append:/artifacts/drip "

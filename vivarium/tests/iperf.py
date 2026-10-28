@@ -32,8 +32,4 @@ async def test(vms: Machines) -> None:
 
     for source, target in ((server, client), (client, server)):
         rate = await measure(source, target)
-        print(
-            f"[test] {source.name} -> {target.name}: {rate / 1e9:.2f} Gbit/s "
-            f"at mtu {source.spec.mtu}"
-        )
-
+        print(f"[test] {source.name} -> {target.name}: {rate / 1e9:.2f} Gbit/s at mtu {source.spec.mtu}")

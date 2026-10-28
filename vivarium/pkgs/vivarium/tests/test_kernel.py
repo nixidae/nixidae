@@ -7,16 +7,17 @@ MINE = Path("/home/me/linux/linux")
 
 class TestWithKernel:
     def test_uml_takes_it_from_the_toolchain(self):
-        tools, machines = with_kernel(
-            {"kernel": "/nix/store/k-linux", "passt": "/p"}, [{"name": "one"}], MINE
-        )
+        tools, machines = with_kernel({"kernel": "/nix/store/k-linux", "passt": "/p"}, [{"name": "one"}], MINE)
         assert tools == {"kernel": str(MINE), "passt": "/p"}
         assert machines == [{"name": "one"}]
 
     def test_qemu_takes_it_from_each_machine(self):
         tools, machines = with_kernel(
             {"qemu": "/q"},
-            [{"name": "a", "boot": {"kernel": "/nix/store/b", "initrd": "/i"}}, {"name": "b", "boot": {"kernel": "/x"}}],
+            [
+                {"name": "a", "boot": {"kernel": "/nix/store/b", "initrd": "/i"}},
+                {"name": "b", "boot": {"kernel": "/x"}},
+            ],
             MINE,
         )
         assert tools == {"qemu": "/q"}, "a QEMU toolchain has no kernel to swap"

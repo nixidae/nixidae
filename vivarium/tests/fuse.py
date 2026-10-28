@@ -28,10 +28,7 @@ async def test(vms: Machines) -> None:
 
     # Root, straight through the device.
     await vm.succeed("bindfs /src /mnt")
-    print(
-        "[test] root mount: "
-        + await vm.succeed("findmnt --noheadings --output FSTYPE,TARGET /mnt")
-    )
+    print("[test] root mount: " + await vm.succeed("findmnt --noheadings --output FSTYPE,TARGET /mnt"))
     await vm.succeed("grep -q hello /mnt/greeting")
     await vm.succeed("umount /mnt")
     await vm.fail("test -e /mnt/greeting")
@@ -46,12 +43,7 @@ async def test(vms: Machines) -> None:
     # --no-allow-other, so this is the private mount FUSE gives by default.
     # bindfs asks for allow_other unless told not to.
     await vm.succeed("su alice -c 'bindfs --no-allow-other /src /home/alice/mnt'")
-    print(
-        "[test] alice mount: "
-        + await vm.succeed(
-            "findmnt --noheadings --output FSTYPE,TARGET /home/alice/mnt"
-        )
-    )
+    print("[test] alice mount: " + await vm.succeed("findmnt --noheadings --output FSTYPE,TARGET /home/alice/mnt"))
     await vm.succeed("su alice -c 'grep -q hello /home/alice/mnt/greeting'")
 
     # And nobody else's.  Root included: this is one of the few things uid 0
@@ -71,4 +63,3 @@ async def test(vms: Machines) -> None:
     await vm.succeed("grep -q hello /home/alice/mnt/greeting")
     print("[test] with allow_other, root reads alice's mount")
     await vm.succeed("su alice -c 'fusermount3 -u /home/alice/mnt'")
-

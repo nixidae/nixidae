@@ -596,9 +596,9 @@ guest can tell you what the host is still paying for.
 What a test still has a lever for is the guest's own memory:
 
 ```python
-await vm.drop_caches()          # free the page cache, which is most of it
-await vm.shrink("256M")         # take memory away from the guest, now
-await vm.grow("256M")           # and give it back, never past its mem=
+await vm.drop_caches()  # free the page cache, which is most of it
+await vm.shrink("256M")  # take memory away from the guest, now
+await vm.grow("256M")  # and give it back, never past its mem=
 ```
 
 `shrink` takes pages that are already free, so `drop_caches` comes first

@@ -163,7 +163,11 @@ class TestAGoodRun:
         session.running = {"one": "cases"}
         await session._pytest("cases", PytestSpec(tests=write_tests(tmp_path, GOOD)), session.vms)
         finished = Event(
-            at=0, kind=Kind.PHASE_FINISHED, level=30, text="", phase="cases",  # ty: ignore[invalid-argument-type]
+            at=0,
+            kind=Kind.PHASE_FINISHED,
+            level=30,
+            text="",
+            phase="cases",  # ty: ignore[invalid-argument-type]
             data={"state": "passed"},
         )
         document = junit([*sink.events, finished], "run")
@@ -246,9 +250,7 @@ class TestImports:
         script = tmp_path / "phase.py"
         script.write_text("from shared_helpers import greet\nasync def test(vms):\n    print(greet())\n")
         sink = Collect()
-        session = Session(
-            Spec(machines=[], phases=[], pythonPath=[lib]), tmp_path / "out", sink=sink
-        )
+        session = Session(Spec(machines=[], phases=[], pythonPath=[lib]), tmp_path / "out", sink=sink)
         session.vms = fake_vms("one")
         session.state = {"phase": PhaseState.PENDING}
         assert await session.run(PhaseSpec(name="phase", script=script)) is PhaseState.PASSED
@@ -272,7 +274,7 @@ class TestAScriptThatDoesNotImport:
 
 @pytest.mark.anyio
 class TestRunningAgain:
-    """"Edit a test, run it again" against the same guests, in one process."""
+    """ "Edit a test, run it again" against the same guests, in one process."""
 
     async def test_an_edit_is_what_runs(self, tmp_path: Path):
         """pytest's importlib mode hands back a module already in

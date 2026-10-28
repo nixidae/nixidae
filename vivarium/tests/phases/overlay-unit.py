@@ -13,7 +13,7 @@ RUN = "-test.root -test.run '^TestOverlay$' -test.v -test.count=1"
 
 
 async def test(vms: Machines) -> None:
-    (_, vm), = vms.items()
+    ((_, vm),) = vms.items()
     settings = vms.settings
     results = {}
     for which in ("fixedTests", "controlTests"):

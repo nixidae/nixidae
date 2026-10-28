@@ -105,7 +105,9 @@ class FakeChr(ByteStream):
         if line.startswith(b"admin+"):
             self._say(line + b"\r\nPassword: ")
         elif line == b"":
-            self._say(b"\r\n" * 3 + b"  MikroTik RouterOS 7.24.5\r\n\r\nDo you want to see the software license? [Y/n]: ")
+            self._say(
+                b"\r\n" * 3 + b"  MikroTik RouterOS 7.24.5\r\n\r\nDo you want to see the software license? [Y/n]: "
+            )
         elif line == b"n":
             self._say(b"n\r\n\nChange your password (Ctrl-C to skip)\r\n\r\r\r\x1b[9999Bnew password> ")
         elif line == routeros.PASSWORD.encode() and not self._globals.get("pw"):

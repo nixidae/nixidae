@@ -16,10 +16,7 @@ from vivarium_runner import Machines
 
 
 async def test(vms: Machines) -> None:
-    systems = {
-        name: (await vm.succeed("readlink -f /run/current-system")).strip()
-        for name, vm in vms.items()
-    }
+    systems = {name: (await vm.succeed("readlink -f /run/current-system")).strip() for name, vm in vms.items()}
     for name, vm in vms.items():
         for other, system in systems.items():
             if other == name:

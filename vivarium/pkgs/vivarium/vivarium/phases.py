@@ -86,23 +86,15 @@ def skipped_by(failed: str, phases: Iterable[PhaseSpec]) -> set[str]:
     return dependents(failed, phases)
 
 
-def runnable(
-    phases: Iterable[PhaseSpec], state: dict[str, PhaseState]
-) -> list[PhaseSpec]:
+def runnable(phases: Iterable[PhaseSpec], state: dict[str, PhaseState]) -> list[PhaseSpec]:
     """The phases still worth running, in the order given."""
-    return [
-        phase
-        for phase in phases
-        if state.get(phase.name, PhaseState.PENDING) is PhaseState.PENDING
-    ]
+    return [phase for phase in phases if state.get(phase.name, PhaseState.PENDING) is PhaseState.PENDING]
 
 
 UNFINISHED = frozenset({PhaseState.PENDING, PhaseState.RUNNING})
 
 
-def ready(
-    phases: Iterable[PhaseSpec], state: dict[str, PhaseState]
-) -> list[PhaseSpec]:
+def ready(phases: Iterable[PhaseSpec], state: dict[str, PhaseState]) -> list[PhaseSpec]:
     """Pending phases whose every `after` has an answer, in the order given.
 
     Any answer, not only a pass. A failure has already marked what it
@@ -113,10 +105,7 @@ def ready(
     return [
         phase
         for phase in runnable(phases, state)
-        if all(
-            state.get(name, PhaseState.PENDING) not in UNFINISHED
-            for name in phase.after
-        )
+        if all(state.get(name, PhaseState.PENDING) not in UNFINISHED for name in phase.after)
     ]
 
 
@@ -170,10 +159,7 @@ def passed(state: dict[str, PhaseState]) -> bool:
     so its answer was never wanted.  Only a caller can deselect, and a
     sandboxed check never does, so this cannot make CI green.
     """
-    return all(
-        value in (PhaseState.PASSED, PhaseState.DESELECTED)
-        for value in state.values()
-    )
+    return all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
 
 
 def summarise(state: dict[str, PhaseState]) -> str:
@@ -181,6 +167,4 @@ def summarise(state: dict[str, PhaseState]) -> str:
     counts: dict[PhaseState, int] = {}
     for value in state.values():
         counts[value] = counts.get(value, 0) + 1
-    return ", ".join(
-        f"{counts[key]} {key}" for key in PhaseState if key in counts
-    )
+    return ", ".join(f"{counts[key]} {key}" for key in PhaseState if key in counts)

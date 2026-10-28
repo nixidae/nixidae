@@ -65,9 +65,7 @@ class TestDependents:
     def test_the_answer_does_not_depend_on_input_order(self):
         """The sort happens in Nix. A function that quietly needs its
         input sorted is a trap for whoever changes the sort."""
-        assert dependents("cluster", list(reversed(CHAIN))) == dependents(
-            "cluster", CHAIN
-        )
+        assert dependents("cluster", list(reversed(CHAIN))) == dependents("cluster", CHAIN)
 
 
 class TestSkippedBy:
@@ -133,11 +131,7 @@ class TestRunnable:
 
 
 def on(name: str, *after: str, nodes: tuple[str, ...] = (), pytest_: bool = False) -> PhaseSpec:
-    kind: dict = (
-        {"pytest": {"tests": Path("/dev/null/t")}}
-        if pytest_
-        else {"script": Path(f"/dev/null/{name}.py")}
-    )
+    kind: dict = {"pytest": {"tests": Path("/dev/null/t")}} if pytest_ else {"script": Path(f"/dev/null/{name}.py")}
     return PhaseSpec(name=name, after=list(after), nodes=list(nodes), **kind)
 
 

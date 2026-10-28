@@ -35,9 +35,7 @@ async def rest(where: str, path: str) -> object:
     deadline = asyncio.get_running_loop().time() + 60
     while True:
         try:
-            body = await asyncio.to_thread(
-                lambda: urllib.request.urlopen(request, timeout=5).read()
-            )
+            body = await asyncio.to_thread(lambda: urllib.request.urlopen(request, timeout=5).read())
             return json.loads(body)
         except OSError as error:
             if asyncio.get_running_loop().time() > deadline:

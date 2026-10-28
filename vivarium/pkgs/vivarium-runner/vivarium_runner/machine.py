@@ -205,9 +205,7 @@ class MachineSpec:
             cni=data.get("cni", "bridge"),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
-            forward=tuple(
-                forward.Rule.from_json(rule) for rule in data.get("forward", [])
-            ),
+            forward=tuple(forward.Rule.from_json(rule) for rule in data.get("forward", [])),
         )
 
     @property
@@ -264,9 +262,7 @@ class AgentControl:
 
     conn: AsyncConnection
 
-    async def execute(
-        self, command: str, timeout: float, env: dict[str, str] | None = None
-    ) -> tuple[int, str]:
+    async def execute(self, command: str, timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
         return await self.conn.root.run(command, timeout=timeout, env=env)
 
     async def aclose(self) -> None:
@@ -331,12 +327,8 @@ class Machine:
         # groups cannot own, so it is a held task, cancelled in shutdown().
         # The agent's serve loop is the same kind of task, owned by arpyc.
         self._monitor: asyncio.Task[None] | None = None
-        self._console_send, self._console_recv = anyio.create_memory_object_stream[str](
-            math.inf
-        )
-        self._history: collections.deque[str] = collections.deque(
-            maxlen=_CONSOLE_HISTORY
-        )
+        self._console_send, self._console_recv = anyio.create_memory_object_stream[str](math.inf)
+        self._history: collections.deque[str] = collections.deque(maxlen=_CONSOLE_HISTORY)
         self._agent_sock: socket.socket | None = None
         self._guest_sock: socket.socket | None = None
         self._conn: AsyncConnection | None = None
@@ -391,9 +383,7 @@ class Machine:
             self._log(f"warning: {note}")
         forward.probe(self.forward)
         for rule in self.forward:
-            what = "all ports" if rule.wide else ", ".join(
-                str(port) for port in rule.ports
-            )
+            what = "all ports" if rule.wide else ", ".join(str(port) for port in rule.ports)
             self._log(f"forwarding {what} on {rule.address}")
 
     async def start(self) -> None:
@@ -418,15 +408,11 @@ class Machine:
     async def _boot(self, boot: dict | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
         assert self._rundir is not None
-        self._agent_sock, self._guest_sock = socket.socketpair(
-            socket.AF_UNIX, socket.SOCK_STREAM
-        )
+        self._agent_sock, self._guest_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
         try:
             if boot is None:
-                launch = self.backend.launch(
-                    self, self._rundir, self._guest_sock.fileno(), self.lan_fds
-                )
+                launch = self.backend.launch(self, self._rundir, self._guest_sock.fileno(), self.lan_fds)
             else:
                 launch = self.backend.launch(
                     self,
@@ -452,9 +438,7 @@ class Machine:
         self._spare_fds = [
             fd
             for fd in launch.pass_fds
-            if fd != self._guest_sock.fileno()
-            and fd not in self.lan_fds.values()
-            and fd not in self._disk_fds
+            if fd != self._guest_sock.fileno() and fd not in self.lan_fds.values() and fd not in self._disk_fds
         ]
         self._log(f"exec: {' '.join(launch.argv)}")
 
@@ -483,11 +467,7 @@ class Machine:
             return
 
         appliance = self.spec.boot.get("appliance") if self.appliance else None
-        ready = (
-            re.compile(appliance["ready"])
-            if appliance
-            else re.compile(re.escape(AGENT_READY))
-        )
+        ready = re.compile(appliance["ready"]) if appliance else re.compile(re.escape(AGENT_READY))
         started = time.monotonic()
         try:
             with anyio.fail_after(self.boot_timeout):
@@ -571,11 +551,7 @@ class Machine:
     async def _reboot(self) -> None:
         """The process-scoped half of `shutdown`, then `_boot` on the same disk."""
         boot = self._bootloader() or self.spec.boot
-        self._log(
-            f"rebooting into {boot['toplevel']}"
-            if boot.get("kernel")
-            else "rebooting through the firmware"
-        )
+        self._log(f"rebooting into {boot['toplevel']}" if boot.get("kernel") else "rebooting through the firmware")
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -590,7 +566,6 @@ class Machine:
         self._process = None
         self.lan_fds = dict(self._lan_kept)
         await self._boot(boot)
-
 
     async def _start_console(self, dialect: Dialect) -> None:
         """Log in on the guest's console and apply its config disk.
@@ -622,9 +597,7 @@ class Machine:
             ) from None
         self._log(f"logged in on the {dialect.name} console")
         if dialect.configure is not None and self.spec.boot["image"].get("configDisk"):
-            rc, out = await self.execute(
-                dialect.configure, timeout=self.boot_timeout, label="apply the config disk"
-            )
+            rc, out = await self.execute(dialect.configure, timeout=self.boot_timeout, label="apply the config disk")
             if rc != 0:
                 raise MachineError(f"[{self.name}] the config disk failed:\n{out}")
         elapsed = time.monotonic() - started
@@ -852,17 +825,12 @@ class Machine:
                     line = await self._console_recv.receive()
             except TimeoutError:
                 if self._process is not None and self._process.returncode is not None:
-                    raise MachineError(
-                        f"[{self.name}] guest exited while waiting for "
-                        f"{pattern.pattern!r}"
-                    ) from None
+                    raise MachineError(f"[{self.name}] guest exited while waiting for {pattern.pattern!r}") from None
                 continue
             if pattern.search(line):
                 return line
 
-    async def wait_for_console_text(
-        self, pattern: str, timeout: float | None = None
-    ) -> str:
+    async def wait_for_console_text(self, pattern: str, timeout: float | None = None) -> str:
         """Wait for a regex to appear on the guest's console."""
         with anyio.fail_after(timeout or self.command_timeout):
             return await self._wait_for_line(re.compile(pattern))
@@ -872,13 +840,10 @@ class Machine:
     @property
     def _agent(self):
         if self.appliance:
-            raise MachineError(
-                f"[{self.name}] is an appliance: it has no agent, reach it over the network"
-            )
+            raise MachineError(f"[{self.name}] is an appliance: it has no agent, reach it over the network")
         if self.control_kind != ControlKind.AGENT:
             raise MachineError(
-                f"[{self.name}] is driven through its {self.control_kind} console,"
-                " and has no agent for this call"
+                f"[{self.name}] is driven through its {self.control_kind} console, and has no agent for this call"
             )
         if self._conn is None:
             raise MachineError(f"[{self.name}] agent is not connected")
@@ -916,15 +881,11 @@ class Machine:
         except TimeoutError:
             data = {"error": "the guest stopped answering"}
             raise MachineError(
-                f"[{self.name}] guest stopped answering during: {what}\n"
-                f"{self._console_tail()}"
+                f"[{self.name}] guest stopped answering during: {what}\n{self._console_tail()}"
             ) from None
         except EOFError:
             data = {"error": "the guest went away"}
-            raise MachineError(
-                f"[{self.name}] guest went away during: {what}\n"
-                f"{self._console_tail()}"
-            ) from None
+            raise MachineError(f"[{self.name}] guest went away during: {what}\n{self._console_tail()}") from None
         except Exception as error:
             data = {"error": f"{type(error).__name__}: {error}"[:OUTPUT_LIMIT]}
             raise
@@ -989,9 +950,7 @@ class Machine:
         """Run a command that must succeed; returns its output."""
         rc, out = await self.execute(command, timeout=timeout, env=env)
         if rc != 0:
-            raise MachineError(
-                f"[{self.name}] command failed (exit {rc}): {command}\n{out}"
-            )
+            raise MachineError(f"[{self.name}] command failed (exit {rc}): {command}\n{out}")
         return out
 
     async def fail(
@@ -1003,9 +962,7 @@ class Machine:
         """Run a command that must fail; returns its output."""
         rc, out = await self.execute(command, timeout=timeout, env=env)
         if rc == 0:
-            raise MachineError(
-                f"[{self.name}] command unexpectedly succeeded: {command}\n{out}"
-            )
+            raise MachineError(f"[{self.name}] command unexpectedly succeeded: {command}\n{out}")
         return out
 
     async def switch_to(
@@ -1029,9 +986,7 @@ class Machine:
         if self.control_kind != ControlKind.AGENT:
             raise MachineError(f"[{self.name}] runs {self.control_kind}, and has no NixOS to switch")
         if self.spec.boot.get("image"):
-            raise MachineError(
-                f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch"
-            )
+            raise MachineError(f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch")
         if name is None:
             if self.spec.toplevel is None:
                 raise MachineError(f"[{self.name}] the spec names no booted system")
@@ -1042,14 +997,10 @@ class Machine:
             system = self.spec.configurations[name]
         else:
             known = ", ".join(sorted(self.spec.configurations)) or "none"
-            raise MachineError(
-                f"[{self.name}] no configuration {name!r}; this guest has: {known}"
-            )
+            raise MachineError(f"[{self.name}] no configuration {name!r}; this guest has: {known}")
         steps = []
         if action in ("switch", "boot"):
-            steps.append(
-                f"nix-env --profile /nix/var/nix/profiles/system --set {shlex.quote(system)}"
-            )
+            steps.append(f"nix-env --profile /nix/var/nix/profiles/system --set {shlex.quote(system)}")
         steps.append(
             "systemd-run -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER --collect"
             " --no-ask-password --pipe --quiet --service-type=exec"
@@ -1062,10 +1013,7 @@ class Machine:
             label=f"switch_to {name or 'booted'} {action}",
         )
         if check and rc != 0:
-            raise MachineError(
-                f"[{self.name}] switch to {name or 'the booted system'} failed"
-                f" (exit {rc}):\n{out}"
-            )
+            raise MachineError(f"[{self.name}] switch to {name or 'the booted system'} failed (exit {rc}):\n{out}")
         return rc, out
 
     async def add_closure(self, info: str) -> list[str]:
@@ -1106,7 +1054,13 @@ class Machine:
         """Mount *paths* inside a container guest; see `container.attach`."""
         pid = (rundir / "crun" / container.INIT_PID).read_text().strip()
         proc = await subprocess.create_subprocess_exec(
-            sys.executable, "-m", "vivarium_runner.crun_launch", "attach", "--pid", pid, *paths,
+            sys.executable,
+            "-m",
+            "vivarium_runner.crun_launch",
+            "attach",
+            "--pid",
+            pid,
+            *paths,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
@@ -1118,15 +1072,11 @@ class Machine:
 
     async def unit_state(self, unit: str) -> str:
         """ActiveState of *unit* (``active``, ``failed``, ...)."""
-        return await self._ask(
-            f"unit_state {unit}", self._agent.unit_state(unit), _SYSTEMD_TIMEOUT
-        )
+        return await self._ask(f"unit_state {unit}", self._agent.unit_state(unit), _SYSTEMD_TIMEOUT)
 
     async def unit_info(self, unit: str) -> dict[str, str]:
         """Every property ``systemctl show`` reports for *unit*."""
-        return await self._ask(
-            f"unit_info {unit}", self._agent.unit_info(unit), _SYSTEMD_TIMEOUT
-        )
+        return await self._ask(f"unit_info {unit}", self._agent.unit_info(unit), _SYSTEMD_TIMEOUT)
 
     async def list_units(self, pattern: str = "*") -> list[dict]:
         """Units matching *pattern*, as dicts of the systemctl columns."""
@@ -1155,9 +1105,7 @@ class Machine:
         Empty when nothing forwards it -- which is the answer worth
         having, since it cannot be fixed without rebooting the guest.
         """
-        return forward.reachable(
-            self.forward, guest_port, forward.unprivileged_start()
-        )
+        return forward.reachable(self.forward, guest_port, forward.unprivileged_start())
 
     async def processes(self) -> list[dict]:
         """Every process in the guest: pid, ppid, name and cmdline.
@@ -1175,11 +1123,7 @@ class Machine:
         characters -- ``nix-daemon`` survives that and a longer name does
         not.
         """
-        return sum(
-            1
-            for p in await self.processes()
-            if pattern in p["name"] or pattern in p["cmdline"]
-        )
+        return sum(1 for p in await self.processes() if pattern in p["name"] or pattern in p["cmdline"])
 
     async def journal(self, unit: str | None = None, lines: int = 50) -> str:
         """Tail of the guest journal, optionally for one unit."""
@@ -1328,10 +1272,7 @@ class Machine:
 
     async def _balloon(self, delta: int) -> None:
         if self._memory is None:
-            raise MachineError(
-                f"[{self.name}] has no control channel for its memory, so it "
-                "cannot be resized"
-            )
+            raise MachineError(f"[{self.name}] has no control channel for its memory, so it cannot be resized")
         with self.recorder.waiting(self.name, f"balloon {delta // 1024 // 1024}M"):
             try:
                 await self._memory.balloon(delta)
@@ -1431,8 +1372,7 @@ class Machine:
                     shot = await self.screenshot()
                     read = "\n---\n".join(screen.text for screen in screens)
                     raise MachineError(
-                        f"[{self.name}] timed out waiting for {pattern!s} on the screen "
-                        f"({shot}); OCR read:\n{read}"
+                        f"[{self.name}] timed out waiting for {pattern!s} on the screen ({shot}); OCR read:\n{read}"
                     )
                 await anyio.sleep(0.5)
 
@@ -1465,9 +1405,7 @@ class Machine:
         events = display.button_events(display.Button(button), False)
         await self._qmp(lambda monitor: monitor.input(events))
 
-    async def click(
-        self, x: int, y: int, button: display.Button | str = display.Button.LEFT, count: int = 1
-    ) -> None:
+    async def click(self, x: int, y: int, button: display.Button | str = display.Button.LEFT, count: int = 1) -> None:
         """Click at (*x*, *y*); *count* 2 is a double click."""
         await self.move(x, y)
         for _ in range(count):
@@ -1537,23 +1475,17 @@ class Machine:
             if state == "active":
                 return
             if state == "failed":
-                raise MachineError(
-                    f"[{self.name}] unit {unit} failed:\n"
-                    f"{await self.journal(unit)}"
-                )
+                raise MachineError(f"[{self.name}] unit {unit} failed:\n{await self.journal(unit)}")
             if time.monotonic() > deadline:
                 # With the journal, like the `failed` branch above: an
                 # `inactive` unit says only that nothing happened, and why
                 # is in the log of whatever was to pull it in.
                 raise MachineError(
-                    f"[{self.name}] timed out waiting for unit {unit} "
-                    f"(state: {state})\n{await self.journal(unit)}"
+                    f"[{self.name}] timed out waiting for unit {unit} (state: {state})\n{await self.journal(unit)}"
                 )
             await anyio.sleep(0.5)
 
-    async def wait_until_succeeds(
-        self, command: str, timeout: float = 120, poll: float = 1.0
-    ) -> str:
+    async def wait_until_succeeds(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
         """Run *command* in the guest until it exits 0; return its output.
 
         The nixos-test idiom for a settle: push the condition into the
@@ -1570,10 +1502,7 @@ class Machine:
                             return out
                         await anyio.sleep(poll)
             except TimeoutError:
-                raise MachineError(
-                    f"[{self.name}] `{command}` did not succeed within "
-                    f"{timeout:.0f}s:\n{out}"
-                ) from None
+                raise MachineError(f"[{self.name}] `{command}` did not succeed within {timeout:.0f}s:\n{out}") from None
 
 
 class Machines(dict[str, Machine]):
@@ -1617,6 +1546,4 @@ class Machines(dict[str, Machine]):
         try:
             return self[name]
         except KeyError:
-            raise AttributeError(
-                f"no machine {name!r} in this test; have {', '.join(self)}"
-            ) from None
+            raise AttributeError(f"no machine {name!r} in this test; have {', '.join(self)}") from None

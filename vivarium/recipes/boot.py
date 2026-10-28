@@ -27,9 +27,5 @@ async def test(vms: Machines) -> None:
             print(f"[boot] {name} is {state}")
             continue
 
-        failed = await vm.succeed(
-            "systemctl list-units --state=failed --no-legend --plain || true"
-        )
-        raise AssertionError(
-            f"{name} came up {state!r}, with these units failed:\n{failed or '  (none)'}"
-        )
+        failed = await vm.succeed("systemctl list-units --state=failed --no-legend --plain || true")
+        raise AssertionError(f"{name} came up {state!r}, with these units failed:\n{failed or '  (none)'}")

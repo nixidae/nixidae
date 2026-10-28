@@ -18,17 +18,13 @@ async def test_an_async_fixture(marker: str) -> None:
 async def test_logs_and_returns(one: Machine) -> None:
     """Returns before journald has handed the line on. The phase's
     settle is what keeps it from being lost to the teardown."""
-    await one.succeed(
-        "systemd-run --unit=left --wait /run/current-system/sw/bin/echo logged-and-left"
-    )
+    await one.succeed("systemd-run --unit=left --wait /run/current-system/sw/bin/echo logged-and-left")
 
 
 async def test_the_journal_names_the_test(one: Machine, vms: Machines) -> None:
     """Waits for its own line, as a test waiting on a log line does, so
     the line arrives while the test is still the one running."""
-    await one.succeed(
-        "systemd-run --unit=from-a-test --wait /run/current-system/sw/bin/echo from-a-test"
-    )
+    await one.succeed("systemd-run --unit=from-a-test --wait /run/current-system/sw/bin/echo from-a-test")
     stream = vms.artifacts / "one" / "journal.jsonl"
     for _ in range(40):
         for line in stream.read_text(errors="replace").splitlines():

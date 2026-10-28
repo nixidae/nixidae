@@ -63,11 +63,7 @@ def _mount(source: str, target: Path, fstype: str | None, flags: int) -> None:
 
 
 def _set_read_only(path: Path, read_only: bool, *, recursive: bool) -> None:
-    attr = (
-        _MountAttr(attr_set=_MOUNT_ATTR_RDONLY)
-        if read_only
-        else _MountAttr(attr_clr=_MOUNT_ATTR_RDONLY)
-    )
+    attr = _MountAttr(attr_set=_MOUNT_ATTR_RDONLY) if read_only else _MountAttr(attr_clr=_MOUNT_ATTR_RDONLY)
     _check(
         _libc.syscall(
             _SYS_MOUNT_SETATTR,

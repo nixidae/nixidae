@@ -25,8 +25,7 @@ def reply(nonce: str, output: bytes, status: int) -> bytes:
     base64 on one line, and the exit status after the end marker."""
     blob = base64.b64encode(output)
     return (
-        b"\r\n" + f"{nonce}-B".encode() + b"\r\n" + blob + b"\r\n"
-        + f"{nonce}-D {status}".encode() + b"\r\n" + PROMPT
+        b"\r\n" + f"{nonce}-B".encode() + b"\r\n" + blob + b"\r\n" + f"{nonce}-D {status}".encode() + b"\r\n" + PROMPT
     )
 
 

@@ -29,9 +29,9 @@ HOST_STORE = "local?root=/&read-only=true"
 # build on stderr, so keep the path the only thing left.
 PROBE = (
     "nix build --impure --no-link --print-out-paths --expr "
-    "'derivation { name = \"host-store-probe\"; "
+    '\'derivation { name = "host-store-probe"; '
     'system = builtins.currentSystem; builder = "/bin/sh"; '
-    "args = [ \"-c\" \"echo probe > $out\" ]; }' 2>/dev/null"
+    'args = [ "-c" "echo probe > $out" ]; }\' 2>/dev/null'
 )
 
 
@@ -125,4 +125,3 @@ async def test(vms: Machines) -> None:
     # nothing above asserts on this number.
     total = (await node.succeed("nix path-info --all | wc -l")).strip()
     print(f"[test] the guest's upper database holds {total} paths")
-

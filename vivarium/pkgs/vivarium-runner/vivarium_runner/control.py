@@ -33,9 +33,7 @@ class ControlKind(StrEnum):
 class Control(Protocol):
     """What `Machine.execute` runs a command through."""
 
-    async def execute(
-        self, command: str, timeout: float, env: Mapping[str, str] | None = None
-    ) -> tuple[int, str]:
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
         """The command's exit status and output. A console guest has no
         status of its own: 0, or 1 with the guest's message last."""
         ...
@@ -164,9 +162,7 @@ class ConsoleControl:
                 await self._recover()
                 raise
 
-    async def execute(
-        self, command: str, timeout: float, env: Mapping[str, str] | None = None
-    ) -> tuple[int, str]:
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
         if env:
             raise ConsoleError(f"{self._dialect.name}: a console takes no environment")
         result = await self.run(command, timeout)

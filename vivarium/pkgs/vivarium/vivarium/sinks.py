@@ -116,9 +116,7 @@ class ConsoleFiles:
             return
         handle = self._files.get(event.machine)
         if handle is None:
-            handle = (self._dir / f"{event.machine}.log").open(
-                "w", buffering=1, encoding="utf-8", errors="replace"
-            )
+            handle = (self._dir / f"{event.machine}.log").open("w", buffering=1, encoding="utf-8", errors="replace")
             self._files[event.machine] = handle
         handle.write(event.text + "\n")  # ty: ignore[unresolved-attribute]
 
@@ -167,8 +165,7 @@ class Broadcast:
             except Exception as error:  # noqa: BLE001 -- see the module docstring
                 self._broken.add(index)
                 print(
-                    f"[vivarium] {type(sink).__name__} stopped taking events"
-                    f" ({error}); the run carries on",
+                    f"[vivarium] {type(sink).__name__} stopped taking events ({error}); the run carries on",
                     file=sys.stderr,
                     flush=True,
                 )

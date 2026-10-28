@@ -145,8 +145,7 @@ async def _run(*argv: str) -> bytes:
     result = await anyio.run_process(list(argv), check=False)
     if result.returncode != 0:
         raise OcrError(
-            f"{Path(argv[0]).name} exited {result.returncode}: "
-            f"{result.stderr.decode(errors='replace')[-500:]}"
+            f"{Path(argv[0]).name} exited {result.returncode}: {result.stderr.decode(errors='replace')[-500:]}"
         )
     return result.stdout
 

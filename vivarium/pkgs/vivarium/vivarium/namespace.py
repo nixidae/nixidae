@@ -74,8 +74,7 @@ def _subordinate(path: Path, user: str, uid: int) -> int:
 def has_subordinate_ids(user: str, uid: int, root: Path = Path("/")) -> bool:
     """Whether `--map-auto` can map a guest's worth of ids."""
     return all(
-        _subordinate(root / "etc" / name, user, uid) >= SUBORDINATE_IDS
-        for name in ("subuid", "subgid")
+        _subordinate(root / "etc" / name, user, uid) >= SUBORDINATE_IDS for name in ("subuid", "subgid")
     ) and all(shutil.which(tool) for tool in ("newuidmap", "newgidmap"))
 
 
@@ -86,9 +85,7 @@ def user_argv(unshare: str, *, subordinate: bool) -> list[str]:
     return [unshare, "--user", "--map-root-user", *auto]
 
 
-def unshare_argv(
-    unshare: str, *, root: bool, subordinate: bool, private_net: bool = False
-) -> list[str]:
+def unshare_argv(unshare: str, *, root: bool, subordinate: bool, private_net: bool = False) -> list[str]:
     """The `unshare` command line that puts the runner in its namespace."""
     net = ["--net"] if private_net else []
     mount = [*net, "--mount", "--propagation", "private", "--"]

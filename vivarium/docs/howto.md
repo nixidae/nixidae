@@ -101,9 +101,9 @@ nodes.one.vivarium.configurations.two = {
 A phase switches the running guest, as `nixos-rebuild` does:
 
 ```python
-await vms.one.switch_to("two")            # switch: profile, then activate
-await vms.one.switch_to("two", "test")    # activate only
-await vms.one.switch_to()                 # back to the booted system
+await vms.one.switch_to("two")  # switch: profile, then activate
+await vms.one.switch_to("two", "test")  # activate only
+await vms.one.switch_to()  # back to the booted system
 rc, out = await vms.one.switch_to("two", check=False)  # exit 4: a unit failed
 ```
 
@@ -147,11 +147,11 @@ nodes.desk = {
 Then, in a phase or through `exec`:
 
 ```python
-await desk.wait_for_text(r"login:")          # OCR; returns where the text is
-await desk.send_chars("root\n")              # types on a US layout
-await desk.send_key("ctrl-alt-f2")           # QEMU's sendkey names
-await desk.click_text(r"^OK$")               # waits for it, clicks its middle
-await desk.click(512, 384, button="right")   # pixels from the top left
+await desk.wait_for_text(r"login:")  # OCR; returns where the text is
+await desk.send_chars("root\n")  # types on a US layout
+await desk.send_key("ctrl-alt-f2")  # QEMU's sendkey names
+await desk.click_text(r"^OK$")  # waits for it, clicks its middle
+await desk.click(512, 384, button="right")  # pixels from the top left
 await desk.drag((10, 10), (300, 200))
 path = await desk.screenshot("after-login")  # a PNG in artifacts/desk/screenshots/
 ```

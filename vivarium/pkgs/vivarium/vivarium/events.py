@@ -156,12 +156,7 @@ def render(event: Event) -> str:
 
 
 def _xml_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def junit(events: Iterable[Event], name: str = "uml") -> str:
@@ -182,17 +177,9 @@ def junit(events: Iterable[Event], name: str = "uml") -> str:
     # A pytest run sent to a paused session by hand is exploring, and the
     # run's verdict does not count it. Its failures here would contradict
     # `status`.
-    kept = [
-        e
-        for e in events
-        if e.kind in (Kind.PHASE_FINISHED, Kind.CASE) and not e.data.get("by_hand")
-    ]
+    kept = [e for e in events if e.kind in (Kind.PHASE_FINISHED, Kind.CASE) and not e.data.get("by_hand")]
     with_cases = {e.phase for e in kept if e.kind is Kind.CASE}
-    failing_cases = {
-        e.phase
-        for e in kept
-        if e.kind is Kind.CASE and e.data.get("outcome") in ("failed", "error")
-    }
+    failing_cases = {e.phase for e in kept if e.kind is Kind.CASE and e.data.get("outcome") in ("failed", "error")}
     cases: list[str] = []
     failures = 0
     skipped = 0
@@ -210,9 +197,7 @@ def junit(events: Iterable[Event], name: str = "uml") -> str:
             if state == "interrupted":
                 # A dashboard has no third outcome, and "passed" would lie.
                 state = "failed"
-            if event.phase in with_cases and not (
-                state == "failed" and event.phase not in failing_cases
-            ):
+            if event.phase in with_cases and not (state == "failed" and event.phase not in failing_cases):
                 continue
             classname = name
             case_name = event.phase or ""
@@ -225,19 +210,11 @@ def junit(events: Iterable[Event], name: str = "uml") -> str:
             # The first line in the attribute and the whole thing in the
             # body. A dashboard shows the attribute in a table cell, and
             # a traceback in a table cell helps nobody.
-            summary = event.data.get("message") or (
-                error.splitlines()[0] if error else "failed"
-            )
-            body = (
-                f'<failure message="{_xml_escape(summary)}">'
-                f"{_xml_escape(error)}</failure>"
-            )
+            summary = event.data.get("message") or (error.splitlines()[0] if error else "failed")
+            body = f'<failure message="{_xml_escape(summary)}">{_xml_escape(error)}</failure>'
         elif state == "skipped":
             skipped += 1
-            body = (
-                "<skipped message="
-                f'"{_xml_escape(event.data.get("reason", "a phase it needs failed"))}"/>'
-            )
+            body = f'<skipped message="{_xml_escape(event.data.get("reason", "a phase it needs failed"))}"/>'
         cases.append(
             f'  <testcase classname="{_xml_escape(classname)}"'
             f' name="{_xml_escape(case_name)}"'

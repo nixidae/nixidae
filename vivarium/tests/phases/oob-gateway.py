@@ -30,10 +30,7 @@ target. The phase waits for exactly this, so a wrong reservation fails
 loudly rather than passing on a pool address."""
 GATEWAY = "10.42.0.1"
 
-SETTLED = (
-    f"ip -4 -brief addr show vec0 | grep -qF {SW_ADDRESS}"
-    f" && ip -4 route show default | grep -qF 'via {GATEWAY}'"
-)
+SETTLED = f"ip -4 -brief addr show vec0 | grep -qF {SW_ADDRESS} && ip -4 route show default | grep -qF 'via {GATEWAY}'"
 """sw holds its reserved address and its default route from DHCP."""
 
 
@@ -67,10 +64,7 @@ async def test(vms: Machines) -> None:
 
     # A service in sw, bound long after passt stopped taking arguments.
     await sw.succeed(f"mkdir -p {DOC_ROOT} && echo {PAGE} > {DOC_ROOT}/probe")
-    await sw.succeed(
-        f"systemd-run --unit=probe --collect"
-        f" --working-directory={DOC_ROOT} python3 -m http.server {PORT}"
-    )
+    await sw.succeed(f"systemd-run --unit=probe --collect --working-directory={DOC_ROOT} python3 -m http.server {PORT}")
 
     address = svc.forward[0].address
     if address is None:

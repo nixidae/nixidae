@@ -44,9 +44,10 @@ def event(kind: str, **fields: object) -> dict:
 
 class TestChannelEvent:
     def test_a_pause(self):
-        content, meta = channel_event(
-            event("note", text="paused", data={"reason": "after cases failed"}), "r1"
-        ) or ("", {})
+        content, meta = channel_event(event("note", text="paused", data={"reason": "after cases failed"}), "r1") or (
+            "",
+            {},
+        )
         assert meta == {"run": "r1", "event": "paused", "reason": "after cases failed"}
         assert "guests are up" in content
 
@@ -58,9 +59,7 @@ class TestChannelEvent:
         )
 
     def test_a_failed_phase(self):
-        pushed = channel_event(
-            event("phase_finished", phase="cases", data={"state": "failed", "error": "boom"}), "r1"
-        )
+        pushed = channel_event(event("phase_finished", phase="cases", data={"state": "failed", "error": "boom"}), "r1")
         assert pushed == ("phase cases failed: boom", {"run": "r1", "event": "failed", "phase": "cases"})
 
     def test_the_verdict(self):
@@ -78,9 +77,7 @@ class TestChannelEvent:
             "phase deploy started",
             {"run": "r1", "event": "progress", "phase": "deploy", "state": "started"},
         )
-        assert channel_event(
-            event("phase_finished", phase="deploy", seconds=12.4, data={"state": "passed"}), "r1"
-        ) == (
+        assert channel_event(event("phase_finished", phase="deploy", seconds=12.4, data={"state": "passed"}), "r1") == (
             "phase deploy passed in 12s",
             {"run": "r1", "event": "progress", "phase": "deploy", "state": "passed"},
         )

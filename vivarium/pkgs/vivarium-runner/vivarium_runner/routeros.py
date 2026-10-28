@@ -42,10 +42,7 @@ def _script(source: str, nonce: str) -> str:
     """The script `:execute` runs: decode, run, and on an error print a
     line tagged with the nonce. `source` is a RouterOS expression that
     yields the base64."""
-    return (
-        f":onerror e in={{ [[:parse [:convert from=base64 {source}]]] }}"
-        f' do={{ :put ("{nonce}-E " . $e) }}'
-    )
+    return f':onerror e in={{ [[:parse [:convert from=base64 {source}]]] }} do={{ :put ("{nonce}-E " . $e) }}'
 
 
 def _quote(text: str) -> str:

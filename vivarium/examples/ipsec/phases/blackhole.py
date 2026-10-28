@@ -75,7 +75,9 @@ async def test(vms: Machines) -> None:
         if await transfer(carol, address) == 0:
             raise AssertionError("the transfer passed a hop that drops ESP over 1400 bytes")
         dropped = await west.succeed("nft list chain inet narrow postrouting | grep -o 'packets [0-9]*'")
-        print(f"[test] black hole: ping passes, the 4 MB transfer stalls; west dropped {dropped.split()[-1]} ESP packets over {NARROW} bytes")
+        print(
+            f"[test] black hole: ping passes, the 4 MB transfer stalls; west dropped {dropped.split()[-1]} ESP packets over {NARROW} bytes"
+        )
 
         await clamp(west, "rt mtu")
         mss = await syn_mss(dave, carol, address)

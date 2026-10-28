@@ -73,9 +73,7 @@ def pod(name: str, network: int = NODE_NETWORK, userns: bool = False) -> dict:
             # "slice:prefix:name".  Nothing here creates it -- system.slice
             # already exists.
             "cgroup_parent": "system.slice",
-            "security_context": {
-                "namespace_options": {"network": network, **(USERNS if userns else {})}
-            },
+            "security_context": {"namespace_options": {"network": network, **(USERNS if userns else {})}},
         },
     }
 
@@ -132,11 +130,7 @@ async def test(vms: Machines) -> None:
     # one it cannot open is an exit rather than a warning.  Four are in
     # files every kernel compiles; the keyring pair needs CONFIG_KEYS,
     # which an allnoconfig kernel does not give you.
-    missing = [
-        tunable
-        for tunable in TUNABLES
-        if (await node.execute(f"test -e /proc/sys/{tunable}"))[0] != 0
-    ]
+    missing = [tunable for tunable in TUNABLES if (await node.execute(f"test -e /proc/sys/{tunable}"))[0] != 0]
     if missing:
         raise MachineError(
             f"[{node.name}] the kernel is missing sysctls kubelet exits without:\n"
@@ -150,8 +144,7 @@ async def test(vms: Machines) -> None:
     for expected in (f"registry.k8s.io/kube-apiserver:v{version}", vms.settings["sandboxImage"]):
         if expected not in images:
             raise MachineError(
-                f"[{node.name}] {expected} was not imported; got:\n"
-                + "\n".join(f"    {image}" for image in images)
+                f"[{node.name}] {expected} was not imported; got:\n" + "\n".join(f"    {image}" for image in images)
             )
 
     # Every image is a symlink to one of these.  Checking them all here
@@ -159,16 +152,11 @@ async def test(vms: Machines) -> None:
     # control plane that crash-loops for twenty minutes because the one
     # image this test happens to run is the one that works.
     entrypoints = vms.settings["entrypoints"]
-    dangling = [
-        path
-        for path in entrypoints
-        if (await node.execute(f"test -x {path}"))[0] != 0
-    ]
+    dangling = [path for path in entrypoints if (await node.execute(f"test -x {path}"))[0] != 0]
     if dangling:
         raise MachineError(
             f"[{node.name}] an image points at a binary the node does not have, "
-            f"so runc will say it is not in $PATH:\n"
-            + "\n".join(f"    {path}" for path in dangling)
+            f"so runc will say it is not in $PATH:\n" + "\n".join(f"    {path}" for path in dangling)
         )
     print(f"[test] all {len(entrypoints)} image entrypoints resolve", flush=True)
 
@@ -207,8 +195,7 @@ async def probe(node: Machine, handler: str, version: str, userns: bool = False)
     # not already here the test should say so rather than time out on a
     # registry it cannot reach.
     out = await node.succeed(
-        f"crictl --timeout 5m run --no-pull --runtime {handler}"
-        f" /tmp/container-{name}.json /tmp/pod-{name}.json",
+        f"crictl --timeout 5m run --no-pull --runtime {handler} /tmp/container-{name}.json /tmp/pod-{name}.json",
         timeout=400,
     )
     container_id = out.split()[-1]
@@ -236,4 +223,3 @@ async def probe(node: Machine, handler: str, version: str, userns: bool = False)
         if not maps:
             raise MachineError(f"[{node.name}] the userns probe ran with no uid mapping")
     print(f"[test] {name}: a container of symlinks exec'd out of /nix/store: {logs.strip()}")
-

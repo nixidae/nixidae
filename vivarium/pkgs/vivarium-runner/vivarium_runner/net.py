@@ -138,8 +138,7 @@ class Lan:
     def close(self) -> None:
         if self.dropped:
             print(
-                f"[test] lan {self.name}: dropped {self.dropped} frames "
-                f"on congested ports",
+                f"[test] lan {self.name}: dropped {self.dropped} frames on congested ports",
                 flush=True,
             )
         loop = asyncio.get_running_loop()

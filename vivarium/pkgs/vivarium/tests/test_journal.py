@@ -85,7 +85,7 @@ class TestTail:
         path.write_text('{"n":1}\n{"n"')
         assert await tail.read() == ['{"n":1}']
         with path.open("a") as handle:
-            handle.write(':2}\n')
+            handle.write(":2}\n")
         assert await tail.read() == ['{"n":2}']
         assert await tail.read() == []
 

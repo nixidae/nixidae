@@ -92,9 +92,7 @@ async def main(server: str, spec: str) -> None:
     print(f"ok: started {run}", flush=True)
     # The channel's events without channels: the command `start` gave,
     # in a shell, as Claude Code's Monitor runs it.
-    watcher = await asyncio.create_subprocess_shell(
-        started["monitor_all"] + " --json", stdout=asyncio.subprocess.PIPE
-    )
+    watcher = await asyncio.create_subprocess_shell(started["monitor_all"] + " --json", stdout=asyncio.subprocess.PIPE)
     armed = await asyncio.create_subprocess_shell(started["monitor_pause"], stdout=asyncio.subprocess.PIPE)
 
     paused = await asyncio.wait_for(client.until("paused"), 600)

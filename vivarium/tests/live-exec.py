@@ -35,9 +35,7 @@ def main() -> None:
     log = work / "run.log"
 
     def ctl(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [vivarium, "ctl", "--out", str(out), *args], capture_output=True, text=True, timeout=60
-        )
+        return subprocess.run([vivarium, "ctl", "--out", str(out), *args], capture_output=True, text=True, timeout=60)
 
     with log.open("w") as sink:
         runner = subprocess.Popen(

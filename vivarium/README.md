@@ -87,7 +87,7 @@ from vivarium_runner import Machines
 
 async def test(vms: Machines) -> None:
     await vms.client.succeed("hello")
-    await vms.client.succeed("ping -c 1 server")   # peers know each other by name
+    await vms.client.succeed("ping -c 1 server")  # peers know each other by name
 ```
 
 Guests on the same `network` share a LAN. Every guest has the other

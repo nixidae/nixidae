@@ -58,7 +58,9 @@ async def test(vms: Machines) -> None:
             raise AssertionError(f"{vm.name}: {prefix} is not ECMP over ipsec1 and ipsec2:\n{route}")
         if (await vm.succeed(f"ip route show {nm['inside']} proto bgp")).strip():
             raise AssertionError(f"{vm.name} learned {nm['inside']} over BGP")
-    print(f"[test] BGP: {nm['east']['routed']} on west and {nm['west']['routed']} on east, ECMP; {nm['inside']} never announced")
+    print(
+        f"[test] BGP: {nm['east']['routed']} on west and {nm['west']['routed']} on east, ECMP; {nm['inside']} never announced"
+    )
 
     for vm in (erin, frank):
         await vm.succeed(

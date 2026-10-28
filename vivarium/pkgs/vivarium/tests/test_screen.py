@@ -4,18 +4,35 @@ import pytest
 from vivarium_runner import display, ocr
 
 # tesseract 4.1's TSV for two lines, trimmed to the rows that matter.
-TSV = "\t".join(
-    ["level", "page_num", "block_num", "par_num", "line_num", "word_num", "left", "top", "width", "height", "conf", "text"]
-) + "\n" + "\n".join(
-    "\t".join(str(cell) for cell in row)
-    for row in [
-        (1, 1, 0, 0, 0, 0, 0, 0, 1024, 768, -1, ""),
-        (5, 1, 1, 1, 1, 1, 2, 129, 109, 11, 91.0, "[root@desk:~]#"),
-        (5, 1, 1, 1, 1, 2, 120, 129, 30, 11, 90.0, "echo"),
-        (5, 1, 1, 1, 1, 3, 160, 129, 100, 11, 85.0, "VIVARIUM-42"),
-        (5, 1, 2, 1, 1, 1, 0, 150, 100, 11, 95.0, "VIVARIUM-42"),
-        (5, 1, 2, 1, 1, 2, 0, 150, 0, 0, -1, " "),
-    ]
+TSV = (
+    "\t".join(
+        [
+            "level",
+            "page_num",
+            "block_num",
+            "par_num",
+            "line_num",
+            "word_num",
+            "left",
+            "top",
+            "width",
+            "height",
+            "conf",
+            "text",
+        ]
+    )
+    + "\n"
+    + "\n".join(
+        "\t".join(str(cell) for cell in row)
+        for row in [
+            (1, 1, 0, 0, 0, 0, 0, 0, 1024, 768, -1, ""),
+            (5, 1, 1, 1, 1, 1, 2, 129, 109, 11, 91.0, "[root@desk:~]#"),
+            (5, 1, 1, 1, 1, 2, 120, 129, 30, 11, 90.0, "echo"),
+            (5, 1, 1, 1, 1, 3, 160, 129, 100, 11, 85.0, "VIVARIUM-42"),
+            (5, 1, 2, 1, 1, 1, 0, 150, 100, 11, 95.0, "VIVARIUM-42"),
+            (5, 1, 2, 1, 1, 2, 0, 150, 0, 0, -1, " "),
+        ]
+    )
 )
 
 

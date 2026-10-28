@@ -68,9 +68,7 @@ def stale(text: str, started: dict[int, int | None]) -> bool:
     """
     fields = text.split()
     pairs = zip(fields[0::2], fields[1::2], strict=True)
-    return not any(
-        start != "None" and started.get(int(pid)) == int(start) for pid, start in pairs
-    )
+    return not any(start != "None" and started.get(int(pid)) == int(start) for pid, start in pairs)
 
 
 def reap(where: Path, remove_argv: list[str]) -> list[Path]:

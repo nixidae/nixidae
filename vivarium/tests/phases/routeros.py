@@ -32,7 +32,7 @@ async def test(vms: Machines) -> None:
     total = await r1.succeed(f":local n 0\n{script}\n:put $n")
     if total.strip() != str(sum(range(1, 2001))):
         raise AssertionError(f"a chunked script summed to {total!r}")
-    left = await r1.succeed(":put [:len [/system script environment find where name~\"^viv\"]]")
+    left = await r1.succeed(':put [:len [/system script environment find where name~"^viv"]]')
     if left.strip() != "0":
         raise AssertionError(f"{left.strip()} chunk globals were left behind")
     print(f"[test] a {len(script) // 1024} KB script went in chunks and left no global")

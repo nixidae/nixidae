@@ -47,7 +47,49 @@ leaves a service that runs as it unable to start."""
 
 CAPABILITIES = [
     "CAP_" + name
-    for name in ["CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "LINUX_IMMUTABLE", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_ADMIN", "NET_RAW", "IPC_LOCK", "IPC_OWNER", "SYS_MODULE", "SYS_RAWIO", "SYS_CHROOT", "SYS_PTRACE", "SYS_PACCT", "SYS_ADMIN", "SYS_BOOT", "SYS_NICE", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "MKNOD", "LEASE", "AUDIT_WRITE", "AUDIT_CONTROL", "SETFCAP", "MAC_OVERRIDE", "MAC_ADMIN", "SYSLOG", "WAKE_ALARM", "BLOCK_SUSPEND", "AUDIT_READ", "PERFMON", "BPF", "CHECKPOINT_RESTORE"]
+    for name in [
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "DAC_READ_SEARCH",
+        "FOWNER",
+        "FSETID",
+        "KILL",
+        "SETGID",
+        "SETUID",
+        "SETPCAP",
+        "LINUX_IMMUTABLE",
+        "NET_BIND_SERVICE",
+        "NET_BROADCAST",
+        "NET_ADMIN",
+        "NET_RAW",
+        "IPC_LOCK",
+        "IPC_OWNER",
+        "SYS_MODULE",
+        "SYS_RAWIO",
+        "SYS_CHROOT",
+        "SYS_PTRACE",
+        "SYS_PACCT",
+        "SYS_ADMIN",
+        "SYS_BOOT",
+        "SYS_NICE",
+        "SYS_RESOURCE",
+        "SYS_TIME",
+        "SYS_TTY_CONFIG",
+        "MKNOD",
+        "LEASE",
+        "AUDIT_WRITE",
+        "AUDIT_CONTROL",
+        "SETFCAP",
+        "MAC_OVERRIDE",
+        "MAC_ADMIN",
+        "SYSLOG",
+        "WAKE_ALARM",
+        "BLOCK_SUSPEND",
+        "AUDIT_READ",
+        "PERFMON",
+        "BPF",
+        "CHECKPOINT_RESTORE",
+    ]
 ]
 """Every capability, in the guest's own user namespace only. An empty set
 is what crun gives when the field is left out, and systemd then fails
@@ -211,10 +253,7 @@ def oci_config(
         },
         "mounts": mounts,
         "linux": {
-            "namespaces": [
-                {"type": kind}
-                for kind in ("pid", "ipc", "uts", "mount", "cgroup", "network")
-            ]
+            "namespaces": [{"type": kind} for kind in ("pid", "ipc", "uts", "mount", "cgroup", "network")]
             + ([{"type": "user"}] if subuid is not None else []),
             "maskedPaths": [],
             "readonlyPaths": [],
@@ -246,9 +285,7 @@ def _unshare_user() -> None:
     os.unshare(os.CLONE_NEWUSER)
 
 
-def probe(
-    user: str | None = None, uid: int | None = None, *, tun: bool = False
-) -> list[Missing]:
+def probe(user: str | None = None, uid: int | None = None, *, tun: bool = False) -> list[Missing]:
     """What this host lacks for a container guest; empty when nothing.
 
     Each check does the thing once. Reading configuration is not enough:
@@ -268,8 +305,7 @@ def probe(
                 Missing(
                     "a tap device",
                     why,
-                    "in a Nix build, put /dev/net in extra-sandbox-paths "
-                    "(ghanix: nix.install.devNet = true)",
+                    "in a Nix build, put /dev/net in extra-sandbox-paths (ghanix: nix.install.devNet = true)",
                 )
             )
 
@@ -347,6 +383,7 @@ def own_cgroup_memory_kib(pid: int) -> int | None:
     more than the guest, or when the cgroup has no memory controller: a
     ``uid-range`` build's cgroup has none, and cannot add one (measured).
     """
+
     def path(of: str) -> str:
         return Path(f"/proc/{of}/cgroup").read_text().strip().split(":", 2)[2]
 
@@ -454,9 +491,7 @@ def tap_fails() -> str | None:
 
 
 def cgroup_works(prefix: list[str] | None = None) -> bool:
-    done = subprocess.run(
-        [*(prefix or []), sys.executable, "-c", _CGROUP_PROBE], capture_output=True
-    )
+    done = subprocess.run([*(prefix or []), sys.executable, "-c", _CGROUP_PROBE], capture_output=True)
     return done.returncode == 0
 
 
@@ -751,8 +786,20 @@ def tap_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
 def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen:
     return subprocess.Popen(
         [
-            sys.executable, "-m", "vivarium_runner.crun_launch", "tap",
-            "--pid", str(pid), "--fd", str(fd), "--name", name, "--mtu", str(mtu), "--mac", mac,
+            sys.executable,
+            "-m",
+            "vivarium_runner.crun_launch",
+            "tap",
+            "--pid",
+            str(pid),
+            "--fd",
+            str(fd),
+            "--name",
+            name,
+            "--mtu",
+            str(mtu),
+            "--mac",
+            mac,
         ],
         pass_fds=(fd,),
         start_new_session=True,
@@ -933,4 +980,3 @@ def main(argv: list[str] | None = None) -> int:
                 helper.kill()
                 helper.wait()
         subprocess.run([*crun, "delete", "--force", name], capture_output=True)
-

@@ -35,6 +35,7 @@ async def test(vms: Machines) -> None:
     for name, (needle, notify) in ATTEMPTS.items():
         since = await epoch(east)
         out = await mallory.fail(f"swanctl --initiate --ike {name} --child steal --timeout 15", timeout=30)
+
         # charon's lines reach the journal after mallory has its answer.
         async def logged(since: float = since, needle: str = needle, notify: str = notify) -> str | None:
             log = await journal_since(east, "strongswan-swanctl.service", since)

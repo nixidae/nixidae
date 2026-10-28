@@ -50,9 +50,7 @@ async def test(vms: Machines) -> None:
         with anyio.fail_after(60):
             while True:
                 addresses = await r1.succeed("/ip address print terse")
-                lease = next(
-                    (line for line in addresses.splitlines() if "interface=ether1" in line), ""
-                )
+                lease = next((line for line in addresses.splitlines() if "interface=ether1" in line), "")
                 if "vrf=mgmt" in lease and "10.42.0." in lease:
                     break
                 await anyio.sleep(2)

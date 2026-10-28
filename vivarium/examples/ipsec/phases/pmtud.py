@@ -29,7 +29,12 @@ async def test(vms: Machines) -> None:
 
     for df, flag, want in (("do", "[DF]", "with DF"), ("dont", "[none]", "without DF")):
         rc, out = await captured_during(
-            west, "internet", f"esp and {westward}", 1, lambda df=df: alice.succeed(ping(bob, count=1, extra=f"-M {df}")), "-v"
+            west,
+            "internet",
+            f"esp and {westward}",
+            1,
+            lambda df=df: alice.succeed(ping(bob, count=1, extra=f"-M {df}")),
+            "-v",
         )
         if rc != 0 or f"flags {flag}" not in out:
             raise AssertionError(f"ping -M {df}: outer ESP header should be {want}:\n{out}")
@@ -61,7 +66,9 @@ async def test(vms: Machines) -> None:
     first_is_fragment = bool(headers) and "flags [+]" in headers[0] and "offset 0," in headers[0]
     if rc not in (0, 124) or len(headers) != 2 or not first_is_fragment or sum(lengths) - 20 != 1556:
         raise AssertionError(f"expected one 1556-byte ESP packet in two outer fragments:\n{out}")
-    print(f"[test] policy-based, 1500 bytes without DF: encrypted first, then fragmented: outer {lengths[0]} + {lengths[1]} = 1556 ESP")
+    print(
+        f"[test] policy-based, 1500 bytes without DF: encrypted first, then fragmented: outer {lengths[0]} + {lengths[1]} = 1556 ESP"
+    )
 
     # Not a count of ESP packets on the internet: BGP keepalives cross the
     # same tunnels as 128-byte ESP packets. The proof is at both ends: the
@@ -76,7 +83,9 @@ async def test(vms: Machines) -> None:
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(watch, "inner", vms.east, "any", f"src {carol_address} and ip[6:2] & 0x3fff != 0", 2)
-        tg.start_soon(watch, "outer", west, "internet", f"src {cfg['westAddress']} and ({endpoints}) and ip[6:2] & 0x3fff != 0", 1)
+        tg.start_soon(
+            watch, "outer", west, "internet", f"src {cfg['westAddress']} and ({endpoints}) and ip[6:2] & 0x3fff != 0", 1
+        )
         await anyio.sleep(2)
         await carol.succeed("ip route flush cache")
         await carol.succeed(ping(dave, count=1, extra="-M dont -s 1472"))

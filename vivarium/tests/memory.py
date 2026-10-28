@@ -40,10 +40,7 @@ READ = (
 #: Page cache from the guest's own disk, for a guest whose store read
 #: caches nothing. Random bytes, so no layer below can store them as
 #: zero pages.
-FILL = (
-    "dd if=/dev/urandom of=/var/tmp/fill bs=1M count=400 status=none "
-    "&& sync && cat /var/tmp/fill > /dev/null"
-)
+FILL = "dd if=/dev/urandom of=/var/tmp/fill bs=1M count=400 status=none && sync && cat /var/tmp/fill > /dev/null"
 
 #: How much page cache the read has to produce for the rest to mean
 #: anything, in kibibytes. Measured: 79 MB before, 441 MB after.
@@ -119,8 +116,7 @@ async def test(vms: Machines) -> None:
         "cache and nothing after this measures anything"
     )
     assert filled - booted > GREW_KIB, (
-        "the host did not start paying for that cache, so there is nothing "
-        "for the rest of this test to give back"
+        "the host did not start paying for that cache, so there is nothing for the rest of this test to give back"
     )
 
     await vm.drop_caches()
@@ -145,8 +141,7 @@ async def test(vms: Machines) -> None:
     ballooned = (await vm.meminfo())["MemFree"]
     print(f"[test] after shrink {SHRINK}: guest free {free_before // 1024}M -> {ballooned // 1024}M")
     assert free_before - ballooned > SHRINK_KIB * SHRINK_SHARE, (
-        f"asked the balloon for {SHRINK} and the guest only gave up "
-        f"{(free_before - ballooned) // 1024}M"
+        f"asked the balloon for {SHRINK} and the guest only gave up {(free_before - ballooned) // 1024}M"
     )
 
     await vm.grow(SHRINK)
@@ -157,7 +152,5 @@ async def test(vms: Machines) -> None:
     # keeps its own bookkeeping pages. Measured, of 256M asked for: UML
     # gave back all of it, QEMU 165M of the 220M it had taken.
     assert returned - ballooned > (free_before - ballooned) // 2, (
-        f"grow returned {(returned - ballooned) // 1024}M of the "
-        f"{(free_before - ballooned) // 1024}M shrink took"
+        f"grow returned {(returned - ballooned) // 1024}M of the {(free_before - ballooned) // 1024}M shrink took"
     )
-

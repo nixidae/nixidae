@@ -75,9 +75,7 @@ async def serve(control: Controller) -> None:
     await _until_paused(control)
     print(BANNER, flush=True)
     send, receive = anyio.create_memory_object_stream[str | None](16)
-    threading.Thread(
-        target=_reader, args=(send, anyio.lowlevel.current_token()), daemon=True
-    ).start()
+    threading.Thread(target=_reader, args=(send, anyio.lowlevel.current_token()), daemon=True).start()
     lines: list[str] = []
     async with receive:
         async for line in receive:

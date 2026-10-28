@@ -236,16 +236,16 @@ async def diagnose(vm):
         await vm.execute(
             "{ for f in /var/log/pods/*/*/*.log; do"
             "   case $f in /var/log/pods/kube-system_*) ;;"
-            "               *) tail -n 40 -v \"$f\";; esac;"
+            '               *) tail -n 40 -v "$f";; esac;'
             " done; } 2>&1 | tail -n 300;"
             " echo;"
             " tail -n 15 -v /var/log/pods/kube-system_*/*/*.log 2>&1 | tail -n 150"
         )
     )[1]
     # containerd or crio: the unit `services.vivarium-k8s.cri` put behind the target.
-    runtime = (
-        await vm.execute("systemctl show --property Requires --value vivarium-k8s-cri.target")
-    )[1].split() or ["containerd.service"]
+    runtime = (await vm.execute("systemctl show --property Requires --value vivarium-k8s-cri.target"))[1].split() or [
+        "containerd.service"
+    ]
     return (
         f"--- [{vm.name}] addresses and routes ---\n"
         f"{(await vm.execute('ip -brief addr; ip route; ip -6 route'))[1]}\n"
@@ -299,9 +299,7 @@ async def init_control_plane(cp, nix_images=True):
             + await diagnose(cp)
         ) from err
     if rc != 0:
-        raise MachineError(
-            f"[cp] kubeadm init failed (exit {rc}):\n{out}\n" + await diagnose(cp)
-        )
+        raise MachineError(f"[cp] kubeadm init failed (exit {rc}):\n{out}\n" + await diagnose(cp))
     if nix_images:
         await patch_kube_proxy(cp)
     print("[k8s] cp: control plane is up", flush=True)
@@ -353,14 +351,11 @@ KUBE_PROXY_PATCH = json.dumps(
 async def patch_kube_proxy(cp):
     """Give kube-proxy the store, since kubeadm will not."""
     rc, out = await cp.execute(
-        "kubectl --namespace kube-system patch daemonset kube-proxy"
-        f" --type strategic --patch '{KUBE_PROXY_PATCH}'",
+        f"kubectl --namespace kube-system patch daemonset kube-proxy --type strategic --patch '{KUBE_PROXY_PATCH}'",
         timeout=UNIT_TIMEOUT,
     )
     if rc != 0:
-        raise MachineError(
-            f"[cp] could not give kube-proxy the store (exit {rc}):\n{out}"
-        )
+        raise MachineError(f"[cp] could not give kube-proxy the store (exit {rc}):\n{out}")
     print("[k8s] cp: kube-proxy has the store", flush=True)
 
 
@@ -388,10 +383,7 @@ async def join(cp, workers):
     """
     if not workers:
         return
-    printed = await cp.succeed(
-        "kubeadm token create --print-join-command"
-        " --config /etc/kubernetes/kubeadm-config.yaml"
-    )
+    printed = await cp.succeed("kubeadm token create --print-join-command --config /etc/kubernetes/kubeadm-config.yaml")
     fields = printed.split()
     try:
         token = fields[fields.index("--token") + 1]
@@ -399,9 +391,7 @@ async def join(cp, workers):
         # bootstrapping against something else answering on that address.
         digest = fields[fields.index("--discovery-token-ca-cert-hash") + 1]
     except (ValueError, IndexError):
-        raise MachineError(
-            f"[cp] could not read a join command out of:\n{printed}"
-        ) from None
+        raise MachineError(f"[cp] could not read a join command out of:\n{printed}") from None
     endpoint = f"[{cp.ip}]:6443" if ":" in cp.ip else f"{cp.ip}:6443"
 
     async def one(worker):
@@ -410,8 +400,7 @@ async def join(cp, workers):
         log = "/tmp/kubeadm-join.log"
         try:
             rc, out = await worker.execute(
-                f"vivarium-k8s-join {endpoint} {token} {digest}"
-                f" > {log} 2>&1; rc=$?; cat {log}; exit $rc",
+                f"vivarium-k8s-join {endpoint} {token} {digest} > {log} 2>&1; rc=$?; cat {log}; exit $rc",
                 timeout=JOIN_TIMEOUT,
                 label="kubeadm join",
             )
@@ -424,10 +413,7 @@ async def join(cp, workers):
                 + await diagnose(worker)
             ) from err
         if rc != 0:
-            raise MachineError(
-                f"[{worker.name}] kubeadm join failed (exit {rc}):\n{out}\n"
-                + await diagnose(worker)
-            )
+            raise MachineError(f"[{worker.name}] kubeadm join failed (exit {rc}):\n{out}\n" + await diagnose(worker))
         print(f"[k8s] {worker.name}: joined", flush=True)
 
     async with anyio.create_task_group() as group:
@@ -454,33 +440,23 @@ async def wire_pod_network(cp, vms):
     async def assigned():
         nodes = await get_json(cp, "get nodes")
         cidrs.clear()
-        cidrs.update(
-            {
-                item["metadata"]["name"]: item["spec"].get("podCIDR")
-                for item in nodes["items"]
-            }
-        )
+        cidrs.update({item["metadata"]["name"]: item["spec"].get("podCIDR") for item in nodes["items"]})
         missing = sorted(name for name, cidr in cidrs.items() if not cidr)
         return not missing and len(cidrs) == len(vms), (
-            f"without a podCIDR: {', '.join(missing) or 'none'}; "
-            f"nodes: {', '.join(sorted(cidrs)) or 'none'}"
+            f"without a podCIDR: {', '.join(missing) or 'none'}; nodes: {', '.join(sorted(cidrs)) or 'none'}"
         )
 
     await until("every node to be given a podCIDR", assigned, JOIN_TIMEOUT, cp)
     print(f"[k8s] pod subnets: {cidrs}", flush=True)
 
     if set(cidrs) != set(vms):
-        raise MachineError(
-            f"[cp] the cluster has {sorted(cidrs)}, the test booted {sorted(vms)}"
-        )
+        raise MachineError(f"[cp] the cluster has {sorted(cidrs)}, the test booted {sorted(vms)}")
 
     async def one(vm):
         await vm.succeed(f"vivarium-k8s-cni {cidrs[vm.name]}")
         for peer in vms.values():
             if peer.name != vm.name:
-                await vm.succeed(
-                    f"ip route replace {cidrs[peer.name]} via {peer.ip} dev vec1"
-                )
+                await vm.succeed(f"ip route replace {cidrs[peer.name]} via {peer.ip} dev vec1")
 
     async with anyio.create_task_group() as group:
         for vm in vms.values():
@@ -506,15 +482,9 @@ async def wait_for_pods(cp, selector, namespace="kube-system"):
         ready = [
             pod
             for pod in items
-            if any(
-                c["type"] == "Ready" and c["status"] == "True"
-                for c in pod["status"].get("conditions", [])
-            )
+            if any(c["type"] == "Ready" and c["status"] == "True" for c in pod["status"].get("conditions", []))
         ]
-        summary = "\n".join(
-            f"    {pod['metadata']['name']}: {pod['status'].get('phase')}"
-            for pod in items
-        )
+        summary = "\n".join(f"    {pod['metadata']['name']}: {pod['status'].get('phase')}" for pod in items)
         return bool(items) and len(ready) == len(items), summary
 
     await until(f"pods {selector}", check, READY_TIMEOUT, cp)
@@ -549,9 +519,7 @@ async def wait_for_dns(vm, host="registry.k8s.io", timeout=120):
         rc, out = await vm.execute(f"getent hosts {host}")
         if rc == 0:
             return True, out.strip()
-        uplink = await vm.succeed(
-            "ip -4 -brief addr show vec0 2>/dev/null | tr -s ' ' || true"
-        )
+        uplink = await vm.succeed("ip -4 -brief addr show vec0 2>/dev/null | tr -s ' ' || true")
         return False, f"not yet, and vec0 has {uplink.strip() or '(no IPv4 address)'}"
 
     await until(f"{vm.name} to resolve {host}", check, timeout, vm)
@@ -610,9 +578,7 @@ async def _apply_node_manifests(cp, vms, path):
     return applied
 
 
-async def bring_up(
-    vms, cp_name="cp", schedulable=None, addons=DEFAULT_ADDONS, nix_images=True
-):
+async def bring_up(vms, cp_name="cp", schedulable=None, addons=DEFAULT_ADDONS, nix_images=True):
     """The whole sequence, from booted guests to a cluster that works.
 
     Returns the control plane machine.

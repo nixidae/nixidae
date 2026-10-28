@@ -35,9 +35,7 @@ def main() -> None:
     # The failing command's event says how it ended, so a reader of
     # events.jsonl need not rebuild that from the phase's error text.
     events = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()]
-    failing = [
-        e for e in events if e["kind"] == "rpc" and e.get("phase") == "cluster" and e["text"] == "exit 1"
-    ]
+    failing = [e for e in events if e["kind"] == "rpc" and e.get("phase") == "cluster" and e["text"] == "exit 1"]
     if not failing or failing[0].get("data", {}).get("exit") != 1:
         sys.exit(f"the failing command's event does not carry exit 1: {failing}")
     passing = [e for e in events if e["kind"] == "rpc" and e.get("data", {}).get("exit") == 0]

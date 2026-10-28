@@ -73,9 +73,7 @@ class TestAnEventIsNotALogLine:
     """The point of the rework: fields, not a string to parse."""
 
     def test_the_machine_and_the_seconds_survive_as_fields(self):
-        body = json.loads(
-            event(Kind.RPC, "uptime", machine="cp", seconds=1.25).as_json()
-        )
+        body = json.loads(event(Kind.RPC, "uptime", machine="cp", seconds=1.25).as_json())
         assert body["machine"] == "cp"
         assert body["seconds"] == 1.25
 
@@ -226,9 +224,7 @@ class TestBroadcastNeverFailsTheRun:
         out = Broadcast([self.Broken(), good])
         out.emit(event(Kind.NOTE, "kept"))
         out.close()
-        assert "kept" in (tmp_path / "log").read_text(), (
-            "one sink failing stopped the others"
-        )
+        assert "kept" in (tmp_path / "log").read_text(), "one sink failing stopped the others"
 
     def test_a_broken_sink_is_dropped_rather_than_retried(self, tmp_path):
         broken = self.Broken()

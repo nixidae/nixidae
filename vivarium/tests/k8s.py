@@ -145,9 +145,7 @@ async def check_storage(cp: Machine, image: str) -> None:
 
     async def ran(pod: str) -> None:
         async def check():
-            out = await kubectl(
-                cp, f"get pod {pod} --output jsonpath='{{.status.phase}}'"
-            )
+            out = await kubectl(cp, f"get pod {pod} --output jsonpath='{{.status.phase}}'")
             return out.strip() == "Succeeded", out.strip() or "(no phase yet)"
 
         await until(f"the pod {pod}", check, READY_TIMEOUT, cp)
@@ -163,9 +161,7 @@ async def check_storage(cp: Machine, image: str) -> None:
         )
         await ran(pod)
 
-    bound = await kubectl(
-        cp, "get pvc scratch --output jsonpath='{.status.phase}'"
-    )
+    bound = await kubectl(cp, "get pvc scratch --output jsonpath='{.status.phase}'")
     assert bound.strip() == "Bound", f"the claim is {bound.strip()!r}"
     logs = await kubectl(cp, "logs reader")
     assert token in logs, f"the second pod read {logs!r}"
@@ -197,14 +193,11 @@ async def check_cluster_networking(cp: Machine, vms: Machines, image: str) -> No
     )
 
     for pod in ("web", "probe"):
-        await wait_for_pods(
-            cp, f"--field-selector metadata.name={pod}", namespace="default"
-        )
+        await wait_for_pods(cp, f"--field-selector metadata.name={pod}", namespace="default")
 
     async def check():
         rc, out = await cp.execute(
-            "kubectl exec probe -- wget -T 10 -qO-"
-            " http://web.default.svc.cluster.local/",
+            "kubectl exec probe -- wget -T 10 -qO- http://web.default.svc.cluster.local/",
             timeout=120,
         )
         return rc == 0 and greeting in out, out
@@ -219,8 +212,7 @@ async def check_cluster_networking(cp: Machine, vms: Machines, image: str) -> No
 async def test(vms: Machines) -> None:
     image = vms.settings["workloadImage"]
     print(
-        f"[k8s] kubernetes {vms.settings['kubernetesVersion']}, "
-        f"pods on {vms.settings['podSubnet']}",
+        f"[k8s] kubernetes {vms.settings['kubernetesVersion']}, pods on {vms.settings['podSubnet']}",
         flush=True,
     )
 
@@ -230,4 +222,3 @@ async def test(vms: Machines) -> None:
     await check_storage(cp, image)
 
     print("[k8s] " + await kubectl(cp, "get nodes --output wide"), flush=True)
-

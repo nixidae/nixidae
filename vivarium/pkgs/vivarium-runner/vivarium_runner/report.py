@@ -87,10 +87,7 @@ class Report:
             entry = totals.setdefault(key, [0, 0.0])
             entry[0] += 1
             entry[1] += s.seconds
-        rows = [
-            {"command": k, "calls": n, "seconds": round(t, 3)}
-            for k, (n, t) in totals.items()
-        ]
+        rows = [{"command": k, "calls": n, "seconds": round(t, 3)} for k, (n, t) in totals.items()]
         return sorted(rows, key=lambda r: -r["seconds"])[:30]
 
     def write(self, path: Path, passed: bool, error: str | None = None) -> None:
@@ -110,16 +107,11 @@ class Report:
             "total_seconds": round(total, 3),
             "recorded_seconds": round(accounted, 3),
             "unrecorded_seconds": round(max(total - accounted, 0.0), 3),
-            "boot_seconds": round(
-                max((m["boot_seconds"] for m in self.machines.values()), default=0.0), 3
-            ),
+            "boot_seconds": round(max((m["boot_seconds"] for m in self.machines.values()), default=0.0), 3),
             "waiting_seconds": round(waited, 3),
             "machines": self.machines,
             "by_command": self._by_command(),
-            "slowest": [
-                vars(s)
-                for s in sorted(self.steps, key=lambda s: -s.seconds)[:20]
-            ],
+            "slowest": [vars(s) for s in sorted(self.steps, key=lambda s: -s.seconds)[:20]],
             "steps": [vars(s) for s in self.steps],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,9 +134,7 @@ class Report:
         accounted = _toplevel(self.steps)
         share = round(100 * accounted / total) if total else 0
         boot = max((m["boot_seconds"] for m in self.machines.values()), default=0.0)
-        lines = [
-            f"[time] total {total:.1f}s, recorded {share}%, boot {boot:.1f}s"
-        ]
+        lines = [f"[time] total {total:.1f}s, recorded {share}%, boot {boot:.1f}s"]
         for s in sorted(self.steps, key=lambda s: -s.seconds)[:slowest]:
             lines.append(f"[time]   {s.seconds:7.1f}s {s.kind:5} {s.what} ({s.machine})")
         return "\n".join(lines)

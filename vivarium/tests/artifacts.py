@@ -25,10 +25,7 @@ async def test(vms: Machines) -> None:
     for name, vm in vms.items():
         await vm.succeed("mountpoint -q /artifacts")
         await vm.succeed(f"echo {name} > /artifacts/who")
-        await vm.succeed(
-            f"dd if=/dev/urandom of=/artifacts/blob "
-            f"bs=1024 count={BLOB // 1024} 2>/dev/null"
-        )
+        await vm.succeed(f"dd if=/dev/urandom of=/artifacts/blob bs=1024 count={BLOB // 1024} 2>/dev/null")
         await vm.succeed("runuser -u tester -- sh -c 'echo tester > /artifacts/by-user'")
         await vm.succeed("sync")
         print(f"[test] {name} wrote to its /artifacts, as root and as tester")
@@ -51,11 +48,8 @@ async def test(vms: Machines) -> None:
 
     procs = await vms.one.processes()
     running = await vms.one.count_processes(AGENT)
-    assert running >= 1, (
-        f"the agent answering this call is not in its own list of {len(procs)}"
-    )
+    assert running >= 1, f"the agent answering this call is not in its own list of {len(procs)}"
     print(f"[test] the guest lists {len(procs)} processes, and finds its own agent")
 
     assert await vms.one.count_processes("no-such-program") == 0
     print("[test] and counts none of a program that is not there")
-

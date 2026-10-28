@@ -218,9 +218,7 @@ class Runs:
             run.backlog.append(event)
             for watcher in run.watchers:
                 watcher.send_nowait(event)
-        notification = JSONRPCNotification(
-            jsonrpc="2.0", method=CHANNEL, params={"content": content, "meta": meta}
-        )
+        notification = JSONRPCNotification(jsonrpc="2.0", method=CHANNEL, params={"content": content, "meta": meta})
         await self.push_stream.send(SessionMessage(message=JSONRPCMessage(notification)))
 
     async def start(self, argv: list[str], out: Path, env: dict[str, str], source: Source | None = None) -> Run:
@@ -545,16 +543,18 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             lines = path.read_text(errors="replace").splitlines()
         except OSError:
             return {"events": []}
-        return {"events": select(
-            lines,
-            kind=kind,
-            machine=machine,
-            unit=unit,
-            phase=phase,
-            case=case,
-            contains=contains,
-            limit=limit,
-        )}
+        return {
+            "events": select(
+                lines,
+                kind=kind,
+                machine=machine,
+                unit=unit,
+                phase=phase,
+                case=case,
+                contains=contains,
+                limit=limit,
+            )
+        }
 
     # Every tool returns an object. FastMCP wraps any other return type
     # as `{"result": ...}`, and `exec`'s own reply has a `result` key, so
@@ -562,16 +562,16 @@ def build(runs_holder: list[Runs]) -> FastMCP:
     @server.tool(name="runs")
     async def list_runs() -> dict[str, list[dict[str, str]]]:
         """Every run this server started."""
-        return {"runs": [
-            {
-                "run": found.id,
-                "out": str(found.out),
-                "status": "running"
-                if found.process.returncode is None
-                else f"exited {found.process.returncode}",
-            }
-            for found in runs().runs.values()
-        ]}
+        return {
+            "runs": [
+                {
+                    "run": found.id,
+                    "out": str(found.out),
+                    "status": "running" if found.process.returncode is None else f"exited {found.process.returncode}",
+                }
+                for found in runs().runs.values()
+            ]
+        }
 
     return server
 
@@ -580,9 +580,7 @@ async def serve() -> None:
     holder: list[Runs] = []
     server = build(holder)
     lowlevel = server._mcp_server  # noqa: SLF001 -- FastMCP has no way to declare an experimental capability
-    options = lowlevel.create_initialization_options(
-        experimental_capabilities={"claude/channel": {}}
-    )
+    options = lowlevel.create_initialization_options(experimental_capabilities={"claude/channel": {}})
     async with stdio_server() as (read_stream, write_stream), anyio.create_task_group() as group:
         runs = Runs(group, write_stream.clone())
         holder.append(runs)

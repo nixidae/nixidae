@@ -318,11 +318,7 @@ class Uml:
                 self._vec(0, 3, spec.mtu),
                 # The bridge forks passt, so the uplink's addressing reaches
                 # it one argument at a time rather than directly.
-                *(
-                    arg
-                    for value in forward.uplink_args(machine.offline)
-                    for arg in ("--passt", value)
-                ),
+                *(arg for value in forward.uplink_args(machine.offline) for arg in ("--passt", value)),
                 *forward.to_args(machine.forward),
                 *kernel,
             ]
@@ -448,12 +444,8 @@ class Qemu:
         opened: list[int] = []
         try:
             if disk_boot:
-                return self._launch_disk(
-                    machine, rundir, agent_fd, lan_fds, helpers, opened
-                )
-            return self._launch(
-                machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds
-            )
+                return self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened)
+            return self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
         except BaseException:
             # Nothing owns these until a Launch carries them back, so a
             # failure between the first one and the last would leave a
@@ -511,9 +503,7 @@ class Qemu:
 
         art_fd: int | None = None
         if machine.artifacts is not None:
-            art_fd, artd = self._virtiofsd(
-                tools, sockets, "art", str(machine.artifacts)
-            )
+            art_fd, artd = self._virtiofsd(tools, sockets, "art", str(machine.artifacts))
             helpers.append(artd)
             opened.append(art_fd)
 
@@ -526,18 +516,14 @@ class Qemu:
         if disk_fds:
             disk_fds = tuple(
                 os.open(f"/proc/self/fd/{fd}", flags)
-                for fd, flags in zip(
-                    disk_fds, itertools.cycle((os.O_RDWR, os.O_RDONLY))
-                )
+                for fd, flags in zip(disk_fds, itertools.cycle((os.O_RDWR, os.O_RDONLY)))
             )
             opened.extend(disk_fds)
         else:
             disk_fds = self._scratch_disk(tools, rundir, spec.image)
             opened.extend(disk_fds)
             if efi:
-                esp_fds = self._scratch_disk(
-                    tools, rundir, Path(efi["esp"]), backing="qcow2"
-                )
+                esp_fds = self._scratch_disk(tools, rundir, Path(efi["esp"]), backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
@@ -545,14 +531,21 @@ class Qemu:
 
         argv = [
             str(tools.qemu),
-            "-machine", "q35,accel=kvm,memory-backend=guest-memory",
+            "-machine",
+            "q35,accel=kvm,memory-backend=guest-memory",
             # Nested virtualization only when the guest asked: `-cpu host`
             # alone hands every guest the host's vmx or svm, and udev
             # then loads KVM in it. See `nestedVirtualization`.
-            "-cpu", "host" if boot.get("nested") else "host,-vmx,-svm",
-            "-smp", str(spec.cpus),
-            "-m", spec.memory,
-            "-nodefaults", "-no-reboot", "-display", "none",
+            "-cpu",
+            "host" if boot.get("nested") else "host,-vmx,-svm",
+            "-smp",
+            str(spec.cpus),
+            "-m",
+            spec.memory,
+            "-nodefaults",
+            "-no-reboot",
+            "-display",
+            "none",
             # vhost-user-fs reads the guest's RAM directly, so the RAM has
             # to be a shared memfd rather than anonymous.  Without this,
             # virtiofsd connects and every read returns nothing.
@@ -562,37 +555,50 @@ class Qemu:
             # _scratch_disk. Two fds in the set because QEMU opens an
             # image O_RDONLY to probe its format before reopening it
             # O_RDWR, and matches the set on the access mode.
-            "-add-fd", f"fd={disk_fds[0]},set=1",
-            "-add-fd", f"fd={disk_fds[1]},set=1",
-            "-drive", "file=/dev/fdset/1,if=virtio,format=qcow2",
+            "-add-fd",
+            f"fd={disk_fds[0]},set=1",
+            "-add-fd",
+            f"fd={disk_fds[1]},set=1",
+            "-drive",
+            "file=/dev/fdset/1,if=virtio,format=qcow2",
             # The console, read by Machine._pump_console.
-            "-serial", "stdio",
-            "-chardev", f"socket,id=virtiofs,fd={vfs_fd}",
-            "-device", "vhost-user-fs-pci,chardev=virtiofs,tag=nix",
-            # The control channel: the same socketpair UML gets on ssl0.
-            "-chardev", f"socket,id=agent,fd={agent_fd}",
-            "-device", "virtio-serial",
+            "-serial",
+            "stdio",
+            "-chardev",
+            f"socket,id=virtiofs,fd={vfs_fd}",
             "-device",
-            "virtserialport,chardev=agent,name=vivarium-agent"
-            if boot.get("efi")
-            else "virtconsole,chardev=agent",
-            "-netdev", uplink,
-            "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+            "vhost-user-fs-pci,chardev=virtiofs,tag=nix",
+            # The control channel: the same socketpair UML gets on ssl0.
+            "-chardev",
+            f"socket,id=agent,fd={agent_fd}",
+            "-device",
+            "virtio-serial",
+            "-device",
+            "virtserialport,chardev=agent,name=vivarium-agent" if boot.get("efi") else "virtconsole,chardev=agent",
+            "-netdev",
+            uplink,
+            "-device",
+            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops
             # paying for a page cache the guest has dropped. Without it a
             # guest drifts towards its whole `-m` and stays there.
-            "-device", "virtio-balloon-pci,free-page-reporting=on",
+            "-device",
+            "virtio-balloon-pci,free-page-reporting=on",
             # And the monitor, which is how the host asks for a size
             # rather than waiting for the guest to volunteer one.
-            "-qmp", f"unix:{sockets}/qmp,server=on,wait=off",
+            "-qmp",
+            f"unix:{sockets}/qmp,server=on,wait=off",
         ]
         # A firmware boot has no kernel: systemd-boot on the ESP picks one.
         if boot.get("kernel"):
             argv += [
-                "-kernel", boot["kernel"],
-                "-initrd", boot["initrd"],
-                "-append", f"{boot['cmdline']} init={boot['toplevel']}/init",
+                "-kernel",
+                boot["kernel"],
+                "-initrd",
+                boot["initrd"],
+                "-append",
+                f"{boot['cmdline']} init={boot['toplevel']}/init",
             ]
         if efi:
             # The variables outlive each QEMU, as NVRAM outlives a reset:
@@ -603,11 +609,16 @@ class Qemu:
                 shutil.copyfile(efi["variables"], variables)
                 variables.chmod(0o600)
             argv += [
-                "-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={efi['firmware']}",
-                "-drive", f"if=pflash,format=raw,unit=1,file={variables}",
-                "-add-fd", f"fd={disk_fds[2]},set=2",
-                "-add-fd", f"fd={disk_fds[3]},set=2",
-                "-drive", "file=/dev/fdset/2,if=virtio,format=qcow2",
+                "-drive",
+                f"if=pflash,format=raw,unit=0,readonly=on,file={efi['firmware']}",
+                "-drive",
+                f"if=pflash,format=raw,unit=1,file={variables}",
+                "-add-fd",
+                f"fd={disk_fds[2]},set=2",
+                "-add-fd",
+                f"fd={disk_fds[3]},set=2",
+                "-drive",
+                "file=/dev/fdset/2,if=virtio,format=qcow2",
             ]
         if display := boot.get("display"):
             argv += [
@@ -618,7 +629,8 @@ class Qemu:
                 # An absolute pointer, so a click lands where it is aimed
                 # without the guest's acceleration in between. The
                 # keyboard is q35's own PS/2, which `sendkey` drives.
-                "-device", "virtio-tablet-pci",
+                "-device",
+                "virtio-tablet-pci",
             ]
             # q35's VMware mouse is absolute too, and the guest's driver
             # makes it current: measured, every `abs` event went to it and
@@ -626,21 +638,21 @@ class Qemu:
             argv[argv.index("-machine") + 1] += ",vmport=off"
         if art_fd is not None:
             argv += [
-                "-chardev", f"socket,id=artifacts,fd={art_fd}",
+                "-chardev",
+                f"socket,id=artifacts,fd={art_fd}",
                 "-device",
                 f"vhost-user-fs-pci,chardev=artifacts,tag={ARTIFACTS_TAG}",
             ]
         for nic in spec.interfaces:
             argv += [
-                "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+                "-netdev",
+                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
                 "-device",
                 f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
             ]
 
         pass_fds = tuple(
-            fd
-            for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, *disk_fds)
-            if fd is not None
+            fd for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, *disk_fds) if fd is not None
         )
         return Launch(
             argv=argv,
@@ -678,21 +690,37 @@ class Qemu:
 
         argv = [
             str(tools.qemu),
-            "-machine", "q35,accel=kvm",
-            "-cpu", "host,-vmx,-svm",
-            "-smp", str(spec.cpus),
-            "-m", spec.memory,
-            "-nodefaults", "-no-reboot", "-display", "none",
-            "-add-fd", f"fd={disk_fds[0]},set=1",
-            "-add-fd", f"fd={disk_fds[1]},set=1",
-            "-drive", "file=/dev/fdset/1,if=none,id=root,format=qcow2",
+            "-machine",
+            "q35,accel=kvm",
+            "-cpu",
+            "host,-vmx,-svm",
+            "-smp",
+            str(spec.cpus),
+            "-m",
+            spec.memory,
+            "-nodefaults",
+            "-no-reboot",
+            "-display",
+            "none",
+            "-add-fd",
+            f"fd={disk_fds[0]},set=1",
+            "-add-fd",
+            f"fd={disk_fds[1]},set=1",
+            "-drive",
+            "file=/dev/fdset/1,if=none,id=root,format=qcow2",
             # Pinned: a second disk otherwise competes for the boot.
-            "-device", "virtio-blk-pci,drive=root,bootindex=0",
-            "-chardev", f"socket,id=control,fd={agent_fd}",
-            "-serial", "chardev:control",
-            "-netdev", uplink,
-            "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
-            "-qmp", f"unix:{sockets}/qmp,server=on,wait=off",
+            "-device",
+            "virtio-blk-pci,drive=root,bootindex=0",
+            "-chardev",
+            f"socket,id=control,fd={agent_fd}",
+            "-serial",
+            "chardev:control",
+            "-netdev",
+            uplink,
+            "-device",
+            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+            "-qmp",
+            f"unix:{sockets}/qmp,server=on,wait=off",
         ]
         if config := image.get("configDisk"):
             # A copy, writable: RouterOS does not mount a read-only disk.
@@ -702,12 +730,12 @@ class Qemu:
             argv += ["-drive", f"file={disk},if=virtio,format=raw"]
         for nic in spec.interfaces:
             argv += [
-                "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
-                "-device", f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
+                "-netdev",
+                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+                "-device",
+                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
             ]
-        pass_fds = tuple(
-            fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None
-        )
+        pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None)
         return Launch(
             argv=argv,
             pass_fds=pass_fds,
@@ -722,9 +750,7 @@ class Qemu:
         return qmp.Qmp(path)
 
     @staticmethod
-    def _scratch_disk(
-        tools, rundir: Path, image: Path | None, backing: str = "raw"
-    ) -> tuple[int, int]:
+    def _scratch_disk(tools, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
         """A writable layer over the read-only root image, with no name.
 
         The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -746,33 +772,32 @@ class Qemu:
         scratch = rundir / "root.qcow2"
         done = subprocess.run(
             [
-                str(tools.qemu_img), "create",
+                str(tools.qemu_img),
+                "create",
                 "-q",
-                "-f", "qcow2",
+                "-f",
+                "qcow2",
                 # Named, because qemu-img refuses to guess a backing
                 # format and a guess would be silently wrong. Raw for a
                 # NixOS root and CHR; qcow2 for an image that ships one,
                 # such as SONiC's.
-                "-F", backing,
-                "-b", str(image),
+                "-F",
+                backing,
+                "-b",
+                str(image),
                 str(scratch),
             ],
             capture_output=True,
             text=True,
         )
         if done.returncode != 0:
-            raise BackendError(
-                f"could not make a scratch disk over {image}: "
-                f"{(done.stderr or done.stdout).strip()}"
-            )
+            raise BackendError(f"could not make a scratch disk over {image}: {(done.stderr or done.stdout).strip()}")
         fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
         scratch.unlink()
         return fds
 
     @staticmethod
-    def _virtiofsd(
-        tools, rundir: Path, socket_name: str, shared: str
-    ) -> tuple[int, subprocess.Popen]:
+    def _virtiofsd(tools, rundir: Path, socket_name: str, shared: str) -> tuple[int, subprocess.Popen]:
         """Serve a host directory, and leave no socket behind.
 
         *socket_name* keeps the store's and the artifacts' sockets apart
@@ -824,8 +849,10 @@ class Qemu:
                 # Nothing left to drop: this is already unprivileged, and
                 # namespace sandboxing needs privileges a build does not
                 # have.
-                "--sandbox", "none",
-                "--cache", "auto",
+                "--sandbox",
+                "none",
+                "--cache",
+                "auto",
                 "--no-announce-submounts",
             ],
             stdin=subprocess.DEVNULL,
@@ -845,16 +872,12 @@ class Qemu:
         time.sleep(0.05)
         if proc.poll() is not None:
             client.close()
-            raise BackendError(
-                f"virtiofsd exited ({proc.returncode}) instead of serving {shared}"
-            )
+            raise BackendError(f"virtiofsd exited ({proc.returncode}) instead of serving {shared}")
 
         return client.detach(), proc
 
     @staticmethod
-    def _passt(
-        tools, rundir: Path, rules, offline: bool = False
-    ) -> tuple[int, subprocess.Popen]:
+    def _passt(tools, rundir: Path, rules, offline: bool = False) -> tuple[int, subprocess.Popen]:
         """Start passt on one end of a socketpair; return QEMU's end.
 
         No bridge: passt frames with a 4-byte big-endian length prefix,
@@ -879,7 +902,8 @@ class Qemu:
             [
                 str(tools.passt),
                 "--foreground",
-                "--fd", str(passt_end.fileno()),
+                "--fd",
+                str(passt_end.fileno()),
                 *forward.uplink_args(offline),
                 *forward.to_args(rules),
             ],
@@ -898,10 +922,7 @@ class Qemu:
         time.sleep(0.05)
         if proc.poll() is not None:
             qemu_end.close()
-            raise BackendError(
-                f"passt exited ({proc.returncode}) instead of serving the "
-                f"uplink:\n{_tail(log)}"
-            )
+            raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
         # Kept open until the guest has spawned; Machine closes it after.
         return qemu_end.detach(), proc
 
@@ -970,30 +991,47 @@ class Appliance(Qemu):
 
         argv = [
             str(tools.qemu),
-            "-machine", "q35,accel=kvm",
-            "-cpu", "host,-vmx,-svm",
-            "-smp", str(spec.cpus),
-            "-m", spec.memory,
-            "-nodefaults", "-no-reboot", "-display", "none",
-            "-add-fd", f"fd={disk_fds[0]},set=1",
-            "-add-fd", f"fd={disk_fds[1]},set=1",
-            "-drive", "file=/dev/fdset/1,if=virtio,format=qcow2",
-            "-serial", "stdio",
+            "-machine",
+            "q35,accel=kvm",
+            "-cpu",
+            "host,-vmx,-svm",
+            "-smp",
+            str(spec.cpus),
+            "-m",
+            spec.memory,
+            "-nodefaults",
+            "-no-reboot",
+            "-display",
+            "none",
+            "-add-fd",
+            f"fd={disk_fds[0]},set=1",
+            "-add-fd",
+            f"fd={disk_fds[1]},set=1",
+            "-drive",
+            "file=/dev/fdset/1,if=virtio,format=qcow2",
+            "-serial",
+            "stdio",
         ]
         if uplink:
             argv += [
-                "-netdev", f"stream,id=vec0,addr.type=fd,addr.str={passt_fds[0]}",
-                "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+                "-netdev",
+                f"stream,id=vec0,addr.type=fd,addr.str={passt_fds[0]}",
+                "-device",
+                f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
             ]
         if appliance.get("kernel"):
             argv += [
-                "-kernel", appliance["kernel"],
-                "-initrd", appliance["initrd"],
-                "-append", appliance.get("cmdline", ""),
+                "-kernel",
+                appliance["kernel"],
+                "-initrd",
+                appliance["initrd"],
+                "-append",
+                appliance.get("cmdline", ""),
             ]
         for nic in spec.interfaces:
             argv += [
-                "-netdev", f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+                "-netdev",
+                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
                 "-device",
                 f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
             ]
@@ -1104,10 +1142,7 @@ class Container:
         spec, tools = machine.spec, machine.tools
         missing = container.probe(tun=bool(lan_fds))
         if missing:
-            raise BackendError(
-                "this host cannot run a container guest:\n"
-                + "\n".join(f"  {item}" for item in missing)
-            )
+            raise BackendError("this host cannot run a container guest:\n" + "\n".join(f"  {item}" for item in missing))
         if spec.image is None:
             raise BackendError(f"{spec.name}: this guest has no root template")
 
@@ -1177,16 +1212,21 @@ class Container:
                 "-m",
                 "vivarium_runner.crun_launch",
                 "run",
-                "--crun", str(tools.crun),
-                "--state", str(state),
-                "--bundle", str(bundle),
-                "--name", f"uml-{spec.name}-{os.getpid()}",
+                "--crun",
+                str(tools.crun),
+                "--state",
+                str(state),
+                "--bundle",
+                str(bundle),
+                "--name",
+                f"uml-{spec.name}-{os.getpid()}",
                 *lan,
                 # The uplink: pasta joins the guest's namespaces once crun
                 # has an init, with passt's arguments and forwards.
                 *(
                     [
-                        "--pasta-log", str(rundir / "passt.log"),
+                        "--pasta-log",
+                        str(rundir / "passt.log"),
                         "--",
                         str(tools.passt.with_name("pasta")),
                         "--foreground",
@@ -1204,7 +1244,6 @@ class Container:
             cleanup=cleanup,
         )
 
-
     @staticmethod
     def _pasta_forwards(args: list[str]) -> list[str]:
         """*args*, plus what makes pasta forward only what passt would.
@@ -1220,9 +1259,7 @@ class Container:
         return [*args, *extra]
 
 
-BACKENDS = {
-    backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)
-}
+BACKENDS = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)}
 
 
 def get(name: str):
@@ -1230,6 +1267,4 @@ def get(name: str):
     try:
         return BACKENDS[name]
     except KeyError:
-        raise ValueError(
-            f"no backend {name!r}; have {', '.join(sorted(BACKENDS))}"
-        ) from None
+        raise ValueError(f"no backend {name!r}; have {', '.join(sorted(BACKENDS))}") from None

@@ -31,7 +31,9 @@ async def path_mtu(vm: Machine, address: str, expected: int, via: str) -> None:
     reported = [int(m) for m in re.findall(r"mtu ?= ?(\d+)", out)]
     if rc == 0 or not reported or reported[0] != expected:
         raise AssertionError(f"{vm.name}: {expected + 1} bytes to {address} should report mtu {expected}:\n{out}")
-    print(f"[test] {vm.name} -> {address} via {via}: {expected} bytes pass with DF, {expected + 1} get mtu = {reported[0]}")
+    print(
+        f"[test] {vm.name} -> {address} via {via}: {expected} bytes pass with DF, {expected + 1} get mtu = {reported[0]}"
+    )
 
 
 async def test(vms: Machines) -> None:

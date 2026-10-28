@@ -128,18 +128,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     run.add_argument(
         "--serial",
         action="store_true",
-        help=(
-            "one phase at a time, in the order Nix sorted them, even where"
-            " `nodes` would let phases run at once"
-        ),
+        help=("one phase at a time, in the order Nix sorted them, even where `nodes` would let phases run at once"),
     )
     run.add_argument(
         "--offline",
         action="store_true",
-        help=(
-            "give the guests no way off this host, the way a sandboxed"
-            " check has none"
-        ),
+        help=("give the guests no way off this host, the way a sandboxed check has none"),
     )
     run.add_argument(
         "--keep",
@@ -280,8 +274,7 @@ async def run(args: argparse.Namespace) -> int:
         missing = set(args.only) - {phase.name for phase in session.spec.phases}
         if missing:
             raise SessionError(
-                f"no such phase: {', '.join(sorted(missing))};"
-                f" have {', '.join(p.name for p in session.spec.phases)}"
+                f"no such phase: {', '.join(sorted(missing))}; have {', '.join(p.name for p in session.spec.phases)}"
             )
         # Deselected, not skipped. The two read the same in a list and
         # mean opposite things: one says nobody knows the answer, the

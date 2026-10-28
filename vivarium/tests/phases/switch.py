@@ -46,9 +46,7 @@ async def test(vms: Machines) -> None:
     assert await one.unit_state("only-in-two.service") == "inactive"
     profile = await one.succeed("readlink -f /nix/var/nix/profiles/system")
     assert profile.strip() == booted, profile
-    generations = await one.succeed(
-        "nix-env --profile /nix/var/nix/profiles/system --list-generations"
-    )
+    generations = await one.succeed("nix-env --profile /nix/var/nix/profiles/system --list-generations")
     assert len(generations.strip().splitlines()) == 2, generations
 
     # `two` changes the agent's unit, so only restartIfChanged kept it.

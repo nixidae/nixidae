@@ -92,7 +92,7 @@ async def mechanism(vm: Machine) -> None:
 
 
 async def test(vms: Machines) -> None:
-    (name, vm), = vms.items()
+    ((name, vm),) = vms.items()
     settings = vms.settings
     fixed = name in settings["fixed"]
     version = (await vm.succeed("containerd --version")).strip()

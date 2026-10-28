@@ -29,16 +29,14 @@ async def test(vms: Machines) -> None:
 
     # The switch stack must be up before a reload, or it refuses. The grep
     # runs on SONiC, so its exit status is the condition.
-    await svc.wait_until_succeeds(
-        f"{SSH} admin@{ip} 'show ip interfaces | grep -qF 10.1.0.1'", timeout=240
-    )
+    await svc.wait_until_succeeds(f"{SSH} admin@{ip} 'show ip interfaces | grep -qF 10.1.0.1'", timeout=240)
 
     # Pull the running config (over scp, so no login banner lands in it),
     # edit it on the services guest, and push the whole file back.
     await svc.succeed(f"{SSH} admin@{ip} 'sudo sonic-cfggen -d --print-data | sudo tee /tmp/cfg.json >/dev/null'")
     await svc.succeed(f"{SCP} admin@{ip}:/tmp/cfg.json /tmp/cfg.json")
     await svc.succeed(
-        "jq '.LOOPBACK_INTERFACE[\"Loopback0|" + LOOPBACK + "/32\"]={} |"
+        "jq '.LOOPBACK_INTERFACE[\"Loopback0|" + LOOPBACK + '/32"]={} |'
         f' .DEVICE_METADATA.localhost.hostname="{HOSTNAME}"\' /tmp/cfg.json > /tmp/new.json'
     )
     await svc.succeed(f"{SCP} /tmp/new.json admin@{ip}:/tmp/new.json")
@@ -52,9 +50,7 @@ async def test(vms: Machines) -> None:
     try:
         with anyio.fail_after(240):
             while True:
-                rc, out = await svc.execute(
-                    f"{SSH} admin@{ip} 'sudo config reload -y /tmp/new.json' 2>&1", timeout=300
-                )
+                rc, out = await svc.execute(f"{SSH} admin@{ip} 'sudo config reload -y /tmp/new.json' 2>&1", timeout=300)
                 if rc == 0:
                     break
                 if "not ready" not in out:
@@ -67,7 +63,5 @@ async def test(vms: Machines) -> None:
     # SSH still answers (mgmt is outside config_db), and both the
     # control-plane (hostname) and dataplane (loopback) changes took.
     await svc.wait_until_succeeds(f"{SSH} admin@{ip} 'hostname | grep -qF {HOSTNAME}'", timeout=120)
-    await svc.wait_until_succeeds(
-        f"{SSH} admin@{ip} 'show ip interfaces | grep -qF {LOOPBACK}'", timeout=120
-    )
+    await svc.wait_until_succeeds(f"{SSH} admin@{ip} 'show ip interfaces | grep -qF {LOOPBACK}'", timeout=120)
     print(f"[reload] SONiC came back as {HOSTNAME} with Loopback0 {LOOPBACK} from the pushed file")

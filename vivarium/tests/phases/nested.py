@@ -9,7 +9,7 @@ pass on a module that loaded and can do nothing.
 from vivarium_runner import Machines
 
 PROBE = (
-    "python3 -c 'import fcntl, os; kvm = os.open(\"/dev/kvm\", os.O_RDWR);"
+    'python3 -c \'import fcntl, os; kvm = os.open("/dev/kvm", os.O_RDWR);'
     " print(fcntl.ioctl(kvm, 0xAE00), fcntl.ioctl(kvm, 0xAE01, 0) >= 0)'"
 )
 """_IO(0xAE, 0x00) is KVM_GET_API_VERSION, which is 12; _IO(0xAE, 0x01)

@@ -97,11 +97,7 @@ class Rule:
         ports = data.get("ports", ALL)
         return cls(
             address=data.get("address"),
-            ports=(
-                ALL
-                if ports == ALL
-                else tuple(PortMap.from_json(port) for port in ports)
-            ),
+            ports=(ALL if ports == ALL else tuple(PortMap.from_json(port) for port in ports)),
             protocols=tuple(data.get("protocols", ["tcp"])),
             remap_privileged=data.get("remapPrivileged", True),
             privileged_offset=data.get("privilegedOffset", 10000),
@@ -165,10 +161,7 @@ def _remap(rule: Rule, start: int) -> tuple[Rule, list[str]]:
     offset = rule.privileged_offset
     if rule.wide:
         if not rule.remap_privileged:
-            return rule, [
-                f"ports below {start} are not forwarded "
-                f"(remapPrivileged is off)"
-            ]
+            return rule, [f"ports below {start} are not forwarded (remapPrivileged is off)"]
         return rule, [
             f"ports 1-{start - 1} need privileges the host will not give us; "
             f"reaching them on {offset + 1}-{offset + start - 1} instead"
@@ -238,9 +231,7 @@ def _assign(rules: list[Rule], taken: set[str]) -> str:
     )
 
 
-def resolve(
-    rules: list[Rule], *, taken: set[str], start: int | None = None
-) -> tuple[list[Rule], list[str]]:
+def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> tuple[list[Rule], list[str]]:
     """Give every rule a concrete address and a bindable set of ports.
 
     *taken* is the addresses already handed to other guests in this run;
@@ -259,10 +250,7 @@ def resolve(
     if unaddressed:
         address = _assign(unaddressed, taken)
         taken.add(address)
-        rules = [
-            replace(rule, address=address) if rule.address is None else rule
-            for rule in rules
-        ]
+        rules = [replace(rule, address=address) if rule.address is None else rule for rule in rules]
 
     resolved: list[Rule] = []
     notes: list[str] = []
@@ -284,10 +272,7 @@ def probe(rules: list[Rule]) -> None:
         clash = _probe(rule.address, rule.host_ports())
         if clash is not None:
             what = "every port" if rule.wide else f"port {clash}"
-            raise ForwardError(
-                f"cannot forward {what} on {rule.address}: "
-                f"{rule.address}:{clash} is already bound"
-            )
+            raise ForwardError(f"cannot forward {what} on {rule.address}: {rule.address}:{clash} is already bound")
 
 
 # ── passt arguments ────────────────────────────────────────────────
@@ -296,10 +281,7 @@ def probe(rules: list[Rule]) -> None:
 def _specs(rule: Rule, start: int) -> list[str]:
     """The one or two passt port specs a rule turns into."""
     if not rule.wide:
-        return [
-            f"{rule.address}/"
-            + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host))
-        ]
+        return [f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host))]
 
     low, high = ephemeral_range()
     # An exclusion-only spec is what puts passt in weak mode, where a
@@ -349,11 +331,7 @@ def reachable(rules: list[Rule], guest_port: int, start: int) -> list[str]:
             elif rule.remap_privileged:
                 found.append(f"{rule.address}:{guest_port + rule.privileged_offset}")
         else:
-            found += [
-                f"{rule.address}:{port.host}"
-                for port in rule.ports
-                if port.guest == guest_port
-            ]
+            found += [f"{rule.address}:{port.host}" for port in rule.ports if port.guest == guest_port]
     return found
 
 
@@ -439,15 +417,19 @@ def uplink_args(offline: bool = False) -> list[str]:
     print(f"[uplink] DNS on {UPLINK_DNS}, forwarded to {upstream}", flush=True)
     if offline:
         print(
-            "[uplink] offline: outbound bound to"
-            f" {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host",
+            f"[uplink] offline: outbound bound to {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host",
             flush=True,
         )
     return [
-        "--address", UPLINK_ADDRESS,
-        "--netmask", str(UPLINK_PREFIX),
-        "--gateway", UPLINK_GATEWAY,
-        "--dns-forward", UPLINK_DNS,
-        "--dns-host", upstream,
+        "--address",
+        UPLINK_ADDRESS,
+        "--netmask",
+        str(UPLINK_PREFIX),
+        "--gateway",
+        UPLINK_GATEWAY,
+        "--dns-forward",
+        UPLINK_DNS,
+        "--dns-host",
+        upstream,
         *(["--outbound", OFFLINE_OUTBOUND] if offline else []),
     ]

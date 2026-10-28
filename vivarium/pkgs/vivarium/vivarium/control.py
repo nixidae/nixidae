@@ -147,9 +147,7 @@ class Console:
                 await _run(compile(body, "<uml ctl>", "exec", flags=flags), self.namespace)
                 result = None
                 if last is not None:
-                    result = await _run(
-                        compile(last, "<uml ctl>", "eval", flags=flags), self.namespace
-                    )
+                    result = await _run(compile(last, "<uml ctl>", "eval", flags=flags), self.namespace)
         except Exception:  # noqa: BLE001 -- the caller's code; its failure is the reply
             return Reply(ok=False, output=output.getvalue(), error=traceback.format_exc())
         return Reply(
@@ -206,8 +204,10 @@ def commands(vivarium: str, out: Path) -> list[tuple[str, str]]:
     one as it is: absolute paths, no PATH, no knowledge of vivarium."""
     ctl = [vivarium, "ctl", "--out", str(out)]
     return [
-        ("wait for a pause or the verdict (exits 4 at a pause)",
-         shlex.join([vivarium, "monitor", str(out), "--quiet", "--until-pause"])),
+        (
+            "wait for a pause or the verdict (exits 4 at a pause)",
+            shlex.join([vivarium, "monitor", str(out), "--quiet", "--until-pause"]),
+        ),
         ("run Python against the guests", shlex.join([*ctl, "exec", "print(list(vms))"])),
         ("run a file's `async def test(vms)`", shlex.join([*ctl, "inject", "./check.py"])),
         ("each phase's state", shlex.join([*ctl, "state"])),
@@ -237,9 +237,7 @@ class Controller:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.path = session.out / SOCKET
-        self.console = Console(
-            self._namespace(), lambda copy: session._capture("exec", copy)
-        )
+        self.console = Console(self._namespace(), lambda copy: session._capture("exec", copy))
         self._resume: anyio.Event | None = None
         self._continuing = False
 
@@ -321,9 +319,7 @@ class Controller:
             op, arg = parse_request(line)
         except ValueError as error:
             return Reply(ok=False, error=str(error))
-        self.session.emit(
-            Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg
-        )
+        self.session.emit(Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg)
         if op is Op.STATE:
             return Reply(ok=True, state=self._state(), result="paused" if self.paused else "running")
         if op not in self.ANY_TIME and not self.paused:

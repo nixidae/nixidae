@@ -52,8 +52,7 @@ async def test(vms: Machines) -> None:
     ):
         out = await kubectl(
             cp,
-            f"get {kind} {name} --namespace kube-system"
-            " --output jsonpath='{..volumes[*].name}'",
+            f"get {kind} {name} --namespace kube-system --output jsonpath='{{..volumes[*].name}}'",
         )
         assert "nix-store" not in out, f"{kind}/{name} still has the store mounted: {out}"
     print("[test] the control plane has no store mounted into it")
@@ -67,13 +66,10 @@ async def test(vms: Machines) -> None:
     await kubectl(cp, f"create --filename - <<'EOF'\n{POD}\nEOF")
 
     async def ran():
-        out = await kubectl(
-            cp, "get pod pulled --output jsonpath='{.status.phase}'"
-        )
+        out = await kubectl(cp, "get pod pulled --output jsonpath='{.status.phase}'")
         return out.strip() == "Succeeded", out.strip() or "(no phase yet)"
 
     await until(f"the pod to pull {WORKLOAD} and run", ran, 300, cp)
     logs = await kubectl(cp, "logs pulled")
     assert "pulled-ok" in logs, f"the pod ran but said {logs!r}"
     print(f"[test] a pod pulled {WORKLOAD} and ran it")
-

@@ -43,4 +43,3 @@ async def test(vms: Machines) -> None:
     await server.wait_for_unit("sshd.service")
     failed = await server.execute("systemctl --failed --no-legend")
     print(f"[test] failed units on {server.name}: {failed[1] or 'none'}")
-

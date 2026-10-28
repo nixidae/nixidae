@@ -155,7 +155,9 @@ class Machine:
     def systemctl(self, q: str, user: str | None = None) -> tuple[int, str]:
         if user is None:
             return self.execute(f"systemctl {q}")
-        return self.execute(f"su -l {user} --shell /bin/sh -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user {q}'")
+        return self.execute(
+            f"su -l {user} --shell /bin/sh -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user {q}'"
+        )
 
     def get_unit_info(self, unit: str, user: str | None = None) -> dict[str, str]:
         status, out = self.systemctl(f'--no-pager show "{unit}"', user)
@@ -248,18 +250,18 @@ class Machine:
     def wait_for_x(self, timeout: Any = DEFAULT_TIMEOUT) -> None:
         self._until(
             "the X11 server",
-            lambda: self.execute(
-                "journalctl -b SYSLOG_IDENTIFIER=systemd | grep -q 'Reached target Current graphical'"
-                " && [ -e /tmp/.X11-unix/X0 ]"
-            )[0]
-            == 0,
+            lambda: (
+                self.execute(
+                    "journalctl -b SYSLOG_IDENTIFIER=systemd | grep -q 'Reached target Current graphical'"
+                    " && [ -e /tmp/.X11-unix/X0 ]"
+                )[0]
+                == 0
+            ),
             timeout,
         )
 
     def get_window_names(self) -> list[str]:
-        return self.succeed(
-            r"xwininfo -root -tree | sed 's/.*0x[0-9a-f]* \"\([^\"]*\)\".*/\1/; t; d'"
-        ).splitlines()
+        return self.succeed(r"xwininfo -root -tree | sed 's/.*0x[0-9a-f]* \"\([^\"]*\)\".*/\1/; t; d'").splitlines()
 
     def wait_for_window(self, regexp: str, timeout: Any = DEFAULT_TIMEOUT) -> None:
         pattern = re.compile(regexp)

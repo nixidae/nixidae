@@ -66,8 +66,7 @@ async def test(vms: Machines) -> None:
     # below is a race. awk keeps to the tablet's block (reset at the blank
     # line), so it does not match a neighbour's event node.
     await desk.wait_until_succeeds(
-        "awk '/Virtio Tablet/{f=1} /^$/{f=0} f&&/Handlers=.*event/' "
-        "/proc/bus/input/devices | grep -q event"
+        "awk '/Virtio Tablet/{f=1} /^$/{f=0} f&&/Handlers=.*event/' /proc/bus/input/devices | grep -q event"
     )
     devices = await desk.succeed("cat /proc/bus/input/devices")
     block = next(b for b in devices.split("\n\n") if "Virtio Tablet" in b)

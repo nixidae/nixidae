@@ -101,9 +101,7 @@ def _in_loop(portal: BlockingPortal, func: Callable[..., Any]) -> Callable[..., 
 class Plugin:
     """The hooks that tie one pytest run to one session."""
 
-    def __init__(
-        self, session: Session, phase: str, portal: BlockingPortal, *, by_hand: bool = False
-    ) -> None:
+    def __init__(self, session: Session, phase: str, portal: BlockingPortal, *, by_hand: bool = False) -> None:
         self.session = session
         self.phase = phase
         self.portal = portal
@@ -113,11 +111,7 @@ class Plugin:
     def _emit(self, kind: Kind, text: str, **fields: Any) -> None:
         # On the loop, never from this thread: the sinks write files and
         # the follower writes the same files from the loop.
-        self.portal.call(
-            functools.partial(
-                self.session.emit, kind, text, phase=self.phase, **self.marks, **fields
-            )
-        )
+        self.portal.call(functools.partial(self.session.emit, kind, text, phase=self.phase, **self.marks, **fields))
 
     # ── running async code on the session's loop ───────────────────
 
@@ -211,9 +205,7 @@ class Plugin:
     def summary(self) -> str:
         """`2 passed, 1 failed`, in pytest's own order."""
         order = ("failed", "error", "passed", "skipped")
-        return ", ".join(
-            f"{self.outcomes[name]} {name}" for name in order if self.outcomes[name]
-        ) or "no tests ran"
+        return ", ".join(f"{self.outcomes[name]} {name}" for name in order if self.outcomes[name]) or "no tests ran"
 
 
 def arguments(tests: str, extra: list[str]) -> list[str]:

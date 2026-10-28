@@ -15,9 +15,7 @@ DEFAULT = "every-case"
 
 
 async def test(vms: Machines) -> None:
-    assert "selection" in vms.knobs, (
-        f"a declared knob is missing: {sorted(vms.knobs)}"
-    )
+    assert "selection" in vms.knobs, f"a declared knob is missing: {sorted(vms.knobs)}"
     value = vms.knobs["selection"]
     print(f"[test] selection={value!r}")
 

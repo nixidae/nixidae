@@ -107,9 +107,7 @@ class TestOciConfig:
     def test_a_store_of_binds_is_bound_read_only(self):
         """An overlay lower does not show submounts, and the sandbox's store
         is one bind per input."""
-        store = next(
-            m for m in config(writable_store=False)["mounts"] if m["destination"] == "/nix/store"
-        )
+        store = next(m for m in config(writable_store=False)["mounts"] if m["destination"] == "/nix/store")
         assert store["type"] == "bind"
         assert store["options"] == ["rbind", "ro"]
 
@@ -132,9 +130,7 @@ class TestPastaForwards:
         assert args[2:] == ["--tcp-ns", "none", "--udp-ns", "none", "--udp-ports", "none"]
 
     def test_a_udp_rule_is_kept(self):
-        args = Container._pasta_forwards(
-            ["--tcp-ports", "127.0.0.2/4325", "--udp-ports", "127.0.0.2/53"]
-        )
+        args = Container._pasta_forwards(["--tcp-ports", "127.0.0.2/4325", "--udp-ports", "127.0.0.2/53"])
         assert args.count("--udp-ports") == 1
         assert "none" not in args[args.index("--udp-ports") + 1]
 

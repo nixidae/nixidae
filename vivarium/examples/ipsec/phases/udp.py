@@ -34,7 +34,9 @@ async def test(vms: Machines) -> None:
     carol, dave = vms.carol, vms.dave
     address = cfg["hosts"]["dave"]["address"]
 
-    await dave.succeed(f"rm -f {SINK}; systemd-run --unit udp-sink socat -u -b 65536 UDP-RECV:{PORT} OPEN:{SINK},creat,append")
+    await dave.succeed(
+        f"rm -f {SINK}; systemd-run --unit udp-sink socat -u -b 65536 UDP-RECV:{PORT} OPEN:{SINK},creat,append"
+    )
     try:
         await anyio.sleep(1)
         rc, out = await send(carol, address, 1600)

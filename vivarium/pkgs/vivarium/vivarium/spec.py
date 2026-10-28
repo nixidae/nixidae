@@ -181,8 +181,4 @@ class Spec(Strict):
             "tesseract",
             "magick",
         )
-        return {
-            key: str(value)
-            for key in named
-            if (value := getattr(self, key)) is not None
-        }
+        return {key: str(value) for key in named if (value := getattr(self, key)) is not None}

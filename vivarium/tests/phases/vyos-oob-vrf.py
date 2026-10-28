@@ -30,9 +30,7 @@ async def _lease(vyos: Machine) -> str:
         await vyos.wait_until_succeeds(CONVERGED, timeout=300)
     except MachineError as error:
         _, status = await vyos.execute("systemctl --no-pager status vyos-router")
-        raise AssertionError(
-            f"eth0 did not lease in the {VRF} VRF\n{error}\nvyos-router:\n{status}"
-        ) from None
+        raise AssertionError(f"eth0 did not lease in the {VRF} VRF\n{error}\nvyos-router:\n{status}") from None
     return (await vyos.succeed(LEASE)).strip()
 
 

@@ -173,9 +173,7 @@ class Session:
         self.case: str | None = None
         self._started = time.monotonic()
         self.artifacts = out / "artifacts"
-        self.state: dict[str, PhaseState] = {
-            phase.name: PhaseState.PENDING for phase in spec.phases
-        }
+        self.state: dict[str, PhaseState] = {phase.name: PhaseState.PENDING for phase in spec.phases}
         self.errors: dict[str, str] = {}
         self.stopped_by: int | None = None
         """The signal that ended the run early, if one did."""
@@ -317,9 +315,7 @@ class Session:
                 machine=name,
             )
             for line in tail:
-                self.emit(
-                    Kind.ERROR, f"  {line}", level=Level.ERROR, machine=name
-                )
+                self.emit(Kind.ERROR, f"  {line}", level=Level.ERROR, machine=name)
 
     # ── the operations ─────────────────────────────────────────────
 
@@ -354,8 +350,7 @@ class Session:
                     Kind.BOOT,
                     f"{one.name}: "
                     + "; ".join(
-                        f"{nic.name} on {nic.segment}"
-                        + (f" {' '.join(nic.addresses)}" if nic.addresses else "")
+                        f"{nic.name} on {nic.segment}" + (f" {' '.join(nic.addresses)}" if nic.addresses else "")
                         for nic in one.interfaces
                     ),
                     machine=one.name,
@@ -453,9 +448,7 @@ class Session:
                         **self._in_case(),
                     )
 
-    async def settle(
-        self, timeout: float = 2.0, nodes: Collection[str] | None = None
-    ) -> None:
+    async def settle(self, timeout: float = 2.0, nodes: Collection[str] | None = None) -> None:
         """Wait until each guest's journal has reached the host.
 
         Only `nodes` when given: a phase settles its own guests, and a
@@ -584,9 +577,7 @@ class Session:
         await self.drain()
         self.case = None
 
-    async def _pytest(
-        self, name: str, spec: PytestSpec, vms: Machines, *, by_hand: bool = False
-    ) -> str:
+    async def _pytest(self, name: str, spec: PytestSpec, vms: Machines, *, by_hand: bool = False) -> str:
         """One pytest run, in a worker thread, against these guests.
 
         `by_hand` is a run sent to a paused session, not a phase: it takes
@@ -618,9 +609,7 @@ class Session:
             # pytest says why on its own stderr, not through any hook.
             raise CasesFailed(f"pytest rejected its arguments: {args[1:]}")
         if code != pytest.ExitCode.OK:
-            raise CasesFailed(
-                plugin.summary() if plugin.outcomes else f"pytest exited {code}"
-            )
+            raise CasesFailed(plugin.summary() if plugin.outcomes else f"pytest exited {code}")
         self.emit(Kind.NOTE, plugin.summary(), phase=name)
         return plugin.summary()
 
@@ -641,8 +630,7 @@ class Session:
             # A node whose `networking.hostName` is not its attribute name
             # boots under the hostname.
             raise SessionError(
-                f"phase {phase.name} names {', '.join(missing)} in `nodes`;"
-                f" the guests are {', '.join(self.vms)}"
+                f"phase {phase.name} names {', '.join(missing)} in `nodes`; the guests are {', '.join(self.vms)}"
             )
         vms = Machines((name, self.vms[name]) for name in wanted)
         vms.settings = self.vms.settings

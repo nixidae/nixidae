@@ -104,9 +104,7 @@ async def sas(vm: Machine) -> dict[str, dict[str, Any]]:
 
 def child(sa: dict[str, Any], name: str) -> dict[str, Any] | None:
     """The INSTALLED CHILD_SA *name* of an IKE_SA, newest first."""
-    found = [
-        c for c in sa.get("child-sas", {}).values() if c.get("name") == name and c.get("state") == "INSTALLED"
-    ]
+    found = [c for c in sa.get("child-sas", {}).values() if c.get("name") == name and c.get("state") == "INSTALLED"]
     found.sort(key=lambda c: int(c.get("uniqueid", "0")), reverse=True)
     return found[0] if found else None
 

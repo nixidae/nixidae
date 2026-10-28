@@ -14,17 +14,11 @@ with open(sys.argv[1]) as cache:
 reference = next(
     node.value
     for node in tree.body
-    if isinstance(node, ast.Assign)
-    and isinstance(node.targets[0], ast.Name)
-    and node.targets[0].id == "reference"
+    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "reference"
 )
 versions = ast.literal_eval(reference)["component_version"]
 # vyos/component_version.py finds the footer by this line. Without it the
 # config counts as versionless, every migration runs, and firewall 12-to-13
 # deletes each `state` leaf it finds.
 print("// Warning: Do not remove the following line.")
-print(
-    '// vyos-config-version: "'
-    + ":".join(f"{name}@{version}" for name, version in sorted(versions.items()))
-    + '"'
-)
+print('// vyos-config-version: "' + ":".join(f"{name}@{version}" for name, version in sorted(versions.items())) + '"')

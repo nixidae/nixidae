@@ -144,8 +144,7 @@ Taken when the spec's `boot` holds `image`. Also #657's.
 
 ```python
 class Control(Protocol):
-    async def execute(self, command: str, timeout: float,
-                      env: Mapping[str, str] | None = None) -> tuple[int, str]: ...
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]: ...
     async def aclose(self) -> None: ...
 ```
 
@@ -169,11 +168,11 @@ A dialect is data and pure functions, so it is tested with no VM:
 @dataclass(frozen=True)
 class Dialect:
     name: str
-    login: Sequence[Rule]          # a screen ending in `pattern` gets `reply`; None: done
+    login: Sequence[Rule]  # a screen ending in `pattern` gets `reply`; None: done
     prompt: re.Pattern[bytes]
-    frame: Callable[[str, str], list[bytes]]          # command, nonce -> lines
-    parse: Callable[[bytes, str], Result | None]      # None: not complete
-    configure: str | None = None   # applies the config disk after login
+    frame: Callable[[str, str], list[bytes]]  # command, nonce -> lines
+    parse: Callable[[bytes, str], Result | None]  # None: not complete
+    configure: str | None = None  # applies the config disk after login
 ```
 
 The RouterOS dialect (`vivarium_runner/routeros.py`):

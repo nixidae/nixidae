@@ -37,5 +37,4 @@ async def test(vms: Machines) -> None:
     await suse.succeed(f"test -e {agent}")
     release = await suse.succeed(". /etc/os-release && echo $ID")
     assert release.strip() == "opensuse-leap", release
-    print("[test] a collection deleted the unrooted paths, kept every rooted one, "
-          "and the agent still answers")
+    print("[test] a collection deleted the unrooted paths, kept every rooted one, and the agent still answers")

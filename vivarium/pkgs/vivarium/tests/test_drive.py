@@ -24,9 +24,7 @@ from vivarium_runner import MachineError
 class FakeSession:
     """Enough of a session to drive, and a record of what was called."""
 
-    def __init__(
-        self, *, boot_error: Exception | None = None, out: Path | None = None
-    ) -> None:
+    def __init__(self, *, boot_error: Exception | None = None, out: Path | None = None) -> None:
         self.spec = Spec(machines=[], phases=[PhaseSpec(name="one", script=Path("x"))])
         self.state: dict[str, PhaseState] = {"one": PhaseState.PENDING}
         # Somewhere real: every drive serves its control socket there.
@@ -56,11 +54,7 @@ class FakeSession:
             raise self.boot_error
 
     def pending(self) -> list[PhaseSpec]:
-        return [
-            phase
-            for phase in self.spec.phases
-            if self.state[phase.name] is PhaseState.PENDING
-        ]
+        return [phase for phase in self.spec.phases if self.state[phase.name] is PhaseState.PENDING]
 
     async def run(self, phase: PhaseSpec) -> PhaseState:
         self.ran.append(phase.name)
@@ -250,9 +244,7 @@ class TestBreakpoints:
         assert session.ran == ["one"]
 
     @pytest.mark.parametrize("control", [True, False])
-    async def test_a_socket_without_a_breakpoint_unless_turned_off(
-        self, tmp_path: Path, control: bool
-    ):
+    async def test_a_socket_without_a_breakpoint_unless_turned_off(self, tmp_path: Path, control: bool):
         session = FakeSession(out=tmp_path)
         seen: list[bool] = []
 
@@ -274,10 +266,7 @@ def parallel_session(**phases: list[str]) -> FakeSession:
         machines=[{"name": "a"}, {"name": "b"}],
         phases=[
             PhaseSpec(name="boot", script=Path("x")),
-            *(
-                PhaseSpec(name=name, script=Path("x"), nodes=nodes, after=["boot"])
-                for name, nodes in phases.items()
-            ),
+            *(PhaseSpec(name=name, script=Path("x"), nodes=nodes, after=["boot"]) for name, nodes in phases.items()),
             PhaseSpec(name="end", script=Path("x"), after=list(phases)),
         ],
     )
