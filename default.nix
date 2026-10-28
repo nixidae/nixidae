@@ -147,7 +147,17 @@ rec {
   };
   shared-config-update = sharedConfig.update;
 
+  # The one Nix formatter. nix/nixfmt.nix.
+  nixFormat = import ./nix/nixfmt.nix {
+    inherit (pkgs) lib;
+    inherit pkgs;
+  };
+  nixfmt-update = nixFormat.update;
+
   checks = {
+    # That every tracked .nix file is formatted.
+    nixfmt = nixFormat.check;
+
     # That every committed `<source>-*.yml` is what its source renders.
     ciWorkflows = ci.check;
 

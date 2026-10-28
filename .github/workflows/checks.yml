@@ -20,4 +20,4 @@ jobs:
             access-tokens = github.com=${{ github.token }}
         timeout-minutes: 15
       - name: Root checks
-        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.sharedConfig --no-link --print-build-logs
+        run: nix build --file . checks.ciWorkflows checks.callFlake checks.licenses checks.pythonpath checks.sharedConfig checks.nixfmt --no-link --print-build-logs
