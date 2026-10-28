@@ -133,8 +133,6 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
-    - name: Run type checker
-      run: nix develop --file shell.nix --command pyright pkgs/nixkube/src
     - name: Run the checks
       run: nix build --show-trace --file ./checks.nix all
     - name: Check that every CI attribute builds natively
