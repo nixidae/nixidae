@@ -779,6 +779,35 @@ rec {
 
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix { lanes = lib.attrNames lanes; };
 
+  # The schema of nixidae/nixidae#1103. Every other name in this set is
+  # internal. `lib` is set after the set closes: inside it, `lib` is
+  # nixpkgs' own.
+  packages = {
+    inherit
+      huggorm
+      huggorm-bindings
+      huggorm-generated
+      huggorm-dsl
+      huggorm-decl
+      huggorm-gen
+      nix-tcp-store
+      ;
+    default = huggorm;
+  };
+  nixosModules = { };
+  checks = {
+    inherit
+      suite
+      every-suite
+      every-nix-src
+      generator-tests
+      every-pin
+      huggorm-bindings-clang
+      nix-tcp-store-check
+      ;
+  };
+  docs = { };
+
   shell = pkgs.mkShell {
     packages = [
       ourPython
@@ -789,4 +818,7 @@ rec {
         export PYBIN="${ourPython}/bin/python3"
       '';
   };
+}
+// {
+  lib = { };
 }
