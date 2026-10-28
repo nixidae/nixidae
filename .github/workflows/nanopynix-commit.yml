@@ -73,7 +73,7 @@ jobs:
     timeout-minutes: 85
   test-asan-determinate:
     env:
-      CI_STEP: ciSteps.determinate-asan
+      CI_STEP: internal.ciSteps.determinate-asan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan-determinate,')
     runs-on: ubuntu-24.04
     steps:
@@ -100,7 +100,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run ASAN-instrumented suite (determinate)
       run: ./result/bin/nanopynix-ci suite
@@ -115,7 +115,7 @@ jobs:
     timeout-minutes: 210
   test-asan-git:
     env:
-      CI_STEP: ciSteps.git-asan
+      CI_STEP: internal.ciSteps.git-asan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan-git,')
     runs-on: ubuntu-24.04
     steps:
@@ -142,7 +142,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run ASAN-instrumented suite (git)
       run: ./result/bin/nanopynix-ci suite
@@ -157,7 +157,7 @@ jobs:
     timeout-minutes: 210
   test-asan-nix_2_34:
     env:
-      CI_STEP: ciSteps.nix_2_34-asan
+      CI_STEP: internal.ciSteps.nix_2_34-asan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan-nix_2_34,')
     runs-on: ubuntu-24.04
     steps:
@@ -184,7 +184,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run ASAN-instrumented suite (nix_2_34)
       run: ./result/bin/nanopynix-ci suite
@@ -199,7 +199,7 @@ jobs:
     timeout-minutes: 210
   test-asan-nix_2_35:
     env:
-      CI_STEP: ciSteps.nix_2_35-asan
+      CI_STEP: internal.ciSteps.nix_2_35-asan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan-nix_2_35,')
     runs-on: ubuntu-24.04
     steps:
@@ -226,7 +226,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run ASAN-instrumented suite (nix_2_35)
       run: ./result/bin/nanopynix-ci suite
@@ -242,7 +242,7 @@ jobs:
   test-darwin-nix_2_34:
     continue-on-error: true
     env:
-      CI_STEP: ciSteps.nix_2_34
+      CI_STEP: internal.ciSteps.nix_2_34
       NANOPYNIX_RPC_TIMEOUT: '90'
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-darwin-nix_2_34,')
     runs-on: macos-latest
@@ -292,7 +292,7 @@ jobs:
     timeout-minutes: 200
   test-determinate:
     env:
-      CI_STEP: ciSteps.determinate
+      CI_STEP: internal.ciSteps.determinate
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-determinate,')
     runs-on: ubuntu-24.04
     steps:
@@ -322,7 +322,7 @@ jobs:
       run: nix store verify --recursive --no-trust "$(readlink -f result)"
       timeout-minutes: 15
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Test nanopynix against Nix determinate (full suite)
       run: ./result/bin/nanopynix-ci suite
@@ -371,7 +371,7 @@ jobs:
     timeout-minutes: 230
   test-git:
     env:
-      CI_STEP: ciSteps.git
+      CI_STEP: internal.ciSteps.git
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-git,')
     runs-on: ubuntu-24.04
     steps:
@@ -401,7 +401,7 @@ jobs:
       run: nix store verify --recursive --no-trust "$(readlink -f result)"
       timeout-minutes: 15
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Test nanopynix against Nix git (full suite)
       run: ./result/bin/nanopynix-ci suite
@@ -450,7 +450,7 @@ jobs:
     timeout-minutes: 230
   test-nix_2_34:
     env:
-      CI_STEP: ciSteps.nix_2_34
+      CI_STEP: internal.ciSteps.nix_2_34
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nix_2_34,')
     runs-on: ubuntu-24.04
     steps:
@@ -480,7 +480,7 @@ jobs:
       run: nix store verify --recursive --no-trust "$(readlink -f result)"
       timeout-minutes: 15
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Test nanopynix against Nix nix_2_34 (full suite)
       run: ./result/bin/nanopynix-ci suite
@@ -529,7 +529,7 @@ jobs:
     timeout-minutes: 230
   test-nix_2_35:
     env:
-      CI_STEP: ciSteps.nix_2_35
+      CI_STEP: internal.ciSteps.nix_2_35
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nix_2_35,')
     runs-on: ubuntu-24.04
     steps:
@@ -559,7 +559,7 @@ jobs:
       run: nix store verify --recursive --no-trust "$(readlink -f result)"
       timeout-minutes: 15
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Test nanopynix against Nix nix_2_35 (full suite)
       run: ./result/bin/nanopynix-ci suite
@@ -608,7 +608,7 @@ jobs:
     timeout-minutes: 230
   test-nogc-determinate:
     env:
-      CI_STEP: ciSteps.determinate-nogc
+      CI_STEP: internal.ciSteps.determinate-nogc
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc-determinate,')
     runs-on: ubuntu-24.04
     steps:
@@ -635,7 +635,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 30
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run the suite without a collector (determinate)
       run: ./result/bin/nanopynix-ci suite
@@ -643,7 +643,7 @@ jobs:
     timeout-minutes: 135
   test-nogc-git:
     env:
-      CI_STEP: ciSteps.git-nogc
+      CI_STEP: internal.ciSteps.git-nogc
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc-git,')
     runs-on: ubuntu-24.04
     steps:
@@ -670,7 +670,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 30
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run the suite without a collector (git)
       run: ./result/bin/nanopynix-ci suite
@@ -678,7 +678,7 @@ jobs:
     timeout-minutes: 135
   test-nogc-nix_2_34:
     env:
-      CI_STEP: ciSteps.nix_2_34-nogc
+      CI_STEP: internal.ciSteps.nix_2_34-nogc
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc-nix_2_34,')
     runs-on: ubuntu-24.04
     steps:
@@ -705,7 +705,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 30
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run the suite without a collector (nix_2_34)
       run: ./result/bin/nanopynix-ci suite
@@ -713,7 +713,7 @@ jobs:
     timeout-minutes: 135
   test-nogc-nix_2_35:
     env:
-      CI_STEP: ciSteps.nix_2_35-nogc
+      CI_STEP: internal.ciSteps.nix_2_35-nogc
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc-nix_2_35,')
     runs-on: ubuntu-24.04
     steps:
@@ -740,7 +740,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 30
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run the suite without a collector (nix_2_35)
       run: ./result/bin/nanopynix-ci suite
@@ -748,7 +748,7 @@ jobs:
     timeout-minutes: 135
   test-tsan-determinate:
     env:
-      CI_STEP: ciSteps.determinate-tsan
+      CI_STEP: internal.ciSteps.determinate-tsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan-determinate,')
     runs-on: ubuntu-24.04
     steps:
@@ -775,7 +775,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 45
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run TSAN-instrumented suite (determinate)
       run: ./result/bin/nanopynix-ci suite
@@ -790,7 +790,7 @@ jobs:
     timeout-minutes: 180
   test-tsan-git:
     env:
-      CI_STEP: ciSteps.git-tsan
+      CI_STEP: internal.ciSteps.git-tsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan-git,')
     runs-on: ubuntu-24.04
     steps:
@@ -817,7 +817,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 45
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run TSAN-instrumented suite (git)
       run: ./result/bin/nanopynix-ci suite
@@ -832,7 +832,7 @@ jobs:
     timeout-minutes: 180
   test-tsan-nix_2_34:
     env:
-      CI_STEP: ciSteps.nix_2_34-tsan
+      CI_STEP: internal.ciSteps.nix_2_34-tsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan-nix_2_34,')
     runs-on: ubuntu-24.04
     steps:
@@ -859,7 +859,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 45
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run TSAN-instrumented suite (nix_2_34)
       run: ./result/bin/nanopynix-ci suite
@@ -874,7 +874,7 @@ jobs:
     timeout-minutes: 180
   test-tsan-nix_2_35:
     env:
-      CI_STEP: ciSteps.nix_2_35-tsan
+      CI_STEP: internal.ciSteps.nix_2_35-tsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan-nix_2_35,')
     runs-on: ubuntu-24.04
     steps:
@@ -901,7 +901,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 45
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run TSAN-instrumented suite (nix_2_35)
       run: ./result/bin/nanopynix-ci suite
@@ -916,7 +916,7 @@ jobs:
     timeout-minutes: 180
   test-ubsan-determinate:
     env:
-      CI_STEP: ciSteps.determinate-ubsan
+      CI_STEP: internal.ciSteps.determinate-ubsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan-determinate,')
     runs-on: ubuntu-24.04
     steps:
@@ -943,7 +943,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run UBSAN-instrumented suite (determinate)
       run: ./result/bin/nanopynix-ci suite
@@ -958,7 +958,7 @@ jobs:
     timeout-minutes: 180
   test-ubsan-git:
     env:
-      CI_STEP: ciSteps.git-ubsan
+      CI_STEP: internal.ciSteps.git-ubsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan-git,')
     runs-on: ubuntu-24.04
     steps:
@@ -985,7 +985,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run UBSAN-instrumented suite (git)
       run: ./result/bin/nanopynix-ci suite
@@ -1000,7 +1000,7 @@ jobs:
     timeout-minutes: 180
   test-ubsan-nix_2_34:
     env:
-      CI_STEP: ciSteps.nix_2_34-ubsan
+      CI_STEP: internal.ciSteps.nix_2_34-ubsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan-nix_2_34,')
     runs-on: ubuntu-24.04
     steps:
@@ -1027,7 +1027,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run UBSAN-instrumented suite (nix_2_34)
       run: ./result/bin/nanopynix-ci suite
@@ -1042,7 +1042,7 @@ jobs:
     timeout-minutes: 180
   test-ubsan-nix_2_35:
     env:
-      CI_STEP: ciSteps.nix_2_35-ubsan
+      CI_STEP: internal.ciSteps.nix_2_35-ubsan
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan-nix_2_35,')
     runs-on: ubuntu-24.04
     steps:
@@ -1069,7 +1069,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run UBSAN-instrumented suite (nix_2_35)
       run: ./result/bin/nanopynix-ci suite

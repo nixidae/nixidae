@@ -28,7 +28,7 @@ let
     vivarium-eval = ./.;
   };
 
-  pythonSet = nanopynix.pythonSetWith {
+  pythonSet = nanopynix.lib.pythonSetWith {
     projectRoots = lib.attrValues projects;
     overlay =
       pySelf: _pyPrev:
@@ -36,12 +36,12 @@ let
         _: projectRoot:
         pySelf.callPackage (ps.mkProject {
           inherit projectRoot;
-          inherit (nanopynix.pythonSet) python;
+          inherit (nanopynix.lib.pythonSet) python;
         }) { }
       ) projects;
   };
 
-  app = nanopynix.mkApp {
+  app = nanopynix.lib.mkApp {
     name = "vivarium-eval";
     inherit pythonSet;
   };

@@ -13,12 +13,12 @@ let
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
   inherit (import sources.nixvenv { inherit pkgs sources; }) ps;
 
-  pythonSet = nanopynix.pythonSetWith {
+  pythonSet = nanopynix.lib.pythonSetWith {
     projectRoots = [ ./kappy ];
     overlay = pySelf: _pyPrev: {
       kappy = pySelf.callPackage (ps.mkProject {
         projectRoot = ./kappy;
-        inherit (nanopynix.pythonSet) python;
+        inherit (nanopynix.lib.pythonSet) python;
         extra = rendered: {
           meta = rendered.meta // {
             platforms = pkgs.lib.platforms.unix;

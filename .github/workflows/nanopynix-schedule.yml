@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 85
   test-asan:
     env:
-      CI_STEP: ciSteps.${{ matrix.version }}
+      CI_STEP: internal.ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-asan,')
     needs:
     - version-matrix
@@ -68,7 +68,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run ASAN-instrumented suite (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
@@ -87,7 +87,7 @@ jobs:
     timeout-minutes: 210
   test-nogc:
     env:
-      CI_STEP: ciSteps.${{ matrix.version }}
+      CI_STEP: internal.ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nogc,')
     needs:
     - version-matrix
@@ -118,7 +118,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 30
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run the suite without a collector (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
@@ -130,7 +130,7 @@ jobs:
     timeout-minutes: 135
   test-regular:
     env:
-      CI_STEP: ciSteps.${{ matrix.version }}
+      CI_STEP: internal.ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-regular,')
     needs:
     - version-matrix
@@ -164,7 +164,7 @@ jobs:
       run: nix store verify --recursive --no-trust "$(readlink -f result)"
       timeout-minutes: 15
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Test nanopynix against Nix ${{ matrix.version }} (full suite)
       run: ./result/bin/nanopynix-ci suite
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 230
   test-tsan:
     env:
-      CI_STEP: ciSteps.${{ matrix.version }}
+      CI_STEP: internal.ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-tsan,')
     needs:
     - version-matrix
@@ -248,7 +248,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 45
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run TSAN-instrumented suite (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
@@ -267,7 +267,7 @@ jobs:
     timeout-minutes: 180
   test-ubsan:
     env:
-      CI_STEP: ciSteps.${{ matrix.version }}
+      CI_STEP: internal.ciSteps.${{ matrix.version }}
     if: github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-ubsan,')
     needs:
     - version-matrix
@@ -298,7 +298,7 @@ jobs:
       run: nix build --file . "$CI_STEP" --out-link result --print-build-logs --print-out-paths
       timeout-minutes: 60
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - name: Run UBSAN-instrumented suite (${{ matrix.version }})
       run: ./result/bin/nanopynix-ci suite
@@ -347,7 +347,7 @@ jobs:
         useDaemon: false
     - id: versions
       name: Compute Nix version matrices
-      run: nix run --file . ciSteps.version-matrix
+      run: nix run --file . internal.ciSteps.version-matrix
       timeout-minutes: 20
     timeout-minutes: 85
 name: 'nanopynix: On schedule'

@@ -23,7 +23,7 @@ jobs:
     - env:
         REF: ${{ inputs.ref }}
       name: Check the ref
-      run: nix run --file . ciSteps.check-dispatch-ref
+      run: nix run --file . internal.ciSteps.check-dispatch-ref
       timeout-minutes: 10
     - timeout-minutes: 10
       uses: actions/checkout@main
@@ -36,13 +36,13 @@ jobs:
         name: lillecarl
         useDaemon: false
     - name: Enable Nix sandbox namespaces
-      run: nix run --file . ciSteps.enable-sandbox-namespaces
+      run: nix run --file . internal.ciSteps.enable-sandbox-namespaces
       timeout-minutes: 10
     - env:
         EXPERIMENT: ${{ inputs.experiment }}
         MATRIX_JSON: ${{ toJSON(matrix) }}
       name: Run ${{ inputs.experiment }}
-      run: nix run --file . "experiments.$EXPERIMENT"
+      run: nix run --file . "internal.experiments.$EXPERIMENT"
       timeout-minutes: 60
     - if: ${{ failure() }}
       name: Keep the evidence of a failed cell
