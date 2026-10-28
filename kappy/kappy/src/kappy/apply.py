@@ -84,10 +84,15 @@ class ObjectKey(NamedTuple):
     name: str
 
 
-def raw_metadata(obj: APIObject) -> dict[str, JsonValue]:
-    """`obj.raw["metadata"]`, typed. kr8s leaves `raw` untyped; `{}` when it holds no object."""
+def raw_manifest(obj: APIObject) -> Manifest:
+    """`obj.raw`, typed. kr8s leaves `raw` untyped; `{}` when it holds no object."""
     raw = cast("JsonValue", obj.raw)
-    metadata = raw.get("metadata") if isinstance(raw, dict) else None
+    return raw if isinstance(raw, dict) else {}
+
+
+def raw_metadata(obj: APIObject) -> Manifest:
+    """`obj.raw["metadata"]`, typed; `{}` when it holds none."""
+    metadata = raw_manifest(obj).get("metadata")
     return metadata if isinstance(metadata, dict) else {}
 
 
@@ -887,6 +892,7 @@ __all__ = [
     "field_manager_for",
     "prune_generation",
     "prune_selector",
+    "raw_manifest",
     "raw_metadata",
     "resource_version",
     "ssa_apply",
