@@ -36,8 +36,15 @@ let
   };
 in
 {
-  inherit pkgs pythonSet devEnv;
-  inherit (pythonSet) kappy;
+  packages = {
+    inherit (pythonSet) kappy;
+    default = pythonSet.kappy;
+  };
+  lib = { };
+  nixosModules = { };
+  # The tests run in `shell`; see ci/workflows/tests.nix.
+  checks = { };
+  docs = { };
   shell = pkgs.mkShell {
     packages = [
       devEnv
@@ -46,4 +53,10 @@ in
     ];
   };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+
+  # Not public: the names may change without notice.
+  internal = { inherit pkgs pythonSet devEnv; };
+
+  # nix/members.nix and flake.nix read it. nixidae/nixidae#1103.
+  inherit (pythonSet) kappy;
 }
