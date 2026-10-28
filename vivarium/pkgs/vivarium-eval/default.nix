@@ -46,16 +46,25 @@ let
     inherit pythonSet;
   };
 
-  # pyproject-nix builds a wheel and runs nothing, so the tests are run
-  # here, in the same environment the app gets.
+  # pyproject-nix builds a wheel and runs nothing, so the tests and the
+  # type check are run here, in the same environment the app gets.
   tests =
+    let
+      python = pythonSet.mkVirtualEnv "vivarium-eval-test-env" { vivarium-eval = [ ]; };
+    in
     pkgs.runCommand "vivarium-eval-tests"
       {
-        nativeBuildInputs = [ (pythonSet.mkVirtualEnv "vivarium-eval-test-env" { vivarium-eval = [ ]; }) ];
+        nativeBuildInputs = [
+          python
+          pkgs.zuban
+        ];
       }
       ''
         cp -r ${./tests} tests
+        cp -r ${./vivarium_eval} vivarium_eval
+        cp ${./mypy.ini} mypy.ini
         export HOME=$TMPDIR
+        zuban mypy --python-executable ${python}/bin/python
         python -m pytest -p no:cacheprovider tests
         touch $out
       '';

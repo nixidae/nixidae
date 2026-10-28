@@ -35,7 +35,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict
 
 import anyio
 from mcp.server.fastmcp import FastMCP, Image
@@ -49,7 +49,7 @@ from vivarium.monitor import LIVE, SOCKET as MONITOR_SOCKET, TERMINAL, channel_e
 from .cli import split_attr
 
 if TYPE_CHECKING:
-    from anyio.abc import Process, SocketStream, TaskGroup
+    from anyio.abc import SocketStream, TaskGroup
     from anyio.streams.memory import MemoryObjectSendStream
 
 CHANNEL: Final = "notifications/claude/channel"
@@ -92,6 +92,16 @@ tears the guests down.
 # ── pure ────────────────────────────────────────────────────────────
 
 
+class Event(TypedDict, total=False):
+    """One line of `events.jsonl`. `data` has a different shape for each kind."""
+
+    kind: str
+    machine: str
+    phase: str
+    text: str
+    data: dict[str, Any]
+
+
 def select(
     lines: list[str],
     *,
@@ -102,12 +112,12 @@ def select(
     case: str | None = None,
     contains: str | None = None,
     limit: int = 50,
-) -> list[dict[str, Any]]:
+) -> list[Event]:
     """The last `limit` events that match every filter given."""
-    found: list[dict[str, Any]] = []
+    found: list[Event] = []
     for line in lines:
         try:
-            event = json.loads(line)
+            event: Event = json.loads(line)
         except json.JSONDecodeError:
             continue
         data = event.get("data") or {}
@@ -173,6 +183,19 @@ def run_argv(
 # ── runs ────────────────────────────────────────────────────────────
 
 
+class Child(Protocol):
+    """What a run needs of its process. `anyio`'s `Process` has all of it."""
+
+    @property
+    def returncode(self) -> int | None: ...
+
+    def send_signal(self, sig: signal.Signals) -> None: ...
+
+    async def wait(self) -> int: ...
+
+    def kill(self) -> None: ...
+
+
 @dataclass(frozen=True)
 class Source:
     """Where a run by attribute came from, to evaluate it again."""
@@ -186,7 +209,7 @@ class Source:
 class Run:
     id: str
     out: Path
-    process: Process
+    process: Child
     source: Source | None = None
     finished: bool = False
     tail: Tail = field(init=False)
@@ -239,7 +262,7 @@ class Runs:
         with reachable(path) as name:
             listener = await anyio.create_unix_listener(name)
         path.chmod(0o600)
-        self.group.start_soon(listener.serve, lambda stream: _monitor(run, stream))
+        self.group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         self.group.start_soon(self._watch, run)
         return run
 
@@ -248,7 +271,7 @@ class Runs:
         while True:
             for line in await run.tail.read():
                 try:
-                    event = json.loads(line)
+                    event: dict[str, Any] = json.loads(line)
                 except json.JSONDecodeError:
                     continue
                 if event.get("kind") == "run_finished":
@@ -319,9 +342,10 @@ def _spec(spec: Path) -> dict[str, Any]:
     """The fields of a spec this server reads: its name, since the file
     name is a store hash, and the `vivarium` that knows the rest."""
     try:
-        return json.loads(spec.read_text())
+        found: dict[str, Any] = json.loads(spec.read_text())
     except (OSError, json.JSONDecodeError):
         return {}
+    return found
 
 
 def _read(path: Path) -> str:
@@ -534,7 +558,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         case: str | None = None,
         contains: str | None = None,
         limit: int = 50,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> dict[str, list[Event]]:
         """The run's events, newest last, filtered. `kind="journal", machine="cp",
         unit="kubelet.service"` is one service on one guest; `kind="case"` is
         each pytest test; `kind="error"` is every traceback."""

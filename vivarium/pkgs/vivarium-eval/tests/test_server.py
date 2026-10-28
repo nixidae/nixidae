@@ -1,15 +1,24 @@
+from __future__ import annotations
+
 import base64
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
-from vivarium.control import Reply
+from mcp.shared.message import SessionMessage
+from mcp.types import ImageContent, TextContent
+from vivarium.control import Op, Reply
+from vivarium.monitor import channel_event
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
-from vivarium_eval.server import _monitor, build, channel_event, run_argv, select, why_it_exited
+from vivarium_eval.server import Run, Runs, _monitor, build, run_argv, select, why_it_exited
+
+if TYPE_CHECKING:
+    from anyio.abc import ByteReceiveStream
 
 
 class TestAnEvaluationError:
@@ -23,27 +32,27 @@ class TestAnEvaluationError:
         " and do not exist: bot."
     )
 
-    def test_the_point_comes_first_without_colour(self):
+    def test_the_point_comes_first_without_colour(self) -> None:
         text = explain(self.NIX)
         assert text.startswith("error: vivarium: these phases")
         assert "\x1b" not in text
         assert "customisation.nix" in text, "the trace is kept, after the point"
 
-    def test_the_channel_shows_the_point_not_the_trace(self):
+    def test_the_channel_shows_the_point_not_the_trace(self) -> None:
         output = "[vivarium] evaluating broken\n[vivarium] evaluation failed: " + explain(self.NIX) + "\n"
         assert "do not exist: bot" in why_it_exited(output)
 
-    def test_any_other_death_shows_the_end(self):
+    def test_any_other_death_shows_the_end(self) -> None:
         output = "\n".join(f"line {n}" for n in range(40))
         assert why_it_exited(output).splitlines()[-1] == "line 39"
 
 
-def event(kind: str, **fields: object) -> dict:
+def event(kind: str, **fields: object) -> dict[str, Any]:
     return {"kind": kind, **fields}
 
 
 class TestChannelEvent:
-    def test_a_pause(self):
+    def test_a_pause(self) -> None:
         content, meta = channel_event(event("note", text="paused", data={"reason": "after cases failed"}), "r1") or (
             "",
             {},
@@ -51,18 +60,18 @@ class TestChannelEvent:
         assert meta == {"run": "r1", "event": "paused", "reason": "after cases failed"}
         assert "guests are up" in content
 
-    def test_a_resume(self):
+    def test_a_resume(self) -> None:
         pushed = channel_event(event("note", text="resumed", data={"resumed": "after cases failed"}), "r1")
         assert pushed == (
             "resumed, paused after cases failed",
             {"run": "r1", "event": "resumed", "reason": "after cases failed"},
         )
 
-    def test_a_failed_phase(self):
+    def test_a_failed_phase(self) -> None:
         pushed = channel_event(event("phase_finished", phase="cases", data={"state": "failed", "error": "boom"}), "r1")
         assert pushed == ("phase cases failed: boom", {"run": "r1", "event": "failed", "phase": "cases"})
 
-    def test_the_verdict(self):
+    def test_the_verdict(self) -> None:
         pushed = channel_event(
             event("run_finished", data={"passed": False, "states": {"boot": "passed", "cases": "failed"}}),
             "r1",
@@ -72,7 +81,7 @@ class TestChannelEvent:
             {"run": "r1", "event": "finished", "passed": "false"},
         )
 
-    def test_progress_at_each_phase_boundary(self):
+    def test_progress_at_each_phase_boundary(self) -> None:
         assert channel_event(event("phase_started", phase="deploy"), "r1") == (
             "phase deploy started",
             {"run": "r1", "event": "progress", "phase": "deploy", "state": "started"},
@@ -90,10 +99,10 @@ class TestChannelEvent:
             event("note", text="control: exec", data={"op": "exec"}),
         ],
     )
-    def test_the_rest_stays_in_the_file(self, quiet: dict):
+    def test_the_rest_stays_in_the_file(self, quiet: dict[str, Any]) -> None:
         assert channel_event(quiet, "r1") is None
 
-    def test_every_meta_key_is_an_identifier(self):
+    def test_every_meta_key_is_an_identifier(self) -> None:
         """Claude Code drops a key with anything but letters, digits and _."""
         for pushed in (
             channel_event(event("note", data={"reason": "x"}), "r"),
@@ -117,22 +126,22 @@ LINES = [
 
 
 class TestSelect:
-    def test_one_service_on_one_machine(self):
+    def test_one_service_on_one_machine(self) -> None:
         found = select(LINES, kind="journal", machine="cp", unit="kubelet.service")
         assert [e["text"] for e in found] == ["a"]
 
-    def test_by_case(self):
+    def test_by_case(self) -> None:
         assert [e["text"] for e in select(LINES, case="test_x")] == ["hostname"]
 
-    def test_the_last_n(self):
+    def test_the_last_n(self) -> None:
         assert [e["text"] for e in select(LINES, kind="journal", limit=2)] == ["b", "c"]
 
-    def test_contains(self):
+    def test_contains(self) -> None:
         assert [e["kind"] for e in select(LINES, contains="t.py")] == ["case"]
 
 
 class TestRunArgv:
-    def test_by_attribute_through_uml_eval(self, tmp_path: Path):
+    def test_by_attribute_through_uml_eval(self, tmp_path: Path) -> None:
         argv = run_argv(
             out=tmp_path,
             attr="pytest-phase",
@@ -148,7 +157,7 @@ class TestRunArgv:
         assert argv[1:5] == ["run", "pytest-phase", "--file", "/src"]
         assert argv[-7:] == ["--break", "cases", "--break-on-failure", "--offline", "--", "-k", "x"]
 
-    def test_by_spec_straight_to_uml(self, tmp_path: Path):
+    def test_by_spec_straight_to_uml(self, tmp_path: Path) -> None:
         argv = run_argv(
             out=tmp_path,
             attr=None,
@@ -163,7 +172,7 @@ class TestRunArgv:
         assert argv[:5] == [sys.executable, "-m", "vivarium.cli", "run", "--spec"]
         assert argv[-2:] == ["--only", "cases"]
 
-    def test_by_spec_with_the_runner_it_names(self, tmp_path: Path):
+    def test_by_spec_with_the_runner_it_names(self, tmp_path: Path) -> None:
         """A spec from a newer lib.nix, run with this package's `vivarium`,
         lost its `pythonPath` without a word. Measured on nixkube."""
         argv = run_argv(
@@ -180,7 +189,7 @@ class TestRunArgv:
         )
         assert argv[:4] == ["/nix/store/y-vivarium/bin/vivarium", "run", "--spec", "/nix/store/x-spec.json"]
 
-    def test_a_kernel_from_a_working_tree(self, tmp_path: Path):
+    def test_a_kernel_from_a_working_tree(self, tmp_path: Path) -> None:
         argv = run_argv(
             out=tmp_path,
             attr="x",
@@ -198,7 +207,7 @@ class TestRunArgv:
         assert argv.index("--kernel") < argv.index("--")
 
     @pytest.mark.parametrize(("attr", "spec"), [(None, None), ("a", "b")])
-    def test_exactly_one_of_attr_and_spec(self, attr, spec, tmp_path: Path):
+    def test_exactly_one_of_attr_and_spec(self, attr: str | None, spec: str | None, tmp_path: Path) -> None:
         with pytest.raises(ValueError):
             run_argv(
                 out=tmp_path,
@@ -213,12 +222,32 @@ class TestRunArgv:
             )
 
 
+@dataclass
+class FakeProcess:
+    """A child that is still running, for a `Run` the test does not start."""
+
+    returncode: int | None = None
+
+    def send_signal(self, sig: int) -> None:
+        pass
+
+    async def wait(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        pass
+
+
+def _run(out: Path, backlog: list[dict[str, str]] | None = None) -> Run:
+    return Run(id="r", out=out, process=FakeProcess(), backlog=backlog or [])
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _read_lines(stream) -> list[dict]:
+async def _read_lines(stream: ByteReceiveStream) -> list[dict[str, Any]]:
     buffer = b""
     while True:
         try:
@@ -228,14 +257,11 @@ async def _read_lines(stream) -> list[dict]:
 
 
 @pytest.mark.anyio
-async def test_a_monitor_gets_the_backlog_then_each_event_until_the_verdict(tmp_path: Path):
-    run = SimpleNamespace(
-        backlog=[{"run": "r", "event": "progress", "text": "phase boot started"}],
-        watchers=[],
-    )
+async def test_a_monitor_gets_the_backlog_then_each_event_until_the_verdict(tmp_path: Path) -> None:
+    run = _run(tmp_path, [{"run": "r", "event": "progress", "text": "phase boot started"}])
     path = str(tmp_path / "monitor.sock")
     async with await anyio.create_unix_listener(path) as listener, anyio.create_task_group() as group:
-        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))
+        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         with anyio.fail_after(5):
             client = await anyio.connect_unix(path)
             while not run.watchers:
@@ -251,14 +277,11 @@ async def test_a_monitor_gets_the_backlog_then_each_event_until_the_verdict(tmp_
 
 
 @pytest.mark.anyio
-async def test_a_monitor_of_a_finished_run_gets_the_backlog_and_an_end(tmp_path: Path):
-    run = SimpleNamespace(
-        backlog=[{"run": "r", "event": "exited", "text": "run exited 1 without a verdict:"}],
-        watchers=[],
-    )
+async def test_a_monitor_of_a_finished_run_gets_the_backlog_and_an_end(tmp_path: Path) -> None:
+    run = _run(tmp_path, [{"run": "r", "event": "exited", "text": "run exited 1 without a verdict:"}])
     path = str(tmp_path / "monitor.sock")
     async with await anyio.create_unix_listener(path) as listener, anyio.create_task_group() as group:
-        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))
+        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         with anyio.fail_after(5):
             async with await anyio.connect_unix(path) as client:
                 lines = await _read_lines(client)
@@ -268,27 +291,37 @@ async def test_a_monitor_of_a_finished_run_gets_the_backlog_and_an_end(tmp_path:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("ok", [True, False])
-async def test_a_screenshot_comes_back_as_an_image(tmp_path: Path, monkeypatch, ok: bool):
+async def test_a_screenshot_comes_back_as_an_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: bool) -> None:
     png = tmp_path / "000.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\nrest")
-    asked = []
+    asked: list[str] = []
 
-    async def request(socket, op, code):
+    async def request(socket: Path, op: Op, code: str) -> Reply:
         asked.append(code)
         if ok:
             return Reply(ok=True, output=f"{png}\n")
         return Reply(ok=False, error="MachineError: [blind] has no screen")
 
     monkeypatch.setattr(server_module, "request", request)
-    runs = SimpleNamespace(get=lambda run: SimpleNamespace(socket=tmp_path / "control.sock"))
-    content = await build([runs]).call_tool("screenshot", {"run": "r", "machine": "desk"})
-    blocks = content[0] if isinstance(content, tuple) else content
+    send, _ = anyio.create_memory_object_stream[SessionMessage]()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, send)
+        runs.runs["r"] = _run(tmp_path)
+        result = await build([runs]).call_tool("screenshot", {"run": "r", "machine": "desk"})
+        group.cancel_scope.cancel()
+    assert not isinstance(result, dict)
+    blocks = list(result)
     assert asked == ["print(await vms['desk'].screenshot(None))"]
     if ok:
         assert [block.type for block in blocks] == ["image", "text"]
-        assert base64.b64decode(blocks[0].data) == png.read_bytes()
-        assert blocks[1].text == str(png)
+        image, text = blocks
+        assert isinstance(image, ImageContent)
+        assert isinstance(text, TextContent)
+        assert base64.b64decode(image.data) == png.read_bytes()
+        assert text.text == str(png)
     else:
         # The negative: no image, and the guest's reason as text.
         assert [block.type for block in blocks] == ["text"]
-        assert "has no screen" in blocks[0].text
+        only = blocks[0]
+        assert isinstance(only, TextContent)
+        assert "has no screen" in only.text
