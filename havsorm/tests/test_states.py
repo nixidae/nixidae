@@ -16,8 +16,10 @@ def _cache(tmp_path: pathlib.Path, *contents: bytes) -> tuple[str, list[str]]:
     from huggorm_bindings import ContentAddressMethod, HashAlgorithm, Store
 
     source = Store(str(tmp_path / "source"))
-    paths = [source.add_to_store(f"env-{i}", data, ContentAddressMethod.NAR,
-                                 HashAlgorithm.SHA256) for i, data in enumerate(contents)]
+    paths = [
+        source.add_to_store(f"env-{i}", data, ContentAddressMethod.NAR, HashAlgorithm.SHA256)
+        for i, data in enumerate(contents)
+    ]
     cache = f"file://{tmp_path / 'cache'}?compression=none"
     source.copy_closure(Store(cache), paths, check_sigs=False)
     return cache, [source.print_store_path(p) for p in paths]
@@ -33,25 +35,45 @@ def cached(tmp_path: pathlib.Path) -> tuple[str, str]:
 def _state(tmp_path: pathlib.Path, cache: str, fun: str, *args: str) -> Any:
     cfg = tmp_path / "conf"
     cfg.mkdir(exist_ok=True)
-    (cfg / "minion").write_text(json.dumps({
-        "file_client": "local", "root_dir": str(tmp_path / "salt"), "id": "minion1",
-        "havsorm": {
-            "store": str(tmp_path / "minion"),
-            "nix_settings": {"substituters": cache, "require-sigs": "false"},
-        },
-    }))
+    (cfg / "minion").write_text(
+        json.dumps(
+            {
+                "file_client": "local",
+                "root_dir": str(tmp_path / "salt"),
+                "id": "minion1",
+                "havsorm": {
+                    "store": str(tmp_path / "minion"),
+                    "nix_settings": {"substituters": cache, "require-sigs": "false"},
+                },
+            }
+        )
+    )
     done = subprocess.run(
-        [sys.executable, "-c", "import salt.scripts; salt.scripts.salt_call()",
-         "--local", "--config-dir", str(cfg), "--out", "json", "--log-level", "quiet",
-         "state.single", fun, *args],
-        capture_output=True, text=True, timeout=300)
+        [
+            sys.executable,
+            "-c",
+            "import salt.scripts; salt.scripts.salt_call()",
+            "--local",
+            "--config-dir",
+            str(cfg),
+            "--out",
+            "json",
+            "--log-level",
+            "quiet",
+            "state.single",
+            fun,
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
     assert done.stdout, done.stderr[-3000:]
     (ret,) = json.loads(done.stdout)["local"].values()
     return ret
 
 
-def test_realised_substitutes_and_roots_once(
-        tmp_path: pathlib.Path, cached: tuple[str, str]) -> None:
+def test_realised_substitutes_and_roots_once(tmp_path: pathlib.Path, cached: tuple[str, str]) -> None:
     cache, path = cached
     root = str(tmp_path / "roots" / "hello")
     os.makedirs(os.path.dirname(root))
@@ -73,8 +95,7 @@ def test_realised_substitutes_and_roots_once(
     assert again["changes"] == {}
 
 
-def test_a_path_no_cache_has_fails_the_state(
-        tmp_path: pathlib.Path, cached: tuple[str, str]) -> None:
+def test_a_path_no_cache_has_fails_the_state(tmp_path: pathlib.Path, cached: tuple[str, str]) -> None:
     cache, _ = cached
     missing = "/nix/store/00000000000000000000000000000000-nothing"
     ret = _state(tmp_path, cache, "havsorm.realised", missing)
@@ -101,8 +122,7 @@ def test_a_profile_switches_and_keeps_the_old_generation(tmp_path: pathlib.Path)
     assert same["changes"] == {}, same
 
     second = _state(tmp_path, cache, "havsorm.profile", profile, f"path={two}")
-    assert second["changes"] == {"old": one, "new": two,
-                                 "generation": profile + "-2-link"}, second
+    assert second["changes"] == {"old": one, "new": two, "generation": profile + "-2-link"}, second
     assert os.readlink(profile + "-1-link") == one
 
     dry = _state(tmp_path, cache, "havsorm.generations_deleted", profile, "test=True")
@@ -122,8 +142,9 @@ def test_a_unit_links_its_store_file_and_roots_it(tmp_path: pathlib.Path) -> Non
     from huggorm_bindings import ContentAddressMethod, HashAlgorithm, Store
 
     source = Store(str(tmp_path / "source"))
-    holder = source.add_to_store("unit-demo.service", b"[Unit]\nDescription=demo\n",
-                                 ContentAddressMethod.FLAT, HashAlgorithm.SHA256)
+    holder = source.add_to_store(
+        "unit-demo.service", b"[Unit]\nDescription=demo\n", ContentAddressMethod.FLAT, HashAlgorithm.SHA256
+    )
     cache = f"file://{tmp_path / 'cache'}?compression=none"
     source.copy_closure(Store(cache), [holder], check_sigs=False)
     unit_file = source.print_store_path(holder)
@@ -151,8 +172,15 @@ def test_a_unit_never_replaces_a_file_it_did_not_make(tmp_path: pathlib.Path) ->
     units = tmp_path / "units"
     units.mkdir()
     (units / "demo.service").write_text("hand-written\n")
-    ret = _state(tmp_path, cache, "havsorm.unit", "demo.service", f"path={unit_file}",
-                 f"unit_dir={units}", f"root={tmp_path / 'r' / 'demo'}")
+    ret = _state(
+        tmp_path,
+        cache,
+        "havsorm.unit",
+        "demo.service",
+        f"path={unit_file}",
+        f"unit_dir={units}",
+        f"root={tmp_path / 'r' / 'demo'}",
+    )
     assert ret["result"] is False, ret
     assert (units / "demo.service").read_text() == "hand-written\n"
     assert not os.path.lexists(tmp_path / "r" / "demo"), "a refused state changes nothing"
@@ -208,8 +236,13 @@ def test_store_present_installs_nix_from_its_release(tmp_path: pathlib.Path) -> 
 
     conf_dir = tmp_path / "etc-nix"
     unit_dir = tmp_path / "units"
-    args = ["nix", f"release_url=file://{release}", f"conf_dir={conf_dir}",
-            f"unit_dir={unit_dir}", 'settings={"build-users-group": "nixbld"}']
+    args = [
+        "nix",
+        f"release_url=file://{release}",
+        f"conf_dir={conf_dir}",
+        f"unit_dir={unit_dir}",
+        'settings={"build-users-group": "nixbld"}',
+    ]
 
     dry = _state(tmp_path, cache, "havsorm.store_present", *args, "test=True")
     assert dry["result"] is None, dry
@@ -221,8 +254,7 @@ def test_store_present_installs_nix_from_its_release(tmp_path: pathlib.Path) -> 
     profile = tmp_path / "minion" / "nix/var/nix/profiles/default"
     assert os.readlink(os.path.join(profile.parent, os.readlink(profile))) == nix_path
     assert (conf_dir / "nix.conf").read_text() == "build-users-group = nixbld\n"
-    assert os.readlink(unit_dir / "nix-daemon.service") == \
-        f"{nix_path}/lib/systemd/system/nix-daemon.service"
+    assert os.readlink(unit_dir / "nix-daemon.service") == f"{nix_path}/lib/systemd/system/nix-daemon.service"
     store = tmp_path / "minion" / nix_path.lstrip("/")
     assert (store / "bin" / "nix").read_text() == "#!/bin/sh\n"
     assert (tmp_path / "minion" / "nix/var/nix/daemon-socket").is_dir()

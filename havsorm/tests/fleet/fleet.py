@@ -20,8 +20,8 @@ WEBS = {"web1": "10.9.0.2", "web2": "10.9.0.4", "suse1": "10.9.0.3"}
 async def salt(master: Machine, *argv: str, timeout: int = 300) -> dict[str, Any]:
     """`salt <argv>` on the master, as JSON by minion id."""
     out = await master.succeed(
-        shlex.join(["salt", "--out", "json", "--static", "-t", str(timeout), *argv]),
-        timeout=timeout + 30)
+        shlex.join(["salt", "--out", "json", "--static", "-t", str(timeout), *argv]), timeout=timeout + 30
+    )
     result: dict[str, Any] = json.loads(out)
     return result
 
@@ -52,15 +52,15 @@ async def generation(web: Machine) -> str:
 
 async def orchestrate(master: Machine, pillar: dict[str, Any]) -> tuple[int, str]:
     """`salt-run state.orchestrate orch.deploy` with `pillar`: (exit, output)."""
-    return await master.execute(shlex.join(
-        ["salt-run", "--out", "json", "state.orchestrate", "orch.deploy",
-         f"pillar={json.dumps(pillar)}"]), timeout=900)
+    return await master.execute(
+        shlex.join(["salt-run", "--out", "json", "state.orchestrate", "orch.deploy", f"pillar={json.dumps(pillar)}"]),
+        timeout=900,
+    )
 
 
 async def history(web: Machine) -> list[str]:
     """The systems the system profile's generations point at, oldest first."""
-    out = await web.succeed(
-        "find /nix/var/nix/profiles -maxdepth 1 -name 'system-*-link' -printf '%f %l\\n'")
+    out = await web.succeed("find /nix/var/nix/profiles -maxdepth 1 -name 'system-*-link' -printf '%f %l\\n'")
     links = [line.split() for line in out.splitlines() if line.strip()]
     return [target for _, target in sorted(links, key=lambda link: int(link[0].split("-")[1]))]
 
@@ -68,8 +68,7 @@ async def history(web: Machine) -> list[str]:
 async def through_lb(master: Machine, requests: int = 12) -> Counter[str]:
     """Which backend answered each of `requests` requests to the load
     balancer, counted."""
-    out = await master.succeed(
-        f"for i in $(seq {requests}); do curl -sf --max-time 5 http://10.9.0.5/; done")
+    out = await master.succeed(f"for i in $(seq {requests}); do curl -sf --max-time 5 http://10.9.0.5/; done")
     return Counter(out.split())
 
 
@@ -86,13 +85,24 @@ async def bootstrap(vms: Machines) -> None:
     settings = vms.settings["salt"]
     await master.wait_for_unit("salt-master.service")
     await suse1.fail("test -e /etc/salt/minion")
-    await master.succeed(
-        f"install -D -m 0600 {shlex.quote(settings['key'])} /etc/salt/ssh/id_ed25519")
-    pillar = json.dumps({"bootstrap": {"salt": settings["env"], "master": "10.9.0.1",
-                                       "config": settings["config"]}})
-    out = await master.succeed(shlex.join(
-        ["salt-ssh", "--ignore-host-keys", "--out", "json", "--static", "suse1",
-         "state.apply", "bootstrap", f"pillar={pillar}"]), timeout=600)
+    await master.succeed(f"install -D -m 0600 {shlex.quote(settings['key'])} /etc/salt/ssh/id_ed25519")
+    pillar = json.dumps({"bootstrap": {"salt": settings["env"], "master": "10.9.0.1", "config": settings["config"]}})
+    out = await master.succeed(
+        shlex.join(
+            [
+                "salt-ssh",
+                "--ignore-host-keys",
+                "--out",
+                "json",
+                "--static",
+                "suse1",
+                "state.apply",
+                "bootstrap",
+                f"pillar={pillar}",
+            ]
+        ),
+        timeout=600,
+    )
     ret: dict[str, Any] = json.loads(out)["suse1"]
     failed = {name: r for name, r in ret.items() if r["result"] is not True}
     assert not failed, failed
@@ -128,8 +138,13 @@ async def nix_on_suse(vms: Machines) -> None:
 
     nix = vms.settings["install"]["nix"]
     await suse1.fail(f"test -e {nix}")
-    args = ["state.single", "havsorm.store_present", "nix", f"path={nix}",
-            'settings={"build-users-group": "", "experimental-features": "nix-command"}']
+    args = [
+        "state.single",
+        "havsorm.store_present",
+        "nix",
+        f"path={nix}",
+        'settings={"build-users-group": "", "experimental-features": "nix-command"}',
+    ]
     installed = state(await salt(master, "suse1", *args), "suse1")
     assert installed["result"] is True, installed
     profile = "/nix/var/nix/profiles/default"
@@ -138,11 +153,12 @@ async def nix_on_suse(vms: Machines) -> None:
     assert said.startswith("nix (Nix)"), said
     again = state(await salt(master, "suse1", *args), "suse1")
     assert again["result"] is True and again["changes"] == {}, again
-    print(f"[test] havsorm.store_present installed {said.strip()} on openSUSE "
-          "from the master's cache, and then changed nothing")
+    print(
+        f"[test] havsorm.store_present installed {said.strip()} on openSUSE "
+        "from the master's cache, and then changed nothing"
+    )
 
-    daemon = state(await salt(master, "suse1", "state.single", "service.running",
-                              "nix-daemon.socket"), "suse1")
+    daemon = state(await salt(master, "suse1", "state.single", "service.running", "nix-daemon.socket"), "suse1")
     assert daemon["result"] is True, daemon
     await suse1.succeed(f"{profile}/bin/nix store info --store daemon")
     print("[test] Nix's own daemon answers on openSUSE, through Nix's own units")
@@ -157,8 +173,7 @@ async def nixos(vms: Machines) -> None:
     assert await current(web1) == booted
     assert await generation(web1) == "base"
 
-    dry = state(await salt(master, "web1", "state.single", "havsorm.system", nxt, "test=True"),
-                "web1")
+    dry = state(await salt(master, "web1", "state.single", "havsorm.system", nxt, "test=True"), "web1")
     assert dry["result"] is None, dry
     assert dry["changes"]["running"] == {"old": booted, "new": nxt}, dry
     assert await current(web1) == booted, "test=True switched the system"
@@ -174,16 +189,15 @@ async def nixos(vms: Machines) -> None:
 
     on_next = await salt(master, "-G", f"nixos:system:{nxt}", "test.ping", timeout=20)
     assert on_next == {"web1": True}, on_next
-    code, said = await master.execute(shlex.join(
-        ["salt", "--out", "json", "--static", "-t", "20", "-G", f"nixos:system:{booted}",
-         "test.ping"]))
+    code, said = await master.execute(
+        shlex.join(["salt", "--out", "json", "--static", "-t", "20", "-G", f"nixos:system:{booted}", "test.ping"])
+    )
     assert "web1" not in said, (code, said)
     print("[test] a grain target finds the minions on the next system, and only them")
 
     back = state(await salt(master, "web1", "state.single", "havsorm.system", booted), "web1")
     assert back["result"] is True, back
-    rolled = state(await salt(master, "web1", "state.single", "havsorm.rolled_back", "rb"),
-                   "web1")
+    rolled = state(await salt(master, "web1", "state.single", "havsorm.rolled_back", "rb"), "web1")
     assert rolled["result"] is True, rolled
     assert rolled["changes"]["new"] == nxt, rolled
     assert await current(web1) == nxt
@@ -220,11 +234,12 @@ async def rolling(vms: Machines) -> None:
     for name, web in webs.items():
         assert await current(web) == good[name], (name, out)
         assert await generation(web) == "next", name
-    tried = [name for name, web in webs.items()
-             if broken[name] in (await history(web))[len(before[name]):]]
+    tried = [name for name, web in webs.items() if broken[name] in (await history(web))[len(before[name]) :]]
     assert len(tried) == 1, (tried, out)
-    print(f"[test] a broken system stopped the deploy at {tried[0]}, "
-          "the other minion never got it, and both run the good system again")
+    print(
+        f"[test] a broken system stopped the deploy at {tried[0]}, "
+        "the other minion never got it, and both run the good system again"
+    )
 
 
 async def service(vms: Machines) -> None:
@@ -235,8 +250,9 @@ async def service(vms: Machines) -> None:
     for name in WEBS:
         await getattr(vms, name).fail(f"test -e {units['web']}")
 
-    web = await salt(master, "-G", "roles:web", "state.apply", "web",
-                     f"pillar={json.dumps({'web': {'unit': units['web']}})}")
+    web = await salt(
+        master, "-G", "roles:web", "state.apply", "web", f"pillar={json.dumps({'web': {'unit': units['web']}})}"
+    )
     assert set(web) == set(WEBS), web
     for name in WEBS:
         applied(web, name)
@@ -247,16 +263,14 @@ async def service(vms: Machines) -> None:
     print("[test] havsorm.unit runs the same Nix-built web server on NixOS and openSUSE")
 
     await salt(master, "*", "mine.update")
-    mine = (await salt(master, "lb", "mine.get", "roles:web", "lab_ip",
-                       "tgt_type=grain"))["lb"]
+    mine = (await salt(master, "lb", "mine.get", "roles:web", "lab_ip", "tgt_type=grain"))["lb"]
     assert mine == {name: [ip] for name, ip in WEBS.items()}, mine
     print(f"[test] every web minion published its lab address to the mine: {mine}")
     lb_pillar = f"pillar={json.dumps({'lb': {'unit': units['lb']}})}"
     first = applied(await salt(master, "lb", "state.apply", "lb", lb_pillar), "lb")
     assert first["lb-config"]["changes"], first
     await until_lb(master, set(WEBS))
-    print(f"[test] the load balancer, built from the mine, spreads requests over "
-          f"{dict(await through_lb(master))}")
+    print(f"[test] the load balancer, built from the mine, spreads requests over {dict(await through_lb(master))}")
 
     same = applied(await salt(master, "lb", "state.apply", "lb", lb_pillar), "lb")
     assert all(not r["changes"] for r in same.values()), same
@@ -266,8 +280,7 @@ async def service(vms: Machines) -> None:
     # follows. Not by its role: on NixOS that grain is in the minion
     # config Nix wrote, which overrides grains.setval.
     await salt(master, "web2", "mine.delete", "lab_ip")
-    mine = (await salt(master, "lb", "mine.get", "roles:web", "lab_ip",
-                       "tgt_type=grain"))["lb"]
+    mine = (await salt(master, "lb", "mine.get", "roles:web", "lab_ip", "tgt_type=grain"))["lb"]
     assert sorted(mine) == ["suse1", "web1"], mine
     drained = applied(await salt(master, "lb", "state.apply", "lb", lb_pillar), "lb")
     assert "web2" in drained["lb-config"]["changes"].get("diff", ""), drained["lb-config"]
@@ -283,12 +296,10 @@ async def heal(vms: Machines) -> None:
     master, suse1 = vms.master, vms.suse1
     await salt(master, "suse1", "service.stop", "havsorm-web")
     await anyio.sleep(10)
-    assert await suse1.unit_state("havsorm-web.service") == "inactive", \
-        "the web server came back with no beacon"
+    assert await suse1.unit_state("havsorm-web.service") == "inactive", "the web server came back with no beacon"
     print("[test] with no beacon, a stopped web server stays stopped")
 
-    beacon = json.dumps([{"services": {"havsorm-web": {"is_running_state": False}}},
-                         {"interval": 2}])
+    beacon = json.dumps([{"services": {"havsorm-web": {"is_running_state": False}}}, {"interval": 2}])
     added = await salt(master, "suse1", "beacons.add", "service", beacon)
     assert added["suse1"]["result"] is True, added
     with anyio.fail_after(120):
@@ -307,8 +318,14 @@ async def heal(vms: Machines) -> None:
     print("[test] salt-master logged no traceback")
 
 
-PHASES = {"bootstrap": bootstrap, "nix-on-suse": nix_on_suse, "nixos": nixos,
-          "rolling": rolling, "service": service, "heal": heal}
+PHASES = {
+    "bootstrap": bootstrap,
+    "nix-on-suse": nix_on_suse,
+    "nixos": nixos,
+    "rolling": rolling,
+    "service": service,
+    "heal": heal,
+}
 
 
 async def test(vms: Machines) -> None:

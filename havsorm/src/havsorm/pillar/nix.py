@@ -24,8 +24,9 @@ from salt.exceptions import SaltException
 from havsorm.nixeval import evaluate
 
 
-def ext_pillar(minion_id: str, pillar: dict[str, Any], *args: Any,
-               file: str | None = None, store: str = "dummy://", **kwargs: Any) -> Any:
+def ext_pillar(
+    minion_id: str, pillar: dict[str, Any], *args: Any, file: str | None = None, store: str = "dummy://", **kwargs: Any
+) -> Any:
     path = file or (args[0] if args else None)
     if not path:
         raise SaltException("ext_pillar nix: name a file, as in `- nix: /srv/pillar.nix`")
@@ -35,8 +36,15 @@ def ext_pillar(minion_id: str, pillar: dict[str, Any], *args: Any,
         return evaluator.state.eval_file(path)
 
     keep = bool((__opts__.get("havsorm") or {}).get("warm", False))
-    data = evaluate(load, {"id": minion_id, "grains": dict(__grains__), "pillar": pillar},
-                    store, path, SaltException, keep=keep, functions=__salt__)
+    data = evaluate(
+        load,
+        {"id": minion_id, "grains": dict(__grains__), "pillar": pillar},
+        store,
+        path,
+        SaltException,
+        keep=keep,
+        functions=__salt__,
+    )
     if not isinstance(data, dict):
         raise SaltException(f"ext_pillar nix: {path} gave {type(data).__name__}, not a set")
     return data

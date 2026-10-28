@@ -20,16 +20,17 @@ def nix() -> dict[str, Any]:
     try:
         import huggorm_bindings
 
-        linked = {"version": huggorm_bindings.nix_version(),
-                  "system": huggorm_bindings.current_system()}
+        linked = {"version": huggorm_bindings.nix_version(), "system": huggorm_bindings.current_system()}
     except ImportError:
         linked = {}
-    return {"nix": {
-        **linked,
-        "store": os.path.isdir("/nix/store"),
-        "daemon": os.path.exists("/nix/var/nix/daemon-socket/socket"),
-        "profile": _target("/nix/var/nix/profiles/default"),
-    }}
+    return {
+        "nix": {
+            **linked,
+            "store": os.path.isdir("/nix/store"),
+            "daemon": os.path.exists("/nix/var/nix/daemon-socket/socket"),
+            "profile": _target("/nix/var/nix/profiles/default"),
+        }
+    }
 
 
 def nixos() -> dict[str, Any]:
@@ -40,9 +41,11 @@ def nixos() -> dict[str, Any]:
         return {}
     with open(os.path.join(running, "nixos-version")) as f:
         version = f.read().strip()
-    return {"nixos": {
-        "system": running,
-        "booted": _target("/run/booted-system"),
-        "profile": _target("/nix/var/nix/profiles/system"),
-        "version": version,
-    }}
+    return {
+        "nixos": {
+            "system": running,
+            "booted": _target("/run/booted-system"),
+            "profile": _target("/nix/var/nix/profiles/system"),
+            "version": version,
+        }
+    }

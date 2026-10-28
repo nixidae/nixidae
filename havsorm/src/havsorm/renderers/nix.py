@@ -46,8 +46,7 @@ def _pillar_client(saltenv: str, tmplpath: str | None) -> Any:
     return None
 
 
-def render(template: Any, saltenv: str = "base", sls: str = "",
-           tmplpath: str | None = None, **kws: Any) -> Any:
+def render(template: Any, saltenv: str = "base", sls: str = "", tmplpath: str | None = None, **kws: Any) -> Any:
     text = template if isinstance(template, str) else template.read()
 
     def load(evaluator: Any) -> Any:
@@ -87,5 +86,4 @@ def render(template: Any, saltenv: str = "base", sls: str = "",
     # The reactor renders every event in one long-lived process, one at
     # a time, so its evaluator stays warm by default.
     keep = bool(config.get("warm", "tag" in kws))
-    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep,
-                             functions=__salt__))
+    return _ordered(evaluate(load, args, store, sls, SaltRenderError, keep=keep, functions=__salt__))

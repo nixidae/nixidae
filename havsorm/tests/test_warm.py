@@ -7,8 +7,9 @@ from havsorm import nixeval
 
 
 def _pillar(root: pathlib.Path) -> Any:
-    return nixeval.evaluate(lambda ev: ev.state.eval_file(str(root)), {"id": "m"},
-                            "dummy://", str(root), RuntimeError, keep=True)
+    return nixeval.evaluate(
+        lambda ev: ev.state.eval_file(str(root)), {"id": "m"}, "dummy://", str(root), RuntimeError, keep=True
+    )
 
 
 def test_a_warm_evaluation_sees_an_edited_import_on_disk(tmp_path: pathlib.Path) -> None:

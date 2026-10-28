@@ -102,7 +102,7 @@ class Warm(Evaluator):
     def _stamp(self, path: str) -> Any:
         for root, tree in self._trees.items():
             if path.startswith(root + "/"):
-                return tree.digest(path[len(root):])
+                return tree.digest(path[len(root) :])
         try:
             st = os.stat(path)
         except OSError:
@@ -122,8 +122,7 @@ class Warm(Evaluator):
     def before(self) -> None:
         # The files in fileserver trees are checked when `mount` lists the
         # tree again.
-        self._check(p for p in self._cached()
-                    if not any(p.startswith(root + "/") for root in self._trees))
+        self._check(p for p in self._cached() if not any(p.startswith(root + "/") for root in self._trees))
 
     def after(self) -> None:
         # `setdefault`: a file stamped before keeps that stamp, so an edit
@@ -173,8 +172,15 @@ def _salt_primop(state: Any, functions: Callable[[], Any]) -> Any:
 Load = Callable[[Evaluator], Any]
 
 
-def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
-             error: type[Exception], keep: bool = False, functions: Any = None) -> Any:
+def evaluate(
+    load: Load,
+    args: dict[str, Any],
+    store: str,
+    what: str,
+    error: type[Exception],
+    keep: bool = False,
+    functions: Any = None,
+) -> Any:
     """The value `load` gives, applied to `args` when it is a function.
 
     A function must name its arguments, as `{ grains, ... }:` does. A Nix
@@ -204,8 +210,7 @@ def evaluate(load: Load, args: dict[str, Any], store: str, what: str,
             huggorm_bindings.collect_garbage()
 
 
-def _to_json(load: Load, args: str, evaluator: Evaluator, what: str,
-             error: type[Exception], functions: Any) -> str:
+def _to_json(load: Load, args: str, evaluator: Evaluator, what: str, error: type[Exception], functions: Any) -> str:
     """Every Nix value made here is dead when this returns."""
     state = evaluator.state
     value = load(evaluator)
@@ -217,7 +222,6 @@ def _to_json(load: Load, args: str, evaluator: Evaluator, what: str,
         try:
             value = value.apply_auto(given)
         except ValueError as e:
-            raise error(f"{what}: a Nix function names its arguments, as in "
-                        "`{ grains, pillar, ... }:`") from e
+            raise error(f"{what}: a Nix function names its arguments, as in `{{ grains, pillar, ... }}:`") from e
     result: str = value.to_json()
     return result

@@ -21,9 +21,9 @@ def test_nixos_grains_read_the_system_links(monkeypatch: Any, tmp_path: Any) -> 
     (system / "nixos-version").write_text("26.05.1234\n")
     links = {"/run/current-system": str(system), "/run/booted-system": str(system)}
     monkeypatch.setattr(grains, "_target", lambda link: links.get(link))
-    assert grains.nixos() == {"nixos": {
-        "system": str(system), "booted": str(system), "profile": None,
-        "version": "26.05.1234"}}
+    assert grains.nixos() == {
+        "nixos": {"system": str(system), "booted": str(system), "profile": None, "version": "26.05.1234"}
+    }
 
     links.clear()
     assert grains.nixos() == {}

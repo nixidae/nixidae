@@ -74,6 +74,7 @@ rec {
       cd source
       export HOME=$TMPDIR
       ruff check --no-cache src tests
+      ruff format --no-cache --check src tests
       # The `pytest` script, not `python -m`, so `src/` stays off sys.path
       # and the installed package is tested.
       ${python}/bin/pytest -p no:cacheprovider tests

@@ -123,13 +123,11 @@ def profile_set(profile: str, path: str, store: str | None = None) -> str:
     from huggorm_bindings.profiles import set_profile
 
     nix_store = _store(store)
-    link = _call(path, lambda: set_profile(
-        nix_store, pathlib.Path(profile), nix_store.parse_store_path(path)))
+    link = _call(path, lambda: set_profile(nix_store, pathlib.Path(profile), nix_store.parse_store_path(path)))
     return str(link)
 
 
-def profile_rollback(profile: str, generation: int | None = None,
-                     test: bool = False) -> dict[str, Any]:
+def profile_rollback(profile: str, generation: int | None = None, test: bool = False) -> dict[str, Any]:
     """Point `profile` at generation `generation`, or at the newest one
     older than the current, as `nix-env --rollback` does. Return the
     store paths before and after, or what they would be with `test=True`.
@@ -142,16 +140,16 @@ def profile_rollback(profile: str, generation: int | None = None,
 
     generations = profile_generations(profile)
     current = next((g["number"] for g in generations if g["current"]), None)
-    older = [g for g in generations
-             if (g["number"] == generation if generation is not None
-                 else current is not None and g["number"] < current)]
+    older = [
+        g
+        for g in generations
+        if (g["number"] == generation if generation is not None else current is not None and g["number"] < current)
+    ]
     if not older:
-        what = f"generation {generation}" if generation is not None else \
-            f"a generation older than {current}"
+        what = f"generation {generation}" if generation is not None else f"a generation older than {current}"
         raise CommandExecutionError(f"{profile} has no {what}")
     dst = older[-1]
-    change = {"old": profile_target(profile), "new": os.readlink(dst["link"]),
-              "generation": dst["number"]}
+    change = {"old": profile_target(profile), "new": os.readlink(dst["link"]), "generation": dst["number"]}
     if not test:
         _call(profile, lambda: switch_generation(pathlib.Path(profile), dst["number"]))
     return change
@@ -160,14 +158,23 @@ def profile_rollback(profile: str, generation: int | None = None,
 #: What nixos-rebuild runs switch-to-configuration under, so a restart of
 #: the unit that started it does not kill the switch halfway.
 SWITCH_PREFIX = [
-    "systemd-run", "-E", "LOCALE_ARCHIVE", "-E", "NIXOS_INSTALL_BOOTLOADER",
-    "-E", "NIXOS_NO_CHECK", "--collect", "--no-ask-password", "--pipe", "--quiet",
-    "--service-type=exec", "--unit=havsorm-switch-to-configuration",
+    "systemd-run",
+    "-E",
+    "LOCALE_ARCHIVE",
+    "-E",
+    "NIXOS_INSTALL_BOOTLOADER",
+    "-E",
+    "NIXOS_NO_CHECK",
+    "--collect",
+    "--no-ask-password",
+    "--pipe",
+    "--quiet",
+    "--service-type=exec",
+    "--unit=havsorm-switch-to-configuration",
 ]
 
 
-def switch_to_configuration(path: str, action: str = "switch",
-                            install_bootloader: bool = False) -> str:
+def switch_to_configuration(path: str, action: str = "switch", install_bootloader: bool = False) -> str:
     """Run `<path>/bin/switch-to-configuration <action>` on a NixOS
     system, as `nixos-rebuild` does: under `systemd-run` when systemd
     runs. `action` is switch, boot, test or dry-activate. Return its
@@ -183,10 +190,11 @@ def switch_to_configuration(path: str, action: str = "switch",
     done = __salt__["cmd.run_all"](
         [*prefix, os.path.join(path, "bin/switch-to-configuration"), action],
         env={"NIXOS_INSTALL_BOOTLOADER": "1" if install_bootloader else "0"},
-        python_shell=False, redirect_stderr=True)
+        python_shell=False,
+        redirect_stderr=True,
+    )
     if done["retcode"]:
-        raise CommandExecutionError(
-            f"switch-to-configuration {action} exited {done['retcode']}: {done['stdout']}")
+        raise CommandExecutionError(f"switch-to-configuration {action} exited {done['retcode']}: {done['stdout']}")
     if action != "dry-activate" and "saltutil.refresh_grains" in __salt__:
         # The `nixos` grains name the running system, and a target on
         # them reads the minion's grains as they were at the last refresh.
@@ -195,8 +203,9 @@ def switch_to_configuration(path: str, action: str = "switch",
     return output
 
 
-def system_rollback(generation: int | None = None, action: str = "switch",
-                    profile: str = "/nix/var/nix/profiles/system") -> dict[str, Any]:
+def system_rollback(
+    generation: int | None = None, action: str = "switch", profile: str = "/nix/var/nix/profiles/system"
+) -> dict[str, Any]:
     """Point the system profile at the previous generation, or at
     `generation`, and activate it. `nixos-rebuild switch --rollback`.
 
@@ -219,13 +228,13 @@ def profile_generations(profile: str) -> list[dict[str, Any]]:
     from huggorm_bindings.profiles import current_generation, find_generations
 
     current = current_generation(pathlib.Path(profile))
-    return [{"number": g.number(), "link": str(g.path()), "created": g.creation_time(),
-             "current": g.number() == current}
-            for g in find_generations(pathlib.Path(profile))]
+    return [
+        {"number": g.number(), "link": str(g.path()), "created": g.creation_time(), "current": g.number() == current}
+        for g in find_generations(pathlib.Path(profile))
+    ]
 
 
-def profile_delete_generations(profile: str, older_than: str | None = None,
-                               test: bool = False) -> list[int]:
+def profile_delete_generations(profile: str, older_than: str | None = None, test: bool = False) -> list[int]:
     """Delete the generations of `profile` but the current one, or those
     older than `older_than`, such as `30d`, as `nix-env
     --delete-generations` does. Return the numbers deleted, or that would
@@ -288,8 +297,9 @@ def add_root(path: str, root: str, store: str | None = None) -> str:
         salt '*' havsorm.add_root /nix/store/...-hello /nix/var/nix/gcroots/salt/hello
     """
     nix_store = _store(store)
-    link: str = _call(path, lambda: str(nix_store.add_perm_root(
-        nix_store.parse_store_path(path), os.path.abspath(root))))
+    link: str = _call(
+        path, lambda: str(nix_store.add_perm_root(nix_store.parse_store_path(path), os.path.abspath(root)))
+    )
     return link
 
 
@@ -302,8 +312,7 @@ def store_path_of(path: str, store: str | None = None) -> str:
         salt '*' havsorm.store_path_of /nix/store/...-nginx/bin/nginx
     """
     nix_store = _store(store)
-    holder: str = _call(path, lambda: nix_store.print_store_path(
-        nix_store.to_store_path(path).path()))
+    holder: str = _call(path, lambda: nix_store.print_store_path(nix_store.to_store_path(path).path()))
     return holder
 
 
@@ -316,14 +325,12 @@ def free_bytes(store: str | None = None) -> int:
     """
     nix_store = _store(store)
     root = nix_store.root_dir()
-    where = os.path.join(str(root), nix_store.store_dir().lstrip("/")) if root else \
-        nix_store.store_dir()
+    where = os.path.join(str(root), nix_store.store_dir().lstrip("/")) if root else nix_store.store_dir()
     stat = os.statvfs(where)
     return stat.f_bavail * stat.f_frsize
 
 
-def collect_garbage(max_freed: int | None = None, test: bool = False,
-                    store: str | None = None) -> dict[str, Any]:
+def collect_garbage(max_freed: int | None = None, test: bool = False, store: str | None = None) -> dict[str, Any]:
     """Delete the store paths no root reaches, as `nix-store --gc` does,
     up to `max_freed` bytes. With `test=True`, list them and delete
     nothing, as `nix-store --gc --print-dead` does.
@@ -346,8 +353,7 @@ def collect_garbage(max_freed: int | None = None, test: bool = False,
 RELEASE_PATHS = "https://releases.nixos.org/nix/nix-{version}/fallback-paths.nix"
 
 
-def release_path(version: str | None = None, system: str | None = None,
-                 url: str | None = None) -> str:
+def release_path(version: str | None = None, system: str | None = None, url: str | None = None) -> str:
     """The store path of Nix `version` for `system`, as Nix's release
     lists it in `fallback-paths.nix`. The defaults are the Nix these
     bindings link, and this machine's system.
@@ -370,8 +376,9 @@ def release_path(version: str | None = None, system: str | None = None,
     source = (url or RELEASE_PATHS).format(version=version)
     with urllib.request.urlopen(source, timeout=60) as response:
         text = response.read().decode()
-    paths = evaluate(lambda evaluator: evaluator.state.eval_expr(text, "/"), {},
-                     "dummy://", source, CommandExecutionError)
+    paths = evaluate(
+        lambda evaluator: evaluator.state.eval_expr(text, "/"), {}, "dummy://", source, CommandExecutionError
+    )
     if system not in paths:
         raise CommandExecutionError(f"{source} lists no Nix for {system}")
     path: str = paths[system]

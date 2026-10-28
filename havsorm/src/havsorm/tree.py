@@ -65,8 +65,7 @@ class SaltTree(SourceAccessor):
         saltenv = self._saltenv
         self._files = {"/" + p for p in client.file_list(saltenv)}
         self._links = {"/" + p: t for p, t in client.symlink_list(saltenv).items()}
-        self._dirs = {"/"} | {"/" + p.strip("/") for p in client.dir_list(saltenv)
-                              if p.strip("/")}
+        self._dirs = {"/"} | {"/" + p.strip("/") for p in client.dir_list(saltenv) if p.strip("/")}
         self._data: dict[str, bytes] = {}
 
     def digest(self, path: str) -> str | None:
@@ -97,12 +96,14 @@ class SaltTree(SourceAccessor):
     def read_directory(self, path: str) -> dict[str, FileType | None]:
         prefix = path.rstrip("/") + "/"
         entries: dict[str, FileType | None] = {}
-        for kind, paths in ((FileType.DIRECTORY, self._dirs),
-                            (FileType.SYMLINK, self._links),
-                            (FileType.REGULAR, self._files)):
+        for kind, paths in (
+            (FileType.DIRECTORY, self._dirs),
+            (FileType.SYMLINK, self._links),
+            (FileType.REGULAR, self._files),
+        ):
             for p in paths:
-                if p.startswith(prefix) and "/" not in p[len(prefix):] and p != prefix:
-                    entries.setdefault(p[len(prefix):], kind)
+                if p.startswith(prefix) and "/" not in p[len(prefix) :] and p != prefix:
+                    entries.setdefault(p[len(prefix) :], kind)
         return entries
 
     def read_link(self, path: str) -> str:

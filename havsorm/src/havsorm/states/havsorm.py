@@ -36,8 +36,7 @@ def realised(name: str, root: str | None = None, store: str | None = None) -> di
         want["root"] = root
         steps.append(f"rooted at {root}")
     if __opts__["test"]:
-        return {**ret, "result": None, "changes": want,
-                "comment": f"{name} would be " + " and ".join(steps)}
+        return {**ret, "result": None, "changes": want, "comment": f"{name} would be " + " and ".join(steps)}
     try:
         if not valid:
             __salt__["havsorm.realise"](name, store=store)
@@ -64,8 +63,7 @@ def profile(name: str, path: str, store: str | None = None) -> dict[str, Any]:
         return {**ret, "comment": f"{name} points at {path}"}
     change = {"old": current, "new": path}
     if __opts__["test"]:
-        return {**ret, "result": None, "changes": change,
-                "comment": f"{name} would point at {path}"}
+        return {**ret, "result": None, "changes": change, "comment": f"{name} would point at {path}"}
     try:
         if not __salt__["havsorm.is_realised"](path, store=store):
             __salt__["havsorm.realise"](path, store=store)
@@ -87,22 +85,25 @@ def generations_deleted(name: str, older_than: str | None = None) -> dict[str, A
     """
     ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
     try:
-        doomed = __salt__["havsorm.profile_delete_generations"](
-            name, older_than=older_than, test=True)
+        doomed = __salt__["havsorm.profile_delete_generations"](name, older_than=older_than, test=True)
         if not doomed:
             return {**ret, "comment": f"{name} has no generation to delete"}
         if __opts__["test"]:
-            return {**ret, "result": None, "changes": {"deleted": doomed},
-                    "comment": f"{name} would lose generations {doomed}"}
+            return {
+                **ret,
+                "result": None,
+                "changes": {"deleted": doomed},
+                "comment": f"{name} would lose generations {doomed}",
+            }
         deleted = __salt__["havsorm.profile_delete_generations"](name, older_than=older_than)
     except CommandExecutionError as e:
         return {**ret, "result": False, "comment": str(e)}
-    return {**ret, "changes": {"deleted": deleted},
-            "comment": f"{name} lost generations {deleted}"}
+    return {**ret, "changes": {"deleted": deleted}, "comment": f"{name} lost generations {deleted}"}
 
 
-def unit(name: str, path: str, root: str | None = None,
-         unit_dir: str = "/etc/systemd/system", store: str | None = None) -> dict[str, Any]:
+def unit(
+    name: str, path: str, root: str | None = None, unit_dir: str = "/etc/systemd/system", store: str | None = None
+) -> dict[str, Any]:
     """The systemd unit `name` is the file `path` in the Nix store.
 
     The store path that holds the file is substituted if needed, with
@@ -129,8 +130,7 @@ def unit(name: str, path: str, root: str | None = None,
     except CommandExecutionError as e:
         return {**ret, "result": False, "comment": str(e)}
     if os.path.lexists(link) and not os.path.islink(link):
-        return {**ret, "result": False,
-                "comment": f"{link} is a file, not a link: havsorm replaces only its own"}
+        return {**ret, "result": False, "comment": f"{link} is a file, not a link: havsorm replaces only its own"}
     current = os.readlink(link) if os.path.islink(link) else None
     rooted = os.path.islink(root) and os.readlink(root) == holder
     if current == path and rooted:
@@ -141,8 +141,7 @@ def unit(name: str, path: str, root: str | None = None,
     if not rooted:
         change["root"] = root
     if __opts__["test"]:
-        return {**ret, "result": None, "changes": change,
-                "comment": f"{link} would be {path}"}
+        return {**ret, "result": None, "changes": change, "comment": f"{link} would be {path}"}
     try:
         if not __salt__["havsorm.is_realised"](holder, store=store):
             __salt__["havsorm.realise"](holder, store=store)
@@ -166,8 +165,13 @@ def unit(name: str, path: str, root: str | None = None,
     return {**ret, "changes": change, "comment": comment}
 
 
-def system(name: str, action: str = "switch", profile: str = "/nix/var/nix/profiles/system",
-           install_bootloader: bool = False, store: str | None = None) -> dict[str, Any]:
+def system(
+    name: str,
+    action: str = "switch",
+    profile: str = "/nix/var/nix/profiles/system",
+    install_bootloader: bool = False,
+    store: str | None = None,
+) -> dict[str, Any]:
     """A NixOS host runs the system `name`, a store path a builder made
     (`config.system.build.toplevel`), as `nixos-rebuild switch` makes it.
 
@@ -185,8 +189,7 @@ def system(name: str, action: str = "switch", profile: str = "/nix/var/nix/profi
     ret: dict[str, Any] = {"name": name, "result": True, "changes": {}, "comment": ""}
     if action not in ("switch", "boot", "test"):
         return {**ret, "result": False, "comment": f"havsorm.system has no action {action!r}"}
-    running = os.path.realpath("/run/current-system") \
-        if os.path.lexists("/run/current-system") else None
+    running = os.path.realpath("/run/current-system") if os.path.lexists("/run/current-system") else None
     booted = __salt__["havsorm.profile_target"](profile)
     change: dict[str, Any] = {}
     if action in ("switch", "test") and running != name:
@@ -200,25 +203,23 @@ def system(name: str, action: str = "switch", profile: str = "/nix/var/nix/profi
         if __opts__["test"]:
             comment = f"{name} would be activated by {action}"
             if valid:
-                comment += ":\n" + __salt__["havsorm.switch_to_configuration"](
-                    name, "dry-activate")
+                comment += ":\n" + __salt__["havsorm.switch_to_configuration"](name, "dry-activate")
             return {**ret, "result": None, "changes": change, "comment": comment}
         if not valid:
             __salt__["havsorm.realise"](name, store=store)
         if not os.path.isfile(os.path.join(name, "nixos-version")):
-            return {**ret, "result": False,
-                    "comment": f"{name} has no nixos-version, so it is not a NixOS system"}
+            return {**ret, "result": False, "comment": f"{name} has no nixos-version, so it is not a NixOS system"}
         if "profile" in change:
             change["generation"] = __salt__["havsorm.profile_set"](profile, name, store=store)
-        output = __salt__["havsorm.switch_to_configuration"](
-            name, action, install_bootloader=install_bootloader)
+        output = __salt__["havsorm.switch_to_configuration"](name, action, install_bootloader=install_bootloader)
     except CommandExecutionError as e:
         return {**ret, "result": False, "changes": change, "comment": str(e)}
     return {**ret, "changes": change, "comment": f"{name} activated by {action}\n{output}"}
 
 
-def rolled_back(name: str, generation: int | None = None, action: str = "switch",
-                profile: str = "/nix/var/nix/profiles/system") -> dict[str, Any]:
+def rolled_back(
+    name: str, generation: int | None = None, action: str = "switch", profile: str = "/nix/var/nix/profiles/system"
+) -> dict[str, Any]:
     """The system profile points at the generation before the current
     one, or at `generation`, and the host runs it. For an orchestration's
     `onfail`, after a `havsorm.system` that broke the host:
@@ -238,15 +239,18 @@ def rolled_back(name: str, generation: int | None = None, action: str = "switch"
     try:
         change = __salt__["havsorm.profile_rollback"](profile, generation, test=True)
         if __opts__["test"]:
-            return {**ret, "result": None, "changes": change,
-                    "comment": f"{profile} would go back to generation {change['generation']}"}
+            return {
+                **ret,
+                "result": None,
+                "changes": change,
+                "comment": f"{profile} would go back to generation {change['generation']}",
+            }
         if change["old"] != change["new"]:
             __salt__["havsorm.profile_rollback"](profile, change["generation"])
         __salt__["havsorm.switch_to_configuration"](change["new"], action)
     except CommandExecutionError as e:
         return {**ret, "result": False, "comment": str(e)}
-    return {**ret, "changes": change,
-            "comment": f"{profile} is back at generation {change['generation']}"}
+    return {**ret, "changes": change, "comment": f"{profile} is back at generation {change['generation']}"}
 
 
 _UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
@@ -261,9 +265,9 @@ def _bytes(size: int | str) -> int:
     return int(text[: len(text) - len(unit)]) * _UNITS[unit]
 
 
-def garbage_collected(name: str, keep_free: int | str | None = None,
-                      max_freed: int | str | None = None,
-                      store: str | None = None) -> dict[str, Any]:
+def garbage_collected(
+    name: str, keep_free: int | str | None = None, max_freed: int | str | None = None, store: str | None = None
+) -> dict[str, Any]:
     """The store holds no path that no root reaches, or, with
     `keep_free`, its file system has at least that much free.
 
@@ -284,20 +288,35 @@ def garbage_collected(name: str, keep_free: int | str | None = None,
         if not dead:
             return {**ret, "comment": "no path is dead"}
         if __opts__["test"]:
-            return {**ret, "result": None, "changes": {"deleted": dead},
-                    "comment": f"{len(dead)} dead paths would be deleted"}
+            return {
+                **ret,
+                "result": None,
+                "changes": {"deleted": dead},
+                "comment": f"{len(dead)} dead paths would be deleted",
+            }
         done = __salt__["havsorm.collect_garbage"](
-            max_freed=None if max_freed is None else _bytes(max_freed), store=store)
+            max_freed=None if max_freed is None else _bytes(max_freed), store=store
+        )
     except CommandExecutionError as e:
         return {**ret, "result": False, "comment": str(e)}
-    return {**ret, "changes": {"deleted": done["paths"], "bytes_freed": done["bytes_freed"]},
-            "comment": f"{len(done['paths'])} paths deleted, {done['bytes_freed']} bytes freed"}
+    return {
+        **ret,
+        "changes": {"deleted": done["paths"], "bytes_freed": done["bytes_freed"]},
+        "comment": f"{len(done['paths'])} paths deleted, {done['bytes_freed']} bytes freed",
+    }
 
 
-def store_present(name: str, path: str | None = None, version: str | None = None,
-                  settings: dict[str, Any] | None = None, daemon: bool = True,
-                  conf_dir: str = "/etc/nix", unit_dir: str = "/etc/systemd/system",
-                  release_url: str | None = None, store: str | None = None) -> dict[str, Any]:
+def store_present(
+    name: str,
+    path: str | None = None,
+    version: str | None = None,
+    settings: dict[str, Any] | None = None,
+    daemon: bool = True,
+    conf_dir: str = "/etc/nix",
+    unit_dir: str = "/etc/systemd/system",
+    release_url: str | None = None,
+    store: str | None = None,
+) -> dict[str, Any]:
     """Nix is installed: the store exists, the default profile points at
     Nix, `nix.conf` holds `settings`, and nix-daemon runs from Nix's own
     units. No installer script and no distribution package: the minion
@@ -346,22 +365,36 @@ def store_present(name: str, path: str | None = None, version: str | None = None
         # unmet condition skips the unit: "failed to start" with no error.
         sockets = os.path.join(root, "nix/var/nix/daemon-socket")
         if not os.path.isdir(sockets):
-            part = {"name": sockets, "result": True, "comment": f"{sockets} exists",
-                    "changes": {"daemon-socket": sockets}}
+            part = {
+                "name": sockets,
+                "result": True,
+                "comment": f"{sockets} exists",
+                "changes": {"daemon-socket": sockets},
+            }
             if __opts__["test"]:
                 part["result"] = None
             else:
                 os.makedirs(sockets, mode=0o755)
             parts.append(part)
         for unit_name in ("nix-daemon.socket", "nix-daemon.service"):
-            parts.append(unit(unit_name, os.path.join(path, "lib/systemd/system", unit_name),
-                              root=os.path.join(root, "nix/var/nix/gcroots/salt", unit_name),
-                              unit_dir=unit_dir, store=store))
+            parts.append(
+                unit(
+                    unit_name,
+                    os.path.join(path, "lib/systemd/system", unit_name),
+                    root=os.path.join(root, "nix/var/nix/gcroots/salt", unit_name),
+                    unit_dir=unit_dir,
+                    store=store,
+                )
+            )
 
     failed = [p["comment"] for p in parts if p["result"] is False]
     changes = {p["name"]: p["changes"] for p in parts if p["changes"]}
     if failed:
         return {**ret, "result": False, "changes": changes, "comment": "; ".join(failed)}
     pending = any(p["result"] is None for p in parts)
-    return {**ret, "result": None if pending else True, "changes": changes,
-            "comment": "; ".join(p["comment"] for p in parts)}
+    return {
+        **ret,
+        "result": None if pending else True,
+        "changes": changes,
+        "comment": "; ".join(p["comment"] for p in parts),
+    }
