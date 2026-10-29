@@ -51,11 +51,11 @@ lock names a commit with other changes after it.
 
 ## Building
 
-    nix build --file . nanopynix.nanopynix
-    nix build --file . pynixd.package
-    nix build --file . nixkube.nixkube-docs
+    nix build --file . nanopynix.packages.pynix
+    nix build --file . pynixd.packages.pynixd
+    nix build --file . nixkube.docs.default
     nix build --file . vivarium.lan
-    nix build --file . pydd.pydd
+    nix build --file . pydd.packages.pydd-drv
     nix-shell                       # jj and git
 
 Each project keeps its own `default.nix`, `.envrc` and dev shell. A build
