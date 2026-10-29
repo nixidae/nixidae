@@ -1,7 +1,7 @@
 # ghanix -- render GitHub Actions workflows from a NixOS-module-system
 # schema, evaluated down to plain YAML-able values.
 #
-# It takes `lib` and nothing else: nixpkgs' `lib`, for `lib.evalModules`,
+# It needs `lib` and nothing else: nixpkgs' `lib`, for `lib.evalModules`,
 # `lib.types` and `lib.asserts`. No flake, no store path, no nixpkgs source,
 # no project plumbing. That is why it is a repository rather than a
 # directory, and it is the property to keep.
@@ -28,9 +28,14 @@
 # YAML is a superset of JSON, so `builtins.toJSON` into a `.yml` file also
 # works and needs no builder at all. It is unreadable in a diff.
 #
-# The output follows the schema of nixidae/nixidae#1103, with the functions
-# under `lib`. The input does not: `{ pkgs, sources }` would need a nixpkgs.
-{ lib }:
+# Input and output follow the schema of nixidae/nixidae#1103, with the
+# functions under `lib`. `{ lib }` alone also works, for a caller with no
+# nixpkgs: ghanix reads only `pkgs.lib`, and ignores `sources`.
+{
+  pkgs ? null,
+  lib ? pkgs.lib,
+  ...
+}:
 let
   schema = import ./schema.nix { inherit lib; };
   steps = import ./steps.nix { inherit lib; };
@@ -45,8 +50,7 @@ let
       toYamlScript = ./to_yaml.py;
     };
 in
-ghalib
-// {
+{
   packages = { };
   lib = ghalib;
   nixosModules = { };

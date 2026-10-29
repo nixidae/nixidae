@@ -94,7 +94,7 @@ rec {
       ;
   }) nanopynix.lanes;
 
-  ghanix = import sources.ghanix { inherit (pkgs) lib; };
+  ghanix = import sources.ghanix { inherit pkgs sources; };
 
   nixvenv = import sources.nixvenv { inherit pkgs; };
 
