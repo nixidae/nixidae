@@ -121,7 +121,7 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
     + ''
       echo "--- pytest (hermetic only) ---"
       # -m "not live": a build sandbox has no daemon, no db and no writable
-      # store. The live half runs from the devshell: nix run --file . test
+      # store. The live half runs from the devshell: nix run --file . internal.test
       # (nixidae/nixidae#574). The `pytest` script, not `python -m`, so the
       # tree's `huggorm/` stays off sys.path and the installed one is tested.
       ${venv}/bin/pytest -p no:cacheprovider -m "not live"

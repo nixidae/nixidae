@@ -63,7 +63,7 @@ async def _skewed() -> str:
     if NIX_2_35:
         return ""
     nix = os.environ.get("HUGGORM_ORACLE_NIX")
-    assert nix, "run through `nix run --file . test`, which sets it"
+    assert nix, "run through `nix run --file . internal.test`, which sets it"
     done = await anyio.run_process([nix, "store", "info", "--store", "daemon", "--json"])
     daemon = json.loads(done.stdout)["version"]
     if tuple(map(int, daemon.split(".")[:2])) < (2, 35):
@@ -74,7 +74,7 @@ async def _skewed() -> str:
 def _derivation(unique: pathlib.Path) -> str:
     """A derivation the host store cannot hold: `unique` is in it."""
     bash = os.environ.get("HUGGORM_ORACLE_BASH")
-    assert bash, "run through `nix run --file . test`, which sets it"
+    assert bash, "run through `nix run --file . internal.test`, which sets it"
     return (
         f'derivation {{ name = "built"; system = "x86_64-linux"; '
         f'builder = "${{builtins.storePath {bash}}}/bin/bash"; '

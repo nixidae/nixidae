@@ -6,7 +6,7 @@ need no guard of their own.
 Each case runs in a child, because loading a plugin changes the process
 for good: the store types it registers cannot be taken back.
 `HUGGORM_TCP_STORE_PLUGINS` is the lane's `nix-tcp-store`, which the
-package build and `nix run --file . test` both set.
+package build and `nix run --file . internal.test` both set.
 """
 
 import os

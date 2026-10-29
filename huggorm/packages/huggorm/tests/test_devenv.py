@@ -462,7 +462,7 @@ def _oracle(*args: str, cwd: pathlib.Path | None = None) -> str:
     from huggorm_bindings import nix_version
 
     nix = os.environ.get("HUGGORM_ORACLE_NIX")
-    assert nix, "run through `nix run --file . test`, which sets HUGGORM_ORACLE_NIX"
+    assert nix, "run through `nix run --file . internal.test`, which sets HUGGORM_ORACLE_NIX"
     version = subprocess.run([nix, "--version"], check=True, capture_output=True, text=True).stdout
     assert version.split()[-1] == nix_version()
     return subprocess.run(
@@ -479,7 +479,7 @@ def _oracle_drv(structured: bool) -> str:
     import os
 
     bash = os.environ.get("HUGGORM_ORACLE_BASH")
-    assert bash, "run through `nix run --file . test`, which sets HUGGORM_ORACLE_BASH"
+    assert bash, "run through `nix run --file . internal.test`, which sets HUGGORM_ORACLE_BASH"
     return _oracle(
         "eval",
         "--raw",
