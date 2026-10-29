@@ -4,7 +4,7 @@ Write GitHub Actions workflows as NixOS modules, and get back plain values
 that a caller turns into YAML.
 
 ```nix
-ghalib = import sources.ghanix { inherit lib; };
+ghalib = (import sources.ghanix { inherit lib; }).lib;
 
 ghalib.evalWorkflow {
   name = "On commit";
