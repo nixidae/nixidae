@@ -275,6 +275,46 @@ let
   # The GitHub Actions workflows, as values. nixidae renders them.
   ci = import ./ci { inherit lib sources; };
 
+  optionsReference = import ./nix/shared/options-reference.nix { inherit lib pkgs; };
+  docs = pkgs.python3Packages.callPackage ./nix/docs.nix {
+    inherit nixvenv;
+    # What `mkTest` evaluates, without a guest.
+    testOptions = optionsReference {
+      title = "Test options";
+      inherit
+        (lib.evalModules {
+          modules = [
+            ./modules/run.nix
+            ./modules/recipes
+          ];
+          specialArgs = { inherit pkgs; };
+        })
+        options
+        ;
+      prefixes = [
+        "backend"
+        "defaults"
+        "interactive"
+        "knobs"
+        "name"
+        "nodes"
+        "phases"
+        "pythonPath"
+        "settings"
+        "vivarium."
+      ];
+      root = ./.;
+      repository = "nixidae/vivarium";
+    };
+    guestOptions = optionsReference {
+      title = "Guest options";
+      inherit (mkNode { }) options;
+      prefixes = [ "vivarium." ];
+      root = ./.;
+      repository = "nixidae/vivarium";
+    };
+  };
+
   demo = mkNode {
     vivarium.memory = "512M";
     # A guest you drive by hand rather than from a test: give it a
@@ -2698,7 +2738,7 @@ in
   };
   nixosModules = { };
   easykubenixModules = { };
-  docs = { };
+  docs.default = docs;
 
   internal = {
     inherit

@@ -157,6 +157,7 @@ rec {
       "nixvenv"
       "pydd"
       "pynixd"
+      "vivarium"
     ];
   };
   shared-config-update = sharedConfig.update;
