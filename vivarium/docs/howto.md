@@ -117,9 +117,9 @@ Write the change as a module file and apply it to a run you started by
 attribute:
 
 ```console
-$ vivarium-eval run switch --out ./out --break switch &
-$ vivarium-eval switch switch --out ./out --node one --module ./more.nix
-$ vivarium-eval switch switch --out ./out --node one --module ./more.nix --action test
+$ vivarium-eval run checks.switch --out ./out --break switch &
+$ vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix
+$ vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix --action test
 ```
 
 The MCP server's `switch` tool does the same: `switch(run, node, module)`.

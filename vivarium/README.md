@@ -43,10 +43,10 @@ vivarium is where the nixidae keep their guests.
 From a checkout of this repository:
 
 ```console
-$ nix build --file . lan                      # two guests on a LAN, in the sandbox
-$ nix run --file . lan.driver -- --out ./out  # the same run, by hand
-$ nix run --file . lan.driverInteractive      # a Python prompt, paused before the first phase
-$ nix build --file . lan.qemu                 # the same test, as QEMU machines
+$ nix build --file . checks.lan                      # two guests on a LAN, in the sandbox
+$ nix run --file . checks.lan.driver -- --out ./out  # the same run, by hand
+$ nix run --file . checks.lan.driverInteractive      # a Python prompt, paused before the first phase
+$ nix build --file . checks.lan.qemu                 # the same test, as QEMU machines
 ```
 
 A run by hand writes its evidence to `./out`. A sandboxed run writes it
@@ -118,10 +118,10 @@ attribute is one way to run the same test.
 `.driver` takes flags after `--`. Some useful ones:
 
 ```console
-$ nix run --file . lan.driver -- --out ./out --only check   # run one phase
-$ nix run --file . lan.driver -- --out ./out --break check  # pause before a phase
-$ nix run --file . lan.driver -- --out ./out --offline      # no internet, as in the sandbox
-$ nix run --file . lan.driver -- --out ./out -v             # show every command sent to a guest
+$ nix run --file . checks.lan.driver -- --out ./out --only check   # run one phase
+$ nix run --file . checks.lan.driver -- --out ./out --break check  # pause before a phase
+$ nix run --file . checks.lan.driver -- --out ./out --offline      # no internet, as in the sandbox
+$ nix run --file . checks.lan.driver -- --out ./out -v             # show every command sent to a guest
 ```
 
 A run always cleans up, even when you kill it. SIGTERM powers the guests

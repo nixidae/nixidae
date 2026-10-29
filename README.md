@@ -54,7 +54,7 @@ lock names a commit with other changes after it.
     nix build --file . nanopynix.packages.pynix
     nix build --file . pynixd.packages.pynixd
     nix build --file . nixkube.docs.default
-    nix build --file . vivarium.lan
+    nix build --file . vivarium.checks.lan
     nix build --file . pydd.packages.pydd-drv
     nix-shell                       # jj and git
 

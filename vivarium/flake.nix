@@ -50,13 +50,13 @@
       # a package set, so the caller decides which nixpkgs the guests use.
       lib = import ./lib.nix;
 
-      nixosConfigurations.demo = built.demo;
+      nixosConfigurations.demo = built.internal.demo;
 
       apps.${system} = {
         speedtest = {
           type = "app";
           meta.description = "Run speedtest-cli inside a UML guest";
-          program = lib.getExe built.speedtest;
+          program = lib.getExe built.internal.speedtest;
         };
       };
     };

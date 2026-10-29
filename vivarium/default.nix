@@ -2,9 +2,9 @@
 #
 # This is the way in, and `flake.nix` is a second door that calls it.
 #
-#     nix build --file . lan          # two guests on a segment
-#     nix build --file . containerd   # one guest running a container
-#     nix build --file . k8s          # three guests, a kubeadm cluster
+#     nix build --file . checks.lan          # two guests on a segment
+#     nix build --file . checks.containerd   # one guest running a container
+#     nix build --file . checks.k8s          # three guests, a kubeadm cluster
 #
 # **One dependency, and it is nixpkgs.** A guest is an ordinary NixOS
 # configuration and a kernel built from the host's own package set; nothing
@@ -367,10 +367,10 @@ let
     flag doing anything. The only honest proof is by hand, on a connected
     host, comparing the two:
 
-        nix run --file . uplink.driver -- --out ./out
-        nix run --file . uplink.driver -- --out ./out --offline
+        nix run --file . internal.uplink.driver -- --out ./out
+        nix run --file . internal.uplink.driver -- --out ./out --offline
 
-    and compare both with the build, `nix build --file . uplink`.
+    and compare both with the build, `nix build --file . internal.uplink`.
     Measured on 2026-10-26, UML backend, dynhetz and sg1-n3:
 
         plain      tcp4 reachable, tcp6 reachable, the host's IPv6
@@ -410,7 +410,7 @@ let
 
     By hand:
 
-        nix run --file . incr.driver -- --out ./out
+        nix run --file . internal.incr.driver -- --out ./out
   */
   incr = mkTest {
     name = "incr";
@@ -1024,10 +1024,10 @@ let
     /*
       One guest as a rootless container under crun (Area 8 of the design).
 
-      `nix build --file . container` needs a daemon with the `uid-range`
+      `nix build --file . checks.container` needs a daemon with the `uid-range`
       feature; CI's `test-container` gets it from ghanix's
       `nix.install.uidRange`. There the guest has no uplink (no
-      /dev/net/tun) and a read-only store, and the phase says so. By hand, `vivarium-eval run container`, it has both;
+      /dev/net/tun) and a read-only store, and the phase says so. By hand, `vivarium-eval run checks.container`, it has both;
       the host needs subordinate ids and a cgroup it can delegate, and
       the runner says which is missing.
     */
@@ -2632,20 +2632,21 @@ let
         touch $out
       '';
   };
+
+  /*
+    Name a run and it is evaluated, built and run, with no `nix build`
+    first:
+
+        nix run --file . packages.vivarium-eval -- run checks.pytest-phase --out ./out -- -k hostname
+
+    Built on nanopynix, so not a check and not a dependency of anything
+    a consumer uses. `vivarium-eval.tests` holds its unit tests.
+  */
+  vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
 in
-tests
-// {
+# The schema of nixidae/nixidae#1103. Every other name is under `internal`.
+{
   # The library, for a caller that writes its own test.
-  inherit
-    mkNode
-    mkTest
-    fromNixosTest
-    runner
-    session
-    cli
-    typeCheck
-    images
-    ;
   lib = {
     inherit
       mkNode
@@ -2659,68 +2660,39 @@ tests
       ;
   };
 
-  inherit
-    demo
-    store
-    k8s-pull
-    uplink
-    incr
-    ;
-  inherit (demo.config.system.build) vivariumRunner vivariumRootImage toplevel;
-
-  # The slowest thing in the repository and the same for every guest, so
-  # CI builds it once on its own and lets the cache hand it to the test
-  # jobs.
-  umlKernel = k8sConfig.system.build.umlKernel;
-
   /*
-    The same kernel, compiled through ccache into `/ccache`, for a patch
-    series rebuilt as CI builds it but without starting cold each time.
-    Only a builder that mounts the directory can build it:
+    What CI builds. Every test also answers to `.uml` and `.qemu`.
 
-      pynix build --file . --attr umlKernelCcache --namespaced \
-        --sandbox-path /ccache=$HOME/.cache/uml-ccache
-
-    Measured: 122s cold, 31s after a one-line change. `--kernel` with
-    `make ARCH=um` in a tree is still the inner loop.
-  */
-  umlKernelCcache = k8sConfig.system.build.umlKernel.override { ccacheDir = "/ccache"; };
-
-  # What CI builds. `flake.nix` re-exports this as both packages and checks.
-  checks = tests;
-
-  /*
-    Every test above also answers to `.uml` and `.qemu`.
-
-        nix build --file . lan          # as `checks` runs it
-        nix build --file . lan.qemu     # the same test, as machines
-        nix build --file . iperf.qemu   # what the segment carries there
+        nix build --file . checks.lan          # as CI runs it
+        nix build --file . checks.lan.qemu     # the same test, as machines
+        nix build --file . checks.iperf.qemu   # what the segment carries there
 
     Nothing is duplicated to make that work: one script, one set of node
     configurations, and neither knows which machine it got.
 
-    `checks` holds the default of each, which is UML. A `.qemu` variant
+    A check holds the default of each, which is UML. A `.qemu` variant
     asks the daemon for the `kvm` feature, and a builder without
     `/dev/kvm` does not fail it -- it refuses to build it at all, which
     would stop CI rather than report anything. That is the only reason
     they are not checks, and it goes away once we know what our runners
     have.
   */
-
-  # A guest to poke at by hand, running one program.
-  speedtest = pkgs.writeShellScriptBin "vivarium-speedtest" ''
-    exec ${demo.config.system.build.vivariumRunner}/bin/vivarium-run --command speedtest-cli "$@"
-  '';
+  checks = tests;
 
   # The workflows that run the tests. nixidae renders each one to
   # `.github/workflows/vivarium-<name>.yml`.
   ciTestWorkflows = ci.workflows;
 
-  # The rest of the schema of nixidae/nixidae#1103, with `lib`, `checks`
-  # and `ciTestWorkflows` above. Every other name in this set is internal.
   packages = {
-    inherit cli runner session;
-    vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
+    inherit
+      cli
+      runner
+      session
+      vivarium-eval
+      ;
+    # The slowest thing in the repository and the same for every guest, so
+    # CI builds it once on its own and lets the cache hand it to the test
+    # jobs.
     umlKernel = k8sConfig.system.build.umlKernel;
     default = cli;
   };
@@ -2728,33 +2700,47 @@ tests
   easykubenixModules = { };
   docs = { };
 
-  /*
-    Name a run and it is evaluated, built and run, with no `nix build`
-    first:
+  internal = {
+    inherit
+      demo
+      store
+      k8s-pull
+      uplink
+      incr
+      ;
+    inherit (demo.config.system.build) vivariumRunner vivariumRootImage toplevel;
 
-        nix run --file . vivarium-eval -- run pytest-phase --out ./out -- -k hostname
+    /*
+      The same kernel, compiled through ccache into `/ccache`, for a patch
+      series rebuilt as CI builds it but without starting cold each time.
+      Only a builder that mounts the directory can build it:
 
-    Built on nanopynix, so not a check and not a dependency of anything
-    a consumer uses. `vivarium-eval.tests` holds its unit tests.
-  */
-  vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
+        pynix build --file . --attr internal.umlKernelCcache --namespaced \
+          --sandbox-path /ccache=$HOME/.cache/uml-ccache
 
-  /*
-    `vivarium-mcp` driven the way Claude Code drives it: JSON-RPC over stdio,
-    against a run that fails a phase on purpose. The channel events --
-    paused, failed, finished -- are the claim; `exec` and `events` are
-    checked against the paused guests.
+      Measured: 122s cold, 31s after a one-line change. `--kernel` with
+      `make ARCH=um` in a tree is still the inner loop.
+    */
+    umlKernelCcache = k8sConfig.system.build.umlKernel.override { ccacheDir = "/ccache"; };
 
-    By spec, so nothing here evaluates. Not a check, for the same reason
-    `vivarium-eval` is not: CI would have to build nanopynix.
-  */
-  mcp-check =
-    let
-      vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
-    in
-    pkgs.runCommand "vivarium-check-mcp" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+    # A guest to poke at by hand, running one program.
+    speedtest = pkgs.writeShellScriptBin "vivarium-speedtest" ''
+      exec ${demo.config.system.build.vivariumRunner}/bin/vivarium-run --command speedtest-cli "$@"
+    '';
+
+    /*
+      `vivarium-mcp` driven the way Claude Code drives it: JSON-RPC over stdio,
+      against a run that fails a phase on purpose. The channel events --
+      paused, failed, finished -- are the claim; `exec` and `events` are
+      checked against the paused guests.
+
+      By spec, so nothing here evaluates. Not a check, for the same reason
+      `vivarium-eval` is not: CI would have to build nanopynix.
+    */
+    mcp-check = pkgs.runCommand "vivarium-check-mcp" { nativeBuildInputs = [ pkgs.python3 ]; } ''
       export HOME="$TMPDIR"
       python3 ${./tests/mcp_driver.py} ${vivarium-eval}/bin/vivarium-mcp ${tests.pytest-phase.session.spec}
       touch $out
     '';
+  };
 }

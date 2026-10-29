@@ -12,7 +12,7 @@ layer as a Nix local-overlay store.  This checks the two halves of that:
 Outside the build sandbox only.  A sandbox `/nix` holds `store` and nothing
 else, so there is no host database to be the lower layer:
 
-    nix run --file . store.run        # and store.qemu.run
+    nix run --file . internal.store.run        # and store.qemu.run
 """
 
 import json

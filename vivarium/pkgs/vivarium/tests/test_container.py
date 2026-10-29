@@ -1,6 +1,6 @@
 """The container backend's config and id parsing, without a container.
 
-The boot itself is `nix build --file . container`'s job, by hand; this is
+The boot itself is `nix build --file . checks.container`'s job, by hand; this is
 what a mistake in the pure half looks like before anything runs.
 """
 

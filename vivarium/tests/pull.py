@@ -15,7 +15,7 @@ nothing is imported. What comes up is an ordinary kubeadm node.
 **Outside the build sandbox only, and it cannot be otherwise** -- a sandbox
 has no network, so there is nothing to pull from:
 
-    nix run --file . k8s-pull.driver     # and k8s-pull.uml.driver
+    nix run --file . internal.k8s-pull.driver     # and k8s-pull.uml.driver
 """
 
 from vivarium_runner import Machines

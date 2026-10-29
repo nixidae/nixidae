@@ -251,9 +251,9 @@ Where to say what:
   segment: its `name`, `addresses` and `mac`;
 - the run prints each guest's interfaces once, at boot.
 
-`nix build --file . segments` checks all three backends, by hand.
+`nix build --file . checks.segments` checks all three backends, by hand.
 `examples/frr-clos` builds a CLOS fabric of FRR switches on this: BGP
-unnumbered, EVPN L2 and symmetric L3 (`nix build --file . frr-clos`).
+unnumbered, EVPN L2 and symmetric L3 (`nix build --file . checks.frr-clos`).
 
 What a segment carries is decided by frame size, not by anything on the
 host. AF_UNIX only lets about ten datagrams queue on a socket before the
@@ -405,7 +405,7 @@ Two facts, measured:
 - OCR reads PPM, not PNG: nixos-test's `imagemagick_light` has no PNG
   codec. `screenshot` writes PNG.
 
-`nix build --file . screen` proves each claim with a negative control;
+`nix build --file . checks.screen` proves each claim with a negative control;
 CI runs it on the QEMU lane. Under UML and containers, `vivarium.display`
 fails the evaluation, and a method fails naming the option.
 
@@ -438,7 +438,7 @@ configuring on SUSE quickly, not for certifying anything.
   `/dev/disk/by-uuid` and fails, so it is masked. Each image masks what
   else fails under UML, with the reason in `images.nix`.
 
-`nix build --file . suse` proves it on openSUSE Leap 16.0: boot to
+`nix build --file . checks.suse` proves it on openSUSE Leap 16.0: boot to
 `running` in about 12 seconds. `suse-ansible` is the workflow: a NixOS
 guest runs Ansible against SUSE over a segment, with the key in the
 seed's `userData`.
@@ -486,7 +486,7 @@ not guessable. So every run records itself.
 is a directory and not an empty file:
 
 ```console
-$ nix build --file . lan --out-link result
+$ nix build --file . checks.lan --out-link result
 $ jq '{total_seconds, boot_seconds, waiting_seconds}' result/report.json
 { "total_seconds": 9.106, "boot_seconds": 6.726, "waiting_seconds": 0.04 }
 ```
@@ -494,7 +494,7 @@ $ jq '{total_seconds, boot_seconds, waiting_seconds}' result/report.json
 A run by hand writes the same file into its `--out` directory:
 
 ```console
-$ nix run --file . lan.driver -- --out ./out && jq .total_seconds out/report.json
+$ nix run --file . checks.lan.driver -- --out ./out && jq .total_seconds out/report.json
 ```
 
 Either way the file holds the per-machine boot time, every round trip to a
@@ -549,7 +549,7 @@ configuration and no new mount: the host's store below, read-only, and
 sandbox, and writing into the guest's own layer. `store` is the test:
 
 ```console
-$ nix run --file . store.driver     # and store.qemu.driver
+$ nix run --file . internal.store.driver     # and store.qemu.driver
 ```
 
 **Only outside the build sandbox, and it cannot be otherwise.** A sandbox

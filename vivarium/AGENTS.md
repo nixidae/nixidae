@@ -25,13 +25,13 @@ Logic goes in `pkgs/vivarium/vivarium/phases.py` as pure functions and is tested
 without a guest. Effects go in `session.py`. A guest test is for what a
 pure test cannot see — and it has already earned that: the phase-skip
 rule was correct in `phases.py` while the driver ignored its answer, and
-only `nix build --file . phase-rules` caught it.
+only `nix build --file . checks.phase-rules` caught it.
 
 ## Running a session by name
 
 ```sh
-nix run --file . vivarium-eval -- run pytest-phase --out ./out -- -k hostname
-nix run --file . vivarium-eval -- phases recipes
+nix run --file . packages.vivarium-eval -- run checks.pytest-phase --out ./out -- -k hostname
+nix run --file . packages.vivarium-eval -- phases checks.recipes
 ```
 
 `vivarium-eval` evaluates with huggorm, builds the attribute's `.driver` (so
@@ -43,7 +43,7 @@ so the check's name works. Evaluation is impure, like `nix build
 It is its own package on nanopynix's Python set (`pkgs/vivarium-eval`), and
 nothing a consumer uses depends on it: the sandboxed check never
 evaluates. Not a CI check yet, because CI would have to build huggorm.
-Its unit tests are `nix build --file . vivarium-eval.tests`.
+Its unit tests are `nix build --file . packages.vivarium-eval.tests`.
 
 ## Reaching into a paused run
 
@@ -77,7 +77,7 @@ would otherwise hand the next run the old module. Every
 operation and its output is an event. The socket is `<out>/control.sock`,
 mode 0600, and exists for every run except a sandboxed check, which
 passes `--no-control`.
-`vivarium/control.py` is the whole of it; `nix build --file . breakpoint`
+`vivarium/control.py` is the whole of it; `nix build --file . checks.breakpoint`
 drives it against a guest.
 
 ## Iterating on a kernel
@@ -86,7 +86,7 @@ drives it against a guest.
 built: `linux` from `make ARCH=um`, or a bzImage for QEMU with virtio
 built in (the guest's modules match Nix's kernel, not yours). It is by
 hand only, and the run records that it is not the check's kernel. `nix
-build --file . kernel-override` proves both directions: a copy boots,
+build --file . checks.kernel-override` proves both directions: a copy boots,
 and a file that is not a kernel fails the boot at once.
 
 To rebuild the kernel as Nix builds it without starting cold each
@@ -94,7 +94,7 @@ time, build `umlKernelCcache` with a cache directory mounted into the
 sandbox:
 
 ```sh
-pynix build --file . --attr umlKernelCcache --namespaced \
+pynix build --file . --attr internal.umlKernelCcache --namespaced \
   --sandbox-path /ccache=$HOME/.cache/uml-ccache
 ```
 
@@ -118,7 +118,7 @@ the kernel's status.
 `screenshot`, `stop`, `events` and `runs`. `screenshot` returns image
 content (FastMCP `structured_output=False`, or it fails serialising the
 image); acting on the screen is `exec` with `Machine`'s screen methods
-(`vivarium.display`, QEMU only; `nix build --file . screen`). `switch` runs `vivarium-eval switch` with the
+(`vivarium.display`, QEMU only; `nix build --file . checks.screen`). `switch` runs `vivarium-eval switch` with the
 run's attr, file and env: host eval of the session plus one module on one
 node, `Machine.add_closure`, `switch_to(<store path>)`. A container guest
 takes late paths through `crun_launch attach` (open_tree, setns, move_mount):
@@ -158,8 +158,8 @@ exits 2. `vivarium/monitor.py` is the client.
 Every run with a control socket prints `commands()` (`control.py`): the
 monitor, `exec`, `inject`, `state` and `continue` lines, absolute, at
 start and again at each pause at the pause's level. `nix build --file .
-copy-commands` runs each one copied from run.log. `nix build
---file . mcp-check` drives the server over raw JSON-RPC against a guest,
+checks.copy-commands` runs each one copied from run.log. `nix build
+--file . internal.mcp-check` drives the server over raw JSON-RPC against a guest,
 and checks a monitor prints exactly the channel's events.
 
 ## Getting evidence out of a session
@@ -256,7 +256,7 @@ is still its script's.
 
 `vms.phase` names the phase running, so one script can serve phases
 generated from a list in Nix. `vms.shared` is a dict that survives from
-one phase to the next. `nix build --file . guest-suites` proves all
+one phase to the next. `nix build --file . checks.guest-suites` proves all
 three.
 
 ## Phases at once
@@ -281,7 +281,7 @@ nothing runs one phase at a time.
 - `vivarium run --serial` runs one at a time in Nix's order.
 
 Logic in `phases.ready`/`launchable`; the loop in `cli._schedule`. `nix
-build --file . parallel` proves the overlap, the negative control and
+build --file . checks.parallel` proves the overlap, the negative control and
 the attribution.
 
 ## VCS
@@ -322,7 +322,7 @@ A run can hold both kinds: a node sets its own `vivarium.backend`, and
 the run's `backend` is only the default. The toolchain and the `kvm`
 feature follow the machines, and a segment carries raw frames both
 accept. UML for what is single-threaded and should cost the host little,
-QEMU for what wants the CPU. `nix build --file . mixed` proves it, by
+QEMU for what wants the CPU. `nix build --file . checks.mixed` proves it, by
 hand (it needs /dev/kvm).
 
 A third, `container`: the system under crun, no kernel of its own (Area
@@ -331,7 +331,7 @@ A third, `container`: the system under crun, no kernel of its own (Area
 cgroup it can delegate — `container.probe()` tries each and the boot
 fails naming what is missing.
 
-Sandboxed (`nix build --file . container`) it needs a daemon with
+Sandboxed (`nix build --file . checks.container`) it needs a daemon with
 `uid-range` (`featuresFor` asks; dynhetz has it, and CI's
 `test-container` gets it from ghanix's `nix.install.uidRange` — a stock
 runner needs nothing more than `userNamespaces`). There the
@@ -352,7 +352,7 @@ session with a container guest depends on the one it needs (`probeFor`:
 `-tun` when a container has a LAN); CI builds it first on its own. Where its own cgroup is not writable, the
 runner starts the launcher under `systemd-run --user --scope -p
 Delegate=yes` (`container.scope()`), which execs in place and so keeps
-the parent-death signal. Plain `vivarium-eval run container` and MCP `start`
+the parent-death signal. Plain `vivarium-eval run checks.container` and MCP `start`
 both work.
 
 - `modules/container.nix`: `boot.isContainer`, a root template directory
@@ -362,7 +362,7 @@ both work.
 - LAN: `crun_launch tap` joins the guest's user and net namespaces (a
   process of its own: setns into a userns needs one thread), makes
   `vec1` and copies frames to the segment fd. `nix build`-free proof:
-  `vivarium-eval run container-lan` (two containers and a UML guest, jumbo
+  `vivarium-eval run checks.container-lan` (two containers and a UML guest, jumbo
   frames unfragmented).
 - Uplink: the launcher starts pasta on the init's pid once crun has one,
   as `vec0` with passt's arguments; `_pasta_forwards` turns off what pasta
@@ -411,8 +411,8 @@ its exit code to `status`; `<test>` reads that file and nothing else. So a
 failed run is a kept output:
 
 ```sh
-nix build --file . artifacts          # fails, and prints the path
-ls "$(nix eval --raw --file . artifacts.attempt)"   # status log report.json artifacts/
+nix build --file . checks.artifacts          # fails, and prints the path
+ls "$(nix eval --raw --file . checks.artifacts.attempt)"   # status log report.json artifacts/
 ```
 
 A passing build symlinks the same four into `result/`.

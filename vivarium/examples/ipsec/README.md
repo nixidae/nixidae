@@ -104,8 +104,8 @@ These came out of building the lab. Each one is measured by the phase in bracket
 From the root of the vivarium repository (`vivarium/` in nixidae):
 
 ```sh
-nix build --file . ipsec                     # the whole run, in the sandbox
-nix run --file . ipsec.driver -- --out ./out --break failover
+nix build --file . checks.ipsec                     # the whole run, in the sandbox
+nix run --file . checks.ipsec.driver -- --out ./out --break failover
 ```
 
 The build succeeds only if every phase passes, and its log holds the

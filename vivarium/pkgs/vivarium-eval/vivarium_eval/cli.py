@@ -1,8 +1,8 @@
 """`vivarium-eval`: name a run, and it is evaluated, built and run.
 
-    vivarium-eval run pytest-phase --out ./out -- -k hostname
-    vivarium-eval phases recipes --file ~/Code/myproject
-    vivarium-eval switch switch --out ./out --node one --module ./more.nix
+    vivarium-eval run checks.pytest-phase --out ./out -- -k hostname
+    vivarium-eval phases checks.recipes --file ~/Code/myproject
+    vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix
 
 `nix run --file . <attr>.run` with the evaluation and the build moved
 inside it: huggorm evaluates `--file`, selects the attribute, builds

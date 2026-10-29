@@ -2,8 +2,8 @@
 # route-based tunnels with eBGP over them, laid out like an AWS
 # Site-to-Site VPN. README.md has the topology and what each phase shows.
 #
-#   nix build --file . ipsec
-#   nix run --file . ipsec.driver -- --out ./out --break failover
+#   nix build --file . checks.ipsec
+#   nix run --file . checks.ipsec.driver -- --out ./out --break failover
 {
   mkTest,
   lib,

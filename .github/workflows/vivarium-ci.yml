@@ -31,7 +31,7 @@ jobs:
         pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Check the generated files, the scripts, the Python types, the images and the kubeadm config
-      run: nix build --no-link --print-build-logs --keep-going --file . check-scripts check-python check-k8s-images check-k8s-config
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.check-scripts checks.check-python checks.check-k8s-images checks.check-k8s-config
       timeout-minutes: 20
     timeout-minutes: 30
   kernel:
@@ -61,7 +61,7 @@ jobs:
         pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Build the UML kernel
-      run: nix build --no-link --print-build-logs --keep-going --file . umlKernel
+      run: nix build --no-link --print-build-logs --keep-going --file . packages.umlKernel
       timeout-minutes: 45
     timeout-minutes: 60
   sessions:
@@ -96,7 +96,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'The session: phase rules, knobs, --only, recipes, stream, pytest, breakpoints, printed commands, parallel, peers, switch, cleanup, interactive'
-      run: nix build --no-link --print-build-logs --keep-going --file . phase-rules knobs only-rules recipes stream pytest-phase breakpoint live-exec copy-commands guest-suites kernel-override parallel peers switch cleanup interactive
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.phase-rules checks.knobs checks.only-rules checks.recipes checks.stream checks.pytest-phase checks.breakpoint checks.live-exec checks.copy-commands checks.guest-suites checks.kernel-override checks.parallel checks.peers checks.switch checks.cleanup checks.interactive
       timeout-minutes: 20
     timeout-minutes: 30
   test-artifacts:
@@ -135,7 +135,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run artifacts on qemu: what a guest writes reaches the host, per guest'
-      run: nix build --no-link --print-build-logs --keep-going --file . artifacts.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.artifacts.qemu
       timeout-minutes: 5
     timeout-minutes: 15
   test-boot-counting:
@@ -174,7 +174,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run boot-counting on qemu: systemd-boot falls back from an entry that never completes a boot'
-      run: nix build --no-link --print-build-logs --keep-going --file . boot-counting.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.boot-counting.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-container:
@@ -213,10 +213,10 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Probe: can this sandbox run a container guest with a LAN'
-      run: nix build --no-link --print-build-logs --keep-going --file . container-probe-tun
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.container-probe-tun
       timeout-minutes: 5
     - name: 'Run container and container-lan: NixOS guests under crun, in the sandbox'
-      run: nix build --no-link --print-build-logs --keep-going --file . container container-lan
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.container checks.container-lan
       timeout-minutes: 20
     timeout-minutes: 30
   test-containerd:
@@ -255,7 +255,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run containerd on qemu: a container runs, out of the host''s store'
-      run: nix build --no-link --print-build-logs --keep-going --file . containerd.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.containerd.qemu
       timeout-minutes: 35
     timeout-minutes: 45
   test-forward:
@@ -294,7 +294,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run forward on qemu: the host reaches a service inside a guest'
-      run: nix build --no-link --print-build-logs --keep-going --file . forward.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.forward.qemu
       timeout-minutes: 35
     timeout-minutes: 45
   test-frr-clos:
@@ -329,7 +329,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run frr-clos on uml: BGP unnumbered and EVPN on a CLOS of FRR switches'
-      run: nix build --no-link --print-build-logs --keep-going --file . frr-clos
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.frr-clos
       timeout-minutes: 20
     timeout-minutes: 30
   test-fuse:
@@ -368,7 +368,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run fuse on qemu: a userspace filesystem, as root and as a user'
-      run: nix build --no-link --print-build-logs --keep-going --file . fuse.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.fuse.qemu
       timeout-minutes: 5
     timeout-minutes: 15
   test-iperf:
@@ -407,7 +407,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run iperf on qemu: what a segment between two guests carries'
-      run: nix build --no-link --print-build-logs --keep-going --file . iperf.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.iperf.qemu
       timeout-minutes: 35
     timeout-minutes: 45
   test-ipsec:
@@ -442,7 +442,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run ipsec on uml: strongSwan site-to-site with certificates, BGP over the tunnels'
-      run: nix build --no-link --print-build-logs --keep-going --file . ipsec
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.ipsec
       timeout-minutes: 35
     timeout-minutes: 45
   test-k8s:
@@ -483,7 +483,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run k8s on qemu: a three-node kubeadm cluster'
-      run: nix build --no-link --print-build-logs --keep-going --file . k8s.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.k8s.qemu
       timeout-minutes: 110
     timeout-minutes: 120
   test-k8s-pull:
@@ -524,7 +524,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run k8s-pull: a node that pulls its images, on a virtual machine'
-      run: nix run --print-build-logs --file . k8s-pull.driver -- --out ./out
+      run: nix run --print-build-logs --file . internal.k8s-pull.driver -- --out ./out
       timeout-minutes: 20
     timeout-minutes: 30
   test-lan:
@@ -559,7 +559,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run lan on uml: two guests on a segment see each other'
-      run: nix build --no-link --print-build-logs --keep-going --file . lan
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.lan
       timeout-minutes: 35
     timeout-minutes: 45
   test-memory:
@@ -594,7 +594,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run memory on uml: a guest gives its memory back'
-      run: nix build --no-link --print-build-logs --keep-going --file . memory
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.memory
       timeout-minutes: 10
     timeout-minutes: 20
   test-nix-db:
@@ -633,7 +633,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run nix-db on qemu: an unprivileged read-only reader opens the guest''s Nix database'
-      run: nix build --no-link --print-build-logs --keep-going --file . nix-db.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.nix-db.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-oob:
@@ -672,7 +672,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run oob on qemu: a services guest hands out a management lease with Kea'
-      run: nix build --no-link --print-build-logs --keep-going --file . oob.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.oob.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-oob-gateway:
@@ -711,7 +711,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run oob-gateway on qemu: the services guest is the single forwarding point to an out-of-band guest'
-      run: nix build --no-link --print-build-logs --keep-going --file . oob-gateway.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-gateway.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-oob-routeros:
@@ -750,7 +750,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run oob-routeros on qemu: RouterOS keeps its management in a VRF, isolated from the dataplane'
-      run: nix build --no-link --print-build-logs --keep-going --file . oob-routeros.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-routeros.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-oob-sonic:
@@ -789,7 +789,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run oob-sonic on qemu: the services guest provisions SONiC over SSH, by command and by config_db.json'
-      run: nix build --no-link --print-build-logs --keep-going --file . oob-sonic.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-sonic.qemu
       timeout-minutes: 20
     timeout-minutes: 30
   test-oob-uml:
@@ -824,7 +824,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run oob-uml on uml: a UML guest''s uplink joins a management segment'
-      run: nix build --no-link --print-build-logs --keep-going --file . oob-uml
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-uml
       timeout-minutes: 10
     timeout-minutes: 20
   test-reboot:
@@ -863,7 +863,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run reboot on qemu: a guest reboots into the system its bootloader names'
-      run: nix build --no-link --print-build-logs --keep-going --file . reboot.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.reboot.qemu
       timeout-minutes: 5
     timeout-minutes: 15
   test-routeros:
@@ -902,7 +902,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run routeros on qemu: RouterOS boots, applies its config disk and answers on its console'
-      run: nix build --no-link --print-build-logs --keep-going --file . routeros.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.routeros.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-routeros-bgp:
@@ -941,7 +941,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run routeros-bgp on qemu: RouterOS and FRR exchange routes over eBGP'
-      run: nix build --no-link --print-build-logs --keep-going --file . routeros-bgp.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.routeros-bgp.qemu
       timeout-minutes: 10
     timeout-minutes: 20
   test-screen:
@@ -980,7 +980,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run screen on qemu: the host reads a guest''s screen, types on it and points at it'
-      run: nix build --no-link --print-build-logs --keep-going --file . screen.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.screen.qemu
       timeout-minutes: 20
     timeout-minutes: 30
   test-sonic:
@@ -1019,7 +1019,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: 'Run sonic on qemu: SONiC VS boots and answers a shell on its serial console'
-      run: nix build --no-link --print-build-logs --keep-going --file . sonic.qemu
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.sonic.qemu
       timeout-minutes: 20
     timeout-minutes: 30
   test-suse-ansible:
@@ -1054,7 +1054,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run suse-ansible on uml: Ansible configures openSUSE Leap over a segment'
-      run: nix build --no-link --print-build-logs --keep-going --file . suse-ansible
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.suse-ansible
       timeout-minutes: 20
     timeout-minutes: 30
   test-suse-nix:
@@ -1089,7 +1089,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run suse-nix on uml: Nix on openSUSE Leap, with a writable store'
-      run: nix build --no-link --print-build-logs --keep-going --file . suse-nix
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.suse-nix
       timeout-minutes: 20
     timeout-minutes: 30
   test-vyos-bgp:
@@ -1124,7 +1124,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run vyos-bgp on uml: VyOS and FRR exchange routes over eBGP'
-      run: nix build --no-link --print-build-logs --keep-going --file . vyos-bgp
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-bgp
       timeout-minutes: 20
     timeout-minutes: 30
   test-vyos-oob:
@@ -1159,7 +1159,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run vyos-oob on uml: VyOS leases its management address from the fabric'
-      run: nix build --no-link --print-build-logs --keep-going --file . vyos-oob
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-oob
       timeout-minutes: 20
     timeout-minutes: 30
   test-vyos-oob-vrf:
@@ -1194,7 +1194,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run vyos-oob-vrf on uml: VyOS keeps its management in a VRF, isolated from the dataplane'
-      run: nix build --no-link --print-build-logs --keep-going --file . vyos-oob-vrf
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-oob-vrf
       timeout-minutes: 20
     timeout-minutes: 30
   test-vyos-uml:
@@ -1229,7 +1229,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Run vyos-uml on uml: VyOS boots from its ISO''s squashfs and applies config.boot'
-      run: nix build --no-link --print-build-logs --keep-going --file . vyos-uml
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-uml
       timeout-minutes: 20
     timeout-minutes: 30
 name: 'vivarium: CI'

@@ -2,8 +2,8 @@
 # small UML guest. Numbers follow NVIDIA's Cumulus Linux reference design:
 # leaves 6510x, spines 65199, loopbacks 10.10.10.x, VRF RED on L3 VNI 4001.
 #
-#   nix build --file . frr-clos
-#   nix run --file . frr-clos.driver -- --out ./out --break l2
+#   nix build --file . checks.frr-clos
+#   nix run --file . checks.frr-clos.driver -- --out ./out --break l2
 {
   mkTest,
   lib,

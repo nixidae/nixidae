@@ -241,7 +241,7 @@ let
     steps = [
       (steps.build {
         name = "Build the UML kernel";
-        attrs = [ "umlKernel" ];
+        attrs = [ "packages.umlKernel" ];
         timeoutMinutes = 45;
       })
     ];
@@ -277,7 +277,7 @@ let
       steps = [
         (steps.build {
           name = "Run ${name} on ${backend}: ${description}";
-          attrs = [ (if backend == "qemu" then "${name}.qemu" else name) ];
+          attrs = [ (if backend == "qemu" then "checks.${name}.qemu" else "checks.${name}") ];
           timeoutMinutes = timeoutMinutes - 10;
         })
       ];
@@ -311,14 +311,14 @@ let
     steps = [
       (steps.build {
         name = "Probe: can this sandbox run a container guest with a LAN";
-        attrs = [ "container-probe-tun" ];
+        attrs = [ "checks.container-probe-tun" ];
         timeoutMinutes = 5;
       })
       (steps.build {
         name = "Run container and container-lan: NixOS guests under crun, in the sandbox";
         attrs = [
-          "container"
-          "container-lan"
+          "checks.container"
+          "checks.container-lan"
         ];
         timeoutMinutes = 20;
       })
@@ -354,7 +354,7 @@ let
       {
         name = "Run k8s-pull: a node that pulls its images, on a virtual machine";
         timeout-minutes = 20;
-        run = "nix run --print-build-logs --file . k8s-pull.driver -- --out ./out";
+        run = "nix run --print-build-logs --file . internal.k8s-pull.driver -- --out ./out";
       }
     ];
   };
@@ -375,10 +375,10 @@ let
       (steps.build {
         name = "Check the generated files, the scripts, the Python types, the images and the kubeadm config";
         attrs = [
-          "check-scripts"
-          "check-python"
-          "check-k8s-images"
-          "check-k8s-config"
+          "checks.check-scripts"
+          "checks.check-python"
+          "checks.check-k8s-images"
+          "checks.check-k8s-config"
         ];
         timeoutMinutes = 20;
       })
@@ -406,22 +406,22 @@ let
       (steps.build {
         name = "The session: phase rules, knobs, --only, recipes, stream, pytest, breakpoints, printed commands, parallel, peers, switch, cleanup, interactive";
         attrs = [
-          "phase-rules"
-          "knobs"
-          "only-rules"
-          "recipes"
-          "stream"
-          "pytest-phase"
-          "breakpoint"
-          "live-exec"
-          "copy-commands"
-          "guest-suites"
-          "kernel-override"
-          "parallel"
-          "peers"
-          "switch"
-          "cleanup"
-          "interactive"
+          "checks.phase-rules"
+          "checks.knobs"
+          "checks.only-rules"
+          "checks.recipes"
+          "checks.stream"
+          "checks.pytest-phase"
+          "checks.breakpoint"
+          "checks.live-exec"
+          "checks.copy-commands"
+          "checks.guest-suites"
+          "checks.kernel-override"
+          "checks.parallel"
+          "checks.peers"
+          "checks.switch"
+          "checks.cleanup"
+          "checks.interactive"
         ];
         timeoutMinutes = 20;
       })
