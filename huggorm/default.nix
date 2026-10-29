@@ -832,6 +832,8 @@ in
     ciTestWorkflows
     lanes
     ;
-  lib = { };
+  # nanopynix's Python set builds the tree-sitter-nix bindings from this
+  # file, as huggorm's own set does.
+  lib.tree-sitter-nix = ./nix/tree-sitter-nix.nix;
   inherit internal;
 }
