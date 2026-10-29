@@ -5,6 +5,7 @@
 # its own copy:
 #
 # - the tool configuration, byte for byte, at `<source>/nix/shared/<file>`;
+# - the Sphinx settings, the same way, for a source with a docs site;
 # - `<source>/nix/sources.nix`, from `sources.nix.in` with the source's name.
 {
   lib,
@@ -13,6 +14,8 @@
   sources,
   # The sources that get `nix/sources.nix`.
   wired,
+  # The sources that build a Sphinx site.
+  documented,
 }:
 let
   toolFiles = [
@@ -20,6 +23,18 @@ let
     "ruff-anyio.toml"
     "ruff-strict.toml"
   ];
+
+  docsFiles = [ "sphinx_shared.py" ];
+
+  sharedCopies =
+    files:
+    lib.concatMap (
+      source:
+      map (file: {
+        path = "${source}/nix/shared/${file}";
+        original = ./shared + "/${file}";
+      }) files
+    );
 
   sourcesNix =
     source:
@@ -29,13 +44,8 @@ let
 
   # Each copy as the path it has in the tree and the file it must equal.
   copies =
-    lib.concatMap (
-      source:
-      map (file: {
-        path = "${source}/nix/shared/${file}";
-        original = ./shared + "/${file}";
-      }) toolFiles
-    ) sources
+    sharedCopies toolFiles sources
+    ++ sharedCopies docsFiles documented
     ++ map (source: {
       path = "${source}/nix/sources.nix";
       original = sourcesNix source;

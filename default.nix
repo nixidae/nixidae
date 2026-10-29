@@ -148,6 +148,13 @@ rec {
       "pynixd"
       "vivarium"
     ];
+    documented = [
+      "easykubenix"
+      "nanopynix"
+      "nixkube"
+      "pydd"
+      "pynixd"
+    ];
   };
   shared-config-update = sharedConfig.update;
 
