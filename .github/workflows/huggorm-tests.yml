@@ -19,7 +19,7 @@ jobs:
         name: lillecarl
         useDaemon: false
     - name: Lint, typecheck, clang -Werror
-      run: nix run --file . check
+      run: nix run --file . internal.check
     timeout-minutes: 120
   suite:
     env:

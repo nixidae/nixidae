@@ -26,22 +26,22 @@ board they grew from.
 Everything runs through `nix`, from the repo root. No devshell needed,
 though `nix develop --file . shell` gives one.
 
-    nix build --file . huggorm --no-link     # THE gate: builds all four
-                                              # layers, lints, typechecks,
-                                              # runs the hermetic suite
-    nix run  --file . check                   # lint + typecheck the whole
-                                              # tree, ~1s, no rebuild
-    nix run  --file . test                    # the WHOLE suite, live tests
-                                              # included, outside the sandbox
-    nix run  --file . test -- -m live         # only the tests that need a
-                                              # real store
-    nix run  --file . test -- -k closure -x   # any pytest arguments
+    nix build --file . packages.huggorm --no-link      # THE gate: builds all four
+                                                       # layers, lints, typechecks,
+                                                       # runs the hermetic suite
+    nix run  --file . internal.check                   # lint + typecheck the whole
+                                                       # tree, ~1s, no rebuild
+    nix run  --file . internal.test                    # the WHOLE suite, live tests
+                                                       # included, outside the sandbox
+    nix run  --file . internal.test -- -m live         # only the tests that need a
+                                                       # real store
+    nix run  --file . internal.test -- -k closure -x   # any pytest arguments
 
 The build gate is the one that matters. It runs `pytest -m "not live"`
 inside the sandbox, so a test that touches the machine's real store
 must carry `@pytest.mark.live` or it fails there loudly.
 
-`nix run --file . test` puts the working tree's `huggorm/` ahead of
+`nix run --file . internal.test` puts the working tree's `huggorm/` ahead of
 the installed copy, so an edit to the hand-written layer is testable
 without a rebuild. `huggorm_bindings` and `huggorm_generated` always
 come from the store: one is compiled and the other is generated, so
@@ -49,8 +49,8 @@ neither exists in the tree.
 
 ### Reading what the build produced
 
-    nix run --file . show                # where everything landed
-    nix run --file . show -- surface     # every emitted Python module
+    nix run --file . internal.show              # where everything landed
+    nix run --file . internal.show -- surface   # every emitted Python module
 
 `surface` ends with `_policy.py`, the tables both ends of the wire
 read. They are generated, so the only honest way to review the wire is
@@ -59,11 +59,11 @@ to read what actually came out.
 The emitted C++ is not in the tree either. It is written into the
 build's copy of `huggorm-bindings`, so to read it:
 
-    nix build --no-link --print-out-paths --file . bindings-src
+    nix build --no-link --print-out-paths --file . internal.bindings-src
 
 ### Reading a dependency's source
 
-    nix build --no-link --print-out-paths --file . pkgs.nix.src
+    nix build --no-link --print-out-paths --file . internal.pkgs.nix.src
 
 Nix's own headers are in `pkgs.nix.dev`. The repo's rule is to anchor
 on upstream source rather than guess, and several declarations carry a
@@ -299,4 +299,4 @@ current thinking, and the older ones record how it got there.
 For the CODE: `packages/huggorm-decl/src/huggorm_decl/decl/path.py`, then
 `nbemit.py` beside it, then `huggorm/huggorm/codec.py`.
 
-For the OUTPUT: `nix run --file . show -- surface`.
+For the OUTPUT: `nix run --file . internal.show -- surface`.

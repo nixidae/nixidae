@@ -242,8 +242,8 @@ one.
 
 # Build the cheap thing first
 
-    nix build --file . bindings-src        seconds,  124 KB
-    nix build --file . huggorm-bindings    minutes,  3.3 MB
+    nix build --file . internal.bindings-src         seconds,  124 KB
+    nix build --file . packages.huggorm-bindings     minutes,  3.3 MB
 
 Most emitter changes are proved by DIFFING the emitted C++ against
 the previous store path. Compile only when the C++ changed shape.
@@ -260,7 +260,7 @@ terminal.** A cached derivation prints nothing, and `nix run` does
 not carry the stdout of what it built. So before claiming the build
 does not report something, read the log:
 
-    nix build --file . bindings-src --no-link --json > /tmp/d.json
+    nix build --file . internal.bindings-src --no-link --json > /tmp/d.json
     nix log $(python3 -c "import json;print(json.load(open('/tmp/d.json'))[0]['drvPath'])")
 
 (`--json` and `--print-out-paths` together emit two documents, so
@@ -317,7 +317,7 @@ Write prose according to ASD-STE100
 # Anchoring
 When you're uncertain about a librarys features or how to use it, anchor yourself by reading it's source code.
 ```bash
-nix build --no-link --print-out-paths  --file . pkgs.$package.src # this can be used to fetch the source of dependencies you're working with
+nix build --no-link --print-out-paths  --file . internal.pkgs.$package.src # this can be used to fetch the source of dependencies you're working with
 ```
 
 # How the codegen works

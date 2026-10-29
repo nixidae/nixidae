@@ -57,7 +57,7 @@ in
     steps = setup ++ [
       {
         name = "Lint, typecheck, clang -Werror";
-        run = "nix run --file . check";
+        run = "nix run --file . internal.check";
       }
     ];
   };
