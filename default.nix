@@ -152,6 +152,7 @@ rec {
       "easykubenix"
       "nanopynix"
       "nixkube"
+      "nixvenv"
       "pydd"
       "pynixd"
     ];

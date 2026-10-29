@@ -32,6 +32,6 @@ in
   nixosModules = { };
   easykubenixModules = { };
   checks = pkgs.callPackages ./checks.nix { inherit nixvenv; };
-  docs = { };
+  docs.default = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
 }
