@@ -7,7 +7,8 @@ Nix, from Python. One import.
     store = huggorm.Store("auto")
 
 `"auto"` is whatever the ambient configuration says, usually the
-daemon. `"dummy://"` is in-memory and needs nothing on disk.
+daemon. `"dummy://?read-only=false"` is in-memory and needs nothing on
+disk; without `read-only=false` it refuses `add_to_store`.
 `"/tmp/mystore"` is a chroot store, which needs no daemon and no
 `/nix/var` - it is what this repo's own tests run against.
 
