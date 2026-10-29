@@ -11,7 +11,7 @@
 let
   # nanopynix resolves `kr8s` to the fork this tree builds against.
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
-  inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
+  inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps nixvenv;
 
   /*
     The `kappy/` project directory, copied alone. A set leaves out of the
@@ -68,7 +68,7 @@ in
   easykubenixModules = { };
   # The tests run in `shell`; see ci/workflows/tests.nix.
   checks = { };
-  docs = { };
+  docs.default = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
   shell = pkgs.mkShell {
     packages = [
       devEnv

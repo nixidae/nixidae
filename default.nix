@@ -155,6 +155,7 @@ rec {
       "ghanix"
       "havsorm"
       "huggorm"
+      "kappy"
       "nanopynix"
       "nixkube"
       "nixvenv"
