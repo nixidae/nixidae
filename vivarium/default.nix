@@ -2697,7 +2697,12 @@ in
       cli
       typeCheck
       images
+      k8sImages
       ;
+    inherit (vivarium) cacheFacts;
+    # The pyproject project of `runner`, for a caller that resolves it in a
+    # Python set of its own.
+    runnerSource = ./pkgs/vivarium-runner;
   };
 
   /*
@@ -2736,7 +2741,8 @@ in
     umlKernel = k8sConfig.system.build.umlKernel;
     default = cli;
   };
-  nixosModules = { };
+  # A kubeadm node, for a guest of `lib.mkTest`.
+  nixosModules.k8s = ./modules/k8s.nix;
   easykubenixModules = { };
   docs.default = docs;
 
