@@ -165,6 +165,51 @@ rec {
   };
   shared-config-update = sharedConfig.update;
 
+  # The nixidae site: every source's docs site, under `<source>/`. A source
+  # without `docs.default` is left out.
+  docs.default = pkgs.python3Packages.callPackage ./nix/site.nix {
+    inherit (nixvenv.lib) nixvenv;
+    sites =
+      let
+        inherit (pkgs) lib;
+        sets = {
+          inherit
+            easykubenix
+            ghanix
+            havsorm
+            huggorm
+            kappy
+            nanopynix
+            nixkube
+            nixvenv
+            pydd
+            pynixd
+            vivarium
+            ;
+        };
+      in
+      lib.mapAttrs
+        (name: description: {
+          inherit description;
+          site = sets.${name}.docs.default;
+        })
+        (
+          lib.filterAttrs (name: _: sets.${name}.docs ? default) {
+            easykubenix = "Kubernetes objects as NixOS-style modules, and ekn, which applies them.";
+            ghanix = "GitHub Actions workflows as NixOS modules.";
+            havsorm = "Salt states, pillar and reactors written in Nix.";
+            huggorm = "Nix from Python: libstore, libexpr and libflake through nanobind.";
+            kappy = "The apply engine of easykubenix, as a library.";
+            nanopynix = "pynix, a Nix CLI in Python.";
+            nixkube = "A Nix store in Kubernetes pods, through CSI and NRI.";
+            nixvenv = "A real Python venv from nixpkgs packages.";
+            pydd = "Dynamic derivations, planned in Python.";
+            pynixd = "A Nix daemon in Python.";
+            vivarium = "NixOS integration tests that need no KVM.";
+          }
+        );
+  };
+
   # The one Nix formatter. nix/nixfmt.nix.
   nixFormat = import ./nix/nixfmt.nix {
     inherit (pkgs) lib;
