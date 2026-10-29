@@ -152,6 +152,7 @@ rec {
     ];
     documented = [
       "easykubenix"
+      "ghanix"
       "havsorm"
       "huggorm"
       "nanopynix"

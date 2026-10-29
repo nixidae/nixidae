@@ -721,8 +721,16 @@ let
         }
       ];
     };
+  workflowModules = [
+    assertionsModule
+    workflowModule
+    noEmptyJobsModule
+  ];
 in
 {
+  # The schema `evalWorkflow` evaluates against, for its option reference.
+  inherit workflowModules;
+
   evalWorkflow =
     {
       on,
@@ -734,10 +742,7 @@ in
     }:
     let
       evaluated = lib.evalModules {
-        modules = [
-          assertionsModule
-          workflowModule
-          noEmptyJobsModule
+        modules = workflowModules ++ [
           {
             inherit
               name

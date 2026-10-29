@@ -30,10 +30,12 @@
 #
 # Input and output follow the schema of nixidae/nixidae#1103, with the
 # functions under `lib`. `{ lib }` alone also works, for a caller with no
-# nixpkgs: ghanix reads only `pkgs.lib`, and ignores `sources`.
+# nixpkgs: `lib` reads only `pkgs.lib`. Only `docs` reads `pkgs` and
+# `sources`, and it is empty without them.
 {
   pkgs ? null,
   lib ? pkgs.lib,
+  sources ? null,
   ...
 }:
 let
@@ -56,6 +58,24 @@ in
   nixosModules = { };
   easykubenixModules = { };
   checks = { };
-  docs = { };
+  docs = lib.optionalAttrs (pkgs != null && sources != null) {
+    default = pkgs.python3Packages.callPackage ./nix/docs.nix {
+      inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
+      optionsReference = import ./nix/shared/options-reference.nix { inherit lib pkgs; } {
+        title = "Workflow options";
+        inherit (lib.evalModules { modules = ghalib.workflowModules; }) options;
+        prefixes = [
+          "concurrency"
+          "env"
+          "jobs"
+          "name"
+          "on"
+          "permissions"
+        ];
+        root = ./.;
+        repository = "nixidae/ghanix";
+      };
+    };
+  };
   ciTestWorkflows = { };
 }
