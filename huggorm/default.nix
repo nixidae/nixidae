@@ -805,7 +805,7 @@ let
         nix-tcp-store-check
         ;
     };
-    docs = { };
+    docs.default = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
 
     shell = pkgs.mkShell {
       packages = [
