@@ -59,7 +59,7 @@ with one coroutine. Nix orders the phases.
 
 ```nix
 let
-  vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+  vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
 in
 vivarium.mkTest {
   name = "hello";
@@ -190,7 +190,7 @@ command lines that watch it and reach into it.
 ## Repository layout
 
 ```
-lib.nix              mkTest, mkNode, fromNixosTest: what a consumer imports
+lib.nix              mkTest, mkNode, fromNixosTest: the `lib` output
 nixos-test.nix       the nixos-test mapper
 default.nix          this repository's own tests
 modules/             the guest modules: vivarium options, backends, k8s

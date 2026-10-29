@@ -5,8 +5,8 @@
 # is the point of the exercise -- easykubenix drives `ekn kubeapply` against a
 # cluster this builds -- so they are a file that takes a package set.
 #
-#     let vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
-#     in vivarium.mkTest { name = "..."; script = ./mine.py; nodes = { ... }; }
+#     let vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
+#     in vivarium.mkTest { name = "..."; nodes = { ... }; phases.check.script = ./mine.py; }
 #
 # Nothing here is specific to the tests in this repository. `flake.nix` and
 # `default.nix` both call it, so the two doors cannot drift apart.

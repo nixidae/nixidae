@@ -206,7 +206,7 @@ This repository is a library: `mkTest`, the guest modules, and
 `vivarium.runner` (the `vivarium_runner` package, `py.typed`). A test script belongs
 in the project it tests.
 
-    let vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+    let vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
     in vivarium.mkTest {
       name = "...";
       nodes.one = { };
