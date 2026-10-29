@@ -235,7 +235,7 @@ in
   nixosModules.default = ./nix/nixos.nix;
   easykubenixModules = { };
   checks = { inherit (internal) suite bundle fleet; };
-  docs = { };
+  docs.default = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
   ciTestWorkflows = { };
   inherit internal;
 }
