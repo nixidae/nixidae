@@ -5,7 +5,8 @@
 # its own copy:
 #
 # - the tool configuration, byte for byte, at `<source>/nix/shared/<file>`;
-# - the Sphinx settings, the same way, for a source with a docs site;
+# - the Sphinx settings and the option-reference builder, the same way, for a
+#   source with a docs site;
 # - `<source>/nix/sources.nix`, from `sources.nix.in` with the source's name.
 {
   lib,
@@ -24,7 +25,10 @@ let
     "ruff-strict.toml"
   ];
 
-  docsFiles = [ "sphinx_shared.py" ];
+  docsFiles = [
+    "sphinx_shared.py"
+    "options-reference.nix"
+  ];
 
   sharedCopies =
     files:
