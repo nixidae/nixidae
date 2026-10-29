@@ -13,19 +13,40 @@ let
   nanopynix = import sources.nanopynix { inherit pkgs sources system; };
   inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
 
-  pythonSet = nanopynix.lib.pythonSetWith {
-    projectRoots = [ ./kappy ];
-    overlay = pySelf: _pyPrev: {
-      kappy = pySelf.callPackage (ps.mkProject {
-        projectRoot = ./kappy;
-        inherit (nanopynix.lib.pythonSet) python;
-        extra = rendered: {
-          meta = rendered.meta // {
-            platforms = pkgs.lib.platforms.unix;
-          };
+  /*
+    The `kappy/` project directory, copied alone. A set leaves out of the
+    nixpkgs lookup every root whose directory name is a declared dependency,
+    so the copy keeps the name `kappy`. A copy of the whole source would
+    change with `flake.lock`, which moves with every lock commit.
+  */
+  projectRoot =
+    let
+      root = toString ./.;
+    in
+    builtins.path {
+      path = ./.;
+      name = "source";
+      filter =
+        path: _type: path == root || path == "${root}/kappy" || pkgs.lib.hasPrefix "${root}/kappy/" path;
+    }
+    + "/kappy";
+
+  # Adds `kappy` to a pyproject set whose `projectRoots` holds `projectRoot`.
+  overlay = pySelf: _pyPrev: {
+    kappy = pySelf.callPackage (ps.mkProject {
+      inherit projectRoot;
+      inherit (pySelf) python;
+      extra = rendered: {
+        meta = rendered.meta // {
+          platforms = pkgs.lib.platforms.unix;
         };
-      }) { };
-    };
+      };
+    }) { };
+  };
+
+  pythonSet = nanopynix.lib.pythonSetWith {
+    projectRoots = [ projectRoot ];
+    inherit overlay;
   };
 
   # The environment the tests and the shell run in: kappy's closure and its
@@ -40,7 +61,9 @@ in
     inherit (pythonSet) kappy;
     default = pythonSet.kappy;
   };
-  lib = { };
+  # For a consumer's own pyproject set:
+  #   pythonSetWith { projectRoots = [ kappy.lib.projectRoot ]; overlay = kappy.lib.overlay; }
+  lib = { inherit projectRoot overlay; };
   nixosModules = { };
   easykubenixModules = { };
   # The tests run in `shell`; see ci/workflows/tests.nix.
