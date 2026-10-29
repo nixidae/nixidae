@@ -46,9 +46,7 @@ rec {
   # The kr8s apply engine easykubenix's `ekn` builds on.
   kappy = import sources.kappy { inherit pkgs sources system; };
 
-  # It builds its own package set, because it applies an overlay of its own,
-  # so it takes the sources rather than the set.
-  nixkube = import sources.nixkube { inherit sources system; };
+  nixkube = import sources.nixkube { inherit pkgs sources system; };
 
   # NixOS integration tests on User-Mode Linux, so a guest is a process and a
   # test is a derivation that passes or fails.

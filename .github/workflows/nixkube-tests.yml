@@ -33,12 +33,12 @@ jobs:
     - name: Build and push environments
       run: |
         unlink nix-envs || true
-        nix build --show-trace --print-build-logs --file . push --out-link nix-envs
+        nix build --show-trace --print-build-logs --file . internal.push --out-link nix-envs
         ./nix-envs/bin/push
     - name: Build amd64 nix image
       run: |
         unlink nix-nix || true
-        nix build --show-trace --print-build-logs --file . nixImage.pushArch.x86_64-linux --out-link nix-nix
+        nix build --show-trace --print-build-logs --file . internal.nixImage.pushArch.x86_64-linux --out-link nix-nix
     - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
       name: Push amd64 nix image
       run: ./nix-nix/bin/push-nix-x86_64-linux
@@ -65,12 +65,12 @@ jobs:
     - name: Build and push environments
       run: |
         unlink nix-envs || true
-        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . push --out-link nix-envs
+        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . internal.push --out-link nix-envs
         ./nix-envs/bin/push
     - name: Build arm64 nix image
       run: |
         unlink nix-nix || true
-        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . nixImage.pushArch.aarch64-linux --out-link nix-nix
+        nix build --show-trace --print-build-logs --max-jobs 1 --cores 4 --file . internal.nixImage.pushArch.aarch64-linux --out-link nix-nix
     - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
       name: Push arm64 nix image
       run: ./nix-nix/bin/push-nix-aarch64-linux
@@ -99,14 +99,14 @@ jobs:
           trusted-users = root runner
     - name: Assert both architectures' closures are fetchable
       run: |
-        nix build --show-trace --file . kubenixApply.manifestJSONFile --out-link manifest
-        nix run --file . assert-cached -- manifest
+        nix build --show-trace --file . internal.kubenixApply.manifestJSONFile --out-link manifest
+        nix run --file . internal.assert-cached -- manifest
     - name: Build the index and scratch publishers
       run: |
         unlink nix-manifest || true
         unlink nix-scratches || true
-        nix build --show-trace --file . nixImage.pushManifest --out-link nix-manifest
-        nix build --show-trace --file . scratchImage.push --out-link nix-scratches
+        nix build --show-trace --file . internal.nixImage.pushManifest --out-link nix-manifest
+        nix build --show-trace --file . internal.scratchImage.push --out-link nix-scratches
     - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/nixkube/v')
       name: Create nix multi-arch manifest
       run: ./nix-manifest/bin/push-nix-manifest
@@ -137,20 +137,20 @@ jobs:
       run: nix build --show-trace --file ./checks.nix all
     - name: Check that every CI attribute builds natively
       run: |
-        nix run --file . arch-audit -- \
-          push \
-          kubenixApply.manifestJSONFile \
-          kubenixApply.manifestYAMLFile \
-          kubenixCI1.deploymentScript \
-          kubenixCI2.deploymentScript \
-          kubenixCITest.deploymentScript \
-          nixImage.pushArch.x86_64-linux \
-          nixImage.pushManifest \
-          nixImage.tagRelease \
-          scratchImage.push
+        nix run --file . internal.arch-audit -- \
+          internal.push \
+          internal.kubenixApply.manifestJSONFile \
+          internal.kubenixApply.manifestYAMLFile \
+          internal.kubenixCI1.deploymentScript \
+          internal.kubenixCI2.deploymentScript \
+          internal.kubenixCITest.deploymentScript \
+          internal.nixImage.pushArch.x86_64-linux \
+          internal.nixImage.pushManifest \
+          internal.nixImage.tagRelease \
+          internal.scratchImage.push
     - name: Check formatting
       run: |
-        nix run --file . treefmt
+        nix run --file . internal.treefmt
         git diff --exit-code -- .
     timeout-minutes: 30
   release:
@@ -182,15 +182,15 @@ jobs:
           trusted-users = root runner
     - id: digest
       name: Tag the release's image, and find its digest
-      run: echo "digest=$(nix run --file . nixImage.tagRelease)" >> "$GITHUB_OUTPUT"
+      run: echo "digest=$(nix run --file . internal.nixImage.tagRelease)" >> "$GITHUB_OUTPUT"
     - env:
         DIGEST: ${{ steps.digest.outputs.digest }}
       name: Render deployment manifest
       run: |
-        nix build --show-trace --file . --argstr releaseDigest "$DIGEST" kubenixRelease.manifestYAMLFile
+        nix build --show-trace --file . --argstr releaseDigest "$DIGEST" internal.kubenixRelease.manifestYAMLFile
         cp result nix-csi-deployment.yaml
     - name: Assert the release manifest is deployable
-      run: nix run --file . assert-cached -- nix-csi-deployment.yaml
+      run: nix run --file . internal.assert-cached -- nix-csi-deployment.yaml
     - env:
         TAG: ${{ github.ref_name }}
       id: exported
@@ -235,7 +235,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: Run the node test as a virtual machine
-      run: nix run --file . umlTest.driver -- --out ./uml-out
+      run: nix run --file . internal.umlTest.driver -- --out ./uml-out
     - if: ${{ !cancelled() }}
       name: Keep the run's evidence
       timeout-minutes: 15
@@ -271,7 +271,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: Deploy and test without the pynixd cache, on a guest
-      run: nix run --file . ciTest.driver -- --out ./out
+      run: nix run --file . internal.ciTest.driver -- --out ./out
     - if: ${{ !cancelled() }}
       name: Keep the run's evidence
       timeout-minutes: 15
@@ -307,7 +307,7 @@ jobs:
       run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
       timeout-minutes: 5
     - name: Deploy and test with the pynixd cache, on a guest
-      run: nix run --file . ciTestCache.driver -- --out ./out
+      run: nix run --file . internal.ciTestCache.driver -- --out ./out
     - if: ${{ !cancelled() }}
       name: Keep the run's evidence
       timeout-minutes: 15
