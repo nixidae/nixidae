@@ -69,10 +69,14 @@ rec {
 
   pydd = import sources.pydd {
     inherit sources;
+    pkgs = huggormPkgs;
     huggormSet = huggorm;
   };
 
-  havsorm = import sources.havsorm { inherit sources huggorm; };
+  havsorm = import sources.havsorm {
+    inherit sources huggorm;
+    pkgs = huggormPkgs;
+  };
 
   # Every output that links huggorm, once for each lane: huggorm's lanes, plus
   # `stable` and `latest`, which nanopynix names. `lanes.determinate.ekn` is
@@ -84,11 +88,11 @@ rec {
     inherit (lane) pynix pynix-lsp;
     inherit (easykubenix.internal.lanes.${name}) ekn;
     inherit
-      (
-        (import sources.havsorm {
-          inherit sources huggorm;
-          huggormPackage = lane.huggorm;
-        })
+      ((import sources.havsorm {
+        inherit sources huggorm;
+        pkgs = huggormPkgs;
+        huggormPackage = lane.huggorm;
+      }).packages
       )
       havsorm
       ;

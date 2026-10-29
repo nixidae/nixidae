@@ -252,7 +252,7 @@ Salt finds the renderer through the `salt.loader` entry point. This
 needs huggorm on PyPI, which is not published yet. Until then, build
 with Nix:
 
-    nix build --file . havsorm
+    nix build --file . packages.havsorm
 
 ## NixOS
 
@@ -267,7 +267,7 @@ havsorm:
 A switch does not restart the minion, because `havsorm.system` runs
 inside one of the minion's jobs, and a restart would lose its return.
 
-`nix build --file . fleet` runs a fleet on vivarium: a master and two
+`nix build --file . checks.fleet` runs a fleet on vivarium: a master and two
 NixOS web minions on QEMU, an openSUSE web minion and a NixOS load
 balancer on UML. The master serves a signed binary cache, and every
 deploy substitutes from it. Each phase is one scenario:
@@ -314,7 +314,7 @@ documents for any package:
     salt <minion> pip.install havsorm
 
 A formula or a state channel can then hold `#!nix` SLS files and the
-`.nix` files they import. `nix build --file . bundle` runs the bundle's
+`.nix` files they import. `nix build --file . checks.bundle` runs the bundle's
 own `salt-call` on such files.
 
 `formulas/` holds `nix-host`, a formula in Uyuni's layout: copy

@@ -2,16 +2,18 @@
   sources ? import ./nix/sources.nix,
   # Another system's derivations build on a builder of it.
   system ? builtins.currentSystem,
-  # huggorm brings the nixpkgs and the Python every package here builds
-  # on, so the bindings and havsorm share one interpreter.
-  huggorm ? import sources.huggorm { inherit sources system; },
+  # The same nixpkgs huggorm takes, so the bindings and havsorm share one
+  # interpreter.
+  pkgs ? import sources.nixpkgs { inherit system; },
+  huggorm ? import sources.huggorm { inherit pkgs sources; },
   # The huggorm package havsorm links: one lane's, such as
   # `huggorm.lanes.determinate.huggorm`. nixidae's `lanes.<lane>.havsorm`
   # passes each one (nixidae/nixidae#1108).
-  huggormPackage ? huggorm.huggorm,
+  huggormPackage ? huggorm.packages.huggorm,
 }:
 let
-  pkgs = huggorm.pkgs.extend (
+  # Only Salt reads the overlay, so only `salt` and `fleet` take this set.
+  saltPkgs = pkgs.extend (
     final: prev: {
       # Salt 3008 requires xxhash (requirements/base.txt), and nixpkgs'
       # salt does not propagate it: salt-master fails to build its
@@ -19,10 +21,9 @@ let
       salt = prev.salt.override { extraInputs = [ final.python3.pkgs.xxhash ]; };
     }
   );
-  inherit (pkgs) lib;
-  python3 = huggorm.python;
+  inherit (pkgs) lib python3;
   # nixpkgs builds Salt as an application. The tests import it.
-  salt = python3.pkgs.toPythonModule pkgs.salt;
+  salt = python3.pkgs.toPythonModule saltPkgs.salt;
   inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
   saltExecutables = [
     "salt"
@@ -32,206 +33,209 @@ let
     "salt-minion"
     "salt-run"
   ];
-in
-rec {
-  inherit huggorm pkgs salt;
 
-  # nix build --file . havsorm
-  #
-  # The package alone. `suite` tests it.
-  havsorm = python3.pkgs.buildPythonPackage {
-    pname = "havsorm";
-    version = "0.1.0";
-    pyproject = true;
-    src = lib.fileset.toSource {
-      root = ./.;
-      fileset = lib.fileset.unions [
-        ./pyproject.toml
-        ./README.md
-        ./LICENSE
-        ./src
-      ];
-    };
-    build-system = [ python3.pkgs.setuptools ];
-    dependencies = [ huggormPackage ];
-  };
+  internal = rec {
+    inherit huggorm pkgs salt;
 
-  # nix build --file . suite
-  #
-  # Lints and type-checks, then runs the suite against the installed
-  # package in a venv: the loader finds the renderer through the installed
-  # entry point, and `salt-call --local` renders an SLS.
-  suite =
-    let
+    # The package alone. `suite` tests it.
+    havsorm = python3.pkgs.buildPythonPackage {
+      pname = "havsorm";
+      version = "0.1.0";
+      pyproject = true;
       src = lib.fileset.toSource {
         root = ./.;
         fileset = lib.fileset.unions [
           ./pyproject.toml
-          ./mypy.ini
-          ./nix/shared
+          ./README.md
+          ./LICENSE
           ./src
-          ./tests
         ];
       };
-    in
-    pkgs.runCommand "havsorm-suite"
-      {
-        nativeBuildInputs = [
-          pkgs.ruff
-          pkgs.zuban
-        ];
-      }
-      ''
-        cp -r --no-preserve=mode ${src} source
-        cd source
-        export HOME=$TMPDIR
-        ruff check --no-cache src tests
-        ruff format --no-cache --check src tests
-        # The venv's own interpreter: zuban reads the pyvenv.cfg beside it.
-        zuban mypy --python-executable ${python}/lib/venv/bin/python3
-        # The `pytest` script, not `python -m`, so `src/` stays off sys.path
-        # and the installed package is tested.
-        ${python}/bin/pytest -p no:cacheprovider tests
-        touch $out
-      '';
-
-  # The Salt bundle Uyuni and SUSE Multi-Linux Manager put on a client:
-  # Salt 3006.0 on its own Python 3.11. The EL8 build, for PyPA's
-  # manylinux_2_28 image. The repository holds one build at a time, so
-  # this pin breaks when it moves.
-  venvSaltMinion =
-    let
-      rpm = pkgs.fetchurl {
-        url = "https://download.opensuse.org/repositories/systemsmanagement:/Uyuni:/Stable:/EL8-Uyuni-Client-Tools/EL_8/x86_64/venv-salt-minion-3006.0-80003.75.2.uyuni.x86_64.rpm";
-        hash = "sha256-TNM+jG1eeFM7l4BD0KwUYP8ZOZyiQotrM5Yns+d0vKg=";
-      };
-    in
-    pkgs.runCommand "venv-salt-minion-3006.0"
-      {
-        nativeBuildInputs = [
-          pkgs.rpm
-          pkgs.cpio
-        ];
-      }
-      ''
-        mkdir -p $out && cd $out
-        rpm2cpio ${rpm} | cpio -idm --quiet
-      '';
-
-  # nix build --file . bundle
-  #
-  # havsorm in the Salt bundle, as `salt <minion> pip.install` puts it
-  # there: pip into the directory the bundle's wrapper puts on
-  # PYTHONPATH, from huggorm's cp311 wheels. Then the bundle's own
-  # salt-call renders a #!nix state and a #!nix pillar SLS, each with a
-  # relative import.
-  bundle =
-    let
-      manylinux = huggorm.lanes.nix_2_34.manylinux;
-      wheel = havsorm.dist;
-      venv = "${venvSaltMinion}/usr/lib/venv-salt-minion";
-    in
-    manylinux.build {
-      pname = "havsorm-bundle";
-      version = "3006.0";
-      src = lib.fileset.toSource {
-        root = ./.;
-        fileset = lib.fileset.unions [
-          ./tests/bundle
-          ./formulas
-        ];
-      };
-      script = ''
-        # What the bundle's bin/python wrapper exports, with its paths in
-        # the store and the pip target in /tmp.
-        export PYTHONHOME=${venv} LD_LIBRARY_PATH=${venv}/lib PYTHONPATH=/tmp/local
-        py=${venv}/bin/python.original
-        $py -m pip install --quiet --no-index --target /tmp/local \
-          --find-links ${manylinux.wheelhouse} --find-links ${wheel} havsorm
-        root=$PWD/root
-        mkdir -p conf "$root"
-        printf '%s' '{"file_client": "local", "id": "bundle", "root_dir": "'"$root"'",
-          "file_roots": {"base": ["'"$PWD"'/tests/bundle/srv", "'"$PWD"'/formulas/states"]},
-          "pillar_roots": {"base": ["'"$PWD"'/tests/bundle/pillar"]},
-          "grains": {"os": "Leap"}}' > conf/minion
-        # Salt reads its user's passwd entry when it imports its config,
-        # and the image has none for the sandbox's uid.
-        call() {
-          $py -c 'import os, pwd
-        pwd.getpwuid = lambda uid: pwd.struct_passwd(("build", "x", uid, os.getgid(), "", "/tmp", "/bin/sh"))
-        pwd.getpwnam = lambda name: pwd.getpwuid(os.getuid())
-        import salt.scripts; salt.scripts.salt_call()' --local \
-            --config-dir conf --out json --log-level warning "$@"
-        }
-        call --versions-report | tee "$out/versions.txt"
-        call state.show_sls demo | tee "$out/state.json"
-        call pillar.items | tee "$out/pillar.json"
-        call state.show_sls nix-host | tee "$out/formula.json"
-        $py - "$out" <<'EOF'
-        import json, sys
-        out = sys.argv[1]
-        state = json.load(open(f"{out}/state.json"))["local"]
-        assert list(state) == ["web", "db"], state
-        assert {"port": 8080, "os": "Leap"} in state["web"]["test"], state
-        pillar = json.load(open(f"{out}/pillar.json"))["local"]
-        assert pillar.get("dbPort") == 5432, pillar
-        formula = json.load(open(f"{out}/formula.json"))["local"]
-        assert list(formula) == ["nix", "nix-profile", "nix-store-gc"], formula
-        assert {"version": "2.34.6"} in formula["nix"]["havsorm"], formula
-        assert {"require": [{"havsorm": "nix"}]} in formula["nix-store-gc"]["havsorm"], formula
-        print("bundle: #!nix state, pillar and the nix-host formula render on Salt 3006.0, Python 3.11")
-        EOF
-      '';
+      build-system = [ python3.pkgs.setuptools ];
+      dependencies = [ huggormPackage ];
     };
 
-  # Salt with havsorm, for a minion or a master: bin/salt-minion and the
-  # rest run on this Python.
-  saltEnv = nixvenv {
-    python = python3;
-    packages = _: [
-      havsorm
-      salt
-    ];
-    executables = [ "python" ] ++ saltExecutables;
-  };
+    # nix build --file . checks.suite
+    #
+    # Lints and type-checks, then runs the suite against the installed
+    # package in a venv: the loader finds the renderer through the installed
+    # entry point, and `salt-call --local` renders an SLS.
+    suite =
+      let
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./pyproject.toml
+            ./mypy.ini
+            ./nix/shared
+            ./src
+            ./tests
+          ];
+        };
+      in
+      pkgs.runCommand "havsorm-suite"
+        {
+          nativeBuildInputs = [
+            pkgs.ruff
+            pkgs.zuban
+          ];
+        }
+        ''
+          cp -r --no-preserve=mode ${src} source
+          cd source
+          export HOME=$TMPDIR
+          ruff check --no-cache src tests
+          ruff format --no-cache --check src tests
+          # The venv's own interpreter: zuban reads the pyvenv.cfg beside it.
+          zuban mypy --python-executable ${python}/lib/venv/bin/python3
+          # The `pytest` script, not `python -m`, so `src/` stays off sys.path
+          # and the installed package is tested.
+          ${python}/bin/pytest -p no:cacheprovider tests
+          touch $out
+        '';
 
-  # nix build --file . fleet
-  #
-  # A master, a NixOS minion and an openSUSE minion on vivarium.
-  fleet = import ./nix/fleet.nix {
-    inherit pkgs saltEnv;
-    vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
-  };
+    # The Salt bundle Uyuni and SUSE Multi-Linux Manager put on a client:
+    # Salt 3006.0 on its own Python 3.11. The EL8 build, for PyPA's
+    # manylinux_2_28 image. The repository holds one build at a time, so
+    # this pin breaks when it moves.
+    venvSaltMinion =
+      let
+        rpm = pkgs.fetchurl {
+          url = "https://download.opensuse.org/repositories/systemsmanagement:/Uyuni:/Stable:/EL8-Uyuni-Client-Tools/EL_8/x86_64/venv-salt-minion-3006.0-80003.75.2.uyuni.x86_64.rpm";
+          hash = "sha256-TNM+jG1eeFM7l4BD0KwUYP8ZOZyiQotrM5Yns+d0vKg=";
+        };
+      in
+      pkgs.runCommand "venv-salt-minion-3006.0"
+        {
+          nativeBuildInputs = [
+            pkgs.rpm
+            pkgs.cpio
+          ];
+        }
+        ''
+          mkdir -p $out && cd $out
+          rpm2cpio ${rpm} | cpio -idm --quiet
+        '';
 
-  # nix run --file . python -- -m pytest
-  python = nixvenv {
-    python = python3;
-    packages = ps: [
-      havsorm
-      salt
-      ps.pytest
-    ];
-    executables = [
-      "python"
-      "pytest"
-    ]
-    ++ saltExecutables;
-  };
+    # nix build --file . checks.bundle
+    #
+    # havsorm in the Salt bundle, as `salt <minion> pip.install` puts it
+    # there: pip into the directory the bundle's wrapper puts on
+    # PYTHONPATH, from huggorm's cp311 wheels. Then the bundle's own
+    # salt-call renders a #!nix state and a #!nix pillar SLS, each with a
+    # relative import.
+    bundle =
+      let
+        manylinux = huggorm.lanes.nix_2_34.manylinux;
+        wheel = havsorm.dist;
+        venv = "${venvSaltMinion}/usr/lib/venv-salt-minion";
+      in
+      manylinux.build {
+        pname = "havsorm-bundle";
+        version = "3006.0";
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./tests/bundle
+            ./formulas
+          ];
+        };
+        script = ''
+          # What the bundle's bin/python wrapper exports, with its paths in
+          # the store and the pip target in /tmp.
+          export PYTHONHOME=${venv} LD_LIBRARY_PATH=${venv}/lib PYTHONPATH=/tmp/local
+          py=${venv}/bin/python.original
+          $py -m pip install --quiet --no-index --target /tmp/local \
+            --find-links ${manylinux.wheelhouse} --find-links ${wheel} havsorm
+          root=$PWD/root
+          mkdir -p conf "$root"
+          printf '%s' '{"file_client": "local", "id": "bundle", "root_dir": "'"$root"'",
+            "file_roots": {"base": ["'"$PWD"'/tests/bundle/srv", "'"$PWD"'/formulas/states"]},
+            "pillar_roots": {"base": ["'"$PWD"'/tests/bundle/pillar"]},
+            "grains": {"os": "Leap"}}' > conf/minion
+          # Salt reads its user's passwd entry when it imports its config,
+          # and the image has none for the sandbox's uid.
+          call() {
+            $py -c 'import os, pwd
+          pwd.getpwuid = lambda uid: pwd.struct_passwd(("build", "x", uid, os.getgid(), "", "/tmp", "/bin/sh"))
+          pwd.getpwnam = lambda name: pwd.getpwuid(os.getuid())
+          import salt.scripts; salt.scripts.salt_call()' --local \
+              --config-dir conf --out json --log-level warning "$@"
+          }
+          call --versions-report | tee "$out/versions.txt"
+          call state.show_sls demo | tee "$out/state.json"
+          call pillar.items | tee "$out/pillar.json"
+          call state.show_sls nix-host | tee "$out/formula.json"
+          $py - "$out" <<'EOF'
+          import json, sys
+          out = sys.argv[1]
+          state = json.load(open(f"{out}/state.json"))["local"]
+          assert list(state) == ["web", "db"], state
+          assert {"port": 8080, "os": "Leap"} in state["web"]["test"], state
+          pillar = json.load(open(f"{out}/pillar.json"))["local"]
+          assert pillar.get("dbPort") == 5432, pillar
+          formula = json.load(open(f"{out}/formula.json"))["local"]
+          assert list(formula) == ["nix", "nix-profile", "nix-store-gc"], formula
+          assert {"version": "2.34.6"} in formula["nix"]["havsorm"], formula
+          assert {"require": [{"havsorm": "nix"}]} in formula["nix-store-gc"]["havsorm"], formula
+          print("bundle: #!nix state, pillar and the nix-host formula render on Salt 3006.0, Python 3.11")
+          EOF
+        '';
+      };
 
-  # The schema of nixidae/nixidae#1103. Every other name in this set is
-  # internal. `lib` is set after the set closes: inside it, `lib` is
-  # nixpkgs' own.
+    # Salt with havsorm, for a minion or a master: bin/salt-minion and the
+    # rest run on this Python.
+    saltEnv = nixvenv {
+      python = python3;
+      packages = _: [
+        havsorm
+        salt
+      ];
+      executables = [ "python" ] ++ saltExecutables;
+    };
+
+    # nix build --file . checks.fleet
+    #
+    # A master, a NixOS minion and an openSUSE minion on vivarium.
+    fleet = import ./nix/fleet.nix {
+      inherit saltEnv;
+      pkgs = saltPkgs;
+      vivarium = import (sources.vivarium + "/lib.nix") {
+        inherit sources;
+        pkgs = saltPkgs;
+      };
+    };
+
+    # nix run --file . internal.python -- -m pytest
+    python = nixvenv {
+      python = python3;
+      packages = ps: [
+        havsorm
+        salt
+        ps.pytest
+      ];
+      executables = [
+        "python"
+        "pytest"
+      ]
+      ++ saltExecutables;
+    };
+
+  };
+in
+# The schema of nixidae/nixidae#1103. `internal` is not public: its names
+# may change without notice.
+{
   packages = {
-    inherit havsorm saltEnv;
-    default = havsorm;
+    inherit (internal) havsorm saltEnv;
+    default = internal.havsorm;
   };
+  lib = { };
   # Runs nixpkgs' Salt services from `saltEnv`.
   nixosModules.default = ./nix/nixos.nix;
   easykubenixModules = { };
-  checks = { inherit suite bundle fleet; };
+  checks = { inherit (internal) suite bundle fleet; };
   docs = { };
   ciTestWorkflows = { };
-}
-// {
-  lib = { };
+  inherit internal;
 }
