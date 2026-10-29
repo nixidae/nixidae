@@ -57,7 +57,4 @@ in
 
   # Not public: the names may change without notice.
   internal = { inherit pkgs pythonSet devEnv; };
-
-  # nix/members.nix and flake.nix read it. nixidae/nixidae#1103.
-  inherit (pythonSet) kappy;
 }
