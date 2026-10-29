@@ -200,10 +200,11 @@ let
     fleet = import ./nix/fleet.nix {
       inherit saltEnv;
       pkgs = saltPkgs;
-      vivarium = import (sources.vivarium + "/lib.nix") {
-        inherit sources;
-        pkgs = saltPkgs;
-      };
+      vivarium =
+        (import sources.vivarium {
+          inherit sources;
+          pkgs = saltPkgs;
+        }).lib;
     };
 
     # nix run --file . internal.python -- -m pytest
