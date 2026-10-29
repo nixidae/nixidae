@@ -260,8 +260,8 @@ with Nix:
 `services.salt.minion` from havsorm's `saltEnv`, a Python with Salt and
 havsorm:
 
-    imports = [ havsorm.nixosModule ];
-    services.havsorm.package = havsorm.saltEnv;
+    imports = [ havsorm.nixosModules.default ];
+    services.havsorm.package = havsorm.packages.saltEnv;
     services.salt.minion.enable = true;
 
 A switch does not restart the minion, because `havsorm.system` runs

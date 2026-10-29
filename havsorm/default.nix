@@ -195,9 +195,6 @@ rec {
     executables = [ "python" ] ++ saltExecutables;
   };
 
-  # The NixOS module that runs nixpkgs' Salt services from `saltEnv`.
-  nixosModule = ./nix/nixos.nix;
-
   # nix build --file . fleet
   #
   # A master, a NixOS minion and an openSUSE minion on vivarium.
@@ -228,7 +225,8 @@ rec {
     inherit havsorm saltEnv;
     default = havsorm;
   };
-  nixosModules.default = nixosModule;
+  # Runs nixpkgs' Salt services from `saltEnv`.
+  nixosModules.default = ./nix/nixos.nix;
   easykubenixModules = { };
   checks = { inherit suite bundle fleet; };
   docs = { };
