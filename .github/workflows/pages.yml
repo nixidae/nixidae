@@ -1,0 +1,54 @@
+# Deploys the nixidae site: the docs site of every source, under
+# `<source>/`. nixidae/nixidae#1105.
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@master
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+            substituters = https://cache.nixos.org?priority=1 https://lillecarl.cachix.org?priority=2
+        timeout-minutes: 15
+
+      - name: Build the site
+        run: nix build --file . docs.default --out-link result --print-build-logs
+
+      # The site holds copies, not links: the artifact would keep a link into
+      # the store as a link.
+      - name: Prepare the Pages artifact
+        run: mkdir -p public && cp -r --no-preserve=mode,ownership result/. public/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
