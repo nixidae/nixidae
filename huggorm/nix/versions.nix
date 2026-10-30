@@ -66,6 +66,9 @@ let
   # `fetchers::Settings::forgetSrcToStore`: an edited path copies again
   # (nixidae/nixidae#997). 2.34 keeps that map on `EvalState`.
   forgetSrcToStore = patch "nix-forget-src-to-store";
+  # `unix://?local-fs=false` reads over the socket, for a daemon whose
+  # store this machine cannot see (nixidae/nixidae#1138).
+  udsLocalFS = patch "nix-uds-local-fs";
 
   determinate = import ./determinate.nix { inherit pkgs sources; };
 in
@@ -89,6 +92,7 @@ in
       ownsPrimOps
       lstatMiss234
       workdirInfo234
+      udsLocalFS
     ];
   };
   nix_2_35 = {
@@ -107,6 +111,7 @@ in
       callChecksInterrupt
       ownsPrimOps
       forgetSrcToStore
+      udsLocalFS
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -128,6 +133,7 @@ in
       callChecksInterrupt
       ownsPrimOps
       forgetSrcToStore
+      udsLocalFS
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).
@@ -166,6 +172,7 @@ in
       callChecksInterrupt
       ownsPrimOps
       forgetSrcToStore
+      udsLocalFS
     ];
     # The fork's collector is newer bdwgc: the same three changes as
     # `boehmgcPatches` below, where its code moved.

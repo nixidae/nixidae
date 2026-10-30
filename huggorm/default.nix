@@ -390,6 +390,7 @@ let
             inherit (self.nixComponents) nix-util nix-store;
           };
           nix-tcp-store-check = self.callPackage ./packages/nix-tcp-store/check.nix { };
+          uds-local-fs-check = self.callPackage ./nix/uds-local-fs-check.nix { };
           huggorm = self.callPackage ./packages/huggorm { };
           # nix build --file . checks.suite, or 'lanes."nix_2_34-tsan".suite'
           suite = self.callPackage ./packages/huggorm/suite.nix {
@@ -577,6 +578,7 @@ let
       manylinux
       nix-tcp-store
       nix-tcp-store-check
+      uds-local-fs-check
       ourPython
       frontDoor
       suite
@@ -729,6 +731,7 @@ let
         # Built before this script runs, so a clang warning fails `check`.
         echo "--- clang -Werror: ${huggorm-bindings-clang} ---"
         echo "--- tcp:// over loopback: ${nix-tcp-store-check} ---"
+        echo "--- unix://?local-fs=false: ${uds-local-fs-check} ---"
         echo "--- emitted C++ for every Nix: ${every-nix-src} ---"
         echo "--- emitted C++ and the generator's suite for every nixpkgs pin: ${every-pin} ---"
         echo "--- the generator's suite for every Nix: ${generator-tests} ---"
@@ -828,6 +831,7 @@ let
         every-pin
         huggorm-bindings-clang
         nix-tcp-store-check
+        uds-local-fs-check
         ;
     };
     docs.default = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
