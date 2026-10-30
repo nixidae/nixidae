@@ -28,7 +28,7 @@ jj bookmark set main -r @-
 jj git push --bookmark main
 ```
 
-Then read the `josh export` run. It runs `lock-subtrees --check` and `josh-export --verify --push`. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
+The push starts the `josh export` run: `lock-subtrees --check` and `josh-export --verify --push`. Landing ends at the push; do not wait for that run. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
 
 Landing from a secondary workspace: then advance the default workspace, `~/Code/nixidae`, onto the new `main` (jj skill, `references/workspaces.md`, "Landing a workspace"). croshome builds nixidae from that checkout, not from its lock, so a stale checkout builds stale packages with no error.
 
