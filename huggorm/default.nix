@@ -88,11 +88,18 @@ let
     # a release holds an older master than the minor the lane states.
     nixes = lib.filterAttrs (_: v: v ? components && !(pin && v.master or false)) versions;
 
+    # The lane the top-level `nix`, bindings and `huggorm` come from: the
+    # minor of `nixVersions.latest`. Not the base, which is the oldest so the
+    # gates hold. A `latest` with no lane in `nix/versions.nix` fails below.
+    defaultLane =
+      "nix_"
+      + lib.replaceStrings [ "." ] [ "_" ] (lib.versions.majorMinor pkgs.nixVersions.latest.version);
+
     # Each Nix's `major.minor`, oldest first, from `nix/versions.nix` and
     # not from the pin, so every pin shares the declarations' gates.
     #
-    # The oldest is the BASE: the default lane, and the version a reader
-    # with no `HUGGORM_NIX_VERSION` sees. Every later one is a GATE, a
+    # The oldest is the BASE: the version a reader with no
+    # `HUGGORM_NIX_VERSION` sees. Every later one is a GATE, a
     # `NIX_2_3x` name a declaration branches on. A gate means "this
     # version or later", so the base cannot be any but the oldest. Two
     # lanes can share a minor, and a gate is stated once.
@@ -551,7 +558,10 @@ let
         ) nixes
       )
     );
-    inherit (lanes.${minors.base.lane})
+    inherit
+      (lanes.${defaultLane}
+        or (throw "huggorm: nixVersions.latest is ${pkgs.nixVersions.latest.version}, and nix/versions.nix has no lane ${defaultLane}")
+      )
       nix
       boehmgc
       huggorm-bindings
@@ -835,5 +845,7 @@ in
   # nanopynix's Python set builds the tree-sitter-nix bindings from this
   # file, as huggorm's own set does.
   lib.tree-sitter-nix = ./nix/tree-sitter-nix.nix;
+  # The name in `lanes` of the default lane, for a consumer that picks one.
+  lib.defaultLane = internal.defaultLane;
   inherit internal;
 }
