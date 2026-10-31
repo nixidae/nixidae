@@ -39,6 +39,7 @@ let
     checkout = 100;
     freeDiskSpace = 200;
     installNix = 300;
+    remoteBuilder = 350;
     cachix = 400;
     userNamespaces = 500;
     openKvm = 600;
@@ -255,6 +256,74 @@ let
             default = 15;
             description = "Cap on the cachix step.";
           };
+        };
+      };
+
+      remoteBuilder = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Build on, and substitute from, a remote store over `ssh-ng://`.
+
+            The runner keeps its memory for what runs on it -- a guest, a
+            test driver -- and the remote store does the compiling. A run
+            whose actor is not in `actors`, or that has no `secret`, skips
+            the step and builds on the runner alone.
+          '';
+        };
+        uri = mkOption {
+          type = types.str;
+          example = "ssh-ng://gha@203.0.113.7:2234";
+          description = "The remote store, without parameters.";
+        };
+        hostKey = mkOption {
+          type = types.str;
+          description = "The remote's SSH host key, as `base64 -w0` of its `.pub` line.";
+        };
+        secret = mkOption {
+          type = types.str;
+          description = "The repository secret that holds the private SSH key.";
+        };
+        actors = mkOption {
+          type = types.listOf types.str;
+          description = "The GitHub logins whose runs may use the remote store.";
+        };
+        systems = mkOption {
+          type = types.listOf types.str;
+          default = [ "x86_64-linux" ];
+          description = "The systems the remote builds for.";
+        };
+        maxJobs = mkOption {
+          type = types.int;
+          default = 16;
+          description = "How many builds the runner sends at once.";
+        };
+        speedFactor = mkOption {
+          type = types.int;
+          default = 2;
+          description = "How much the runner prefers the remote over itself.";
+        };
+        supportedFeatures = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          description = ''
+            The system features the remote offers. A build that needs a
+            feature missing here builds on the runner.
+          '';
+        };
+        substituterPriority = mkOption {
+          type = types.int;
+          default = 2;
+          description = ''
+            Its priority as a substituter. Lower is first: below the public
+            cache, the remote would pay the bandwidth of what a CDN has.
+          '';
+        };
+        timeoutMinutes = mkOption {
+          type = types.int;
+          default = 5;
+          description = "Cap on the step.";
         };
       };
 
@@ -556,6 +625,24 @@ let
                   timeoutMinutes
                   uidRange
                   version
+                  ;
+              }
+            )
+          ))
+          (lib.mkOrder orders.remoteBuilder (
+            lib.optional cfg.remoteBuilder.enable (
+              steps.remoteBuilder {
+                inherit (cfg.remoteBuilder)
+                  uri
+                  hostKey
+                  secret
+                  actors
+                  systems
+                  maxJobs
+                  speedFactor
+                  supportedFeatures
+                  substituterPriority
+                  timeoutMinutes
                   ;
               }
             )

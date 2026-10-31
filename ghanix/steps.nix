@@ -227,6 +227,63 @@ rec {
       };
 
     /*
+      Build on, and substitute from, a remote store over `ssh-ng://`.
+
+      After `installNix`, because it appends to the nix.conf the installer
+      writes and restarts the daemon that reads it. The key is a secret,
+      and a run without it -- a fork's pull request, an actor not in
+      `actors` -- skips the step and builds on the runner alone.
+
+      `trusted=1` on the substituter: the remote store signs nothing, and
+      Nix then takes its paths unsigned (`substitution-goal.cc:116`).
+    */
+    remoteBuilder =
+      {
+        uri,
+        hostKey,
+        secret,
+        actors,
+        systems,
+        maxJobs,
+        speedFactor,
+        supportedFeatures,
+        substituterPriority,
+        timeoutMinutes ? 5,
+      }:
+      let
+        key = "/etc/nix/remote-builder-key";
+        storeParams = "ssh-key=${key}&base64-ssh-public-host-key=${hostKey}";
+        machine = lib.concatStringsSep " " [
+          uri
+          (lib.concatStringsSep "," systems)
+          key
+          (toString maxJobs)
+          (toString speedFactor)
+          (if supportedFeatures == [ ] then "-" else lib.concatStringsSep "," supportedFeatures)
+          "-"
+          hostKey
+        ];
+      in
+      {
+        name = "Build and substitute on ${uri}";
+        "if" = "contains(fromJSON('${builtins.toJSON actors}'), github.actor)";
+        timeout-minutes = timeoutMinutes;
+        env.REMOTE_BUILDER_KEY = "\${{ secrets.${secret} }}";
+        run = ''
+          if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no ${secret}: building on the runner"; exit 0; fi
+          printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin ${key}
+          sudo tee -a /etc/nix/nix.conf <<'EOF'
+          builders = ${machine}
+          builders-use-substitutes = true
+          extra-substituters = ${uri}?${storeParams}&trusted=1&priority=${toString substituterPriority}
+          EOF
+          sudo systemctl restart nix-daemon
+          # As root, the user the daemon dials the remote as: the key is root's alone.
+          sudo "$(command -v nix)" store info --store '${uri}?${storeParams}'
+        '';
+      };
+
+    /*
       Let the runner user open /dev/kvm.
 
       The device is there on an x64 runner and the user is not in the `kvm`
