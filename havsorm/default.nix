@@ -126,7 +126,7 @@ let
     # relative import.
     bundle =
       let
-        manylinux = huggorm.lanes.nix_2_34.manylinux;
+        manylinux = huggorm.lanes.${huggorm.lib.defaultLane}.manylinux;
         wheel = havsorm.dist;
         venv = "${venvSaltMinion}/usr/lib/venv-salt-minion";
       in

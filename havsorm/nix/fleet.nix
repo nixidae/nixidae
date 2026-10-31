@@ -95,7 +95,7 @@ let
     };
   # The Nix SUSE installs: in the master's cache and nowhere SUSE can
   # see, so the install substitutes it.
-  nixToInstall = pkgs.nix;
+  nixToInstall = pkgs.nixVersions.latest;
   key = pkgs.runCommand "salt-ssh-key" { nativeBuildInputs = [ pkgs.openssh ]; } ''
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
