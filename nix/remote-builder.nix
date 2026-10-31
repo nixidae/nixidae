@@ -11,13 +11,12 @@
   hostKey = "c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=";
   secret = "PYNIXD_BUILDER_KEY";
   actors = [ "Lillecarl" ];
-  # `nix config show system-features` on dynhetz.
+  # dynhetz has every feature. `kvm`, `nixos-test` and `uid-range` stay off,
+  # because a derivation that asks for one boots a guest (vivarium's
+  # `featuresFor`), and guests run on the runner.
   supportedFeatures = [
     "benchmark"
     "big-parallel"
-    "kvm"
-    "nixos-test"
     "recursive-nix"
-    "uid-range"
   ];
 }

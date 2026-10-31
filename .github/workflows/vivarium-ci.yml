@@ -33,7 +33,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -83,7 +83,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -135,7 +135,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -191,7 +191,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -250,7 +250,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -312,7 +312,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -371,7 +371,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -430,7 +430,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -488,7 +488,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -544,7 +544,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -603,7 +603,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -661,7 +661,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -719,7 +719,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -780,7 +780,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -838,7 +838,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -893,7 +893,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -949,7 +949,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1008,7 +1008,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1067,7 +1067,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1126,7 +1126,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1185,7 +1185,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1243,7 +1243,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1299,7 +1299,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1358,7 +1358,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1417,7 +1417,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1476,7 +1476,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1535,7 +1535,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1593,7 +1593,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1648,7 +1648,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1703,7 +1703,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1758,7 +1758,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1813,7 +1813,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
@@ -1868,7 +1868,7 @@ jobs:
         sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
         sudo tee /etc/nix-daemon/nix.conf <<'EOF'
         include /etc/nix/nix.conf
-        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
         builders-use-substitutes = true
         extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
         EOF
