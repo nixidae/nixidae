@@ -229,10 +229,16 @@ rec {
     /*
       Build on, and substitute from, a remote store over `ssh-ng://`.
 
-      After `installNix`, because it appends to the nix.conf the installer
-      writes and restarts the daemon that reads it. The key is a secret,
-      and a run without it -- a fork's pull request, an actor not in
-      `actors` -- skips the step and builds on the runner alone.
+      After `installNix`, because it restarts the daemon the installer
+      started. The key is a secret, and a run without it -- a fork's pull
+      request, an actor not in `actors` -- skips the step and builds on the
+      runner alone.
+
+      **The daemon's configuration, and not the machine's.** A process that
+      opens a local store of its own reads /etc/nix/nix.conf, and with the
+      builder there it dialled the remote as the runner user, with a key
+      only root may read: 17 tests of pynixd failed that way. The daemon
+      reads a `nix.conf` of its own, which includes the machine's.
 
       `trusted=1` on the substituter: the remote store signs nothing, and
       Nix then takes its paths unsigned (`substitution-goal.cc:116`).
@@ -275,11 +281,15 @@ rec {
         run = ''
           if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no ${secret}: building on the runner"; exit 0; fi
           printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin ${key}
-          sudo tee -a /etc/nix/nix.conf <<'EOF'
+          sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+          sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+          include /etc/nix/nix.conf
           builders = ${machine}
           builders-use-substitutes = true
           extra-substituters = ${uri}?${storeParams}&trusted=1&priority=${toString substituterPriority}
           EOF
+          printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+          sudo systemctl daemon-reload
           sudo systemctl restart nix-daemon
           # As root, the user the daemon dials the remote as: the key is root's alone.
           sudo "$(command -v nix)" store info --store '${uri}?${storeParams}'
