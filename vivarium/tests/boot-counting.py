@@ -12,12 +12,16 @@ import anyio
 from vivarium_runner import Machine, MachineError, Machines
 
 BACK_WITHIN = 300
+# The first call after a reboot goes to the agent of the guest that went down,
+# and waits the whole command timeout: 4 reboots at 130 s each took 520 s of a
+# 10-minute CI step. A poll of boot_id answers in milliseconds.
+POLL_TIMEOUT = 5
 COUNTED = "/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
 COUNTERS = re.compile(r"\+(\d+)(?:-(\d+))?\.conf$")
 
 
-async def boot_id(vm: Machine) -> str:
-    return (await vm.succeed("cat /proc/sys/kernel/random/boot_id")).strip()
+async def boot_id(vm: Machine, timeout: float | None = None) -> str:
+    return (await vm.succeed("cat /proc/sys/kernel/random/boot_id", timeout=timeout)).strip()
 
 
 async def reboot(vm: Machine) -> None:
@@ -28,7 +32,7 @@ async def reboot(vm: Machine) -> None:
         while True:
             await anyio.sleep(2)
             try:
-                if await boot_id(vm) != first:
+                if await boot_id(vm, POLL_TIMEOUT) != first:
                     return
             except (MachineError, OSError):
                 continue
