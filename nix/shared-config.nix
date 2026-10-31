@@ -23,6 +23,7 @@ let
     "ruff.toml"
     "ruff-anyio.toml"
     "ruff-strict.toml"
+    "remote-builder.nix"
   ];
 
   docsFiles = [
