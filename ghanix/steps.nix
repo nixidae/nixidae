@@ -243,12 +243,14 @@ rec {
         hostKey,
         secret,
         actors,
-        systems,
-        maxJobs,
-        speedFactor,
-        supportedFeatures,
-        substituterPriority,
+        systems ? [ "x86_64-linux" ],
+        maxJobs ? 16,
+        speedFactor ? 2,
+        supportedFeatures ? [ ],
+        substituterPriority ? 2,
         timeoutMinutes ? 5,
+        # The schema's switch, so a caller passes the same set to either.
+        enable ? true,
       }:
       let
         key = "/etc/nix/remote-builder-key";
@@ -266,7 +268,8 @@ rec {
       in
       {
         name = "Build and substitute on ${uri}";
-        "if" = "contains(fromJSON('${builtins.toJSON actors}'), github.actor)";
+        # Linux only: the step restarts the daemon through systemd.
+        "if" = "runner.os == 'Linux' && contains(fromJSON('${builtins.toJSON actors}'), github.actor)";
         timeout-minutes = timeoutMinutes;
         env.REMOTE_BUILDER_KEY = "\${{ secrets.${secret} }}";
         run = ''
