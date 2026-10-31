@@ -118,6 +118,12 @@ let
       };
     gateName = at: "NIX_${lib.replaceStrings [ "." ] [ "_" ] at}";
 
+    # The gates the default lane holds true, and the ones it holds false:
+    # what `mypy.ini` states, since the tree is checked against that lane.
+    defaultMinor = versions.${defaultLane}.minor;
+    gatesHeldTrue = lib.filter (at: lib.versionAtLeast defaultMinor at) minors.gates;
+    gatesHeldFalse = lib.filter (at: !(lib.versionAtLeast defaultMinor at)) minors.gates;
+
     # What a type checker holds constant for the Nix `minor`. It never
     # evaluates a comparison, only a name it is told about.
     checkerFlags =
@@ -679,11 +685,20 @@ let
         # own run under the same configuration.
         echo "--- typecheck: every tree mypy.ini names ---"
         zuban mypy --python-executable "${ourPython}/lib/venv/bin/python3"
-        # An editor reads `mypy.ini`, so it names the gates itself. It
-        # holds every one false: the base Nix.
+        # An editor reads `mypy.ini`, so it names the gates itself, as the
+        # default lane holds them.
+        ${lib.optionalString (gatesHeldTrue != [ ]) ''
+          grep --quiet --line-regexp --fixed-strings \
+            "always_true = ${lib.concatMapStringsSep ", " gateName gatesHeldTrue}" mypy.ini || {
+            echo "mypy.ini: always_true must name ${toString (map gateName gatesHeldTrue)}" >&2
+            exit 1
+          }
+        ''}
         grep --quiet --line-regexp --fixed-strings \
-          "always_false = ${lib.concatMapStringsSep ", " gateName minors.gates}, DETERMINATE" mypy.ini || {
-          echo "mypy.ini: always_false must name ${toString (map gateName minors.gates)} DETERMINATE" >&2
+          "always_false = ${
+            lib.concatMapStrings (at: "${gateName at}, ") gatesHeldFalse
+          }DETERMINATE" mypy.ini || {
+          echo "mypy.ini: always_false must name ${toString (map gateName gatesHeldFalse)} DETERMINATE" >&2
           exit 1
         }
         # The declarations branch on the gates and the fork, so every
@@ -698,7 +713,7 @@ let
               packages/huggorm-dsl/src/huggorm_dsl packages/huggorm-decl/src/huggorm_decl
           '')
           (
-            lib.remove (checkerFlags minors.base.minor null) (
+            lib.remove (checkerFlags defaultMinor null) (
               lib.unique (lib.mapAttrsToList (_: v: checkerFlags v.minor (v.fork or null)) nixes)
             )
           )
