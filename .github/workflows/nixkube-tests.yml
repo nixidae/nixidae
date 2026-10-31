@@ -30,6 +30,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Build and push environments
       run: |
         unlink nix-envs || true
@@ -62,6 +78,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Build and push environments
       run: |
         unlink nix-envs || true
@@ -97,6 +129,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Assert both architectures' closures are fetchable
       run: |
         nix build --show-trace --file . internal.kubenixApply.manifestJSONFile --out-link manifest
@@ -133,6 +181,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Run the checks
       run: nix build --show-trace --file ./checks.nix all
     - name: Check that every CI attribute builds natively
@@ -180,6 +244,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - id: digest
       name: Tag the release's image, and find its digest
       run: echo "digest=$(nix run --file . internal.nixImage.tagRelease)" >> "$GITHUB_OUTPUT"
@@ -228,6 +308,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
@@ -264,6 +360,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
@@ -300,6 +412,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
@@ -344,6 +472,22 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
     - id: exported
       name: Find nixkube's own commit
       run: echo "commit=$(nix shell --file .. josh --command josh-filter :/nixkube "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"

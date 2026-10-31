@@ -14,6 +14,8 @@
   ghanix,
   nixvenv,
   sets,
+  # A step that follows every Nix install, nix/remote-builder.nix.
+  remoteBuilder,
 }:
 let
   relative = p: p != "" && !(lib.hasPrefix "/" p) && !(lib.hasPrefix "~" p) && !(lib.hasPrefix "$" p);
@@ -46,6 +48,16 @@ let
     else
       step;
 
+  # The remote builder goes in here, and not in each source: tests run only in
+  # this repository, and a source's own Pages workflow should not carry it.
+  afterNixInstall =
+    steps:
+    lib.concatMap (
+      step:
+      [ step ]
+      ++ lib.optional (lib.hasPrefix "cachix/install-nix-action@" (step.uses or "")) remoteBuilder
+    ) steps;
+
   place =
     source: workflow:
     workflow
@@ -53,7 +65,9 @@ let
       name = "${source}: ${workflow.name or "CI"}";
       defaults = lib.recursiveUpdate (workflow.defaults or { }) { run.working-directory = source; };
       jobs = lib.mapAttrs (
-        _: job: job // lib.optionalAttrs (job ? steps) { steps = map (placeStep source) job.steps; }
+        _: job:
+        job
+        // lib.optionalAttrs (job ? steps) { steps = afterNixInstall (map (placeStep source) job.steps); }
       ) workflow.jobs;
     };
 

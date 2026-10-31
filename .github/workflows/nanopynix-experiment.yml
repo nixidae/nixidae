@@ -21,6 +21,22 @@ jobs:
           access-tokens = github.com=${{ github.token }}
           experimental-features = nix-command flakes
     - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo tee -a /etc/nix/nix.conf <<'EOF'
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,kvm,nixos-test,recursive-nix,uid-range - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - env:
         REF: ${{ inputs.ref }}
       name: Check the ref
       run: nix run --file . internal.ciSteps.check-dispatch-ref

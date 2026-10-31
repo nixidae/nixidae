@@ -29,7 +29,7 @@ jobs:
         install_url: https://releases.nixos.org/nix/nix-2.35.2/install
     - env:
         REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
-      if: contains(fromJSON('["Lillecarl"]'), github.actor)
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
       name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
       run: |
         if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
@@ -81,7 +81,7 @@ jobs:
         install_url: https://releases.nixos.org/nix/nix-2.35.2/install
     - env:
         REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
-      if: contains(fromJSON('["Lillecarl"]'), github.actor)
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
       name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
       run: |
         if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi

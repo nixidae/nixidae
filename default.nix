@@ -106,6 +106,7 @@ rec {
     inherit (pkgs) lib;
     inherit pkgs ghanix;
     inherit (nixvenv.lib) nixvenv;
+    remoteBuilder = ghanix.lib.steps.remoteBuilder (import ./nix/remote-builder.nix);
     sets = {
       inherit
         easykubenix
