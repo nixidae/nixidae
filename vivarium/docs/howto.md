@@ -176,7 +176,7 @@ run writes.
 
 ## Run a test from an agent
 
-With MCP, `vivarium-mcp` starts runs and reaches into them. AGENTS.md
+With MCP, `vivarium-mcp` starts runs and reaches into them. nixidae's CLAUDE.md
 lists its tools. `start` returns three monitor commands:
 
 - `monitor`: pauses, failures and the verdict.

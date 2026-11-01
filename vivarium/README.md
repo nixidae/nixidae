@@ -181,7 +181,7 @@ the default for every guest.
 
 `vivarium-mcp` is an MCP server. `.mcp.json` registers it as `vivarium`.
 It starts runs, pauses them on failure, and runs Python against the live
-guests. AGENTS.md describes the tools and the pause-and-inspect loop.
+guests. nixidae's CLAUDE.md (vivarium) describes the tools and the pause-and-inspect loop.
 
 An agent without MCP can use a run's own output: a run prints the
 command lines that watch it and reach into it.
@@ -211,6 +211,6 @@ ci/                  the GitHub Actions workflows, written in Nix
   measurements.
 - [docs/design/runner.md](docs/design/runner.md): the design, what is
   decided and what is still open.
-- [AGENTS.md](AGENTS.md): how to work in this repository.
+- [nixidae's CLAUDE.md](https://github.com/nixidae/nixidae/blob/main/CLAUDE.md#vivarium): how to work in this repository.
 
 [uml]: https://docs.kernel.org/virt/uml/user_mode_linux_howto_v2.html

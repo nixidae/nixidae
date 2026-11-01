@@ -64,7 +64,7 @@ class Kind(StrEnum):
     """What a phase printed. Rendered exactly as written, because a
     script prefixes its own lines -- `[test] ...` by convention here --
     and `[vivarium] [test] ...` helps nobody. `grep '[test]'` keeps working,
-    which AGENTS.md has told people to do since the beginning."""
+    which the agent instructions have told people to do since the beginning."""
 
     CASE = "case"
     """One pytest test's outcome, inside a pytest phase. `text` is the

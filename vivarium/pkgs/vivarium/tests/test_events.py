@@ -291,7 +291,7 @@ class TestJunitSink:
 class TestAPhaseTalkingIsNotTheRunnerTalking:
     """A script prefixes its own lines; `[vivarium] [test] x` helps nobody.
 
-    AGENTS.md has told people to `grep '[test]'` since the beginning, so
+    The agent instructions have told people to `grep '[test]'` since the beginning, so
     captured output is rendered exactly as it was written.
     """
 
