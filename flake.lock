@@ -52,11 +52,11 @@
     "deferimport": {
       "flake": false,
       "locked": {
-        "lastModified": 1792839966,
-        "narHash": "sha256-6MYovhUDQwYaOnVfbdk9karHjO+76xYZncvlPbAHcCY=",
+        "lastModified": 1793561684,
+        "narHash": "sha256-BQfm+R8GEK89v8Ftz51X342ZKHEFlwIvpqpuYxIeRB4=",
         "owner": "Lillecarl",
         "repo": "deferimport",
-        "rev": "9f59f8986709ff44e0ec44804badda97e9df7ea6",
+        "rev": "2d62762e16373432335bbd9838258ae493339351",
         "type": "github"
       },
       "original": {
