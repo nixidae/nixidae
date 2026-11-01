@@ -30,7 +30,9 @@ jj git push --bookmark main
 
 The push starts the `josh export` run: `lock-subtrees --check` and `josh-export --verify --push`. Landing ends at the push; do not wait for that run. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
 
-Landing from a secondary workspace: then advance the default workspace, `~/Code/nixidae`, onto the new `main` (jj skill, `references/workspaces.md`, "Landing a workspace"). croshome builds nixidae from that checkout, not from its lock, so a stale checkout builds stale packages with no error.
+## Personal instructions
+
+This file and each source's `CLAUDE.md` or `AGENTS.md` hold what is true for everyone. One person's workflow goes in `.claude/claudemd/<name>.md`. Claude Code loads it through a gitignored `CLAUDE.local.md` at the root that holds one line, `@.claude/claudemd/<name>.md`. Each checkout and each jj workspace needs its own copy of that line.
 
 ## Gates
 

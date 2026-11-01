@@ -32,11 +32,12 @@
 !/pynixd/
 !/vivarium/
 
-# Only the committed settings live under .claude; everything else there is
-# agent state.
+# Only the committed settings and personal instructions live under .claude;
+# everything else there is agent state.
 !/.claude/
 /.claude/*
 !/.claude/settings.json
+!/.claude/claudemd/
 
 # Local state, wherever it appears inside a whitelisted directory.
 __pycache__/
