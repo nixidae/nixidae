@@ -69,6 +69,9 @@ let
   # `unix://?local-fs=false` reads over the socket, for a daemon whose
   # store this machine cannot see (nixidae/nixidae#1138).
   udsLocalFS = patch "nix-uds-local-fs";
+  # `nix develop`'s erase of `outputChecks` reaches the dev-env derivation:
+  # 2.36 serialises `__json` from the parsed text.
+  developOutputChecks = patch "nix-2.36-develop-drops-output-checks";
 
   determinate = import ./determinate.nix { inherit pkgs sources; };
 in
@@ -134,6 +137,7 @@ in
       ownsPrimOps
       forgetSrcToStore
       udsLocalFS
+      developOutputChecks
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).

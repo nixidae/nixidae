@@ -1,0 +1,21 @@
+`nix develop` drops `outputChecks` from a structured-attrs derivation again.
+
+`develop.cc` erases `outputChecks` from the parsed `__json`, but
+`StructuredAttrs::unparse` returns `verbatim`, the encoding it parsed, when
+it has one. So the erase has no effect, and the dev-env derivation keeps the
+checks. Measured on 2.36pre: `print-dev-env --json` of a derivation with
+`outputChecks` disagreed with huggorm's port of `develop.cc`, which drops
+them as 2.35 does. 2.35 has no `verbatim`.
+
+--- a/src/nix/develop.cc
++++ b/src/nix/develop.cc
+@@ -257,6 +257,9 @@
+     /* Remove derivation checks. */
+     if (drv.structuredAttrs) {
+         drv.structuredAttrs->structuredAttrs.erase("outputChecks");
++        /* `unparse` prefers the parsed encoding, which still holds
++           `outputChecks`. */
++        drv.structuredAttrs->verbatim.reset();
+     } else {
+         drv.env.erase("allowedReferences");
+         drv.env.erase("allowedRequisites");
