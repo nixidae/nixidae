@@ -286,10 +286,8 @@ the attribution.
 
 ## VCS
 
-This project uses jj (Jujutsu), not git. Do not use git commands.
-
-Flake entry points only see tracked files, so run `jj st` after adding a
-file and before building.
+Flake entry points only see tracked files, so track a new file before
+building. In a jj workspace, any jj command does, such as `jj st`.
 
 ## Backends
 
