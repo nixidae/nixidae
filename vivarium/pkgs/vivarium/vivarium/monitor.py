@@ -21,12 +21,16 @@ before it removes the socket, so a run gone with no verdict exits 2.
 in a Monitor wakes for a pause, a failure and the verdict, and not for
 every phase that passed.
 
-`--until-pause` also exits, with 4, when the run pauses. It is for a
-harness that wakes an agent only when a background command ends: arm it,
-and the agent comes back at the pause. After `resume`, arm it again. A
-pause in the replayed events counts only when no `resumed` follows it,
+The monitor exits with 4 when the run pauses, because a pause waits for
+someone to act. A harness that wakes an agent only when a background
+command ends then brings the agent back at the pause. After `resume`, arm
+it again. `--through-pauses` prints the pause and goes on to the verdict.
+A pause in the replayed events counts only when no `resumed` follows it,
 and the server sends `LIVE` after the replay, so a monitor armed while
 the run is paused exits at once, and one armed after a resume does not.
+
+A monitor armed before its run starts waits for it (`--wait`): a driver
+evaluates and builds for minutes before it writes `events.jsonl`.
 """
 
 from __future__ import annotations
@@ -54,7 +58,12 @@ LIVE: Final = {"event": "live"}
 is not printed."""
 
 PAUSED: Final = 4
-"""The exit status of `--until-pause` at a pause."""
+"""The exit status at a pause, unless `--through-pauses`."""
+
+WAIT: Final = 1800.0
+"""Seconds a monitor waits for a run that has not started. A driver's
+evaluation and build come first; a failed build is the driver's own exit,
+which its caller sees, so the wait only bounds a monitor nobody stops."""
 
 GRACE: Final = 10.0
 """Seconds a file monitor waits for `control.sock` to appear before it takes
@@ -147,19 +156,30 @@ def locate(target: str) -> Path:
     """The socket of a run, named by its `--out` directory or by its id.
 
     `vivarium-mcp` makes each run's directory under the temporary directory and
-    names the run after it, so an id alone is enough.
+    names the run after it, so an id alone is enough. A target that names
+    neither yet is a `--out` whose run has not started.
     """
     path = Path(target)
-    if not path.is_dir():
-        path = Path(tempfile.gettempdir()) / target
-    return path / SOCKET
+    by_id = Path(tempfile.gettempdir()) / target
+    if not path.is_dir() and by_id.is_dir():
+        path = by_id
+    return path.absolute() / SOCKET
+
+
+async def wait_for_run(out: Path, timeout: float = WAIT) -> bool:
+    """Whether a run appears in `out` within `timeout` seconds."""
+    with anyio.move_on_after(timeout):
+        while not (await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(out / SOCKET).exists()):
+            await anyio.sleep(0.25)
+        return True
+    return False
 
 
 class Watch:
     """Prints each event and says when to stop: the verdict, or with
     `until_pause` an open pause once the replay is over."""
 
-    def __init__(self, *, as_json: bool = False, quiet: bool = False, until_pause: bool = False) -> None:
+    def __init__(self, *, as_json: bool = False, quiet: bool = False, until_pause: bool = True) -> None:
         self.as_json = as_json
         self.quiet = quiet
         self.until_pause = until_pause

@@ -345,8 +345,8 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 - `screenshot` returns image content (FastMCP `structured_output=False`). Acting on the screen: `exec` with `Machine`'s screen methods (`vivarium.display`, QEMU only; `checks.screen`).
 - `switch` runs `vivarium-eval switch`: host eval of the session plus one module on one node, `Machine.add_closure`, `switch_to(<path>)`. A container guest takes late paths through `crun_launch attach`.
 - A run started by `start` is a child with `--break-on-failure`: MCP's stdio is the server's stdout.
-- Channel events (`failed|paused|finished|exited`) reach Claude only when started from `vivarium/` with `claude --dangerously-load-development-channels server:vivarium`. Without it, `start` returns `monitor`, a `vivarium monitor --quiet` command line for the Monitor tool: wakes for a pause, a failure and the verdict. `monitor_all` drops `--quiet`; `monitor_pause` adds `--until-pause` (exits 4 at a pause; re-arm after `resume`).
-- `vivarium monitor <out|run id>` replays then follows (`--json` for JSONL); exits 0 passed, 1 failed, 2 no verdict, 3 stream ended first. Without a live `monitor.sock` it follows `events.jsonl`. `vivarium/monitor.py`.
+- Channel events (`failed|paused|finished|exited`) reach Claude only when started from `vivarium/` with `claude --dangerously-load-development-channels server:vivarium`. Without it, `start` returns `monitor`, a `vivarium monitor --quiet` command line: prints a pause, a failure and the verdict, exits 4 at a pause (re-arm after `resume`). `monitor_all` drops `--quiet` and adds `--through-pauses`.
+- `vivarium monitor <out|run id>` waits for a run that has not started (`--wait`, 1800 s), replays, then follows (`--json` for JSONL); exits 0 passed, 1 failed, 2 no verdict, 3 stream ended first or no run, 4 paused (`--through-pauses` goes on). Without a live `monitor.sock` it follows `events.jsonl`. `vivarium/monitor.py`.
 - Every run with a control socket prints `commands()` at start and each pause. `checks.copy-commands`; `internal.mcp-check` drives the server over raw JSON-RPC.
 
 ### Evidence

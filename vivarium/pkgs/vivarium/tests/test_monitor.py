@@ -9,7 +9,18 @@ from typing import Any
 
 import anyio
 import pytest
-from vivarium.monitor import LIVE, PAUSED, SOCKET, follow, follow_file, line, locate, paused_now, status
+from vivarium.monitor import (
+    LIVE,
+    PAUSED,
+    SOCKET,
+    follow,
+    follow_file,
+    line,
+    locate,
+    paused_now,
+    status,
+    wait_for_run,
+)
 
 
 class TestLine:
@@ -67,6 +78,39 @@ def test_locate_takes_a_directory_or_an_id(tmp_path: Path) -> None:
     assert locate(str(tmp_path)) == tmp_path / SOCKET
     assert locate("vivarium-x-abc").name == SOCKET
     assert locate("vivarium-x-abc").parent.name == "vivarium-x-abc"
+
+
+def test_locate_takes_an_out_that_does_not_exist_yet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert locate("out") == tmp_path / "out" / SOCKET
+
+
+def test_locate_prefers_a_run_id_that_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    (tmp_path / "vivarium-x-abc").mkdir()
+    monkeypatch.chdir(tmp_path / "vivarium-x-abc")
+    assert locate("vivarium-x-abc") == tmp_path / "vivarium-x-abc" / SOCKET
+
+
+@pytest.mark.anyio
+async def test_wait_for_run_returns_when_the_run_starts(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+
+    async def start() -> None:
+        await anyio.sleep(0.3)
+        out.mkdir()
+        (out / "events.jsonl").touch()
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(start)
+        with anyio.fail_after(5):
+            assert await wait_for_run(out, timeout=10)
+
+
+@pytest.mark.anyio
+async def test_wait_for_run_gives_up_after_its_timeout(tmp_path: Path) -> None:
+    with anyio.fail_after(5):
+        assert not await wait_for_run(tmp_path / "never", timeout=0.3)
 
 
 async def _serve(path: Path, events: list[dict[str, Any]]) -> None:
@@ -148,7 +192,7 @@ async def _follow(tmp_path: Path, events: list[dict[str, Any]], **options: Any) 
 @pytest.mark.parametrize(
     ("events", "until_pause", "code"),
     [
-        # A live pause: only --until-pause stops there.
+        # A live pause: only --through-pauses goes on.
         ([LIVE, PAUSE, RESUMED, FAILED], True, PAUSED),
         ([LIVE, PAUSE, RESUMED, FAILED], False, 1),
         # Armed while paused: the replayed pause is still open.
@@ -213,11 +257,11 @@ class TestFollowFile:
             codes: list[int] = []
 
             async def watch() -> None:
-                codes.append(await follow_file(tmp_path, grace=0))
+                codes.append(await follow_file(tmp_path, grace=0, until_pause=False))
 
             group.start_soon(watch)
             await anyio.sleep(0.8)
-            # The pause alone ends nothing without --until-pause.
+            # The pause alone ends nothing with --through-pauses.
             assert codes == []
             _write(tmp_path, NOTE_RESUMED, VERDICT)
             (tmp_path / "control.sock").unlink()
@@ -227,11 +271,11 @@ class TestFollowFile:
         assert codes == [1]
 
     @pytest.mark.anyio
-    async def test_until_pause_exits_at_an_open_pause(self, tmp_path: Path) -> None:
+    async def test_it_exits_at_an_open_pause_by_default(self, tmp_path: Path) -> None:
         (tmp_path / "control.sock").touch()
         _write(tmp_path, STARTED, NOTE_PAUSED)
         with anyio.fail_after(5):
-            assert await follow_file(tmp_path, grace=0, until_pause=True) == PAUSED
+            assert await follow_file(tmp_path, grace=0) == PAUSED
 
     @pytest.mark.anyio
     async def test_until_pause_runs_on_past_a_closed_pause(self, tmp_path: Path) -> None:

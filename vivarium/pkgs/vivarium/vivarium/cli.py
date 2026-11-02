@@ -178,8 +178,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         help="print a run's events, one line each, until its verdict",
         description=(
             "Follow a run that vivarium-mcp started. Exit 0 if it passed, 1 if it"
-            " failed, 2 if it exited without a verdict, 3 if the stream ended early,"
-            " 4 if it paused and --until-pause is given."
+            " failed, 2 if it exited without a verdict, 3 if the stream ended early"
+            " or no run started within --wait, 4 if it paused."
         ),
     )
     watch.add_argument("target", help="the run's --out directory, or its id")
@@ -190,9 +190,16 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         help="only pauses, failures and the verdict, not each phase that starts or passes",
     )
     watch.add_argument(
-        "--until-pause",
+        "--through-pauses",
         action="store_true",
-        help="exit 4 when the run is paused, for a harness that wakes an agent when a command ends",
+        help="print a pause and go on to the verdict, instead of exiting 4 at the pause",
+    )
+    watch.add_argument(
+        "--wait",
+        type=float,
+        default=monitor.WAIT,
+        metavar="SECONDS",
+        help="how long to wait for a run that has not started (default: %(default)g)",
     )
     args = parser.parse_args(argv)
     args.pytest_args = extra
@@ -534,8 +541,15 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(anyio.run(ctl, args))
     if args.command == "monitor":
         socket = monitor.locate(args.target)
-        options = {"as_json": args.json, "quiet": args.quiet, "until_pause": args.until_pause}
+        options = {"as_json": args.json, "quiet": args.quiet, "until_pause": not args.through_pauses}
         try:
+            if not anyio.run(monitor.wait_for_run, socket.parent, args.wait):
+                print(
+                    f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                raise SystemExit(3)
             try:
                 raise SystemExit(anyio.run(functools.partial(monitor.follow, socket, **options)))
             except (FileNotFoundError, ConnectionRefusedError):

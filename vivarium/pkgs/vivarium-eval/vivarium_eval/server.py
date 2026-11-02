@@ -77,12 +77,11 @@ Events arrive as <channel source="vivarium" run="..." event="progress|paused|res
 A `progress` or `resumed` event marks the run moving on; say one line
 about it so the person watching sees the run move, and do nothing else.
 Without channels, run the `monitor` command that `start` returns in a
-Monitor: it prints pauses, failures and the verdict, one line each, and
-exits with the verdict (0 passed, 1 failed, 2 exited without one).
-`monitor_all` prints every event, progress included.
-If your harness wakes you only when a background command exits, run
-`monitor_pause` in the background instead: it also exits 4 at a pause.
-Run it again after each `resume`.
+Monitor or in the background: it prints pauses, failures and the verdict,
+one line each, and exits with the verdict (0 passed, 1 failed, 2 exited
+without one) or with 4 at a pause. Run it again after each `resume`.
+`monitor_all` prints every event, progress included, through pauses to
+the verdict.
 On `paused`, look with `events` and `exec` before you `resume` -- the
 guests go down when the run ends. `stop` ends a run early and still
 tears the guests down.
@@ -409,9 +408,9 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `linux` from a UML build, or a bzImage with virtio built in.
         Events arrive on the vivarium channel. `monitor` in the reply is a
         command that prints the pauses, failures and verdict, one line
-        each; `monitor_all` prints every event; `monitor_pause` is
-        `monitor` that also exits 4 at a pause. `state` and `events`
-        answer meanwhile."""
+        each, and exits 4 at a pause; `monitor_all` prints every event
+        through pauses to the verdict. `state` and `events` answer
+        meanwhile."""
         written = _spec(Path(str(spec))) if spec is not None else {}
         name = (attr or str(written.get("name", "run"))).replace(".", "-")
         out = Path(tempfile.mkdtemp(prefix=f"vivarium-{name}-"))
@@ -435,8 +434,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             "run": run.id,
             "out": str(out),
             "monitor": shlex.join([*every, "--quiet"]),
-            "monitor_all": shlex.join(every),
-            "monitor_pause": shlex.join([*every, "--quiet", "--until-pause"]),
+            "monitor_all": shlex.join([*every, "--through-pauses"]),
         }
 
     @server.tool()
@@ -483,7 +481,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         """Continue a paused run."""
         found = runs().get(run)
         reply = _reply(await request(found.socket, Op.CONTINUE))
-        # Until the pause is resolved in the backlog: a `monitor_pause`
+        # Until the pause is resolved in the backlog: a `monitor`
         # armed on this reply would otherwise replay the pause and exit.
         with anyio.move_on_after(10):
             while paused_now(found.backlog) and found.process.returncode is None:

@@ -206,7 +206,7 @@ def commands(vivarium: str, out: Path) -> list[tuple[str, str]]:
     return [
         (
             "wait for a pause or the verdict (exits 4 at a pause)",
-            shlex.join([vivarium, "monitor", str(out), "--quiet", "--until-pause"]),
+            shlex.join([vivarium, "monitor", str(out), "--quiet"]),
         ),
         ("run Python against the guests", shlex.join([*ctl, "exec", "print(list(vms))"])),
         ("run a file's `async def test(vms)`", shlex.join([*ctl, "inject", "./check.py"])),

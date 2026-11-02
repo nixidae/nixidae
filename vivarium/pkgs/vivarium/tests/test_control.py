@@ -90,5 +90,5 @@ def test_each_printed_command_reaches_the_run_it_names() -> None:
     assert all(argv[0] == "/nix/store/x-vivarium/bin/vivarium" for argv in argvs)
     assert all(str(out) in argv for argv in argvs)
     watch = next(argv for argv in argvs if argv[1] == "monitor")
-    assert watch[2:] == [str(out), "--quiet", "--until-pause"]
+    assert watch[2:] == [str(out), "--quiet"]
     assert {argv[4] for argv in argvs if argv[1] == "ctl"} == {"exec", "inject", "state", "continue"}

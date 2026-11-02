@@ -18,7 +18,7 @@ A run by hand prints the commands that reach it, before the first
 phase and again at each pause:
 
 ```
-[vivarium] wait for a pause or the verdict (exits 4 at a pause): /nix/store/…/bin/vivarium monitor /home/me/out --quiet --until-pause
+[vivarium] wait for a pause or the verdict (exits 4 at a pause): /nix/store/…/bin/vivarium monitor /home/me/out --quiet
 [vivarium] run Python against the guests: /nix/store/…/bin/vivarium ctl --out /home/me/out exec 'print(list(vms))'
 [vivarium] run a file's `async def test(vms)`: /nix/store/…/bin/vivarium ctl --out /home/me/out inject ./check.py
 [vivarium] each phase's state: /nix/store/…/bin/vivarium ctl --out /home/me/out state
@@ -27,13 +27,19 @@ phase and again at each pause:
 
 Copy a line as it is. The paths are absolute, so the command works from
 any directory and needs nothing on `PATH`. In the rest of this file,
-`vivarium` means the path in those lines.
+`vivarium` means the path in those lines, or the `vivarium` that
+`nix build --file . packages.cli` builds.
 
 ## Wait for the run without watching it
 
 ```console
-$ vivarium monitor ./out --quiet --until-pause
+$ nix run --file . mine.driverDebug -- --out ./out > run.log 2>&1 &
+$ vivarium monitor ./out --quiet
 ```
+
+Start the monitor together with the run. It waits for the run to start,
+for up to 30 minutes (`--wait SECONDS`), because the driver first
+evaluates and builds the test.
 
 The monitor prints one line for each pause, failure and verdict. Then
 it exits:
@@ -43,15 +49,16 @@ it exits:
 | 0 | The run passed. |
 | 1 | The run failed. |
 | 2 | The run stopped without a verdict, for example it crashed. |
-| 3 | The monitor lost the run's stream before a verdict. |
-| 4 | The run is paused. Only with `--until-pause`. |
+| 3 | The monitor lost the run's stream before a verdict, or no run started within `--wait`. |
+| 4 | The run is paused. |
 
 Start it in the background. When it exits, look at the exit code. After
 you resume a paused run, start the monitor again. It does not stop again
 for a pause that already ended.
 
-Without `--until-pause`, the monitor runs until the verdict. Without
-`--quiet`, it also prints each phase that starts or passes.
+With `--through-pauses`, the monitor prints a pause and runs on until
+the verdict. Without `--quiet`, it also prints each phase that starts or
+passes.
 
 ## Look inside a paused run
 
@@ -177,18 +184,17 @@ run writes.
 ## Run a test from an agent
 
 With MCP, `vivarium-mcp` starts runs and reaches into them. nixidae's CLAUDE.md
-lists its tools. `start` returns three monitor commands:
+lists its tools. `start` returns two monitor commands:
 
-- `monitor`: pauses, failures and the verdict.
-- `monitor_all`: every event.
-- `monitor_pause`: `monitor` that also exits 4 at a pause.
+- `monitor`: pauses, failures and the verdict; exits 4 at a pause.
+- `monitor_all`: every event, through pauses to the verdict.
 
 An agent that only runs shell commands does not need MCP:
 
 1. Start the run in the background, with its output in a file.
-2. Read the file. Copy the "wait for a pause" line.
-3. Start that command in the background. It exits at a pause or at the
-   verdict.
+2. Start `vivarium monitor <out> --quiet` in the background at the same
+   time. It waits for the run, and exits at a pause or at the verdict.
+3. Read the file for the commands the run printed.
 4. At a pause, copy the `exec` line from the file, change the Python,
    and run it.
 5. Run the `continue` line, then start the monitor again.
