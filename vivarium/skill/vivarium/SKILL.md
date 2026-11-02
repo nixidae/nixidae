@@ -55,6 +55,7 @@ vivarium ctl --out "$OUT" continue
 
 - `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec` and `inject` also work while phases run; `pytest`, `run`, `continue` need a pause.
 - Loop: read the failure, probe with `exec`, edit the test file, `inject`/`pytest` again, repeat until it passes, then `continue`.
+- `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported (nixidae/nixidae#851). To test an edited helper: `exec` a `sys.path.insert(0, "<working-tree dir>")` and `sys.modules.pop("<module>")`, then `inject`.
 - `ctl` has no `stop` (nixidae/nixidae#860). To end a paused run: `continue`, or SIGTERM the driver; both tear the guests down.
 - Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.
 - Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
