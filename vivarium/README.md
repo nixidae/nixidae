@@ -183,6 +183,11 @@ the default for every guest.
 It starts runs, pauses them on failure, and runs Python against the live
 guests. nixidae's CLAUDE.md (vivarium) describes the tools and the pause-and-inspect loop.
 
+`packages.vivarium` holds `vivarium`, `vivarium-eval`, `vivarium-mcp` and
+an agent skill at `share/skills/vivarium/vivarium`
+([skill/vivarium/SKILL.md](skill/vivarium/SKILL.md)). Install the package
+and link the skill into the agent's skills directory.
+
 An agent without MCP can use a run's own output: a run prints the
 command lines that watch it and reach into it.
 [docs/howto.md](docs/howto.md#run-a-test-from-an-agent) has the steps.

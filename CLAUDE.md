@@ -342,6 +342,8 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 `.mcp.json` registers `vivarium-mcp` as `vivarium`: `start`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `screenshot`, `stop`, `events`, `runs`.
 
+- `packages.vivarium`: `vivarium`, `vivarium-eval`, `vivarium-mcp`, and the agent skill `vivarium/skill/vivarium/SKILL.md` at `share/skills/vivarium/vivarium`. Keep the skill true when a command, flag or printed line changes, as `docs/howto.md`.
+
 - `screenshot` returns image content (FastMCP `structured_output=False`). Acting on the screen: `exec` with `Machine`'s screen methods (`vivarium.display`, QEMU only; `checks.screen`).
 - `switch` runs `vivarium-eval switch`: host eval of the session plus one module on one node, `Machine.add_closure`, `switch_to(<path>)`. A container guest takes late paths through `crun_launch attach`.
 - A run started by `start` is a child with `--break-on-failure`: MCP's stdio is the server's stdout.

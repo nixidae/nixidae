@@ -27,8 +27,9 @@ phase and again at each pause:
 
 Copy a line as it is. The paths are absolute, so the command works from
 any directory and needs nothing on `PATH`. In the rest of this file,
-`vivarium` means the path in those lines, or the `vivarium` that
-`nix build --file . packages.cli` builds.
+`vivarium` means the path in those lines, or the `vivarium` in
+`packages.vivarium`. That package also holds `vivarium-eval`,
+`vivarium-mcp` and an agent skill, `share/skills/vivarium/vivarium`.
 
 ## Wait for the run without watching it
 

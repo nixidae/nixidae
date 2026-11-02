@@ -2683,6 +2683,19 @@ let
     a consumer uses. `vivarium-eval.tests` holds its unit tests.
   */
   vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
+
+  /*
+    What a person or an agent installs: `vivarium`, `vivarium-eval`,
+    `vivarium-mcp`, and the agent skill at `share/skills/vivarium/vivarium`.
+    Not `cli` itself: every test's spec names `cli`, so a skill inside it
+    would rebuild every test on each edit.
+  */
+  tools = pkgs.runCommand "vivarium-tools" { meta.mainProgram = "vivarium"; } ''
+    mkdir -p $out/bin $out/share/skills/vivarium
+    ln -s ${lib.getExe cli} $out/bin/vivarium
+    ln -s ${vivarium-eval}/bin/vivarium-eval ${vivarium-eval}/bin/vivarium-mcp $out/bin/
+    cp -r ${./skill/vivarium} $out/share/skills/vivarium/vivarium
+  '';
 in
 # The schema of nixidae/nixidae#1103. Every other name is under `internal`.
 {
@@ -2735,6 +2748,7 @@ in
       session
       vivarium-eval
       ;
+    vivarium = tools;
     # The slowest thing in the repository and the same for every guest, so
     # CI builds it once on its own and lets the cache hand it to the test
     # jobs.
