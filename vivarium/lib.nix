@@ -570,10 +570,13 @@ rec {
         wrapper, no shell. The type check is named in its environment,
         which makes it a dependency: the by-hand door is where a type
         error gets written, so it must not skip the check.
+
+        Local, because the spec's closure holds the root images: a remote
+        builder must take each one first, at its whole disk size.
       */
       wrap =
         program: command: flags:
-        pkgs.runCommand program
+        pkgs.runCommandLocal program
           {
             nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
             meta.mainProgram = program;
