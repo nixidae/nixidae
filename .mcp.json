@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vivarium": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec nix shell --file \"$(git rev-parse --show-toplevel)/vivarium\" packages.vivarium --command vivarium-mcp"
+      ]
+    }
+  }
+}
