@@ -143,6 +143,9 @@ lib.mkIf
     system.build.vivariumRootImage =
       pkgs.runCommand "qemu-root-image"
         {
+          # See `vivarium-root-image` in image.nix.
+          preferLocalBuild = true;
+          allowSubstitutes = false;
           nativeBuildInputs = [
             pkgs.e2fsprogs
             pkgs.fakeroot

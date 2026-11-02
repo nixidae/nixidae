@@ -96,6 +96,12 @@ lib.mkIf (cfg.backend == "uml") {
   system.build.vivariumRootImage =
     pkgs.runCommand "vivarium-root-image"
       {
+        # The output is a sparse file of `vivarium.diskSize`: a few MiB on
+        # this disk, and the whole size as a NAR. A remote builder or a cache
+        # sends all of it back: 60 GiB of zeros for pynixd's nixft guest,
+        # which had not arrived from a remote builder after 30 minutes.
+        preferLocalBuild = true;
+        allowSubstitutes = false;
         nativeBuildInputs = [
           pkgs.e2fsprogs
           pkgs.fakeroot
