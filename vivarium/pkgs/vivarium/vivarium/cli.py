@@ -500,6 +500,9 @@ async def _schedule(
 async def ctl(args: argparse.Namespace) -> int:
     """One request to a run; its output, its value, its error."""
     arg = sys.stdin.read() if args.arg == "-" else args.arg
+    # The run resolves a path against its own working directory, not ours.
+    if args.op in {Op.INJECT, Op.PYTEST}:
+        arg = str(Path(arg).absolute())
     if args.op == Op.PYTEST:
         # `vivarium ctl --out o pytest ./tests -- -k x`, as `vivarium run` takes them.
         arg = shlex.join([arg, *args.pytest_args])
