@@ -53,9 +53,6 @@ _CONSOLE_HISTORY = 2000
 POWEROFF_GRACE = 20
 """Seconds a guest has to power itself off before the runner signals it."""
 
-REBOOTED = "reboot: Restarting system"
-"""What the guest kernel prints last before a reset. A power-off prints
-`reboot: Power down` instead."""
 
 BOOTLOADER = "bootloader.json"
 """The bootspec of the system the guest boots next, under its artifacts.
@@ -654,15 +651,16 @@ class Machine:
     async def _watch(self) -> None:
         """Boot the guest again when it reboots itself.
 
-        QEMU runs with `-no-reboot`, so a reset ends the process: rebooting
-        in place would load the `-kernel` and `init=` it started with, not
-        the system the guest switched its bootloader to.
+        A reset ends the process: QEMU runs with `-no-reboot`, and libkrun
+        has no other way to stop. Rebooting in place would load the kernel
+        and `init=` it started with, not the system the guest switched its
+        bootloader to. The backend says whether the exit was a reboot.
         """
         assert self._process is not None
         await self._process.wait()
         if self._monitor is not None:
             await self._monitor
-        if self._stopping or not any(REBOOTED in line for line in self._history):
+        if self._stopping or not self.backend.rebooted(self._process.returncode, self._history):
             return
         try:
             await self._reboot()

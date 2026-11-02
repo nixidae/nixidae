@@ -35,7 +35,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -48,6 +50,21 @@ if TYPE_CHECKING:
 
 class BackendError(Exception):
     """A guest could not be assembled: a helper that would not start."""
+
+
+REBOOTED = "reboot: Restarting system"
+"""What the guest kernel prints last before a reset. A power-off prints
+`reboot: Power down` instead."""
+
+
+class KrunExit(IntEnum):
+    """The exit status of a krun guest's process: the code the guest set
+    through libkrun's virtio-fs ioctl before its reset. `krunExit` in
+    modules/qemu.nix sets these."""
+
+    POWEROFF = 0
+    CRASH = 70
+    REBOOT = 71
 
 
 PR_SET_PDEATHSIG = 1
@@ -274,12 +291,16 @@ class Launch:
 class Backend(Protocol):
     """What `Machine` asks of a backend.
 
-    `boot` and `disk_fds` are for a reboot, which only `Qemu` takes
+    `boot` and `disk_fds` are for a reboot, which `Qemu` and `Krun` take
     (`reboots`); the other backends accept them and ignore them.
     """
 
     name: str
     reboots: bool
+
+    def rebooted(self, returncode: int | None, console: Iterable[str]) -> bool:
+        """Whether a guest process that ended asked for a reboot."""
+        ...
 
     def launch(
         self,
@@ -303,6 +324,10 @@ class Uml:
 
     name = "uml"
     reboots = False
+
+    @staticmethod
+    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+        return False
 
     def launch(
         self,
@@ -456,6 +481,10 @@ class Qemu:
     reboots = True
     """A reboot inside the guest boots it again, into the system its
     bootloader names. See `Machine._reboot`."""
+
+    @staticmethod
+    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+        return any(REBOOTED in line for line in console)
 
     def launch(
         self,
@@ -1113,7 +1142,13 @@ class Krun:
     """
 
     name = "krun"
-    reboots = False
+    reboots = True
+    """As `Qemu.reboots`. Every stop is a reset, so the exit code says which
+    one it was: `KrunExit`."""
+
+    @staticmethod
+    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+        return returncode == KrunExit.REBOOT
 
     @staticmethod
     def memory_control(path: Path) -> MemoryControl:
@@ -1138,11 +1173,26 @@ class Krun:
                 "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
             )
         spec, tools = machine.spec, machine.tools
+        boot = boot or spec.boot
+        # libkrun loads the ELF vmlinux, and a bootspec names only the
+        # bzImage. The spec's vmlinux is that kernel's only while the
+        # bootloader keeps the kernel the guest booted with.
+        if boot.get("kernel") != spec.boot.get("kernel"):
+            raise BackendError(
+                f"{spec.name}: the guest's bootloader names kernel {boot.get('kernel')}, "
+                "and a krun guest boots only the kernel it started with"
+            )
         opened: list[int] = []
         helpers: list[subprocess.Popen[bytes]] = []
+        disk_ro: int | None = None
         try:
-            disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
-            opened += [disk_rw, disk_ro]
+            # A reboot keeps the disk the guest wrote. libkrun opens it by
+            # path and takes no lock, so the runner's fd serves again.
+            if disk_fds:
+                disk_rw = disk_fds[0]
+            else:
+                disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
+                opened += [disk_rw, disk_ro]
             passt_fd, passt_proc = Qemu._passt(tools, rundir, machine.forward, machine.offline)
             helpers.append(passt_proc)
             opened.append(passt_fd)
@@ -1155,9 +1205,9 @@ class Krun:
             raise
         # libkrun opens the disk by path, and only the fd keeps the unlinked
         # file alive. It opens it read-write and needs no read-only twin.
-        os.close(disk_ro)
+        if disk_ro is not None:
+            os.close(disk_ro)
 
-        boot = spec.boot
         launch_spec: KrunSpecJson = {
             "libkrun": str(tools.libkrun),
             "cpus": spec.cpus,
@@ -1183,6 +1233,7 @@ class Krun:
             ],
             pass_fds=(agent_fd, passt_fd, disk_rw, *lan_fds.values()),
             helpers=helpers,
+            disk_fds=(disk_rw,),
         )
 
 
@@ -1199,6 +1250,10 @@ class Container:
 
     name = "container"
     reboots = False
+
+    @staticmethod
+    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+        return False
 
     @staticmethod
     def memory_control(path: Path) -> MemoryControl:

@@ -580,8 +580,9 @@ let
       Does a QEMU guest come back from its own reboot, on the system its
       bootloader names? `next` changes the kernel parameters and the
       initrd, which only a new boot picks up. `two` must still reach it
-      over their segment. QEMU only: a UML guest has no initrd, and its
-      kernel is the process.
+      over their segment. `.krun` asks the same of libkrun guests. Not
+      UML: a UML guest has no initrd, and its kernel is the process
+      (nixidae/nixidae#1162).
     */
     reboot = mkTest (
       { systems, ... }:

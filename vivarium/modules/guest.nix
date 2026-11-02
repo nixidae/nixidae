@@ -32,11 +32,16 @@ in
   boot.initrd.enable = lib.mkIf (cfg.backend == "uml") false;
   boot.loader.grub.enable = false;
   boot.loader.systemd-boot.enable = cfg.efi;
-  # Without `vivarium.efi`, a QEMU guest's bootloader is the runner: after
-  # a reboot it boots the bootspec this writes. See `Machine._watch` in
-  # vivarium-runner.
+  # Without `vivarium.efi`, a QEMU or krun guest's bootloader is the
+  # runner: after a reboot it boots the bootspec this writes. See
+  # `Machine._watch` in vivarium-runner.
   system.build.installBootLoader = lib.mkIf (!cfg.efi) (
-    if cfg.backend == "qemu" then
+    if
+      lib.elem cfg.backend [
+        "qemu"
+        "krun"
+      ]
+    then
       pkgs.writeShellScript "vivarium-install-bootloader" ''
         if [ -e "$1/boot.json" ] && ${lib.getExe' pkgs.util-linux "mountpoint"} -q /artifacts; then
           ${lib.getExe' pkgs.coreutils "install"} -m 0644 "$1/boot.json" /artifacts/bootloader.json

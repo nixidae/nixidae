@@ -38,6 +38,50 @@ let
   vmlinux = pkgs.runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ pkgs.binutils ]; } ''
     objcopy --strip-all ${kernel.dev}/vmlinux $out
   '';
+
+  # A krun guest ends with a reset whatever it meant, so it tells libkrun
+  # which: libkrun's process exits with the code the guest last set through
+  # virtio-fs ioctl 0x7602 on any file of a share, as libkrun's own init
+  # does. `KrunExit` in vivarium_runner/backend.py reads these.
+  krunExit = {
+    poweroff = 0;
+    crash = 70;
+    reboot = 71;
+  };
+  setKrunExit = pkgs.writeCBin "vivarium-krun-exit" ''
+    #include <fcntl.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <sys/ioctl.h>
+
+    int main(int argc, char **argv) {
+      if (argc != 3) {
+        fprintf(stderr, "usage: %s PATH CODE\n", argv[0]);
+        return 2;
+      }
+      int fd = open(argv[1], O_RDONLY);
+      if (fd < 0) {
+        perror(argv[1]);
+        return 1;
+      }
+      if (ioctl(fd, 0x7602, atoi(argv[2])) < 0) {
+        perror("ioctl 0x7602");
+        return 1;
+      }
+      return 0;
+    }
+  '';
+  # Runs while /host/nix is still mounted: the unit starts after the mount,
+  # so it stops before it.
+  krunExitOnStop = pkgs.writeShellScript "vivarium-krun-exit-stop" ''
+    code=${toString krunExit.poweroff}
+    while read -r _ unit _; do
+      if [ "$unit" = reboot.target ]; then
+        code=${toString krunExit.reboot}
+      fi
+    done < <(${config.systemd.package}/bin/systemctl list-jobs --no-legend --plain)
+    exec ${lib.getExe setKrunExit} /host/nix "$code"
+  '';
 in
 lib.mkIf
   (lib.elem cfg.backend [
@@ -62,6 +106,28 @@ lib.mkIf
     # off or halt, and on a panic, which `panic=-1` turns into a reset too.
     systemd.services.systemd-poweroff.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
     systemd.services.systemd-halt.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
+
+    # A reset with no shutdown before it is a crash: a panic, or a guest
+    # that reset itself. The stop runs inside every shutdown and replaces
+    # that with what the shutdown is for.
+    systemd.services.vivarium-krun-exit = lib.mkIf krun {
+      description = "Tell libkrun how the guest stops";
+      wantedBy = [ "sysinit.target" ];
+      requires = [ "host-nix.mount" ];
+      after = [ "host-nix.mount" ];
+      before = [
+        "sysinit.target"
+        "shutdown.target"
+      ];
+      conflicts = [ "shutdown.target" ];
+      unitConfig.DefaultDependencies = false;
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${lib.getExe setKrunExit} /host/nix ${toString krunExit.crash}";
+        ExecStop = krunExitOnStop;
+      };
+    };
 
     boot.kernelParams =
       lib.optionals krun [
