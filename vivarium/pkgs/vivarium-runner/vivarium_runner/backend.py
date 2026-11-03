@@ -23,6 +23,7 @@ bridge is not in the picture and the runner starts passt directly.
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 import json
 import mmap
@@ -1153,6 +1154,76 @@ class Krun:
     def memory_control(path: Path) -> MemoryControl:
         raise BackendError("a krun guest has no memory control channel")
 
+    @staticmethod
+    def _gvproxy(
+        tools: Toolchain, rundir: Path, spec: MachineSpec, rules: list[forward.Rule]
+    ) -> tuple[int, subprocess.Popen[bytes]]:
+        """Start gvproxy for one guest's uplink; return the guest's end.
+
+        gvproxy takes no fd: it listens on a socket in *rundir*, and the
+        runner connects. Its framing on that socket is passt's, so
+        `vivarium-krun --uplink` takes the fd unchanged. The config is
+        always written: without one gvproxy forwards 127.0.0.1:2222 and
+        two guests collide on it. The addresses are passt's, so a guest
+        cannot tell the two apart.
+
+        Under `--offline` gvproxy runs in the session's own network
+        namespace, as passt does, and reaches nothing.
+        """
+        if tools.gvproxy is None:
+            raise BackendError(f"{spec.name}: the toolchain has no gvproxy")
+        sock = rundir / "gvproxy.sock"
+        # sun_path holds 108 bytes with the NUL.
+        if len(os.fsencode(sock)) > 107:
+            raise BackendError(f"{spec.name}: gvproxy's socket path is too long for AF_UNIX: {sock}")
+        forwards: dict[str, str] = {}
+        for rule in rules:
+            if isinstance(rule.ports, str) or rule.protocols != ("tcp",):
+                raise BackendError(f"{spec.name}: gvproxy forwards listed TCP ports only, not {rule}")
+            for port in rule.ports:
+                forwards[f"{rule.address}:{port.host}"] = f"{forward.UPLINK_ADDRESS}:{port.guest}"
+        config = {
+            "stack": {
+                "mtu": spec.mtu,
+                "subnet": str(ipaddress.ip_interface(f"{forward.UPLINK_ADDRESS}/{forward.UPLINK_PREFIX}").network),
+                "gatewayIP": forward.UPLINK_GATEWAY,
+                "dhcpStaticLeases": {forward.UPLINK_ADDRESS: spec.mac(0)},
+                "forwards": forwards,
+            },
+            "interfaces": {"qemu": f"unix://{sock}"},
+        }
+        config_path = rundir / "gvproxy.yaml"
+        # JSON is YAML, and gvproxy reads YAML.
+        config_path.write_text(json.dumps(config))
+        log = rundir / "gvproxy.log"
+        with log.open("wb") as handle:
+            proc = subprocess.Popen(
+                [str(tools.gvproxy), "-config", str(config_path)],
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=die_with_parent,
+            )
+        # The connect is the readiness check. gvproxy's ready notification
+        # comes before its qemu listener exists.
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                client.connect(str(sock))
+                break
+            except (FileNotFoundError, ConnectionRefusedError):
+                if proc.poll() is not None or time.monotonic() > deadline:
+                    client.close()
+                    proc.kill()
+                    proc.wait()
+                    raise BackendError(
+                        f"{spec.name}: gvproxy did not serve {sock} (exit {proc.returncode}):\n{_tail(log)}"
+                    ) from None
+                time.sleep(0.01)
+        return client.detach(), proc
+
     def launch(
         self,
         machine: Machine,
@@ -1192,7 +1263,10 @@ class Krun:
             else:
                 disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
-            passt_fd, passt_proc = Qemu._passt(tools, rundir, machine.forward, machine.offline)
+            if spec.uplink_proxy == "gvproxy":
+                passt_fd, passt_proc = Krun._gvproxy(tools, rundir, spec, machine.forward)
+            else:
+                passt_fd, passt_proc = Qemu._passt(tools, rundir, machine.forward, machine.offline)
             helpers.append(passt_proc)
             opened.append(passt_fd)
         except BaseException:

@@ -153,6 +153,7 @@ rec {
       address = machine.vivarium.lan.address;
       interfaces = machine.vivarium.nics;
       uplink = machine.vivarium.uplink.segment;
+      uplinkProxy = machine.vivarium.uplink.proxy;
       forward = machine.vivarium.forward;
       kubernetes = machine.services.vivarium-k8s.enable or false;
       cni = machine.services.vivarium-k8s.cni or "bridge";
@@ -229,6 +230,9 @@ rec {
     # UML reads raw disks, and a cloud image is qcow2: the runner converts
     # it into the run directory, sparse, rather than the store holding the
     # raw form, which a NAR cannot keep sparse.
+    // lib.optionalAttrs (lib.any (machine: machine.vivarium.uplink.proxy == "gvproxy") machines) {
+      gvproxy = lib.getExe' pkgs.gvproxy "gvproxy";
+    }
     // lib.optionalAttrs (lib.any (machine: machine.vivarium.image != null) machines) {
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
     }

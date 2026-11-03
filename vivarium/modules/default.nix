@@ -665,6 +665,21 @@ in
       '';
     };
 
+    uplink.proxy = lib.mkOption {
+      type = lib.types.enum [
+        "passt"
+        "gvproxy"
+      ];
+      default = "passt";
+      description = ''
+        The host process that serves the uplink (`vec0`). `gvproxy` is
+        gvisor-tap-vsock's, which runs on macOS too and needs no user
+        namespace (nixidae/nixidae#1163). It gives the guest passt's
+        addresses, and forwards only listed TCP ports: no `ports = "all"`
+        and no UDP. krun only.
+      '';
+    };
+
     nics = lib.mkOption {
       internal = true;
       readOnly = true;
@@ -732,6 +747,16 @@ in
         # uplink is pasta's, which has no such fd to redirect.
         assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend != "container";
         message = "vivarium.uplink.segment needs the QEMU or UML backend; this guest is ${config.vivarium.backend}.";
+      }
+      {
+        assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";
+        message = "vivarium.uplink.proxy = \"gvproxy\" needs the krun backend; this guest is ${config.vivarium.backend}.";
+      }
+      {
+        assertion =
+          config.vivarium.uplink.proxy == "gvproxy"
+          -> lib.all (rule: rule.ports != "all" && rule.protocols == [ "tcp" ]) config.vivarium.forward;
+        message = "vivarium.forward under gvproxy: list TCP ports only; gvproxy cannot forward `ports = \"all\"` or UDP.";
       }
       {
         assertion = lib.all (

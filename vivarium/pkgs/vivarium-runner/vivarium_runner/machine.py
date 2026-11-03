@@ -138,6 +138,7 @@ class ToolchainJson(TypedDict, total=False):
     qemuImg: str
     virtiofsd: str
     krun: str
+    gvproxy: str
     crun: str
     setpriv: str
     tesseract: str
@@ -177,6 +178,7 @@ class MachineSpecJson(TypedDict, total=False):
     cni: str
     interfaces: list[InterfaceJson]
     uplink: str
+    uplinkProxy: str
     forward: list[forward.RuleJson]
 
 
@@ -202,6 +204,7 @@ class Toolchain:
     virtiofsd: Path | None = None
     krun: Path | None = None
     """`vivarium-krun`, the process a krun guest runs as."""
+    gvproxy: Path | None = None
     crun: Path | None = None
     setpriv: Path | None = None
     tesseract: Path | None = None
@@ -220,6 +223,7 @@ class Toolchain:
             qemu_img=maybe(data.get("qemuImg")),
             virtiofsd=maybe(data.get("virtiofsd")),
             krun=maybe(data.get("krun")),
+            gvproxy=maybe(data.get("gvproxy")),
             crun=maybe(data.get("crun")),
             setpriv=maybe(data.get("setpriv")),
             tesseract=maybe(data.get("tesseract")),
@@ -290,6 +294,8 @@ class MachineSpec:
     """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
     out-of-band management network a peer serves (nixidae/nixidae#958).
     `None` is passt, the default."""
+    uplink_proxy: str = "passt"
+    """`vivarium.uplink.proxy`: `passt` or `gvproxy`."""
     forward: tuple[forward.Rule, ...] = ()
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
@@ -319,6 +325,7 @@ class MachineSpec:
             cni=data.get("cni", "bridge"),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
+            uplink_proxy=data.get("uplinkProxy", "passt"),
             forward=tuple(forward.Rule.from_json(rule) for rule in data.get("forward", [])),
         )
 
