@@ -480,6 +480,11 @@ class Machine:
         self._reboot_error: str | None = None
         self._control: Control | None = None
         self._transcript: anyio.AsyncFile[bytes] | None = None
+        self.store_allowlist: Path | None = None
+        """A krun guest's closure, one store path per line: libkrun's share
+        of the host store shows the guest these and nothing else. It needs
+        no bind mount, which a host without mount namespaces (macOS) lacks.
+        `add_closure` appends to it."""
 
     @property
     def name(self) -> str:
@@ -529,7 +534,10 @@ class Machine:
             return
 
         self._rundir = Path(tempfile.mkdtemp(prefix=f"uml-{self.name}-"))
-        if self.spec.store_paths is not None:
+        if self.spec.store_paths is not None and self.spec.backend == "krun":
+            self.store_allowlist = self._rundir / "store-allowlist"
+            shutil.copyfile(self.spec.store_paths, self.store_allowlist)
+        elif self.spec.store_paths is not None:
             view = storeview.build(
                 self._rundir / "nix",
                 storeview.read_paths(self.spec.store_paths),
@@ -1172,7 +1180,12 @@ class Machine:
         paths = [*storeview.read_paths(Path(info) / "store-paths"), info]
         is_container = self.spec.backend == "container"
         added: list[str] = []
-        if self.spec.store_paths is not None and self._rundir is not None:
+        if self.store_allowlist is not None:
+            listed = set(storeview.read_paths(self.store_allowlist))
+            added = [path for path in paths if path not in listed]
+            with self.store_allowlist.open("a") as allowlist:
+                allowlist.writelines(f"{path}\n" for path in added)
+        elif self.spec.store_paths is not None and self._rundir is not None:
             added = storeview.add(self._rundir / "nix", paths, writable=is_container)
             mounts = [path for path in added if not os.path.islink(path)]
             if is_container and mounts:

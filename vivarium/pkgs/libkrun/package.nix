@@ -36,6 +36,11 @@ stdenv.mkDerivation (finalAttrs: {
     ./0001-virtio-fs-never-announce-submounts.patch
     ./0002-virtio-fs-retry-an-open-without-O_NOATIME.patch
     ./0004-x86_64-load-the-initrd-at-a-page-aligned-address.patch
+    # From the `allowlist` bookmark of Lillecarl/libkrun-rosetta. It changes
+    # the exported API, so it carries include/libkrun.h regenerated with
+    # ffier-gen-c-header at mtjhrc/ffier v0.2.0-rc2, as
+    # `make gen-libkrun-bindings` does.
+    ./0005-virtio-fs-show-a-read-only-share-s-guest-only-an-allowlist-of-paths.patch
   ];
 
   cargoDeps = rustPlatform.fetchCargoVendor {

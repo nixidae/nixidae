@@ -3,7 +3,12 @@
  *
  *   vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB
  *                 --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD
- *                 --uplink FD,MAC [--lan FD,MAC]... [--artifacts DIR] [--nested] [--acpi]
+ *                 --uplink FD,MAC [--lan FD,MAC]... [--store-allowlist FILE] [--artifacts DIR]
+ *                 [--nested] [--acpi]
+ *
+ * --store-allowlist names the store paths the guest may see, one per line, and
+ * the share shows it nothing else. The runner appends to it for a path added
+ * while the guest runs; libkrun reads it again on a miss.
  *
  * libkrun takes the process over: the guest's reset ends it with the exit
  * code the guest last set (vivarium_runner.backend.KrunExit). The kernel's
@@ -106,12 +111,13 @@ static void usage(void)
     fprintf(stderr,
             "usage: vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB\n"
             "                     --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD\n"
-            "                     --uplink FD,MAC [--lan FD,MAC]... [--artifacts DIR] [--nested] [--acpi]\n");
+            "                     --uplink FD,MAC [--lan FD,MAC]... [--store-allowlist FILE]\n"
+            "                     [--artifacts DIR] [--nested] [--acpi]\n");
 }
 
 int main(int argc, char *argv[])
 {
-    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, LAN, ARTIFACTS, NESTED, ACPI };
+    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, LAN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
     static const struct option options[] = {
         {"vmlinux", required_argument, NULL, VMLINUX},
         {"initrd", required_argument, NULL, INITRD},
@@ -125,11 +131,13 @@ int main(int argc, char *argv[])
         {"uplink", required_argument, NULL, UPLINK},
         {"lan", required_argument, NULL, LAN},
         {"artifacts", required_argument, NULL, ARTIFACTS},
+        {"store-allowlist", required_argument, NULL, ALLOWLIST},
         {"nested", no_argument, NULL, NESTED},
         {"acpi", no_argument, NULL, ACPI},
         {NULL, 0, NULL, 0},
     };
-    const char *vmlinux = NULL, *initrd = NULL, *cmdline = NULL, *disk = NULL, *store = NULL, *artifacts = NULL;
+    const char *vmlinux = NULL, *initrd = NULL, *cmdline = NULL, *disk = NULL, *store = NULL, *artifacts = NULL,
+               *allowlist = NULL;
     long cpus = 0, memory = 0, dax_window = -1, agent_fd = -1;
     bool nested = false, acpi = false, have_uplink = false;
     struct nic uplink = {0};
@@ -145,6 +153,7 @@ int main(int argc, char *argv[])
         case DISK: disk = optarg; break;
         case STORE: store = optarg; break;
         case ARTIFACTS: artifacts = optarg; break;
+        case ALLOWLIST: allowlist = optarg; break;
         case CPUS: ok = parse_long(optarg, 1, 255, &cpus); break;
         case MEMORY: ok = parse_long(optarg, 1, UINT32_MAX, &memory); break;
         case DAX: ok = parse_long(optarg, 0, INT64_MAX, &dax_window); break;
@@ -195,6 +204,9 @@ int main(int argc, char *argv[])
         CHECK(KrunFsDevice fs = krun_fs_device_new_read_only(KRUN_STR("nix"), KRUN_STR(store), &err));
         krun_fs_device_set_dax_window_size(fs, (uint64_t)dax_window);
         CHECK(krun_fs_device_set_cache_policy(fs, KRUN_CACHE_POLICY_ALWAYS, &err));
+        if (allowlist != NULL) {
+            CHECK(krun_fs_device_set_allowlist_file(fs, KRUN_STR(allowlist), &err));
+        }
         krun_mmio_device_manager_add(devices, fs);
     }
     if (artifacts != NULL) {

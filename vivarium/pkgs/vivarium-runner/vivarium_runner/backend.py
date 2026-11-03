@@ -1223,6 +1223,8 @@ class Krun:
             f"--uplink={passt_fd},{spec.mac(0)}",
             *(f"--lan={lan_fds[nic.name]},{nic.mac}" for nic in spec.interfaces),
         ]
+        if machine.store_allowlist is not None:
+            argv.append(f"--store-allowlist={machine.store_allowlist}")
         if machine.artifacts is not None:
             argv.append(f"--artifacts={machine.artifacts}")
         if boot.get("nested"):

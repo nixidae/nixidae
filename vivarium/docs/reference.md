@@ -344,9 +344,16 @@ same two node configurations run as `lan` and as `lan.qemu`.
 `krun` is a libkrun microVM booting `qemu`'s kernel, initrd and disk. Its
 virtio-fs runs inside the guest's own process and maps the host's page
 cache of the store into the guest, so a guest keeps no copy of the store
-pages it reads. libkrun is 2.0, a pinned commit of main, with three
+pages it reads. libkrun is 2.0, a pinned commit of main, with four
 patches, in `pkgs/libkrun`. A guest runs as `vivarium-krun`
 (`pkgs/krun-launch`), a C program over libkrun 2.0's builder API.
+
+A krun guest has no bind-mount store view. libkrun shares the host's
+`/nix` read-only with the guest's closure as an allowlist (the fourth
+patch): a directory above a listed path shows only what leads to one.
+Measured by `store-view`: the guest saw 473 store entries of the host's
+386453. `add_closure` appends to the list, and libkrun reads it again on
+a miss.
 
 The last row is not cosmetic if you write a test that waits on a link:
 UML's vector driver reports no carrier, so `ip` says `UNKNOWN` on an

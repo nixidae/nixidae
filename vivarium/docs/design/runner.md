@@ -147,8 +147,11 @@ a test.
   guest's Nix database is loaded from (`vivariumNixRegistration`), so the
   database lists exactly what the view holds. virtiofsd serves a QEMU
   guest's view, and a UML guest's `/init` mounts it from `VIVARIUM_STORE` on
-  the kernel command line (`store-view`: all three backends, by hand
-  and sandboxed; it fails with views off).
+  the kernel command line (`store-view`: every backend, by hand
+  and sandboxed; it fails with views off). A krun guest gets no view:
+  libkrun shares the host's `/nix` with the closure as an allowlist, which
+  needs no mount namespace, so it also works on a host without one
+  (macOS, nixidae/nixidae#1163).
 - **A VM guest's store is writable through its own overlay**, inside its
   own kernel, on its own disk. The host serves only the read-only view,
   so the guest's build users need no ids in the run's namespace, and a
