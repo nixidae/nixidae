@@ -230,6 +230,32 @@ let
       # start at all.
       after = [ "test-containerd" ];
     };
+
+    # krun is for dense NixOS guests: its virtio-fs DAX window maps the
+    # host's page cache of the store, where QEMU copies it into each guest
+    # (3-node k8s on dynhetz: peak host PSS 2250 against 3347 MiB). These
+    # are the krun-specific paths: the reboot through libkrun's exit code,
+    # and the cluster krun is meant to carry. Not `memory`: it measures the
+    # balloon, and a krun guest has none.
+    reboot-krun = {
+      test = "reboot";
+      backend = "krun";
+      description = "a libkrun guest reboots into the system its bootloader names";
+      timeoutMinutes = 15;
+    };
+    containerd-krun = {
+      test = "containerd";
+      backend = "krun";
+      description = "a container runs in a libkrun guest, out of the host's store";
+      timeoutMinutes = 45;
+    };
+    k8s-krun = {
+      test = "k8s";
+      backend = "krun";
+      description = "a three-node kubeadm cluster on libkrun guests";
+      timeoutMinutes = 120;
+      after = [ "test-containerd-krun" ];
+    };
   };
 
   # Building the kernel once and letting the cache hand it to the test
@@ -267,17 +293,20 @@ let
       timeoutMinutes,
       after ? [ ],
       backend ? "qemu",
+      # The check this job runs, when the job's name is not the check's.
+      test ? name,
     }:
     job {
       id = "test-${name}";
       needs = (lib.optional (backend == "uml") "kernel") ++ after;
       inherit timeoutMinutes;
       cond = selectable "test-${name}";
-      ghanix = if backend == "qemu" then guestBootstrap else sandboxBootstrap;
+      # krun asks what QEMU asks: /dev/kvm, and `uid-range` for virtio-fs.
+      ghanix = if backend == "uml" then sandboxBootstrap else guestBootstrap;
       steps = [
         (steps.build {
-          name = "Run ${name} on ${backend}: ${description}";
-          attrs = [ (if backend == "qemu" then "checks.${name}.qemu" else "checks.${name}") ];
+          name = "Run ${test} on ${backend}: ${description}";
+          attrs = [ (if backend == "uml" then "checks.${test}" else "checks.${test}.${backend}") ];
           timeoutMinutes = timeoutMinutes - 10;
         })
       ];
