@@ -623,6 +623,18 @@ under `krun` and 2459 MiB under `qemu` (nixidae/nixidae#1077). Its RAM is
 anonymous memory, so `host_memory_kib()` there is the process's PSS, the
 mapped store pages included.
 
+**A krun guest gives cold cache back unasked.** libkrun's balloon takes
+free page reports but cannot inflate, so the host cannot ask for memory.
+Instead `vivarium.reclaim` (on by default under `krun`) runs the kernel's
+DAMON_RECLAIM in the guest, which reclaims what nothing touched for
+`minAge` seconds; free page reporting then returns it. Measured by
+`reclaim` at `minAge = 10`: after a 400 MB fill from the guest's disk, the
+host fell from 731M to 412M 12 seconds later, with nothing dropping
+caches. With `reclaim.enable = false`, the guest still held 494M of cache
+and the host 730M after 120 seconds. On a three-node `k8s` run, peak PSS
+of the guest processes was 2250 MiB under `krun` and 3347 MiB under
+`qemu`.
+
 Different machinery under each backend, and a test never sees which.
 QEMU gets `virtio-balloon-pci,free-page-reporting=on` and its monitor;
 UML gets neither, because `virtio_uml` is a vhost-user transport with no

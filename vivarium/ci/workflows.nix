@@ -243,6 +243,14 @@ let
       description = "a libkrun guest reboots into the system its bootloader names";
       timeoutMinutes = 15;
     };
+    # A krun guest has no balloon to inflate, so DAMON_RECLAIM is how it
+    # gives memory back unasked.
+    reclaim-krun = {
+      test = "reclaim";
+      backend = "krun";
+      description = "a libkrun guest gives cold page cache back by itself";
+      timeoutMinutes = 15;
+    };
     containerd-krun = {
       test = "containerd";
       backend = "krun";

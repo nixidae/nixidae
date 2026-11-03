@@ -264,6 +264,37 @@ in
       '';
     };
 
+    reclaim = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = config.vivarium.backend == "krun";
+        defaultText = lib.literalExpression ''backend == "krun"'';
+        description = ''
+          Reclaim memory the guest has not touched for `minAge`, with the
+          kernel's DAMON_RECLAIM. QEMU and krun guests only.
+
+          A guest keeps its page cache while it has free memory, and the
+          host pays for every cached page. A free page costs the host
+          nothing: the balloon reports it and the host takes it back. So
+          a guest that drops cold cache gives its memory to the host by
+          itself, with no balloon request.
+
+          On by default under krun, which is for dense guests: its store
+          reads cost the guest no cache, so what is left to reclaim is the
+          guest's own disk and its processes' files.
+        '';
+      };
+      minAge = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 120;
+        example = 30;
+        description = ''
+          Seconds a region of memory goes unaccessed before it is
+          reclaimed. DAMON_RECLAIM's own default.
+        '';
+      };
+    };
+
     seccomp = lib.mkOption {
       type = lib.types.enum [
         "auto"

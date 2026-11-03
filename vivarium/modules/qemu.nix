@@ -145,6 +145,18 @@ lib.mkIf
         # the built-in `page_reporting` "module", and it overrides whatever
         # virtio-balloon asks for.
         "page_reporting.page_reporting_order=5"
+      ]
+      # DAMON_RECLAIM's stock watermarks keep it idle while more than half
+      # of memory is free, which is right on a host and wrong here: a free
+      # guest page costs the host nothing once reported, and a cached one
+      # does. So it runs at any free level, and stops below 5% free, where
+      # the kernel's own reclaim takes over.
+      ++ lib.optionals cfg.reclaim.enable [
+        "damon_reclaim.min_age=${toString (cfg.reclaim.minAge * 1000000)}"
+        "damon_reclaim.wmarks_high=1000"
+        "damon_reclaim.wmarks_mid=999"
+        "damon_reclaim.wmarks_low=50"
+        "damon_reclaim.enabled=Y"
       ];
 
     # systemd in the initrd, so the overlay below gets its upperdir and
