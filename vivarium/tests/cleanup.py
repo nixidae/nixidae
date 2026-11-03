@@ -29,10 +29,11 @@ LEFT_BEHIND = {
 POWERED_OFF = {
     "uml": "the kernel exited (0)",
     "qemu": "reboot: Power down",
-    "krun": "reboot: Restarting system",
+    "krun": "reboot: Power down",
 }
 """What a guest's console says when it powered itself off. A krun guest
-resets instead, which is what ends libkrun (modules/qemu.nix)."""
+on x86 powers off through libkrun's ACPI S5 (modules/qemu.nix), so it
+prints what a QEMU guest prints."""
 
 
 def roots() -> list[Path]:

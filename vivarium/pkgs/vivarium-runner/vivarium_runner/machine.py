@@ -114,6 +114,7 @@ class BootSpec(TypedDict, total=False):
     display: Display | None
     efi: EfiBoot
     vmlinux: str
+    acpi: bool
     image: ImageBoot
     appliance: ApplianceBoot
 

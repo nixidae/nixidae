@@ -1227,6 +1227,8 @@ class Krun:
             argv.append(f"--artifacts={machine.artifacts}")
         if boot.get("nested"):
             argv.append("--nested")
+        if boot.get("acpi"):
+            argv.append("--acpi")
         return Launch(
             argv=argv,
             pass_fds=(agent_fd, passt_fd, disk_rw, *lan_fds.values()),

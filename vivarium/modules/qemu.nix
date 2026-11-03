@@ -28,6 +28,9 @@
 let
   cfg = config.vivarium;
   krun = cfg.backend == "krun";
+  # libkrun 2.0 describes an x86 guest's devices in ACPI on request, and
+  # ends on the guest's S5. Its ACPI tables are x86 only.
+  krunAcpi = krun && pkgs.stdenv.hostPlatform.isx86_64;
 
   hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
 
@@ -98,13 +101,15 @@ lib.mkIf
     # Linux has it; a named port does not.
     vivarium.agentDevice = if krun || cfg.efi then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
 
-    # libkrun's x86 machine has no ACPI, so a poweroff only halts the CPU,
-    # and the libkrun process stays up at 100% of a core until something
-    # kills it (measured: `reboot: Power off not available: System halted
-    # instead`). What ends libkrun is a reset through its i8042, the way
-    # Firecracker's guests stop. So a krun guest resets where it would power
-    # off or halt, and on a panic, which `panic=-1` turns into a reset too.
-    systemd.services.systemd-poweroff.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
+    # Without ACPI, libkrun's machine has no power-off: a poweroff only
+    # halts the CPU, and the process stays up at 100% of a core (measured:
+    # `reboot: Power off not available: System halted instead`). With
+    # `krunAcpi`, a poweroff enters S5 and ends libkrun. A halt still only
+    # stops the CPU, so it resets, as a poweroff does without ACPI; a reset
+    # through the i8042 ends libkrun, the way Firecracker's guests stop.
+    systemd.services.systemd-poweroff.unitConfig.SuccessAction = lib.mkIf (
+      krun && !krunAcpi
+    ) "reboot-force";
     systemd.services.systemd-halt.unitConfig.SuccessAction = lib.mkIf krun "reboot-force";
 
     # A reset with no shutdown before it is a crash: a panic, or a guest
@@ -430,7 +435,10 @@ lib.mkIf
         esp = "${config.system.build.vivariumEspImage}";
       };
     }
-    // lib.optionalAttrs krun { vmlinux = "${vmlinux}"; };
+    // lib.optionalAttrs krun {
+      vmlinux = "${vmlinux}";
+      acpi = krunAcpi;
+    };
 
     # guest.nix turns the template off, which also takes logind's autovt@.
     # A screen with nothing on it is a screen nothing can be read from.
