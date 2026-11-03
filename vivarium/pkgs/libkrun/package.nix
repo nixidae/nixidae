@@ -3,14 +3,15 @@
   with the virtio-net and virtio-blk devices, and no init blob, because a
   vivarium guest boots its own kernel, initrd and init.
 
-  2.0 is unreleased: this is a pinned commit of main. 2.0 replaces 1.x's
-  C API with a builder API, which `krun-launch` drives, and adds x86 ACPI
-  (nixidae/nixidae#1077, nixidae/nixidae#1163).
+  The source is the `nixidae` branch of nixidae/libkrun: unreleased
+  libkrun main with vivarium's changes on top, each one commit
+  (nixidae/nixidae#1077, nixidae/nixidae#1163). They let the host's store
+  be an overlayfs lower layer in the guest from inside a user namespace,
+  align the initrd, show the guest only an allowlist of the store, and on
+  macOS add TSO, Rosetta and a read-only DAX window.
 
-  The patches let the host's store be an overlayfs lower layer in the
-  guest from inside a user namespace, and align the initrd. 1.x's fourth
-  patch, the Always cache policy for a read-only share, is
-  `krun_fs_device_set_cache_policy` in 2.0.
+  The branch carries `include/libkrun.h` regenerated after each API change,
+  so a bump needs no generator here.
 */
 {
   lib,
@@ -23,28 +24,17 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "libkrun";
-  version = "2.0.0-unstable-2026-10-30";
+  version = "2.0.0-unstable-2026-11-03";
 
   src = fetchFromGitHub {
-    owner = "libkrun";
+    owner = "nixidae";
     repo = "libkrun";
-    rev = "a0375321bb1e6e51312e022af53e9e7668d3a07e";
-    hash = "sha256-Hq/zUSLtCXqDDYXBep4D1seb/DTHnZ9cH4wh2B1eacI=";
+    rev = "3a6af3db33cbce70af845c1049918c32a9437c0e";
+    hash = "sha256-95ibznJpeV2SOwyDk/9EUDKcjG6QyXVnUAwtUr8WemY=";
   };
 
-  patches = [
-    ./0001-virtio-fs-never-announce-submounts.patch
-    ./0002-virtio-fs-retry-an-open-without-O_NOATIME.patch
-    ./0004-x86_64-load-the-initrd-at-a-page-aligned-address.patch
-    # From the `allowlist` bookmark of Lillecarl/libkrun-rosetta. It changes
-    # the exported API, so it carries include/libkrun.h regenerated with
-    # ffier-gen-c-header at mtjhrc/ffier v0.2.0-rc2, as
-    # `make gen-libkrun-bindings` does.
-    ./0005-virtio-fs-show-a-read-only-share-s-guest-only-an-allowlist-of-paths.patch
-  ];
-
   cargoDeps = rustPlatform.fetchCargoVendor {
-    inherit (finalAttrs) src patches;
+    inherit (finalAttrs) src;
     hash = "sha256-QjkNQzntusdlK37ka47B7BDfbPqc6Za8VGKLYku7jYE=";
   };
 
@@ -71,7 +61,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   meta = {
     description = "libkrun 2.0, for vivarium's krun backend";
-    homepage = "https://github.com/libkrun/libkrun";
+    homepage = "https://github.com/nixidae/libkrun";
     license = lib.licenses.asl20;
     platforms = lib.platforms.linux;
   };
