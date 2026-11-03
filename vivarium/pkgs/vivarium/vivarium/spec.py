@@ -141,7 +141,7 @@ class Spec(Strict):
     qemu: Path | None = None
     qemuImg: Path | None = None  # noqa: N815 -- Nix writes it, so Nix spells it
     virtiofsd: Path | None = None
-    libkrun: Path | None = None
+    krun: Path | None = None
     crun: Path | None = None
     setpriv: Path | None = None
     tesseract: Path | None = None
@@ -189,8 +189,8 @@ class Spec(Strict):
             tools["qemuImg"] = str(self.qemuImg)
         if self.virtiofsd is not None:
             tools["virtiofsd"] = str(self.virtiofsd)
-        if self.libkrun is not None:
-            tools["libkrun"] = str(self.libkrun)
+        if self.krun is not None:
+            tools["krun"] = str(self.krun)
         if self.crun is not None:
             tools["crun"] = str(self.crun)
         if self.setpriv is not None:

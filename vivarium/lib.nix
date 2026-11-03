@@ -242,7 +242,11 @@ rec {
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
     }
     // lib.optionalAttrs (on "krun" != [ ]) {
-      libkrun = "${pkgs.callPackage ./pkgs/libkrun/package.nix { }}/lib/libkrun.so";
+      krun = lib.getExe (
+        pkgs.callPackage ./pkgs/krun-launch/package.nix {
+          libkrun = pkgs.callPackage ./pkgs/libkrun/package.nix { };
+        }
+      );
       qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
     }
     # nixos-test's OCR packages, for the same reading of the same screens.

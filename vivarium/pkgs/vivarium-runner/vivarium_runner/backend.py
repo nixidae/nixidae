@@ -44,7 +44,6 @@ from typing import TYPE_CHECKING, Protocol
 from . import container, forward, mconsole, qmp
 
 if TYPE_CHECKING:
-    from .krun_launch import KrunSpecJson
     from .machine import BootSpec, Machine, MachineSpec, MemoryControl, Toolchain
 
 
@@ -1208,29 +1207,28 @@ class Krun:
         if disk_ro is not None:
             os.close(disk_ro)
 
-        launch_spec: KrunSpecJson = {
-            "libkrun": str(tools.libkrun),
-            "cpus": spec.cpus,
-            "memory_mib": memory_bytes(spec.memory) >> 20,
-            "vmlinux": boot["vmlinux"],
-            "initrd": boot["initrd"],
-            "cmdline": f"{boot['cmdline']} init={boot['toplevel']}/init",
-            "nested": bool(boot.get("nested")),
-            "disk": f"/proc/self/fd/{disk_rw}",
-            "store": spec.store,
-            "dax_window": DAX_WINDOW,
-            "agent_fd": agent_fd,
-            "uplink": {"fd": passt_fd, "mac": spec.mac(0)},
-            "lan": [{"fd": lan_fds[nic.name], "mac": nic.mac} for nic in spec.interfaces],
-            "artifacts": None if machine.artifacts is None else str(machine.artifacts),
-        }
+        if tools.krun is None:
+            raise BackendError(f"{spec.name}: the toolchain has no vivarium-krun")
+        argv = [
+            str(tools.krun),
+            f"--vmlinux={boot['vmlinux']}",
+            f"--initrd={boot['initrd']}",
+            f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
+            f"--cpus={spec.cpus}",
+            f"--memory={memory_bytes(spec.memory) >> 20}",
+            f"--disk=/proc/self/fd/{disk_rw}",
+            f"--store={spec.store}",
+            f"--dax-window={DAX_WINDOW}",
+            f"--agent-fd={agent_fd}",
+            f"--uplink={passt_fd},{spec.mac(0)}",
+            *(f"--lan={lan_fds[nic.name]},{nic.mac}" for nic in spec.interfaces),
+        ]
+        if machine.artifacts is not None:
+            argv.append(f"--artifacts={machine.artifacts}")
+        if boot.get("nested"):
+            argv.append("--nested")
         return Launch(
-            argv=[
-                sys.executable,
-                "-m",
-                "vivarium_runner.krun_launch",
-                json.dumps(launch_spec),
-            ],
+            argv=argv,
             pass_fds=(agent_fd, passt_fd, disk_rw, *lan_fds.values()),
             helpers=helpers,
             disk_fds=(disk_rw,),

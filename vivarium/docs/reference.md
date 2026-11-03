@@ -344,7 +344,9 @@ same two node configurations run as `lan` and as `lan.qemu`.
 `krun` is a libkrun microVM booting `qemu`'s kernel, initrd and disk. Its
 virtio-fs runs inside the guest's own process and maps the host's page
 cache of the store into the guest, so a guest keeps no copy of the store
-pages it reads. libkrun is carried with two patches, in `pkgs/libkrun`.
+pages it reads. libkrun is 2.0, a pinned commit of main, with three
+patches, in `pkgs/libkrun`. A guest runs as `vivarium-krun`
+(`pkgs/krun-launch`), a C program over libkrun 2.0's builder API.
 
 The last row is not cosmetic if you write a test that waits on a link:
 UML's vector driver reports no carrier, so `ip` says `UNKNOWN` on an

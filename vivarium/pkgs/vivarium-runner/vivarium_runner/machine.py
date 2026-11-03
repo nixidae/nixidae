@@ -136,7 +136,7 @@ class ToolchainJson(TypedDict, total=False):
     qemu: str
     qemuImg: str
     virtiofsd: str
-    libkrun: str
+    krun: str
     crun: str
     setpriv: str
     tesseract: str
@@ -199,7 +199,8 @@ class Toolchain:
     qemu: Path | None = None
     qemu_img: Path | None = None
     virtiofsd: Path | None = None
-    libkrun: Path | None = None
+    krun: Path | None = None
+    """`vivarium-krun`, the process a krun guest runs as."""
     crun: Path | None = None
     setpriv: Path | None = None
     tesseract: Path | None = None
@@ -217,7 +218,7 @@ class Toolchain:
             qemu=maybe(data.get("qemu")),
             qemu_img=maybe(data.get("qemuImg")),
             virtiofsd=maybe(data.get("virtiofsd")),
-            libkrun=maybe(data.get("libkrun")),
+            krun=maybe(data.get("krun")),
             crun=maybe(data.get("crun")),
             setpriv=maybe(data.get("setpriv")),
             tesseract=maybe(data.get("tesseract")),
