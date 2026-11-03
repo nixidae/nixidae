@@ -1,0 +1,316 @@
+diff --git a/qemu/hw/display/Kconfig b/qemu/hw/display/Kconfig
+index 07a1c09f3e..93318fadcd 100644
+--- a/qemu/hw/display/Kconfig
++++ b/qemu/hw/display/Kconfig
+@@ -161,4 +161,3 @@
+ 
+ config REIMS_VGPU
+     bool
+-    default y
+diff --git a/qemu/hw/vmapple/Kconfig b/qemu/hw/vmapple/Kconfig
+index 034b80c792..aedc23f3cf 100644
+--- a/qemu/hw/vmapple/Kconfig
++++ b/qemu/hw/vmapple/Kconfig
+@@ -33,5 +33,6 @@
+     select VMAPPLE_AES
+     select VMAPPLE_BDIF
+     select VMAPPLE_CFG
+-    select REIMS_VGPU
++    imply MAC_PVG_MMIO
++    select UNIMP
+     select VMAPPLE_VIRTIO_BLK
+diff --git a/qemu/hw/vmapple/hvc.c b/qemu/hw/vmapple/hvc.c
+index 60ba68ac04..60d46470d5 100644
+--- a/qemu/hw/vmapple/hvc.c
++++ b/qemu/hw/vmapple/hvc.c
+@@ -41,8 +41,10 @@
+ #include "hw/core/boards.h"
+ #include "hw/core/cpu.h"
+ #include "system/memory.h"
++#include "system/hvf.h"
+ #include "system/kvm.h"
+ #include "system/tcg.h"
++#include "qemu/timer.h"
+ #include "qemu/error-report.h"
+ #include "qemu/guest-random.h"
+ #include "qemu/units.h"
+@@ -165,10 +167,57 @@ static void fix_dt_timebase(ARMCPU *cpu)
+                 "tree timebase-frequency record(s) from 24 MHz", hz, patched);
+ }
+ 
++#define INSN_HVC0           0xd4000002u
++#define INSN_HVC1           0xd4000022u
++
++/*
++ * HVF's host kernel answers `hvc #0` with an Apple CPU service ID
++ * (0xc1......) itself and never exits; `hvc #1` exits, and QEMU treats
++ * every HVC immediate alike. The boot CPU's SET_INITIAL_STATE comes before
++ * most of the kernel has run, so every call site is rewritten here once.
++ */
++static void patch_apple_hvc_sites(void)
++{
++    MemoryRegion *ram = current_machine->ram;
++    uint32_t *words = memory_region_get_ram_ptr(ram);
++    size_t n = MIN(memory_region_size(ram), DT_SCAN_BYTES) / 4;
++    size_t i;
++    int total = 0, patched = 0;
++
++    for (i = 1; i + 1 < n; i++) {
++        if (le32_to_cpu(words[i]) != INSN_HVC0) {
++            continue;
++        }
++        total++;
++        /* Callers also load x0 elsewhere and call shared wrappers. */
++        bool patch = true;
++        if (getenv("VMAPPLE_HVC_DUMP") && i >= 6) {
++            info_report("hvc-site pa=0x%" PRIx64 " %s %08x %08x %08x %08x "
++                        "%08x %08x [%08x] %08x %08x",
++                        (uint64_t)0x70000000 + i * 4,
++                        patch ? "patch" : "skip ",
++                        le32_to_cpu(words[i - 6]), le32_to_cpu(words[i - 5]),
++                        le32_to_cpu(words[i - 4]), le32_to_cpu(words[i - 3]),
++                        le32_to_cpu(words[i - 2]), le32_to_cpu(words[i - 1]),
++                        le32_to_cpu(words[i]), le32_to_cpu(words[i + 1]),
++                        le32_to_cpu(words[i + 2]));
++        }
++        if (patch) {
++            words[i] = cpu_to_le32(INSN_HVC1);
++            patched++;
++        }
++    }
++    warn_report("vmapple: rewrote %d of %d `hvc #0` words to `hvc #1`",
++                patched, total);
++}
++
+ static void set_initial_state(ARMCPU *cpu)
+ {
+     if (CPU(cpu) == first_cpu) {
+         fix_dt_timebase(cpu);
++        if (hvf_enabled()) {
++            patch_apple_hvc_sites();
++        }
+         keys_save(&cpu->env);
+     } else if (boot_keys.valid) {
+         keys_install(&cpu->env);
+@@ -203,6 +252,26 @@ void vmapple_hvc_reset(void)
+     } while (!default_pids[0] || !default_pids[1]);
+ }
+ 
++/*
++ * Under HVF a vCPU stuck after a swallowed Apple hypercall spins with
++ * interrupts masked and never exits; target/arm/hvf/hvf.c serves the call
++ * on a kick, and this timer provides the kicks.
++ */
++#define HVF_KICK_MS 10
++
++static QEMUTimer *hvf_kick_timer;
++
++static void hvf_kick_all(void *opaque)
++{
++    CPUState *cs;
++
++    CPU_FOREACH(cs) {
++        qemu_cpu_kick(cs);
++    }
++    timer_mod(hvf_kick_timer,
++              qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + HVF_KICK_MS);
++}
++
+ void vmapple_hvc_init(void)
+ {
+     arm_smccc_set_handler(vmapple_hvc);
+@@ -210,4 +279,9 @@ void vmapple_hvc_init(void)
+         kvm_arm_smccc_forward(VMAPPLE_CPU_SERVICE_BASE,
+                               VMAPPLE_CPU_SERVICE_COUNT);
+     }
++    if (hvf_enabled()) {
++        hvf_kick_timer = timer_new_ms(QEMU_CLOCK_REALTIME, hvf_kick_all, NULL);
++        timer_mod(hvf_kick_timer,
++                  qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + HVF_KICK_MS);
++    }
+ }
+diff --git a/qemu/hw/vmapple/vmapple.c b/qemu/hw/vmapple/vmapple.c
+index 9677aa4eab..814f337b8a 100644
+--- a/qemu/hw/vmapple/vmapple.c
++++ b/qemu/hw/vmapple/vmapple.c
+@@ -42,8 +42,8 @@
+ #include "hw/vmapple/vmapple.h"
+ #include "hw/vmapple/apple_vm_cpu.h"
+ #include "hw/vmapple/hvc.h"
++#include "hw/misc/unimp.h"
+ #include "target/arm/gtimer.h"
+-#include "hw/display/reims-vgpu-shim.h"
+ #include "target/arm/arm-powerctl.h"
+ #include "net/net.h"
+ #include "qapi/error.h"
+@@ -305,6 +305,13 @@ static void create_aes(VMAppleMachineState *vms, MemoryRegion *mem)
+     sysbus_mmio_map(aes, 1, vms->memmap[VMAPPLE_AES_2].base);
+     sysbus_connect_irq(aes, 0, qdev_get_gpio_in(vms->gic, irq));
+     sysbus_realize_and_unref(aes, &error_fatal);
++
++    /*
++     * Sonoma's iBootStage2 (iBoot-10151) reads 0x30240040. Under TCG an
++     * unmapped read aborts and iBoot panics; HVF reads it as 0.
++     */
++    create_unimplemented_device("vmapple-unknown-30240000", 0x30240000,
++                                0x10000);
+ }
+ 
+ static int arm_gic_ppi_index(int cpu_nr, int ppi_index)
+@@ -429,8 +436,13 @@ static void create_gpio_devices(const VMAppleMachineState *vms, int gpio,
+ 
+     pl061_dev = qdev_new("pl061");
+     /* Pull lines down to 0 if not driven by the PL061 */
+-    qdev_prop_set_uint32(pl061_dev, "pullups", 0);
+-    qdev_prop_set_uint32(pl061_dev, "pulldowns", 0xff);
++    qdev_prop_set_uint32(pl061_dev, "pullups",
++                         getenv("VMAPPLE_GPIO_PULLUPS") ?
++                         strtoul(getenv("VMAPPLE_GPIO_PULLUPS"), NULL, 0) : 0);
++    qdev_prop_set_uint32(pl061_dev, "pulldowns",
++                         getenv("VMAPPLE_GPIO_PULLUPS") ?
++                         0xff & ~strtoul(getenv("VMAPPLE_GPIO_PULLUPS"), NULL, 0) :
++                         0xff);
+     s = SYS_BUS_DEVICE(pl061_dev);
+     sysbus_realize_and_unref(s, &error_fatal);
+     memory_region_add_subregion(mem, base, sysbus_mmio_get_region(s, 0));
+diff --git a/qemu/target/arm/hvf/hvf.c b/qemu/target/arm/hvf/hvf.c
+index b00a7e1a84..03bd323e36 100644
+--- a/qemu/target/arm/hvf/hvf.c
++++ b/qemu/target/arm/hvf/hvf.c
+@@ -35,6 +35,11 @@ static bool hvf_ldst_access(uint64_t pa, uint64_t *val, unsigned size,
+ #include "target/arm/cpu.h"
+ #include "target/arm/internals.h"
+ #include "target/arm/multiprocessing.h"
++#include "target/arm/smccc.h"
++#include "target/arm/emulate-ldst.h"
++
++static bool hvf_ldst_access(uint64_t pa, uint64_t *val, unsigned size,
++                            bool is_write);
+ #include "target/arm/gtimer.h"
+ #include "target/arm/trace.h"
+ #include "trace.h"
+@@ -2441,10 +2446,25 @@ static int hvf_handle_exception(CPUState *cpu, hv_vcpu_exit_exception_t *excp)
+         assert(!s1ptw);
+ 
+         /*
+-         * TODO: ISV will be 0 for SIMD or SVE accesses.
+-         * Inject the exception into the guest.
++         * ISV is 0 for a load/store with writeback or a register pair; xnu
++         * uses both on MMIO. Decode the instruction instead.
+          */
+-        assert(isv);
++        if (!isv) {
++            uint32_t insn = 0;
++
++            cpu_synchronize_state(cpu);
++            if (cpu_memory_rw_debug(cpu, env->pc, &insn, sizeof(insn),
++                                    false) == 0 &&
++                arm_emulate_ldst(env, le32_to_cpu(insn), ipa,
++                                 hvf_ldst_access)) {
++                cpu->vcpu_dirty = true;
++                break;
++            }
++            error_report("hvf: cannot emulate MMIO insn 0x%08x at pc 0x%"
++                         PRIx64 " ipa 0x%" PRIx64, le32_to_cpu(insn),
++                         env->pc, ipa);
++            abort();
++        }
+ 
+         /*
+          * Emulate MMIO.
+@@ -2498,9 +2518,22 @@ static int hvf_handle_exception(CPUState *cpu, hv_vcpu_exit_exception_t *excp)
+         break;
+     case EC_AA64_HVC:
+         cpu_synchronize_state(cpu);
+-        if (arm_cpu->psci_conduit == QEMU_PSCI_CONDUIT_HVC) {
++        if (arm_smccc_dispatch(arm_cpu)) {
++            /* A board service (vmapple's Apple CPU service) answered it. */
++        } else if (arm_cpu->psci_conduit == QEMU_PSCI_CONDUIT_HVC) {
+             /* Do NOT advance $pc for HVC */
+             if (!hvf_handle_psci_call(cpu, &ret)) {
++                static GHashTable *seen;
++                uint32_t fid = env->xregs[0];
++
++                if (!seen) {
++                    seen = g_hash_table_new(NULL, NULL);
++                }
++                if (g_hash_table_add(seen, GUINT_TO_POINTER(fid))) {
++                    info_report("hvf: unknown HVC 0x%08x at pc 0x%" PRIx64
++                                " x1=0x%" PRIx64 " x2=0x%" PRIx64, fid,
++                                env->pc, env->xregs[1], env->xregs[2]);
++                }
+                 trace_hvf_unknown_hvc(env->pc, env->xregs[0]);
+                 /* SMCCC 1.3 section 5.2 says every unknown SMCCC call returns -1 */
+                 env->xregs[0] = -1;
+@@ -2565,6 +2598,63 @@ static int hvf_handle_exception(CPUState *cpu, hv_vcpu_exit_exception_t *excp)
+     return ret;
+ }
+ 
++static bool hvf_ldst_access(uint64_t pa, uint64_t *val, unsigned size,
++                            bool is_write)
++{
++    return address_space_rw(&address_space_memory, pa, MEMTXATTRS_UNSPECIFIED,
++                            val, size, is_write) == MEMTX_OK;
++}
++
++#define INSN_HVC0           0xd4000002u
++#define INSN_HVC1           0xd4000022u
++#define INSN_CBNZ_X0_SELF   0xb5000000u
++#define APPLE_CPU_SERVICE   0xc1u
++
++/*
++ * The host kernel answers `hvc #0` with an Apple CPU service function ID
++ * (0xc1......) itself, with 0xffffffff, and never exits to user space;
++ * `hvc #1` with the same ID does exit. macOS 13+ spins on
++ * `movz x0, #fid; hvc #0; cbnz x0, .` after such a call. A vCPU found
++ * there on a kick gets the call served here, and the site becomes `hvc #1`.
++ */
++static void hvf_apple_hvc_fixup(CPUState *cpu)
++{
++    ARMCPU *arm_cpu = ARM_CPU(cpu);
++    CPUARMState *env = &arm_cpu->env;
++    uint32_t insn[3];
++    uint64_t fid;
++    uint32_t hvc1 = cpu_to_le32(INSN_HVC1);
++
++    cpu_synchronize_state(cpu);
++    if (env->xregs[0] != 0xffffffffu || env->pc < 8 ||
++        cpu_memory_rw_debug(cpu, env->pc - 8, insn, sizeof(insn), false)) {
++        return;
++    }
++    insn[0] = le32_to_cpu(insn[0]);
++    insn[1] = le32_to_cpu(insn[1]);
++    insn[2] = le32_to_cpu(insn[2]);
++    if (insn[2] != INSN_CBNZ_X0_SELF ||
++        (insn[1] != INSN_HVC0 && insn[1] != INSN_HVC1) ||
++        (insn[0] & 0xff80001fu) != 0xd2800000u) {   /* movz x0, #imm, lsl #n */
++        return;
++    }
++    fid = (uint64_t)((insn[0] >> 5) & 0xffff) << (16 * ((insn[0] >> 21) & 3));
++    if ((fid >> 24) != APPLE_CPU_SERVICE) {
++        return;
++    }
++    env->xregs[0] = fid;
++    if (!arm_smccc_dispatch(arm_cpu)) {
++        env->xregs[0] = 0xffffffffu;
++        return;
++    }
++    cpu->vcpu_dirty = true;
++    if (insn[1] == INSN_HVC0) {
++        cpu_memory_rw_debug(cpu, env->pc - 4, &hvc1, sizeof(hvc1), true);
++        info_report("hvf: served Apple hypercall 0x%" PRIx64 " at 0x%" PRIx64
++                    ", site now hvc #1", fid, env->pc - 4);
++    }
++}
++
+ static int hvf_handle_vmexit(CPUState *cpu, hv_vcpu_exit_t *exit)
+ {
+     ARMCPU *arm_cpu = env_archcpu(cpu_env(cpu));
+@@ -2584,6 +2674,7 @@ static int hvf_handle_vmexit(CPUState *cpu, hv_vcpu_exit_t *exit)
+         break;
+     case HV_EXIT_REASON_CANCELED:
+         /* we got kicked, no exit to process */
++        hvf_apple_hvc_fixup(cpu);
+         ret = -1;
+         break;
+     default:
