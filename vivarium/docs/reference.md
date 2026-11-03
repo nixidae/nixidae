@@ -286,6 +286,14 @@ to a VM over a socket, does not. Adding a forward to a live passt means
 restarting it, which drops every connection through it, including the ssh
 session you were in when you started the service you wanted to reach.
 
+A krun guest can take gvproxy instead: `vivarium.uplink.proxy = "gvproxy"`
+(nixidae/nixidae#1163). gvproxy runs on macOS and needs no user namespace.
+The guest gets the same addresses, from gvproxy's DHCP, and gvproxy
+forwards only listed TCP ports. `checks.uplink-iperf` measures both through
+a forward on dynhetz, 8 runs at MTU 1500: host to guest 2.7 to 6.0 Gbit/s
+with passt and 1.7 to 2.5 with gvproxy; guest to host 5.9 to 9.1 with passt
+and 2.8 to 3.7 with gvproxy.
+
 So `vivarium.forward` decides them before boot, and `ports = "all"` exists
 to make not deciding affordable:
 
