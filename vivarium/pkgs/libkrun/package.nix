@@ -29,8 +29,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "libkrun";
-    rev = "3a6af3db33cbce70af845c1049918c32a9437c0e";
-    hash = "sha256-95ibznJpeV2SOwyDk/9EUDKcjG6QyXVnUAwtUr8WemY=";
+    rev = "87716f7b21b8d5ca3a821dedc5136f4e1d1acaa1";
+    hash = "sha256-tfi7i57WdfUXhLmNQpC4epHkL7EOMyYJLiuNzNwIHVY=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
