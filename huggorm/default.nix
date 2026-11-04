@@ -20,66 +20,107 @@ let
     # parses one. No declaration and no emitter is in here, which is
     # what lets the two below depend on it without depending on each
     # other.
-    huggorm-dsl = python3.pkgs.buildPythonPackage {
-      pname = "huggorm-dsl";
-      version = "0.1.0";
-      pyproject = true;
-      src = lib.fileset.toSource {
-        root = ./packages/huggorm-dsl;
-        fileset = lib.fileset.unions [
-          ./packages/huggorm-dsl/LICENSE
-          ./packages/huggorm-dsl/pyproject.toml
-          ./packages/huggorm-dsl/src
-        ];
-      };
-      build-system = [ python3.pkgs.setuptools ];
-      pythonImportsCheck = [ "huggorm_dsl" ];
-    };
-    # The DECLARATIONS: one document per Nix class, and the lists
-    # saying which of them owns a compiled module. Data, plus the
-    # statement of what data there is.
-    huggorm-decl = python3.pkgs.buildPythonPackage {
-      pname = "huggorm-decl";
-      version = "0.1.0";
-      pyproject = true;
-      src = lib.fileset.toSource {
-        root = ./packages/huggorm-decl;
-        fileset = lib.fileset.unions [
-          ./packages/huggorm-decl/LICENSE
-          ./packages/huggorm-decl/pyproject.toml
-          ./packages/huggorm-decl/src
-        ];
-      };
-      build-system = [ python3.pkgs.setuptools ];
-      dependencies = [ huggorm-dsl ];
-      pythonImportsCheck = [ "huggorm_decl" ];
-    };
-    # The EMITTERS, both backends in one package. `cppgen` fills
-    # huggorm_bindings, `pygen` fills huggorm_generated, and `payload`
-    # is the hand-written Python pygen copies into its output.
     #
-    # One package because they read ONE IR from one reader. A boundary
-    # between them would say the split is architectural, and it is not.
-    huggorm-gen = python3.pkgs.buildPythonPackage {
-      pname = "huggorm-gen";
-      version = "0.1.0";
-      pyproject = true;
-      # Not `tests/`: `generator-tests` runs them, and a test edit must
-      # not rebuild every package downstream of the generator.
-      src = lib.fileset.toSource {
-        root = ./packages/huggorm-gen;
-        fileset = lib.fileset.unions [
-          ./packages/huggorm-gen/LICENSE
-          ./packages/huggorm-gen/pyproject.toml
-          ./packages/huggorm-gen/src
-        ];
+    # A function of the interpreter, because a lane may build for its own:
+    # the `-ft` lanes install these into a 3.14t venv, whose site-packages
+    # is `python3.14t`.
+    pythonParts = python3: rec {
+      huggorm-dsl = python3.pkgs.buildPythonPackage {
+        pname = "huggorm-dsl";
+        version = "0.1.0";
+        pyproject = true;
+        src = lib.fileset.toSource {
+          root = ./packages/huggorm-dsl;
+          fileset = lib.fileset.unions [
+            ./packages/huggorm-dsl/LICENSE
+            ./packages/huggorm-dsl/pyproject.toml
+            ./packages/huggorm-dsl/src
+          ];
+        };
+        build-system = [ python3.pkgs.setuptools ];
+        pythonImportsCheck = [ "huggorm_dsl" ];
       };
-      build-system = [ python3.pkgs.setuptools ];
-      dependencies = [
-        huggorm-dsl
-        huggorm-decl
-      ];
-      pythonImportsCheck = [ "huggorm_gen.cppgen" ];
+      # The DECLARATIONS: one document per Nix class, and the lists
+      # saying which of them owns a compiled module. Data, plus the
+      # statement of what data there is.
+      huggorm-decl = python3.pkgs.buildPythonPackage {
+        pname = "huggorm-decl";
+        version = "0.1.0";
+        pyproject = true;
+        src = lib.fileset.toSource {
+          root = ./packages/huggorm-decl;
+          fileset = lib.fileset.unions [
+            ./packages/huggorm-decl/LICENSE
+            ./packages/huggorm-decl/pyproject.toml
+            ./packages/huggorm-decl/src
+          ];
+        };
+        build-system = [ python3.pkgs.setuptools ];
+        dependencies = [ huggorm-dsl ];
+        pythonImportsCheck = [ "huggorm_decl" ];
+      };
+      # The EMITTERS, both backends in one package. `cppgen` fills
+      # huggorm_bindings, `pygen` fills huggorm_generated, and `payload`
+      # is the hand-written Python pygen copies into its output.
+      #
+      # One package because they read ONE IR from one reader. A boundary
+      # between them would say the split is architectural, and it is not.
+      huggorm-gen = python3.pkgs.buildPythonPackage {
+        pname = "huggorm-gen";
+        version = "0.1.0";
+        pyproject = true;
+        # Not `tests/`: `generator-tests` runs them, and a test edit must
+        # not rebuild every package downstream of the generator.
+        src = lib.fileset.toSource {
+          root = ./packages/huggorm-gen;
+          fileset = lib.fileset.unions [
+            ./packages/huggorm-gen/LICENSE
+            ./packages/huggorm-gen/pyproject.toml
+            ./packages/huggorm-gen/src
+          ];
+        };
+        build-system = [ python3.pkgs.setuptools ];
+        dependencies = [
+          huggorm-dsl
+          huggorm-decl
+        ];
+        pythonImportsCheck = [ "huggorm_gen.cppgen" ];
+      };
+    };
+    inherit (pythonParts python3) huggorm-dsl huggorm-decl huggorm-gen;
+
+    /**
+      `python3` with the GIL disabled, for the `-ft` lanes.
+
+      Its packages skip their own tests: boost.python, the tree-sitter
+      grammars, asgiref and defusedxml fail theirs on 3.14t, and huggorm's
+      suite is the test that counts here.
+
+      nanobind's CMake asks FindPython for a GIL interpreter unless told
+      otherwise, and refuses 3.14t with "Wrong ABI". The fourth field of
+      `Python_FIND_ABI` is the free-threaded one.
+    */
+    freeThreadedPython = python3.override {
+      self = freeThreadedPython;
+      pythonAttr = "${python3.pythonAttr}FreeThreading";
+      enableGIL = false;
+      packageOverrides =
+        _: super:
+        let
+          untested = lib.mapAttrs (
+            _: p:
+            if lib.isDerivation p && p ? overridePythonAttrs then
+              p.overridePythonAttrs { doCheck = false; }
+            else
+              p
+          ) super;
+        in
+        untested
+        // {
+          nanobind = untested.nanobind.overridePythonAttrs (old: {
+            cmakeFlags = (old.cmakeFlags or [ ]) ++ [ "-DPython_FIND_ABI=ANY;ANY;ANY;ON" ];
+          });
+        };
     };
     versions = import ./nix/versions.nix { inherit pkgs sources; };
     # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
@@ -184,6 +225,10 @@ let
       `boehmgc`, `boehmgcPatches`
       : The collector libexpr and the bindings link, and huggorm's patches
         for it. A fork that pins its own collector states both.
+
+      `python`
+      : The interpreter the bindings, huggorm and the suite build for.
+        `freeThreadedPython` makes a free-threaded lane.
     */
     mkLane =
       {
@@ -198,6 +243,7 @@ let
         gc ? true,
         sanitizer ? null,
         wheels ? true,
+        python ? python3,
       }:
       # `majorMinor`, because `2.36pre...` sorts BEFORE `2.36` in
       # `versionAtLeast` (nixidae/nixidae#592).
@@ -212,6 +258,8 @@ let
         refuses the collector with it, after a rebuild of the whole closure.
       '';
       let
+        python3 = python;
+        inherit (pythonParts python3) huggorm-dsl huggorm-decl huggorm-gen;
         # One boost for every component that takes it: the ASAN boost
         # changes the layout of a type they share.
         ucontextBoost = lib.optionalAttrs (sanitizer.needsUcontextBoost or false) {
@@ -565,6 +613,23 @@ let
         ) nixes
       )
     );
+
+    # Free-threaded Python, for the default Nix only: the Python side does
+    # not change with the Nix, and each lane builds ~300 packages.
+    #
+    # Not in `lanes`: nanopynix builds a scope over each of those with its
+    # own GIL interpreter, so a free-threaded lane there would rebuild the
+    # bindings with the GIL and keep only the name.
+    freeThreadedLanes = lib.optionalAttrs (nixes ? ${defaultLane}) {
+      "${defaultLane}-ft" = mkLane (nixes.${defaultLane} // { python = freeThreadedPython; });
+      "${defaultLane}-ft-tsan" = mkLane (
+        nixes.${defaultLane}
+        // {
+          python = freeThreadedPython;
+          sanitizer = sanitizers.tsan;
+        }
+      );
+    };
     inherit
       (lanes.${defaultLane}
         or (throw "huggorm: nixVersions.latest is ${pkgs.nixVersions.latest.version}, and nix/versions.nix has no lane ${defaultLane}")
@@ -806,7 +871,10 @@ let
           python3 -m huggorm_gen.cppgen.generate "$out"
         '';
 
-    ciTestWorkflows.tests = import ./ci/workflows/tests.nix { lanes = lib.attrNames lanes; };
+    ciTestWorkflows.tests = import ./ci/workflows/tests.nix {
+      lanes = lib.attrNames lanes;
+      freeThreadedLanes = lib.attrNames freeThreadedLanes;
+    };
 
     packages = {
       inherit
@@ -860,6 +928,7 @@ in
     shell
     ciTestWorkflows
     lanes
+    freeThreadedLanes
     ;
   # nanopynix's Python set builds the tree-sitter-nix bindings from this
   # file, as huggorm's own set does.

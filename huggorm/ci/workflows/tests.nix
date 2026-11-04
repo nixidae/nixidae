@@ -6,7 +6,10 @@
 # run the suite (packages/huggorm/suite.nix says why), so this is the gate.
 # `check` is the tree-wide lint, typecheck and clang -Werror gate: it broke
 # unseen while nothing but a person ran it (nixidae/nixidae#1059).
-{ lanes }:
+#
+# `free-threaded` is the same per lane, over `freeThreadedLanes`. Those are
+# not in `lanes`, so they need their own attribute path.
+{ lanes, freeThreadedLanes }:
 let
   setup = [
     { uses = "actions/checkout@v4"; }
@@ -47,6 +50,22 @@ in
       {
         name = "Build the lane's suite";
         run = ''nix build --file . "lanes.\"$LANE\".suite" --no-link --print-build-logs'';
+      }
+    ];
+  };
+
+  jobs.free-threaded = {
+    runs-on = "ubuntu-24.04";
+    timeout-minutes = 120;
+    strategy = {
+      fail-fast = false;
+      matrix.lane = freeThreadedLanes;
+    };
+    env.LANE = "\${{ matrix.lane }}";
+    steps = setup ++ [
+      {
+        name = "Build the lane's suite";
+        run = ''nix build --file . "freeThreadedLanes.\"$LANE\".suite" --no-link --print-build-logs'';
       }
     ];
   };

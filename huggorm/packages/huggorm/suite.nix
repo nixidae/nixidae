@@ -118,6 +118,13 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
         ${huggorm-bindings}/${python3.sitePackages}/huggorm_bindings
     ''
     + lib.optionalString (sanitizer != null) sanitizer.testEnv
+    # On a free-threaded interpreter, the whole run without the GIL.
+    # py-tree-sitter declares that it needs it (tree-sitter/py-tree-sitter#458),
+    # and the first `huggorm.fod` import would turn it on for every test
+    # after. `test_free_threading.py` drops this to see the declarations.
+    + lib.optionalString (lib.hasSuffix "t" python3.libPrefix) ''
+      export PYTHON_GIL=0
+    ''
     + ''
       echo "--- pytest (hermetic only) ---"
       # -m "not live": a build sandbox has no daemon, no db and no writable
