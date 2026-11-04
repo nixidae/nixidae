@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sysconfig
 
 import nanobind
 from setuptools import Extension, setup
@@ -150,7 +151,18 @@ def nanobind_extension(module: str) -> Extension:
         # silently rendering it as something else. It is an error
         # rather than a warning because a warning in a build that
         # prints thousands of lines is a warning nobody reads.
-        extra_compile_args=[*flags["extra_compile_args"], "-fvisibility=hidden", "-Werror=switch"],
+        #
+        # `-DNB_FREE_THREADED` on a free-threaded interpreter, as nanobind's
+        # CMake sets it. Without it each module declares that it needs the
+        # GIL, and 3.14t turns the GIL back on at import. A flag and not
+        # `define_macros`: `build_ext_runtime_once` compiles nanobind's
+        # runtime with these arguments only, and the runtime must agree.
+        extra_compile_args=[
+            *flags["extra_compile_args"],
+            "-fvisibility=hidden",
+            "-Werror=switch",
+            *(["-DNB_FREE_THREADED"] if sysconfig.get_config_var("Py_GIL_DISABLED") else []),
+        ],
         include_dirs=flags["include_dirs"],
         library_dirs=flags["library_dirs"],
         libraries=flags["libraries"],
