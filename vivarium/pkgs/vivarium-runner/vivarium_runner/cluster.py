@@ -294,7 +294,7 @@ async def wait_for_images(vms: Mapping[str, Machine]) -> None:
 INIT_LOG = "/tmp/kubeadm-init.log"
 
 
-async def init_control_plane(cp: Machine, nix_images: bool = True) -> None:
+async def init_control_plane(cp: Machine) -> None:
     print("[k8s] cp: kubeadm init ...", flush=True)
     # Redirected and then printed, rather than piped through `tee`: a pipe
     # would report tee's exit status, and /bin/sh here has no `pipefail`.
@@ -313,7 +313,8 @@ async def init_control_plane(cp: Machine, nix_images: bool = True) -> None:
         ) from err
     if rc != 0:
         raise MachineError(f"[cp] kubeadm init failed (exit {rc}):\n{out}\n" + await diagnose(cp))
-    if nix_images:
+    # A skipped kube-proxy has no DaemonSet to patch: kubectl answers "not found".
+    if cp.spec.images == "nix" and "kube-proxy" not in cp.spec.skip_addons:
         await patch_kube_proxy(cp)
     print("[k8s] cp: control plane is up", flush=True)
 
@@ -598,20 +599,19 @@ async def bring_up(
     cp_name: str = "cp",
     schedulable: bool | None = None,
     addons: Sequence[str] = DEFAULT_ADDONS,
-    nix_images: bool = True,
 ) -> Machine:
     """The whole sequence, from booted guests to a cluster that works.
 
     Returns the control plane machine.
 
-    *nix_images* says which `services.vivarium-k8s.images` the guests were
-    built with, and the two must agree.  Under `"nix"` the node imports
-    every image at boot and each one is symlinks into `/nix/store`, so
-    this waits for that import and gives kube-proxy the store.  Under
-    `"pull"` there is no import to wait for -- waiting would hang until
-    the deadline on a unit nobody created -- and nothing needs patching.
-    It waits for a name to resolve instead, which is the thing a pulling
-    node cannot start without.  See `wait_for_dns`.
+    `services.vivarium-k8s.images` decides how the nodes start, and must be
+    the same on every node.  Under `"nix"` the node imports every image at
+    boot and each one is symlinks into `/nix/store`, so this waits for that
+    import and gives kube-proxy the store.  Under `"pull"` there is no
+    import to wait for -- waiting would hang until the deadline on a unit
+    nobody created -- and nothing needs patching.  It waits for a name to
+    resolve instead, which is the thing a pulling node cannot start
+    without.  See `wait_for_dns`.
 
     *schedulable* removes the control plane's taint.  The default decides by
     size: a single-node cluster has nowhere else to put a pod, and one with
@@ -637,6 +637,9 @@ async def bring_up(
     external = {vm.spec.cni for vm in vms.values()} == {"external"}
     if not external and any(vm.spec.cni == "external" for vm in vms.values()):
         raise MachineError("services.vivarium-k8s.cni differs between nodes; one cluster has one CNI")
+    sources = {vm.spec.images for vm in vms.values()}
+    if len(sources) != 1:
+        raise MachineError(f"services.vivarium-k8s.images differs between nodes ({sorted(sources)}); set one for all")
     cp = vms[cp_name]
     workers = [vm for name, vm in vms.items() if name != cp_name]
     if schedulable is None:
@@ -644,13 +647,13 @@ async def bring_up(
 
     for vm in vms.values():
         await vm.wait_for_unit("vivarium-k8s-cri.target", timeout=UNIT_TIMEOUT)
-    if nix_images:
+    if sources == {"nix"}:
         await wait_for_images(vms)
     else:
         for vm in vms.values():
             await wait_for_dns(vm)
 
-    await init_control_plane(cp, nix_images=nix_images)
+    await init_control_plane(cp)
     await join(cp, workers)
     if not external:
         await wire_pod_network(cp, vms)

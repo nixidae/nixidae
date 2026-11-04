@@ -157,6 +157,8 @@ rec {
       forward = machine.vivarium.forward;
       kubernetes = machine.services.vivarium-k8s.enable or false;
       cni = machine.services.vivarium-k8s.cni or "bridge";
+      images = machine.services.vivarium-k8s.images or "nix";
+      skipAddons = machine.services.vivarium-k8s.skipAddons or [ ];
     }
     // (
       if machine.vivarium.appliance != null then

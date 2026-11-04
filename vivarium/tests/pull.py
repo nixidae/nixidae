@@ -40,7 +40,7 @@ spec:
 
 
 async def test(vms: Machines) -> None:
-    cp = await bring_up(vms, nix_images=False, addons=(KUBE_PROXY, KUBE_DNS))
+    cp = await bring_up(vms, addons=(KUBE_PROXY, KUBE_DNS))
 
     # The node is stock. Under `images = "nix"` every one of these would
     # carry a nix-store volume, and that is the difference this test is
