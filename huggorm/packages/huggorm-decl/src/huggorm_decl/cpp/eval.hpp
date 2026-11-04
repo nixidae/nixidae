@@ -38,6 +38,7 @@
  * value carried its own strings and hid this.
  */
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -401,22 +402,29 @@ public:
     // an empty `nb::object` the lambda refuses on, and a shorter
     // vector would be an out-of-range read.
     //
-    // EVERY READER AND WRITER OF `primops_` HOLDS THE GIL, and that
-    // is the invariant this vector is safe under rather than a
-    // remark. It is written on the state's affine thread and READ by
-    // `tp_traverse` on whichever thread runs a collection, so a
-    // `push_back` racing an iteration would reallocate under it.
+    // It is written on the state's affine thread and READ on an
+    // evaluation thread and by `tp_traverse` on whichever thread runs a
+    // collection, so a `push_back` racing a read reallocates under it.
     //
-    // Nothing here takes a lock, because nothing needs one:
+    // Every reader and writer is attached to Python (holds the GIL on a
+    // GIL build):
     //
     //   hold_primop     the emitted `register_primop` binding takes
     //                   NO `nb::call_guard<nb::gil_scoped_release>`,
     //                   unlike `subscribe_logs` beside it - checked
     //                   in the emitted `eval.cpp`, not assumed
     //   primop          the lambda reads after `gil_scoped_acquire`
-    //   tp_traverse     the collector holds it
+    //   tp_traverse     the collector runs it
     //   release_primops `tp_clear`, likewise
     //   ~EvalCore       acquires it, and is the last owner anyway
+    //
+    // On a GIL build that is the whole invariant, and `primops_mutex_`
+    // compiles to nothing. On a free-threaded build two attached
+    // threads run at once, so `hold_primop` and `primop` take the mutex.
+    // `tp_traverse` and `tp_clear` do NOT: the free-threaded collector
+    // stops every other thread first, and a thread stopped while waiting
+    // on a PyMutex has detached, so it holds nothing. A lock there could
+    // only wait on a stopped thread.
     //
     // So giving `register_primop` a release guard - which `blocking`
     // decides - would be a data race, not a speed-up. Registration is
@@ -424,6 +432,7 @@ public:
 
     std::size_t hold_primop(nb::object fn)
     {
+        nb::ft_lock_guard held(primops_mutex_);
         primops_.push_back(std::move(fn));
         return primops_.size() - 1;
     }
@@ -431,6 +440,7 @@ public:
     /** The callable at `slot`, or an empty object once cleared. */
     nb::object primop(std::size_t slot) const
     {
+        nb::ft_lock_guard held(primops_mutex_);
         return slot < primops_.size() ? primops_[slot] : nb::object();
     }
 
@@ -442,10 +452,11 @@ public:
             fn.reset();
     }
 
-    /** The `Evaluator` over this core while it lives. Read and written
-     * with the GIL held, as `primops_` is. */
-    const Evaluator * owner() const { return owner_; }
-    void set_owner(const Evaluator * owner) { owner_ = owner; }
+    /** The `Evaluator` over this core while it lives. An atomic: a Value
+     * made on any thread reads it, and without a GIL nothing orders that
+     * read against the `Evaluator`'s constructor and destructor. */
+    const Evaluator * owner() const { return owner_.load(std::memory_order_acquire); }
+    void set_owner(const Evaluator * owner) { owner_.store(owner, std::memory_order_release); }
 
     /**
      * Drops the callables with the GIL HELD, before anything else.
@@ -490,7 +501,8 @@ private:
     std::shared_ptr<nix::Store> build_store_;
     nix::EvalState state_;
     std::vector<nb::object> primops_;
-    const Evaluator * owner_ = nullptr;
+    mutable nb::ft_mutex primops_mutex_;
+    std::atomic<const Evaluator *> owner_ = nullptr;
 };
 
 /**
