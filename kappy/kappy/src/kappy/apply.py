@@ -854,6 +854,33 @@ them, so `_extra_classes` builds a class happily and the failure only
 arrives at the LIST. Measured on nixlab2, 2026-09-17.
 """
 
+_LIST_NOT_YET = frozenset({429, 503})
+"""What the API server answers for a kind it serves but cannot list yet.
+
+On a fresh cluster the prune's first LIST of a kind whose
+CustomResourceDefinition appeared seconds earlier answers `429` "storage
+is (re)initializing", `retryAfterSeconds: 1`. On airlab, 2026-11-04, these
+were twelve Cilium kinds, whose CRDs Cilium's operator installs while the
+apply runs; each listed on the second try. nixidae/nixidae#1176.
+"""
+
+PRUNE_LIST_RETRY_SECONDS = 60.0
+"""How long one kind's prune scan keeps retrying a `_LIST_NOT_YET` answer."""
+
+
+def retry_after_seconds(exc: kr8s.ServerError) -> float | None:
+    """The `Status.details.retryAfterSeconds` the API server sent, if any."""
+    response = exc.response
+    if response is None:
+        return None
+    try:
+        body: JsonValue = response.json()
+    except ValueError:
+        return None
+    details = body.get("details") if isinstance(body, dict) else None
+    seconds = details.get("retryAfterSeconds") if isinstance(details, dict) else None
+    return float(seconds) if isinstance(seconds, int | float) else None
+
 
 async def _list_for_prune(
     api: Api,
@@ -861,28 +888,43 @@ async def _list_for_prune(
     *,
     selector: str,
     kind: str,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    clock: Callable[[], float] = anyio.current_time,
 ) -> list[APIObject]:
     """Everything of one kind inside the prune scope.
 
     Wraps only the listing, never the deletes that follow it: a kind that
     cannot be listed is ordinary, and a delete that fails is not.
+
+    A `_LIST_NOT_YET` answer is retried after the server's own
+    `retryAfterSeconds`, for up to `PRUNE_LIST_RETRY_SECONDS`. The answer
+    names no event to wait on.
     """
-    try:
-        return [
-            obj
-            async for obj in api.async_get(
-                target,
-                namespace=kr8s.ALL,
-                label_selector=selector,
-            )
-            if isinstance(obj, APIObject)
-        ]
-    except kr8s.ServerError as exc:
-        response = exc.response
-        if response is not None and response.status_code in _NO_LIST_VERB:
-            _log.debug("not scanning kind with no list verb", kind=kind, status=response.status_code)
-            return []
-        raise
+    deadline = clock() + PRUNE_LIST_RETRY_SECONDS
+    while True:
+        try:
+            return [
+                obj
+                async for obj in api.async_get(
+                    target,
+                    namespace=kr8s.ALL,
+                    label_selector=selector,
+                )
+                if isinstance(obj, APIObject)
+            ]
+        except kr8s.ServerError as exc:
+            status = None if exc.response is None else exc.response.status_code
+            if status in _NO_LIST_VERB:
+                _log.debug("not scanning kind with no list verb", kind=kind, status=status)
+                return []
+            if status not in _LIST_NOT_YET:
+                raise
+            asked = retry_after_seconds(exc)
+            wait = 1.0 if asked is None else asked
+            if clock() + wait > deadline:
+                raise
+            _log.info("listing again when the API server asks", kind=kind, status=status, seconds=wait)
+            await sleep(wait)
 
 
 async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state that caller built

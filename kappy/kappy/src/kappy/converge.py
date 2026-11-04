@@ -40,6 +40,7 @@ from .apply import (
     describe,
     object_key,
     raw_metadata,
+    retry_after_seconds,
     wait_object_effective,
 )
 from .readiness import (
@@ -393,13 +394,12 @@ def diagnose(exc: BaseException) -> Diagnosis:
         for cause in (listed if isinstance(listed, list) else [])
         if isinstance(cause, dict)
     )
-    retry_after = details_dict.get("retryAfterSeconds")
     return Diagnosis(
         message=str(exc),
         status_code=response.status_code,
         reason=str(body.get("reason", "")) or None,
         causes=causes,
-        retry_after=float(retry_after) if isinstance(retry_after, int | float) else None,
+        retry_after=retry_after_seconds(exc),
     )
 
 
