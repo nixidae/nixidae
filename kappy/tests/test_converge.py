@@ -15,6 +15,7 @@ ladder cannot see at all. Issue nixidae/nixidae#450.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
 
@@ -43,6 +44,7 @@ from kappy.converge import (
     settled,
     sort_for_apply,
 )
+from kappy.readiness import PROBE_ANNOTATION, UnusableProbeError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -1002,3 +1004,286 @@ class TestAfter:
 
         assert [failure.disposition for failure in report.failures] == [Disposition.TERMINAL]
         assert AFTER_ANNOTATION in report.failures[0].error
+
+
+class TestReadiness:
+    """`kappy.dev/probe`: a policy the API server accepted but has not loaded
+    rewrites nothing. On airlab the first pods kept their upstream images
+    (nixidae/nixidae#1175), so everything after the policy waits for it."""
+
+    PRIORITY: ClassVar[dict[str, int]] = {
+        "Namespace": 10,
+        "MutatingAdmissionPolicy": 152,
+        "MutatingAdmissionPolicyBinding": 154,
+        "Deployment": 290,
+    }
+    REWRITTEN: ClassVar[dict[str, JsonValue]] = {"spec": {"containers": [{"image": "127.0.0.1:5000/hello"}]}}
+    HELD_BY: ClassVar[str] = "MutatingAdmissionPolicyBinding/default/solid-images"
+
+    def binding(self, probe: JsonValue = None) -> Manifest:
+        value = probe if probe is not None else json.dumps({"object": PROBE_POD, "matches": self.REWRITTEN})
+        return manifest(
+            kind="MutatingAdmissionPolicyBinding", name="solid-images", annotations={PROBE_ANNOTATION: value}
+        )
+
+    def specs(self, binding: Manifest | None = None) -> list[Manifest]:
+        return [
+            manifest(kind="Deployment", name="hello"),
+            binding if binding is not None else self.binding(),
+            manifest(kind="MutatingAdmissionPolicy", name="solid-images"),
+            manifest(kind="Namespace", name="images"),
+        ]
+
+    async def test_a_later_object_goes_out_once_the_probe_passes(self) -> None:
+        cluster = _Cluster(loads_after=2)
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            sleep=_no_sleep,
+        )
+
+        assert report.ok, report.failures
+        assert cluster.sent == [
+            "Namespace/images",
+            "MutatingAdmissionPolicy/solid-images",
+            "MutatingAdmissionPolicyBinding/solid-images",
+            "Deployment/hello",
+        ]
+        assert cluster.loaded_when_sent["Deployment/hello"], "the Deployment went out before the policy acted"
+        assert cluster.probes == 2
+
+    async def test_an_object_of_the_same_priority_is_not_held(self) -> None:
+        cluster = _Cluster(loads_after=1_000)
+        twin = manifest(kind="MutatingAdmissionPolicyBinding", name="other")
+        now = [0.0]
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            [*self.specs(), twin],
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            ready_seconds=30.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert "MutatingAdmissionPolicyBinding/other" in cluster.sent
+        assert "Deployment/hello" not in cluster.sent
+        assert {failure.key.name for failure in report.failures} == {"solid-images", "hello"}
+
+    async def test_a_probe_that_never_passes_fails_both_by_name(self) -> None:
+        """Past the settle window: the run waits for the probe's own bound,
+        and then names the policy and what the probe saw."""
+        cluster = _Cluster(loads_after=1_000)
+        now = [0.0]
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            settle_seconds=5.0,
+            ready_seconds=60.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert "Deployment/hello" not in cluster.sent
+        assert now[0] >= 60.0, "the settle window cut the probe off"
+        failures = {failure.key.name: failure for failure in report.failures}
+        assert set(failures) == {"solid-images", "hello"}
+        assert all(failure.disposition is Disposition.TERMINAL for failure in failures.values())
+        assert "did not come into effect within 60s" in failures["solid-images"].error
+        assert "127.0.0.1:5000/hello" in failures["solid-images"].error
+        assert failures["hello"].error.startswith(f"held by {self.HELD_BY}, which did not come into effect")
+        assert failures["hello"].attempts == 0
+
+    async def test_a_policy_that_does_not_apply_fails_what_it_holds(self) -> None:
+        cluster = _Cluster(loads_after=0, refuse={"MutatingAdmissionPolicyBinding/solid-images": 422})
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            sleep=_no_sleep,
+        )
+
+        failures = {failure.key.name: failure.error for failure in report.failures}
+        assert set(failures) == {"solid-images", "hello"}
+        assert failures["hello"].startswith(f"held by {self.HELD_BY}, which did not apply")
+        assert cluster.probes == 0
+
+    async def test_a_policy_in_retry_is_not_probed_and_holds(self) -> None:
+        cluster = _Cluster(loads_after=0, refuse={"MutatingAdmissionPolicyBinding/solid-images": 500})
+        now = [0.0]
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            settle_seconds=30.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert cluster.probes == 0
+        assert "Deployment/hello" not in cluster.sent
+        hello = next(failure for failure in report.failures if failure.key.name == "hello")
+        assert hello.disposition is Disposition.RETRY
+        assert hello.error.startswith(f"held until {self.HELD_BY} is in effect")
+
+    async def test_an_unchanged_policy_is_still_probed(self) -> None:
+        """Unchanged says nothing about an API server that restarted."""
+        cluster = _Cluster(loads_after=1)
+
+        async def should_skip(spec: Manifest) -> bool:
+            return object_key(spec).kind != "Deployment"
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            should_skip=should_skip,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            sleep=_no_sleep,
+        )
+
+        assert report.ok, report.failures
+        assert cluster.sent == ["Deployment/hello"]
+        assert cluster.probes == 1
+
+    async def test_without_a_dry_run_the_probe_is_ignored(self) -> None:
+        cluster = _Cluster(loads_after=1_000)
+
+        report = await converge_queue(self.specs(), apply=cluster.apply, resource_priority=self.PRIORITY)
+
+        assert report.ok
+        assert cluster.sent[-1] == "Deployment/hello"
+        assert cluster.probes == 0
+
+    async def test_a_malformed_probe_fails_at_once_and_is_never_sent(self) -> None:
+        cluster = _Cluster(loads_after=0)
+
+        report = await converge_queue(
+            self.specs(self.binding(probe="not json")),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            sleep=_no_sleep,
+        )
+
+        assert "MutatingAdmissionPolicyBinding/solid-images" not in cluster.sent
+        assert "Deployment/hello" not in cluster.sent
+        failures = {failure.key.name: failure.error for failure in report.failures}
+        assert PROBE_ANNOTATION in failures["solid-images"]
+        assert failures["hello"].startswith(f"held by {self.HELD_BY}, which has a malformed")
+
+    async def test_an_unusable_probe_fails_without_waiting(self) -> None:
+        cluster = _Cluster(loads_after=0, probe_exists=True)
+        now = [0.0]
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        report = await converge_queue(
+            self.specs(),
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            resource_priority=self.PRIORITY,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert now[0] == 0.0
+        failures = {failure.key.name: failure.error for failure in report.failures}
+        assert "cannot answer" in failures["solid-images"]
+        assert failures["hello"].startswith(f"held by {self.HELD_BY}, which has a probe that cannot answer")
+
+    async def test_a_barrier_ends_when_its_probe_passes(self) -> None:
+        cluster = _Cluster(loads_after=2)
+
+        failures = await converge_objects(
+            [[self.binding()], [manifest(kind="Deployment", name="hello")]],
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            sleep=_no_sleep,
+        )
+
+        assert failures == []
+        assert cluster.loaded_when_sent["Deployment/hello"]
+
+    async def test_a_barrier_whose_probe_fails_stops_the_run(self) -> None:
+        cluster = _Cluster(loads_after=1_000)
+        now = [0.0]
+
+        async def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        failures = await converge_objects(
+            [[self.binding()], [manifest(kind="Deployment", name="hello")]],
+            apply=cluster.apply,
+            dry_run=cluster.dry_run,
+            ready_seconds=30.0,
+            clock=lambda: now[0],
+            sleep=sleep,
+        )
+
+        assert [failure.key.name for failure in failures] == ["solid-images"]
+        assert "did not come into effect within 30s" in failures[0].error
+        assert "Deployment/hello" not in cluster.sent
+
+
+PROBE_POD: Manifest = {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {"namespace": "images", "name": "kappy-probe-solid-images"},
+    "spec": {"containers": [{"name": "probe", "image": "hello"}]},
+}
+
+
+class _Cluster:
+    """An API server whose policy loads after `loads_after` probes."""
+
+    def __init__(self, *, loads_after: int, refuse: dict[str, int] | None = None, probe_exists: bool = False) -> None:
+        self.loads_after = loads_after
+        self.refuse = refuse or {}
+        self.probe_exists = probe_exists
+        self.sent: list[str] = []
+        self.loaded_when_sent: dict[str, bool] = {}
+        self.probes = 0
+
+    @property
+    def loaded(self) -> bool:
+        return self.probes >= self.loads_after
+
+    async def apply(self, spec: Manifest) -> APIObject:
+        key = object_key(spec)
+        name = f"{key.kind}/{key.name}"
+        if name in self.refuse:
+            raise server_error(self.refuse[name])
+        self.sent.append(name)
+        self.loaded_when_sent[name] = self.loaded
+        return applied_object()
+
+    async def dry_run(self, request: Manifest) -> Manifest:
+        if self.probe_exists:
+            msg = "Pod/images/kappy-probe-solid-images exists"
+            raise UnusableProbeError(msg)
+        self.probes += 1
+        if not self.loaded:
+            return request
+        return {**request, "spec": {"containers": [{"name": "probe", "image": "127.0.0.1:5000/hello"}]}}

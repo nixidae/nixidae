@@ -21,6 +21,7 @@ from .apply import (
     KindNotServedError,
     api_object_key,
     build_object,
+    dry_runner,
     field_manager_for,
     resource_version,
     ssa_apply,
@@ -34,6 +35,7 @@ from .converge import (
     after_refs,
     converge_queue,
 )
+from .readiness import DEFAULT_READY_SECONDS
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -235,6 +237,7 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
     concurrency: int = DEFAULT_CONCURRENCY,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
     wait_seconds: float = DEFAULT_WAIT_SECONDS,
+    ready_seconds: float = DEFAULT_READY_SECONDS,
     allow_recreate: bool = False,
     unit_managers: Mapping[str, str] | None = None,
     cache: ApplyCache | None = None,
@@ -285,11 +288,13 @@ async def converge_direct(  # noqa: PLR0913 -- one caller, and each argument is 
         if cache is not None and cache.assume_unchanged
         else None,
         gate=_gater(api),
+        dry_run=dry_runner(api, field_manager=field_manager),
         delete=_deleter(api) if allow_recreate else None,
         resource_priority=resource_priority,
         concurrency=concurrency,
         settle_seconds=settle_seconds,
         wait_seconds=wait_seconds,
+        ready_seconds=ready_seconds,
         allow_recreate=allow_recreate,
     )
     return report, desired

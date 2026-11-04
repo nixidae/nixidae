@@ -7,10 +7,14 @@ import kr8s
 import structlog
 from kr8s.asyncio.objects import APIObject, get_class, new_class
 
+from .readiness import PROBE_ANNOTATION, UnusableProbeError, probe_of, wait_effective
+
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Collection, Mapping
+    from collections.abc import Awaitable, Callable, Collection, Mapping
 
     from kr8s.asyncio import Api  # kr8s.asyncio.api() returns this, not kr8s.Api
+
+    from .readiness import DryRun
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 
@@ -82,6 +86,27 @@ class ObjectKey(NamedTuple):
     namespace: str
     kind: str
     name: str
+
+
+def object_key(spec: Manifest) -> ObjectKey:
+    """The `(namespace, kind, name)` identity of a rendered manifest."""
+    metadata_value = spec.get("metadata") or {}
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+    namespace = metadata.get("namespace")
+    name = metadata.get("name")
+    kind = spec.get("kind")
+    return ObjectKey(
+        str(namespace) if isinstance(namespace, str) else CLUSTER_SCOPED,
+        str(kind) if isinstance(kind, str) else "?",
+        str(name) if isinstance(name, str) else "?",
+    )
+
+
+def describe(key: ObjectKey) -> str:
+    """`Kind/namespace/name`, or `Kind/name` for a cluster-scoped object."""
+    if key.namespace == CLUSTER_SCOPED:
+        return f"{key.kind}/{key.name}"
+    return f"{key.kind}/{key.namespace}/{key.name}"
 
 
 def raw_manifest(obj: APIObject) -> Manifest:
@@ -288,6 +313,58 @@ async def apply_one(spec: Manifest, api: Api, *, field_manager: str) -> APIObjec
     return obj
 
 
+def dry_runner(api: Api, *, field_manager: str) -> DryRun:
+    """`readiness.DryRun` against *api*: a server-side apply with `dryRun=All`.
+
+    Through `ssa_apply` and not through an apply step that records: a probe
+    belongs in no prune scope and no apply cache.
+    """
+
+    async def dry_run(request: Manifest) -> Manifest:
+        obj = await build_object(request, api)
+        if await obj.async_exists():
+            # The dry-run would be an UPDATE, and a CREATE-only policy lets
+            # an UPDATE through untouched: the probe would wait for nothing.
+            msg = (
+                f"{obj.kind} {obj.namespace or ''}/{obj.name} exists, so a dry-run of it is an UPDATE. "
+                "Give the probe a name that nothing creates."
+            )
+            raise UnusableProbeError(msg)
+        return await ssa_apply(obj, field_manager=field_manager, dry_run=True)
+
+    return dry_run
+
+
+async def wait_object_effective(
+    spec: Manifest,
+    dry_run: DryRun,
+    *,
+    seconds: float,
+    clock: Callable[[], float] = anyio.current_time,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+) -> None:
+    """Wait until *spec* is in effect, when it carries a probe.
+
+    For a barrier: everything after it waits for this. Raises `ValueError`
+    for a malformed probe, `UnusableProbeError` and `NotEffectiveError`
+    otherwise; each message names the object.
+    """
+    what = describe(object_key(spec))
+    try:
+        probe = probe_of(spec)
+    except ValueError as exc:
+        msg = f"{what} has a malformed {PROBE_ANNOTATION}: {exc}"
+        raise ValueError(msg) from exc
+    if probe is None:
+        return
+    _log.info("waiting for it to come into effect", object=what, timeout=seconds)
+    try:
+        await wait_effective(probe, dry_run, what=what, seconds=seconds, clock=clock, sleep=sleep)
+    except UnusableProbeError as exc:
+        msg = f"{what} has a probe that cannot answer: {exc}"
+        raise UnusableProbeError(msg) from exc
+
+
 def api_object_key(obj: APIObject) -> ObjectKey:
     return ObjectKey(obj.namespace or CLUSTER_SCOPED, obj.kind, obj.name)
 
@@ -409,6 +486,7 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
     field_manager: str,
     delivery_managers: Collection[str] = (),
     crd_establish_timeout: int = 60,
+    ready_seconds: float | None = None,
     prune: bool = True,
     prune_kinds: Mapping[str, str] | None = None,
     hand_applied: Collection[str] = (),
@@ -470,6 +548,11 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
     enters the desired set -- absence from that set is answered with a delete,
     and "already correct" is not "removed from the configuration".
 
+    `ready_seconds` makes a barrier end only when each of its objects that
+    carries `readiness.PROBE_ANNOTATION` is in effect, for up to that long
+    each. None ignores probes: a validation apiserver runs no webhook
+    backends, so a probe there waits for something that never comes.
+
     `prune=False` (the default for `ekn kubeapply` against a real cluster,
     e.g. a narrow `--target` slice) avoids pruning objects that are simply
     outside the current apply's scope -- the same "two controllers fighting
@@ -519,6 +602,12 @@ async def apply_and_prune(  # noqa: PLR0913 -- tracked complexity/arg-count debt
             _log.info("waiting for CRDs to become Established", count=len(crds), timeout=crd_establish_timeout)
         for crd in crds:
             await _wait_established(crd, crd_establish_timeout)
+        if ready_seconds is not None:
+            # Every probed object, skipped ones too: "unchanged" says nothing
+            # about an API server that restarted since.
+            dry_run = dry_runner(api, field_manager=field_manager)
+            for spec in tier:
+                await wait_object_effective(spec, dry_run, seconds=ready_seconds)
 
     if not prune:
         return

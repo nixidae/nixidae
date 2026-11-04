@@ -11,6 +11,8 @@ field manager, and passes them to each call. `tests/conventions.py` shows one wa
 - `kappy.apply`: apply a generation with server-side apply, then prune what that generation dropped.
 - `kappy.converge`: converge a set of objects. Its steps are injected Protocols, so every decision is testable without an API server.
 - `kappy.directapply`: the kr8s `Api` side of `converge`.
+- `kappy.readiness`: probes. An object with the `kappy.dev/probe` annotation holds every later object until a server
+  dry-run shows that it is in effect, such as an admission policy the API server has loaded.
 - `kappy.testing`: a kr8s `Api` double for tests of code that applies and prunes.
 
 Work happens in [nixidae](https://github.com/nixidae/nixidae), which exports this repository.

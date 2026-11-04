@@ -32,13 +32,23 @@ import structlog
 # `Manifest` is a runtime import, not a type-only one: the memory object
 # stream is parameterised with it, and that subscript is evaluated.
 from .apply import (
-    CLUSTER_SCOPED,
     DEFAULT_BARRIER_PRIORITY,
     JsonValue,
     KindNotServedError,
     Manifest,
     ObjectKey,
+    describe,
+    object_key,
     raw_metadata,
+    wait_object_effective,
+)
+from .readiness import (
+    DEFAULT_READY_SECONDS,
+    PROBE_ANNOTATION,
+    NotEffectiveError,
+    UnusableProbeError,
+    check,
+    probe_of,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +56,8 @@ if TYPE_CHECKING:
 
     from anyio.streams.memory import MemoryObjectReceiveStream
     from kr8s.asyncio.objects import APIObject
+
+    from .readiness import DryRun, Probe
 
 _log = structlog.get_logger()
 
@@ -189,10 +201,12 @@ def sort_for_apply(specs: Iterable[Manifest], resource_priority: Mapping[str, in
 
     Stable, so objects of one kind keep the order the render gave them.
     """
-    return sorted(
-        specs,
-        key=lambda spec: resource_priority.get(object_key(spec)[1], DEFAULT_BARRIER_PRIORITY),
-    )
+    return sorted(specs, key=lambda spec: priority_of(spec, resource_priority))
+
+
+def priority_of(spec: Manifest, resource_priority: Mapping[str, int]) -> int:
+    """Where *spec* sorts: its kind's number, or `DEFAULT_BARRIER_PRIORITY`."""
+    return resource_priority.get(object_key(spec).kind, DEFAULT_BARRIER_PRIORITY)
 
 
 class ApplyOne(Protocol):
@@ -251,20 +265,6 @@ class DeleteOne(Protocol):
     """
 
     def __call__(self, spec: Manifest, /) -> Awaitable[None]: ...
-
-
-def object_key(spec: Manifest) -> ObjectKey:
-    """The `(namespace, kind, name)` identity of a rendered manifest."""
-    metadata_value = spec.get("metadata") or {}
-    metadata = metadata_value if isinstance(metadata_value, dict) else {}
-    namespace = metadata.get("namespace")
-    name = metadata.get("name")
-    kind = spec.get("kind")
-    return ObjectKey(
-        str(namespace) if isinstance(namespace, str) else CLUSTER_SCOPED,
-        str(kind) if isinstance(kind, str) else "?",
-        str(name) if isinstance(name, str) else "?",
-    )
 
 
 _RETRY_STATUSES = frozenset(
@@ -662,6 +662,100 @@ def _wait_before_retrying(attempt: int, asked_by_server: float | None) -> float:
     return guess if asked_by_server is None else max(guess, asked_by_server)
 
 
+class Effect(enum.Enum):
+    """Where a probed object is on its way to being in effect."""
+
+    UNSENT = "unsent"
+    """Not yet applied, nor found unchanged, in this run."""
+    PROBING = "probing"
+    """On the cluster; its probe has not passed yet."""
+    EFFECTIVE = "effective"
+    FAILED = "failed"
+    """Will not come into effect in this run. `Probed.verdict` says why."""
+
+
+@dataclass
+class Probed:
+    """An object that carries a probe, and what this run knows of its effect.
+
+    It holds every object of a later priority (see `holder`). Lives for the
+    whole run, not one sweep: the probe passes between sweeps.
+    """
+
+    key: ObjectKey
+    priority: int
+    probe: Probe | None
+    """None when the annotation does not parse; then `effect` is FAILED."""
+    effect: Effect = Effect.UNSENT
+    since: float | None = None
+    """When it reached the cluster: where `ready_seconds` counts from."""
+    verdict: str = "has not been applied yet"
+    """Why it is not in effect: the last probe's answer, or the failure."""
+
+    def fail(self, verdict: str) -> None:
+        self.effect = Effect.FAILED
+        self.verdict = verdict
+
+
+def probed_objects(specs: Iterable[Manifest], resource_priority: Mapping[str, int]) -> dict[ObjectKey, Probed]:
+    """Every object in *specs* that carries `PROBE_ANNOTATION`.
+
+    One whose annotation does not parse is FAILED from the start: the render
+    is wrong, and its dependents must not go out as if nothing held them.
+    """
+    found: dict[ObjectKey, Probed] = {}
+    for spec in specs:
+        key = object_key(spec)
+        try:
+            probe = probe_of(spec)
+        except ValueError as exc:
+            found[key] = Probed(key, priority_of(spec, resource_priority), None)
+            found[key].fail(f"has a malformed {PROBE_ANNOTATION}: {exc}")
+            continue
+        if probe is not None:
+            found[key] = Probed(key, priority_of(spec, resource_priority), probe)
+    return found
+
+
+def holder(probed: Iterable[Probed], priority: int) -> Probed | None:
+    """The probed object that holds an object of *priority*, if any.
+
+    The first one, by priority, that sorts strictly before *priority* and is
+    not in effect. Strictly: objects of one priority go out together, as a
+    barrier's do. A holder that FAILED holds for good: its dependents fail.
+
+    By priority and not by name, because admission is cross-cutting: a
+    policy acts on every later object, and none of them names it.
+    """
+    holding = [item for item in probed if item.priority < priority and item.effect is not Effect.EFFECTIVE]
+    return min(holding, key=lambda item: item.priority, default=None)
+
+
+async def _confirm(
+    item: Probed,
+    dry_run: DryRun,
+    *,
+    now: Callable[[], float],
+    ready_seconds: float,
+) -> None:
+    """Probe one PROBING object once, and move it on."""
+    if item.probe is None or item.since is None:
+        msg = f"{describe(item.key)} is probed before it reached the cluster"
+        raise RuntimeError(msg)
+    try:
+        verdict = await check(item.probe, dry_run)
+    except UnusableProbeError as exc:
+        item.fail(f"has a probe that cannot answer: {exc}")
+        return
+    if verdict is None:
+        item.effect = Effect.EFFECTIVE
+        _log.info("in effect", object=describe(item.key), seconds=f"{now() - item.since:.1f}")
+        return
+    item.verdict = f"probe {item.probe.describe()}: {verdict}"
+    if now() - item.since >= ready_seconds:
+        item.fail(f"did not come into effect within {ready_seconds:.0f}s: {item.verdict}")
+
+
 @dataclass
 class _Pass:
     """What one sweep of the queue accumulated, shared by its workers."""
@@ -675,8 +769,11 @@ class _Pass:
     """Objects held back because something they are `after` is missing.
 
     Never sent to the API server, and never progress: the settle timer
-    ignores them, and `wait_seconds` bounds them instead.
+    ignores them, and `wait_seconds` bounds them instead. Objects a probed
+    object holds never reach a sweep, so they are not here.
     """
+    landed: set[ObjectKey] = field(default_factory=set[ObjectKey])
+    """Objects now on the cluster as rendered: applied, recreated or unchanged."""
     terminal: dict[ObjectKey, Failure] = field(default_factory=dict[ObjectKey, Failure])
     last_error: dict[ObjectKey, str] = field(default_factory=dict[ObjectKey, str])
     diagnoses: dict[ObjectKey, Diagnosis] = field(default_factory=dict[ObjectKey, Diagnosis])
@@ -721,9 +818,11 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     delete: DeleteOne | None = None,
     should_skip: SkipCheck | None = None,
     gate: GateCheck | None = None,
+    dry_run: DryRun | None = None,
     concurrency: int = DEFAULT_CONCURRENCY,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
     wait_seconds: float = DEFAULT_WAIT_SECONDS,
+    ready_seconds: float = DEFAULT_READY_SECONDS,
     allow_recreate: bool = False,
     clock: Callable[[], float] = anyio.current_time,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
@@ -757,13 +856,24 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     retried object may be waiting on a waiter, and the settle window alone
     would cut both off.
 
+    `dry_run` makes probes count (see `readiness.PROBE_ANNOTATION`); without
+    it they are ignored. Each sweep sends only objects that no probed object
+    holds (`holder`), so a probed object is a barrier in the queue. Its probe
+    runs after each sweep until it passes, for up to `ready_seconds` from
+    when the object reached the cluster. Neither the settle window nor
+    `wait_seconds` ends the run while a probe runs. A probed object that
+    fails fails every object it holds, in the same report: a policy that
+    does not act is not fixed by waiting, as a missing `after` dependency
+    may be.
+
     `clock` and `sleep` are arguments so a test of the settle timer costs no
     wall time. `anyio.current_time` and not `time.monotonic`: it is the event
     loop's own clock, the one anyio's timeouts measure against, so a
     `fail_after` wrapped around this agrees with the settle timer rather than
     drifting from it.
     """
-    pending = sort_for_apply(specs, resource_priority or {})
+    priorities = resource_priority or {}
+    pending = sort_for_apply(specs, priorities)
     workers = max(1, concurrency)
     applied = skipped = 0
     terminal: dict[ObjectKey, Failure] = {}
@@ -774,29 +884,47 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
     # different reports, and only the second one says "this is not coming
     # back on its own".
     attempts: Counter[ObjectKey] = Counter()
+    probed = probed_objects(pending, priorities) if dry_run is not None else {}
+    for item in probed.values():
+        if item.effect is Effect.FAILED:
+            terminal[item.key] = Failure(item.key, Disposition.TERMINAL, item.verdict)
+    pending = [spec for spec in pending if object_key(spec) not in terminal]
     last_progress = clock()
     waiting_since: float | None = None
     attempt = 0
 
-    while pending:
+    while pending or _probing(probed):
+        sendable: list[Manifest] = []
+        held: list[Manifest] = []
         for spec in pending:
+            key = object_key(spec)
+            by = holder(probed.values(), priority_of(spec, priorities))
+            if by is None:
+                sendable.append(spec)
+            elif by.effect is Effect.FAILED:
+                terminal[key] = Failure(key, Disposition.TERMINAL, f"held by {describe(by.key)}, which {by.verdict}")
+            else:
+                last_error[key] = f"held until {describe(by.key)} is in effect ({by.verdict})"
+                held.append(spec)
+
+        for spec in sendable:
             attempts[object_key(spec)] += 1
         state = _Pass(
             lock=anyio.Lock(),
             last_progress=last_progress,
-            remaining=Counter(str(spec.get("kind", "?")) for spec in pending),
+            remaining=Counter(str(spec.get("kind", "?")) for spec in sendable),
         )
         # Buffered to the whole sweep and closed before any worker starts, so
         # a send never blocks and `receive_nowait` ends cleanly on EndOfStream.
         # Nothing is put back during a sweep: a retry goes to the next one,
         # which is what keeps the settle timer meaningful.
-        send, receive = anyio.create_memory_object_stream[Manifest](max_buffer_size=len(pending))
-        for spec in pending:
+        send, receive = anyio.create_memory_object_stream[Manifest](max_buffer_size=max(1, len(sendable)))
+        for spec in sendable:
             send.send_nowait(spec)
         send.close()
 
         async with anyio.create_task_group() as tg:
-            for _ in range(workers):
+            for _ in range(min(workers, len(sendable))):
                 tg.start_soon(
                     _worker,
                     receive,
@@ -808,6 +936,7 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
                     allow_recreate,
                     clock,
                 )
+        receive.close()
 
         applied += state.applied
         skipped += state.skipped
@@ -815,22 +944,41 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
         last_error.update(state.last_error)
         diagnoses.update(state.diagnoses)
         last_progress = state.last_progress
-        pending = [*state.retry, *state.waiting]
+        pending = sort_for_apply([*state.retry, *state.waiting, *held], priorities)
 
-        if not pending:
+        moved = False
+        if dry_run is not None:
+            moved, failed = await _advance(
+                probed,
+                landed=state.landed,
+                terminal=state.terminal,
+                dry_run=dry_run,
+                now=clock,
+                ready_seconds=ready_seconds,
+            )
+            for item in failed:
+                terminal[item.key] = Failure(item.key, Disposition.TERMINAL, item.verdict)
+            if moved:
+                last_progress = clock()
+
+        if not pending and not _probing(probed):
             break
+        if moved:
+            # Something it held is free, or fails now: no reason to wait.
+            continue
         now = clock()
+        probing = _probing(probed)
         if state.waiting:
             if waiting_since is None:
                 waiting_since = now
-            if now - waiting_since >= wait_seconds:
+            if now - waiting_since >= wait_seconds and not probing:
                 _log.warning(
                     "what objects are waiting for never appeared",
                     waiting=len(state.waiting),
                     wait_seconds=wait_seconds,
                 )
                 break
-        elif settled(last_progress, now, settle_seconds):
+        elif not probing and settled(last_progress, now, settle_seconds):
             _log.warning(
                 "the queue stopped making progress",
                 remaining=len(pending),
@@ -858,6 +1006,49 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
         skipped=skipped,
         failures=[*terminal.values(), *stuck],
     )
+
+
+def _probing(probed: Mapping[ObjectKey, Probed]) -> bool:
+    return any(item.effect is Effect.PROBING for item in probed.values())
+
+
+async def _advance(  # noqa: PLR0913 -- one caller, and every argument is state that caller holds
+    probed: Mapping[ObjectKey, Probed],
+    *,
+    landed: Iterable[ObjectKey],
+    terminal: Mapping[ObjectKey, Failure],
+    dry_run: DryRun,
+    now: Callable[[], float],
+    ready_seconds: float,
+) -> tuple[bool, list[Probed]]:
+    """Move probed objects on after a sweep, and probe each one on the cluster.
+
+    Returns whether any came into effect or failed, and those that failed by
+    their probe: they applied, so no other failure names them.
+
+    A probed object in `retry` stays UNSENT and is not probed: it is not on
+    the cluster yet. One that failed to apply fails the objects it holds.
+    """
+    before = {key: item.effect for key, item in probed.items()}
+    for key in landed:
+        item = probed.get(key)
+        if item is not None and item.effect is Effect.UNSENT:
+            item.effect = Effect.PROBING
+            item.since = now()
+    for key, failure in terminal.items():
+        item = probed.get(key)
+        if item is not None and item.effect is Effect.UNSENT:
+            item.fail(f"did not apply: {failure.error}")
+    for item in probed.values():
+        if item.effect is Effect.PROBING:
+            await _confirm(item, dry_run, now=now, ready_seconds=ready_seconds)
+    resolved = [
+        item
+        for key, item in probed.items()
+        if item.effect is not before[key] and item.effect in {Effect.EFFECTIVE, Effect.FAILED}
+    ]
+    failed = [item for item in resolved if item.effect is Effect.FAILED and item.key not in terminal]
+    return bool(resolved), failed
 
 
 async def _worker(  # noqa: PLR0913 -- the shared state of one sweep, passed rather than closed over
@@ -907,6 +1098,7 @@ async def _process(  # noqa: PLR0913 -- the shared state of one sweep, passed ra
     if should_skip is not None and await should_skip(spec):
         async with state.lock:
             state.skipped += 1
+            state.landed.add(key)
         _log.debug("unchanged", namespace=key[0], kind=key[1], name=key[2])
         return
 
@@ -961,6 +1153,7 @@ async def _process(  # noqa: PLR0913 -- the shared state of one sweep, passed ra
                 state.retry.append(spec)
                 return
             state.applied += 1
+            state.landed.add(key)
             state.last_progress = clock()
         _log.debug("recreated", namespace=key[0], kind=key[1], name=key[2])
     else:
@@ -977,6 +1170,7 @@ async def _process(  # noqa: PLR0913 -- the shared state of one sweep, passed ra
             return
         async with state.lock:
             state.applied += 1
+            state.landed.add(key)
             state.last_progress = clock()
         _log.debug("applied", namespace=key[0], kind=key[1], name=key[2])
 
@@ -1021,7 +1215,9 @@ async def converge_objects(  # noqa: PLR0913 -- every argument is an injected se
     apply: ApplyOne,
     delete: DeleteOne | None = None,
     after_barrier: Callable[[Sequence[APIObject]], Awaitable[None]] | None = None,
+    dry_run: DryRun | None = None,
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
+    ready_seconds: float = DEFAULT_READY_SECONDS,
     allow_recreate: bool = False,
     keep_going: bool = False,
     clock: Callable[[], float] = anyio.current_time,
@@ -1033,6 +1229,10 @@ async def converge_objects(  # noqa: PLR0913 -- every argument is an injected se
     can wait for the CRDs among them to become Established. This module
     knows nothing about kr8s, and that hook is why it does not have to: the
     wait needs an `APIObject` and the policy here needs none.
+
+    With `dry_run`, a barrier ends only when each of its objects that
+    carries a probe is in effect (`readiness.wait_effective`); one that is
+    not by `ready_seconds` fails the barrier.
 
     Without `keep_going`, a barrier that stops making progress ends the run.
     The barriers are an ordering, so carrying on past an unfinished one
@@ -1058,9 +1258,20 @@ async def converge_objects(  # noqa: PLR0913 -- every argument is an injected se
             clock=clock,
             sleep=sleep,
         )
-        failures.extend(tier_failures)
         if after_barrier is not None:
             await after_barrier(applied)
+        if dry_run is not None:
+            failed_keys = {failure.key for failure in tier_failures}
+            tier_failures.extend(
+                await _wait_tier_effective(
+                    [spec for spec in tier if object_key(spec) not in failed_keys],
+                    dry_run,
+                    ready_seconds=ready_seconds,
+                    clock=clock,
+                    sleep=sleep,
+                ),
+            )
+        failures.extend(tier_failures)
         if tier_failures and not keep_going:
             _log.error(
                 "barrier did not finish; stopping",
@@ -1069,6 +1280,24 @@ async def converge_objects(  # noqa: PLR0913 -- every argument is an injected se
                 remaining_barriers=len(tiers) - index,
             )
             break
+    return failures
+
+
+async def _wait_tier_effective(
+    tier: Sequence[Manifest],
+    dry_run: DryRun,
+    *,
+    ready_seconds: float,
+    clock: Callable[[], float],
+    sleep: Callable[[float], Awaitable[None]],
+) -> list[Failure]:
+    """Wait for each probed object of an applied barrier to be in effect."""
+    failures: list[Failure] = []
+    for spec in tier:
+        try:
+            await wait_object_effective(spec, dry_run, seconds=ready_seconds, clock=clock, sleep=sleep)
+        except (ValueError, NotEffectiveError, UnusableProbeError) as exc:
+            failures.append(Failure(object_key(spec), Disposition.TERMINAL, str(exc)))
     return failures
 
 
@@ -1135,13 +1364,19 @@ __all__ = [
     "RECREATE_OPT_OUT_ANNOTATION",
     "AfterRef",
     "Disposition",
+    "Effect",
     "Failure",
     "GateCheck",
+    "Probed",
     "after_refs",
     "classify",
     "converge_barrier",
     "converge_objects",
+    "describe",
+    "holder",
     "may_recreate",
     "object_key",
+    "priority_of",
+    "probed_objects",
     "settled",
 ]
