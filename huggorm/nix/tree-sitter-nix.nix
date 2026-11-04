@@ -52,4 +52,24 @@ in
     # (pythonRuntimeDepsCheckHook) needs it to read "tree-sitter-nix",
     # matching the upstream nixpkgs override this replaces.
     pname = "tree-sitter-nix";
+    # nixpkgs' `binding.c` does not declare `Py_mod_gil`, so importing it
+    # on 3.14t turns the GIL back on for the whole process. The binding
+    # keeps no state: it returns a pointer to a static. The source is a
+    # symlinkJoin, so the file is a link into the store and is replaced,
+    # not edited.
+    postPatch = ''
+      binding=tree_sitter_nix/binding.c
+      cp --remove-destination "$(readlink -f "$binding")" "$binding"
+      chmod +w "$binding"
+      substituteInPlace "$binding" --replace-fail \
+        'return PyModule_Create(&module);' \
+        'PyObject *m = PyModule_Create(&module);
+      #ifdef Py_GIL_DISABLED
+          if (m != NULL && PyUnstable_Module_SetGIL(m, Py_MOD_GIL_NOT_USED) < 0) {
+              Py_DECREF(m);
+              return NULL;
+          }
+      #endif
+          return m;'
+    '';
   })
