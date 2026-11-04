@@ -72,6 +72,12 @@ def _probe(method: str) -> Any:
 async def collect() -> None:
     import huggorm_generated
 
+    # Python's collector first. On 3.14t a Value made on a worker thread
+    # and dropped here is freed later, on its owner thread (biased
+    # reference counting), so its root outlives the `del`. A collection
+    # merges those queued frees: without it `live_roots` read 1 here and
+    # 0 a moment later, on every run.
+    gc.collect()
     await huggorm_generated.collect_garbage()
 
 
