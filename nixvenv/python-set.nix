@@ -305,9 +305,15 @@ in
     in
     map (
       name:
-      python.pkgs.${name} or (throw "no nixpkgs Python package `${name}`, declared by one of ${
+      (python.pkgs.${name} or (throw "no nixpkgs Python package `${name}`, declared by one of ${
         lib.concatMapStringsSep ", " toString projectRoots
       }")
+      )
+      // {
+        # `mkPythonSet` keys a package by its pname, and the resolver asks
+        # for this name: `seccomp` is pname `libseccomp`.
+        nixvenvDeclaredName = name;
+      }
     ) wanted;
 
   /*
@@ -351,8 +357,21 @@ in
           closure (nixpkgsRoots ++ infraRoots)
         )
       );
+
+      # Declared name -> pname, for each root whose two names differ.
+      aliases = lib.listToAttrs (
+        map (root: lib.nameValuePair root.nixvenvDeclaredName (nameOf root)) (
+          lib.filter (
+            root: root ? nixvenvDeclaredName && root.nixvenvDeclaredName != nameOf root
+          ) nixpkgsRoots
+        )
+      );
     in
-    base.pythonPkgsHostHost.overrideScope (lib.composeExtensions (_final: _prev: lifted) overlay);
+    base.pythonPkgsHostHost.overrideScope (
+      lib.composeExtensions (
+        final: _prev: lifted // lib.mapAttrs (_: pname: final.${pname}) aliases
+      ) overlay
+    );
 
   /*
     One of this repo's own pyproject.toml projects, as a function ready for
