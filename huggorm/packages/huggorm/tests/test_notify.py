@@ -21,6 +21,8 @@ which is what separates this from the `live` marker: those tests need a
 store this one does not.
 """
 
+import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +136,35 @@ async def test_a_saved_file_wakes_the_watcher(state: Any, tmp_path: Any) -> None
             assert await source.next_change() == [outer]
 
         assert await (await source.eval_file(outer)).integer() == 2
+
+
+async def test_the_handler_never_waits_on_the_loop() -> None:
+    """watchdog calls the handler with its observer lock held, and the
+    loop takes that lock in `stop()`, `schedule()` and `unschedule()`.
+    A handler that waits for the loop deadlocks the two: the tests
+    above hung in `close()` 1 run in 3 on 3.14t.
+
+    Here the loop thread BLOCKS, as it does inside `observer.stop()`,
+    while the handler runs on another thread. The blocking wait is the
+    point of the test, and its deadline turns a deadlock into a
+    failure. The event arrives once the loop runs again."""
+    from huggorm.notify import _Forward
+
+    send, receive = anyio.create_memory_object_stream[Any](float("inf"))
+    handler = _Forward(send, asyncio.get_running_loop())
+    event = FileModifiedEvent("/watched/inner.nix")
+    returned = threading.Event()
+
+    def observer() -> None:
+        handler.on_any_event(event)
+        returned.set()
+
+    thread = threading.Thread(target=observer)
+    thread.start()
+    assert returned.wait(DEADLINE), "the handler waited on a loop that was waiting on it"
+    thread.join()
+    with anyio.fail_after(DEADLINE):
+        assert await receive.receive() is event
 
 
 async def test_a_save_by_rename_wakes_it_too(state: Any, tmp_path: Any) -> None:

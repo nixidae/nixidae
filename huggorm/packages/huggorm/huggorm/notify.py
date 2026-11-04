@@ -33,12 +33,11 @@ asyncio-native and which is Linux only; Carl asked for macOS, and for
 nothing past "this path changed". pynixd made the same move for the
 same reason (nixidae/nixidae#719).
 
-The observer runs on its own thread. Its handler hands each event to
-the event loop with `anyio.from_thread.run_sync`, into a memory stream
-that `next_change()` receives from, so nothing polls. That call blocks
-the observer thread until the loop takes the event, so `close()` stops
-the observer and never joins it: a join from the loop would wait on a
-thread that waits on the loop.
+The observer runs on its own thread. Its handler queues each event on
+the event loop with `call_soon_threadsafe`, into a memory stream that
+`next_change()` receives from, so nothing polls. The handler never
+waits on the loop (`_Forward` says why). `close()` stops the observer
+and does not join it.
 
 One gap against inotify: a watched directory that is RENAMED away gives
 no event, because watchdog emits nothing for a non-recursive watch's
@@ -67,14 +66,13 @@ drops. An explicit `sync()` prunes.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import anyio
-from anyio import from_thread
-from anyio.lowlevel import current_token
 from watchdog.events import (
     EVENT_TYPE_CREATED,
     EVENT_TYPE_DELETED,
@@ -86,7 +84,6 @@ from watchdog.events import (
 from watchdog.observers import Observer
 
 if TYPE_CHECKING:
-    from anyio.lowlevel import EventLoopToken
     from anyio.streams.memory import MemoryObjectSendStream
 
     from huggorm_generated import AsyncValue
@@ -107,17 +104,31 @@ CHANGES = frozenset({EVENT_TYPE_MODIFIED, EVENT_TYPE_CREATED, EVENT_TYPE_DELETED
 
 
 class _Forward(FileSystemEventHandler):
-    """Runs on the observer's thread, and only hands events over."""
+    """Runs on the observer's thread, and only hands events over.
 
-    def __init__(self, send: MemoryObjectSendStream[FileSystemEvent], token: EventLoopToken) -> None:
+    It NEVER WAITS ON THE LOOP. watchdog calls it with the observer's
+    lock held, and the loop takes that lock in `stop()`, `schedule()` and
+    `unschedule()`. A handler that waited (`from_thread.run_sync`)
+    deadlocked the two whenever an event raced a `close()` or a `sync()`:
+    1 run in 3 of `test_notify.py` on 3.14t. `call_soon_threadsafe`
+    queues the event and returns. Not a `BlockingPortal`: stopping one
+    needs an await, and `close()` is synchronous."""
+
+    def __init__(self, send: MemoryObjectSendStream[FileSystemEvent], loop: asyncio.AbstractEventLoop) -> None:
         self._send = send
-        self._token = token
+        self._loop = loop
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        # The loop has ended, or the notifier closed its stream: either
-        # way nobody will receive this event, and the thread just ends.
-        with contextlib.suppress(anyio.RunFinishedError, anyio.ClosedResourceError, anyio.BrokenResourceError):
-            from_thread.run_sync(self._send.send_nowait, event, token=self._token)
+        # The loop is closed: nobody will receive this event, and the
+        # thread just ends. `call_soon_threadsafe` says so with a bare
+        # RuntimeError.
+        with contextlib.suppress(RuntimeError):
+            self._loop.call_soon_threadsafe(self._deliver, event)
+
+    def _deliver(self, event: FileSystemEvent) -> None:
+        # The notifier closed its stream: nobody will receive this event.
+        with contextlib.suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
+            self._send.send_nowait(event)
 
 
 class Notifier:
@@ -157,7 +168,7 @@ class Notifier:
     def close(self) -> None:
         """Stop the observer. The watcher is untouched.
 
-        No join: the module docstring says why."""
+        It does not join the observer's thread."""
         self._watches.clear()
         self._send.close()
         self._receive.close()
@@ -196,7 +207,7 @@ class Notifier:
         """The observer, started on first use, from inside the loop:
         the handler needs the loop's token to reach it."""
         if self._observer is None:
-            self._handler = _Forward(self._send, current_token())
+            self._handler = _Forward(self._send, asyncio.get_running_loop())
             self._observer = Observer()
             self._observer.start()
         return self._observer
