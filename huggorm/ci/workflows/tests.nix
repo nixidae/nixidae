@@ -29,6 +29,22 @@ let
       };
     }
   ];
+  # One job per lane of `names`, each building `<attr>."<lane>".suite`.
+  perLane = attr: names: {
+    runs-on = "ubuntu-24.04";
+    timeout-minutes = 120;
+    strategy = {
+      fail-fast = false;
+      matrix.lane = names;
+    };
+    env.LANE = "\${{ matrix.lane }}";
+    steps = setup ++ [
+      {
+        name = "Build the lane's suite";
+        run = ''nix build --file . "${attr}.\"$LANE\".suite" --no-link --print-build-logs'';
+      }
+    ];
+  };
 in
 {
   name = "tests";
@@ -38,37 +54,8 @@ in
     push = null;
   };
 
-  jobs.suite = {
-    runs-on = "ubuntu-24.04";
-    timeout-minutes = 120;
-    strategy = {
-      fail-fast = false;
-      matrix.lane = lanes;
-    };
-    env.LANE = "\${{ matrix.lane }}";
-    steps = setup ++ [
-      {
-        name = "Build the lane's suite";
-        run = ''nix build --file . "lanes.\"$LANE\".suite" --no-link --print-build-logs'';
-      }
-    ];
-  };
-
-  jobs.free-threaded = {
-    runs-on = "ubuntu-24.04";
-    timeout-minutes = 120;
-    strategy = {
-      fail-fast = false;
-      matrix.lane = freeThreadedLanes;
-    };
-    env.LANE = "\${{ matrix.lane }}";
-    steps = setup ++ [
-      {
-        name = "Build the lane's suite";
-        run = ''nix build --file . "freeThreadedLanes.\"$LANE\".suite" --no-link --print-build-logs'';
-      }
-    ];
-  };
+  jobs.suite = perLane "lanes" lanes;
+  jobs.free-threaded = perLane "freeThreadedLanes" freeThreadedLanes;
 
   jobs.check = {
     runs-on = "ubuntu-24.04";
