@@ -12,20 +12,33 @@
   # runtime library, the shadow-memory rules and the set of libraries to
   # instrument all follow from which sanitizer this is.
   name,
-  # The TSAN suppressions file. The free-threaded lane adds CPython's own.
-  suppressions ? ./tsan-suppressions.txt,
-  # False: TSAN reports nothing in the BUILD of what loads the bindings.
-  # The free-threaded lane builds on an uninstrumented 3.14t, whose
-  # setuptools compiles on threads that really run at once, and TSAN
-  # reports races inside CPython's own locking it cannot see (its biased
-  # reference counting, `dictresize`): status 66, before any test. The
-  # suite runs on the instrumented interpreter and reports there.
-  reportInBuild ? true,
+  concatText,
+  # `nix/free-threaded.nix`'s set, for TSAN on a free-threaded lane, or null.
+  #
+  # Without the GIL, Python code runs on two threads at once, so three
+  # things change. TSAN reads CPython's own suppressions beside huggorm's,
+  # in one file, because it reads one. The BUILD reports nothing: it runs
+  # on the uninstrumented 3.14t, whose setuptools compiles on threads that
+  # really run at once, and TSAN reported races inside CPython's locking
+  # it cannot see (its biased reference counting, `dictresize`), status
+  # 66 before any test. And the suite runs on `tsanPython` instead, which
+  # sees them.
+  freeThreaded ? null,
 }:
 let
   isThread = name == "thread";
   isAddress = name == "address";
   isUndefined = name == "undefined";
+
+  suppressions =
+    if freeThreaded == null then
+      ./tsan-suppressions.txt
+    else
+      concatText "tsan-suppressions-free-threading" [
+        ./tsan-suppressions.txt
+        ./tsan-suppressions-free-threading.txt
+        freeThreaded.tsanSuppressions
+      ];
 
   # ThreadSanitizer and AddressSanitizer both keep shadow memory, so the
   # runtime must be loaded before any other allocation happens in the process
@@ -193,8 +206,15 @@ let
     };
 
 in
+assert lib.assertMsg (
+  freeThreaded == null || isThread
+) "sanitizer.nix: only TSAN takes `freeThreaded`, not ${name}";
 {
   inherit name runtime;
+  # Whether this variant is for a free-threaded lane, and the interpreter
+  # its suite runs on there. `mkLane` reads both.
+  freeThreaded = freeThreaded != null;
+  testPython = freeThreaded.tsanPython or null;
   # The attribute-name suffix each variant gets in `lanes`, and therefore
   # the job name in nanopynix's CI.
   suffix =
@@ -231,7 +251,7 @@ in
   buildEnv =
     lib.optionalAttrs (runtime != null) { LD_PRELOAD = runtime; }
     // lib.optionalAttrs isAddress { ASAN_OPTIONS = "detect_leaks=0"; }
-    // lib.optionalAttrs (isThread && !reportInBuild) { TSAN_OPTIONS = "report_bugs=0"; };
+    // lib.optionalAttrs (freeThreaded != null) { TSAN_OPTIONS = "report_bugs=0"; };
 
   # Shell text that exports what a test process under this variant needs.
   # huggorm's suite and nanopynix's runner both source it, so the two run

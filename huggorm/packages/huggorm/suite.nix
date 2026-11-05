@@ -34,13 +34,16 @@
   nixEnv,
   sanitizer,
   ruffConfig,
-  # The interpreter pytest runs on, over `venv`'s packages; null for
-  # `python3`'s. The `-ft-tsan` lane's TSAN-instrumented CPython.
+  # The interpreter the venv runs, over `python3`'s packages, or null for
+  # `python3` itself: the `-ft-tsan` lanes' TSAN-instrumented CPython.
   testPython,
+  # The lane runs without the GIL.
+  freeThreaded,
 }:
 let
   venv = nixvenv {
     python = python3;
+    interpreter = if testPython == null then python3 else testPython;
     packages =
       ps:
       [
@@ -61,30 +64,6 @@ let
     executables = [ "pytest" ];
   };
   python = "${venv}/lib/venv/bin/python";
-  # `venv` with `testPython` as its interpreter: the same site-packages,
-  # through a `pyvenv.cfg` of its own, so no PYTHONPATH
-  # (nixidae/nixidae#1046).
-  testVenv =
-    if testPython == null then
-      venv
-    else
-      runCommand "${venv.name}-on-${testPython.name}" { } ''
-        exe=${testPython}/bin/${testPython.executable}
-        mkdir -p $out/bin $out/lib/venv/bin
-        ln -s ${venv}/lib/venv/lib $out/lib/venv/lib
-        for name in python python3 ${testPython.executable}; do
-          ln -s "$exe" "$out/lib/venv/bin/$name"
-        done
-        cat > $out/lib/venv/pyvenv.cfg <<EOF
-        home = ${testPython}/bin
-        include-system-site-packages = false
-        version = ${testPython.version}
-        executable = $exe
-        EOF
-        substitute ${venv}/lib/venv/bin/pytest $out/bin/pytest \
-          --replace-fail ${venv}/lib/venv/bin/python $out/lib/venv/bin/python
-        chmod +x $out/bin/pytest
-      '';
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
@@ -149,7 +128,7 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
     # py-tree-sitter declares that it needs it (tree-sitter/py-tree-sitter#458),
     # and the first `huggorm.fod` import would turn it on for every test
     # after. `test_free_threading.py` drops this to see the declarations.
-    + lib.optionalString (lib.hasSuffix "t" python3.libPrefix) ''
+    + lib.optionalString freeThreaded ''
       export PYTHON_GIL=0
     ''
     + ''
@@ -158,7 +137,7 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       # store. The live half runs from the devshell: nix run --file . internal.test
       # (nixidae/nixidae#574). The `pytest` script, not `python -m`, so the
       # tree's `huggorm/` stays off sys.path and the installed one is tested.
-      ${testVenv}/bin/pytest -p no:cacheprovider -m "not live"
+      ${venv}/bin/pytest -p no:cacheprovider -m "not live"
       touch $out
     ''
   )

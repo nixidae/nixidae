@@ -20,79 +20,8 @@ let
     pythonParts = python3: python3.pkgs.callPackage ./nix/python-parts.nix { };
     inherit (pythonParts python3) huggorm-dsl huggorm-decl huggorm-gen;
 
-    /**
-      `python3` with the GIL disabled, for the `-ft` lanes.
-
-      Its packages skip their own tests: boost.python, the tree-sitter
-      grammars, asgiref and defusedxml fail theirs on 3.14t, and huggorm's
-      suite is the test that counts here.
-
-      nanobind's CMake asks FindPython for a GIL interpreter unless told
-      otherwise, and refuses 3.14t with "Wrong ABI". The fourth field of
-      `Python_FIND_ABI` is the free-threaded one.
-    */
-    freeThreadedPython = python3.override {
-      self = freeThreadedPython;
-      pythonAttr = "${python3.pythonAttr}FreeThreading";
-      enableGIL = false;
-      packageOverrides =
-        _: super:
-        let
-          untested = lib.mapAttrs (
-            _: p:
-            if lib.isDerivation p && p ? overridePythonAttrs then
-              p.overridePythonAttrs { doCheck = false; }
-            else
-              p
-          ) super;
-        in
-        untested
-        // {
-          nanobind = untested.nanobind.overridePythonAttrs (old: {
-            cmakeFlags = (old.cmakeFlags or [ ]) ++ [ "-DPython_FIND_ABI=ANY;ANY;ANY;ON" ];
-          });
-        };
-    };
-
-    /**
-      The interpreter of `freeThreadedPython`, built
-      `--with-thread-sanitizer`. The `-ft-tsan` lane runs its suite on it
-      and builds everything on `freeThreadedPython`.
-
-      Without the GIL, Python code runs on two threads at once, and TSAN
-      sees none of CPython's own locks unless CPython is instrumented: the
-      uninstrumented 3.14t reported races in its own biased reference
-      counting and in `dictresize`.
-
-      Only the interpreter. A package set over it builds every package's
-      tools on it, about 300 packages under TSAN, and an extension built
-      against it takes `-fsanitize=thread` from its sysconfig, which the
-      plain 3.14t cannot load ("cannot allocate memory in static TLS
-      block"). The ABI is the same `t`, so it loads what the plain one
-      built. `overrideAttrs`: the package has no argument for a configure
-      flag. No LTO: CPython's TSAN builds do not use it.
-    */
-    freeThreadedTsanPython =
-      (python3.override {
-        self = freeThreadedTsanPython;
-        enableGIL = false;
-        enableLTO = false;
-      }).overrideAttrs
-        (old: {
-          configureFlags = old.configureFlags ++ [ "--with-thread-sanitizer" ];
-          # Its own build runs it.
-          env = (old.env or { }) // {
-            TSAN_OPTIONS = "report_thread_leaks=0 suppressions=${cpythonTsanSuppressions}";
-          };
-        });
-
-    /**
-      CPython's TSAN suppressions for a free-threaded build, from its source:
-      the ones CPython's own CI uses.
-    */
-    cpythonTsanSuppressions = pkgs.runCommand "cpython-tsan-suppressions-free-threading" { } ''
-      tar --extract --to-stdout --wildcards --file ${python3.src} '*/Tools/tsan/suppressions_free_threading.txt' > "$out"
-    '';
+    # The interpreters of the free-threaded lanes.
+    freeThreadedPythons = pkgs.callPackage ./nix/free-threaded.nix { inherit python3; };
     versions = import ./nix/versions.nix { inherit pkgs sources; };
     # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
     inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
@@ -150,15 +79,10 @@ let
     # `nix/sanitizer.nix` gives each one's rules.
     sanitizers = {
       tsan = pkgs.callPackage ./nix/sanitizer.nix { name = "thread"; };
-      # huggorm's suppressions and CPython's, in one file: TSAN reads one.
+      # TSAN on a free-threaded lane: `nix/sanitizer.nix` says what changes.
       tsanFreeThreaded = pkgs.callPackage ./nix/sanitizer.nix {
         name = "thread";
-        suppressions = pkgs.concatText "tsan-suppressions-free-threading" [
-          ./nix/tsan-suppressions.txt
-          ./nix/tsan-suppressions-free-threading.txt
-          cpythonTsanSuppressions
-        ];
-        reportInBuild = false;
+        freeThreaded = freeThreadedPythons;
       };
       ubsan = pkgs.callPackage ./nix/sanitizer.nix { name = "undefined"; };
       asan = pkgs.callPackage ./nix/sanitizer.nix { name = "address"; };
@@ -207,13 +131,10 @@ let
       : The collector libexpr and the bindings link, and huggorm's patches
         for it. A fork that pins its own collector states both.
 
-      `python`
-      : The interpreter the bindings, huggorm and the suite build for.
-        `freeThreadedPython` makes a free-threaded lane.
-
-      `testPython`
-      : The interpreter the suite runs on, in place of `python`'s, over the
-        same packages. It must have `python`'s ABI. Null runs on `python`.
+      `freeThreaded`
+      : Builds on `freeThreadedPythons.python`. A TSAN lane then needs
+        `sanitizers.tsanFreeThreaded`, whose suite runs on the instrumented
+        interpreter.
     */
     mkLane =
       {
@@ -228,8 +149,7 @@ let
         gc ? true,
         sanitizer ? null,
         wheels ? true,
-        python ? python3,
-        testPython ? null,
+        freeThreaded ? false,
       }:
       # `majorMinor`, because `2.36pre...` sorts BEFORE `2.36` in
       # `versionAtLeast` (nixidae/nixidae#592).
@@ -243,9 +163,13 @@ let
         The ${sanitizer.name} sanitizer needs `gc = false`: libexpr's meson
         refuses the collector with it, after a rebuild of the whole closure.
       '';
+      assert lib.assertMsg
+        ((sanitizer.freeThreaded or false) == (freeThreaded && sanitizer.name or "" == "thread"))
+        ''
+          A free-threaded lane under TSAN takes `sanitizers.tsanFreeThreaded`,
+          and only such a lane does: TSAN on 3.14t needs CPython built for it.
+        '';
       let
-        python3 = python;
-        inherit (pythonParts python3) huggorm-dsl huggorm-decl huggorm-gen;
         # One boost for every component that takes it: the ASAN boost
         # changes the layout of a type they share.
         ucontextBoost = lib.optionalAttrs (sanitizer.needsUcontextBoost or false) {
@@ -258,14 +182,14 @@ let
           inherit
             gc
             sanitizer
-            huggorm-dsl
-            huggorm-decl
-            huggorm-gen
             nixvenv
-            testPython
+            freeThreaded
             ;
-          inherit python3;
-          python3Packages = python3.pkgs;
+          python3 = if freeThreaded then freeThreadedPythons.python else python3;
+          python3Packages = self.python3.pkgs;
+          inherit (pythonParts self.python3) huggorm-dsl huggorm-decl huggorm-gen;
+          # The interpreter the suite runs on, over `python3`'s packages.
+          testPython = sanitizer.testPython or null;
 
           nixComponents =
             let
@@ -347,11 +271,11 @@ let
                   nativeBuildInputs = [
                     pkgs.ruff
                     (nixvenv {
-                      python = python3;
+                      python = self.python3;
                       packages = ps: [
-                        huggorm-gen
-                        huggorm-decl
-                        huggorm-dsl
+                        self.huggorm-gen
+                        self.huggorm-decl
+                        self.huggorm-dsl
                         ps.pytest
                       ];
                       executables = [ "pytest" ];
@@ -415,7 +339,7 @@ let
           huggorm-generated = self.callPackage ./packages/huggorm-generated { };
           # The `fod` extra of huggorm reads Nix source with it.
           tree-sitter-nix = self.callPackage ./nix/tree-sitter-nix.nix {
-            pythonPackages = python3.pkgs;
+            pythonPackages = self.python3.pkgs;
             # `path` and `tree-sitter` in a Python set are PyPI packages.
             nixpkgsPath = pkgs.path;
             treeSitterCli = pkgs.tree-sitter;
@@ -441,7 +365,7 @@ let
               + "/ruff.toml";
           };
           ourPython = nixvenv {
-            python = python3;
+            python = self.python3;
             packages =
               ps:
               [
@@ -450,9 +374,9 @@ let
                 self.huggorm
                 # The generator imports them, so the interpreter every check
                 # runs against has to have them.
-                huggorm-gen
-                huggorm-decl
-                huggorm-dsl
+                self.huggorm-gen
+                self.huggorm-decl
+                self.huggorm-dsl
                 # pytest-timeout because a hung test is the failure this
                 # suite is most exposed to - a server that never came up, or
                 # a native crash that took a thread with it.
@@ -585,54 +509,49 @@ let
       };
     };
 
+    # Each Nix in `nixes` with each of `variants`, as `<version>-<suffix>`.
+    lanesFor =
+      variants: nixes:
+      lib.concatMapAttrs (
+        version: attrs:
+        lib.mapAttrs' (
+          suffix: extra:
+          lib.nameValuePair (if suffix == "" then version else "${version}-${suffix}") (
+            mkLane (attrs // extra)
+          )
+        ) variants
+      ) nixes;
+
     # Every lane, by the name nanopynix's CI uses: each Nix in
     # `nix/versions.nix` with each variant.
-    lanes = lib.listToAttrs (
-      lib.concatLists (
-        lib.mapAttrsToList (
-          version: attrs:
-          lib.mapAttrsToList (
-            suffix: extra:
-            lib.nameValuePair (if suffix == "" then version else "${version}-${suffix}") (
-              mkLane (attrs // extra)
-            )
-          ) variants
-        ) nixes
-      )
-    );
+    lanes = lanesFor variants nixes;
 
-    # Free-threaded Python, for the default Nix only: the Python side does
-    # not change with the Nix, and each lane builds ~300 packages.
+    # Free-threaded lanes, for the default Nix and for Determinate Nix. The
+    # Python side does not change with the Nix; Determinate's evaluator
+    # threads call Python primops (`builtins.parallel`), which a GIL runs one
+    # at a time and 3.14t runs at once.
     #
-    # Not in `lanes`: nanopynix builds a scope over each of those with its
-    # own GIL interpreter, so a free-threaded lane there would rebuild the
+    # Not in `lanes`: nanopynix builds a scope over each of those with its own
+    # GIL interpreter, so a free-threaded lane there would rebuild the
     # bindings with the GIL and keep only the name.
-    #
-    # And for Determinate Nix: its evaluator threads call Python primops
-    # (`builtins.parallel`), which a GIL runs one at a time and 3.14t runs
-    # at once.
-    freeThreadedLanes = lib.listToAttrs (
-      lib.concatMap
-        (version: [
-          (lib.nameValuePair "${version}-ft" (mkLane (nixes.${version} // { python = freeThreadedPython; })))
-          (lib.nameValuePair "${version}-ft-tsan" (
-            mkLane (
-              nixes.${version}
-              // {
-                python = freeThreadedPython;
-                testPython = freeThreadedTsanPython;
-                sanitizer = sanitizers.tsanFreeThreaded;
-              }
-            )
-          ))
-        ])
+    freeThreadedLanes =
+      lanesFor
+        {
+          ft.freeThreaded = true;
+          ft-tsan = {
+            freeThreaded = true;
+            sanitizer = sanitizers.tsanFreeThreaded;
+          };
+        }
         (
-          lib.filter (version: nixes ? ${version}) [
-            defaultLane
-            "determinate"
-          ]
-        )
-    );
+          lib.filterAttrs (
+            version: _:
+            lib.elem version [
+              defaultLane
+              "determinate"
+            ]
+          ) nixes
+        );
     inherit
       (lanes.${defaultLane}
         or (throw "huggorm: nixVersions.latest is ${pkgs.nixVersions.latest.version}, and nix/versions.nix has no lane ${defaultLane}")
