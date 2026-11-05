@@ -16,77 +16,8 @@ let
   internal = rec {
     inherit pkgs;
     inherit (pkgs) lib;
-    # The LANGUAGE a declaration is written in, and the reader that
-    # parses one. No declaration and no emitter is in here, which is
-    # what lets the two below depend on it without depending on each
-    # other.
-    #
-    # A function of the interpreter, because a lane may build for its own:
-    # the `-ft` lanes install these into a 3.14t venv, whose site-packages
-    # is `python3.14t`.
-    pythonParts = python3: rec {
-      huggorm-dsl = python3.pkgs.buildPythonPackage {
-        pname = "huggorm-dsl";
-        version = "0.1.0";
-        pyproject = true;
-        src = lib.fileset.toSource {
-          root = ./packages/huggorm-dsl;
-          fileset = lib.fileset.unions [
-            ./packages/huggorm-dsl/LICENSE
-            ./packages/huggorm-dsl/pyproject.toml
-            ./packages/huggorm-dsl/src
-          ];
-        };
-        build-system = [ python3.pkgs.setuptools ];
-        pythonImportsCheck = [ "huggorm_dsl" ];
-      };
-      # The DECLARATIONS: one document per Nix class, and the lists
-      # saying which of them owns a compiled module. Data, plus the
-      # statement of what data there is.
-      huggorm-decl = python3.pkgs.buildPythonPackage {
-        pname = "huggorm-decl";
-        version = "0.1.0";
-        pyproject = true;
-        src = lib.fileset.toSource {
-          root = ./packages/huggorm-decl;
-          fileset = lib.fileset.unions [
-            ./packages/huggorm-decl/LICENSE
-            ./packages/huggorm-decl/pyproject.toml
-            ./packages/huggorm-decl/src
-          ];
-        };
-        build-system = [ python3.pkgs.setuptools ];
-        dependencies = [ huggorm-dsl ];
-        pythonImportsCheck = [ "huggorm_decl" ];
-      };
-      # The EMITTERS, both backends in one package. `cppgen` fills
-      # huggorm_bindings, `pygen` fills huggorm_generated, and `payload`
-      # is the hand-written Python pygen copies into its output.
-      #
-      # One package because they read ONE IR from one reader. A boundary
-      # between them would say the split is architectural, and it is not.
-      huggorm-gen = python3.pkgs.buildPythonPackage {
-        pname = "huggorm-gen";
-        version = "0.1.0";
-        pyproject = true;
-        # Not `tests/`: `generator-tests` runs them, and a test edit must
-        # not rebuild every package downstream of the generator.
-        src = lib.fileset.toSource {
-          root = ./packages/huggorm-gen;
-          fileset = lib.fileset.unions [
-            ./packages/huggorm-gen/LICENSE
-            ./packages/huggorm-gen/pyproject.toml
-            ./packages/huggorm-gen/src
-          ];
-        };
-        build-system = [ python3.pkgs.setuptools ];
-        dependencies = [
-          huggorm-dsl
-          huggorm-decl
-        ];
-        pythonImportsCheck = [ "huggorm_gen.cppgen" ];
-      };
-    };
+    # huggorm-dsl, -decl and -gen for one interpreter's package set.
+    pythonParts = python3: python3.pkgs.callPackage ./nix/python-parts.nix { };
     inherit (pythonParts python3) huggorm-dsl huggorm-decl huggorm-gen;
 
     /**
