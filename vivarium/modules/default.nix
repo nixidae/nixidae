@@ -535,10 +535,10 @@ in
         description = ''
           Store paths to register beyond the guest's own system closure.
 
-          `mkTest` already adds everything in its `settings` to this, so a
-          test that hands its guests a store path that way needs nothing
-          here.  This is for a path that reaches a guest by some other
-          route.
+          `mkTest`'s `settings` need nothing here: the runner registers
+          what they name once the guest is up, so an edit to a test's
+          source does not rebuild the root image.  This is for a path that
+          reaches a guest by some other route.
 
           Each one becomes a dependency of the guest, which is also what
           puts it in the build sandbox in the first place.

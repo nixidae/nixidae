@@ -457,6 +457,16 @@ rec {
       );
 
       /*
+        What the settings name, registered by the runner once a guest is up
+        (`MachineSpec.settings_closure`). Not in a guest's own database: the
+        settings say what a test runs, often a source tree, and a root image
+        that held them rebuilt for every edit (nixidae/nixidae#1182).
+      */
+      settingsClosure = lib.optionalAttrs (checkedConfig.settings != { }) {
+        settingsClosure = "${pkgs.closureInfo { rootPaths = [ settingsFile ]; }}";
+      };
+
+      /*
         Every guest, evaluated, by name. Each one receives all of them as
         the module argument `nodes`, as in nixos-test, so a guest may read
         static facts about its peers: a name, an address, a secret written
@@ -476,7 +486,6 @@ rec {
             vivarium.sshPort = lib.mkDefault (4325 + index);
             vivarium.backend = lib.mkDefault backend;
             vivarium.index = index;
-            vivarium.nixDatabase.extraRoots = lib.optional (checkedConfig.settings != { }) "${settingsFile}";
           })
         ) (lib.attrNames checkedConfig.nodes)
       );
@@ -549,6 +558,9 @@ rec {
                 seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
               in
               machineSpec machine
+              // lib.optionalAttrs (
+                machine.vivarium.nixDatabase.enable && machine.vivarium.appliance == null && seesStore
+              ) settingsClosure
               //
                 lib.optionalAttrs
                   (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore)

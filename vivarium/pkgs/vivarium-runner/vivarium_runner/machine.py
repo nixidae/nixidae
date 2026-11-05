@@ -171,6 +171,7 @@ class MachineSpecJson(TypedDict, total=False):
     address: str
     store: str
     storePaths: str
+    settingsClosure: str
     boot: BootSpec
     toplevel: str
     configurations: dict[str, str]
@@ -275,6 +276,11 @@ class MachineSpec:
     store_paths: Path | None = None
     """A closureInfo's `store-paths`: the guest's closure, and all its view
     holds."""
+    settings_closure: Path | None = None
+    """A closureInfo of `mkTest`'s settings, which the runner adds to the view
+    and registers once the guest is up. Not in the root image: the settings
+    name what a test runs, often a source tree, and in the image every edit
+    rebuilt every guest root (nixidae/nixidae#1182)."""
     boot: BootSpec = field(default_factory=BootSpec)
     """What a QEMU guest boots: kernel, initrd, toplevel and cmdline, as
     ``modules/qemu.nix`` worked them out.  Empty under UML, which boots the
@@ -326,6 +332,7 @@ class MachineSpec:
             address=data.get("address"),
             store=data.get("store", "/nix"),
             store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
+            settings_closure=Path(data["settingsClosure"]) if data.get("settingsClosure") else None,
             boot=data.get("boot", {}),
             toplevel=data.get("toplevel"),
             configurations=data.get("configurations", {}),
@@ -551,21 +558,36 @@ class Machine:
             return
 
         self._rundir = Path(tempfile.mkdtemp(prefix=f"uml-{self.name}-"))
-        if self.spec.store_paths is not None and self.spec.backend == "krun":
-            self.store_allowlist = self._rundir / "store-allowlist"
-            shutil.copyfile(self.spec.store_paths, self.store_allowlist)
-        elif self.spec.store_paths is not None:
-            view = storeview.build(
-                self._rundir / "nix",
-                storeview.read_paths(self.spec.store_paths),
-                writable=self.spec.backend == "container",
-            )
-            self.spec = replace(self.spec, store=str(view))
+        if self.spec.store_paths is not None:
+            # The two closures share most of their paths, and a view takes each once.
+            paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._settings_paths()]))
+            if self.spec.backend == "krun":
+                self.store_allowlist = self._rundir / "store-allowlist"
+                self.store_allowlist.write_text("".join(f"{path}\n" for path in paths))
+            else:
+                view = storeview.build(self._rundir / "nix", paths, writable=self.spec.backend == "container")
+                self.spec = replace(self.spec, store=str(view))
         # The session closes its copies of the segment fds once every guest
         # has started, so a guest that boots again needs its own.
         if self.backend.reboots:
             self._lan_kept = {nic: os.dup(fd) for nic, fd in self.lan_fds.items()}
         await self._boot(None)
+        if self.spec.settings_closure is not None:
+            await self._load_registration(str(self.spec.settings_closure))
+
+    def _settings_paths(self) -> list[str]:
+        info = self.spec.settings_closure
+        return [] if info is None else [*storeview.read_paths(info / "store-paths"), str(info)]
+
+    async def _load_registration(self, info: str) -> None:
+        """Register a closureInfo in the guest's Nix database; a cloud image guest has none."""
+        # A VM's overlay keeps a negative dentry for a name looked up before
+        # it existed. A container has no overlay here, and may not drop caches.
+        drop = "" if self.spec.backend == "container" else "echo 2 > /proc/sys/vm/drop_caches && "
+        load = "true" if self.spec.boot.get("image") else f"nix-store --load-db < {shlex.quote(info)}/registration"
+        rc, out = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
+        if rc != 0:
+            raise MachineError(f"[{self.name}] loading {info} failed (exit {rc}):\n{out}")
 
     async def _boot(self, boot: BootSpec | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
@@ -1207,16 +1229,7 @@ class Machine:
             mounts = [path for path in added if not os.path.islink(path)]
             if is_container and mounts:
                 await self._attach(self._rundir, mounts)
-        # A VM's overlay keeps a negative dentry for a name looked up before
-        # it existed. A container has no overlay here, and may not drop caches.
-        drop = "" if is_container else "echo 2 > /proc/sys/vm/drop_caches && "
-        load = "true" if self.spec.boot.get("image") else f"nix-store --load-db < {shlex.quote(info)}/registration"
-        rc, out = await self.execute(
-            f"{drop}{load}",
-            label=f"add_closure {Path(info).name}",
-        )
-        if rc != 0:
-            raise MachineError(f"[{self.name}] loading {info} failed (exit {rc}):\n{out}")
+        await self._load_registration(info)
         return added
 
     async def _attach(self, rundir: Path, paths: list[str]) -> None:
