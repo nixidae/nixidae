@@ -1232,11 +1232,16 @@ class Emitter:
         on an affine class is a call on one state, so it waits the same
         way. The body runs in a lambda, so each `return` in it stays a
         return of the method. Not a guard: the wait rethrows a failed
-        write, and a destructor must not throw."""
+        write, and a destructor must not throw.
+
+        A call that releases the GIL (`waits`) can evaluate unless it is
+        `@inert`, and `settled<true>` marks its state so: after that,
+        `register_primop` refuses (`EvalCore::evaluated` says why)."""
         if not _settles(cls):
             return body
+        evaluates = "<true>" if waits(cls, m) and not m.inert else ""
         return [
-            f"{INDENT * 4}return {NAMESPACE}::settled({SELF}, [&](){self._returns(m)} {{",
+            f"{INDENT * 4}return {NAMESPACE}::settled{evaluates}({SELF}, [&](){self._returns(m)} {{",
             *body,
             f"{INDENT * 4}}});",
         ]

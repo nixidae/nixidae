@@ -773,6 +773,9 @@ class MethodModel:
     blocks: bool = False
     # Declared `@instant`: the binding keeps the GIL on a blocking class.
     instant: bool = False
+    # Declared `@inert`: a call that evaluates nothing, so it does not
+    # mark its state as evaluated.
+    inert: bool = False
     # The C++ member function it binds, when it is not `name`.
     cxx_name: str = ""
     # The C++ it carries, verbatim, or None.
@@ -821,6 +824,7 @@ class MethodModel:
             _clean(m.doc),
             m.blocks,
             instant=m.instant,
+            inert=m.inert,
             cxx_name=m.cxx_name,
             cxx_body=m.cxx_body,
             reads=m.reads,

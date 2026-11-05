@@ -417,6 +417,44 @@ def test_a_primop_on_an_evaluator_thread_frees_what_it_drops(parallel_state: Any
     assert len(died) == 100
 
 
+def test_a_primop_is_refused_after_an_evaluation(state: Any) -> None:
+    """`addPrimOp` writes and re-sorts `builtins` in place, and Determinate
+    Nix's evaluator threads read it, with work `builtins.parallel` started
+    that outlives the call: TSAN reported `attr-set.hh:346` against `:357`.
+    Nix's C API never adds a primop to a live state, so neither does
+    this, on any Nix. Building values is no evaluation."""
+    state.make_int(1)
+    state.register_primop("before", 1, lambda v: v)
+    assert state.eval_expr("builtins.before 7").integer() == 7
+    with pytest.raises(RuntimeError, match="before its first evaluation"):
+        state.register_primop("after", 1, lambda v: v)
+
+
+@pytest.mark.skipif(not DETERMINATE, reason="parallel evaluation is Determinate Nix's")
+def test_making_primops_while_evaluator_threads_call_primops(parallel_state: Any) -> None:
+    """`builtins.parallel` returns while its calls still run on the
+    evaluator threads, so the state's own thread can make a primop while
+    they look one up. Making one can grow the table the lookup reads. A
+    GIL ordered the two; without one, the table's lock does. Under TSAN
+    this is the race that lock answers."""
+    calls: list[int] = []
+
+    def drop(v: Any) -> Any:
+        calls.append(1)
+        return parallel_state.make_int(5)
+
+    parallel_state.register_primop("drop", 1, drop)
+    parallel_state.eval_expr("builtins.parallel (builtins.genList (x: builtins.drop x) 400) null")
+    # 63 more: the table reallocates at 2, 4, 8, 16, 32 and 64.
+    made = [parallel_state.make_primop(f"late{i}", 1, drop) for i in range(63)]
+    deadline = time.monotonic() + 30
+    while len(calls) < 400 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert len(calls) == 400
+    assert made[62](parallel_state.make_int(1)).integer() == 5
+
+
 def test_the_callable_still_works_while_the_state_is_reachable() -> None:
     """The fix moved the reference; it must not have weakened it.
 

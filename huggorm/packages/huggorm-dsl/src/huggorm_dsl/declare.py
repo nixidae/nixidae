@@ -1372,6 +1372,18 @@ def instant() -> None:
     transitions to save nothing."""
 
 
+@flag(Target.METHOD)
+def inert() -> None:
+    """This call on an affine class evaluates nothing, though it may wait.
+
+    Every other call that releases the GIL counts as an evaluation: it
+    marks the state, and `register_primop` refuses after that. A
+    builder (`make_int`) or a setting evaluates nothing, and without
+    this a primop registered after one was refused. The default is the
+    loud side: a call that wrongly carried this would let a primop
+    land while Determinate Nix's evaluator threads read `builtins`."""
+
+
 @marker(Target.METHOD, Target.FREE, field="policy")
 def threading(policy: Literal["pool"]) -> Threading:
     """Opt one FREE function into the generated surface, under `policy`.

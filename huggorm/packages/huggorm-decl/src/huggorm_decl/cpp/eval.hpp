@@ -130,11 +130,17 @@ nix::ValueType value_type(const V & v)
  * every call (`nix_api_expr.cc`), and the emitted binding of every
  * method on a state's objects calls this. A failed write raises here.
  * Upstream writes in place, and has nothing to wait for.
+ *
+ * `Evaluates`: the call can evaluate, so it marks the state as having
+ * evaluated before `body` runs. The emitter sets it for a call that
+ * releases the GIL; an `@instant` call does not evaluate.
  */
-template <typename Self, typename Body>
+template <bool Evaluates = false, typename Self, typename Body>
 std::invoke_result_t<Body> settled(Self & self, Body && body)
 {
     static_assert(requires { self.state(); }, "an affine class reaches its state with state()");
+    if constexpr (Evaluates)
+        self.eval_core().mark_evaluated();
     if constexpr (requires { self.state().waitForAllPaths(); }) {
         if constexpr (std::is_void_v<std::invoke_result_t<Body>>) {
             body();
@@ -459,6 +465,18 @@ public:
     void set_owner(const Evaluator * owner) { owner_.store(owner, std::memory_order_release); }
 
     /**
+     * Whether a call on this state's objects could have evaluated. After
+     * one, `register_primop` refuses: `addPrimOp` writes and re-sorts
+     * `builtins` in place, and Determinate Nix's evaluator threads read
+     * it, with work that `builtins.parallel` started and that outlives
+     * the call. TSAN: `attr-set.hh:346` against `:357`, with a GIL and
+     * without. Nix's C API registers a primop only for states made
+     * after the call.
+     */
+    bool evaluated() const { return evaluated_.load(std::memory_order_relaxed); }
+    void mark_evaluated() const { evaluated_.store(true, std::memory_order_relaxed); }
+
+    /**
      * Drops the callables with the GIL HELD, before anything else.
      *
      * An `nb::object` going out of scope decrements a Python
@@ -503,6 +521,7 @@ private:
     std::vector<nb::object> primops_;
     mutable nb::ft_mutex primops_mutex_;
     std::atomic<const Evaluator *> owner_ = nullptr;
+    mutable std::atomic<bool> evaluated_ = false;
 };
 
 /**
@@ -542,6 +561,7 @@ struct LockedFlake
     nix::flake::LockedFlake locked;
 
     nix::EvalState & state() const;
+    const EvalCore & eval_core() const { return *core; }
 };
 
 class Evaluator
@@ -565,6 +585,7 @@ public:
     }
 
     nix::EvalState & state() const { return core_->state(); }
+    const EvalCore & eval_core() const { return *core_; }
 
     nix::Store & store() const { return core_->store(); }
 
@@ -838,6 +859,7 @@ public:
     }
 
     nix::EvalState & state() const { return core_->state(); }
+    const EvalCore & eval_core() const { return *core_; }
 
     /**
      * Adds one element to a list that is still being built.
@@ -1226,6 +1248,10 @@ inline void Evaluator::register_primop(const std::string & name,
                                        std::size_t arity,
                                        nb::object fn) const
 {
+    // `EvalCore::evaluated` says why.
+    if (core_->evaluated())
+        throw std::logic_error(
+            "register_primop: this state has evaluated, and builtins can change only before its first evaluation");
     std::weak_ptr<EvalCore> weak = core_;
     // The core OWNS the callable and the lambda carries an index, so
     // the only strong Python reference is one a `tp_clear` slot can
@@ -1335,6 +1361,7 @@ struct Repl
     ~Repl() { gc_register_thread(); }
 
     nix::EvalState & state() const { return core->state(); }
+    const EvalCore & eval_core() const { return *core; }
 
     Bridge wrap(nix::Value * v) const { return Bridge(core, v); }
 
@@ -1373,6 +1400,7 @@ struct ReplSelection
     Bridge attrs;
 
     nix::EvalState & state() const { return attrs.state(); }
+    const EvalCore & eval_core() const { return attrs.eval_core(); }
 };
 
 inline nix::EvalState & LockedFlake::state() const

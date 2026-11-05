@@ -65,6 +65,7 @@ from huggorm_dsl.declare import (
     gc_slots,
     guard,
     header,
+    inert,
     instant,
     local,
     names,
@@ -1588,6 +1589,7 @@ class EvalState:
         `.drv` files to the first, and a realise builds in the second
         and copies the outputs back. None builds where it evaluates."""
 
+    @inert
     def set_setting(self, name: Str, value: Str) -> None:
         """Change one of this state's own settings, as the constructor's
         `settings` spell them.
@@ -1605,6 +1607,7 @@ if (!self.eval_settings().set(name, value) && !self.fetch_settings().set(name, v
     throw nix::UsageError("'%s' is not an evaluator or fetcher setting", name);
         """)
 
+    @inert
     def get_store_uri(self) -> Str:
         """How this state's store describes itself, as `Store.get_uri`
         does. For logging only: it does not round-trip."""
@@ -1903,6 +1906,7 @@ return self.make_primop(name, static_cast<std::size_t>(arity), fn);
         """)
 
     @subscription(Subscription.OPEN)
+    @inert
     def subscribe_logs(self, capacity: I64 = 1024, level: I64 = 3) -> LogStream:
         """Record what Nix says on THIS state's thread.
 
@@ -1954,6 +1958,7 @@ return huggorm::subscribe_logs(static_cast<std::size_t>(capacity),
         """)
 
     @subscription(Subscription.CLOSE)
+    @inert
     def unsubscribe_logs(self) -> None:
         """Stop recording on this state's thread.
 
@@ -1999,13 +2004,16 @@ huggorm::unsubscribe_logs();
     # RPC surface at all. One element per call is what crosses.
 
     @produces("mkInt")
+    @inert
     def make_int(self, value: I64) -> Value:
         """A forced integer value."""
 
     @produces("mkFloat")
+    @inert
     def make_float(self, value: F64) -> Value:
         """A forced float value."""
 
+    @inert
     def make_string(
         self,
         value: Str,
@@ -2027,13 +2035,16 @@ return self.wrap(made);
         """)
 
     @produces("mkBool")
+    @inert
     def make_bool(self, value: Bint) -> Value:
         """A forced boolean value."""
 
     @produces("mkNull")
+    @inert
     def make_null(self) -> Value:
         """The null value."""
 
+    @inert
     def make_list(self) -> Value:
         """An empty list. Fill it with `list_append`."""
         Cxx("""
@@ -2043,10 +2054,12 @@ return self.wrap_builder(made);
         """)
 
     @fills("make_list", "list")
+    @inert
     def list_append(self, target: Value, item: Value) -> None:
         """Add one element to a list, in place."""
         Cxx("return target.stage(item.get());")
 
+    @inert
     def make_attrs(self) -> Value:
         """An empty attribute set. Fill it with `attrs_set`."""
         Cxx("""
@@ -2057,6 +2070,7 @@ return self.wrap_builder(made);
         """)
 
     @fills("make_attrs", "attrs")
+    @inert
     def attrs_set(self, target: Value, name: Str, item: Value) -> None:
         """Set one attribute, in place.
 
@@ -2168,6 +2182,7 @@ if (auto fingerprint = lockedFlake.getFingerprint(store, self.state().fetchSetti
 return j.dump();
         """)
 
+    @inert
     def statistics_json(self) -> Str:
         """The report `NIX_SHOW_STATS` prints, as a JSON document.
 

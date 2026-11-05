@@ -456,6 +456,8 @@ class Method:
     blocks: bool = False
     # This one cannot wait, on a class whose calls generally can.
     instant: bool = False
+    # `@inert`: evaluates nothing, so it does not mark its state.
+    inert: bool = False
     # Declared with Python's own @property: an ATTRIBUTE, not a call.
     # A value's parts read as attributes and a handle's actions read
     # as methods, and which one an accessor is was never a property
