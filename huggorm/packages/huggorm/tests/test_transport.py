@@ -51,8 +51,10 @@ async def test_a_stdio_server_evaluates_and_exits_with_its_connection() -> None:
     """The server ends at EOF on its stdin. A server that waited for a
     signal instead would hold the block open for `STOP_GRACE`: the stop
     is shielded, so a deadline cannot cut it short, and the time is the
-    measure."""
-    started = anyio.current_time()
+    measure.
+
+    The stop alone is timed, not the start: a child interpreter under
+    TSAN took 5.6 s to start, evaluate and stop."""
     async with (
         spawn.spawned_stdio() as dial,
         AsyncRemoteSession.connect(dial, store_uri="dummy://") as session,
@@ -60,14 +62,15 @@ async def test_a_stdio_server_evaluates_and_exits_with_its_connection() -> None:
         state = await session.eval(await session.store())
         value = await state.eval_expr("1 + 1")
         assert await value.integer() == 2
-    assert anyio.current_time() - started < spawn.STOP_GRACE
+        stopping = anyio.current_time()
+    assert anyio.current_time() - stopping < spawn.STOP_GRACE
 
 
 @pytest.mark.parametrize("method", ["forkserver", "spawn"])
 async def test_a_multiprocessing_server_evaluates_and_exits_with_its_connection(
     method: str,
 ) -> None:
-    started = anyio.current_time()
+    """As the stdio server: the stop alone is timed."""
     async with (
         spawn.spawned_process(method=method) as dial,
         AsyncRemoteSession.connect(dial, store_uri="dummy://") as session,
@@ -75,4 +78,5 @@ async def test_a_multiprocessing_server_evaluates_and_exits_with_its_connection(
         state = await session.eval(await session.store())
         value = await state.eval_expr("1 + 1")
         assert await value.integer() == 2
-    assert anyio.current_time() - started < spawn.STOP_GRACE
+        stopping = anyio.current_time()
+    assert anyio.current_time() - stopping < spawn.STOP_GRACE
