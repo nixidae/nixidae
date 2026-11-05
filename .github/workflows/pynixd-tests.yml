@@ -112,8 +112,8 @@ jobs:
       run: |
         mkdir -p ~/.ssh
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q
-    - name: Format, lint and types
-      run: nix build --file . checks.format checks.lint checks.types --no-link --print-build-logs
+    - name: Format, lint, types and the package
+      run: nix build --file . checks.format checks.lint checks.types checks.packagedHelper --no-link --print-build-logs
     - name: Tests
       run: nix develop --impure --file shell.nix --command pytest tests/functional tests/unit
     - name: Protocol tests
