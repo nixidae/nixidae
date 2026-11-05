@@ -12,6 +12,15 @@
   # runtime library, the shadow-memory rules and the set of libraries to
   # instrument all follow from which sanitizer this is.
   name,
+  # The TSAN suppressions file. The free-threaded lane adds CPython's own.
+  suppressions ? ./tsan-suppressions.txt,
+  # False: TSAN reports nothing in the BUILD of what loads the bindings.
+  # The free-threaded lane builds on an uninstrumented 3.14t, whose
+  # setuptools compiles on threads that really run at once, and TSAN
+  # reports races inside CPython's own locking it cannot see (its biased
+  # reference counting, `dictresize`): status 66, before any test. The
+  # suite runs on the instrumented interpreter and reports there.
+  reportInBuild ? true,
 }:
 let
   isThread = name == "thread";
@@ -221,7 +230,8 @@ in
   # of a suite.
   buildEnv =
     lib.optionalAttrs (runtime != null) { LD_PRELOAD = runtime; }
-    // lib.optionalAttrs isAddress { ASAN_OPTIONS = "detect_leaks=0"; };
+    // lib.optionalAttrs isAddress { ASAN_OPTIONS = "detect_leaks=0"; }
+    // lib.optionalAttrs (isThread && !reportInBuild) { TSAN_OPTIONS = "report_bugs=0"; };
 
   # Shell text that exports what a test process under this variant needs.
   # huggorm's suite and nanopynix's runner both source it, so the two run
@@ -251,7 +261,7 @@ in
       # (nanopynix CI run 32401477688). The only frame in such a report is
       # CPython's `do_start_joinable_thread`, so a suppression line would
       # match every Python thread.
-      export TSAN_OPTIONS="halt_on_error=1 history_size=7 second_deadlock_stack=1 die_after_fork=0 report_thread_leaks=0 suppressions=${./tsan-suppressions.txt}''${TSAN_OPTIONS:+ $TSAN_OPTIONS}"
+      export TSAN_OPTIONS="halt_on_error=1 history_size=7 second_deadlock_stack=1 die_after_fork=0 report_thread_leaks=0 suppressions=${suppressions}''${TSAN_OPTIONS:+ $TSAN_OPTIONS}"
     ''
     + lib.optionalString isUndefined ''
       # UBSan reports and carries on by default, so a run passes with the

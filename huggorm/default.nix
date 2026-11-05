@@ -122,6 +122,46 @@ let
           });
         };
     };
+
+    /**
+      The interpreter of `freeThreadedPython`, built
+      `--with-thread-sanitizer`. The `-ft-tsan` lane runs its suite on it
+      and builds everything on `freeThreadedPython`.
+
+      Without the GIL, Python code runs on two threads at once, and TSAN
+      sees none of CPython's own locks unless CPython is instrumented: the
+      uninstrumented 3.14t reported races in its own biased reference
+      counting and in `dictresize`.
+
+      Only the interpreter. A package set over it builds every package's
+      tools on it, about 300 packages under TSAN, and an extension built
+      against it takes `-fsanitize=thread` from its sysconfig, which the
+      plain 3.14t cannot load ("cannot allocate memory in static TLS
+      block"). The ABI is the same `t`, so it loads what the plain one
+      built. `overrideAttrs`: the package has no argument for a configure
+      flag. No LTO: CPython's TSAN builds do not use it.
+    */
+    freeThreadedTsanPython =
+      (python3.override {
+        self = freeThreadedTsanPython;
+        enableGIL = false;
+        enableLTO = false;
+      }).overrideAttrs
+        (old: {
+          configureFlags = old.configureFlags ++ [ "--with-thread-sanitizer" ];
+          # Its own build runs it.
+          env = (old.env or { }) // {
+            TSAN_OPTIONS = "report_thread_leaks=0 suppressions=${cpythonTsanSuppressions}";
+          };
+        });
+
+    /**
+      CPython's TSAN suppressions for a free-threaded build, from its source:
+      the ones CPython's own CI uses.
+    */
+    cpythonTsanSuppressions = pkgs.runCommand "cpython-tsan-suppressions-free-threading" { } ''
+      tar --extract --to-stdout --wildcards --file ${python3.src} '*/Tools/tsan/suppressions_free_threading.txt' > "$out"
+    '';
     versions = import ./nix/versions.nix { inherit pkgs sources; };
     # A real venv for every interpreter here: no PYTHONPATH (nixidae/nixidae#1046).
     inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
@@ -179,6 +219,16 @@ let
     # `nix/sanitizer.nix` gives each one's rules.
     sanitizers = {
       tsan = pkgs.callPackage ./nix/sanitizer.nix { name = "thread"; };
+      # huggorm's suppressions and CPython's, in one file: TSAN reads one.
+      tsanFreeThreaded = pkgs.callPackage ./nix/sanitizer.nix {
+        name = "thread";
+        suppressions = pkgs.concatText "tsan-suppressions-free-threading" [
+          ./nix/tsan-suppressions.txt
+          ./nix/tsan-suppressions-free-threading.txt
+          cpythonTsanSuppressions
+        ];
+        reportInBuild = false;
+      };
       ubsan = pkgs.callPackage ./nix/sanitizer.nix { name = "undefined"; };
       asan = pkgs.callPackage ./nix/sanitizer.nix { name = "address"; };
     };
@@ -229,6 +279,10 @@ let
       `python`
       : The interpreter the bindings, huggorm and the suite build for.
         `freeThreadedPython` makes a free-threaded lane.
+
+      `testPython`
+      : The interpreter the suite runs on, in place of `python`'s, over the
+        same packages. It must have `python`'s ABI. Null runs on `python`.
     */
     mkLane =
       {
@@ -244,6 +298,7 @@ let
         sanitizer ? null,
         wheels ? true,
         python ? python3,
+        testPython ? null,
       }:
       # `majorMinor`, because `2.36pre...` sorts BEFORE `2.36` in
       # `versionAtLeast` (nixidae/nixidae#592).
@@ -276,6 +331,7 @@ let
             huggorm-decl
             huggorm-gen
             nixvenv
+            testPython
             ;
           inherit python3;
           python3Packages = python3.pkgs;
@@ -626,7 +682,8 @@ let
         nixes.${defaultLane}
         // {
           python = freeThreadedPython;
-          sanitizer = sanitizers.tsan;
+          testPython = freeThreadedTsanPython;
+          sanitizer = sanitizers.tsanFreeThreaded;
         }
       );
     };

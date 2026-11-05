@@ -1,0 +1,29 @@
+# The `-ft-tsan` lane's own suppressions, after `tsan-suppressions.txt` and
+# before CPython's free-threading file, in one file: TSAN reads one.
+
+# glibc frees a finished thread's dynamic TLS inside `pthread_join`, and
+# TSAN's join interceptor records the happens-before edge only after the
+# real join returns. So the free in the joiner races, in TSAN's model, with
+# whatever the thread last did in that block. A `thread_local` of a
+# dlopen'd extension lives in dynamic TLS, and huggorm's bindings are one.
+#
+# The report the first run of the lane caught, at process exit:
+#
+#   Write of size 8 by main thread:
+#     #0 free
+#     #1 __GI__dl_deallocate_tls          (ld-linux-x86-64.so.2)
+#   Previous read of size 1 by thread T355:
+#     #0 huggorm::ThreadLevel::release()  (cpp/logging.hpp:544)
+#     #1 huggorm::ThreadLevel::~ThreadLevel()
+#     #2 __call_tls_dtors                 (libc.so.6)
+#   Thread T355 'huggorm-affine-' (finished)
+#
+# The read is the thread's own `thread_local`, in its own destructor,
+# before it exits. glibc frees the block only after the thread has
+# finished, so the order is the one `pthread_join` guarantees, and no code
+# of huggorm's can reach that block from another thread.
+#
+# It hides every report with glibc's TLS teardown on either stack. Only
+# glibc frees TLS, and only after its thread is gone. Not `race_top`: the
+# top frame is `free`.
+race:_dl_deallocate_tls

@@ -47,6 +47,15 @@ def test_importing_every_module_keeps_the_gil_off() -> None:
     assert done.stdout.strip() == "False", done.stderr
 
 
+@pytest.mark.skipif(os.environ.get("HUGGORM_SANITIZER") != "thread", reason="not a TSAN lane")
+def test_a_tsan_lane_runs_on_an_instrumented_cpython() -> None:
+    """Without the GIL, TSAN sees CPython's own locks only in a CPython
+    built for it, and the uninstrumented one reports races inside itself.
+    The lane builds on the plain interpreter and swaps this one in for
+    the suite, so a swap that fell back would pass quietly."""
+    assert "--with-thread-sanitizer" in str(sysconfig.get_config_var("CONFIG_ARGS"))
+
+
 def test_fod_turns_the_gil_on_through_py_tree_sitter() -> None:
     """py-tree-sitter declares `Py_MOD_GIL_USED`: its parser and trees are
     not thread-safe (tree-sitter/py-tree-sitter#458). `tree_sitter_nix`
