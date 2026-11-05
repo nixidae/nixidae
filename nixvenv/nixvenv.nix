@@ -34,6 +34,12 @@
     or an absolute string outside the store; a path is not copied. Default
     `[ ]`.
 
+  `interpreter`
+  : The interpreter the venv runs, in place of `python`. `packages` still
+    come from `python.pkgs`, so it must have `python`'s ABI: the same
+    `libPrefix`. For an instrumented build of `python` (a sanitizer) that
+    runs what the plain one built. Default `python`.
+
   # Example
 
   ```nix
@@ -51,6 +57,7 @@
     python = null;
   },
   editable ? [ ],
+  interpreter ? python,
 }:
 let
   modules = python.pkgs.requiredPythonModules (packages python.pkgs);
@@ -65,11 +72,15 @@ let
       );
     pathsToLink = [ "/${python.sitePackages}" ];
   };
-  interpreter = "${python}/bin/${python.executable}";
+  executable = "${interpreter}/bin/${interpreter.executable}";
+  # Writes the entry-point scripts. On `python`, not `interpreter`: a
+  # script's shebang names the venv's own python anyway, and `interpreter`
+  # may be a slow instrumented build.
+  entryPoints = "${python}/bin/${python.executable}";
   interpreterNames = [
     "python"
     "python3"
-    "python${python.pythonVersion}"
+    "python${interpreter.pythonVersion}"
   ];
 
   exposed = lib.mapAttrs (from: to: if to == null then from else to) (
@@ -85,7 +96,7 @@ let
       # symlinks, so a profile link to bin/python would start outside the
       # venv. argv[0] must name the venv's own python.
       ''
-        makeBinaryWrapper ${interpreter} $out/bin/${lib.escapeShellArg to} \
+        makeBinaryWrapper ${executable} $out/bin/${lib.escapeShellArg to} \
           --argv0 $venv/bin/${lib.escapeShellArg from}
       ''
     else
@@ -104,25 +115,27 @@ assert lib.assertMsg (
 ) "nixvenv: executables maps several names to ${lib.concatStringsSep ", " duplicates}";
 assert lib.assertMsg (inStore == [ ])
   "nixvenv: editable takes absolute paths outside the store, not ${lib.concatStringsSep ", " inStore}";
-runCommand "${python.name}-venv"
+assert lib.assertMsg (interpreter.libPrefix == python.libPrefix)
+  "nixvenv: interpreter is ${interpreter.libPrefix}, and the packages are built for ${python.libPrefix}";
+runCommand "${interpreter.name}-venv"
   {
     nativeBuildInputs = [ makeBinaryWrapper ];
-    passthru = { inherit python modules; };
+    passthru = { inherit python interpreter modules; };
     meta = lib.optionalAttrs (lib.length targets == 1) { mainProgram = lib.head targets; };
   }
   ''
     venv=$out/lib/venv
     mkdir -p $out/bin $venv/bin $venv/lib/${python.libPrefix}
     cat > $venv/pyvenv.cfg <<EOF
-    home = ${python}/bin
+    home = ${interpreter}/bin
     include-system-site-packages = false
-    version = ${python.version}
-    executable = ${interpreter}
+    version = ${interpreter.version}
+    executable = ${executable}
     EOF
-    ${lib.concatMapStrings (n: "ln -s ${interpreter} $venv/bin/${n}\n") interpreterNames}
+    ${lib.concatMapStrings (n: "ln -s ${executable} $venv/bin/${n}\n") interpreterNames}
     ln -s ${site}/${python.sitePackages} $venv/${python.sitePackages}
 
-    ${interpreter} ${./entry-points.py} $venv/${python.sitePackages} $venv/bin $venv/bin/python
+    ${entryPoints} ${./entry-points.py} $venv/${python.sitePackages} $venv/bin $venv/bin/python
 
     ${lib.concatStrings (lib.mapAttrsToList expose exposed)}
   ''

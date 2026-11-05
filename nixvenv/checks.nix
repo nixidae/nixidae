@@ -1,6 +1,7 @@
 {
   lib,
   runCommand,
+  symlinkJoin,
   python3,
   ruff,
   zuban,
@@ -25,6 +26,25 @@ let
   editableVenv = nixvenv {
     python = python3;
     editable = [ live ];
+  };
+  # Another store path with `python3`'s ABI, without building a second
+  # CPython: what an instrumented build of it is to a venv.
+  otherInterpreter = symlinkJoin {
+    name = "python3-other";
+    paths = [ python3 ];
+    passthru = {
+      inherit (python3)
+        executable
+        libPrefix
+        pythonVersion
+        version
+        ;
+    };
+  };
+  otherVenv = nixvenv {
+    python = python3;
+    interpreter = otherInterpreter;
+    packages = ps: [ ps.typing-extensions ];
   };
 in
 {
@@ -77,6 +97,19 @@ in
     check(child.stdout.strip() == venv, f"a child of sys.executable starts in {child.stdout.strip()}")
     EOF
     ${venv}/bin/venv-pytest --version
+    touch $out
+  '';
+
+  # `interpreter` runs, over `python`'s packages.
+  interpreter = runCommand "nixvenv-check-interpreter" { } ''
+    set -eu
+    ${otherVenv}/bin/python - <<'EOF'
+    import sys, typing_extensions
+    if sys.base_prefix != "${otherInterpreter}":
+        sys.exit(f"nixvenv: the venv runs {sys.base_prefix}, not ${otherInterpreter}")
+    if not typing_extensions.__file__.startswith(sys.prefix):
+        sys.exit(f"nixvenv: typing_extensions from {typing_extensions.__file__}")
+    EOF
     touch $out
   '';
 
