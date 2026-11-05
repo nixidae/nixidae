@@ -83,6 +83,8 @@ jobs:
       fail-fast: false
       matrix:
         lane:
+        - determinate-ft
+        - determinate-ft-tsan
         - nix_2_35-ft
         - nix_2_35-ft-tsan
     timeout-minutes: 120

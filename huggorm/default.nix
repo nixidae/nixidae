@@ -676,17 +676,32 @@ let
     # Not in `lanes`: nanopynix builds a scope over each of those with its
     # own GIL interpreter, so a free-threaded lane there would rebuild the
     # bindings with the GIL and keep only the name.
-    freeThreadedLanes = lib.optionalAttrs (nixes ? ${defaultLane}) {
-      "${defaultLane}-ft" = mkLane (nixes.${defaultLane} // { python = freeThreadedPython; });
-      "${defaultLane}-ft-tsan" = mkLane (
-        nixes.${defaultLane}
-        // {
-          python = freeThreadedPython;
-          testPython = freeThreadedTsanPython;
-          sanitizer = sanitizers.tsanFreeThreaded;
-        }
-      );
-    };
+    #
+    # And for Determinate Nix: its evaluator threads call Python primops
+    # (`builtins.parallel`), which a GIL runs one at a time and 3.14t runs
+    # at once.
+    freeThreadedLanes = lib.listToAttrs (
+      lib.concatMap
+        (version: [
+          (lib.nameValuePair "${version}-ft" (mkLane (nixes.${version} // { python = freeThreadedPython; })))
+          (lib.nameValuePair "${version}-ft-tsan" (
+            mkLane (
+              nixes.${version}
+              // {
+                python = freeThreadedPython;
+                testPython = freeThreadedTsanPython;
+                sanitizer = sanitizers.tsanFreeThreaded;
+              }
+            )
+          ))
+        ])
+        (
+          lib.filter (version: nixes ? ${version}) [
+            defaultLane
+            "determinate"
+          ]
+        )
+    );
     inherit
       (lanes.${defaultLane}
         or (throw "huggorm: nixVersions.latest is ${pkgs.nixVersions.latest.version}, and nix/versions.nix has no lane ${defaultLane}")
