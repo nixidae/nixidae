@@ -22,11 +22,14 @@ Off-main spike for nixidae/nixidae#1168. Host: MacBook M5 Pro, macOS 27.0.1, SIP
 - Only ISA mode 1 creates a VM without `com.apple.private.hypervisor`
   (`probes/isa.c`). Virtualization.framework uses modes 4/1/3.
 
-## The patch (`orchard-hvf.patch`)
+## The patches
 
-Applies to github.com/yaelliethy/orchard at c73a2bda (QEMU 11.1.50 tree).
-The local clone is `~/Dynamist/orchard`, change "spike: vmapple boots macOS 14
-under HVF" (not pushed: third-party repository).
+Both apply to github.com/yaelliethy/orchard at c73a2bda (QEMU 11.1.50 tree),
+in this order. The local clone is `~/Dynamist/orchard`, one jj change each
+(not pushed: third-party repository).
+
+1. `orchard-vsock.patch`, "virtio-vsock-unix": the vsock device below.
+2. `orchard-hvf.patch`, "spike: vmapple boots macOS 14 under HVF":
 
 - `hw/vmapple/hvc.c`: at the boot CPU's first SET_INITIAL_STATE, rewrite every
   `hvc #0` word in RAM to `hvc #1`; a 10 ms vCPU kick timer under HVF.
@@ -37,6 +40,34 @@ under HVF" (not pushed: third-party repository).
   iBoot reads it; TCG aborts without it); `VMAPPLE_GPIO_PULLUPS` test switch;
   the reims-vgpu include dropped.
 - Kconfig: no reims-vgpu (Rust, Vulkan); `imply MAC_PVG_MMIO`.
+
+## Agent channels
+
+`host/run-hvf.sh` gives the guest both.
+
+**virtio-serial** (QEMU's own `virtio-serial-pci` and `virtserialport`, no
+patch). macOS binds `AppleVirtIOConsole`; the port named `vivarium-agent` is
+`/dev/cu.vivarium-agent` in the guest and `$RUN/agent.sock` on the host. Data
+passes both ways (`host/serial_roundtrip.py`). This is the channel vivarium's
+Linux QEMU guests use.
+
+**virtio-vsock** (`virtio-vsock-unix-pci`, new in `orchard-vsock.patch`).
+QEMU has no userspace vsock device and vhost needs Linux, so this one is in
+QEMU's process. macOS binds `AppleVirtIOSocket`; guest CID 3. The host side
+follows Firecracker: host to guest, connect to `$RUN/vsock.sock` and write
+`CONNECT <port>\n`, read `OK <host port>\n`; guest to host, CID 2 port P
+reaches the unix socket `$RUN/vsock.sock_P`. `VSOCK_UNIX_DEBUG=1` traces
+each packet to stderr.
+
+| test (`guest/vsockcat.c`, `host/vsock_connect.py`, `host/unix_echo.py`) | result |
+| --- | --- |
+| host to guest, 20 echo round trips | 20/20 |
+| host to guest, 64 MiB echoed | 187 MB/s each way, every byte back |
+| guest to host, 64 MiB echoed | 121 MB/s each way, every byte back |
+| host to a guest port with no listener | handshake fails (RST), no OK |
+
+`vsockcat` builds on the host: `clang -O2 -mmacosx-version-min=14.0 -o
+vsockcat guest/vsockcat.c`; the configured guest has it in `/usr/local/bin`.
 
 ## Rebuild and run
 
@@ -100,10 +131,13 @@ of starting, so it needs more work before it is useful.
 ## Next steps
 
 1. vivarium: a darwin QEMU backend (`accel=hvf`, the `vmapple` machine,
-   disk-boot like `Appliance`) and an agent channel. No virtio-console or
-   virtio-socket on this machine yet: SSH, or add virtio-vsock to vmapple.
-2. Carry the QEMU patch somewhere buildable by Nix (an overlay over nixpkgs'
+   disk-boot like `Appliance`). The agent runs in the guest on
+   `/dev/cu.vivarium-agent` (`VIVARIUM_AGENT_DEVICE`), started by a
+   LaunchDaemon, with a guest PATH that is not `/run/current-system`.
+2. Carry the QEMU patches somewhere buildable by Nix (an overlay over nixpkgs'
    QEMU, or a nixidae fork of orchard), with the hand-made signing step.
-3. Fix apple-gfx-mmio on a macOS 27 host (`setMapMemory:` is gone; Mohamed
+3. virtio-vsock-unix: test many connections at once, and a guest reset with
+   connections open.
+4. Fix apple-gfx-mmio on a macOS 27 host (`setMapMemory:` is gone; Mohamed
    Mediouni's vmapple series on qemu-devel fixes it).
-4. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
+5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
