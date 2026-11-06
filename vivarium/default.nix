@@ -2796,6 +2796,7 @@ in
       vivarium-eval
       ;
     vivarium = tools;
+    libkrun = pkgs.callPackage ./pkgs/libkrun/package.nix { };
     # The slowest thing in the repository and the same for every guest, so
     # CI builds it once on its own and lets the cache hand it to the test
     # jobs.
