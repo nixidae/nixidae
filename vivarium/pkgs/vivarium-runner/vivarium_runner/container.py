@@ -183,6 +183,7 @@ def oci_config(
     subgid: Range | None,
     writable_store: bool = True,
     store_view: bool = False,
+    kvm: bool = False,
 ) -> dict[str, object]:
     # The OCI runtime spec is an open JSON document; crun reads its keys, not this code.
     """The ``config.json`` for one guest.
@@ -200,6 +201,8 @@ def oci_config(
 
     With ``store_view``, *store* is the guest's writable store view
     (``storeview.build``), bound in as it is: it holds its own binds.
+
+    With ``kvm``, the host's ``/dev/kvm`` is bound in (``nestedVirtualization``).
     """
     mounts = [
         _fs("proc", "/proc", "nosuid", "noexec", "nodev"),
@@ -254,6 +257,8 @@ def oci_config(
     ]
     if artifacts is not None:
         mounts.append(_bind(str(artifacts), "/artifacts", "rw"))
+    if kvm:
+        mounts.append(_bind("/dev/kvm", "/dev/kvm", "rw"))
 
     return {
         "ociVersion": "1.0.2",

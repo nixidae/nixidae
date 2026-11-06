@@ -276,14 +276,18 @@ rec {
     QEMU needs `uid-range` too. virtiofsd serves a file as the guest user
     that made it, and in a sandbox that maps one uid it cannot become
     uid 1000 (EINVAL, measured: `artifacts.qemu`). UML asks for nothing,
-    which is the whole point of UML.
+    which is the whole point of UML. A container guest with
+    `nestedVirtualization` binds the host's /dev/kvm, so it asks for `kvm`.
   */
   featuresFor =
     machines:
     let
       any = backend: lib.any (machine: machine.vivarium.backend == backend) machines;
+      kvmContainer = lib.any (
+        machine: machine.vivarium.backend == "container" && machine.vivarium.nestedVirtualization
+      ) machines;
     in
-    lib.optional (any "qemu" || any "krun" || any "appliance") "kvm"
+    lib.optional (any "qemu" || any "krun" || any "appliance" || kvmContainer) "kvm"
     ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range";
 
   /**

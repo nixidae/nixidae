@@ -343,9 +343,12 @@ in
       default = false;
       description = ''
         Give the guest `/dev/kvm`, so it can run virtual machines of its
-        own. QEMU backend only.
+        own. QEMU, krun and container backends.
 
-        Off, the runner hides `vmx` and `svm` from the guest's CPU. On, it
+        A container guest shares the host's kernel, so it gets the host's
+        own `/dev/kvm` as a bind mount, and needs no nesting.
+
+        On QEMU, off, the runner hides `vmx` and `svm` from the guest's CPU. On, it
         passes the host's through, which needs nesting on the host
         (`/sys/module/kvm_{intel,amd}/parameters/nested`), and the guest
         loads KVM for that vendor. Without nesting on the host, the
@@ -797,11 +800,12 @@ in
           -> lib.elem config.vivarium.backend [
             "qemu"
             "krun"
+            "container"
           ];
         message = ''
-          vivarium.nestedVirtualization needs `backend = "qemu"` or "krun": a
-          ${config.vivarium.backend} guest has no virtual CPU to expose vmx or
-          svm on.
+          vivarium.nestedVirtualization needs `backend = "qemu"`, "krun" or
+          "container": a ${config.vivarium.backend} guest has no virtual CPU
+          to expose vmx or svm on, and no host /dev/kvm to share.
         '';
       }
       {

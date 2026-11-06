@@ -68,5 +68,8 @@ lib.mkIf (cfg.backend == "container") {
 
   # What the runner starts, named here so a path it reads is a path Nix
   # built. The same field a QEMU guest carries.
-  system.build.containerBoot.toplevel = "${config.system.build.toplevel}";
+  system.build.containerBoot = {
+    toplevel = "${config.system.build.toplevel}";
+    nested = cfg.nestedVirtualization;
+  };
 }

@@ -1397,6 +1397,7 @@ class Container:
                     subgid=subgid,
                     writable_store=container.store_is_one_mount(spec.store),
                     store_view=spec.store_paths is not None,
+                    kvm=bool(spec.boot.get("nested")),
                 )
             )
         )
