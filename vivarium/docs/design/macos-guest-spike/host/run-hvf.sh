@@ -7,9 +7,10 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 IMG=${IMG:-$HERE/sonoma}
-ROM=${ROM:-$HERE/AVPBooter.stock.bin}
-QEMU=${QEMU:-$HOME/Dynamist/orchard/qemu/build-hvf/qemu-system-aarch64}
-QEMU_IMG=${QEMU_IMG:-$HOME/Dynamist/orchard/qemu/build-hvf/qemu-img}
+# The host's own booter runs unpatched under HVF.
+ROM=${ROM:-/System/Library/Frameworks/Virtualization.framework/Resources/AVPBooter.vmapple2.bin}
+QEMU=${QEMU:-$HOME/Dynamist/qemu/build-hvf/qemu-system-aarch64}
+QEMU_IMG=${QEMU_IMG:-$HOME/Dynamist/qemu/build-hvf/qemu-img}
 RUN=${RUN:-$HERE/run}
 RAM=${RAM:-8G}
 CPUS=${CPUS:-4}

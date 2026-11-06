@@ -113,6 +113,30 @@ cd ~/Dynamist/orchard-images && rm -rf run && mkdir run && cp aux-verbose.img ru
 - `~/.tart/vms/sonoma-vz` is the same image for tart (APFS clone of the disk,
   raw NVRAM from `host/fetch_tart_meta.py`); `tart run --no-graphics sonoma-vz`.
 
+## macOS 15, 26, 27 (2026-11-06)
+
+Images: tart `macos-sequoia-base` (15.7.7), `macos-tahoe-base` (26.6.2),
+`macos-golden-gate-base` (27), in `~/Dynamist/orchard-images/{sequoia,tahoe,goldengate}`.
+Test: `host/try_image.sh IMAGE_DIR RUN_DIR` (fresh overlay, disables the
+tart daemon, counts resets); `GFX=on` uses apple-gfx-mmio.
+
+| image | without the v8 patches | with patches 05 and 10 (fork a8a6e107), `GFX=on` |
+| --- | --- | --- |
+| 15 | panic in AppleParavirtGPUIOGPUFamily on the gfx stub (NULL, far 0x10) | SSH after 41 s; then panic |
+| 26 | panic `unencrypted data volume is not allowed` (apfs_vfsops.c:2372) | SSH reached; then panic |
+| 27 | iBootStage1 (mBoot-20457.41.3) panic `4962211b03d706d:203` | not run |
+
+The panic on 15 and 26 with the patches: `Undefined kernel instruction
+instr=d51ef860` = `msr S3_6_C15_C8_3, x0`, an Apple implementation-defined
+register that public HVF (ISA mode 1) refuses. Panic records are in the run
+directory's `aux.img` (NVRAM), readable as strings.
+
+The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
+`0xfffffc01100bc058` in its memcpy (ELR 0x700adf34) while formatting a log
+line; the address does not change with RAM size (4, 8, 16 GiB). No unknown
+hypercall and no unimplemented MMIO before it (traced under TCG with
+`-d trace:arm_psci_call,int`; lldb on QEMU's gdbstub caught the copy).
+
 ## Nix in the guest
 
 Official installer (`--daemon`): Nix 2.35.4, sandbox off (installer default).
@@ -146,6 +170,12 @@ streams guest logs to the host; `log stream` under it stopped within a second
 of starting, so it needs more work before it is useful.
 
 ## Next steps
+
+0. macOS 15 and 26: handle `msr S3_6_C15_C8_3` (d51ef860). Either find
+   whether HVF exits to QEMU for it (then emulate it as a no-op in
+   `target/arm/hvf/hvf.c`), or rewrite it in kernel text at the same point
+   as the `hvc #0` rewrite. Then rerun `host/try_image.sh` with `GFX=on`.
+   macOS 27: find what LLB's log buffer address comes from.
 
 1. vivarium: a darwin QEMU backend (`accel=hvf`, the `vmapple` machine,
    disk-boot like `Appliance`). The agent runs in the guest on
