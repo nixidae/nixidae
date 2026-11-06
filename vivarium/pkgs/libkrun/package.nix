@@ -7,8 +7,9 @@
   libkrun main with vivarium's changes on top, each one commit
   (nixidae/nixidae#1077, nixidae/nixidae#1163). They let the host's store
   be an overlayfs lower layer in the guest from inside a user namespace,
-  align the initrd, show the guest only an allowlist of the store, and on
-  macOS add TSO, Rosetta and a read-only DAX window.
+  align the initrd, show the guest only an allowlist of the store (on a
+  writable share too, for pynixd's build VM), and on macOS add TSO, Rosetta
+  and a read-only DAX window.
 
   The branch carries `include/libkrun.h` regenerated after each API change,
   so a bump needs no generator here.
@@ -29,8 +30,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "libkrun";
-    rev = "87716f7b21b8d5ca3a821dedc5136f4e1d1acaa1";
-    hash = "sha256-tfi7i57WdfUXhLmNQpC4epHkL7EOMyYJLiuNzNwIHVY=";
+    rev = "8146c491f1f17e4a16aa71e466351df307db3bdb";
+    hash = "sha256-5LHBzF49R6vZTviHhbi/fg7xrdKP8nAXBG1U9P+eYBY=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
