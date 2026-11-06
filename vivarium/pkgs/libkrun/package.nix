@@ -8,7 +8,8 @@
   (nixidae/nixidae#1077, nixidae/nixidae#1163). They let the host's store
   be an overlayfs lower layer in the guest from inside a user namespace,
   align the initrd, show the guest only an allowlist of the store (on a
-  writable share too, for pynixd's build VM), and on macOS add TSO, Rosetta
+  writable share too, for pynixd's build VM), cache a lookup that finds
+  nothing for a host-set time, and on macOS add TSO, Rosetta
   and a read-only DAX window.
 
   The branch carries `include/libkrun.h` regenerated after each API change,
@@ -30,8 +31,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "libkrun";
-    rev = "8146c491f1f17e4a16aa71e466351df307db3bdb";
-    hash = "sha256-5LHBzF49R6vZTviHhbi/fg7xrdKP8nAXBG1U9P+eYBY=";
+    rev = "3b4e42db1c29821ae0858d8687b1f7498a30bc0f";
+    hash = "sha256-t5R0weRTX0w5wN2fS3dus2U4iNxB2Hp1lrCMpGsN7CI=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
