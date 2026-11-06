@@ -44,6 +44,11 @@ AGENT_DIR = "/run/host/agent"
 
 AGENT_SOCKET = f"{AGENT_DIR}/sock"
 
+SUPERVISOR = "supervisor"
+"""The leaf the launcher, crun and the network helpers move to, in a cgroup of their own (:func:`_split_cgroup`)."""
+
+GUEST_CGROUP = "guest"
+
 SUBORDINATE_IDS = 65536
 """How many ids beyond root the guest gets. 65534 is ``nobody``, so fewer
 leaves a service that runs as it unable to start."""
@@ -423,6 +428,8 @@ def own_cgroup_memory_kib(pid: int) -> int | None:
         mine = path(str(pid))
         if mine == path("self"):
             return None
+        # The launcher's leaf: the guest is its sibling, and the parent counts both.
+        mine = mine.removesuffix(f"/{SUPERVISOR}")
         return int(Path(f"/sys/fs/cgroup{mine}/memory.current").read_text()) // 1024
     except (OSError, ValueError, IndexError):
         return None
@@ -875,6 +882,33 @@ def _ensure_cgroup2() -> None:
             raise OSError(ctypes.get_errno(), f"mount {args[1].decode()}")
 
 
+def _split_cgroup(bundle: Path) -> bool:
+    """Give the guest a cgroup of its own below the launcher's, when the launcher's holds it alone.
+
+    cgroup v2 enables no controller for the children of a cgroup that holds a process. Without
+    this, crun puts the guest's init beside the launcher, and the guest's cgroup root holds host
+    processes it sees as pid 0: no controller reaches the guest. So the launcher and every helper
+    it starts move to `SUPERVISOR`, and crun's cgroupfs manager makes `GUEST_CGROUP` and enables
+    the controllers (`enable_controllers`, `cgroup-utils.c`). A uid-range build's cgroup holds the
+    build too, so the guest shares it as before.
+    """
+    try:
+        own = Path("/proc/self/cgroup").read_text().strip().split(":", 2)[2]
+        base = Path("/sys/fs/cgroup") / own.lstrip("/")
+        if (base / "cgroup.procs").read_text().split() != [str(os.getpid())]:
+            return False
+        if not os.access(base / "cgroup.subtree_control", os.W_OK):
+            return False
+        (base / SUPERVISOR).mkdir(exist_ok=True)
+        (base / SUPERVISOR / "cgroup.procs").write_text(str(os.getpid()))
+    except (OSError, IndexError):
+        return False
+    config = json.loads((bundle / "config.json").read_text())
+    config["linux"]["cgroupsPath"] = f"{own.rstrip('/')}/{GUEST_CGROUP}"
+    (bundle / "config.json").write_text(json.dumps(config))
+    return True
+
+
 def _report(tun: bool) -> int:
     """The probe as a program: what a derivation runs to fail early."""
     missing = probe(tun=tun)
@@ -940,7 +974,8 @@ def main(argv: list[str] | None = None) -> int:
     name = args.name
     bundle = args.bundle
     uplink = [args.pasta_log, *[a for a in args.pasta if a != "--"]] if args.pasta_log else []
-    crun = [args.crun, "--root", args.state, "--cgroup-manager=disabled"]
+    manager = "cgroupfs" if _split_cgroup(Path(bundle)) else "disabled"
+    crun = [args.crun, "--root", args.state, f"--cgroup-manager={manager}"]
 
     # A short directory: a sockaddr_un holds 108 bytes, and a bundle under
     # a long TMPDIR does not fit.
