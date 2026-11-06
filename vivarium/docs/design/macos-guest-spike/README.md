@@ -22,11 +22,28 @@ Off-main spike for nixidae/nixidae#1168. Host: MacBook M5 Pro, macOS 27.0.1, SIP
 - Only ISA mode 1 creates a VM without `com.apple.private.hypervisor`
   (`probes/isa.c`). Virtualization.framework uses modes 4/1/3.
 
-## The patches
+## The QEMU fork
 
-Both apply to github.com/yaelliethy/orchard at c73a2bda (QEMU 11.1.50 tree),
-in this order. The local clone is `~/Dynamist/orchard`, one jj change each
-(not pushed: third-party repository).
+github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
+
+| commit | author | what |
+| --- | --- | --- |
+| f8aef8a9 | upstream | base: the commit orchard's vendored tree was copied from |
+| 4127264f | Youssef (orchard) | orchard import: vmapple, reims-vgpu, PAC |
+| 962b4b02 | Youssef (orchard) | KVM apple-vm fixes |
+| bc048138 | Youssef (orchard) | Apple hypercall contract; KVM/WHPX paths |
+| bb6b12b5 | Youssef (orchard) | TCG performance and input fixes |
+| 601f3c10 | vivarium | virtio-vsock-unix |
+| 3727918b | vivarium | vmapple boots macOS 14 under HVF |
+
+`host/find_qemu_base.py` found the base by content hashes: orchard's import
+differs from f8aef8a9 only in files orchard changed or added.
+`host/replay_orchard.sh` builds the branch; its tree equals orchard's
+(github.com/yaelliethy/orchard c73a2bda plus the two vivarium changes) file
+for file, plus the upstream files orchard dropped (Rust `.wrap` files,
+`tests/keys`, submodule pointers).
+
+The same two vivarium changes as patches against orchard c73a2bda:
 
 1. `orchard-vsock.patch`, "virtio-vsock-unix": the vsock device below.
 2. `orchard-hvf.patch`, "spike: vmapple boots macOS 14 under HVF":
