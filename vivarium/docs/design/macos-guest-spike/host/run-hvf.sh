@@ -1,7 +1,9 @@
 #!/bin/sh
 # Spike: boot a tart macOS image on QEMU's vmapple machine under HVF.
 # IMG: image directory (disk.raw, aux.img, config.json). ROM: AVPBooter.
-# Extra arguments go to QEMU.
+# Extra arguments go to QEMU. The guest sees /dev/cu.vivarium-agent (host end
+# $RUN/agent.sock) and vsock CID 3 (host end $RUN/vsock.sock, see
+# hw/virtio/virtio-vsock-unix.c for the handshake).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 IMG=${IMG:-$HERE/sonoma}
@@ -38,5 +40,9 @@ exec "$QEMU" \
   -chardev file,id=ser0,path="$RUN/serial.txt" \
   -serial chardev:ser0 \
   -qmp unix:"$RUN/qmp.sock",server=on,wait=off \
+  -device virtio-serial-pci,id=vser0 \
+  -chardev socket,id=agent,path="$RUN/agent.sock",server=on,wait=off \
+  -device virtserialport,bus=vser0.0,chardev=agent,name=vivarium-agent \
+  -device virtio-vsock-unix-pci,guest-cid=3,path="$RUN/vsock.sock" \
   -display none \
   "$@"
