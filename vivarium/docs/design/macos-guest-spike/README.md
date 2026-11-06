@@ -2,13 +2,16 @@
 
 Off-main spike for nixidae/nixidae#1168. Host: MacBook M5 Pro, macOS 27.0.1, SIP on.
 
-## State (2026-11-03)
+## State (2026-11-06)
 
 - macOS 14.8.7 (23J520, tart `cirruslabs/macos-sonoma-base`) boots on QEMU's
   `vmapple` machine under HVF. SSH answers about 14 s after boot. Commands run.
   The guest reaches the internet (`cache.nixos.org` returns 200).
-- Open blocker: the guest resets itself about every 22 s. The same image under
-  Virtualization.framework (tart) stays up, so the cause is QEMU's machine model.
+- The guest stays up once tart's guest daemon is off:
+  `sudo launchctl disable system/org.cirruslabs.tart-guest-daemon`. With it on,
+  the guest called `reboot()` about every 22 s (141 resets in a row; none in
+  the 3 minutes after the disable). The daemon wants tart's host side over
+  virtio-socket, which this machine does not have. Under tart it stays up.
 
 ## Why QEMU needs a patch
 
@@ -45,6 +48,9 @@ nix develop --file /etc/nixpkgs qemu --command sh -c 'mkdir -p build-hvf && cd b
 # entitlement.sh needs Rez, which the dev shell lacks: sign by hand.
 cd build-hvf && cp -pPf qemu-system-aarch64-unsigned qemu-system-aarch64 && \
   /usr/bin/codesign --entitlements ../accel/hvf/entitlements.plist --force -s - qemu-system-aarch64
+# The configured guest: Nix installed, tart's daemon disabled.
+cd ~/Dynamist/orchard-images && RUN=$PWD/sonoma-nix ./run-hvf.sh
+# A fresh guest from the tart image (disable the tart daemon first thing):
 cd ~/Dynamist/orchard-images && rm -rf run && mkdir run && cp aux-verbose.img run/aux.img && ./run-hvf.sh
 ```
 
@@ -59,38 +65,45 @@ cd ~/Dynamist/orchard-images && rm -rf run && mkdir run && cp aux-verbose.img ru
 - `~/.tart/vms/sonoma-vz` is the same image for tart (APFS clone of the disk,
   raw NVRAM from `host/fetch_tart_meta.py`); `tart run --no-graphics sonoma-vz`.
 
-## What the reset loop is not
+## Nix in the guest
 
-- Not hypercalls: every `hvc #0` is rewritten; the only unknown call is
-  `0x8300ff01` (SMCCC Call UID, OEM range).
-- Not the power key: pulling GPIO pin 3 up changed nothing.
-- Not WindowServer: disabling it and loginwindow changed nothing.
-- Not the half-finished update in NVRAM (`IASCurrentInstallPhase`): deleting it
-  changed nothing (two variables unconfirmed).
-- Not timebase: host counter is 24 MHz.
+Official installer (`--daemon`): Nix 2.35.4, sandbox off (installer default).
 
-## What it is, so far
+| step | time |
+| --- | --- |
+| raw `derivation` with `/bin/sh`, built locally | 0.7 s |
+| `nixpkgs#hello` from cache.nixos.org | 11 s |
+| `nixpkgs#hello --rebuild`, compiled in the guest with stdenv | 32 s |
 
-- QMP shows `RESET {"guest": true, "reason": "guest-reset"}`: PSCI SYSTEM_RESET.
-- launchd logs `System shutdown initiated by kernel - launchd got a SIGTERM`:
-  some process called `reboot()` (`bsd/kern/kern_xxx.c`; it logs no caller).
-- Within one kernel boot, userspace reboots too (`KextLog: was reset after
-  userspace reboot`).
-- Device diff against the VZ guest: VZ has `avp-rtc` where QEMU has PL031,
-  plus virtio console, entropy, socket, sound and Apple PCI devices
-  (`106b:1a0x`). QEMU's guest logs `AppleVPKeyStore … ret: e00002f0`
-  (kIOReturnUnsupported). The guest sets the RTC about 59 days back at each boot.
-- The Data volume cannot be read on the host: its key sits in the virtual
-  platform keystore (no crypto users).
+`--rebuild` then reports the output differs from the cached one: a determinism
+check, not a build failure. `hello` runs. A guest `shutdown -h` powers QEMU
+off (PSCI SYSTEM_OFF).
+
+## The reset loop (solved)
+
+The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
+launchd logged `System shutdown initiated by kernel`. The caller was tart's
+root daemon `org.cirruslabs.tart-guest-daemon`; it wants tart's host over
+virtio-socket. Ruled out on the way: hypercalls, GPIO power-key polarity,
+WindowServer, the NVRAM install phase, the timebase.
+
+Differences from the VZ guest that do not stop a boot, and may matter later:
+VZ has `avp-rtc` where QEMU has PL031, and virtio console, entropy, socket,
+sound and Apple PCI devices (`106b:1a0x`). `AppleVPKeyStore` logs
+`ret: e00002f0` (kIOReturnUnsupported). The Data volume key sits in the
+virtual platform keystore, so the host cannot mount it.
+
+`host/collect.py` with `guest/diag.sh` (LaunchDaemon `guest/diag.plist`)
+streams guest logs to the host; `log stream` under it stopped within a second
+of starting, so it needs more work before it is useful.
 
 ## Next steps
 
-1. Find the `reboot()` caller. The caller's thread is inside `reboot_kernel`
-   during each `shutdown_stall` spindump: run `guest/stall.sh` in the guest.
-   SSH windows are short; on a fresh overlay they were long enough.
-2. Make guest logs survive the reset: stream `log stream` through
-   `script -q /dev/null` (a pty, so line buffering) to `nc 10.0.2.2 <port>`
-   with a listener on the host. `guest/diag.sh` writes to disk and loses the tail.
-3. Check AppleVPKeyStore: what selectors 17 and 35 need from the platform.
-4. Fix apple-gfx-mmio on a macOS 27 host (`setMapMemory:` is gone; Mohamed
+1. vivarium: a darwin QEMU backend (`accel=hvf`, the `vmapple` machine,
+   disk-boot like `Appliance`) and an agent channel. No virtio-console or
+   virtio-socket on this machine yet: SSH, or add virtio-vsock to vmapple.
+2. Carry the QEMU patch somewhere buildable by Nix (an overlay over nixpkgs'
+   QEMU, or a nixidae fork of orchard), with the hand-made signing step.
+3. Fix apple-gfx-mmio on a macOS 27 host (`setMapMemory:` is gone; Mohamed
    Mediouni's vmapple series on qemu-devel fixes it).
+4. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
