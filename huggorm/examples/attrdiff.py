@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import resource
 import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import anyio
+from buildtimes import Source, Timing, fetch
 
 import huggorm
 from huggorm import errors
@@ -169,6 +173,44 @@ def build_set(selected: set[str], changed: set[str], inputs: dict[str, frozenset
     return out
 
 
+def pname(drv: str) -> str:
+    """`builtins.parseDrvName`'s name part of a `.drv` base name."""
+    name = drv.removesuffix(".drv").split("-", 1)[1]
+    match = re.search(r"-[^a-zA-Z]", name)
+    return name[: match.start()] if match else name
+
+
+def twins(before: Side, after: Side, changed: set[str]) -> dict[str, str]:
+    """The before derivation each changed after derivation replaces.
+
+    Matched from the attribute roots down, an input to an input with the
+    same name: a name alone is ambiguous, since many fetches are `source`.
+    A version bump changes the name's version, not its `pname`."""
+    out: dict[str, str] = {}
+    queue = deque((a, before.roots[attr]) for attr, a in after.roots.items() if a in changed and attr in before.roots)
+    while queue:
+        a, b = queue.popleft()
+        if a in out:
+            continue
+        out[a] = b
+        for ia in after.inputs[a] & changed:
+            if ia in out:
+                continue
+            same = [ib for ib in before.inputs[b] if pname(ib) == pname(ia)]
+            if len(same) == 1:
+                queue.append((ia, same[0]))
+    return out
+
+
+def time_summary(drvs: set[str], timings: dict[str, Timing]) -> dict[str, int]:
+    timed = [timings[d] for d in drvs if d in timings]
+    return {
+        "seconds": sum(t.seconds for t in timed),
+        **{str(s): sum(1 for t in timed if t.source is s) for s in Source},
+        "untimed": len(drvs) - len(timed),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--before", required=True, help="nixpkgs directory or tarball URL")
@@ -178,6 +220,16 @@ def main() -> None:
     parser.add_argument("--system", default=huggorm.current_system())
     parser.add_argument("--after-overlay", help="a Nix overlay applied to the after tree only")
     parser.add_argument("--show", type=int, default=20, help="derivations listed per layer")
+    parser.add_argument(
+        "--build-times",
+        action="store_true",
+        help="time each changed derivation from cache.nixos.org build logs",
+    )
+    parser.add_argument(
+        "--hydra",
+        action="store_true",
+        help="with --build-times, ask hydra.nixos.org for the exact time of attribute roots",
+    )
     args = parser.parse_args()
 
     attrs: list[str] = list(args.attr)
@@ -205,6 +257,22 @@ def main() -> None:
     layer_seconds = time.monotonic() - start
     depth_of = {d: n for n, layer in enumerate(found, 1) for d in layer}
 
+    timings: dict[str, Timing] = {}
+    twin: dict[str, str] = {}
+    fetch_seconds = 0.0
+    if args.build_times:
+        start = time.monotonic()
+        twin = twins(before, after, changed)
+        # The after .drv first: for a merged change Hydra has built it, and
+        # its own log beats the one it replaces.
+        candidates = {d: [d, *([twin[d]] if d in twin else [])] for d in changed}
+        jobs = {a: f"{attr}.{args.system}" for attr, a in after.roots.items() if a in changed}
+        timings = anyio.run(lambda: fetch(candidates, jobs, hydra=args.hydra))
+        fetch_seconds = time.monotonic() - start
+
+    def timed(drvs: set[str]) -> dict[str, dict[str, int]]:
+        return {"time": time_summary(drvs, timings)} if args.build_times else {}
+
     report = {
         "system": args.system,
         "attrs": {
@@ -220,20 +288,34 @@ def main() -> None:
         "derivations": {"before": len(before.inputs), "after": len(after.inputs)},
         "changed": len(changed),
         "layers": [
-            {"depth": n, "count": len(layer), "sample": sorted(layer)[: args.show]} for n, layer in enumerate(found, 1)
+            {"depth": n, "count": len(layer), **timed(layer), "sample": sorted(layer)[: args.show]}
+            for n, layer in enumerate(found, 1)
         ],
         "nearest": [
             {
                 "depth": k,
                 "selected": sum(1 for n in near.values() if n <= k),
                 "builds": len(builds),
+                **timed(builds),
             }
             for k, builds in enumerate(by_near, 1)
         ],
+        "build_times": {
+            **timed(changed),
+            "matched_before": len(twin),
+            "slowest": [
+                {"drv": d, "seconds": t.seconds, "source": t.source, "from": t.drv}
+                for d, t in sorted(timings.items(), key=lambda kv: -kv[1].seconds)[: args.show]
+            ],
+            "untimed": sorted(changed - set(timings))[: args.show],
+        }
+        if args.build_times
+        else None,
         "seconds": {
             "before": round(before.seconds, 2),
             "after": round(after.seconds, 2),
             "layers": round(layer_seconds, 3),
+            "build_times": round(fetch_seconds, 2),
         },
         "maxrss_mib": {"after_before_side": rss_before, "both_sides": rss_both},
     }
