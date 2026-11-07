@@ -1,0 +1,4 @@
+extend = "nix/shared/ruff-anyio.toml"
+
+[lint.isort]
+known-first-party = ["pynix_review"]

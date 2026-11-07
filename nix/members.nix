@@ -70,6 +70,13 @@
       root = "pydd.packages.default";
     };
   };
+  pynix-review = {
+    repo = "nixidae/pynix-review";
+    package = {
+      flake = "default";
+      root = "pynix-review.packages.default";
+    };
+  };
   pynixd = {
     repo = "nixidae/pynixd";
     package = {

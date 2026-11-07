@@ -48,6 +48,10 @@ rec {
 
   nixkube = import sources.nixkube { inherit pkgs sources system; };
 
+  # What a nixpkgs change rebuilds, for a review bot. On huggorm, through
+  # nanopynix's set.
+  pynix-review = import sources.pynix-review { inherit pkgs sources system; };
+
   # NixOS integration tests on User-Mode Linux, so a guest is a process and a
   # test is a derivation that passes or fails.
   vivarium = import sources.vivarium { inherit pkgs sources; };
@@ -117,6 +121,7 @@ rec {
         nixkube
         nixvenv
         pydd
+        pynix-review
         pynixd
         vivarium
         ;
@@ -137,6 +142,7 @@ rec {
       "nixkube"
       "nixvenv"
       "pydd"
+      "pynix-review"
       "pynixd"
       "vivarium"
     ];
@@ -148,6 +154,7 @@ rec {
       "nanopynix"
       "nixkube"
       "pydd"
+      "pynix-review"
       "pynixd"
       "vivarium"
     ];
@@ -161,6 +168,7 @@ rec {
       "nixkube"
       "nixvenv"
       "pydd"
+      "pynix-review"
       "pynixd"
       "vivarium"
     ];
@@ -185,6 +193,7 @@ rec {
             nixkube
             nixvenv
             pydd
+            pynix-review
             pynixd
             vivarium
             ;
@@ -206,6 +215,7 @@ rec {
             nixkube = "A Nix store in Kubernetes pods, through CSI and NRI.";
             nixvenv = "A real Python venv from nixpkgs packages.";
             pydd = "Dynamic derivations, planned in Python.";
+            pynix-review = "What a nixpkgs change rebuilds, layered by depth.";
             pynixd = "A Nix daemon in Python.";
             vivarium = "NixOS integration tests that need no KVM.";
           }
