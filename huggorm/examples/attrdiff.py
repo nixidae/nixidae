@@ -44,7 +44,19 @@ def _maxrss_mib() -> int:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
 
 
-def open_side(tree: Path, system: str, overlay: str | None) -> Side:
+def tree_expr(tree: str) -> str:
+    """A Nix expression for a nixpkgs tree: a directory, or a tarball URL.
+
+    The state that evaluates fetches a URL itself. A tree that another
+    process fetched is valid in the host store only, and newer Nix keeps
+    it lazily in its git cache, not on disk, so the dummy store cannot
+    read it."""
+    if tree.startswith(("https://", "http://")):
+        return f"(builtins.fetchTarball {json.dumps(tree)})"
+    return str(Path(tree).resolve())
+
+
+def open_side(tree: str, system: str, overlay: str | None) -> Side:
     store = huggorm.Store("dummy://?read-only=false")
     state = huggorm.EvalState(
         store,
@@ -53,7 +65,7 @@ def open_side(tree: Path, system: str, overlay: str | None) -> Side:
     overlays = f"[ ({overlay}) ]" if overlay else "[ ]"
     # The same config CI's outpaths.nix passes, minus what only matters there.
     expr = (
-        f"import {tree} {{ system = {json.dumps(system)}; overlays = {overlays}; "
+        f"import {tree_expr(tree)} {{ system = {json.dumps(system)}; overlays = {overlays}; "
         "config = { allowAliases = false; allowUnfree = true; "
         "allowInsecurePredicate = _: true; }; }"
     )
@@ -146,8 +158,8 @@ def build_set(selected: set[str], changed: set[str], inputs: dict[str, frozenset
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--before", type=Path, required=True)
-    parser.add_argument("--after", type=Path, required=True)
+    parser.add_argument("--before", required=True, help="nixpkgs directory or tarball URL")
+    parser.add_argument("--after", required=True, help="nixpkgs directory or tarball URL")
     parser.add_argument("--attrs", type=Path, help="file with one attribute path per line")
     parser.add_argument("--attr", action="append", default=[])
     parser.add_argument("--system", default=huggorm.current_system())
@@ -161,10 +173,10 @@ def main() -> None:
     if not attrs:
         parser.error("give --attr or --attrs")
 
-    before = open_side(args.before.resolve(), args.system, None)
+    before = open_side(args.before, args.system, None)
     evaluate(before, attrs)
     rss_before = _maxrss_mib()
-    after = open_side(args.after.resolve(), args.system, args.after_overlay)
+    after = open_side(args.after, args.system, args.after_overlay)
     evaluate(after, attrs)
     rss_both = _maxrss_mib()
 
