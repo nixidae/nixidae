@@ -120,16 +120,20 @@ Images: tart `macos-sequoia-base` (15.7.7), `macos-tahoe-base` (26.6.2),
 Test: `host/try_image.sh IMAGE_DIR RUN_DIR` (fresh overlay, disables the
 tart daemon, counts resets); `GFX=on` uses apple-gfx-mmio.
 
-| image | without the v8 patches | with patches 05 and 10 (fork a8a6e107), `GFX=on` |
-| --- | --- | --- |
-| 15 | panic in AppleParavirtGPUIOGPUFamily on the gfx stub (NULL, far 0x10) | SSH after 41 s; then panic |
-| 26 | panic `unencrypted data volume is not allowed` (apfs_vfsops.c:2372) | SSH reached; then panic |
-| 27 | iBootStage1 (mBoot-20457.41.3) panic `4962211b03d706d:203` | not run |
+| image | without the v8 patches | patches 05 and 10, `GFX=on` | fork 2a4a3122, no GPU (`gfx=off`, default) |
+| --- | --- | --- | --- |
+| 15 | panic in AppleParavirtGPUIOGPUFamily on the gfx stub (NULL, far 0x10) | SSH after 41 s; then panic | **SSH after 48 s, 0 resets in 180 s** |
+| 26 | panic `unencrypted data volume is not allowed` (apfs_vfsops.c:2372) | SSH reached; then panic | **SSH after 25 s, 0 resets in 180 s** |
+| 27 | iBootStage1 (mBoot-20457.41.3) panic `4962211b03d706d:203` | not run | not run (fails in iBoot) |
 
-The panic on 15 and 26 with the patches: `Undefined kernel instruction
+Headless is the working configuration. With `gfx=off` the fork hides the
+GPU and IOSurface-mapper nodes in the device tree (one letter of their
+`compatible` values), so no GPU driver loads. 14 boots with or without it.
+
+With the GPU on, 15 and 26 panic: `Undefined kernel instruction
 instr=d51ef860` = `msr S3_6_C15_C8_3, x0`, an Apple implementation-defined
-register that public HVF (ISA mode 1) refuses. Panic records are in the run
-directory's `aux.img` (NVRAM), readable as strings.
+register that public HVF (ISA mode 1) refuses. Headless avoids it. Panic
+records are in the run directory's `aux.img` (NVRAM), readable as strings.
 
 The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
 `0xfffffc01100bc058` in its memcpy (ELR 0x700adf34) while formatting a log
@@ -171,11 +175,10 @@ of starting, so it needs more work before it is useful.
 
 ## Next steps
 
-0. macOS 15 and 26: handle `msr S3_6_C15_C8_3` (d51ef860). Either find
-   whether HVF exits to QEMU for it (then emulate it as a no-op in
-   `target/arm/hvf/hvf.c`), or rewrite it in kernel text at the same point
-   as the `hvc #0` rewrite. Then rerun `host/try_image.sh` with `GFX=on`.
-   macOS 27: find what LLB's log buffer address comes from.
+0. macOS 15 and 26 run headless. For a GPU: handle `msr S3_6_C15_C8_3`
+   (d51ef860), as a no-op in `target/arm/hvf/hvf.c` if HVF exits for it,
+   else rewritten in kernel text with the `hvc #0` rewrite. macOS 27: find
+   what LLB's log buffer address comes from.
 
 1. vivarium: a darwin QEMU backend (`accel=hvf`, the `vmapple` machine,
    disk-boot like `Appliance`). The agent runs in the guest on
