@@ -3,7 +3,9 @@
 Evaluates the same attributes in two nixpkgs trees, each in its own
 `EvalState` over its own in-memory `dummy://` store, so no `.drv` reaches
 disk. The changed set is every derivation in the after-closure that the
-before-closure lacks. Depth 1 is the changed derivations with no changed
+before-closure lacks. A fixed-output derivation matches by name and
+content address, not by `.drv` path: a Go `goModules` whose inputs moved
+has a new `.drv` and the same output, and builds nothing. Depth 1 is the changed derivations with no changed
 input; depth n+1 is what depth n leaves with no remaining changed input
 (the design in Mic92/nixpkgs-review#554).
 
@@ -37,6 +39,7 @@ class Side:
     roots: dict[str, str] = field(default_factory=dict)
     failed: dict[str, str] = field(default_factory=dict)
     inputs: dict[str, frozenset[str]] = field(default_factory=dict)
+    identity: dict[str, str] = field(default_factory=dict)
     seconds: float = 0.0
 
 
@@ -82,6 +85,15 @@ def resolve(side: Side, attr: str) -> huggorm.Value:
     return value
 
 
+def identity(base: str, parsed: huggorm.Derivation) -> str:
+    """What decides whether this derivation builds something new."""
+    outputs = parsed.outputs()
+    fixed = [o for o in outputs.values() if isinstance(o, huggorm.DerivationOutputCAFixed)]
+    if fixed and len(fixed) == len(outputs):
+        return f"fixed:{parsed.name()}:" + ",".join(sorted(str(o.ca()) for o in fixed))
+    return base
+
+
 def walk(side: Side, drv: str) -> None:
     """Record the input edges of every derivation under `drv` not yet seen."""
     queue = deque([drv])
@@ -92,6 +104,7 @@ def walk(side: Side, drv: str) -> None:
         parsed = side.store.read_derivation(huggorm.StorePath(base))
         edges = frozenset(parsed.input_drvs())
         side.inputs[base] = edges
+        side.identity[base] = identity(base, parsed)
         queue.extend(e for e in edges if e not in side.inputs)
 
 
@@ -180,7 +193,8 @@ def main() -> None:
     evaluate(after, attrs)
     rss_both = _maxrss_mib()
 
-    changed = set(after.inputs) - set(before.inputs)
+    known = set(before.identity.values())
+    changed = {d for d, ident in after.identity.items() if ident not in known}
     start = time.monotonic()
     found = layers(changed, after.inputs)
     near = nearest(changed, after.inputs)
