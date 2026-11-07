@@ -12,12 +12,16 @@ dependencies = [
   "anyio",
   "httpx",
   "huggorm",
+  "pydantic",
 ]
 
 [project.optional-dependencies]
 test = [
   "pytest",
 ]
+
+[project.scripts]
+pynix-review = "pynix_review.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pynix_review"]
