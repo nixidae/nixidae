@@ -256,6 +256,25 @@ Run from `nixkube/`.
 - Code stays approachable to beginners. Comments that earn a line: design choices, protocol requirements (CSI, Kubernetes, Nix), error-handling philosophy (see `NodeUnpublishVolume`), performance reasons, footguns.
 - Integration tests over unit tests: the code orchestrates Nix, rsync and mount. The vivarium guest tests (`ciTest`, `ciTestCache`, `umlTest`) run a real kubeadm node, locally as in CI. Unit tests for pure logic only.
 
+## pynix-review
+
+What a nixpkgs change rebuilds, layered by depth, with Hydra's build times; for review bots (aid's `prreview`). nixidae/nixidae#1210.
+
+### Gates and commands
+
+Run from `pynix-review/`: `nix-shell --run 'python3 -m pytest'`, `ruff check`, `ruff format --check`, `zuban mypy`. The shell's `pynix-review` is the working tree, rebuilt on entry.
+
+- A live run: `pynix-review diff --before <dir|tarball URL> --after <...> --attrs FILE [--build-times [--hydra]]`. JSON on stdout. Tarball URLs, not paths: a tree another process fetched lives in that Nix's git cache, not on disk, and a `dummy://` store cannot read it.
+- CI's rebuild list for a PR: the `diff-<system>` artifact of its `Eval` run, `.rebuilds`, minus the `.<system>` suffix.
+
+### Rules
+
+- `graph.py` is pure and holds every rule; `evaluate.py`, `buildtimes.py` and `review.py` are the effects. A new rule gets a hand-built graph in `tests/test_graph.py`, from a shape measured on nixpkgs.
+- Async (anyio) end to end; a consumer runs it on its own loop. Each tree gets its own `AsyncEvalState` and `AsyncStore`, and the state shares that store object.
+- A fixed-output derivation matches by name and content address, never by `.drv`.
+- hydra.nixos.org is shared and backlogged: `--hydra` stays opt-in, `hydra_limit` stays small. cache.nixos.org logs are the default source.
+- Tests that evaluate nixpkgs or reach the network carry `@pytest.mark.live`; `pytest.ini` deselects them.
+
 ## pynixd
 
 ### Gates and commands
