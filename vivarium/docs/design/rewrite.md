@@ -24,9 +24,12 @@ The phase model is sound. The trouble is around it:
    reach it. They rerun the whole test instead.
 5. Phases have three gaps that consumers work around in their own Nix.
 
-The proposal is one pivot: a spec that modules extend. Kubernetes, the
-appliances, the cloud images and the backends then move out of the
-core, one at a time.
+The proposal compares three architectures against the cases that went
+wrong, and picks one: **owners and contracts**. Recipes read the
+evaluated guests, so Kubernetes needs no field in the spec. A backend
+and a guest kind each own a typed configuration that the core does not
+read. Their Python arrives through the run's own environment. The user
+chose this route ("pivot first") on 2026-11-08.
 
 ## 1. The core knows about its modules
 
@@ -188,66 +191,192 @@ Smaller: backends are chosen by a knob (`PYNIXD_GUEST_BACKEND`,
 `NIXKUBE_UML_BACKEND`) rather than `.qemu`, because a knob also sets
 other things. `default.nix` is 2854 lines with about 50 tests inline.
 
-## Proposal
+## 6. What the core acts on
 
-### The pivot: a spec that modules extend
+The five layers of a run, and who may extend each one today:
 
-The spec gets a fixed core and named sections. A guest module writes
-its section; the Python that owns the section reads it. The core passes
-a section through without reading it.
+| layer | what it is | open to a module? |
+| --- | --- | --- |
+| run | `mkTest`'s `evalModules`: phases, nodes, defaults, settings, knobs | yes: a recipe |
+| guest | each node's NixOS evaluation, `vivarium.*` | yes: a NixOS module |
+| spec | the JSON between Nix and Python | no: `spec.py` and `MachineSpec` are closed |
+| host runtime | `Session`, `Machine`, `Backend`, `cluster`, dialects | no: one package, fixed registries (`BACKENDS`, `DIALECTS`) |
+| host Python | the venv the wrapper runs | no: `cli` is one fixed venv |
 
-```nix
-# in a guest module
-vivarium.spec.sections.kubernetes = { role = "worker"; cni = "bridge"; };
-vivarium.spec.tools.gvproxy = lib.getExe' pkgs.gvproxy "gvproxy";
-```
+A feature spans all five. Only the first two take a module, so the
+other three are where a feature lands in the core.
 
-```python
-# in the package that owns the section
-@dataclass
-class KubernetesSection:
-    role: str
-    cni: str
+Three mechanisms also describe one idea, "this guest is not a stock
+NixOS guest with an agent": `backend = "appliance"`, the
+`system.build.vivariumImageGuest` flag, and `boot.image.control`.
+`machineSpec` branches three ways on them.
 
-cfg = vm.spec.section("kubernetes", KubernetesSection)
-```
+The rule the proposal follows: **each fact has one owner, and it
+crosses into the core only when the core acts on it.** The core acts
+on a guest's identity, its segments and forwards (resolved across all
+guests at once), its store view, its control channel, its lifecycle and
+its systems. It does not act on a kernel path, a CNI or a disk format.
 
-Strictness stays, per section: a section's owner rejects a key it does
-not know. A section with no owner is an error at start, which names the
-module that wrote it.
+## Three architectures
 
-Backends use the same mechanism. A backend is a guest module (its Nix:
-kernel, boot, toolchain, required system features) plus a Python class
-registered by name. `lib.nix` then asks each guest's backend for its
-tools and features, instead of branching on the name.
+### A. Open spec sections
 
-### What moves out of the core
+The earlier proposal. The spec gets named sections. A guest module
+writes one, the core passes it through, and the Python that owns it
+reads it with its own strict model.
 
-| now | after |
-| --- | --- |
-| `modules/k8s.nix`, `k8s-images.nix`, `cluster.py`, k8s fields in `MachineSpec` | `vivarium-k8s`: a module, a recipe that adds the `cluster` phase, and its Python. Nodes know their peers through `nodes`, as `runner.md` decided. Join and pod routes become units that wait on a file the runner writes (`runner.md` open item 4) |
-| `routeros-guest.nix`, `sonic-guest.nix`, `vyos-guest.nix`, `appliance.nix`, `routeros.py`, `sonic.py` | `vivarium-appliances`: imported by the guests that use them |
-| `image-guest.nix`, `image.nix`, `images.nix` | a guest kind module, beside the appliances |
-| the backend enum and its branches | one module and one class per backend; the core ships the four as the default set |
-| `typeCheck` on the guest | an `mkTest` option |
-| `settings` registering paths | `settings` is data only. `closure` (new) names paths to register |
+### B. Owners and contracts
 
-Each stays in the vivarium source; "out" means out of the core's
-imports, its spec and its runner package. Consumers import
-`vivarium.nixosModules.k8s` and `vivarium_k8s.cluster`, as they import
-`nixosModules.k8s` and `vivarium_runner.cluster` today.
+Three extension points, each with one owner per value:
 
-### Phases
+1. **A recipe is the unit of a multi-guest feature.** It is a run
+   module, as `cache` is. It reads the evaluated guests (the `systems`
+   argument), and writes `nodes`, `defaults`, `phases`, `settings` and
+   Python packages. A guest never writes to the run.
+2. **A backend owns a typed launch configuration.** Its NixOS module
+   writes `vivarium.launch = { backend = "qemu"; config = { ... }; }`,
+   with its tool paths inside `config`, and adds to
+   `vivarium.requiredSystemFeatures`. Its Python class owns a strict
+   model of `config`. It also owns `launch`, the store delivery (view,
+   writable view, allowlist), reboot detection and its capabilities
+   (memory control, screen).
+3. **A guest kind owns its control channel.** It is a NixOS module.
+   RouterOS, SONiC, VyOS, cloud images and appliances each set their
+   backend's disk and boot parameters, and `vivarium.control`:
+   `agent`, a console dialect with its configuration, or `none` with a
+   ready pattern.
 
-- `--only` keeps the `after` closure, and boots only the guests those
-  phases name.
+Python code reaches a run through `python.packages`, an option of the
+run and of the guest. `mkTest` collects both into one venv. The wrappers
+run that venv, and the type check reads it. A backend or a dialect is a
+Python entry point (`vivarium.backends`, `vivarium.controls`) in a
+package there, so a registry is never edited.
+
+The core's machine contract becomes: `name`, `index`, `resources`
+(memory, cpus), `network` (interfaces, uplink segment, forwards),
+`store` (closure, late closure), `systems` (toplevel,
+configurations), `launch` and `control`. The core validates its own
+fields strictly. The owner validates `launch.config` and
+`control.config`.
+
+### C. A launcher program per guest
+
+The shape nixos-test and microvm.nix use. Each guest's evaluation
+builds its own launcher, which closes over its tools. The core runs it
+through a small fixed interface: fds, the artifacts directory, the
+store view, the forwards. The launcher reports its capabilities as
+socket protocols (QMP, mconsole). Container (`crun_launch`), krun
+(`krun-launch`) and UML (the passt bridge) are partly in this shape
+already.
+
+## Against the cases
+
+Each row is a change that landed, or will land. A cell says where the
+change goes. "core" means the core's imports, its spec or its runner
+package.
+
+| case | A: sections | B: owners | C: launchers |
+| --- | --- | --- | --- |
+| cgroup layout for pynixd (container) | core: `backend.py` | the container backend's config | the container launcher |
+| krun flags and share allowlist | core, unless backends use sections too | the krun backend's config | the krun launcher |
+| LKL nftables override | a NixOS module the IPsec lab imports; the same in all three. The core imports `nftables.nix` into every guest today, but nothing forces it | same | same |
+| `kubeletSettings` | the k8s section | the k8s recipe's guest module | core: C does not cover a recipe |
+| `writableStore` for cloud images | an image section | the image guest kind | the image guest kind |
+| `images`, `skipAddons` for the cluster phase | the k8s section | `settings`, from the guests the recipe reads | core: as for `kubeletSettings` |
+| a fifth backend | a section, and the `lib.nix` branches stay | a module and an entry point | a module that builds a launcher |
+| a guest kind like VyOS | a section, and `machineSpec`'s branch stays | a module that sets `launch` and `control` | a module, but the dialect stays in core |
+| Python for the feature | no route: it stays in `vivarium_runner` | `python.packages`, one venv for run and check | the launcher's own; a dialect has none |
+| a misuse names its owner | only if each section records its writer | the spec carries the option's file (`options.*.files`) beside `launch` and `control` | the launcher's own error |
+
+A leaves the backend rows half done and has no answer for Python. C
+fixes the backend rows best. But it does nothing for recipes or
+dialects. It also costs a protocol for each capability, and a launcher
+process with the same configuration as the in-process class. The
+backends share helpers (`Qemu._passt` and `Qemu._scratch_disk` serve
+krun too), so each launcher would carry a copy of them or a shared
+library. B covers every row. B also keeps C open: a backend may exec its
+own launcher, as container and krun do now.
+
+**Recommendation: B.** C is the later step for one backend, when a
+second language or a host without Python needs it.
+
+### Evidence for B's riskiest step
+
+A recipe that reads `systems` to choose a phase's `nodes` recursed:
+`mkTest` built the guests from the checked config, and the check reads
+the phases. Measured on 2026-11-08 with a 12-line `mkTest`. The guests
+now evaluate from the unchecked config, and the same `mkTest` selects
+only the guest with `services.nginx.enable` (commit "vivarium: guests
+evaluate from the unchecked run config"). The consumer tests that were
+evaluated (`checks.recipes`, `checks.parallel`, `checks.k8s`, pynixd's
+`tests.guest`, nixkube's `ciTest`) still evaluate.
+
+### What the consumers use
+
+From a survey of every directory outside `vivarium/`:
+
+- k8s: `nixosModules.k8s` in three files (nixkube twice, easykubenix
+  once), and `vivarium_runner.cluster` in seven nixkube files. No
+  consumer reads `vm.spec.kubernetes`, `cni`, `images` or
+  `skipAddons`.
+- No consumer sets `vivarium.appliance`, `routeros`, `sonic` or `vyos`.
+  Only vivarium's own tests and `examples/` do. havsorm and huggorm use
+  `vivarium.image` with `vivarium.images`.
+- No consumer sets `typeCheck` or relies on the `UML_` knob prefix;
+  each knob names its own `env`.
+- Consumers call 12 `Machine` methods. `succeed` (123 calls) and
+  `execute` (45) dominate. Nothing reaches a private name or a path
+  inside `vivarium/`.
+
+So Kubernetes moves with three consumer files and seven imports, and
+the guest kinds move with no consumer change beyond an `imports` line.
+
+### Rejected, and why
+
+- **A guest adds a phase to the run** (`runner.md` open item 3). The
+  run would then depend on the guests and the guests on the run. A
+  recipe that reads the guests does the same job in one direction, and
+  a consumer overrides it in one place, with `lib.mkForce` on the run.
+- **Session hooks** (a pluggy-style `on_boot`, `on_phase`). No case
+  above needs one: `cluster` and `cache` are phases.
+- **`backend = "appliance"`.** An appliance is a guest kind under the
+  QEMU backend. `vivarium.backend` names the machine that runs the guest
+  and nothing else.
+
+## The phase model
+
+The model of `after`, `nodes` and `always` stays. One change goes
+deeper than §5: **a phase's guests boot when the phase needs them.**
+Today every guest boots before the first phase. Under the change:
+
+- `--only X` runs X and its `after` closure, and boots only their guests
+  (nixidae/nixidae#661).
+- A phase starts when its own guests are up, not the slowest guest of
+  the run.
+- A guest names the guests it cannot boot without:
+  `vivarium.requires = [ "cache" ]`. The scheduler boots that closure
+  with a phase's guests. The recipe that adds the dependency also
+  writes it. `cache` sets it in `defaults`, beside the
+  `vivarium-cache-online` unit that waits 120 s for the cache guest.
+  The k8s recipe sets it on each worker. Without it, `--only check`
+  on `nodes = [ "a" ]` would boot `a` alone, and `a` would fail at
+  that unit's timeout.
+- Readiness (`systemctl is-system-running --wait`, or a dialect's
+  prompt) is a step of a guest's start, through its control channel.
+  The `boot` phase stays as a name every `after` can still give, so no
+  consumer changes.
+
+The rest of §5:
+
 - `--break` takes any point: a phase, `start`, or `failure`.
 - `timeout` per phase, default unset.
 - A guest-suite recipe: pytest inside a guest, junit to `/artifacts`,
-  and `-- <args>` passed through to it. pynixd's `suite.py` is the
-  first user.
+  `-- <args>` passed through. pynixd's `suite.py` is the first user.
+- `settings` is data only. A guest's `vivarium.lateClosure` names the
+  paths its database registers after boot, and replaces the
+  registration of `settings` in every guest.
 
-### The agent surface
+## The agent surface
 
 - `packages.vivarium` is the one CLI, on PATH in every dev shell that
   runs a test. `run` writes `<out>/run.json` first: the CLI path, the
@@ -257,33 +386,30 @@ imports, its spec and its runner package. Consumers import
 - `inject --reload` drops the helpers it imported, and `switch` appears
   in the commands a pause prints.
 
-### Iteration speed
-
-The open rows of the table in section 3, measured before and after, on
-pynixd's guest test with one unit test as the workload.
-
 ## Order of work
 
-Each step keeps `checks` green and moves the consumers with it. No step
-needs the next.
+Each step keeps `checks` green and moves the consumers with it.
 
-1. Spec sections and tools, with the core fields unchanged.
-2. Kubernetes onto a section, then out of the runner package.
-3. Appliances and image guests out of the default imports.
-4. Backends as modules.
-5. The phase gaps, then the agent surface.
-6. `default.nix` split into `tests/<name>/default.nix`.
+1. `python.packages` on the run and the guest, one venv for the
+   wrappers and the check. `typeCheck` moves from the first guest to
+   the run.
+2. Kubernetes as `vivarium.recipes.kubernetes`. It imports the k8s
+   module into the guests it names and adds the `cluster` phase.
+   `vivarium_k8s` becomes its own package. The k8s fields leave
+   `machineSpec` and `MachineSpec`. nixkube and easykubenix move with
+   it.
+3. The backend contract: `launch` and `requiredSystemFeatures`, entry
+   points, capabilities. One backend at a time, UML first. The global
+   toolchain, `toolchainFor` and `featuresFor` go with the last one.
+   havsorm reads `vm.spec.toplevel` and `vm.spec.configurations`, which
+   move under `systems`; it moves in this step.
+4. Guest kinds: `control`, and the RouterOS, SONiC, VyOS, image and
+   appliance modules out of the default imports. `appliance` stops
+   being a backend.
+5. The phase model: guests boot on demand, then `--only`, `--break`,
+   `timeout`, the guest-suite recipe, and the `settings` split.
+6. The agent surface.
+7. `default.nix` split into `tests/<name>/default.nix`.
 
 Speed items from section 3 land when found; they do not wait on the
 order.
-
-## The decision
-
-Two routes:
-
-- **The pivot first** (recommended). Cost: steps 1 and 2 before any
-  speed work. Gain: the in-guest suite recipe and the
-  cluster units land once, in their final shape. On the current shape
-  each lands in the core, and is written twice.
-- **Speed first, on the current shape.** Cost: each fix grows the core
-  that the pivot then takes apart. Gain: shorter runs this week.
