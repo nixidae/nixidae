@@ -91,6 +91,10 @@ in
   };
 
   config.vivarium = lib.mkIf (config.vivarium.backend == "appliance") {
+    control = {
+      kind = "none";
+      config = { inherit (config.vivarium.appliance) ready; };
+    };
     launch = {
       backend = "appliance";
       config = { inherit (tools) qemu qemuImg passt; };

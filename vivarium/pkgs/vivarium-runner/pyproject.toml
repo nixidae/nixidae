@@ -24,6 +24,12 @@ krun = "vivarium_runner.backend:Krun"
 container = "vivarium_runner.backend:Container"
 appliance = "vivarium_runner.backend:Appliance"
 
+# The console dialects, by the name `vivarium.control.kind` gives.
+# `vivarium_runner.control.dialects` reads this group.
+[project.entry-points."vivarium.controls"]
+routeros = "vivarium_runner.routeros:DIALECT"
+sonic = "vivarium_runner.sonic:DIALECT"
+
 [tool.hatch.build.targets.wheel]
 packages = ["vivarium_runner"]
 

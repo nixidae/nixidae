@@ -629,6 +629,27 @@ in
       '';
     };
 
+    control = {
+      kind = lib.mkOption {
+        type = lib.types.str;
+        default = "agent";
+        description = ''
+          How the host drives this guest: `agent`, `none` (the console's
+          `ready` line says the guest is up, and nothing drives it), or the
+          name of a console dialect in the `vivarium.controls` entry
+          points, such as `routeros`.
+        '';
+      };
+      config = lib.mkOption {
+        type = lib.types.attrsOf lib.types.anything;
+        default = { };
+        description = ''
+          What the control kind needs. Its Python owner validates it and
+          refuses a field it does not know.
+        '';
+      };
+    };
+
     requiredSystemFeatures = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];

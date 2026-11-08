@@ -98,10 +98,11 @@ in
     ];
     # The probe ran CHR in 256 MiB, as vrnetlab does.
     vivarium.memory = lib.mkDefault "256M";
-    system.build.vivariumImageGuest = {
-      control = "routeros";
-      configDisk = "${configDisk}";
+    vivarium.control = {
+      kind = "routeros";
+      config.configure = true;
     };
+    system.build.vivariumImageGuest.configDisk = "${configDisk}";
     system.build.vivariumImageDisk = cfg.disk;
   };
 }

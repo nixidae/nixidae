@@ -159,6 +159,7 @@ rec {
       uplink = machine.vivarium.uplink.segment;
       uplinkProxy = machine.vivarium.uplink.proxy;
       forward = machine.vivarium.forward;
+      inherit (machine.vivarium) control;
     }
     // lib.optionalAttrs (machine.vivarium.launch != null) {
       inherit (machine.vivarium) launch;
@@ -170,7 +171,7 @@ rec {
           # modules/appliance.nix.
           image = "${machine.vivarium.appliance.disk}";
           boot.appliance = {
-            inherit (machine.vivarium.appliance) format ready cmdline;
+            inherit (machine.vivarium.appliance) format cmdline;
             uplink = machine.vivarium.uplink.enable;
           }
           // lib.optionalAttrs (machine.vivarium.appliance.kernel != null) {

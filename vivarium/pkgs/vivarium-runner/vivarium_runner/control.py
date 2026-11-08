@@ -9,25 +9,93 @@ the design.
 
 from __future__ import annotations
 
+import functools
+import importlib.metadata
 import re
 import secrets
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import TYPE_CHECKING, Final, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict
 
 import anyio
 
 if TYPE_CHECKING:
     from anyio.abc import ByteStream
 
+AGENT: Final = "agent"
+"""The vivarium agent, over the socket the backend gives the guest."""
 
-class ControlKind(StrEnum):
-    """How the host drives a guest; `vivarium.<guest>` sets it in the spec."""
+NONE: Final = "none"
+"""Nothing to drive: the console's `ready` line says the guest is up, and a
+test reaches it over the network."""
 
-    AGENT = "agent"
-    ROUTEROS = "routeros"
-    SONIC = "sonic"
+ENTRY_POINTS: Final = "vivarium.controls"
+"""The entry point group a package names its console dialects in. The
+runner's own are there too, in its pyproject.toml."""
+
+
+class ControlError(Exception):
+    """A guest's `vivarium.control` names a kind or a field nobody owns."""
+
+
+class ControlSpecJson(TypedDict, total=False):
+    """`ControlSpec` as Nix wrote it."""
+
+    kind: str
+    config: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ControlSpec:
+    """`vivarium.control`: how the host drives the guest.
+
+    The guest kind's module writes it. `config` belongs to the kind, which
+    validates it.
+    """
+
+    kind: str = AGENT
+    config: Mapping[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_json(cls, data: ControlSpecJson) -> ControlSpec:
+        return cls(kind=data.get("kind", AGENT), config=dict(data.get("config", {})))
+
+
+def _config(
+    guest: str, spec: ControlSpec, fields: frozenset[str], optional: frozenset[str] = frozenset()
+) -> Mapping[str, Any]:
+    owner = f"{guest}: vivarium.control.config"
+    given = set(spec.config)
+    if unknown := sorted(given - fields - optional):
+        raise ControlError(f"{owner} has fields the {spec.kind} control does not know: {', '.join(unknown)}")
+    if missing := sorted(fields - given):
+        raise ControlError(f"{owner} lacks fields the {spec.kind} control needs: {', '.join(missing)}")
+    return spec.config
+
+
+@dataclass(frozen=True)
+class NoneConfig:
+    """`vivarium.control.config` of a guest with no control channel."""
+
+    ready: re.Pattern[str]
+    """Found in a console line, says the guest is up."""
+
+    @classmethod
+    def of(cls, guest: str, spec: ControlSpec) -> NoneConfig:
+        return cls(ready=re.compile(_config(guest, spec, frozenset({"ready"}))["ready"]))
+
+
+@dataclass(frozen=True)
+class ConsoleConfig:
+    """`vivarium.control.config` of a guest a console dialect drives."""
+
+    configure: bool = False
+    """Run the dialect's `configure` once after the login: the guest kind
+    gave the guest a config disk."""
+
+    @classmethod
+    def of(cls, guest: str, spec: ControlSpec) -> ConsoleConfig:
+        return cls(configure=bool(_config(guest, spec, frozenset(), frozenset({"configure"})).get("configure")))
 
 
 class Control(Protocol):
@@ -181,3 +249,44 @@ class ConsoleControl:
 
     async def aclose(self) -> None:
         await self._stream.aclose()
+
+
+@functools.cache
+def dialects() -> dict[str, Dialect]:
+    """Every installed console dialect, by the name `vivarium.control.kind` gives."""
+    found: dict[str, Dialect] = {}
+    for entry in importlib.metadata.entry_points(group=ENTRY_POINTS):
+        dialect = entry.load()
+        if not isinstance(dialect, Dialect):
+            raise ControlError(f"entry point {entry.name} = {entry.value} is not a Dialect")
+        if dialect.name != entry.name:
+            raise ControlError(
+                f"entry point {entry.name} = {entry.value} names a dialect called {dialect.name!r}; the names must match"
+            )
+        if entry.name in (AGENT, NONE):
+            raise ControlError(f"entry point {entry.name} = {entry.value} takes a name the core keeps")
+        if entry.name in found:
+            raise ControlError(f"two installed packages name a dialect {entry.name!r}")
+        found[entry.name] = dialect
+    return found
+
+
+def dialect(guest: str, spec: ControlSpec) -> Dialect:
+    """The dialect *spec* names; an error that names the guest if none is installed."""
+    found = dialects()
+    try:
+        return found[spec.kind]
+    except KeyError:
+        kinds = ", ".join(sorted([AGENT, NONE, *found]))
+        raise ControlError(f"{guest}: vivarium.control.kind is {spec.kind!r}; have {kinds}") from None
+
+
+def validate(guest: str, spec: ControlSpec) -> None:
+    """Refuse a control the guest cannot be driven with, before it boots."""
+    if spec.kind == AGENT:
+        _config(guest, spec, frozenset())
+    elif spec.kind == NONE:
+        NoneConfig.of(guest, spec)
+    else:
+        dialect(guest, spec)
+        ConsoleConfig.of(guest, spec)

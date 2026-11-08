@@ -42,10 +42,22 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import anyio
 from anyio.abc import UNIXSocketStream
 
-from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, routeros, sonic, storeview
+from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview
 from .agent import AGENT_READY, ProcessInfo, UnitInfo
 from .arpyc import AsyncConnection, connect
-from .control import ConsoleControl, ConsoleError, Control, ControlKind, Dialect
+from .control import (
+    AGENT,
+    NONE,
+    ConsoleConfig,
+    ConsoleControl,
+    ConsoleError,
+    Control,
+    ControlSpec,
+    ControlSpecJson,
+    Dialect,
+    NoneConfig,
+)
+from .control import dialect as find_dialect, validate as validate_control
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _CONSOLE_HISTORY = 2000
@@ -81,7 +93,6 @@ class EfiBoot(TypedDict):
 class ImageBoot(TypedDict, total=False):
     """`boot.image`: a root disk the guest boots from, not a kernel."""
 
-    control: str
     configDisk: str
     format: str
     seed: str
@@ -100,7 +111,6 @@ class ApplianceBoot(TypedDict, total=False):
     cmdline: str
     format: str
     uplink: bool
-    ready: str
 
 
 class BootSpec(TypedDict, total=False):
@@ -158,6 +168,7 @@ class MachineSpecJson(TypedDict, total=False):
     boot: BootSpec
     systems: SystemsJson
     launch: LaunchSpecJson
+    control: ControlSpecJson
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
@@ -269,6 +280,8 @@ class MachineSpec:
     launch: LaunchSpec | None = None
     """`vivarium.launch`, for a backend that reads its tools from there.
     The backend checks it when the `Machine` is made."""
+    control: ControlSpec = field(default_factory=ControlSpec)
+    """`vivarium.control`: the agent, a console dialect, or nothing."""
     interfaces: tuple[Interface, ...] = ()
     """The guest's segment links, in NIC order."""
     uplink: str | None = None
@@ -303,6 +316,7 @@ class MachineSpec:
             boot=data.get("boot", {}),
             systems=Systems.from_json(data.get("systems", {})),
             launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,
+            control=ControlSpec.from_json(data.get("control", {})),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             uplink_proxy=data.get("uplinkProxy", "passt"),
@@ -349,12 +363,6 @@ def _running(pid: int) -> bool:
 OUTPUT_LIMIT = 2000
 """How much of a command's output its event keeps: the end, where the
 error usually is. The whole output still reaches the caller."""
-
-
-DIALECTS: dict[ControlKind, Dialect] = {
-    ControlKind.ROUTEROS: routeros.DIALECT,
-    ControlKind.SONIC: sonic.DIALECT,
-}
 
 
 type MemoryControl = mconsole.Mconsole | qmp.Qmp
@@ -426,6 +434,7 @@ class Machine:
         # any, so one guest's bad launch config stops the run before
         # another guest boots.
         self.backend.validate(spec)
+        validate_control(spec.name, spec.control)
         self.lan_fds = lan_fds or {}
         """Each interface's segment fd, by interface name."""
         self.artifacts = artifacts
@@ -485,20 +494,15 @@ class Machine:
         return self.spec.systems
 
     @property
-    def control_kind(self) -> ControlKind:
-        """How the host drives this guest: the agent, or a console dialect.
-        A console guest's `execute` runs its own command language."""
-        image = self.spec.boot.get("image")
-        return ControlKind(image.get("control", ControlKind.AGENT) if image else ControlKind.AGENT)
+    def control_kind(self) -> str:
+        """How the host drives this guest: `agent`, `none`, or a console
+        dialect's name. A console guest's `execute` runs its own command
+        language."""
+        return self.spec.control.kind
 
     @property
     def ip(self) -> str | None:
         return self.spec.ip
-
-    @property
-    def appliance(self) -> bool:
-        """A vendor image with no agent: `execute` and the rest refuse."""
-        return bool(self.spec.boot.get("appliance"))
 
     def __repr__(self) -> str:
         return f"<Machine {self.name}>"
@@ -616,12 +620,12 @@ class Machine:
         self._spare_fds = []
         self._monitor = asyncio.ensure_future(self._pump_console())
 
-        if self.control_kind != ControlKind.AGENT:
-            await self._start_console(DIALECTS[self.control_kind])
+        if self.control_kind not in (AGENT, NONE):
+            await self._start_console(find_dialect(self.name, self.spec.control))
             return
 
-        appliance = self.spec.boot.get("appliance") if self.appliance else None
-        ready = re.compile(appliance["ready"]) if appliance else re.compile(re.escape(AGENT_READY))
+        none = NoneConfig.of(self.name, self.spec.control) if self.control_kind == NONE else None
+        ready = none.ready if none else re.compile(re.escape(AGENT_READY))
         started = time.monotonic()
         try:
             with anyio.fail_after(self.boot_timeout):
@@ -640,11 +644,11 @@ class Machine:
         except TimeoutError:
             raise MachineError(
                 f"[{self.name}] "
-                + (f"console never matched {appliance['ready']!r}" if appliance else "agent did not come up")
+                + (f"console never matched {none.ready.pattern!r}" if none else "agent did not come up")
                 + f" within {self.boot_timeout:g}s"
             ) from None
 
-        if appliance:
+        if none:
             # Nothing in the guest to connect to: tests reach it over the network.
             self._agent_sock.close()
             self._guest_sock.close()
@@ -752,7 +756,7 @@ class Machine:
                 f" ({error or 'timed out'}); the console is in console.raw"
             ) from None
         self._log(f"logged in on the {dialect.name} console")
-        if dialect.configure is not None and self.spec.boot["image"].get("configDisk"):
+        if dialect.configure is not None and ConsoleConfig.of(self.name, self.spec.control).configure:
             rc, out = await self.execute(dialect.configure, timeout=self.boot_timeout, label="apply the config disk")
             if rc != 0:
                 raise MachineError(f"[{self.name}] the config disk failed:\n{out}")
@@ -995,9 +999,9 @@ class Machine:
 
     @property
     def _agent(self) -> AgentRpc:
-        if self.appliance:
-            raise MachineError(f"[{self.name}] is an appliance: it has no agent, reach it over the network")
-        if self.control_kind != ControlKind.AGENT:
+        if self.control_kind == NONE:
+            raise MachineError(f"[{self.name}] has no control channel: reach it over the network")
+        if self.control_kind != AGENT:
             raise MachineError(
                 f"[{self.name}] is driven through its {self.control_kind} console, and has no agent for this call"
             )
@@ -1139,7 +1143,7 @@ class Machine:
         runs it: the switch may restart the unit that started it, and here
         that is the agent. Exit 4 means a unit failed; *check* raises on any
         nonzero exit."""
-        if self.control_kind != ControlKind.AGENT:
+        if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] runs {self.control_kind}, and has no NixOS to switch")
         if self.spec.boot.get("image"):
             raise MachineError(f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch")
@@ -1184,7 +1188,7 @@ class Machine:
         paths become visible under its /nix, and that is all, which is
         enough to run a tool the host built.
         """
-        if self.control_kind != ControlKind.AGENT:
+        if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
         paths = [*storeview.read_paths(Path(info) / "store-paths"), info]
         is_container = self.spec.backend == "container"

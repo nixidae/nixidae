@@ -61,10 +61,8 @@ in
     # vrnetlab runs SONiC VS in 4 GiB and two cores.
     vivarium.memory = lib.mkDefault "4096M";
     vivarium.cpus = lib.mkDefault 2;
-    system.build.vivariumImageGuest = {
-      control = "sonic";
-      inherit (cfg) format;
-    };
+    vivarium.control.kind = "sonic";
+    system.build.vivariumImageGuest = { inherit (cfg) format; };
     system.build.vivariumImageDisk = cfg.disk;
   };
 }
