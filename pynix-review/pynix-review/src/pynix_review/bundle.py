@@ -7,9 +7,9 @@ inputs, its before twin and its time, so a consumer needs nothing else.
 
 from __future__ import annotations
 
-import base64
 import json
 from typing import TYPE_CHECKING, Final
+from urllib.parse import quote
 
 import anyio
 from pydantic import BaseModel, ConfigDict
@@ -28,7 +28,11 @@ BUNDLE_FILE: Final = "bundle.json"
 SCHEMA_FILE: Final = "bundle.schema.json"
 DOT_FILE: Final = "changed.dot"
 URL_FILE: Final = "changed.url"
-VIEWER: Final = "https://graphvizonline.net/?engine=dot#"
+VIEWER: Final = "https://dreampuf.github.io/GraphvizOnline/?engine=dot#"
+"""The author's own copy: no ads, and no third-party script but lz-string
+from cdnjs. graphvizonline.net carries ads and reads base64 instead."""
+FRAGMENT_SAFE: Final = "!$&'()*+,;=:@/?"
+"""RFC 3986 fragment characters `quote` escapes by default."""
 
 
 class _Model(BaseModel):
@@ -220,13 +224,13 @@ def to_dot(bundle: Bundle) -> str:
 
 
 def view_url(dot: str) -> str:
-    """A graphvizonline.net link that renders `dot`.
+    """A GraphvizOnline link that renders `dot`.
 
-    The page reads the fragment as base64 of UTF-8
-    (`atob` then `decodeURIComponent(escape(...))`) and renders it in the
-    browser. A browser never sends the fragment, so the graph stays with
-    whoever opens the link."""
-    return VIEWER + base64.b64encode(dot.encode()).decode()
+    The page reads the fragment with `decodeURIComponent` and renders it in
+    the browser. A browser never sends the fragment, so the graph stays
+    with whoever opens the link. Not `?compressed=` (lz-string, shorter):
+    the query reaches GitHub Pages' logs."""
+    return VIEWER + quote(dot, safe=FRAGMENT_SAFE)
 
 
 async def write(bundle: Bundle, directory: anyio.Path) -> list[anyio.Path]:

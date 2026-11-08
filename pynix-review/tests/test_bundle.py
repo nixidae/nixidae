@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import base64
 import json
+from urllib.parse import unquote
 
 import anyio
 from shapes import base, font_chain
@@ -105,8 +105,11 @@ async def test_write_makes_four_files(tmp_path: anyio.Path) -> None:
     assert schema["title"] == "Bundle"
 
 
-def test_view_url_carries_the_dot_as_base64_utf8() -> None:
+def test_view_url_carries_the_dot_percent_encoded() -> None:
     dot = to_dot(font_bundle())
     url = view_url(dot)
-    assert url.startswith("https://graphvizonline.net/?engine=dot#")
-    assert base64.b64decode(url.split("#", 1)[1]).decode() == dot
+    assert url.startswith("https://dreampuf.github.io/GraphvizOnline/?engine=dot#")
+    fragment = url.split("#", 1)[1]
+    assert "#" not in fragment
+    assert " " not in fragment
+    assert unquote(fragment) == dot
