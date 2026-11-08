@@ -11,6 +11,7 @@ from pynix_review.buildtimes import Source, Timing
 from pynix_review.bundle import (
     BUNDLE_FILE,
     DOT_FILE,
+    ROW_WIDTH,
     SCHEMA_FILE,
     URL_FILE,
     Bundle,
@@ -96,6 +97,17 @@ def test_dot_ranks_by_depth_and_points_inputs_up() -> None:
     assert '"freetype\\n2.14\\n≈ 7 s ~"' in dot
     fontconfig_line = next(line for line in dot.splitlines() if line.startswith(f'  "{FONTCONFIG}" ['))
     assert 'style="dashed"' in fontconfig_line
+
+
+def test_a_wide_depth_stacks_its_rows() -> None:
+    made = font_bundle()
+    [libpng] = [d for d in made.derivations if d.drv == LIBPNG]
+    wide = [libpng.model_copy(update={"drv": base(f"lib{n}-1", "b")}) for n in range(ROW_WIDTH * 2 + 1)]
+    dot = to_dot(made.model_copy(update={"derivations": wide}))
+    rows = [line for line in dot.splitlines() if "rank=same" in line]
+    assert [row.count('"') // 2 for row in rows] == [ROW_WIDTH, ROW_WIDTH, 1]
+    assert f'"{wide[0].drv}" -> "{wide[ROW_WIDTH].drv}" [style=invis];' in dot
+    assert f'"{wide[ROW_WIDTH].drv}" -> "{wide[2 * ROW_WIDTH].drv}" [style=invis];' in dot
 
 
 async def test_write_makes_four_files(tmp_path: anyio.Path) -> None:

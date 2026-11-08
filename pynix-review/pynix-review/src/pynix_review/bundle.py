@@ -7,6 +7,7 @@ inputs, its before twin and its time, so a consumer needs nothing else.
 
 from __future__ import annotations
 
+import itertools
 import json
 from typing import TYPE_CHECKING, Final
 from urllib.parse import quote
@@ -37,6 +38,9 @@ FILL_CACHED: Final = "lightgrey"
 FILL_FAILED: Final = "salmon"
 FILL_DEPENDENCY: Final = "khaki"
 DEPENDENCY_FAILED: Final = "dependency-failed"
+ROW_WIDTH: Final = 12
+"""Nodes per row. The fzf PR puts 51 derivations at depth 4, and one row of
+them is a strip no browser shows readably; a wider depth stacks its rows."""
 FRAGMENT_SAFE: Final = "!$&'()*+,;=:@/?"
 """RFC 3986 fragment characters `quote` escapes by default."""
 
@@ -219,7 +223,7 @@ def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
 
 
 def to_dot(bundle: Bundle, results: Mapping[str, Built] | None = None) -> str:
-    """The changed subgraph: one rank per longest-path depth, inputs below.
+    """The changed subgraph: rows of `ROW_WIDTH` per longest-path depth, inputs below.
 
     An edge runs from an input to what needs it. An attribute's own `.drv`
     has a double border; a derivation with no time has a dashed one. `≈`
@@ -231,9 +235,20 @@ def to_dot(bundle: Bundle, results: Mapping[str, Built] | None = None) -> str:
         "  rankdir=BT;",
         '  node [shape=box, fontname="monospace"];',
     ]
+    rows: list[list[str]] = []
     for depth in sorted({d.depth for d in bundle.derivations}):
-        members = " ".join(_quote(d.drv) for d in bundle.derivations if d.depth == depth)
-        out.append(f"  {{ rank=same; {members} }}")
+        members = [d.drv for d in bundle.derivations if d.depth == depth]
+        rows.extend(members[i : i + ROW_WIDTH] for i in range(0, len(members), ROW_WIDTH))
+    out.extend(f"  {{ rank=same; {' '.join(_quote(m) for m in row)} }}" for row in rows)
+    # Every row above the one before, across depths too, column by column:
+    # with only the changed edges dot puts depth 5's first row beside depth
+    # 4's second, and with only the first column it shifts each row aside
+    # (fzf: 5943 pt wide at 12 a row).
+    out.extend(
+        f"  {_quote(x)} -> {_quote(y)} [style=invis];"
+        for a, b in itertools.pairwise(rows)
+        for x, y in zip(a, b, strict=False)
+    )
     for d in bundle.derivations:
         extra, styled = _outcome(results.get(d.drv)) if results is not None else ([], [])
         label = "\\n".join([_label(d), *(_escape(line) for line in extra)])
