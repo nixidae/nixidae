@@ -21,9 +21,8 @@ in
       Whether the guest gets passt's uplink, `vec0`: NAT to the host's
       network and the `forward` rules. Off, an appliance's first port is
       its first segment, as on a router whose only cables are the ones the
-      test lays. Only a guest that boots its own disk, such as
-      `vivarium.appliance`, honours it; `uplink.segment` is the other way
-      to replace passt.
+      test lays. Only `vivarium.appliance` honours it; `uplink.segment` is
+      the other way to replace passt.
     '';
   };
 
@@ -116,8 +115,8 @@ in
       message = "vivarium.appliance boots under QEMU: set vivarium.backend = \"qemu\". This guest is ${config.vivarium.backend}.";
     }
     {
-      assertion = config.vivarium.uplink.enable || config.vivarium.kind != "nixos";
-      message = "vivarium.uplink.enable = false: only a guest that boots its own disk, such as vivarium.appliance, can leave the uplink out.";
+      assertion = config.vivarium.uplink.enable || cfg != null;
+      message = "vivarium.uplink.enable = false: only vivarium.appliance can leave the uplink out.";
     }
     {
       assertion = config.vivarium.uplink.enable || config.vivarium.forward == [ ];
