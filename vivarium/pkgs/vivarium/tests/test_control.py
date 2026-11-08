@@ -7,7 +7,7 @@ import shlex
 from pathlib import Path
 
 import pytest
-from vivarium.control import Console, Op, commands, parse_request, split_last_expression
+from vivarium.control import Console, Op, RunFile, Use, commands, parse_request, run_file, split_last_expression
 
 
 class TestSplitLastExpression:
@@ -83,12 +83,29 @@ class TestConsole:
         assert "SyntaxError" in (reply.error or "")
 
 
+VIVARIUM = Path("/nix/store/x-vivarium/bin/vivarium")
+
+
+def test_the_run_file_reads_back_what_it_wrote() -> None:
+    out = Path("/tmp/a run")
+    about = run_file(VIVARIUM, out, 42, control=True)
+    assert about.socket == out / "control.sock"
+    assert list(about.commands) == commands(VIVARIUM, out)
+    assert RunFile.from_json(about.to_json()) == about
+
+
+def test_without_a_socket_the_run_file_names_only_the_monitor() -> None:
+    about = run_file(VIVARIUM, Path("/o"), 42, control=False)
+    assert about.socket is None
+    assert [c.use for c in about.commands] == [Use.MONITOR]
+
+
 def test_each_printed_command_reaches_the_run_it_names() -> None:
     out = Path("/tmp/a run")
-    lines = dict(commands("/nix/store/x-vivarium/bin/vivarium", out))
-    argvs = [shlex.split(line) for line in lines.values()]
-    assert all(argv[0] == "/nix/store/x-vivarium/bin/vivarium" for argv in argvs)
-    assert all(str(out) in argv for argv in argvs)
-    watch = next(argv for argv in argvs if argv[1] == "monitor")
-    assert watch[2:] == [str(out), "--quiet"]
-    assert {argv[4] for argv in argvs if argv[1] == "ctl"} == {"exec", "inject", "state", "continue"}
+    listed = commands(VIVARIUM, out)
+    assert all(c.argv[0] == str(VIVARIUM) and str(out) in c.argv for c in listed)
+    assert all(shlex.split(c.line) == list(c.argv) for c in listed)
+    watch = next(c for c in listed if c.use is Use.MONITOR)
+    assert watch.argv[1:] == ("monitor", str(out), "--quiet")
+    ctl = {c.use: c.argv[1:5] for c in listed if c.needs_socket}
+    assert ctl == {use: ("ctl", "--out", str(out), str(use)) for use in Use if use is not Use.MONITOR}

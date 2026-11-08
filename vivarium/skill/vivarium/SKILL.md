@@ -41,7 +41,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 
 ## At a pause
 
-The run prints the exact command lines at start and at each pause; copy them from `$OUT.log` if `vivarium` is not on PATH.
+The run prints the exact command lines at start and at each pause. `$OUT/run.json` holds the same lines and the CLI path: `jq -r .vivarium "$OUT/run.json"` when `vivarium` is not on PATH. Never scrape `$OUT.log` for them.
 
 ```sh
 vivarium ctl --out "$OUT" state
@@ -74,6 +74,7 @@ In `--out` (by hand) or `result/` / `.attempt` (sandboxed):
 
 | file | holds |
 | --- | --- |
+| `run.json` | written before the first guest boots: `vivarium` (the CLI), `socket`, `pid`, `commands` |
 | `events.jsonl` | every event, with `kind`, `machine`, `phase`, `seconds`. Query with `jq`, not grep |
 | `phases.json` | each phase's state and why one was skipped |
 | `console/<guest>.log` | one guest's console |

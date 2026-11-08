@@ -146,6 +146,7 @@ tests from nixpkgs this way, and `nixos-screen-tests` runs `cage`
 ## What a run leaves behind
 
 ```
+run.json        how to reach the run: CLI, socket, commands, pid
 status          0 or 1
 log             everything, readable
 events.jsonl    everything, one JSON object per line

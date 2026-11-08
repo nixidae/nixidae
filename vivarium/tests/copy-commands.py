@@ -3,6 +3,7 @@
 Starts `vivarium run --break later` and reads nothing but run.log: each
 command comes from the line the run printed, split and run unchanged.
 
+- `run.json` holds the same monitor command and the socket;
 - the monitor armed before the pause exits 4 at the pause;
 - the printed `exec` reaches the guest;
 - a monitor armed while paused exits 4 at once;
@@ -12,6 +13,7 @@ command comes from the line the run printed, split and run unchanged.
     copy-commands VIVARIUM SPEC WORKDIR
 """
 
+import json
 import os
 import shlex
 import subprocess
@@ -57,6 +59,11 @@ def main() -> None:
 
     watch = printed(WATCH)
     print(f"ok: the run printed its monitor: {shlex.join(watch)}")
+    about = json.loads((out / "run.json").read_text())
+    listed = {c["use"]: c["argv"] for c in about["commands"]}
+    if listed.get("monitor") != watch or about["socket"] != str(out / "control.sock"):
+        fail(f"run.json does not hold what the run printed: {about}")
+    print("ok: run.json holds the printed commands and the socket")
     armed = subprocess.Popen(watch, stdout=subprocess.PIPE, text=True)
     try:
         output, _ = armed.communicate(timeout=300)

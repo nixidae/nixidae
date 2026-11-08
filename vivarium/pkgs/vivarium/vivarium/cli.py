@@ -28,7 +28,7 @@ import anyio
 from vivarium_runner import MachineError
 
 from . import monitor, namespace, repl, runroot
-from .control import SOCKET, Controller, Op, request
+from .control import RUN_FILE, SOCKET, Controller, Op, request, run_file, vivarium_command
 from .events import Kind, Level
 from .phases import END, FAILURE, START, PhaseState, breakpoints, launchable, ready, selected, summarise
 from .session import Session, SessionError
@@ -375,6 +375,11 @@ async def drive(
             controller.announce()
             if interactive:
                 group.start_soon(repl.serve, controller)
+        # Before any guest boots, and after the socket it names exists.
+        about = run_file(vivarium_command(session), session.out.resolve(), os.getpid(), control=controller is not None)
+        out = anyio.Path(session.out)
+        await out.mkdir(parents=True, exist_ok=True)
+        await (out / RUN_FILE).write_text(about.to_json())
         try:
             await _sequence(
                 session,

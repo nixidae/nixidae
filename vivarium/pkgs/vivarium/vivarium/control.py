@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from .session import Session
 
 SOCKET: Final = "control.sock"
+RUN_FILE: Final = "run.json"
 
 
 class Op(StrEnum):
@@ -197,29 +198,112 @@ async def _receive_line(stream: ByteStream) -> bytes:
 # ── the controller ──────────────────────────────────────────────────
 
 
-def commands(vivarium: str, out: Path) -> list[tuple[str, str]]:
-    """Each command line that reaches the run in `out`, with what it does.
+class Use(StrEnum):
+    """What a printed command is for: the key `run.json` is read by."""
+
+    MONITOR = "monitor"
+    EXEC = "exec"
+    INJECT = "inject"
+    STATE = "state"
+    CONTINUE = "continue"
+
+
+@dataclass(frozen=True, slots=True)
+class Command:
+    """One command line that reaches a run, kept as argv until printed."""
+
+    use: Use
+    what: str
+    argv: tuple[str, ...]
+
+    @property
+    def line(self) -> str:
+        return shlex.join(self.argv)
+
+    @property
+    def needs_socket(self) -> bool:
+        """Every command but the monitor talks to `control.sock`; the
+        monitor also follows `events.jsonl`."""
+        return self.use is not Use.MONITOR
+
+
+def commands(vivarium: Path, out: Path) -> list[Command]:
+    """Each command that reaches the run in `out`, with what it does.
 
     The run prints them, so an agent that reads the run's output can copy
     one as it is: absolute paths, no PATH, no knowledge of vivarium."""
-    ctl = [vivarium, "ctl", "--out", str(out)]
+    ctl = (str(vivarium), "ctl", "--out", str(out))
     return [
-        (
+        Command(
+            Use.MONITOR,
             "wait for a pause or the verdict (exits 4 at a pause)",
-            shlex.join([vivarium, "monitor", str(out), "--quiet"]),
+            (str(vivarium), "monitor", str(out), "--quiet"),
         ),
-        ("run Python against the guests", shlex.join([*ctl, "exec", "print(list(vms))"])),
-        ("run a file's `async def test(vms)`", shlex.join([*ctl, "inject", "./check.py"])),
-        ("each phase's state", shlex.join([*ctl, "state"])),
-        ("resume a paused run", shlex.join([*ctl, "continue"])),
+        Command(Use.EXEC, "run Python against the guests", (*ctl, "exec", "print(list(vms))")),
+        Command(Use.INJECT, "run a file's `async def test(vms)`", (*ctl, "inject", "./check.py")),
+        Command(Use.STATE, "each phase's state", (*ctl, "state")),
+        Command(Use.CONTINUE, "resume a paused run", (*ctl, "continue")),
     ]
 
 
-def vivarium_command(session: Session) -> str:
+@dataclass(frozen=True, slots=True)
+class RunFile:
+    """`<out>/run.json`: how to reach a run, written before its first guest boots.
+
+    A caller reads this instead of the run's output. Static on purpose:
+    the run's progress is in `phases.json` and `ctl state`."""
+
+    pid: int
+    out: Path
+    vivarium: Path
+    socket: Path | None
+    """`None` for a run with no control socket (`--no-control`)."""
+    commands: tuple[Command, ...]
+
+    def command(self, use: Use) -> Command | None:
+        return next((c for c in self.commands if c.use is use), None)
+
+    def to_json(self) -> str:
+        document = {
+            "pid": self.pid,
+            "out": str(self.out),
+            "vivarium": str(self.vivarium),
+            "socket": None if self.socket is None else str(self.socket),
+            # `command` beside `argv` for a shell reader: `jq -r` gives a line to paste.
+            "commands": [
+                {"use": str(c.use), "what": c.what, "argv": list(c.argv), "command": c.line} for c in self.commands
+            ],
+        }
+        return json.dumps(document, indent=2) + "\n"
+
+    @classmethod
+    def from_json(cls, text: str) -> RunFile:
+        raw = json.loads(text)
+        return cls(
+            pid=int(raw["pid"]),
+            out=Path(raw["out"]),
+            vivarium=Path(raw["vivarium"]),
+            socket=None if raw["socket"] is None else Path(raw["socket"]),
+            commands=tuple(Command(Use(c["use"]), str(c["what"]), tuple(c["argv"])) for c in raw["commands"]),
+        )
+
+
+def run_file(vivarium: Path, out: Path, pid: int, *, control: bool) -> RunFile:
+    """The run file of a run in `out`; with no socket, only what works without one."""
+    return RunFile(
+        pid=pid,
+        out=out,
+        vivarium=vivarium,
+        socket=out / SOCKET if control else None,
+        commands=tuple(c for c in commands(vivarium, out) if control or not c.needs_socket),
+    )
+
+
+def vivarium_command(session: Session) -> Path:
     """The `vivarium` executable of this run."""
     if session.spec.vivarium is not None:
-        return str(session.spec.vivarium / "bin" / "vivarium")
-    return str(Path(sys.argv[0]).resolve())
+        return session.spec.vivarium / "bin" / "vivarium"
+    return Path(sys.argv[0]).resolve()
 
 
 class Controller:
@@ -290,8 +374,8 @@ class Controller:
     def announce(self, level: Level = Level.INFO) -> None:
         """The command lines that reach this run, one event each."""
         out = self.session.out.resolve()
-        for what, line in commands(vivarium_command(self.session), out):
-            self.session.emit(Kind.NOTE, f"{what}: {line}", level=level, command=what)
+        for command in commands(vivarium_command(self.session), out):
+            self.session.emit(Kind.NOTE, f"{command.what}: {command.line}", level=level, command=command.what)
 
     def _bind_guests(self) -> None:
         """`vms` and each guest by name, once the guests exist."""
