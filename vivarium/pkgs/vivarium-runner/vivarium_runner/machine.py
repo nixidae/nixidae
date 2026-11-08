@@ -140,7 +140,7 @@ class MachineSpecJson(TypedDict, total=False):
     address: str
     store: str
     storePaths: str
-    settingsClosure: str
+    lateClosure: str
     nixStore: str
     boot: BootSpec
     systems: SystemsJson
@@ -246,11 +246,9 @@ class MachineSpec:
     store_paths: Path | None = None
     """A closureInfo's `store-paths`: the guest's closure, and all its view
     holds."""
-    settings_closure: Path | None = None
-    """A closureInfo of `mkTest`'s settings, which the runner adds to the view
-    and registers once the guest is up. Not in the root image: the settings
-    name what a test runs, often a source tree, and in the image every edit
-    rebuilt every guest root (nixidae/nixidae#1182)."""
+    late_closure: Path | None = None
+    """A closureInfo of `vivarium.lateClosure`, which the runner adds to the
+    view and registers once the guest is up."""
     nix_store: str | None = None
     """The `nix-store` in the guest that registers a closure after boot.
     `None` is a guest with no Nix database: a path reaches its store view
@@ -296,7 +294,7 @@ class MachineSpec:
             address=data.get("address"),
             store=data.get("store", "/nix"),
             store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
-            settings_closure=Path(data["settingsClosure"]) if data.get("settingsClosure") else None,
+            late_closure=Path(data["lateClosure"]) if data.get("lateClosure") else None,
             nix_store=data.get("nixStore"),
             boot=data.get("boot", {}),
             systems=Systems.from_json(data.get("systems", {})),
@@ -522,7 +520,7 @@ class Machine:
         self._rundir = Path(tempfile.mkdtemp(prefix=f"uml-{self.name}-"))
         if self.spec.store_paths is not None:
             # The two closures share most of their paths, and a view takes each once.
-            paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._settings_paths()]))
+            paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._late_paths()]))
             if self.spec.backend == "krun":
                 self.store_allowlist = self._rundir / "store-allowlist"
                 self.store_allowlist.write_text("".join(f"{path}\n" for path in paths))
@@ -534,11 +532,11 @@ class Machine:
         if self.backend.reboots:
             self._lan_kept = {nic: os.dup(fd) for nic, fd in self.lan_fds.items()}
         await self._boot(None)
-        if self.spec.settings_closure is not None:
-            await self._load_registration(str(self.spec.settings_closure))
+        if self.spec.late_closure is not None:
+            await self._load_registration(str(self.spec.late_closure))
 
-    def _settings_paths(self) -> list[str]:
-        info = self.spec.settings_closure
+    def _late_paths(self) -> list[str]:
+        info = self.spec.late_closure
         return [] if info is None else [*storeview.read_paths(info / "store-paths"), str(info)]
 
     async def _load_registration(self, info: str) -> None:

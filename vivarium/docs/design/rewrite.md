@@ -417,7 +417,12 @@ Each step keeps `checks` green and moves the consumers with it.
    backend's launch config (`root` under UML, `disk` under QEMU). A
    guest imports its kind from `vivarium.kinds`.
 5. The phase model: guests boot on demand, then `--only`, `--break`,
-   `timeout`, the guest-suite recipe, and the `settings` split.
+   `timeout`, the guest-suite recipe, and the `settings` split. The
+   split is done: `settings` is data, a guest names its late paths in
+   `vivarium.lateClosure` (it gets `settings` as a module argument;
+   `vivarium.lib.pathsIn` lists a value's paths), and the runner
+   registers them only in a guest with a Nix database
+   (`nixDatabase.loader`).
 6. The agent surface.
 7. `default.nix` split into `tests/<name>/default.nix`.
 

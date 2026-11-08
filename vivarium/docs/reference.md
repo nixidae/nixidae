@@ -548,10 +548,11 @@ The guest's `/nix/var` is its own, never the host's — see `guest.nix`. Nix
 inside the guest knows the paths `vivarium.nixDatabase` covers, and nothing
 else.
 
-That set is the test's own closure, and `mkTest` works it out: the guest's
-system, plus everything in the test's `settings`. So a store path handed to
-a test the way a caller hands one over — an image, a program, a chart — is
-valid Nix inside the guest without being named twice.
+That set is the guest's system and `vivarium.nixDatabase.extraRoots`. The
+runner adds `vivarium.lateClosure` once the guest is up, so a path a test
+changes often, such as a source tree, does not rebuild the image. The
+test's `settings` are data: a store path they name is valid in a guest only
+when that guest lists it in `lateClosure`, or a phase calls `add_closure`.
 
 **The database is built with the image, not loaded at boot.** It sits on the
 image under `/nix-state`, which is bound onto `/nix/var`, so it is in place

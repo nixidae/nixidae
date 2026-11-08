@@ -342,15 +342,16 @@ let
       after = [ "boot" ];
     };
     # A path handed to the test the way a caller hands one over, and
-    # nothing else names it. The session registers it with the guest, which
-    # is the half of the guest's store that does not come from the host's
-    # database -- and cannot, because a path this fresh is still in the
-    # host's write-ahead log.
+    # nothing else names it. The runner registers it with the guest
+    # (`lateClosure`), which is the half of the guest's store that does not
+    # come from the host's database -- and cannot, because a path this
+    # fresh is still in the host's write-ahead log.
     settings.probe = "${pkgs.runCommand "vivarium-store-probe" { } "echo settings > $out"}";
     nodes.node =
-      { config, ... }:
+      { config, settings, ... }:
       {
         vivarium = {
+          lateClosure = [ settings.probe ];
           hostStore.enable = true;
           memory = "1024M";
         };
@@ -596,6 +597,11 @@ let
           script = ./tests/reboot.py;
           after = [ "boot" ];
         };
+        defaults =
+          { settings, ... }:
+          {
+            vivarium.lateClosure = [ settings.next ];
+          };
         nodes = lib.genAttrs [ "one" "two" ] (name: {
           vivarium.lan = {
             network = "reboot";
@@ -647,13 +653,19 @@ let
           script = ./tests/boot-counting.py;
           after = [ "boot" ];
         };
-        nodes.one = {
-          vivarium.efi = true;
-          boot.loader.systemd-boot.bootCounting = {
-            enable = true;
-            tries = 2;
+        nodes.one =
+          { settings, ... }:
+          {
+            vivarium.lateClosure = [
+              settings.good
+              settings.bad
+            ];
+            vivarium.efi = true;
+            boot.loader.systemd-boot.bootCounting = {
+              enable = true;
+              tries = 2;
+            };
           };
-        };
         settings = {
           good = next "good" { };
           bad = next "bad" {
@@ -1702,9 +1714,8 @@ let
         roots = [ "${pkgs.hello}" ];
       };
       nodes.client = { };
-      # A string, not a store path: `settings` registers what it names in
-      # every guest, and `client` must not have it.
-      settings.hello = builtins.unsafeDiscardStringContext "${pkgs.hello}";
+      # In no guest's `lateClosure`: `client` must fetch it from the cache.
+      settings.hello = "${pkgs.hello}";
       phases.cache = {
         script = ./tests/phases/cache.py;
         after = [ "boot" ];
@@ -1732,15 +1743,18 @@ let
     suse-nix = mkTest {
       name = "suse-nix";
       settings.nix = "${pkgs.nix}";
-      # Not in the image's own roots: the runner registers it after boot.
       settings.hello = "${pkgs.hello}";
-      nodes.suse = {
-        imports = [ vivarium.kinds.image ];
-        vivarium.image = images.opensuse-leap-16_0 // {
-          writableStore = true;
+      nodes.suse =
+        { settings, ... }:
+        {
+          imports = [ vivarium.kinds.image ];
+          # Not in the image's own roots: the runner registers it after boot.
+          vivarium.lateClosure = [ settings.hello ];
+          vivarium.image = images.opensuse-leap-16_0 // {
+            writableStore = true;
+          };
+          vivarium.memory = "1024M";
         };
-        vivarium.memory = "1024M";
-      };
       phases.nix = {
         script = ./tests/phases/suse-nix.py;
         after = [ "boot" ];
@@ -1808,16 +1822,22 @@ let
             addresses = [ "10.9.0.2/24" ];
           };
         };
-        nodes.ctl = {
-          vivarium.interfaces.lab = {
-            segment = "lab";
-            addresses = [ "10.9.0.1/24" ];
+        nodes.ctl =
+          { settings, ... }:
+          {
+            vivarium.lateClosure = [
+              settings.playbook
+              settings.key
+            ];
+            vivarium.interfaces.lab = {
+              segment = "lab";
+              addresses = [ "10.9.0.1/24" ];
+            };
+            environment.systemPackages = [
+              pkgs.ansible
+              pkgs.openssh
+            ];
           };
-          environment.systemPackages = [
-            pkgs.ansible
-            pkgs.openssh
-          ];
-        };
         phases.ansible = {
           script = ./tests/phases/suse-ansible.py;
           after = [ "boot" ];
@@ -2616,6 +2636,16 @@ let
       mkTest {
         name = "containerd-zero-layers";
         vivarium.recipes.kubernetes.enable = true;
+        defaults =
+          { settings, ... }:
+          {
+            vivarium.lateClosure = [
+              settings.busybox
+              settings.fixedTests
+              settings.controlTests
+            ]
+            ++ lib.attrValues settings.images;
+          };
         nodes = {
           stock = node null "10.106.0.1/24";
           fixed = node fixed "10.106.0.2/24";
@@ -2804,7 +2834,7 @@ in
       images
       k8sImages
       ;
-    inherit (vivarium) cacheFacts kinds;
+    inherit (vivarium) cacheFacts kinds pathsIn;
     # The pyproject project of `runner`, for a caller that resolves it in a
     # Python set of its own.
     runnerSource = ./pkgs/vivarium-runner;

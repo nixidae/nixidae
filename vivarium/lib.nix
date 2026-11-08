@@ -75,6 +75,30 @@ rec {
     vyos = ./modules/vyos-guest.nix;
   };
 
+  /**
+    Every store path a value names, for `vivarium.lateClosure`: each
+    string with context, and each derivation, in nested attribute sets
+    and lists.
+
+    # Example
+
+    ```nix
+    defaults = { settings, ... }: { vivarium.lateClosure = vivarium.pathsIn settings; };
+    ```
+  */
+  pathsIn =
+    value:
+    if lib.isDerivation value then
+      [ "${value}" ]
+    else if builtins.isAttrs value then
+      lib.concatMap pathsIn (lib.attrValues value)
+    else if builtins.isList value then
+      lib.concatMap pathsIn value
+    else if builtins.isString value && builtins.hasContext value then
+      [ value ]
+    else
+      [ ];
+
   /*
     zuban over a caller's test scripts, against this library.
 
@@ -389,16 +413,6 @@ rec {
       );
 
       /*
-        What the settings name, registered by the runner once a guest is up
-        (`MachineSpec.settings_closure`). Not in a guest's own database: the
-        settings say what a test runs, often a source tree, and a root image
-        that held them rebuilt for every edit (nixidae/nixidae#1182).
-      */
-      settingsClosure = lib.optionalAttrs (checkedConfig.settings != { }) {
-        settingsClosure = "${pkgs.closureInfo { rootPaths = [ settingsFile ]; }}";
-      };
-
-      /*
         Every guest, evaluated, by name. Each one receives all of them as
         the module argument `nodes`, as in nixos-test, so a guest may read
         static facts about its peers: a name, an address, a secret written
@@ -418,6 +432,8 @@ rec {
               peersModule
             ];
             _module.args.nodes = nodes;
+            # For `vivarium.lateClosure`: a guest names the settings paths it reads.
+            _module.args.settings = cfg.settings;
             networking.hostName = lib.mkDefault hostName;
             vivarium.sshPort = lib.mkDefault (4325 + index);
             vivarium.backend = lib.mkDefault cfg.backend;
@@ -505,9 +521,18 @@ rec {
               inherit (machine.vivarium) closure;
             in
             machineSpec machine
-            // lib.optionalAttrs (
-              machine.vivarium.nixDatabase.loader != null && closure != null
-            ) settingsClosure
+            # Not in the guest's root image: a late path is often a source
+            # tree, and an image that held it rebuilt for every edit
+            # (nixidae/nixidae#1182).
+            # Not a guest assertion: a late path may be a system built from
+            # this guest, and its toplevel checks every assertion.
+            // lib.optionalAttrs (machine.vivarium.lateClosure != [ ]) {
+              lateClosure =
+                if closure == null then
+                  throw "${machine.networking.hostName}: vivarium.lateClosure is set, but this guest (kind ${machine.vivarium.kind}) has no store to add it to."
+                else
+                  "${pkgs.closureInfo { rootPaths = machine.vivarium.lateClosure; }}";
+            }
             // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
               storePaths = "${closure}/store-paths";
             }

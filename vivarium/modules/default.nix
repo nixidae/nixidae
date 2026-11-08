@@ -563,15 +563,30 @@ in
         description = ''
           Store paths to register beyond the guest's own system closure.
 
-          `mkTest`'s `settings` need nothing here: the runner registers
-          what they name once the guest is up, so an edit to a test's
-          source does not rebuild the root image.  This is for a path that
-          reaches a guest by some other route.
-
-          Each one becomes a dependency of the guest, which is also what
-          puts it in the build sandbox in the first place.
+          Each one becomes a dependency of the root image, so an edit to
+          one rebuilds it. A path a test changes often, such as a source
+          tree, belongs in `vivarium.lateClosure`.
         '';
       };
+    };
+
+    lateClosure = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = lib.literalExpression ''[ "''${./tests}" ]'';
+      description = ''
+        Store paths the runner adds to the guest's store view, and
+        registers in its Nix database, once the guest is up.
+
+        `mkTest`'s `settings` are data: a path they name reaches a guest
+        only through this list or `add_closure`. Unlike
+        `nixDatabase.extraRoots`, these paths are not in the root image,
+        so an edit to one rebuilds a closureInfo and the run's spec, not
+        the guest.
+
+        A guest with no Nix database (a cloud image without
+        `writableStore`) sees the paths and does not register them.
+      '';
     };
 
     configurations = lib.mkOption {

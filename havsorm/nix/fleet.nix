@@ -100,7 +100,6 @@ let
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C salt-ssh -f $out/id_ed25519
   '';
-  discard = builtins.unsafeDiscardStringContext;
   phase = after: nodes: {
     script = ../tests/fleet/fleet.py;
     inherit after nodes;
@@ -118,16 +117,19 @@ vivarium.mkTest {
       };
     };
   };
-  settings.install.nix = discard "${nixToInstall}";
+  # Data: suse1 gets these from master's cache, so no guest lists them
+  # in `vivarium.lateClosure`.
+  settings.install.nix = "${nixToInstall}";
   settings.service = {
-    web = discard webUnit;
-    lb = discard lbUnit;
+    web = "${webUnit}";
+    lb = "${lbUnit}";
   };
   defaults = {
     imports = [ ./nixos.nix ];
     services.havsorm.package = saltEnv;
   };
   nodes.master = {
+    vivarium.lateClosure = [ "${key}" ];
     vivarium.backend = "qemu";
     vivarium.memory = "1536M";
     vivarium.interfaces.lab = lab 1;
@@ -175,6 +177,8 @@ vivarium.mkTest {
   nodes.web2 = web 4;
   nodes.suse1 = {
     imports = [ vivarium.kinds.image ];
+    # The bootstrap runs the salt env that `settings.salt.env` names.
+    vivarium.lateClosure = [ "${saltEnv}" ];
     vivarium.image = vivarium.images.opensuse-leap-16_0 // {
       # Nix gets installed here, so /nix must be writable.
       writableStore = true;
