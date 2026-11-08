@@ -199,7 +199,8 @@ async def forward(
         async with client:
             try:
                 guest = await connect_guest(vsock, DAEMON_PORT)
-            except (OSError, anyio.EndOfStream) as exc:
+            # A reset during the handshake is BrokenResourceError, not an OSError.
+            except (OSError, anyio.EndOfStream, anyio.BrokenResourceError) as exc:
                 log(event="refused", error=str(exc) or type(exc).__name__)
                 return
             async with guest, anyio.create_task_group() as tg:
