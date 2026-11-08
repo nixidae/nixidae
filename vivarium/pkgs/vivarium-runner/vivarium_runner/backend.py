@@ -23,6 +23,8 @@ bridge is not in the picture and the runner starts passt directly.
 
 from __future__ import annotations
 
+import functools
+import importlib.metadata
 import ipaddress
 import itertools
 import json
@@ -1649,12 +1651,32 @@ class Container:
         return [*args, *extra]
 
 
-BACKENDS: dict[str, Backend] = {backend.name: backend() for backend in (Uml, Qemu, Krun, Container, Appliance)}
+ENTRY_POINTS = "vivarium.backends"
+"""The entry point group a package names its backend classes in. The
+runner's own five are there too, in its pyproject.toml, so a backend from
+another package is found the same way and no registry here is edited."""
+
+
+@functools.cache
+def available() -> dict[str, Backend]:
+    """Every installed backend, by the name a spec's ``backend`` gives."""
+    found: dict[str, Backend] = {}
+    for entry in importlib.metadata.entry_points(group=ENTRY_POINTS):
+        backend: Backend = entry.load()()
+        if backend.name != entry.name:
+            raise BackendError(
+                f"entry point {entry.name} = {entry.value} names a backend called {backend.name!r}; the names must match"
+            )
+        if entry.name in found:
+            raise BackendError(f"two installed packages name a backend {entry.name!r}")
+        found[entry.name] = backend
+    return found
 
 
 def get(name: str) -> Backend:
     """The backend called *name*, as the spec's ``backend`` field names it."""
+    backends = available()
     try:
-        return BACKENDS[name]
+        return backends[name]
     except KeyError:
-        raise ValueError(f"no backend {name!r}; have {', '.join(sorted(BACKENDS))}") from None
+        raise ValueError(f"no backend {name!r}; have {', '.join(sorted(backends))}") from None

@@ -15,6 +15,15 @@ dependencies = ["rpyc", "qemu.qmp"]
 vivarium-run = "vivarium_runner.cli:main"
 vivarium-agent = "vivarium_runner.agent:main"
 
+# The backends, by the name `vivarium.backend` gives. Another package adds
+# one the same way; `vivarium_runner.backend.get` reads this group.
+[project.entry-points."vivarium.backends"]
+uml = "vivarium_runner.backend:Uml"
+qemu = "vivarium_runner.backend:Qemu"
+krun = "vivarium_runner.backend:Krun"
+container = "vivarium_runner.backend:Container"
+appliance = "vivarium_runner.backend:Appliance"
+
 [tool.hatch.build.targets.wheel]
 packages = ["vivarium_runner"]
 
