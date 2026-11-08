@@ -165,24 +165,11 @@ rec {
       inherit (machine.vivarium) launch;
     }
     // (
-      if machine.vivarium.appliance != null then
+      if machine.system.build ? vivariumImageGuest then
         {
-          # A vendor's image under QEMU. No NixOS system is built; see
-          # modules/appliance.nix.
-          image = "${machine.vivarium.appliance.disk}";
-          boot.appliance = {
-            inherit (machine.vivarium.appliance) format cmdline;
-            uplink = machine.vivarium.uplink.enable;
-          }
-          // lib.optionalAttrs (machine.vivarium.appliance.kernel != null) {
-            kernel = "${machine.vivarium.appliance.kernel}";
-            initrd = "${machine.vivarium.appliance.initrd}";
-          };
-        }
-      else if machine.system.build ? vivariumImageGuest then
-        {
-          # Another distribution's cloud image, or VyOS. Its NixOS system
-          # is never built; see modules/image-guest.nix.
+          # A disk that is not NixOS: a cloud image, VyOS, a router's or a
+          # switch's image. Its NixOS system is never built; see
+          # modules/image-guest.nix and modules/appliance.nix.
           image = "${machine.system.build.vivariumImageDisk}";
           boot.image = machine.system.build.vivariumImageGuest;
         }
@@ -510,19 +497,14 @@ rec {
               seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
             in
             machineSpec machine
-            // lib.optionalAttrs (
-              machine.vivarium.nixDatabase.enable && machine.vivarium.appliance == null && seesStore
-            ) settingsClosure
-            //
-              lib.optionalAttrs
-                (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore)
-                {
-                  storePaths =
-                    if machine.system.build ? vivariumImageGuest then
-                      "${machine.system.build.vivariumImageClosure}/store-paths"
-                    else
-                      "${machine.system.build.vivariumNixRegistration}/store-paths";
-                }
+            // lib.optionalAttrs (machine.vivarium.nixDatabase.enable && seesStore) settingsClosure
+            // lib.optionalAttrs (!machine.vivarium.hostStore.enable && seesStore) {
+              storePaths =
+                if machine.system.build ? vivariumImageGuest then
+                  "${machine.system.build.vivariumImageClosure}/store-paths"
+                else
+                  "${machine.system.build.vivariumNixRegistration}/store-paths";
+            }
           ) machines;
         }
       );

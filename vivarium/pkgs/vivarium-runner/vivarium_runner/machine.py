@@ -100,17 +100,12 @@ class ImageBoot(TypedDict, total=False):
     init: str
     initrd: str
     kernelParams: list[str]
-
-
-class ApplianceBoot(TypedDict, total=False):
-    """`boot.appliance`: a vendor image's own kernel, and the console line
-    that says it is ready."""
-
     kernel: str
-    initrd: str
+    """A kernel QEMU boots directly, with `initrd` and `cmdline`, for a disk
+    whose own boot loader cannot be told what to do."""
     cmdline: str
-    format: str
     uplink: bool
+    """False: no passt uplink, so the first segment is the first NIC."""
 
 
 class BootSpec(TypedDict, total=False):
@@ -126,7 +121,6 @@ class BootSpec(TypedDict, total=False):
     vmlinux: str
     acpi: bool
     image: ImageBoot
-    appliance: ApplianceBoot
 
 
 class BootloaderSpec(TypedDict):
@@ -461,6 +455,9 @@ class Machine:
         # groups cannot own, so it is a held task, cancelled in shutdown().
         # The agent's serve loop is the same kind of task, owned by arpyc.
         self._monitor: asyncio.Task[None] | None = None
+        self._serial: asyncio.StreamWriter | None = None
+        self._serial_monitor: asyncio.Task[None] | None = None
+        """A guest with no control channel: its serial line, read as console."""
         self._console_send, self._console_recv = anyio.create_memory_object_stream[str](math.inf)
         self._history: collections.deque[str] = collections.deque(maxlen=_CONSOLE_HISTORY)
         self._agent_sock: socket.socket | None = None
@@ -625,6 +622,8 @@ class Machine:
             return
 
         none = NoneConfig.of(self.name, self.spec.control) if self.control_kind == NONE else None
+        if none:
+            await self._read_serial()
         ready = none.ready if none else re.compile(re.escape(AGENT_READY))
         started = time.monotonic()
         try:
@@ -650,9 +649,6 @@ class Machine:
 
         if none:
             # Nothing in the guest to connect to: tests reach it over the network.
-            self._agent_sock.close()
-            self._guest_sock.close()
-            self._agent_sock = self._guest_sock = None
             return
 
         if launch.agent_path is not None:
@@ -726,6 +722,20 @@ class Machine:
         self._process = None
         self.lan_fds = dict(self._lan_kept)
         await self._boot(boot)
+
+    async def _read_serial(self) -> None:
+        """Read the serial line as console, for a guest with no control channel.
+
+        The serial line is the socket the agent would get. It is read to the
+        end, or the guest stalls once the socket buffer is full.
+        """
+        if self._agent_sock is None or self._guest_sock is None:
+            raise MachineError(f"[{self.name}] no serial socket")
+        sock, self._agent_sock = self._agent_sock, None
+        self._guest_sock.close()
+        self._guest_sock = None
+        reader, self._serial = await asyncio.open_unix_connection(sock=sock)
+        self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))
 
     async def _start_console(self, dialect: Dialect) -> None:
         """Log in on the guest's console and apply its config disk.
@@ -838,11 +848,15 @@ class Machine:
                 helper.wait()
         self._helpers = []
 
-        if self._monitor is not None:
-            self._monitor.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._monitor
-            self._monitor = None
+        for task in (self._monitor, self._serial_monitor):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._monitor = self._serial_monitor = None
+        if self._serial is not None:
+            self._serial.close()
+            self._serial = None
 
         if self._memory is not None:
             memory, self._memory = self._memory, None
@@ -957,11 +971,14 @@ class Machine:
             return
         print(f"[{self.name}] {message}", flush=True)
 
-    async def _pump_console(self) -> None:
-        assert self._process is not None and self._process.stdout is not None
+    async def _pump_console(self, reader: asyncio.StreamReader | None = None) -> None:
+        """Console lines from *reader*, by default the guest process's stdout."""
+        if reader is None:
+            assert self._process is not None and self._process.stdout is not None
+            reader = self._process.stdout
         while True:
             try:
-                raw = await self._process.stdout.readline()
+                raw = await reader.readline()
             except ValueError:
                 # Line longer than the stream limit; skip it rather than die.
                 continue

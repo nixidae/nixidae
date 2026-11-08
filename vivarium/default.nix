@@ -484,7 +484,7 @@ let
         after = [ "boot" ];
       };
       nodes.router = {
-        vivarium.backend = "appliance";
+        vivarium.backend = "qemu";
         vivarium.appliance = vivarium.images.routeros-chr-7_24_5;
         vivarium.forward = [ { ports = [ 80 ]; } ];
         vivarium.interfaces.fabric.segment = "fabric";
@@ -503,7 +503,7 @@ let
         after = [ "boot" ];
       };
       nodes.edge = { config, ... }: {
-        vivarium.backend = "appliance";
+        vivarium.backend = "qemu";
         vivarium.memory = "1536M";
         vivarium.appliance = vivarium.images.vyos-2026_10_26 ''
           firewall {

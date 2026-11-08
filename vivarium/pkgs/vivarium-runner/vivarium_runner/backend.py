@@ -130,20 +130,6 @@ class QemuConfig:
 
 
 @dataclass(frozen=True)
-class ApplianceConfig:
-    """`vivarium.launch.config` under the appliance backend."""
-
-    qemu: Path
-    qemu_img: Path
-    passt: Path
-
-    @classmethod
-    def of(cls, spec: MachineSpec) -> ApplianceConfig:
-        config = launch_config(spec, "appliance", frozenset({"qemu", "qemuImg", "passt"}))
-        return cls(qemu=_path(config, "qemu"), qemu_img=_path(config, "qemuImg"), passt=_path(config, "passt"))
-
-
-@dataclass(frozen=True)
 class KrunConfig:
     """`vivarium.launch.config` under krun."""
 
@@ -911,8 +897,9 @@ class Qemu:
         and kernel, and none of the store, the agent or virtiofs.
 
         The serial port is the control channel, the end of the socketpair
-        the agent would get: `control.ConsoleControl` drives it. The
-        uplink is the first NIC, so it is the OS's first interface.
+        the agent would get: `control.ConsoleControl` drives it, or the
+        Machine reads it as console. The uplink is the first NIC, so it is
+        the OS's first interface; without it, the first segment is.
         """
         spec = machine.spec
         config = QemuConfig.of(spec)
@@ -921,8 +908,6 @@ class Qemu:
 
         disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, image.get("format", "raw"))
         opened.extend(disk_fds)
-
-        uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
 
         argv = [
             str(config.qemu),
@@ -944,20 +929,22 @@ class Qemu:
             f"fd={disk_fds[1]},set=1",
             "-drive",
             "file=/dev/fdset/1,if=none,id=root,format=qcow2",
-            # Pinned: a second disk otherwise competes for the boot.
+            # Pinned: a second disk otherwise competes for the boot. Not
+            # with `-kernel`, which takes boot index 0 itself.
             "-device",
-            "virtio-blk-pci,drive=root,bootindex=0",
+            "virtio-blk-pci,drive=root" + ("" if image.get("kernel") else ",bootindex=0"),
             "-chardev",
             f"socket,id=control,fd={agent_fd}",
             "-serial",
             "chardev:control",
-            "-netdev",
-            uplink,
-            "-device",
-            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
-            "-qmp",
-            f"unix:{sockets}/qmp,server=on,wait=off",
         ]
+        passt_fd: int | None = None
+        if image.get("uplink", True):
+            uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
+        argv += ["-qmp", f"unix:{sockets}/qmp,server=on,wait=off"]
+        if kernel := image.get("kernel"):
+            argv += ["-kernel", kernel, "-initrd", image["initrd"], "-append", image.get("cmdline", "")]
         if config_disk := image.get("configDisk"):
             # A copy, writable: RouterOS does not mount a read-only disk.
             disk = rundir / "config.img"
@@ -1165,128 +1152,6 @@ class Qemu:
             raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
         # Kept open until the guest has spawned; Machine closes it after.
         return qemu_end.detach(), proc
-
-
-class Appliance(Qemu):
-    """A vendor's disk image under QEMU: its own kernel, no NixOS, no agent.
-
-    For a guest nothing of ours can run inside, a router's or a switch's
-    virtual edition. What it shares with a QEMU guest is the hardware: the
-    per-run disk layer, the passt uplink as the first NIC unless
-    `vivarium.uplink.enable` is off, and each segment as one more, in `interfaces`
-    order. So the appliance names its ports as it would on a PCI bus.
-
-    No agent means no `succeed`. The runner reads the console until the
-    spec's `ready` pattern, and a test reaches the guest over the network:
-    through a `vivarium.forward` on the uplink, or from a NixOS guest on a
-    segment.
-    """
-
-    name = "appliance"
-    reboots = False
-
-    def validate(self, spec: MachineSpec) -> None:
-        ApplianceConfig.of(spec)
-
-    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
-        return None
-
-    def launch(
-        self,
-        machine: Machine,
-        rundir: Path,
-        agent_fd: int,
-        lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
-        disk_fds: tuple[int, ...] = (),
-    ) -> Launch:
-        helpers: list[subprocess.Popen[bytes]] = []
-        opened: list[int] = []
-        try:
-            return self._appliance(machine, rundir, lan_fds, helpers, opened)
-        except BaseException:
-            for helper in helpers:
-                if helper.poll() is None:
-                    helper.kill()
-                    helper.wait()
-            for fd in opened:
-                os.close(fd)
-            raise
-
-    def _appliance(
-        self,
-        machine: Machine,
-        rundir: Path,
-        lan_fds: dict[str, int],
-        helpers: list[subprocess.Popen[bytes]],
-        opened: list[int],
-    ) -> Launch:
-        spec = machine.spec
-        config = ApplianceConfig.of(spec)
-        appliance = spec.boot["appliance"]
-
-        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, appliance["format"])
-        opened.extend(disk_fds)
-
-        uplink = appliance.get("uplink", True)
-        passt_fds: tuple[int, ...] = ()
-        if uplink:
-            passt_fd, passt_proc = self._passt(config.passt, rundir, machine.forward, machine.offline)
-            helpers.append(passt_proc)
-            opened.append(passt_fd)
-            passt_fds = (passt_fd,)
-
-        argv = [
-            str(config.qemu),
-            "-machine",
-            "q35,accel=kvm",
-            "-cpu",
-            "host,-vmx,-svm",
-            "-smp",
-            str(spec.cpus),
-            "-m",
-            spec.memory,
-            "-nodefaults",
-            "-no-reboot",
-            "-display",
-            "none",
-            "-add-fd",
-            f"fd={disk_fds[0]},set=1",
-            "-add-fd",
-            f"fd={disk_fds[1]},set=1",
-            "-drive",
-            "file=/dev/fdset/1,if=virtio,format=qcow2",
-            "-serial",
-            "stdio",
-        ]
-        if uplink:
-            argv += [
-                "-netdev",
-                f"stream,id=vec0,addr.type=fd,addr.str={passt_fds[0]}",
-                "-device",
-                f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
-            ]
-        if appliance.get("kernel"):
-            argv += [
-                "-kernel",
-                appliance["kernel"],
-                "-initrd",
-                appliance["initrd"],
-                "-append",
-                appliance.get("cmdline", ""),
-            ]
-        for nic in spec.interfaces:
-            argv += [
-                "-netdev",
-                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
-                "-device",
-                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
-            ]
-        return Launch(
-            argv=argv,
-            pass_fds=(*passt_fds, *lan_fds.values(), *disk_fds),
-            helpers=helpers,
-        )
 
 
 DAX_WINDOW = 512 << 20
@@ -1653,7 +1518,7 @@ class Container:
 
 ENTRY_POINTS = "vivarium.backends"
 """The entry point group a package names its backend classes in. The
-runner's own five are there too, in its pyproject.toml, so a backend from
+runner's own four are there too, in its pyproject.toml, so a backend from
 another package is found the same way and no registry here is edited."""
 
 

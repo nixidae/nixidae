@@ -7,7 +7,7 @@ this holds the decision each backend makes from what the process left.
 from __future__ import annotations
 
 import pytest
-from vivarium_runner.backend import REBOOTED, Appliance, Container, Krun, KrunExit, Qemu, Uml
+from vivarium_runner.backend import REBOOTED, Container, Krun, KrunExit, Qemu, Uml
 
 POWER_DOWN = "[   12.3] reboot: Power down"
 RESTART = f"[   12.3] {REBOOTED}"
@@ -36,4 +36,3 @@ def test_qemu_reads_the_console(console: list[str], rebooted: bool) -> None:
 def test_the_backends_that_do_not_reboot_say_no() -> None:
     for backend in (Uml, Container):
         assert backend.rebooted(KrunExit.REBOOT, [RESTART]) is False
-    assert Appliance.reboots is False

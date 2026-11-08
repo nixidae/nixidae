@@ -1,18 +1,17 @@
 # A guest that boots a vendor's disk image under QEMU, with no NixOS and no
-# agent: `vivarium.backend = "appliance"`. The runner's `Appliance` backend
-# says what the guest gets.
+# agent: `vivarium.appliance`. Nothing drives it (`vivarium.control.kind =
+# "none"`); its console's `ready` line says it is up.
 #
 # The node is still a NixOS evaluation, for the options every guest has
 # (memory, cpus, interfaces, forwards). Its system is never built.
 {
   config,
   lib,
-  pkgs,
   ...
 }:
 let
+  cfg = config.vivarium.appliance;
   inherit (lib) mkOption types;
-  tools = import ./tools.nix { inherit pkgs lib; };
 in
 {
   options.vivarium.uplink.enable = mkOption {
@@ -22,15 +21,16 @@ in
       Whether the guest gets passt's uplink, `vec0`: NAT to the host's
       network and the `forward` rules. Off, an appliance's first port is
       its first segment, as on a router whose only cables are the ones the
-      test lays. Only the `appliance` backend honours it; `uplink.segment`
-      is the other way to replace passt.
+      test lays. Only a guest that boots its own disk, such as
+      `vivarium.appliance`, honours it; `uplink.segment` is the other way
+      to replace passt.
     '';
   };
 
   options.vivarium.appliance = mkOption {
     default = null;
     description = ''
-      The disk image an `appliance` guest boots. The image's own kernel
+      A disk image QEMU boots (`vivarium.backend = "qemu"`). The image's own kernel
       runs it, so nothing of vivarium's is inside: no `succeed`, no
       journal, no `/artifacts`. A test reaches it over the network,
       through `vivarium.forward` on the uplink or from a NixOS guest on a
@@ -90,26 +90,30 @@ in
     );
   };
 
-  config.vivarium = lib.mkIf (config.vivarium.backend == "appliance") {
-    control = {
-      kind = "none";
-      config = { inherit (config.vivarium.appliance) ready; };
+  config.vivarium.control = lib.mkIf (cfg != null) {
+    kind = "none";
+    config = { inherit (cfg) ready; };
+  };
+  config.system.build = lib.mkIf (cfg != null) {
+    vivariumImageGuest = {
+      inherit (cfg) format cmdline;
+      uplink = config.vivarium.uplink.enable;
+    }
+    // lib.optionalAttrs (cfg.kernel != null) {
+      kernel = "${cfg.kernel}";
+      initrd = "${cfg.initrd}";
     };
-    launch = {
-      backend = "appliance";
-      config = { inherit (tools) qemu qemuImg passt; };
-    };
-    requiredSystemFeatures = [ "kvm" ];
+    vivariumImageDisk = cfg.disk;
   };
 
   config.assertions = [
     {
-      assertion = (config.vivarium.backend == "appliance") == (config.vivarium.appliance != null);
-      message = "vivarium.appliance and vivarium.backend = \"appliance\" go together.";
+      assertion = cfg != null -> config.vivarium.backend == "qemu";
+      message = "vivarium.appliance boots under QEMU: set vivarium.backend = \"qemu\". This guest is ${config.vivarium.backend}.";
     }
     {
-      assertion = config.vivarium.uplink.enable || config.vivarium.backend == "appliance";
-      message = "vivarium.uplink.enable = false: only the appliance backend can leave the uplink out.";
+      assertion = config.vivarium.uplink.enable || config.system.build ? vivariumImageGuest;
+      message = "vivarium.uplink.enable = false: only a guest that boots its own disk, such as vivarium.appliance, can leave the uplink out.";
     }
     {
       assertion = config.vivarium.uplink.enable || config.vivarium.forward == [ ];

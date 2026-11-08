@@ -129,12 +129,13 @@ lib.mkIf
       KVM, because a QEMU or libkrun guest is only worth booting with it.
       `uid-range` too: virtiofsd serves a file as the guest user that made
       it, and in a sandbox that maps one uid it cannot become uid 1000
-      (EINVAL, measured: `artifacts.qemu`).
+      (EINVAL, measured: `artifacts.qemu`). A guest that boots its own disk
+      runs no virtiofsd.
     */
     vivarium.requiredSystemFeatures = [
       "kvm"
-      "uid-range"
-    ];
+    ]
+    ++ lib.optional (!(config.system.build ? vivariumImageGuest)) "uid-range";
 
     # Without ACPI, libkrun's machine has no power-off: a poweroff only
     # halts the CPU, and the process stays up at 100% of a core (measured:
