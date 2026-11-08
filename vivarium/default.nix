@@ -881,6 +881,62 @@ let
         '';
 
     /*
+      Does `--only` boot only what its phases need?
+
+      `check` runs on `a`, and `a` requires `b`. `other` runs on `c`, and
+      `--only check` deselects it, so `c` never boots. The `boot` recipe
+      is in the `after` closure and takes the guests of `check` alone.
+    */
+    on-demand =
+      let
+        run = mkTest {
+          name = "on-demand";
+          nodes = {
+            a.vivarium.requires = [ "b" ];
+            b = { };
+            c = { };
+          };
+          phases = {
+            check = {
+              script = ./tests/phases/on-demand.py;
+              after = [ "boot" ];
+              nodes = [ "a" ];
+            };
+            other = {
+              script = ./tests/phases/check.py;
+              after = [ "boot" ];
+              nodes = [ "c" ];
+            };
+          };
+        };
+      in
+      pkgs.runCommand "vivarium-check-on-demand"
+        {
+          nativeBuildInputs = [ pkgs.jq ];
+          passthru.session = run;
+        }
+        ''
+          export HOME="$TMPDIR"
+          o="$TMPDIR/run"
+          fail() { echo "$*" >&2; exit 1; }
+          ${lib.getExe run.driver} --out "$o" --only check
+          jq -r '.phases[] | "\(.name)\t\(.state)"' "$o/phases.json"
+
+          [ "$(jq -r '.passed' "$o/phases.json")" = true ] || fail "the run failed"
+          jq -r 'select(.kind == "boot") | .text' "$o/events.jsonl" | tee booted
+          grep -qx "booting a, b" booted || fail "a and b did not boot together"
+          if grep -qw c booted; then fail "c booted, and no selected phase needs it"; fi
+          # `prepare` resolves every guest's forwards and says so; past
+          # that line, c's console is empty only if c never ran.
+          ran=$(jq -c 'select(.machine == "c" and .kind == "console" and (.text | startswith("forwarding ") | not))' \
+            "$o/events.jsonl" | wc -l)
+          [ "$ran" = 0 ] || fail "c wrote to its console, so it ran"
+          echo "ok: --only check booted a and b, and not c"
+
+          touch $out
+        '';
+
+    /*
       Does evidence get collected on the run that went wrong?
 
       `boot` is the standard library's recipe, which nothing here

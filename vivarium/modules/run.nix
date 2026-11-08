@@ -52,6 +52,11 @@ let
     lib.concatMap (phase: lib.subtractLists (lib.attrNames config.nodes) phase.nodes) named
   );
 
+  # Two sources for one phase's guests.
+  doubled = map (phase: phase.name) (
+    lib.filter (phase: phase.nodesFromDependents && phase.nodes != [ ]) named
+  );
+
   # Neither is a phase that does nothing and passes; both is a guess.
   ambiguous = map (phase: phase.name) (
     lib.filter (phase: (phase.script == null) == (phase.pytest == null)) named
@@ -235,6 +240,17 @@ in
                   A failure is not passed on through such a phase either,
                   so nothing after it is skipped on account of something
                   before it.
+                '';
+              };
+
+              nodesFromDependents = mkOption {
+                type = types.bool;
+                default = false;
+                description = ''
+                  Take the guests of the phases after this one, in place
+                  of `nodes`. Under `--only` these are the guests of the
+                  phases that still run; in a full run, every guest. The
+                  `boot` recipe sets it.
                 '';
               };
 
@@ -438,6 +454,12 @@ in
         message =
           "vivarium: these guests are named in a phase's `nodes` and are not in `nodes`: "
           + lib.concatStringsSep ", " strangers;
+      }
+      {
+        assertion = doubled == [ ];
+        message =
+          "vivarium: these phases set both `nodes` and `nodesFromDependents`: "
+          + lib.concatStringsSep ", " doubled;
       }
       {
         assertion = ambiguous == [ ];

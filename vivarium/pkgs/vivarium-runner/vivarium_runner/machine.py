@@ -150,6 +150,7 @@ class MachineSpecJson(TypedDict, total=False):
     uplink: str
     uplinkProxy: str
     forward: list[forward.RuleJson]
+    requires: list[str]
 
 
 class SystemsJson(TypedDict, total=False):
@@ -271,6 +272,9 @@ class MachineSpec:
     `None` is passt, the default."""
     uplink_proxy: str = "passt"
     """`vivarium.uplink.proxy`: `passt` or `gvproxy`."""
+    requires: tuple[str, ...] = ()
+    """`vivarium.requires`: the guests this one cannot boot without. The
+    session boots them first; the runner does nothing with it."""
     forward: tuple[forward.Rule, ...] = ()
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
@@ -296,6 +300,7 @@ class MachineSpec:
             store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
             late_closure=Path(data["lateClosure"]) if data.get("lateClosure") else None,
             nix_store=data.get("nixStore"),
+            requires=tuple(data.get("requires", [])),
             boot=data.get("boot", {}),
             systems=Systems.from_json(data.get("systems", {})),
             launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,

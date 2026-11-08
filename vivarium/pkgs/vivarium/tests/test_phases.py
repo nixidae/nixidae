@@ -16,9 +16,11 @@ from vivarium.phases import (
     PhaseState,
     breakpoints,
     dependents,
+    guests,
     launchable,
     passed,
     ready,
+    required,
     runnable,
     selected,
     skipped_by,
@@ -242,6 +244,43 @@ class TestLaunchable:
         first = on("first", nodes=("unit",))
         second = on("second", nodes=("unit",))
         assert names(launchable([first, second], [], EVERY)) == ["first"]
+
+
+class TestGuests:
+    """Which guests a phase needs up. `--only` boots these and no more."""
+
+    BOOTS = PhaseSpec(name="boot", script=Path("/dev/null/boot.py"), nodesFromDependents=True)
+    A = on("a", "boot", nodes=("a",))
+    C = on("c", "boot", nodes=("c",))
+    ALL = frozenset({"a", "b", "c"})
+
+    def test_a_phase_with_nodes_needs_those(self) -> None:
+        assert guests(self.A, [self.BOOTS, self.A], {}, self.ALL) == {"a"}
+
+    def test_boot_takes_the_guests_of_what_still_runs(self) -> None:
+        state = {"boot": PhaseState.PENDING, "a": PhaseState.PENDING, "c": PhaseState.DESELECTED}
+        assert guests(self.BOOTS, [self.BOOTS, self.A, self.C], state, self.ALL) == {"a"}
+
+    def test_a_full_run_boots_every_guest(self) -> None:
+        """A phase may reach a peer it names nowhere."""
+        state = {"boot": PhaseState.PENDING, "a": PhaseState.PENDING, "c": PhaseState.PENDING}
+        assert guests(self.BOOTS, [self.BOOTS, self.A, self.C], state, self.ALL) == self.ALL
+
+    def test_boot_alone_boots_every_guest(self) -> None:
+        state = {"boot": PhaseState.PENDING, "a": PhaseState.DESELECTED, "c": PhaseState.DESELECTED}
+        assert guests(self.BOOTS, [self.BOOTS, self.A, self.C], state, self.ALL) == self.ALL
+
+    def test_a_later_phase_without_nodes_takes_every_guest(self) -> None:
+        anywhere = on("anywhere", "a")
+        phases = [self.BOOTS, self.A, self.C, anywhere]
+        state = {"boot": PhaseState.PENDING, "a": PhaseState.PENDING, "c": PhaseState.DESELECTED}
+        assert guests(self.BOOTS, phases, {**state, "anywhere": PhaseState.PENDING}, self.ALL) == self.ALL
+
+    def test_requires_is_transitive(self) -> None:
+        assert required(["a"], {"a": ["b"], "b": ["cache"]}) == {"a", "b", "cache"}
+
+    def test_requires_survives_a_cycle(self) -> None:
+        assert required(["a"], {"a": ["b"], "b": ["a"]}) == {"a", "b"}
 
 
 class TestPassed:

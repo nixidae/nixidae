@@ -76,6 +76,11 @@ $ nix run --file . mine.driver -- --out ./out --only check
 `check` runs with the phases in its `after`, and theirs, in order. A
 phase after `check` does not run, `always` or not.
 
+Only the guests those phases name boot, each as its first phase starts,
+with the guests they name in `vivarium.requires`. The `boot` recipe takes
+the guests of the phases after it. A full run boots every guest first,
+because a phase may reach a peer it names nowhere.
+
 The rest are **deselected**, which is a different thing from skipped:
 nobody wanted their answers, so the run still exits 0. Only a caller can
 deselect. The sandboxed check passes no `--only`, so CI cannot go green

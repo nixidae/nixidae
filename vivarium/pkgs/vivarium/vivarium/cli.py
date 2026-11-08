@@ -403,7 +403,17 @@ async def _sequence(
         # Inside the `try`, not before it. `_start_all` lets every guest
         # settle before reporting, so a failed boot can leave others
         # running -- and outside this block nothing would ever stop them.
-        await session.boot()
+        selection = [p for p in session.spec.phases if session.state[p.name] is not PhaseState.DESELECTED]
+        if len(selection) == len(session.spec.phases):
+            # A full run boots every guest first: a phase may reach a peer
+            # it names in neither `nodes` nor `requires`.
+            await session.boot()
+        elif start and control is not None:
+            # Paused "with the guests up": those the selected phases need.
+            await session.boot({name for phase in selection for name in session.needs(phase)})
+        else:
+            # Each phase boots its own guests as it starts.
+            await session.boot(())
         if start and control is not None:
             await control.pause("before the first phase")
         await _schedule(session, control, breaks, break_on_failure, serial)

@@ -66,7 +66,7 @@ class FakeSession(Session):
             with contextlib.redirect_stdout(copy):
                 yield
 
-    async def boot(self) -> Machines:
+    async def boot(self, only: Collection[str] | None = None) -> Machines:
         self.booted = True
         if self.boot_error is not None:
             raise self.boot_error

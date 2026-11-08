@@ -499,6 +499,7 @@ rec {
                 ;
             }
             // lib.optionalAttrs (phase.timeout != null) { inherit (phase) timeout; }
+            // lib.optionalAttrs phase.nodesFromDependents { nodesFromDependents = true; }
             // (
               if phase.pytest != null then
                 {
@@ -536,6 +537,17 @@ rec {
             }
             // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
               storePaths = "${closure}/store-paths";
+            }
+            // lib.optionalAttrs (machine.vivarium.requires != [ ]) {
+              requires =
+                let
+                  names = map (each: each.networking.hostName) machines;
+                  unknown = lib.subtractLists names machine.vivarium.requires;
+                in
+                if unknown == [ ] then
+                  machine.vivarium.requires
+                else
+                  throw "${machine.networking.hostName}: vivarium.requires names ${lib.concatStringsSep ", " unknown}, which are not guests of this run (${lib.concatStringsSep ", " names}).";
             }
           ) machines;
         }

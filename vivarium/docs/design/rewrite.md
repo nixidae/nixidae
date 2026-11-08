@@ -422,7 +422,12 @@ Each step keeps `checks` green and moves the consumers with it.
    `vivarium.lateClosure` (it gets `settings` as a module argument;
    `vivarium.lib.pathsIn` lists a value's paths), and the runner
    registers them only in a guest with a Nix database
-   (`nixDatabase.loader`).
+   (`nixDatabase.loader`). Done also: `--only` keeps the `after` closure,
+   `--break start|failure|end`, `timeout`, and `--only` boots only the
+   guests its phases need (`Session.ensure`, `vivarium.requires`, the
+   `boot` recipe's `nodesFromDependents`). A full run still boots every
+   guest first. Open: a phase that starts when its own guests are up in
+   a full run (readiness in `Machine.start`), and the guest-suite recipe.
 6. The agent surface.
 7. `default.nix` split into `tests/<name>/default.nix`.
 

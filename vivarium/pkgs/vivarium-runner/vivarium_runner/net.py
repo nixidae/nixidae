@@ -56,7 +56,7 @@ class Lan:
         self.name = name
         self.fds: dict[str, int] = {}
         self.dropped = 0
-        self._guest_ends: list[socket.socket] = []
+        self._guest_ends: dict[str, socket.socket] = {}
         self._ports: list[socket.socket] = []
 
         if len(members) == 1:
@@ -65,20 +65,17 @@ class Lan:
             # thing to test -- so it gets one end of a pair and the host
             # quietly holds the other.
             guest_end, host_end = self._pair()
-            self._guest_ends = [guest_end]
+            self._guest_ends = {members[0]: guest_end}
             self._ports = [host_end]
-            self.fds = {members[0]: guest_end.fileno()}
         elif len(members) == 2:
             # Point to point: no host involvement, no copying.
-            a, b = self._pair()
-            self._guest_ends = [a, b]
-            self.fds = dict(zip(members, (a.fileno(), b.fileno()), strict=False))
+            self._guest_ends = dict(zip(members, self._pair(), strict=True))
         else:
             for member in members:
                 host_end, guest_end = self._pair()
                 self._ports.append(host_end)
-                self._guest_ends.append(guest_end)
-                self.fds[member] = guest_end.fileno()
+                self._guest_ends[member] = guest_end
+        self.fds = {member: sock.fileno() for member, sock in self._guest_ends.items()}
 
     @staticmethod
     def _pair() -> tuple[socket.socket, socket.socket]:
@@ -125,15 +122,17 @@ class Lan:
         """Stop listening to a port whose guest has gone away."""
         asyncio.get_running_loop().remove_reader(src)
 
-    def detach(self) -> None:
-        """Drop our copies of the guests' fds, once they have all spawned.
+    def detach(self, prefixes: list[str] | None = None) -> None:
+        """Drop our copies of the guests' fds once those guests have spawned.
 
-        Until this runs, every guest's end is held open here too, so no
-        guest would ever see the segment go quiet when a peer dies.
+        Until this runs, a guest's end is held open here too, so no peer
+        would ever see the segment go quiet when that guest dies. Guests
+        boot at different times, so *prefixes* names the members whose
+        ends go (`"a/"` is every link of guest `a`); none is all of them.
         """
-        for sock in self._guest_ends:
-            sock.close()
-        self._guest_ends.clear()
+        for member in list(self._guest_ends):
+            if prefixes is None or any(member.startswith(prefix) for prefix in prefixes):
+                self._guest_ends.pop(member).close()
 
     def close(self) -> None:
         if self.dropped:

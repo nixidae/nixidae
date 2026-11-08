@@ -175,6 +175,51 @@ def claims(phase: PhaseSpec, every: frozenset[str]) -> frozenset[str]:
     return frozenset(phase.nodes)
 
 
+def guests(
+    phase: PhaseSpec,
+    phases: Iterable[PhaseSpec],
+    state: dict[str, PhaseState],
+    every: frozenset[str],
+) -> frozenset[str]:
+    """The guests that must be up before *phase* starts.
+
+    A phase with `nodesFromDependents` (the `boot` recipe) takes the
+    guests of every phase after it that still may run. So `--only check`
+    on `nodes = [ "a" ]` boots `a` and not the rest, though every
+    consumer writes `after = [ "boot" ]`.
+
+    Only when `--only` deselected something. A full run boots every
+    guest, because a phase may reach a peer it names in neither `nodes`
+    nor `requires`: a client that pings a server. With no phase after it
+    to run, it takes every guest too: a run of `boot` alone boots.
+    """
+    if not phase.nodesFromDependents or PhaseState.DESELECTED not in state.values():
+        return claims(phase, every)
+    phases = list(phases)
+    later: set[str] = set()
+    found = {phase.name}
+    while grown := {p.name for p in phases if p.name not in found and found & set(p.after)}:
+        found |= grown
+        later |= grown
+    wanted: set[str] = set()
+    for other in phases:
+        if other.name in later and state.get(other.name, PhaseState.PENDING) is not PhaseState.DESELECTED:
+            wanted |= guests(other, phases, state, every)
+    return frozenset(wanted) or every
+
+
+def required(names: Iterable[str], requires: dict[str, list[str]]) -> frozenset[str]:
+    """*names* and every guest they name in `vivarium.requires`, transitively."""
+    found: set[str] = set()
+    todo = list(names)
+    while todo:
+        name = todo.pop()
+        if name not in found:
+            found.add(name)
+            todo.extend(requires.get(name, ()))
+    return frozenset(found)
+
+
 def launchable(
     ready: Iterable[PhaseSpec],
     running: Iterable[PhaseSpec],

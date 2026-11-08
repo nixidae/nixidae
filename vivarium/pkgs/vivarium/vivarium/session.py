@@ -48,7 +48,7 @@ from vivarium_runner.report import Report
 
 from . import journal, junit_in
 from .events import Event, Kind, Level
-from .phases import PhaseState, PhaseTimeout, passed, runnable, skipped_by
+from .phases import PhaseState, PhaseTimeout, guests, passed, required, runnable, skipped_by
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 
 if TYPE_CHECKING:
@@ -204,7 +204,13 @@ class Session:
         # and their timings are not one run's.
         self.report = Report()
         self._lans: list[Any] = []
-        self._booted = False
+        # Every guest's `Machine`, up or not; `vms` holds the ones up.
+        self._all: Machines | None = None
+        self._requires: dict[str, list[str]] = {}
+        # Set when a guest's boot has ended, either way.
+        self._starting: dict[str, anyio.Event] = {}
+        # Every guest whose boot began, so a failed one is torn down too.
+        self._attempts: set[str] = set()
         self._journals: dict[str, journal.Tail] = {}
         # `follow` and a phase boundary both drain, and a Tail read twice
         # at once hands the same lines to both.
@@ -314,9 +320,7 @@ class Session:
         the choice is all of it all the time, or none of it including
         when it would have helped.
         """
-        if self.vms is None:
-            return
-        for name, vm in self.vms.items():
+        for name, vm in self._attempted().items():
             if nodes is not None and name not in nodes:
                 continue
             tail = [line for line in list(vm._history)[-lines:] if line]
@@ -333,10 +337,33 @@ class Session:
 
     # ── the operations ─────────────────────────────────────────────
 
-    async def boot(self) -> Machines:
-        """Bring every guest up and wait for its agent."""
-        if self._booted:
-            raise SessionError("already booted")
+    async def boot(self, only: Collection[str] | None = None) -> Machines:
+        """Prepare the run, and bring every guest up, or only *only*.
+
+        `only=()` boots nothing: each phase then boots its own guests
+        when it starts (`ensure`).
+        """
+        await self.prepare()
+        await self.ensure(self.every if only is None else only)
+        return self.vms_up
+
+    @property
+    def every(self) -> frozenset[str]:
+        """Every guest in the run, up or not."""
+        names = {str(machine["name"]) for machine in self.spec.machines}
+        return frozenset(names | set(self.vms or ()))
+
+    @property
+    def vms_up(self) -> Machines:
+        if self.vms is None:
+            raise SessionError("run before boot")
+        return self.vms
+
+    async def prepare(self) -> None:
+        """What the whole run needs before any guest starts: the segments,
+        each guest's forwards, the `Machine` of each guest. No guest boots."""
+        if self._all is not None:
+            raise SessionError("already prepared")
         # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
         machines = cast("list[MachineSpecJson]", self.spec.machines)
         if self.kernel is not None:
@@ -348,6 +375,7 @@ class Session:
                 kernel=str(self.kernel),
             )
         specs = [MachineSpec.from_json(m) for m in machines]
+        self._requires = {one.name: list(one.requires) for one in specs}
 
         # A segment's members are `<machine>/<interface>`: neither name
         # can hold a slash.
@@ -376,7 +404,6 @@ class Session:
                 machine_name, nic_name = member.split("/")
                 lan_fds[machine_name][nic_name] = fd
 
-        self.emit(Kind.BOOT, f"booting {', '.join(one.name for one in specs)}")
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._journals = {}
         for one in specs:
@@ -385,7 +412,7 @@ class Session:
             # last run's journal as if this guest had written it.
             path.unlink(missing_ok=True)
             self._journals[one.name] = journal.Tail(path)
-        vms = Machines(
+        self._all = Machines(
             (
                 one.name,
                 Machine(
@@ -400,6 +427,9 @@ class Session:
             )
             for one in specs
         )
+        # Only the guests that are up. `exec` and a phase's `vms` never
+        # see a guest that has not booted, which would hang them.
+        vms = Machines()
         vms.settings = self.spec.settings
         vms.artifacts = self.artifacts
         # A phase reads `vms.knobs["name"]` and gets the value, not the
@@ -418,22 +448,57 @@ class Session:
         # run and wrong for an MCP server holding several -- see the
         # design, area 0d.
         taken: set[str] = set()
-        for vm in vms.values():
+        for vm in self._all.values():
             vm.resolve_forward(taken)
 
         for lan in self._lans:
             lan.start()
         self.vms = vms
-        # Captured too: passt and the forward resolver say useful things
-        # on the way up, and they say them with `print`.
-        with self._capture():
-            failures = await _start_all(vms)
-        for lan in self._lans:
-            lan.detach()
-        if failures:
-            raise failures[0]
-        self._booted = True
-        return vms
+
+    async def ensure(self, names: Collection[str]) -> None:
+        """Boot *names* and the guests they `require`, unless they are up.
+
+        Two phases may ask for one guest at once (both need the cache), so
+        a guest's boot is started once and the second caller waits for it.
+        A guest that will not boot raises here, inside the phase that
+        needed it, so that phase fails and its dependents are skipped.
+        """
+        vms = self.vms_up
+        if self._all is None:
+            # A session whose guests were handed in, as the unit tests do.
+            missing = [name for name in names if name not in vms]
+            if missing:
+                raise SessionError(f"no guest {', '.join(missing)}, and nothing to boot it from")
+            return
+        wanted = sorted(required(names, self._requires))
+        unknown = [name for name in wanted if name not in self._all]
+        if unknown:
+            raise SessionError(f"no such guest: {', '.join(unknown)}; the guests are {', '.join(self._all)}")
+        mine = [name for name in wanted if name not in self._starting]
+        for name in mine:
+            self._starting[name] = anyio.Event()
+        if mine:
+            self.emit(Kind.BOOT, f"booting {', '.join(mine)}")
+            self._attempts.update(mine)
+            try:
+                # Captured too: passt and the forward resolver say useful
+                # things on the way up, and they say them with `print`.
+                with self._capture():
+                    failures = await _start_all(Machines((name, self._all[name]) for name in mine))
+            finally:
+                for lan in self._lans:
+                    lan.detach([f"{name}/" for name in mine])
+            for name in mine:
+                if name not in failures:
+                    vms[name] = self._all[name]
+                self._starting[name].set()
+            if failures:
+                raise next(iter(failures.values()))
+        for name in wanted:
+            await self._starting[name].wait()
+        down = [name for name in wanted if name not in vms]
+        if down:
+            raise MachineError(f"{', '.join(down)} did not boot")
 
     async def drain(self) -> None:
         """Emit every journal entry the guests have written since last asked.
@@ -637,7 +702,7 @@ class Session:
         self.emit(Kind.NOTE, plugin.summary(), phase=name)
         return plugin.summary()
 
-    def view(self, phase: PhaseSpec) -> Machines:
+    def view(self, phase: PhaseSpec, nodes: Collection[str] | None = None) -> Machines:
         """The guests `phase` declared, as the `vms` its script is given.
 
         Its own object, because two phases run at once and each has its
@@ -648,7 +713,7 @@ class Session:
         """
         if self.vms is None:
             raise SessionError("run before boot")
-        wanted = phase.nodes or list(self.vms)
+        wanted = list(nodes) if nodes is not None else phase.nodes or list(self.vms)
         missing = [name for name in wanted if name not in self.vms]
         if missing:
             # A node whose `networking.hostName` is not its attribute name
@@ -674,7 +739,7 @@ class Session:
         """
         if self.vms is None:
             raise SessionError("run before boot")
-        nodes = phase.nodes or list(self.vms)
+        nodes = self.needs(phase)
         await self.drain()
         self.state[phase.name] = PhaseState.RUNNING
         for name in nodes:
@@ -683,7 +748,8 @@ class Session:
         started = time.monotonic()
         deadline = None if phase.timeout is None else anyio.current_time() + phase.timeout
         try:
-            vms = self.view(phase)
+            await self.ensure(nodes)
+            vms = self.view(phase, nodes)
             if phase.pytest is not None:
                 await self._pytest(phase.name, phase.pytest, vms, deadline=deadline, timeout=phase.timeout)
             elif phase.script is not None:
@@ -765,6 +831,12 @@ class Session:
         )
         return PhaseState.PASSED
 
+    def needs(self, phase: PhaseSpec) -> list[str]:
+        """The guests *phase* runs on, which must be up before it starts."""
+        if phase.nodesFromDependents:
+            return sorted(guests(phase, self.spec.phases, self.state, self.every))
+        return list(phase.nodes) or sorted(self.every)
+
     def _release(self, nodes: list[str]) -> None:
         for name in nodes:
             self.running.pop(name, None)
@@ -828,15 +900,22 @@ class Session:
 
     async def teardown(self) -> None:
         """Guests down. Safe to call twice; never called for you."""
-        if self.vms is not None:
-            async with anyio.create_task_group() as group:
-                for machine in self.vms.values():
-                    group.start_soon(_shutdown, machine)
-            self.vms = None
+        async with anyio.create_task_group() as group:
+            for machine in self._attempted().values():
+                group.start_soon(_shutdown, machine)
+        self.vms = None
+        self._all = None
+        self._attempts = set()
+        self._starting = {}
         for lan in self._lans:
             lan.close()
         self._lans = []
-        self._booted = False
+
+    def _attempted(self) -> dict[str, Machine]:
+        """Every guest whose boot began, a failed one included."""
+        if self._all is None:
+            return dict(self.vms or {})
+        return {name: vm for name, vm in self._all.items() if name in self._attempts}
 
     # ── helpers ────────────────────────────────────────────────────
 
@@ -856,20 +935,20 @@ class Session:
         return path
 
 
-async def _start_all(vms: Machines) -> list[BaseException]:
+async def _start_all(vms: Machines) -> dict[str, BaseException]:
     """Start every guest, and let each settle even if another fails.
 
     A task group cancels its siblings when one raises, which would leave
     a guest half-spawned for the teardown to trip over. So each failure
     is caught where it happens and reported after all of them are done.
     """
-    failures: list[BaseException] = []
+    failures: dict[str, BaseException] = {}
 
     async def start(machine: Machine) -> None:
         try:
             await machine.start()
         except BaseException as error:  # noqa: BLE001 -- recorded, then re-raised by the caller
-            failures.append(error)
+            failures[machine.name] = error
 
     async with anyio.create_task_group() as group:
         for machine in vms.values():

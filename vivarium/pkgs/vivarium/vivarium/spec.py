@@ -71,6 +71,9 @@ class PhaseSpec(Strict):
     timeout: float | None = None
     """Seconds the phase may run before it fails; none is no limit."""
 
+    nodesFromDependents: bool = False  # noqa: N815 -- Nix writes it, so Nix spells it
+    """Its guests are those of the phases after it. See `phases.guests`."""
+
     @model_validator(mode="after")
     def _one_kind(self) -> PhaseSpec:
         if (self.script is None) == (self.pytest is None):

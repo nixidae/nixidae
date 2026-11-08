@@ -27,6 +27,10 @@ in
       # of recipes being options.
       script = lib.mkDefault ../../recipes/boot.py;
       description = lib.mkDefault "every guest reaches a running system";
+      # Under `--only`, the guests of the phases that still run. Every
+      # consumer phase is after this one, so without it `--only` would
+      # boot every guest here.
+      nodesFromDependents = lib.mkDefault true;
     };
   };
 }

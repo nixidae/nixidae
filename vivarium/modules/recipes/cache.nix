@@ -69,6 +69,8 @@ in
         ...
       }:
       lib.mkIf (config.networking.hostName != cfg.name) {
+        # `vivarium-cache-online` below waits for it at boot.
+        vivarium.requires = [ cfg.name ];
         vivarium.interfaces.cache = {
           segment = "cache";
           addresses = [ "10.254.0.${toString (config.vivarium.index + 2)}/24" ];

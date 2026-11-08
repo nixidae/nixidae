@@ -589,6 +589,20 @@ in
       '';
     };
 
+    requires = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "cache" ];
+      description = ''
+        Guests this one cannot boot without, by name in `nodes`. A run
+        given `--only` boots only the guests its phases need, and these
+        with them. A full run boots every guest anyway.
+
+        The recipe that adds the dependency sets it: the `cache` recipe
+        sets it on every other guest, which waits for the cache at boot.
+      '';
+    };
+
     configurations = lib.mkOption {
       type = lib.types.attrsOf lib.types.deferredModule;
       default = { };
