@@ -67,13 +67,14 @@ def _parser() -> argparse.ArgumentParser:
     cmd.add_argument("--bundle", type=Path, required=True, help=f"the {bundle.BUNDLE_FILE} the plan came from")
     cmd.add_argument("--store", default=DAEMON, help="the store that builds; the daemon picks the machines")
     cmd.add_argument("--out", type=Path, help="write built.json, built.dot and built.url into this directory")
+    cmd.add_argument("--print-build-logs", action="store_true", help="each builder's output and Nix's info on stderr")
     return parser
 
 
 async def _build(args: argparse.Namespace) -> str:
     made = bundle.Bundle.model_validate_json(await anyio.Path(args.bundle).read_text())
     chosen = Plan.model_validate_json(await anyio.Path(args.plan).read_text())
-    result = await build(chosen, made, store_url=args.store)
+    result = await build(chosen, made, store_url=args.store, build_logs=args.print_build_logs)
     if args.out is None:
         return result.model_dump_json(indent=2)
     written = await write_built(result, made, anyio.Path(args.out))

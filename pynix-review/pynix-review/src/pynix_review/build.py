@@ -7,6 +7,7 @@ Through the `daemon` store the daemon decides where each build runs.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
@@ -29,6 +30,9 @@ DOT_FILE: Final = "built.dot"
 URL_FILE: Final = "built.url"
 RAN: Final = "built"
 """The success word for a builder that ran; the other success words ran none."""
+BUILD_LOG_RESULTS: Final = frozenset({huggorm.ResultType.BUILD_LOG_LINE, huggorm.ResultType.POST_BUILD_LOG_LINE})
+"""Unforwarded, huggorm's fallback logger prints these at chatty: 8694
+lines on stderr for the libpng plan."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,14 +115,34 @@ def _base(installable: str) -> str:
     return installable.removesuffix("^*").rsplit("/", 1)[-1]
 
 
-async def build(plan: Plan, bundle: Bundle, *, store_url: str = DAEMON) -> Report:
+def log_line(record: huggorm.LogRecord, *, build_logs: bool) -> str | None:
+    """The stderr line for `record`, or None: a message, and a build's own
+    output only with `build_logs`."""
+    match record.action():
+        case "msg":
+            info = record.info()
+            return record.text() if info is None else info.msg()
+        case "result" if build_logs and record.type() in BUILD_LOG_RESULTS:
+            texts = [f.text() for f in record.fields() if not f.is_int()]
+            return texts[-1] if texts else None
+        case _:
+            return None
+
+
+async def build(plan: Plan, bundle: Bundle, *, store_url: str = DAEMON, build_logs: bool = False) -> Report:
+    """Build `plan`. stderr gets Nix's warnings and errors; with `build_logs`
+    also its messages at info and each builder's output."""
+
+    def write(record: huggorm.LogRecord) -> None:
+        if (line := log_line(record, build_logs=build_logs)) is not None:
+            sys.stderr.write(huggorm.filter_ansi_escapes(line, filter_all=True) + "\n")
+
     start = time.monotonic()
-    store = huggorm.AsyncStore(store_url)
-    try:
+    level = huggorm.Verbosity.INFO if build_logs else huggorm.Verbosity.WARN
+    async with huggorm.AsyncSession(store_url) as session, session.forward_process(write, level=int(level)):
+        store = session.store()
         targets = [await store.parse_derived_path(i) for i in plan.installables]
         results = await store.build_paths_with_results(targets) if targets else []
-    finally:
-        await store.aclose()
     outcomes = []
     for installable, result in zip(plan.installables, results, strict=True):
         success, error = result.success(), result.error()
