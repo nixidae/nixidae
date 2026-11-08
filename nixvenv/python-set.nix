@@ -288,15 +288,20 @@ in
       exclude ? [ ],
     }:
     let
+      environ = pyproject-nix.lib.pep508.mkEnviron python;
+      # A PEP 508 marker names the platforms a dependency is for: `seccomp; sys_platform == 'linux'`.
+      applies = dep: dep.markers == null || pyproject-nix.lib.pep508.evalMarkers environ dep.markers;
       declaredNames =
         projectRoot:
         let
           inherit (pyproject-nix.lib.project.loadPyproject { inherit projectRoot; }) dependencies;
         in
         map (dep: normalize dep.name) (
-          dependencies.dependencies
-          ++ dependencies.build-systems
-          ++ lib.concatLists (lib.attrValues dependencies.extras)
+          lib.filter applies (
+            dependencies.dependencies
+            ++ dependencies.build-systems
+            ++ lib.concatLists (lib.attrValues dependencies.extras)
+          )
         );
 
       wanted = lib.subtractLists (map normalize (exclude ++ map baseNameOf projectRoots)) (
