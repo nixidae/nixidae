@@ -167,8 +167,8 @@ async def nix_on_suse(vms: Machines) -> None:
 async def nixos(vms: Machines) -> None:
     """Switch, target, roll back and deploy from an event, on web1."""
     master, web1 = vms.master, vms.web1
-    booted = web1.spec.toplevel
-    nxt = web1.spec.configurations["next"]
+    booted = web1.systems.toplevel
+    nxt = web1.systems.configurations["next"]
     assert booted is not None
     assert await current(web1) == booted
     assert await generation(web1) == "base"
@@ -219,8 +219,8 @@ async def rolling(vms: Machines) -> None:
     """A rolling deploy through a #!nix orchestration, and a failed one."""
     master = vms.master
     webs = {"web1": vms.web1, "web2": vms.web2}
-    good = {name: web.spec.configurations["next"] for name, web in webs.items()}
-    broken = {name: web.spec.configurations["broken"] for name, web in webs.items()}
+    good = {name: web.systems.configurations["next"] for name, web in webs.items()}
+    broken = {name: web.systems.configurations["broken"] for name, web in webs.items()}
     code, out = await orchestrate(master, {"systems": good})
     assert code == 0, out
     for name, web in webs.items():

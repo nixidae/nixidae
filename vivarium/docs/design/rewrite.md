@@ -405,7 +405,8 @@ Each step keeps `checks` green and moves the consumers with it.
    toolchain, `toolchainFor` and `featuresFor` go with the last one.
    Done for `launch`, `requiredSystemFeatures` and the toolchain: each
    backend has a strict config class, and `modules/tools.nix` names the
-   paths. Entry points and the `systems` move are next.
+   paths. Backends are entry points in `vivarium.backends`. A phase reads
+   `vm.systems`. Done.
    havsorm reads `vm.spec.toplevel` and `vm.spec.configurations`, which
    move under `systems`; it moves in this step.
 4. Guest kinds: `control`, and the RouterOS, SONiC, VyOS, image and

@@ -156,13 +156,35 @@ class MachineSpecJson(TypedDict, total=False):
     storePaths: str
     settingsClosure: str
     boot: BootSpec
-    toplevel: str
-    configurations: dict[str, str]
+    systems: SystemsJson
     launch: LaunchSpecJson
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
     forward: list[forward.RuleJson]
+
+
+class SystemsJson(TypedDict, total=False):
+    """`Systems` as Nix wrote it."""
+
+    toplevel: str
+    configurations: dict[str, str]
+
+
+@dataclass(frozen=True)
+class Systems:
+    """The NixOS systems a guest has: the one it boots, and the ones it can
+    switch to. Empty for a guest with no NixOS, such as a cloud image."""
+
+    toplevel: str | None = None
+    """The system this guest boots."""
+    configurations: Mapping[str, str] = field(default_factory=dict)
+    """`vivarium.configurations`: each name and its system, which the
+    guest's Nix database already holds."""
+
+    @classmethod
+    def from_json(cls, data: SystemsJson) -> Systems:
+        return cls(toplevel=data.get("toplevel"), configurations=dict(data.get("configurations", {})))
 
 
 class LaunchSpecJson(TypedDict):
@@ -243,14 +265,10 @@ class MachineSpec:
     """What a QEMU guest boots: kernel, initrd, toplevel and cmdline, as
     ``modules/qemu.nix`` worked them out.  Empty under UML, which boots the
     root image instead."""
-    toplevel: str | None = None
-    """The system this guest boots."""
+    systems: Systems = field(default_factory=Systems)
     launch: LaunchSpec | None = None
     """`vivarium.launch`, for a backend that reads its tools from there.
     The backend checks it when the `Machine` is made."""
-    configurations: dict[str, str] = field(default_factory=dict)
-    """`vivarium.configurations`: each name and its system, which the
-    guest's Nix database already holds."""
     interfaces: tuple[Interface, ...] = ()
     """The guest's segment links, in NIC order."""
     uplink: str | None = None
@@ -283,8 +301,7 @@ class MachineSpec:
             store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
             settings_closure=Path(data["settingsClosure"]) if data.get("settingsClosure") else None,
             boot=data.get("boot", {}),
-            toplevel=data.get("toplevel"),
-            configurations=data.get("configurations", {}),
+            systems=Systems.from_json(data.get("systems", {})),
             launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
@@ -461,6 +478,11 @@ class Machine:
     @property
     def name(self) -> str:
         return self.spec.name
+
+    @property
+    def systems(self) -> Systems:
+        """The system this guest booted and the ones `switch_to` takes by name."""
+        return self.spec.systems
 
     @property
     def control_kind(self) -> ControlKind:
@@ -1122,15 +1144,15 @@ class Machine:
         if self.spec.boot.get("image"):
             raise MachineError(f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch")
         if name is None:
-            if self.spec.toplevel is None:
+            if self.systems.toplevel is None:
                 raise MachineError(f"[{self.name}] the spec names no booted system")
-            system = self.spec.toplevel
+            system = self.systems.toplevel
         elif name.startswith("/nix/store/"):
             system = name
-        elif name in self.spec.configurations:
-            system = self.spec.configurations[name]
+        elif name in self.systems.configurations:
+            system = self.systems.configurations[name]
         else:
-            known = ", ".join(sorted(self.spec.configurations)) or "none"
+            known = ", ".join(sorted(self.systems.configurations)) or "none"
             raise MachineError(f"[{self.name}] no configuration {name!r}; this guest has: {known}")
         steps: list[str] = []
         if action in ("switch", "boot"):

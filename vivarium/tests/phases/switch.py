@@ -14,8 +14,8 @@ async def current(vms: Machines) -> str:
 
 async def test(vms: Machines) -> None:
     one = vms.one
-    two = one.spec.configurations["two"]
-    booted = one.spec.toplevel
+    two = one.systems.configurations["two"]
+    booted = one.systems.toplevel
     assert await current(vms) == booted
     assert (await one.succeed("cat /etc/vivarium-config")).strip() == "one"
     assert await one.unit_state("only-in-two.service") == "inactive"
