@@ -37,6 +37,10 @@ rec {
   */
   session = pkgs.callPackage ./pkgs/vivarium { vivarium-runner = runner; };
 
+  # `vivarium_k8s`, the cluster library. `vivarium.recipes.kubernetes` puts
+  # it in the run's venv.
+  k8s = pkgs.callPackage ./pkgs/vivarium-k8s { vivarium-runner = runner; };
+
   /**
     The `vivarium` program, in a venv that holds `session`. A child of
     `sys.executable` then imports what the program imports, with no
@@ -441,7 +445,12 @@ rec {
           # `nodes` is for guests.
           { _module.args.systems = evaluated; }
         ];
-        specialArgs = { inherit pkgs; };
+        specialArgs = {
+          inherit pkgs;
+          # The Python packages vivarium builds, for a recipe's
+          # `python.packages`.
+          vivariumPackages = { inherit runner session k8s; };
+        };
       };
 
       cfg = run.config;

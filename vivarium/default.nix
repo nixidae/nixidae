@@ -37,6 +37,7 @@ let
     fromNixosTest
     runner
     session
+    k8s
     cli
     typeCheck
     images
@@ -2713,10 +2714,12 @@ let
         # consumer rather than this repository.
         lib.filesystem.listFilesRecursive ./recipes ++ lib.filesystem.listFilesRecursive ./tests
       );
-      # What `python-packages` gives its phase.
+      # What `python-packages` gives its phase, and what the cluster tests
+      # import.
       extraPackages = [
         pkgs.python3Packages.humanize
         pkgs.python3Packages.tomli-w
+        k8s
       ];
     };
 
@@ -2729,12 +2732,13 @@ let
           packages = ps: [
             runner
             session
+            k8s
             ps.pytest
           ];
         };
       in
       pkgs.runCommand "vivarium-check-python" { nativeBuildInputs = [ pkgs.zuban ]; } ''
-        for package in ${./pkgs/vivarium-runner} ${./pkgs/vivarium}; do
+        for package in ${./pkgs/vivarium-runner} ${./pkgs/vivarium} ${./pkgs/vivarium-k8s}; do
           (cd $package && zuban mypy --python-executable ${python}/lib/venv/bin/python3)
         done
         touch $out
@@ -2775,6 +2779,7 @@ in
       fromNixosTest
       runner
       session
+      k8s
       cli
       typeCheck
       images
@@ -2814,6 +2819,7 @@ in
       cli
       runner
       session
+      k8s
       vivarium-eval
       ;
     vivarium = tools;

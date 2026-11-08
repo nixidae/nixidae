@@ -9,15 +9,14 @@ This is a library and not a test.  ``tests/k8s.py`` is the three-node case,
 and a phase outside this repository can build its own:
 
     from vivarium_runner import Machines
-    from vivarium_runner.cluster import bring_up, kubectl
+    from vivarium_k8s import bring_up, kubectl
 
     async def test(vms: Machines) -> None:
         cp = await bring_up(vms)
         await kubectl(cp, "apply --filename /nix/store/...")
 
-Everything a caller is likely to need is a coroutine over ``Machine``
-objects, so nothing here assumes the guests came from this repository's
-``flake.nix`` -- only that they run ``services.vivarium-k8s``.
+`vivarium.recipes.kubernetes` puts this package in the run's venv and
+writes the nodes to the run's settings, where `bring_up` reads them.
 """
 
 import json
@@ -26,8 +25,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypedDict, cast
 
 import anyio
-
-from .machine import Machine, MachineError, Machines
+from vivarium_runner.machine import Machine, MachineError, Machines
 
 
 class NodeFacts(TypedDict):

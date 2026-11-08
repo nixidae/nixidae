@@ -1,5 +1,5 @@
-# kubeadm nodes, and the facts `vivarium_runner.cluster.bring_up` needs
-# about them.
+# kubeadm nodes, the facts `vivarium_k8s.bring_up` needs about them, and
+# `vivarium_k8s` in the run's venv.
 #
 # Every guest imports ../k8s.nix, which does nothing until a guest sets
 # `services.vivarium-k8s.enable`. Those guests are the nodes. The recipe
@@ -10,6 +10,7 @@
   config,
   lib,
   systems,
+  vivariumPackages,
   ...
 }:
 let
@@ -23,6 +24,7 @@ in
 
   config = lib.mkIf cfg.enable {
     defaults.imports = [ ../k8s.nix ];
+    python.packages = [ vivariumPackages.k8s ];
 
     settings.kubernetes.nodes = lib.mapAttrs (
       _: system:

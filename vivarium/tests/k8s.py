@@ -3,7 +3,7 @@
 
 The nodes themselves know nothing about each other -- see modules/k8s.nix
 -- and everything that needs the whole cluster in view is in
-`vivarium_runner.cluster`, which any test can call:
+`vivarium_k8s`, which any test can call:
 
     init      kubeadm init on cp, and kubeadm join on the two workers
     network   read each node's podCIDR, write its CNI config, and route
@@ -20,7 +20,7 @@ claim with no class named, bound to a node's own directory.
 """
 
 from vivarium_runner import Machine, Machines
-from vivarium_runner.cluster import (
+from vivarium_k8s import (
     READY_TIMEOUT,
     bring_up,
     kubectl,

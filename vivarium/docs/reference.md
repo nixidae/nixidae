@@ -678,7 +678,7 @@ A run with nodes sets `vivarium.recipes.kubernetes.enable = true`. The
 recipe imports `modules/k8s.nix` into every guest. Each guest with
 `services.vivarium-k8s.enable` is a node, and the recipe writes its CNI,
 image source and skipped addons to `settings.kubernetes.nodes`.
-`vivarium_runner.cluster.bring_up` reads the nodes from there, so a
+`vivarium_k8s.bring_up` reads the nodes from there, so a
 guest that is not a node, such as the cache guest, stays out of the
 cluster.
 

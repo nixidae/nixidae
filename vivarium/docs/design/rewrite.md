@@ -397,8 +397,8 @@ Each step keeps `checks` green and moves the consumers with it.
    module into every guest, reads the nodes from `systems` and writes
    their facts to `settings.kubernetes.nodes`. The k8s fields leave
    `machineSpec` and `MachineSpec`. nixkube and easykubenix move with
-   it. Done. `vivarium_k8s` becomes its own package next. The recipe
-   adds no `cluster` phase: each of the five callers of `bring_up`
+   it. `vivarium_k8s` is its own package, and the recipe puts it in
+   the run's venv. Done. The recipe adds no `cluster` phase: each of the five callers of `bring_up`
    passes its own arguments, in a phase that does more than that.
 3. The backend contract: `launch` and `requiredSystemFeatures`, entry
    points, capabilities. One backend at a time, UML first. The global

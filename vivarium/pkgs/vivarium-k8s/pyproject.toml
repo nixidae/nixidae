@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vivarium-k8s"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "Bring a kubeadm cluster up on vivarium guests"
+requires-python = ">=3.12"
+dependencies = ["vivarium-runner", "anyio"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["vivarium_k8s"]
+
+# PEP 561: a phase's type checker reads the annotations.
+artifacts = ["vivarium_k8s/py.typed"]
