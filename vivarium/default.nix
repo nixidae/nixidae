@@ -2246,7 +2246,7 @@ let
         ''
           export HOME="$TMPDIR"
           fail() { echo "$*" >&2; exit 1; }
-          cp "$(jq -r .kernel ${run.spec})" "$TMPDIR/linux"
+          cp "$(jq -er '.machines[0].launch.config.kernel' ${run.spec})" "$TMPDIR/linux"
           chmod +x "$TMPDIR/linux"
 
           ${lib.getExe run.driver} --out "$TMPDIR/good" --kernel "$TMPDIR/linux" \

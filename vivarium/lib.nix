@@ -160,6 +160,9 @@ rec {
       uplinkProxy = machine.vivarium.uplink.proxy;
       forward = machine.vivarium.forward;
     }
+    // lib.optionalAttrs (machine.vivarium.launch != null) {
+      inherit (machine.vivarium) launch;
+    }
     // (
       if machine.vivarium.appliance != null then
         {
@@ -220,14 +223,9 @@ rec {
     machines:
     let
       on = backend: lib.filter (machine: machine.vivarium.backend == backend) machines;
-      uml = on "uml";
     in
     {
       passt = "${pkgs.callPackage ./pkgs/passt { }}/bin/passt";
-    }
-    // lib.optionalAttrs (uml != [ ]) {
-      kernel = "${(lib.head uml).system.build.umlKernel}/linux";
-      bridge = lib.getExe (lib.head uml).system.build.umlPasstBridge;
     }
     # UML reads raw disks, and a cloud image is qcow2: the runner converts
     # it into the run directory, sparse, rather than the store holding the
@@ -287,8 +285,11 @@ rec {
         machine: machine.vivarium.backend == "container" && machine.vivarium.nestedVirtualization
       ) machines;
     in
-    lib.optional (any "qemu" || any "krun" || any "appliance" || kvmContainer) "kvm"
-    ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range";
+    lib.unique (
+      lib.concatMap (machine: machine.vivarium.requiredSystemFeatures) machines
+      ++ lib.optional (any "qemu" || any "krun" || any "appliance" || kvmContainer) "kvm"
+      ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range"
+    );
 
   /**
     Whether this sandbox can run a container guest, answered in seconds.

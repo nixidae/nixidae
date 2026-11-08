@@ -132,8 +132,6 @@ class ToolchainJson(TypedDict, total=False):
     """`Toolchain` as Nix wrote it. Every value is a path."""
 
     passt: str
-    kernel: str
-    bridge: str
     qemu: str
     qemuImg: str
     virtiofsd: str
@@ -175,10 +173,34 @@ class MachineSpecJson(TypedDict, total=False):
     boot: BootSpec
     toplevel: str
     configurations: dict[str, str]
+    launch: LaunchSpecJson
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
     forward: list[forward.RuleJson]
+
+
+class LaunchSpecJson(TypedDict):
+    """`LaunchSpec` as Nix wrote it."""
+
+    backend: str
+    config: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class LaunchSpec:
+    """`vivarium.launch`: how a backend starts the guest.
+
+    The backend's own module writes it. `config` is the backend's to read
+    and to validate; the core only carries it.
+    """
+
+    backend: str
+    config: Mapping[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_json(cls, data: LaunchSpecJson) -> LaunchSpec:
+        return cls(backend=data["backend"], config=dict(data.get("config", {})))
 
 
 class MachineError(Exception):
@@ -196,8 +218,6 @@ class Toolchain:
     """
 
     passt: Path
-    kernel: Path | None = None
-    bridge: Path | None = None
     qemu: Path | None = None
     qemu_img: Path | None = None
     virtiofsd: Path | None = None
@@ -216,8 +236,6 @@ class Toolchain:
 
         return cls(
             passt=Path(data["passt"]),
-            kernel=maybe(data.get("kernel")),
-            bridge=maybe(data.get("bridge")),
             qemu=maybe(data.get("qemu")),
             qemu_img=maybe(data.get("qemuImg")),
             virtiofsd=maybe(data.get("virtiofsd")),
@@ -283,6 +301,9 @@ class MachineSpec:
     root image instead."""
     toplevel: str | None = None
     """The system this guest boots."""
+    launch: LaunchSpec | None = None
+    """`vivarium.launch`, for a backend that reads its tools from there.
+    The backend checks it when the `Machine` is made."""
     configurations: dict[str, str] = field(default_factory=dict)
     """`vivarium.configurations`: each name and its system, which the
     guest's Nix database already holds."""
@@ -320,6 +341,7 @@ class MachineSpec:
             boot=data.get("boot", {}),
             toplevel=data.get("toplevel"),
             configurations=data.get("configurations", {}),
+            launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             uplink_proxy=data.get("uplinkProxy", "passt"),
@@ -441,6 +463,10 @@ class Machine:
         self.spec = spec
         self.tools = tools
         self.backend = backends.get(spec.backend)
+        # Here, not at start: a run makes every Machine before it boots
+        # any, so one guest's bad launch config stops the run before
+        # another guest boots.
+        self.backend.validate(spec)
         self.lan_fds = lan_fds or {}
         """Each interface's segment fd, by interface name."""
         self.artifacts = artifacts

@@ -599,6 +599,44 @@ in
       '';
     };
 
+    launch = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            backend = lib.mkOption {
+              type = lib.types.str;
+              description = "The backend that reads `config`.";
+            };
+            config = lib.mkOption {
+              type = lib.types.attrsOf lib.types.anything;
+              default = { };
+              description = ''
+                What the backend needs to start this guest: its tool paths
+                and parameters. The backend's Python class validates it and
+                refuses a field it does not know.
+              '';
+            };
+          };
+        }
+      );
+      default = null;
+      internal = true;
+      description = ''
+        How the backend starts this guest. The backend's own module writes
+        it; a test does not.
+      '';
+    };
+
+    requiredSystemFeatures = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      internal = true;
+      description = ''
+        What the Nix daemon must give the run's derivation for this guest,
+        such as `kvm`. The backend's module adds to it.
+      '';
+    };
+
     interfaces = lib.mkOption {
       type = lib.types.attrsOf interfaceType;
       default = { };
@@ -702,6 +740,16 @@ in
     };
     vivarium.nics = nicsOf config.vivarium.interfaces config.vivarium.index;
     vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
+
+    # Under mkIf, so a guest on another backend never names the kernel:
+    # naming it is what builds it, and that is half an hour the first time.
+    vivarium.launch = lib.mkIf (config.vivarium.backend == "uml") {
+      backend = "uml";
+      config = {
+        kernel = "${config.system.build.umlKernel}/linux";
+        bridge = lib.getExe config.system.build.umlPasstBridge;
+      };
+    };
 
     vivarium.nixDatabase.extraRoots = map toString (
       lib.attrValues config.system.build.vivariumConfigurations

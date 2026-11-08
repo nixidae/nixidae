@@ -135,8 +135,6 @@ class Spec(Strict):
     """Directories every phase script can import from."""
     knobs: dict[str, Knob] = Field(default_factory=dict)
 
-    kernel: Path | None = None
-    bridge: Path | None = None
     passt: Path | None = None
     qemu: Path | None = None
     qemuImg: Path | None = None  # noqa: N815 -- Nix writes it, so Nix spells it
@@ -174,14 +172,9 @@ class Spec(Strict):
         """The toolchain fields, as `vivarium_runner.Toolchain` wants them.
 
         Only what this run's backend needs is set; naming a store path is
-        what makes Nix build it, so a UML run carries no QEMU and a QEMU
-        run carries no kernel.
+        what makes Nix build it, so a UML run carries no QEMU.
         """
         tools: ToolchainJson = {}
-        if self.kernel is not None:
-            tools["kernel"] = str(self.kernel)
-        if self.bridge is not None:
-            tools["bridge"] = str(self.bridge)
         if self.passt is not None:
             tools["passt"] = str(self.passt)
         if self.qemu is not None:

@@ -7,12 +7,13 @@ talks to. A phase script is a coroutine over :class:`Machines`.
 
 from .display import Button
 from .forward import ForwardError
-from .machine import Interface, Machine, MachineError, Machines, MachineSpec, Toolchain
+from .machine import Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Toolchain
 
 __all__ = [
     "Button",
     "ForwardError",
     "Interface",
+    "LaunchSpec",
     "Machine",
     "MachineError",
     "MachineSpec",

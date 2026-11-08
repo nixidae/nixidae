@@ -36,7 +36,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -50,6 +50,47 @@ if TYPE_CHECKING:
 
 class BackendError(Exception):
     """A guest could not be assembled: a helper that would not start."""
+
+
+def launch_config(spec: MachineSpec, backend: str, fields: frozenset[str]) -> Mapping[str, object]:
+    """`spec.launch.config`, checked against the fields *backend* reads.
+
+    A missing field or one the backend does not know is an error that
+    names the guest and the option: a misspelled field otherwise starts
+    the guest without it.
+    """
+    owner = f"{spec.name}: vivarium.launch"
+    if spec.launch is None:
+        raise BackendError(f"{owner} is not set; the {backend} backend's module sets it")
+    if spec.launch.backend != backend:
+        raise BackendError(f"{owner}.backend is {spec.launch.backend!r}, but the guest runs on {backend!r}")
+    given = set(spec.launch.config)
+    if unknown := sorted(given - fields):
+        raise BackendError(f"{owner}.config has fields the {backend} backend does not know: {', '.join(unknown)}")
+    if missing := sorted(fields - given):
+        raise BackendError(f"{owner}.config lacks fields the {backend} backend needs: {', '.join(missing)}")
+    return spec.launch.config
+
+
+def no_launch(spec: MachineSpec, backend: str) -> None:
+    """For a backend that reads nothing from `vivarium.launch` yet."""
+    if spec.launch is not None:
+        raise BackendError(f"{spec.name}: vivarium.launch is set, but the {backend} backend reads no launch config")
+
+
+@dataclass(frozen=True)
+class UmlConfig:
+    """`vivarium.launch.config` under UML."""
+
+    kernel: Path
+    """The UML kernel, `linux`, which the guest runs as."""
+    bridge: Path
+    """`uml-passt-bridge`, which forks passt for the uplink."""
+
+    @classmethod
+    def of(cls, spec: MachineSpec) -> UmlConfig:
+        config = launch_config(spec, "uml", frozenset({"kernel", "bridge"}))
+        return cls(kernel=Path(str(config["kernel"])), bridge=Path(str(config["bridge"])))
 
 
 REBOOTED = "reboot: Restarting system"
@@ -302,6 +343,10 @@ class Backend(Protocol):
         """Whether a guest process that ended asked for a reboot."""
         ...
 
+    def validate(self, spec: MachineSpec) -> None:
+        """Raise `BackendError` when `spec.launch` is wrong for this backend."""
+        ...
+
     def launch(
         self,
         machine: Machine,
@@ -329,6 +374,10 @@ class Uml:
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
         return False
 
+    @staticmethod
+    def validate(spec: MachineSpec) -> None:
+        UmlConfig.of(spec)
+
     def launch(
         self,
         machine: Machine,
@@ -339,10 +388,11 @@ class Uml:
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec, tools = machine.spec, machine.tools
+        config = UmlConfig.of(spec)
         ram = physmem_dir(spec.memory)
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
-            str(tools.kernel),
+            str(config.kernel),
             *self._root(tools, rundir, spec),
             "rw",
             f"mem={spec.memory}",
@@ -375,7 +425,7 @@ class Uml:
             # vec0 is passt, behind the bridge: it forks passt and
             # translates its length-prefixed frames to the fd transport.
             argv = [
-                str(tools.bridge),
+                str(config.bridge),
                 "--vec",
                 self._vec(0, 3, spec.mtu),
                 # The bridge forks passt, so the uplink's addressing reaches
@@ -485,6 +535,9 @@ class Qemu:
     @staticmethod
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
         return any(REBOOTED in line for line in console)
+
+    def validate(self, spec: MachineSpec) -> None:
+        no_launch(spec, self.name)
 
     def launch(
         self,
@@ -1150,6 +1203,9 @@ class Krun:
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
         return returncode == KrunExit.REBOOT
 
+    def validate(self, spec: MachineSpec) -> None:
+        no_launch(spec, self.name)
+
     @staticmethod
     def memory_control(path: Path) -> MemoryControl:
         raise BackendError("a krun guest has no memory control channel")
@@ -1326,6 +1382,9 @@ class Container:
 
     name = "container"
     reboots = False
+
+    def validate(self, spec: MachineSpec) -> None:
+        no_launch(spec, self.name)
 
     @staticmethod
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:

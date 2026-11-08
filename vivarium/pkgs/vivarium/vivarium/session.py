@@ -138,25 +138,26 @@ def load_phase(script: Path) -> Callable[[Machines], Awaitable[None]]:
     return cast("Callable[[Machines], Awaitable[None]]", test)
 
 
-def _kernel_in_boot(machine: MachineSpecJson, kernel: Path) -> MachineSpecJson:
+def _with_kernel(machine: MachineSpecJson, kernel: Path) -> MachineSpecJson:
+    swapped: MachineSpecJson = {**machine}
+    launch = machine.get("launch")
+    if launch is not None and "kernel" in launch.get("config", {}):
+        swapped["launch"] = {**launch, "config": {**launch["config"], "kernel": str(kernel)}}
     boot = machine.get("boot")
-    if not isinstance(boot, dict):
-        return machine
-    return {**machine, "boot": {**boot, "kernel": str(kernel)}}
+    if isinstance(boot, dict) and "kernel" in boot:
+        swapped["boot"] = {**boot, "kernel": str(kernel)}
+    return swapped
 
 
-def with_kernel(
-    toolchain: ToolchainJson, machines: list[MachineSpecJson], kernel: Path
-) -> tuple[ToolchainJson, list[MachineSpecJson]]:
-    """The toolchain and machines, booting `kernel` instead of Nix's.
+def with_kernel(machines: list[MachineSpecJson], kernel: Path) -> list[MachineSpecJson]:
+    """The machines, booting `kernel` instead of Nix's.
 
-    UML reads its kernel from the toolchain; QEMU from each machine's
-    `boot`. Both are swapped, so the caller need not know which backend
-    it has. Pure, and only ever reached from `--kernel`, by hand: the
-    check keeps the kernel Nix built.
+    UML reads its kernel from `launch.config`; QEMU and krun from `boot`.
+    Both are swapped, so the caller need not know which backend a guest
+    has. Pure, and only ever reached from `--kernel`, by hand: the check
+    keeps the kernel Nix built.
     """
-    swapped: ToolchainJson = {**toolchain, "kernel": str(kernel)} if "kernel" in toolchain else {**toolchain}
-    return swapped, [_kernel_in_boot(machine, kernel) for machine in machines]
+    return [_with_kernel(machine, kernel) for machine in machines]
 
 
 class Session:
@@ -339,7 +340,7 @@ class Session:
         toolchain = self.spec.toolchain()
         machines = cast("list[MachineSpecJson]", self.spec.machines)
         if self.kernel is not None:
-            toolchain, machines = with_kernel(toolchain, machines, self.kernel)
+            machines = with_kernel(machines, self.kernel)
             self.emit(
                 Kind.NOTE,
                 f"booting {self.kernel}, not the kernel Nix built; this is not the check",
