@@ -320,15 +320,16 @@ def view_url(dot: str) -> str:
     return VIEWER + quote(dot, safe=FRAGMENT_SAFE)
 
 
-async def write(bundle: Bundle, directory: anyio.Path) -> list[anyio.Path]:
-    """Write the bundle's files into `directory`, made if missing."""
+async def write(bundle: Bundle, directory: anyio.Path, view: str | None = None) -> list[anyio.Path]:
+    """Write the bundle's files into `directory`, made if missing. `view`
+    replaces the link that carries the DOT itself."""
     await directory.mkdir(parents=True, exist_ok=True)
     dot = to_dot(bundle)
     files = {
         BUNDLE_FILE: bundle.model_dump_json(indent=2) + "\n",
         SCHEMA_FILE: json.dumps(Bundle.model_json_schema(), indent=2) + "\n",
         DOT_FILE: dot,
-        URL_FILE: view_url(dot) + "\n",
+        URL_FILE: (view or view_url(dot)) + "\n",
     }
     written = []
     for name, text in files.items():

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -19,13 +20,15 @@ import anyio
 import huggorm
 
 from . import bundle
-from .build import DAEMON, JOBS, WALL_SECONDS, build, write as write_built
+from .build import DAEMON, DOT_FILE as BUILT_DOT, JOBS, WALL_SECONDS, build, write as write_built
 from .buildtimes import UNREPORTED_PHASE_SECONDS
 from .evaluate import SCRATCH_STORE
 from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
 from .review import diff
+from .share import TOKEN_ENV, gist, url_view
 
 CHANNEL = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz"
+GIST_HELP = f"with --out, put the DOT in a secret gist and link to it ({TOKEN_ENV} needs the gist scope)"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,6 +60,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     cmd.add_argument("--pool-size", type=int, default=4, help="huggorm's thread pool, for the closure walk")
     cmd.add_argument("--out", type=Path, help="write the bundle's files into this directory")
+    cmd.add_argument("--gist", action="store_true", help=GIST_HELP)
 
     cmd = commands.add_parser("plan", help="what to build from a bundle, within a build-time budget")
     cmd.add_argument("bundle", type=Path, help=f"a {bundle.BUNDLE_FILE}")
@@ -81,6 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     cmd.add_argument("--store", default=DAEMON, help="the store that builds; the daemon picks the machines")
     cmd.add_argument("--out", type=Path, help="write built.json, built.dot and built.url into this directory")
     cmd.add_argument("--print-build-logs", action="store_true", help="each builder's output and Nix's info on stderr")
+    cmd.add_argument("--gist", action="store_true", help=GIST_HELP)
     return parser
 
 
@@ -96,9 +101,17 @@ async def _build(args: argparse.Namespace) -> str:
     )
     if args.out is None:
         return result.model_dump_json(indent=2)
-    written = await write_built(result, made, anyio.Path(args.out))
-    url = bundle.view_url(bundle.to_dot(made, result))
+    url = await _view(args, bundle.to_dot(made, result), BUILT_DOT, f"pynix-review build: {made.after}")
+    written = await write_built(result, made, anyio.Path(args.out), url)
     return json.dumps({"files": [str(p) for p in written], "view": url}, indent=2)
+
+
+async def _view(args: argparse.Namespace, dot: str, name: str, description: str) -> str:
+    """The view link: through a secret gist with `--gist`, else the DOT in the link itself."""
+    if not args.gist:
+        return bundle.view_url(dot)
+    raw = await gist({name: dot}, description, os.environ[TOKEN_ENV])
+    return url_view(raw[name])
 
 
 async def _plan(args: argparse.Namespace) -> str:
@@ -129,13 +142,16 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
     )
     if args.out is None:
         return made.model_dump_json(indent=2)
-    written = await bundle.write(made, anyio.Path(args.out))
-    return json.dumps({"files": [str(p) for p in written], "view": bundle.view_url(bundle.to_dot(made))}, indent=2)
+    url = await _view(args, bundle.to_dot(made), bundle.DOT_FILE, f"pynix-review diff: {args.after}")
+    written = await bundle.write(made, anyio.Path(args.out), url)
+    return json.dumps({"files": [str(p) for p in written], "view": url}, indent=2)
 
 
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
+    if args.command != "plan" and args.gist and (args.out is None or not os.environ.get(TOKEN_ENV)):
+        parser.error(f"--gist needs --out, and a token with the gist scope in {TOKEN_ENV}")
     if args.command == "plan":
         sys.stdout.write(anyio.run(_plan, args) + "\n")
         return

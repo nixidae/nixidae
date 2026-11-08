@@ -187,11 +187,16 @@ def report(
     )
 
 
-async def write(made: Report, source: Bundle, directory: anyio.Path) -> list[anyio.Path]:
-    """`built.json`, and the changed graph coloured by what the build did."""
+async def write(made: Report, source: Bundle, directory: anyio.Path, view: str | None = None) -> list[anyio.Path]:
+    """`built.json`, and the changed graph coloured by what the build did.
+    `view` replaces the link that carries the DOT itself."""
     await directory.mkdir(parents=True, exist_ok=True)
     dot = to_dot(source, made)
-    files = {REPORT_FILE: made.model_dump_json(indent=2) + "\n", DOT_FILE: dot, URL_FILE: view_url(dot) + "\n"}
+    files = {
+        REPORT_FILE: made.model_dump_json(indent=2) + "\n",
+        DOT_FILE: dot,
+        URL_FILE: (view or view_url(dot)) + "\n",
+    }
     written = []
     for name, text in files.items():
         await (directory / name).write_text(text)
