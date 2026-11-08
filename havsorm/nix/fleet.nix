@@ -174,6 +174,7 @@ vivarium.mkTest {
   nodes.web1 = web 2;
   nodes.web2 = web 4;
   nodes.suse1 = {
+    imports = [ vivarium.kinds.image ];
     vivarium.image = vivarium.images.opensuse-leap-16_0 // {
       # Nix gets installed here, so /nix must be writable.
       writableStore = true;

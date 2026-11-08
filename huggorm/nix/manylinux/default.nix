@@ -501,6 +501,7 @@ lib.makeScope pkgs.newScope (
         }}";
       };
       nodes.suse = {
+        imports = [ vivarium.kinds.image ];
         vivarium.image = vivarium.images.opensuse-leap-16_0;
         vivarium.memory = "1024M";
       };

@@ -485,6 +485,7 @@ let
       };
       nodes.router = {
         vivarium.backend = "qemu";
+        imports = [ vivarium.kinds.appliance ];
         vivarium.appliance = vivarium.images.routeros-chr-7_24_5;
         vivarium.forward = [ { ports = [ 80 ]; } ];
         vivarium.interfaces.fabric.segment = "fabric";
@@ -505,6 +506,7 @@ let
       nodes.edge = { config, ... }: {
         vivarium.backend = "qemu";
         vivarium.memory = "1536M";
+        imports = [ vivarium.kinds.appliance ];
         vivarium.appliance = vivarium.images.vyos-2026_10_26 ''
           firewall {
               ipv4 {
@@ -1266,6 +1268,7 @@ let
           bin = "${env}/bin/python3";
         };
       nodes.suse = {
+        imports = [ vivarium.kinds.image ];
         vivarium.image = images.opensuse-leap-16_0;
         vivarium.memory = "1024M";
       };
@@ -1282,6 +1285,7 @@ let
     vyos-uml = mkTest {
       name = "vyos-uml";
       nodes.vyos = {
+        imports = [ vivarium.kinds.vyos ];
         vivarium.vyos = images.vyos-rolling // {
           config = ''
             interfaces {
@@ -1311,6 +1315,7 @@ let
     routeros = mkTest {
       name = "routeros";
       backend = "qemu";
+      nodes.r1.imports = [ vivarium.kinds.routeros ];
       nodes.r1.vivarium.routeros = images.routeros-chr // {
         config = ''
           /system identity set name=r1
@@ -1331,7 +1336,10 @@ let
     sonic = mkTest {
       name = "sonic";
       backend = "qemu";
-      nodes.sw1.vivarium.sonic = images.sonic-vs;
+      nodes.sw1 = {
+        imports = [ vivarium.kinds.sonic ];
+        vivarium.sonic = images.sonic-vs;
+      };
       phases.sonic = {
         script = ./tests/phases/sonic.py;
         after = [ "boot" ];
@@ -1386,6 +1394,7 @@ let
       nodes.vyos = {
         vivarium.uplink.segment = "mgmt";
         vivarium.memory = "1024M";
+        imports = [ vivarium.kinds.vyos ];
         vivarium.vyos = images.vyos-rolling // {
           config = ''
             system {
@@ -1418,6 +1427,7 @@ let
           addresses = [ "10.9.0.1/24" ];
         };
         vivarium.memory = "1024M";
+        imports = [ vivarium.kinds.vyos ];
         vivarium.vyos = images.vyos-rolling // {
           uplinkVrf = "mgmt";
           config = ''
@@ -1451,6 +1461,7 @@ let
         ];
       };
       nodes.sw1 = {
+        imports = [ vivarium.kinds.sonic ];
         vivarium.sonic = images.sonic-vs;
         vivarium.uplink.segment = "mgmt";
       };
@@ -1477,6 +1488,7 @@ let
       backend = "qemu";
       nodes.svc = servicesNode { segment = "mgmt"; };
       nodes.r1 = {
+        imports = [ vivarium.kinds.routeros ];
         vivarium.routeros = images.routeros-chr // {
           # ether1 is the uplink on the management segment; put it in a
           # mgmt VRF. The dataplane interface stays in `main`, so the two
@@ -1557,6 +1569,7 @@ let
       name = "routeros-route";
       backend = "qemu";
       nodes.r1 = {
+        imports = [ vivarium.kinds.routeros ];
         vivarium.routeros = images.routeros-chr;
         vivarium.interfaces = {
           left = {
@@ -1596,6 +1609,7 @@ let
             addresses = [ "10.1.0.1/24" ];
           };
         };
+        imports = [ vivarium.kinds.routeros ];
         vivarium.routeros = images.routeros-chr // {
           config = ''
             /ip firewall address-list add list=bgp-out address=10.1.0.0/24
@@ -1632,6 +1646,7 @@ let
           };
         };
         vivarium.memory = "1024M";
+        imports = [ vivarium.kinds.vyos ];
         vivarium.vyos = images.vyos-rolling // {
           config = ''
             protocols {
@@ -1718,6 +1733,7 @@ let
       name = "suse-nix";
       settings.nix = "${pkgs.nix}";
       nodes.suse = {
+        imports = [ vivarium.kinds.image ];
         vivarium.image = images.opensuse-leap-16_0 // {
           writableStore = true;
         };
@@ -1773,6 +1789,7 @@ let
           key = "${key}/id_ed25519";
         };
         nodes.suse = {
+          imports = [ vivarium.kinds.image ];
           vivarium.image = images.opensuse-leap-16_0 // {
             userData.users = [
               "default"
@@ -2785,7 +2802,7 @@ in
       images
       k8sImages
       ;
-    inherit (vivarium) cacheFacts;
+    inherit (vivarium) cacheFacts kinds;
     # The pyproject project of `runner`, for a caller that resolves it in a
     # Python set of its own.
     runnerSource = ./pkgs/vivarium-runner;
@@ -2830,8 +2847,11 @@ in
     umlKernel = k8sConfig.system.build.umlKernel;
     default = cli;
   };
-  # A kubeadm node, for a guest of `lib.mkTest`.
-  nixosModules.k8s = ./modules/k8s.nix;
+  # A kubeadm node, for a guest of `lib.mkTest`, and the guest kinds.
+  nixosModules = {
+    k8s = ./modules/k8s.nix;
+  }
+  // vivarium.kinds;
   easykubenixModules = { };
   docs.default = docs;
 

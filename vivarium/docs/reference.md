@@ -433,10 +433,17 @@ fails the evaluation, and a method fails naming the option.
 kernel instead of NixOS. `vivarium.images` holds the ones known to boot:
 
 ```nix
-nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0 // {
-  userData.users = [ { name = "ansible"; ssh_authorized_keys = [ key ]; } ];
+nodes.suse = {
+  imports = [ vivarium.kinds.image ];
+  vivarium.image = vivarium.images.opensuse-leap-16_0 // {
+    userData.users = [ { name = "ansible"; ssh_authorized_keys = [ key ]; } ];
+  };
 };
 ```
+
+Each guest kind is a module in `vivarium.kinds` (`appliance`, `image`,
+`routeros`, `sonic`, `vyos`). A guest imports the one it is. Two kinds on
+one guest conflict on `vivarium.kind`.
 
 It is the distribution's userspace on our kernel: good for building and
 configuring on SUSE quickly, not for certifying anything.

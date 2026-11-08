@@ -159,18 +159,15 @@ let
     }) ordered;
 in
 {
+  # The guest kinds (appliance, image, routeros, sonic, vyos) are not here:
+  # a guest imports the one it is, from `nixosModules`.
   imports = [
-    ./appliance.nix
     ./container.nix
     ./guest.nix
     ./image.nix
-    ./image-guest.nix
     ./nftables.nix
     ./qemu.nix
-    ./routeros-guest.nix
-    ./sonic-guest.nix
     ./store.nix
-    ./vyos-guest.nix
   ]
   ++
     map

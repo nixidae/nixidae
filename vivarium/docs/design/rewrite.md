@@ -411,7 +411,11 @@ Each step keeps `checks` green and moves the consumers with it.
    move under `systems`; it moves in this step.
 4. Guest kinds: `control`, and the RouterOS, SONiC, VyOS, image and
    appliance modules out of the default imports. `appliance` stops
-   being a backend.
+   being a backend. Done: dialects are entry points in
+   `vivarium.controls`. A kind sets `vivarium.kind`, `rootImage`,
+   `closure` and `control`, and writes its boot parameters into its
+   backend's launch config (`root` under UML, `disk` under QEMU). A
+   guest imports its kind from `vivarium.kinds`.
 5. The phase model: guests boot on demand, then `--only`, `--break`,
    `timeout`, the guest-suite recipe, and the `settings` split.
 6. The agent surface.

@@ -55,9 +55,25 @@ rec {
   /**
     Other distributions' cloud images, for `vivarium.image`:
 
-        nodes.suse.vivarium.image = vivarium.images.opensuse-leap-16_0;
+        nodes.suse = {
+          imports = [ vivarium.kinds.image ];
+          vivarium.image = vivarium.images.opensuse-leap-16_0;
+        };
   */
   images = pkgs.callPackage ./images.nix { };
+
+  /**
+    The guest kinds: modules that replace a guest's NixOS with another
+    system and set how the host drives it. A guest imports one, then sets
+    its option (`vivarium.image`, `vivarium.vyos`, ...).
+  */
+  kinds = {
+    appliance = ./modules/appliance.nix;
+    image = ./modules/image-guest.nix;
+    routeros = ./modules/routeros-guest.nix;
+    sonic = ./modules/sonic-guest.nix;
+    vyos = ./modules/vyos-guest.nix;
+  };
 
   /*
     zuban over a caller's test scripts, against this library.
