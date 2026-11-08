@@ -33,6 +33,10 @@ URL_FILE: Final = "changed.url"
 VIEWER: Final = "https://dreampuf.github.io/GraphvizOnline/?engine=dot#"
 """The author's own copy: no ads, and no third-party script but lz-string
 from cdnjs. graphvizonline.net carries ads and reads base64 instead."""
+FONT: Final = "Courier"
+"""Not `monospace`: GraphvizOnline sizes a box from Graphviz's own width
+table, which has Courier and falls back to Times for an unknown name. The
+browser then draws the wider monospace font, and the text overflows."""
 FILL_BUILT: Final = "palegreen"
 FILL_CACHED: Final = "lightgrey"
 """Substituted or already valid: no builder ran."""
@@ -251,12 +255,10 @@ def to_dot(bundle: Bundle, built: Report | None = None) -> str:
     out = [
         f"digraph {'changed' if built is None else 'built'} {{",
         "  rankdir=BT;",
-        '  node [shape=box, fontname="monospace"];',
+        f'  node [shape=box, fontname="{FONT}"];',
     ]
     if built is not None:
-        out.append(
-            f'  labelloc="t"; fontname="monospace"; label={_quote(_built_line(built, len(bundle.derivations)))};'
-        )
+        out.append(f'  labelloc="t"; fontname="{FONT}"; label={_quote(_built_line(built, len(bundle.derivations)))};')
     rows: list[list[str]] = []
     for depth in sorted({d.depth for d in bundle.derivations}):
         members = [d.drv for d in bundle.derivations if d.depth == depth]
