@@ -17,7 +17,7 @@ from pathlib import Path
 import anyio
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import darwin_builder as db  # noqa: E402 -- the spike tool next to this file
+import darwin_builder as db
 
 
 async def main() -> None:

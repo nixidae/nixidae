@@ -35,6 +35,15 @@ github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
 | bb6b12b5 | Youssef (orchard) | TCG performance and input fixes |
 | 601f3c10 | vivarium | virtio-vsock-unix |
 | 3727918b | vivarium | vmapple boots macOS 14 under HVF |
+| e72420f7 | Mohamed Mediouni (qemu-devel v8 05) | apple-gfx on macOS 15.4+ hosts |
+| a8a6e107 | Mohamed Mediouni (qemu-devel v8 10) | virtio-blk: FileVault off |
+| 2a4a3122 | vivarium | hide the paravirtualized GPU when `gfx=off` |
+| 24f1c3b0 | vivarium | virtio-vsock-unix migrates; transport reset on load |
+
+24f1c3b0 is local: the `nixidae` bookmark on github.com/nixidae/qemu is at
+2a4a3122 until it is pushed. `vivarium/pkgs/qemu-vmapple/package.nix` builds
+the fork with Nix; its default source names 24f1c3b0 with a fake hash, so for
+now pass `src = builtins.fetchGit { url = ~/Dynamist/qemu; rev = ...; }`.
 
 `host/find_qemu_base.py` found the base by content hashes: orchard's import
 differs from f8aef8a9 only in files orchard changed or added.
@@ -144,42 +153,99 @@ hypercall and no unimplemented MMIO before it (traced under TCG with
 
 ## On-demand builders from a snapshot (2026-11-08)
 
-`host/darwin_builder.py` starts a builder VM for each build, from a saved guest,
-as pynix's Linux builder does for each command. Fork commit 24f1c3b0 lets the
-vsock device migrate (a transport reset on load); without it QEMU refuses to save.
+`pynix build --darwin-builder --darwin-builder-snapshot SNAP_DIR` builds in a
+macOS VM that the command starts from a saved guest and stops when it exits,
+as `--linux-builder` does with a Linux VM. `host/darwin_builder.py` makes the
+guest and the snapshot:
 
-- **Guest:** two LaunchDaemons on top of the Nix guest. `guest/builder-daemon.plist`
-  runs `vsockcat serve 3030 nix-daemon --stdio` (a root daemon for each vsock
-  connection). `guest/builder-clock.plist` takes the host's epoch on port 3031.
-- **Save:** boot, wait until the daemon answers the worker handshake over vsock,
-  let launchd settle for 30 s, then `migrate` to a file with `x-ignore-shared`.
-  Guest RAM is a shared `memory-backend-file` (`ram.bin`, 3.4 GB touched of 8 GiB).
-  The device state is 0.8 MB.
-- **Start:** map `ram.bin` private (`share=off,readonly=on,rom=off`), so it is
-  copy-on-write and the file never changes. Put a new qcow2 overlay over the saved
-  one, load `state.bin` with `-incoming`, then `cont`. Set the guest clock: a
-  restored guest wakes at the save's time.
-- **Build:** forward the daemon to a Unix socket, then run
-  `pynix build --store unix://…?local-fs=false --eval-store auto --copy auto`.
-  Stock Nix cannot copy the outputs back: it reads a `unix://` store's paths from
-  the host's own /nix/store. huggorm's Nix has `local-fs=false`.
+```sh
+export QEMU=…/qemu-vmapple/bin/qemu-system-aarch64 QEMU_IMG=…/bin/qemu-img
+host/darwin_builder.py prepare tahoe guest-tahoe          # tart image -> builder guest, 80 s
+SEED=$(stdenv path) host/darwin_builder.py save guest-tahoe snap-tahoe
+pynix build --darwin-builder --darwin-builder-snapshot snap-tahoe --file hello.nix
+```
 
-| step | time |
-| --- | --- |
-| cold boot until the daemon answers (save) | 24 s |
-| start until the state is loaded | 0.11 s |
-| start until the daemon answers | 0.19 s |
-| start, build a raw derivation, copy it back, stop | 0.94 s |
-| start, build `hello` with stdenv (561 drvs in, 60 paths substituted), copy back | 44 s |
-| two builders from one snapshot at the same time | both ready in 0.2 s, no conflict |
+- **prepare** (over SSH, tart's admin/admin): disable tart's guest daemon, wait
+  for the Nix Store volume, install Nix if absent, install `vsockcat` and two
+  LaunchDaemons: `guest/builder-daemon.plist` runs `vsockcat serve 3030
+  nix-daemon --stdio` (a root daemon for each vsock connection) and
+  `guest/builder-clock.plist` takes the host's epoch on port 3031. With
+  `AGENT`, also vivarium's guest agent (below). It runs again on a prepared
+  guest and replaces those parts.
+- **save**: boot on anonymous RAM, wait until the daemon answers the worker
+  handshake over vsock, copy the `SEED` closures in, settle 30 s, `migrate` to
+  `full.bin`. A paused QEMU then loads `full.bin` into a shared `ram.bin` and
+  writes the device state (`state.bin`, 0.8 MB) with `x-ignore-shared`.
+  `snapshot.json` names QEMU, its arguments with `{run}` for the run
+  directory, the read-only overlay and the vsock ports.
+- **start** (pynix `_impl/darwin_builder.py`): map `ram.bin` private
+  (`share=off,readonly=on,rom=off`), so pages fault in on first touch and the
+  file never changes; a new qcow2 overlay over the saved one; `-incoming`,
+  `cont`; wait for the daemon; set the clock; serve the daemon port on a Unix
+  socket in a 0700 directory. The store URI carries `local-fs=false`: stock
+  Nix reads a `unix://` store's paths from the host's own /nix/store.
 
-A MAP_SHARED mapping of the RAM file (the first try, with a clonefile copy for
-each run) stalled the guest for 5–25 s at a time: SSH failed 8 times in 20
-probes. With the private mapping, 25 of 25 probes passed.
+Measured on the M5 Pro, the Nix-built QEMU, seeded snapshots:
 
-Not done yet: the snapshot has none of the host's stdenv, so each build
-substitutes it again. Each start runs from the saved snapshot, so it uses the
-snapshot's RAM size and CPU count.
+| | macOS 14.8.7 | macOS 15.7.7 | macOS 26.6.2 |
+| --- | --- | --- | --- |
+| prepare from the tart image | (made by hand) | 79 s | 83 s |
+| save: cold boot until the daemon answers | 21 s | 24 s | 24 s |
+| start until the daemon answers | 0.17–0.38 s | 0.17–0.2 s | 0.17–0.24 s |
+| `pynix build --darwin-builder`, trivial derivation, warm file cache | 0.77–0.83 s | 0.65–0.70 s | 0.79–0.83 s |
+| the same, first run after the save (cold file cache) | 2.0 s | 1.5 s | 1.2 s |
+| `hello` from source with stdenv, built and copied back | 26 s | 28 s | 29 s |
+
+`pynix build` with no builder, evaluating the same file, takes 0.96 s. Two
+builders from one snapshot run side by side. A stdenv-seeded snapshot
+substitutes no path for `hello`; an unseeded one substituted 60 and took
+44 s. Snapshot size on disk: `ram.bin` 3.4–5.6 GB of 8 GiB, overlay 2.5–3.9
+GB over the 26–30 GB tart image, all shared by every start.
+
+`host/vsock_stress.py` against a running builder: 64 concurrent `nix
+path-info --all` clients get one answer; a 590 MB closure goes in at
+97–122 MB/s with matching NAR hashes; a guest reset with 16 connections open
+ends all 16 and QEMU keeps running. The copy rate is the guest store's
+hashing and writing: the guest posts 8 KiB rx buffers, and 256 KiB reads in
+the device changed nothing (117–119 MB/s), so that change was dropped.
+`nix-daemon --stdio` as root serves the operations itself; it does not take
+Nix's `select()` proxy (`forwardStdioConnection`), which reads 8 KiB per round
+on darwin.
+
+### Traps found on the way
+
+- **A guest on a MAP_SHARED RAM file stalls** for 5–25 s at a time while the
+  host pager writes its pages back: SSH failed 8 of 20 probes after a restore,
+  and a cold boot reached SSH after 83.6 s instead of 19.8 s. Every running
+  guest is on anonymous or private memory now; only the paused converter
+  writes the shared file.
+- **The Nix Store volume mounts up to 30 s after sshd starts.** An install
+  over the unmounted volume fails, and on macOS 26 its cleanup removed
+  `/etc/synthetic.conf`, so `/nix` never came back. `prepare` waits while a
+  Nix Store volume exists, and never installs over one.
+- **launchd and a failing first start:** the agent's first start fails (no
+  port device yet); launchd then left the job "spawn scheduled" for over a
+  minute despite `KeepAlive`. The jobs wait in a shell loop instead.
+  `launchctl kickstart -k` restarts the loaded definition, so a changed plist
+  needs `bootout` and `bootstrap` (retried: `bootout` returns early).
+- **One vsock request to a fresh macOS 26 guest got no answer and no reset**,
+  and the wait for the daemon spent its 30 s on it. It did not happen again.
+  Every handshake now times out after 2 s and is retried.
+- **About 150 vsock connections in flight at once** (each closed before its
+  `nix-daemon` started) make macOS refuse more until they are gone; 300
+  sequential full handshakes pass. `vsockcat serve` listened with a backlog of
+  16; it uses `SOMAXCONN` now.
+
+### vivarium's guest agent in macOS
+
+`vivarium-runner` built for aarch64-darwin (its `meta.platforms` is Linux
+only; the build passes with the check phase off) runs unchanged: the agent
+opens `/dev/cu.vivarium-agent`, sets it raw and serves arpyc. From the host
+(`host/agent_probe.py`) it ran commands as root, returned exit codes and
+answered a round trip in 2.3 ms. `prepare` with `AGENT` installs it as
+`guest/vivarium-agent.plist`, rooted in the profile
+`/nix/var/nix/profiles/vivarium-agent`. `systemctl`, `/proc` and journal
+calls do not exist on macOS.
 
 ## Nix in the guest
 
@@ -215,19 +281,18 @@ of starting, so it needs more work before it is useful.
 
 ## Next steps
 
-0. macOS 15 and 26 run headless. For a GPU: handle `msr S3_6_C15_C8_3`
-   (d51ef860), as a no-op in `target/arm/hvf/hvf.c` if HVF exits for it,
-   else rewritten in kernel text with the `hvc #0` rewrite. macOS 27: find
-   what LLB's log buffer address comes from.
-
-1. vivarium: a darwin QEMU backend (`accel=hvf`, the `vmapple` machine,
-   disk-boot like `Appliance`). The agent runs in the guest on
-   `/dev/cu.vivarium-agent` (`VIVARIUM_AGENT_DEVICE`), started by a
-   LaunchDaemon, with a guest PATH that is not `/run/current-system`.
-2. Carry the QEMU patches somewhere buildable by Nix (an overlay over nixpkgs'
-   QEMU, or a nixidae fork of orchard), with the hand-made signing step.
-3. virtio-vsock-unix: test many connections at once, and a guest reset with
-   connections open.
-4. Fix apple-gfx-mmio on a macOS 27 host (`setMapMemory:` is gone; Mohamed
-   Mediouni's vmapple series on qemu-devel fixes it).
+1. Push github.com/nixidae/qemu `nixidae` (24f1c3b0), then set the real hash
+   in `vivarium/pkgs/qemu-vmapple/package.nix`. Until then the package needs a
+   local `src`.
+2. Make the snapshot a thing pynix can find, as `withGuest` does for the Linux
+   builder: a default snapshot path, and `darwin_builder.py` moved into
+   nanopynix (`pynix darwin-builder prepare|save`). The tart image and the
+   snapshot are machine state, not store paths: tens of GB for each macOS
+   version, and the snapshot names the image's absolute path.
+3. vivarium: a darwin host. The runner assumes Linux (passt, crun, UML,
+   `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
+   vmapple arguments from `qemu_args`, and an agent without the systemd and
+   `/proc` calls. The agent already runs (above).
+4. GPU mode: handle `msr S3_6_C15_C8_3` (d51ef860). macOS 27: find what LLB's
+   log buffer address comes from.
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
