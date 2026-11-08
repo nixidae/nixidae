@@ -118,7 +118,7 @@ attribute is one way to run the same test.
 `.driver` takes flags after `--`. Some useful ones:
 
 ```console
-$ nix run --file . checks.lan.driver -- --out ./out --only check   # run one phase
+$ nix run --file . checks.lan.driver -- --out ./out --only check   # run one phase and its `after`
 $ nix run --file . checks.lan.driver -- --out ./out --break check  # pause before a phase
 $ nix run --file . checks.lan.driver -- --out ./out --offline      # no internet, as in the sandbox
 $ nix run --file . checks.lan.driver -- --out ./out -v             # show every command sent to a guest

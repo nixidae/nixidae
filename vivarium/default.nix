@@ -933,6 +933,22 @@ let
           [ "$ran" = 0 ] || fail "c wrote to its console, so it ran"
           echo "ok: --only check booted a and b, and not c"
 
+          # A pause before a phase has that phase's guests up, though
+          # under `--only` no phase has booted them yet.
+          o="$TMPDIR/pause"
+          ctl() { ${lib.getExe cli} ctl --out "$o" "$@"; }
+          ${lib.getExe run.driver} --out "$o" --only check --break boot > pause.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 600); do
+            [ "$(ctl state 2>/dev/null | head -1)" = paused ] && break
+            kill -0 "$pid" 2>/dev/null || { cat pause.log; fail "the run ended without pausing"; }
+            sleep 0.1
+          done
+          [ "$(ctl exec 'sorted(vms)')" = "['a', 'b']" ] || { ctl exec 'sorted(vms)'; fail "the pause before boot has the wrong guests up"; }
+          ctl continue
+          wait "$pid" || { cat pause.log; fail "the run failed after the pause"; }
+          echo "ok: paused before boot with a and b up"
+
           touch $out
         '';
 

@@ -484,7 +484,15 @@ async def _schedule(
             if reason is not None and control is not None:
                 if not running:
                     if reason.startswith("before "):
-                        paused_before.add(reason.removeprefix("before "))
+                        name = reason.removeprefix("before ")
+                        paused_before.add(name)
+                        # A pause has its phase's guests up, which under
+                        # `--only` nothing has booted yet.
+                        try:
+                            await session.ensure(session.needs(next(p for p in candidates if p.name == name)))
+                        except MachineError as error:
+                            # The phase fails on it when it runs.
+                            session.emit(Kind.ERROR, f"before {name}: {error}", level=Level.ERROR, phase=name)
                     failed.clear()
                     # Asked again afterwards: a phase run by hand while
                     # paused changed what is ready.
