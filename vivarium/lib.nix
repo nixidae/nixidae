@@ -454,7 +454,7 @@ rec {
       checkedConfig =
         if failed == [ ] then cfg else throw (lib.concatMapStringsSep "\n" (each: each.message) failed);
 
-      inherit (checkedConfig) name backend;
+      inherit (checkedConfig) name;
 
       settingsFile = pkgs.writeText "vivarium-${name}-settings.json" (
         builtins.toJSON checkedConfig.settings
@@ -476,22 +476,26 @@ rec {
         static facts about its peers: a name, an address, a secret written
         in Nix. Lazy, so a guest reading a peer's address is no cycle.
       */
+      /*
+        From the unchecked `cfg`: the run's assertions read its phases, and
+        a recipe may derive a phase from these guests.
+      */
       evaluated = lib.listToAttrs (
         lib.imap0 (
           index: hostName:
           lib.nameValuePair hostName (mkNode {
             imports = [
-              checkedConfig.defaults
-              checkedConfig.nodes.${hostName}
+              cfg.defaults
+              cfg.nodes.${hostName}
               peersModule
             ];
             _module.args.nodes = nodes;
             networking.hostName = lib.mkDefault hostName;
             vivarium.sshPort = lib.mkDefault (4325 + index);
-            vivarium.backend = lib.mkDefault backend;
+            vivarium.backend = lib.mkDefault cfg.backend;
             vivarium.index = index;
           })
-        ) (lib.attrNames checkedConfig.nodes)
+        ) (lib.attrNames cfg.nodes)
       );
 
       nodes = lib.mapAttrs (_: node: node.config) evaluated;
