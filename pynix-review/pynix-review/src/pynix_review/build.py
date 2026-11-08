@@ -53,7 +53,8 @@ class Built(_Model):
     ok: bool
     seconds: int | None
     """Wall time of the builder, when one ran and the store reported its times.
-    pynixd reports 0 for both, so through it this is None."""
+    Nix 2.35's `buildDerivation` answers 0 for both (nixidae/nixidae#1217),
+    and then this is None."""
     estimate: int | None
     """The bundle's estimate for this derivation."""
     message: str | None
