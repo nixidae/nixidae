@@ -41,6 +41,23 @@ class Side:
     walk_seconds: float = 0.0
 
 
+def error_line(text: str, limit: int = 300) -> str:
+    """A Nix error's message on one line: its last `error:` paragraph.
+
+    With a trace the first line is a bare `error:`; the message comes after
+    the trace (hdf4's PR: "error: Refusing to evaluate package ...")."""
+    lines = [ln.strip() for ln in text.splitlines()]
+    starts = [i for i, ln in enumerate(lines) if ln.startswith("error:") and ln != "error:"]
+    if not starts:
+        return next((ln for ln in lines if ln), "")[:limit]
+    paragraph = []
+    for ln in lines[starts[-1] :]:
+        if not ln:
+            break
+        paragraph.append(ln)
+    return " ".join(paragraph)[:limit]
+
+
 def tree_expr(tree: str) -> str:
     """A Nix expression for a nixpkgs tree: a directory, or a tarball URL.
 
@@ -128,7 +145,7 @@ async def evaluate(
             try:
                 drv = await (await _resolve(state, pkgs, attr)).drv_path()
             except errors.EvalBaseError as e:
-                side.failed[attr] = str(e).splitlines()[0][:300]
+                side.failed[attr] = error_line(str(e))
                 continue
             side.roots[attr] = drv.to_string()
         walk_start = time.monotonic()

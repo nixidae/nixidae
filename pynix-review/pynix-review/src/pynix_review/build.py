@@ -24,6 +24,7 @@ import huggorm
 from pydantic import BaseModel, ConfigDict
 
 from .bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, to_dot, view_url
+from .evaluate import error_line
 from .plan import STORE_DIR, UNTIMED_SECONDS, cost, order
 
 if TYPE_CHECKING:
@@ -211,7 +212,7 @@ async def _build_one(store: huggorm.AsyncStore, drv: str) -> Outcome:
         ok=success is not None,
         start=result.start_time(),
         stop=result.stop_time(),
-        message=str(error).splitlines()[0][:300] if error is not None else None,
+        message=error_line(str(error)) if error is not None else None,
     )
 
 
