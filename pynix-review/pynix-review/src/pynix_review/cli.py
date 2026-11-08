@@ -3,6 +3,8 @@
 With `--out DIR` it writes `bundle.json`, `bundle.schema.json`,
 `changed.dot` and `changed.url` there, and prints the paths and the view
 link as JSON. Without it, it prints `bundle.json`.
+
+`pynix-review plan BUNDLE`: what to build within a build-time budget.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import huggorm
 
 from . import bundle
 from .buildtimes import UNREPORTED_PHASE_SECONDS
+from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
 from .review import diff
 
 
@@ -40,7 +43,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     cmd.add_argument("--pool-size", type=int, default=4, help="huggorm's thread pool, for the closure walk")
     cmd.add_argument("--out", type=Path, help="write the bundle's files into this directory")
+
+    cmd = commands.add_parser("plan", help="what to build from a bundle, within a build-time budget")
+    cmd.add_argument("bundle", type=Path, help=f"a {bundle.BUNDLE_FILE}")
+    cmd.add_argument("--budget", type=int, default=BUDGET_SECONDS, help="build seconds")
+    cmd.add_argument(
+        "--untimed-seconds",
+        type=int,
+        default=UNTIMED_SECONDS,
+        help="seconds assumed for a derivation with no time",
+    )
     return parser
+
+
+async def _plan(args: argparse.Namespace) -> str:
+    made = bundle.Bundle.model_validate_json(await anyio.Path(args.bundle).read_text())
+    return plan(made, budget=args.budget, untimed_seconds=args.untimed_seconds).model_dump_json(indent=2)
 
 
 async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
@@ -64,6 +82,9 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
+    if args.command == "plan":
+        sys.stdout.write(anyio.run(_plan, args) + "\n")
+        return
     huggorm.set_pool_size(args.pool_size)
 
     attrs: list[str] = list(args.attr)
