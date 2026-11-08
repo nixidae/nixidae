@@ -35,7 +35,10 @@ if TYPE_CHECKING:
 
 CACHE: Final = "https://cache.nixos.org"
 HYDRA: Final = "https://hydra.nixos.org"
-USER_AGENT: Final = "pynix-review/0.1"
+USER_AGENT: Final = "pynix-review/0.1 (+https://github.com/nixidae/pynix-review)"
+"""Names where to complain: Hydra and the cache are shared."""
+HYDRA_BACK_OFF: Final = frozenset({429, 500, 502, 503, 504})
+"""A status from Hydra that stops every Hydra request for the rest of the run."""
 PHASE_FOOTER: Final = re.compile(
     r"^(\w+) completed in (?:(\d+) hours )?(?:(\d+) minutes )?(\d+) seconds$",
     re.MULTILINE,
@@ -175,13 +178,20 @@ async def fetch(
     `.drv`s that built the same outputs, then the job's latest build."""
     outs = outs or {}
     hydra_slots = anyio.CapacityLimiter(hydra_limit)
+    hydra_refused = anyio.Event()
     out: dict[str, Timing] = {}
 
     async def one(http: httpx.AsyncClient, key: str, drvs: Sequence[str]) -> None:
         latest = None
         if hydra and key in jobs:
             async with hydra_slots:
-                latest = await hydra_latest(http, jobs[key])
+                if not hydra_refused.is_set():
+                    try:
+                        latest = await hydra_latest(http, jobs[key])
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code not in HYDRA_BACK_OFF:
+                            raise
+                        hydra_refused.set()
         if latest is not None and latest[1] is not None and latest[0] in drvs:
             out[key] = Timing(latest[1], Source.HYDRA, latest[0], latest[1])
             return

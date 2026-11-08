@@ -123,6 +123,24 @@ async def test_log_of_the_drv_that_built_the_same_output() -> None:
     assert timings == {NEW: Timing(3758, Source.LOG, built_by, 3760)}
 
 
+async def test_a_busy_hydra_is_left_alone_and_logs_answer_instead() -> None:
+    other_job = "https://hydra.nixos.org/job/nixpkgs/trunk/pango.x86_64-linux/latest"
+    pango = "f" * 32 + "-pango-1.56.drv"
+    client = _client(
+        {
+            JOB: httpx.Response(503),
+            other_job: _build(pango, 0, 40),
+            f"https://cache.nixos.org/log/{NEW}": _log(CAIRO_LOG),
+            f"https://cache.nixos.org/log/{pango}": _log(CAIRO_LOG),
+        }
+    )
+    jobs = {NEW: "cairo.x86_64-linux", pango: "pango.x86_64-linux"}
+    out = await fetch({NEW: [NEW], pango: [pango]}, jobs, hydra=True, client=client, hydra_limit=1)
+    hydra_asked = [u for u in client.seen if u.startswith("https://hydra")]  # type: ignore[attr-defined]  # set in _client
+    assert len(hydra_asked) == 1
+    assert {k: t.source for k, t in out.items()} == {NEW: Source.LOG, pango: Source.LOG}
+
+
 async def test_hydra_is_not_asked_without_the_flag() -> None:
     client = _client({JOB: _build(NEW, 0, 40)})
     out = await fetch({NEW: [NEW]}, {NEW: "cairo.x86_64-linux"}, hydra=False, client=client)
