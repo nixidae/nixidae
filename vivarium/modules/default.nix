@@ -646,6 +646,37 @@ in
       };
     };
 
+    kind = lib.mkOption {
+      type = lib.types.str;
+      default = "nixos";
+      internal = true;
+      description = ''
+        What runs in this guest: `nixos`, this evaluation's system, or the
+        name of the guest kind whose module replaces it, such as
+        `routeros`. Two kinds on one guest conflict here.
+      '';
+    };
+
+    rootImage = lib.mkOption {
+      type = lib.types.path;
+      default = config.system.build.vivariumRootImage;
+      defaultText = lib.literalExpression "config.system.build.vivariumRootImage";
+      internal = true;
+      description = "The disk the guest boots. A guest kind sets its own.";
+    };
+
+    closure = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = config.system.build.vivariumNixRegistration;
+      defaultText = lib.literalExpression "config.system.build.vivariumNixRegistration";
+      internal = true;
+      description = ''
+        A closureInfo of what the guest sees of the store, or null for a
+        guest that sees none of it. The runner builds the store view from
+        its `store-paths`.
+      '';
+    };
+
     requiredSystemFeatures = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -768,11 +799,7 @@ in
         kernel = "${config.system.build.umlKernel}/linux";
         bridge = lib.getExe config.system.build.umlPasstBridge;
         inherit (tools) passt;
-      }
-      # UML reads raw disks, and a cloud image is qcow2: the runner converts
-      # it into the run directory, sparse, rather than the store holding the
-      # raw form, which a NAR cannot keep sparse.
-      // lib.optionalAttrs (config.vivarium.image != null) { inherit (tools) qemuImg; };
+      };
     };
 
     vivarium.nixDatabase.extraRoots = map toString (

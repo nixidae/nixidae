@@ -164,33 +164,22 @@ rec {
     // lib.optionalAttrs (machine.vivarium.launch != null) {
       inherit (machine.vivarium) launch;
     }
-    // (
-      if machine.system.build ? vivariumImageGuest then
-        {
-          # A disk that is not NixOS: a cloud image, VyOS, a router's or a
-          # switch's image. Its NixOS system is never built; see
-          # modules/image-guest.nix and modules/appliance.nix.
-          image = "${machine.system.build.vivariumImageDisk}";
-          boot.image = machine.system.build.vivariumImageGuest;
-        }
-      else
-        {
-          # Both backends get a read-only root image of `vivarium.diskSize`
-          # and a per-run copy-on-write layer over it. Only what is inside
-          # differs: UML boots `/init` from it, QEMU mounts it as `/`.
-          image = "${machine.system.build.vivariumRootImage}";
-          systems = {
-            toplevel = "${machine.system.build.toplevel}";
-            configurations = lib.mapAttrs (_: system: "${system}") machine.system.build.vivariumConfigurations;
-          };
-        }
-    )
+    // {
+      image = "${machine.vivarium.rootImage}";
+    }
+    # A guest kind's system is never built: its disk is not this NixOS.
+    // lib.optionalAttrs (machine.vivarium.kind == "nixos") {
+      systems = {
+        toplevel = "${machine.system.build.toplevel}";
+        configurations = lib.mapAttrs (_: system: "${system}") machine.system.build.vivariumConfigurations;
+      };
+    }
     // lib.optionalAttrs (
       lib.elem machine.vivarium.backend [
         "qemu"
         "krun"
       ]
-      && !(machine.system.build ? vivariumImageGuest)
+      && machine.vivarium.kind == "nixos"
     ) { boot = machine.system.build.qemuBoot; }
     // lib.optionalAttrs (machine.vivarium.backend == "container") {
       boot = machine.system.build.containerBoot;
@@ -489,21 +478,16 @@ rec {
           # view. The same closureInfo its Nix database is loaded from.
           # Not for `vivarium.hostStore`, whose point is the host's whole
           # store and its database under the guest's own. Nor for a
-          # guest that never sees the store (`vivarium.routeros`).
+          # guest that never sees the store (`vivarium.closure = null`).
           machines = map (
             machine:
             let
-              build = machine.system.build;
-              seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
+              inherit (machine.vivarium) closure;
             in
             machineSpec machine
-            // lib.optionalAttrs (machine.vivarium.nixDatabase.enable && seesStore) settingsClosure
-            // lib.optionalAttrs (!machine.vivarium.hostStore.enable && seesStore) {
-              storePaths =
-                if machine.system.build ? vivariumImageGuest then
-                  "${machine.system.build.vivariumImageClosure}/store-paths"
-                else
-                  "${machine.system.build.vivariumNixRegistration}/store-paths";
+            // lib.optionalAttrs (machine.vivarium.nixDatabase.enable && closure != null) settingsClosure
+            // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
+              storePaths = "${closure}/store-paths";
             }
           ) machines;
         }

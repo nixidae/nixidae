@@ -115,9 +115,10 @@ Five layers. Each one is replaceable without the others.
 `vivarium.routeros = { disk; config; }`, beside `vivarium.image` and
 `vivarium.vyos`. QEMU backend only (assertion). The node is a NixOS
 evaluation for the common options (memory, interfaces, forwards); its
-system is never built. It sets `system.build.vivariumImageGuest` to
-`{ control = "routeros"; configDisk; }`, and no store closure, so the
-spec gives the guest no store view and no `qemuBoot`.
+system is never built. It sets `vivarium.kind = "routeros"`,
+`vivarium.control.kind = "routeros"`, QEMU's `launch.config.disk.configDisk`,
+and `vivarium.closure = null`, so the spec gives the guest no store view
+and no `qemuBoot`.
 
 `config` is RouterOS script. The module writes it as
 `vivarium-config.rsc` onto a bare ext4 image (`mkfs.ext4 -d`), after a

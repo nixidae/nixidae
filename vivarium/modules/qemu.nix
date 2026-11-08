@@ -135,7 +135,7 @@ lib.mkIf
     vivarium.requiredSystemFeatures = [
       "kvm"
     ]
-    ++ lib.optional (!(config.system.build ? vivariumImageGuest)) "uid-range";
+    ++ lib.optional (cfg.kind == "nixos") "uid-range";
 
     # Without ACPI, libkrun's machine has no power-off: a poweroff only
     # halts the CPU, and the process stays up at 100% of a core (measured:

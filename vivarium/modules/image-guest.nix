@@ -19,6 +19,7 @@
 let
   cfg = config.vivarium.image;
   inherit (lib) mkOption types;
+  tools = import ./tools.nix { inherit pkgs lib; };
 
   runner = config.system.build.vivariumRunnerPackage;
 
@@ -252,17 +253,24 @@ in
         message = "vivarium.image boots under UML only; this guest is ${config.vivarium.backend}.";
       }
     ];
-    system.build.vivariumImageGuest = {
-      inherit (cfg) partition init;
-      # No initrd, so nothing has made /dev/disk/by-uuid when
-      # systemd-remount-fs looks root up in fstab, and it fails the boot.
-      # The kernel mounted root `rw` already. Measured on Leap 16.0.
-      kernelParams = [ "systemd.mask=systemd-remount-fs.service" ] ++ cfg.kernelParams;
-      seed = "${seed}";
+    vivarium.kind = "image";
+    vivarium.rootImage = cfg.disk;
+    vivarium.launch.config = lib.mkIf (config.vivarium.backend == "uml") {
+      root = {
+        inherit (cfg) partition init;
+        # No initrd, so nothing has made /dev/disk/by-uuid when
+        # systemd-remount-fs looks root up in fstab, and it fails the boot.
+        # The kernel mounted root `rw` already. Measured on Leap 16.0.
+        kernelParams = [ "systemd.mask=systemd-remount-fs.service" ] ++ cfg.kernelParams;
+        seed = "${seed}";
+      };
+      # UML reads raw disks, and a cloud image is qcow2: the runner converts
+      # it into the run directory, sparse, rather than the store holding the
+      # raw form, which a NAR cannot keep sparse.
+      inherit (tools) qemuImg;
     };
-    system.build.vivariumImageDisk = cfg.disk;
     # The agent's closure: what the guest's store view holds.
-    system.build.vivariumImageClosure = pkgs.closureInfo {
+    vivarium.closure = pkgs.closureInfo {
       rootPaths =
         roots
         ++ lib.optionals cfg.writableStore [

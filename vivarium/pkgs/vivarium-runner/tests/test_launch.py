@@ -6,6 +6,7 @@ holds the refusals, which no guest check reaches.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -25,12 +26,12 @@ QEMU = {
 }
 
 
-def uml(config: dict[str, str] | None, backend: str = "uml") -> MachineSpec:
+def uml(config: Mapping[str, object] | None, backend: str = "uml") -> MachineSpec:
     launch = None if config is None else LaunchSpec(backend, config)
     return MachineSpec(name="one", backend="uml", launch=launch)
 
 
-def qemu(config: dict[str, str]) -> MachineSpec:
+def qemu(config: Mapping[str, object]) -> MachineSpec:
     return MachineSpec(name="q", backend="qemu", launch=LaunchSpec("qemu", config))
 
 
@@ -70,3 +71,43 @@ def test_from_json_carries_launch() -> None:
     spec = MachineSpec.from_json({"name": "one", "launch": {"backend": "uml", "config": GOOD}})
     assert spec.launch == LaunchSpec("uml", GOOD)
     assert MachineSpec.from_json({"name": "two"}).launch is None
+
+
+SEED = {"seed": "/nix/store/s/seed.img", "partition": 3, "init": "/usr/lib/systemd/systemd", "kernelParams": []}
+
+
+def test_a_guest_kind_root_reads() -> None:
+    vyos = UmlConfig.of(uml({**GOOD, "root": {"initrd": "/nix/store/i/initrd", "kernelParams": ["boot=live"]}}))
+    assert vyos.root is not None and vyos.root.initrd == Path("/nix/store/i/initrd")
+    image = UmlConfig.of(uml({**GOOD, "qemuImg": "/nix/store/q/bin/qemu-img", "root": SEED}))
+    assert image.root is not None and image.root.partition == 3
+
+
+@pytest.mark.parametrize(
+    ("root", "says"),
+    [
+        (SEED, "a cloud image needs qemuImg"),
+        ({"initrd": "/nix/store/i/initrd"}, "root lacks fields the backend needs: kernelParams"),
+        ({**SEED, "partiton": 3}, "root has fields the backend does not know: partiton"),
+    ],
+)
+def test_uml_refuses_a_bad_root(root: dict[str, object], says: str) -> None:
+    with pytest.raises(BackendError, match=says):
+        Uml.validate(uml({**GOOD, "root": root}))
+
+
+@pytest.mark.parametrize(
+    ("disk", "says"),
+    [
+        ({"fromat": "qcow2"}, "q: vivarium.launch.config.disk has fields the backend does not know: fromat"),
+        ({"kernel": "/nix/store/k/vmlinuz"}, "names one of kernel and initrd"),
+    ],
+)
+def test_qemu_refuses_a_bad_disk(disk: dict[str, object], says: str) -> None:
+    with pytest.raises(BackendError, match=says):
+        Qemu().validate(qemu({**QEMU, "disk": disk}))
+
+
+def test_a_disk_reads() -> None:
+    disk = QemuConfig.of(qemu({**QEMU, "disk": {"format": "qcow2", "uplink": False}})).disk
+    assert disk is not None and disk.format == "qcow2" and disk.uplink is False and disk.kernel is None

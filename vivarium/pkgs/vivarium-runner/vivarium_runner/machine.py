@@ -90,24 +90,6 @@ class EfiBoot(TypedDict):
     esp: str
 
 
-class ImageBoot(TypedDict, total=False):
-    """`boot.image`: a root disk the guest boots from, not a kernel."""
-
-    configDisk: str
-    format: str
-    seed: str
-    partition: int
-    init: str
-    initrd: str
-    kernelParams: list[str]
-    kernel: str
-    """A kernel QEMU boots directly, with `initrd` and `cmdline`, for a disk
-    whose own boot loader cannot be told what to do."""
-    cmdline: str
-    uplink: bool
-    """False: no passt uplink, so the first segment is the first NIC."""
-
-
 class BootSpec(TypedDict, total=False):
     """What a guest boots, as Nix wrote it. See ``modules/qemu.nix``."""
 
@@ -120,7 +102,6 @@ class BootSpec(TypedDict, total=False):
     efi: EfiBoot
     vmlinux: str
     acpi: bool
-    image: ImageBoot
 
 
 class BootloaderSpec(TypedDict):
@@ -555,7 +536,7 @@ class Machine:
         # A VM's overlay keeps a negative dentry for a name looked up before
         # it existed. A container has no overlay here, and may not drop caches.
         drop = "" if self.spec.backend == "container" else "echo 2 > /proc/sys/vm/drop_caches && "
-        load = "true" if self.spec.boot.get("image") else f"nix-store --load-db < {shlex.quote(info)}/registration"
+        load = "true" if self.systems.toplevel is None else f"nix-store --load-db < {shlex.quote(info)}/registration"
         rc, out = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
         if rc != 0:
             raise MachineError(f"[{self.name}] loading {info} failed (exit {rc}):\n{out}")
@@ -1162,8 +1143,8 @@ class Machine:
         nonzero exit."""
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] runs {self.control_kind}, and has no NixOS to switch")
-        if self.spec.boot.get("image"):
-            raise MachineError(f"[{self.name}] boots a cloud image (`vivarium.image`), and has no NixOS to switch")
+        if self.systems.toplevel is None:
+            raise MachineError(f"[{self.name}] is a guest kind, not NixOS, and has no NixOS to switch")
         if name is None:
             if self.systems.toplevel is None:
                 raise MachineError(f"[{self.name}] the spec names no booted system")

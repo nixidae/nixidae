@@ -42,7 +42,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from . import container, forward, mconsole, qmp
 
@@ -78,6 +78,77 @@ def launch_config(
     return spec.launch.config
 
 
+def _section(owner: str, value: object, fields: frozenset[str], optional: frozenset[str] = frozenset()) -> Mapping[str, Any]:
+    """A table inside `launch.config`, checked as `launch_config` checks the whole."""
+    if not isinstance(value, Mapping):
+        raise BackendError(f"{owner} is not an attribute set")
+    given = set(value)
+    if unknown := sorted(given - fields - optional):
+        raise BackendError(f"{owner} has fields the backend does not know: {', '.join(unknown)}")
+    if missing := sorted(fields - given):
+        raise BackendError(f"{owner} lacks fields the backend needs: {', '.join(missing)}")
+    return value
+
+
+@dataclass(frozen=True)
+class UmlRoot:
+    """`launch.config.root` under UML: a guest kind's root that is not a NixOS image.
+
+    VyOS names an `initrd`, which overlays its read-only squashfs. A cloud
+    image names its `seed` disk, root `partition` and `init`.
+    """
+
+    kernel_params: tuple[str, ...]
+    initrd: Path | None = None
+    seed: Path | None = None
+    partition: int | None = None
+    init: str | None = None
+
+    @classmethod
+    def of(cls, owner: str, value: object) -> UmlRoot:
+        if isinstance(value, Mapping) and "initrd" in value:
+            root = _section(owner, value, frozenset({"initrd", "kernelParams"}))
+            return cls(kernel_params=tuple(root["kernelParams"]), initrd=Path(root["initrd"]))
+        root = _section(owner, value, frozenset({"seed", "partition", "init", "kernelParams"}))
+        return cls(
+            kernel_params=tuple(root["kernelParams"]),
+            seed=Path(root["seed"]),
+            partition=int(root["partition"]),
+            init=str(root["init"]),
+        )
+
+
+@dataclass(frozen=True)
+class QemuDisk:
+    """`launch.config.disk` under QEMU: a guest kind that boots its own disk,
+    with its own boot loader, or with `kernel`, `initrd` and `cmdline`."""
+
+    format: str = "raw"
+    config_disk: Path | None = None
+    """A second disk, copied writable: RouterOS's configuration."""
+    kernel: Path | None = None
+    initrd: Path | None = None
+    cmdline: str = ""
+    uplink: bool = True
+    """False: no passt uplink, so the first segment is the first NIC."""
+
+    @classmethod
+    def of(cls, owner: str, value: object) -> QemuDisk:
+        disk = _section(
+            owner, value, frozenset(), frozenset({"format", "configDisk", "kernel", "initrd", "cmdline", "uplink"})
+        )
+        if ("kernel" in disk) != ("initrd" in disk):
+            raise BackendError(f"{owner} names one of kernel and initrd; a direct boot needs both")
+        return cls(
+            format=str(disk.get("format", "raw")),
+            config_disk=Path(disk["configDisk"]) if "configDisk" in disk else None,
+            kernel=Path(disk["kernel"]) if "kernel" in disk else None,
+            initrd=Path(disk["initrd"]) if "initrd" in disk else None,
+            cmdline=str(disk.get("cmdline", "")),
+            uplink=bool(disk.get("uplink", True)),
+        )
+
+
 @dataclass(frozen=True)
 class UmlConfig:
     """`vivarium.launch.config` under UML."""
@@ -89,15 +160,21 @@ class UmlConfig:
     passt: Path
     qemu_img: Path | None
     """For a cloud image, which is qcow2 and which ubd cannot read."""
+    root: UmlRoot | None = None
+    """None boots the NixOS root image."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> UmlConfig:
-        config = launch_config(spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg"}))
+        config = launch_config(spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg", "root"}))
+        root = UmlRoot.of(f"{spec.name}: vivarium.launch.config.root", config["root"]) if "root" in config else None
+        if root is not None and root.seed is not None and "qemuImg" not in config:
+            raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
         return cls(
             kernel=_path(config, "kernel"),
             bridge=_path(config, "bridge"),
             passt=_path(config, "passt"),
             qemu_img=_maybe(config, "qemuImg"),
+            root=root,
         )
 
 
@@ -111,11 +188,16 @@ class QemuConfig:
     passt: Path
     ocr: tuple[Path, Path] | None
     """tesseract and magick, for a guest with `vivarium.display`."""
+    disk: QemuDisk | None = None
+    """None boots the NixOS system through virtiofs."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> QemuConfig:
         config = launch_config(
-            spec, "qemu", frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}), frozenset({"tesseract", "magick"})
+            spec,
+            "qemu",
+            frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
+            frozenset({"tesseract", "magick", "disk"}),
         )
         tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
         if (tesseract is None) != (magick is None):
@@ -126,6 +208,7 @@ class QemuConfig:
             virtiofsd=_path(config, "virtiofsd"),
             passt=_path(config, "passt"),
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
+            disk=QemuDisk.of(f"{spec.name}: vivarium.launch.config.disk", config["disk"]) if "disk" in config else None,
         )
 
 
@@ -482,7 +565,7 @@ class Uml:
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
             str(config.kernel),
-            *self._root(config.qemu_img, rundir, spec),
+            *self._root(config, rundir, spec),
             "rw",
             f"mem={spec.memory}",
             f"ssl0=fd:{agent_fd}",
@@ -562,34 +645,34 @@ class Uml:
         return mconsole.Mconsole(path, path.with_name("client"))
 
     @staticmethod
-    def _root(qemu_img: Path | None, rundir: Path, spec: MachineSpec) -> list[str]:
+    def _root(config: UmlConfig, rundir: Path, spec: MachineSpec) -> list[str]:
         """The disks and the root, for a NixOS image, a cloud image or VyOS.
 
         A cloud image is qcow2, which ubd cannot read. It becomes a raw
         file in the run directory, sparse, and the guest writes to it
         directly: it is this run's copy already, so it needs no cow.
         """
-        image = spec.boot.get("image")
-        if image is None:
+        root = config.root
+        if root is None:
             return [f"ubd0={rundir}/cow,{spec.image}", "root=/dev/ubda", "init=/init"]
-        if "initrd" in image:
+        if root.initrd is not None:
             # VyOS: a squashfs, read-only, which the initramfs overlays.
-            return [f"ubd0r={spec.image}", f"initrd={image['initrd']}", *image["kernelParams"]]
-        raw = rundir / "disk.raw"
-        if qemu_img is None:
+            return [f"ubd0r={spec.image}", f"initrd={root.initrd}", *root.kernel_params]
+        if config.qemu_img is None:
             raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
+        raw = rundir / "disk.raw"
         subprocess.run(
-            [str(qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
+            [str(config.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
             check=True,
             capture_output=True,
         )
         return [
             f"ubd0={raw}",
             # The seed, read-only: cloud-init finds it by its label.
-            f"ubd1r={image['seed']}",
-            f"root=/dev/ubda{image['partition']}",
-            f"init={image['init']}",
-            *image["kernelParams"],
+            f"ubd1r={root.seed}",
+            f"root=/dev/ubda{root.partition}",
+            f"init={root.init}",
+            *root.kernel_params,
         ]
 
     @staticmethod
@@ -642,7 +725,7 @@ class Qemu:
         boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        disk_boot = "image" in machine.spec.boot
+        disk_boot = QemuConfig.of(machine.spec).disk is not None
         # virtiofsd serves a file as the guest user that made it, so a
         # guest user outside the namespace's ids gets EINVAL on its first
         # write to /artifacts, minutes in. Fail here instead.
@@ -903,10 +986,12 @@ class Qemu:
         """
         spec = machine.spec
         config = QemuConfig.of(spec)
-        image = spec.boot["image"]
+        disk = config.disk
+        if disk is None:
+            raise BackendError(f"{spec.name}: vivarium.launch.config has no disk to boot")
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
-        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, image.get("format", "raw"))
+        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, disk.format)
         opened.extend(disk_fds)
 
         argv = [
@@ -932,25 +1017,25 @@ class Qemu:
             # Pinned: a second disk otherwise competes for the boot. Not
             # with `-kernel`, which takes boot index 0 itself.
             "-device",
-            "virtio-blk-pci,drive=root" + ("" if image.get("kernel") else ",bootindex=0"),
+            "virtio-blk-pci,drive=root" + ("" if disk.kernel else ",bootindex=0"),
             "-chardev",
             f"socket,id=control,fd={agent_fd}",
             "-serial",
             "chardev:control",
         ]
         passt_fd: int | None = None
-        if image.get("uplink", True):
+        if disk.uplink:
             uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
             argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
         argv += ["-qmp", f"unix:{sockets}/qmp,server=on,wait=off"]
-        if kernel := image.get("kernel"):
-            argv += ["-kernel", kernel, "-initrd", image["initrd"], "-append", image.get("cmdline", "")]
-        if config_disk := image.get("configDisk"):
+        if disk.kernel is not None:
+            argv += ["-kernel", str(disk.kernel), "-initrd", str(disk.initrd), "-append", disk.cmdline]
+        if (config_disk := disk.config_disk) is not None:
             # A copy, writable: RouterOS does not mount a read-only disk.
-            disk = rundir / "config.img"
-            shutil.copyfile(config_disk, disk)
-            disk.chmod(0o600)
-            argv += ["-drive", f"file={disk},if=virtio,format=raw"]
+            copy = rundir / "config.img"
+            shutil.copyfile(config_disk, copy)
+            copy.chmod(0o600)
+            argv += ["-drive", f"file={copy},if=virtio,format=raw"]
         for nic in spec.interfaces:
             argv += [
                 "-netdev",

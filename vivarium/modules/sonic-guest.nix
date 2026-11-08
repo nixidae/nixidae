@@ -52,17 +52,16 @@ in
         assertion = config.vivarium.backend == "qemu";
         message = "vivarium.sonic boots under QEMU only; this guest is ${config.vivarium.backend}.";
       }
-      {
-        assertion =
-          config.vivarium.image == null && config.vivarium.vyos == null && config.vivarium.routeros == null;
-        message = "vivarium.sonic, vivarium.image, vivarium.vyos and vivarium.routeros each name the guest's root.";
-      }
     ];
     # vrnetlab runs SONiC VS in 4 GiB and two cores.
     vivarium.memory = lib.mkDefault "4096M";
     vivarium.cpus = lib.mkDefault 2;
+    vivarium.kind = "sonic";
+    vivarium.rootImage = cfg.disk;
+    vivarium.closure = null;
     vivarium.control.kind = "sonic";
-    system.build.vivariumImageGuest = { inherit (cfg) format; };
-    system.build.vivariumImageDisk = cfg.disk;
+    vivarium.launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") {
+      inherit (cfg) format;
+    };
   };
 }

@@ -242,10 +242,6 @@ in
         message = "vivarium.vyos boots under UML only; this guest is ${config.vivarium.backend}.";
       }
       {
-        assertion = config.vivarium.image == null;
-        message = "vivarium.vyos and vivarium.image both name the guest's root.";
-      }
-      {
         assertion = lib.all (nic: builtins.match "eth[0-9]+" nic.name != null) config.vivarium.nics;
         message = "VyOS configures ethernet interfaces named ethN only; name vivarium.interfaces eth1, eth2, ...";
       }
@@ -254,11 +250,12 @@ in
         message = "vivarium.vyos.uplinkVrf puts the uplink in a VRF, so it needs vivarium.uplink.segment.";
       }
     ];
-    system.build.vivariumImageGuest = {
+    vivarium.kind = "vyos";
+    vivarium.rootImage = cfg.squashfs;
+    vivarium.closure = pkgs.closureInfo { rootPaths = roots; };
+    vivarium.launch.config.root = lib.mkIf (config.vivarium.backend == "uml") {
       initrd = "${initrd}/initrd";
       inherit (cfg) kernelParams;
     };
-    system.build.vivariumImageDisk = cfg.squashfs;
-    system.build.vivariumImageClosure = pkgs.closureInfo { rootPaths = roots; };
   };
 }

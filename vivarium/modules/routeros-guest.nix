@@ -91,18 +91,18 @@ in
         assertion = config.vivarium.backend == "qemu";
         message = "vivarium.routeros boots under QEMU only; this guest is ${config.vivarium.backend}.";
       }
-      {
-        assertion = config.vivarium.image == null && config.vivarium.vyos == null;
-        message = "vivarium.routeros, vivarium.image and vivarium.vyos each name the guest's root.";
-      }
     ];
     # The probe ran CHR in 256 MiB, as vrnetlab does.
     vivarium.memory = lib.mkDefault "256M";
+    vivarium.kind = "routeros";
+    vivarium.rootImage = cfg.disk;
+    vivarium.closure = null;
     vivarium.control = {
       kind = "routeros";
       config.configure = true;
     };
-    system.build.vivariumImageGuest.configDisk = "${configDisk}";
-    system.build.vivariumImageDisk = cfg.disk;
+    vivarium.launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") {
+      configDisk = "${configDisk}";
+    };
   };
 }

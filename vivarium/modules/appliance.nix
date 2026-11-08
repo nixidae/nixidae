@@ -90,20 +90,24 @@ in
     );
   };
 
-  config.vivarium.control = lib.mkIf (cfg != null) {
-    kind = "none";
-    config = { inherit (cfg) ready; };
-  };
-  config.system.build = lib.mkIf (cfg != null) {
-    vivariumImageGuest = {
-      inherit (cfg) format cmdline;
-      uplink = config.vivarium.uplink.enable;
-    }
-    // lib.optionalAttrs (cfg.kernel != null) {
-      kernel = "${cfg.kernel}";
-      initrd = "${cfg.initrd}";
+  config.vivarium = lib.mkIf (cfg != null) {
+    kind = "appliance";
+    rootImage = cfg.disk;
+    closure = null;
+    control = {
+      kind = "none";
+      config = { inherit (cfg) ready; };
     };
-    vivariumImageDisk = cfg.disk;
+    launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") (
+      {
+        inherit (cfg) format cmdline;
+        uplink = config.vivarium.uplink.enable;
+      }
+      // lib.optionalAttrs (cfg.kernel != null) {
+        kernel = "${cfg.kernel}";
+        initrd = "${cfg.initrd}";
+      }
+    );
   };
 
   config.assertions = [
@@ -112,7 +116,7 @@ in
       message = "vivarium.appliance boots under QEMU: set vivarium.backend = \"qemu\". This guest is ${config.vivarium.backend}.";
     }
     {
-      assertion = config.vivarium.uplink.enable || config.system.build ? vivariumImageGuest;
+      assertion = config.vivarium.uplink.enable || config.vivarium.kind != "nixos";
       message = "vivarium.uplink.enable = false: only a guest that boots its own disk, such as vivarium.appliance, can leave the uplink out.";
     }
     {
