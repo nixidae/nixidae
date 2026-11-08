@@ -445,9 +445,12 @@ async def prepare(img: Path, guest: Path) -> None:
         # tart's daemon reboots the guest when tart's host side is absent.
         await ssh(guest, port, "sudo -n launchctl disable system/org.cirruslabs.tart-guest-daemon; "
                   "sudo -n launchctl bootout system/org.cirruslabs.tart-guest-daemon || true")  # fmt: skip
-        # The Nix Store volume mounts during boot; on macOS 26 after sshd is up.
-        await ssh(guest, port, "! grep -q /nix /etc/synthetic.conf 2>/dev/null || "
-                  "for i in $(seq 60); do test -d /nix/store && break; sleep 1; done")  # fmt: skip
+        # The Nix Store volume mounts up to 30 s after sshd starts. An install
+        # over an unmounted volume fails, and its cleanup removed
+        # /etc/synthetic.conf, which breaks /nix for good.
+        await ssh(guest, port, "if diskutil info 'Nix Store' >/dev/null 2>&1; then "
+                  "for i in $(seq 90); do test -d /nix/store && exit 0; sleep 1; done; "
+                  "echo 'the Nix Store volume exists and never mounted at /nix'; exit 1; fi")  # fmt: skip
         await ssh(guest, port, "test -e /nix/var/nix/profiles/default/bin/nix-daemon || "
                   "{ curl -sSfL https://nixos.org/nix/install -o /tmp/install-nix && "
                   "sh /tmp/install-nix --daemon --yes > /tmp/install-nix.log 2>&1 || "

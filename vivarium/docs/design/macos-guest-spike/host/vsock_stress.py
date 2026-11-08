@@ -56,17 +56,16 @@ async def concurrent(store: str, count: int) -> dict[str, object]:
 
 async def big_copy(store: str, path: str) -> dict[str, object]:
     t0 = time.monotonic()
-    size = await anyio.run_process(
-        ["nix", "path-info", "--closure-size", "--json", path]
-    )
-    closure_bytes = next(iter(json.loads(size.stdout).values()))["closureSize"]
     copied = await anyio.run_process(
         ["pynix", "copy", "--no-check-sigs", "--to", store, path],
         check=False,
-        stdout=None,
         stderr=None,
     )
     seconds = time.monotonic() - t0
+    # Only what crossed: paths the guest already had cost no transfer.
+    sent = json.loads(copied.stdout).get("copied", []) if copied.returncode == 0 else []
+    sizes = await anyio.run_process(["nix", "path-info", "--json", *sent]) if sent else None
+    sent_bytes = sum(info["narSize"] for info in json.loads(sizes.stdout).values()) if sizes else 0
     host = await anyio.run_process(["nix", "path-info", "--json", "--recursive", path])
     guest = await anyio.run_process(
         ["nix", "path-info", "--json", "--recursive", "--store", store, path],
@@ -77,8 +76,9 @@ async def big_copy(store: str, path: str) -> dict[str, object]:
         return {p: info["narHash"] for p, info in json.loads(raw).items() if info}
 
     same = guest.returncode == 0 and hashes(host.stdout) == hashes(guest.stdout)
-    return {"check": "big_copy", "ok": copied.returncode == 0 and same, "closure_bytes": closure_bytes,
-            "seconds": round(seconds, 2), "mb_per_s": round(closure_bytes / seconds / 1e6, 1)}  # fmt: skip
+    return {"check": "big_copy", "ok": copied.returncode == 0 and same,
+            "seconds": round(seconds, 2), "paths_sent": len(sent),
+            "bytes_sent": sent_bytes, "mb_per_s": round(sent_bytes / seconds / 1e6, 1)}  # fmt: skip
 
 
 async def reset_with_open_connections(
