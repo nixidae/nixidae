@@ -264,7 +264,7 @@ What a nixpkgs change rebuilds, layered by depth, with Hydra's build times; for 
 
 Run from `pynix-review/`: `nix-shell --run 'python3 -m pytest'`, `ruff check`, `ruff format --check`, `zuban mypy`. The shell's `pynix-review` is the working tree, rebuilt on entry.
 
-- A live run: `pynix-review diff --before <dir|tarball URL> --after <...> --attrs FILE [--build-times [--hydra]]`. JSON on stdout. Tarball URLs, not paths: a tree another process fetched lives in that Nix's git cache, not on disk, and a `dummy://` store cannot read it.
+- A live run: `pynix-review diff --before <dir|tarball URL> --after <...> --attrs FILE [--build-times [--hydra]] [--out DIR]`. stdout: `bundle.json`, or with `--out` the paths of `bundle.json`, `bundle.schema.json` and `changed.dot`. `bundle.Bundle` is the contract; a change to its shape bumps `FORMAT`. Tarball URLs, not paths: a tree another process fetched lives in that Nix's git cache, not on disk, and a `dummy://` store cannot read it.
 - CI's rebuild list for a PR: the `diff-<system>` artifact of its `Eval` run, `.rebuilds`, minus the `.<system>` suffix.
 
 ### Rules

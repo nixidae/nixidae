@@ -1,33 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from shapes import base, drv, font_chain, graph
 
-from pynix_review.graph import Drv, Graph, build_set, changed, identity, layers, nearest, pname, twins
+from pynix_review.graph import build_set, changed, identity, layers, nearest, pname, twins
 
 H = "0" * 32
-
-
-def drv(name: str, *inputs: str, fixed: tuple[str, ...] | None = None, tag: str = "a") -> Drv:
-    return Drv(base=f"{tag * 32}-{name}.drv", name=name, inputs=frozenset(inputs), fixed=fixed)
-
-
-def graph(*drvs: Drv) -> Graph:
-    return {d.base: d for d in drvs}
-
-
-def base(name: str, tag: str = "a") -> str:
-    return f"{tag * 32}-{name}.drv"
-
-
-def font_chain() -> Graph:
-    """libpng -> freetype -> fontconfig -> cairo, and cairo uses libpng directly.
-
-    The shape that sets cairo at depth 4 by longest path and 2 by nearest."""
-    libpng = drv("libpng-1.6")
-    freetype = drv("freetype-2.14", libpng.base)
-    fontconfig = drv("fontconfig-2.18", freetype.base)
-    cairo = drv("cairo-1.18", libpng.base, fontconfig.base)
-    return graph(libpng, freetype, fontconfig, cairo)
 
 
 @pytest.mark.parametrize(
