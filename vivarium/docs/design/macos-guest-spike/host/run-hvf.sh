@@ -14,6 +14,8 @@ QEMU_IMG=${QEMU_IMG:-$HOME/Dynamist/qemu/build-hvf/qemu-img}
 RUN=${RUN:-$HERE/run}
 RAM=${RAM:-8G}
 CPUS=${CPUS:-4}
+# Empty: no SSH forward, so several guests can run at once.
+SSH_PORT=${SSH_PORT-2222}
 mkdir -p "$RUN"
 
 ECID=$(agent-python -I -c 'import base64,json,plistlib,sys
@@ -36,7 +38,7 @@ exec "$QEMU" \
   -device vmapple-virtio-blk-pci,variant=aux,drive=aux,share-rw=on \
   -drive file="$RUN/overlay.qcow2",if=none,id=root,format=qcow2,cache=writeback,discard=unmap \
   -device vmapple-virtio-blk-pci,variant=root,drive=root \
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+  -netdev user,id=net0${SSH_PORT:+,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22} \
   -device virtio-net-pci,netdev=net0 \
   -chardev file,id=ser0,path="$RUN/serial.txt" \
   -serial chardev:ser0 \

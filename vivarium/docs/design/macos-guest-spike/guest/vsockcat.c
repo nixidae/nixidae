@@ -2,11 +2,13 @@
  * vsockcat: test virtio-vsock from a macOS guest.
  *
  *   vsockcat listen PORT            echo every connection back, one at a time
+ *   vsockcat serve PORT CMD [ARG]   inetd: each connection runs CMD on stdin and stdout
  *   vsockcat connect CID PORT TEXT  send TEXT, close the write side, print the reply
  *   vsockcat bulk CID PORT BYTES    send BYTES, print bytes echoed back and MB/s
  *
  * Build on the host: clang -O2 -mmacosx-version-min=14.0 -o vsockcat vsockcat.c
  */
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,8 +123,41 @@ static int bulk(unsigned cid, unsigned port, size_t total)
     return got == total ? 0 : 1;
 }
 
+static int serve(unsigned port, char **argv)
+{
+    struct sockaddr_vm a = addr(VMADDR_CID_ANY, port);
+    int s = socket(AF_VSOCK, SOCK_STREAM, 0);
+
+    if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof(a)) < 0 || listen(s, 16) < 0) {
+        perror("serve");
+        return 1;
+    }
+    signal(SIGCHLD, SIG_IGN);
+    for (;;) {
+        int c = accept(s, NULL, NULL);
+
+        if (c < 0) {
+            perror("accept");
+            continue;
+        }
+        if (fork() == 0) {
+            close(s);
+            dup2(c, 0);
+            dup2(c, 1);
+            close(c);
+            execv(argv[0], argv);
+            perror(argv[0]);
+            _exit(127);
+        }
+        close(c);
+    }
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 4 && !strcmp(argv[1], "serve")) {
+        return serve(strtoul(argv[2], NULL, 0), argv + 3);
+    }
     if (argc == 3 && !strcmp(argv[1], "listen")) {
         return listen_echo(strtoul(argv[2], NULL, 0));
     }
@@ -133,6 +168,7 @@ int main(int argc, char **argv)
         return bulk(strtoul(argv[2], NULL, 0), strtoul(argv[3], NULL, 0),
                     strtoull(argv[4], NULL, 0));
     }
-    fprintf(stderr, "usage: vsockcat listen PORT | connect CID PORT TEXT | bulk CID PORT BYTES\n");
+    fprintf(stderr, "usage: vsockcat listen PORT | serve PORT CMD [ARG]... | connect CID PORT TEXT | "
+                    "bulk CID PORT BYTES\n");
     return 2;
 }

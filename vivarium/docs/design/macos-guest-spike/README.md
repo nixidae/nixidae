@@ -85,6 +85,7 @@ each packet to stderr.
 
 `vsockcat` builds on the host: `clang -O2 -mmacosx-version-min=14.0 -o
 vsockcat guest/vsockcat.c`; the configured guest has it in `/usr/local/bin`.
+`vsockcat serve PORT CMD...` is inetd: each connection runs CMD on stdin and stdout.
 
 ## Rebuild and run
 
@@ -140,6 +141,45 @@ The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
 line; the address does not change with RAM size (4, 8, 16 GiB). No unknown
 hypercall and no unimplemented MMIO before it (traced under TCG with
 `-d trace:arm_psci_call,int`; lldb on QEMU's gdbstub caught the copy).
+
+## On-demand builders from a snapshot (2026-11-08)
+
+`host/darwin_builder.py` starts a builder VM for each build, from a saved guest,
+as pynix's Linux builder does for each command. Fork commit 24f1c3b0 lets the
+vsock device migrate (a transport reset on load); without it QEMU refuses to save.
+
+- **Guest:** two LaunchDaemons on top of the Nix guest. `guest/builder-daemon.plist`
+  runs `vsockcat serve 3030 nix-daemon --stdio` (a root daemon for each vsock
+  connection). `guest/builder-clock.plist` takes the host's epoch on port 3031.
+- **Save:** boot, wait until the daemon answers the worker handshake over vsock,
+  let launchd settle for 30 s, then `migrate` to a file with `x-ignore-shared`.
+  Guest RAM is a shared `memory-backend-file` (`ram.bin`, 3.4 GB touched of 8 GiB).
+  The device state is 0.8 MB.
+- **Start:** map `ram.bin` private (`share=off,readonly=on,rom=off`), so it is
+  copy-on-write and the file never changes. Put a new qcow2 overlay over the saved
+  one, load `state.bin` with `-incoming`, then `cont`. Set the guest clock: a
+  restored guest wakes at the save's time.
+- **Build:** forward the daemon to a Unix socket, then run
+  `pynix build --store unix://…?local-fs=false --eval-store auto --copy auto`.
+  Stock Nix cannot copy the outputs back: it reads a `unix://` store's paths from
+  the host's own /nix/store. huggorm's Nix has `local-fs=false`.
+
+| step | time |
+| --- | --- |
+| cold boot until the daemon answers (save) | 24 s |
+| start until the state is loaded | 0.11 s |
+| start until the daemon answers | 0.19 s |
+| start, build a raw derivation, copy it back, stop | 0.94 s |
+| start, build `hello` with stdenv (561 drvs in, 60 paths substituted), copy back | 44 s |
+| two builders from one snapshot at the same time | both ready in 0.2 s, no conflict |
+
+A MAP_SHARED mapping of the RAM file (the first try, with a clonefile copy for
+each run) stalled the guest for 5–25 s at a time: SSH failed 8 times in 20
+probes. With the private mapping, 25 of 25 probes passed.
+
+Not done yet: the snapshot has none of the host's stdenv, so each build
+substitutes it again. Each start runs from the saved snapshot, so it uses the
+snapshot's RAM size and CPU count.
 
 ## Nix in the guest
 

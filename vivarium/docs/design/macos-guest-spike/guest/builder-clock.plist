@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.nixidae.builder-clock</string>
+    <!-- A restored guest wakes at the snapshot's time: the host sends the epoch. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/vsockcat</string>
+        <string>serve</string>
+        <string>3031</string>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>read t &amp;&amp; /bin/date -u -f %s "$t" &gt;/dev/null &amp;&amp; echo ok</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/var/log/builder-clock.log</string>
+</dict>
+</plist>
