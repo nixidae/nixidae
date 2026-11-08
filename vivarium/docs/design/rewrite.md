@@ -426,8 +426,9 @@ Each step keeps `checks` green and moves the consumers with it.
    `--break start|failure|end`, `timeout`, and `--only` boots only the
    guests its phases need (`Session.ensure`, `vivarium.requires`, the
    `boot` recipe's `nodesFromDependents`). A full run still boots every
-   guest first. Open: a phase that starts when its own guests are up in
-   a full run (readiness in `Machine.start`), and the guest-suite recipe.
+   guest first. The guest-suite recipe is `vivarium.recipes.suites`, and
+   pynixd's suites run through it. Open: a phase that starts when its
+   own guests are up in a full run (readiness in `Machine.start`).
 6. The agent surface.
 7. `default.nix` split into `tests/<name>/default.nix`.
 
