@@ -19,6 +19,9 @@ then moves its RAM into ram.bin. A start maps ram.bin private and
 copy-on-write, so pages fault in on first touch and the file never changes, and
 puts a fresh qcow2 overlay over the saved one. Every start is the saved guest.
 
+With AGENT (vivarium-runner built for aarch64-darwin), `prepare` also installs
+vivarium's guest agent, serving arpyc on /dev/cu.vivarium-agent.
+
 `save` copies the closures of the store paths in SEED (space-separated) from
 the host store into the guest first.
 
@@ -412,6 +415,41 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+def reload_daemon(label: str, plist: str) -> str:
+    """Shell that (re)loads org.nixidae.*label* from /Library/LaunchDaemons/*plist*.plist.
+
+    Not `kickstart -k`: that restarts the loaded definition, so a changed
+    plist never takes effect. bootout returns before the job is gone, so
+    bootstrap is retried.
+    """
+    return (
+        f"launchctl bootout system/org.nixidae.{label} 2>/dev/null; "
+        f"for i in $(seq 20); do launchctl bootstrap system /Library/LaunchDaemons/{plist}.plist "
+        "2>/dev/null && break; sleep 0.5; done; "
+        f"launchctl print system/org.nixidae.{label} >/dev/null"
+    )
+
+
+async def install_agent(guest: Path, port: int, agent: str) -> None:
+    """vivarium's guest agent from the host store, as a LaunchDaemon on the virtio-serial port."""
+    async with anyio.create_task_group() as tg:
+        await tg.start(forward, guest / "vsock.sock", guest / "daemon.sock")
+        await anyio.run_process(
+            ["pynix", "copy", "--no-check-sigs", "--to", f"unix://{guest / 'daemon.sock'}?local-fs=false", agent],
+            stdout=subprocess.DEVNULL, stderr=None,
+        )  # fmt: skip
+        tg.cancel_scope.cancel()
+    await ssh(
+        guest, port, "--", str(HERE.parent / "guest/vivarium-agent.plist"), "/tmp/"
+    )
+    # The profile roots the closure, so the guest's garbage collector keeps it.
+    await ssh(guest, port, "sudo -n sh -c '/nix/var/nix/profiles/default/bin/nix-env "
+              f"-p /nix/var/nix/profiles/vivarium-agent --set {agent} && "
+              "install -m 644 /tmp/vivarium-agent.plist /Library/LaunchDaemons/ && "
+              f"{reload_daemon('vivarium-agent', 'vivarium-agent')}'")  # fmt: skip
+    log(event="agent", path=agent)
+
+
 async def prepare(img: Path, guest: Path) -> None:
     # Again on a prepared guest: Nix stays, vsockcat and the daemons are replaced.
     await anyio.Path(guest).mkdir(parents=True, exist_ok=True)
@@ -463,16 +501,18 @@ async def prepare(img: Path, guest: Path) -> None:
         await ssh(guest, port, "--", str(vsockcat), *map(str, plists), "/tmp/")
         await ssh(guest, port, "sudo -n sh -c 'install -m 755 /tmp/vsockcat /usr/local/bin/vsockcat && "
                   "install -m 644 /tmp/builder-daemon.plist /tmp/builder-clock.plist /Library/LaunchDaemons/ && "
-                  "for d in daemon clock; do s=system/org.nixidae.builder-$d; "
-                  "if launchctl print $s >/dev/null 2>&1; then launchctl kickstart -k $s; "
-                  "else launchctl bootstrap system /Library/LaunchDaemons/builder-$d.plist; fi || exit 1; done'")  # fmt: skip
+                  f"for d in daemon clock; do {reload_daemon('builder-$d', 'builder-$d')} || exit 1; done'")  # fmt: skip
         with anyio.move_on_after(60) as waited:
             while not await daemon_answers(guest / "vsock.sock"):
                 await anyio.sleep(0.5)
         if waited.cancelled_caught:
             await ssh(guest, port, "sudo -n launchctl print system/org.nixidae.builder-daemon | "
                       "grep -E 'state|exit'; sudo -n tail -5 /var/log/builder-daemon.log", check=False)  # fmt: skip
-            sys.exit(f"the guest daemon did not answer over vsock within 60 s; see {guest}/stdout.log")
+            sys.exit(
+                f"the guest daemon did not answer over vsock within 60 s; see {guest}/stdout.log"
+            )
+        if agent := os.environ.get("AGENT"):
+            await install_agent(guest, port, agent)
         await ssh(guest, port, "sudo -n shutdown -h now", check=False)
         with anyio.fail_after(60):
             await vm.wait()
