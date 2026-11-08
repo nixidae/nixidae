@@ -10,7 +10,7 @@ import anyio
 
 from . import graph
 from .buildtimes import UNREPORTED_PHASE_SECONDS, Timing, fetch
-from .evaluate import Side, evaluate
+from .evaluate import SCRATCH_STORE, Side, evaluate
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,19 +46,21 @@ async def diff(
     build_times: bool = False,
     hydra: bool = False,
     per_phase: float = UNREPORTED_PHASE_SECONDS,
+    after_store: str = SCRATCH_STORE,
 ) -> Diff:
     """What `after` changes against `before`, for the closure of `attrs`.
 
-    `before` and `after` are nixpkgs directories or tarball URLs."""
+    `before` and `after` are nixpkgs directories or tarball URLs. The after
+    side's `.drv` files go to `after_store`; `daemon` makes them buildable."""
     start = time.monotonic()
     sides: dict[str, Side] = {}
 
-    async def one(name: str, tree: str, overlay: str | None) -> None:
-        sides[name] = await evaluate(tree, attrs, system=system, overlay=overlay)
+    async def one(name: str, tree: str, overlay: str | None, store_url: str) -> None:
+        sides[name] = await evaluate(tree, attrs, system=system, overlay=overlay, store_url=store_url)
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(one, "before", before, None)
-        tg.start_soon(one, "after", after, after_overlay)
+        tg.start_soon(one, "before", before, None, SCRATCH_STORE)
+        tg.start_soon(one, "after", after, after_overlay, after_store)
     eval_wall = time.monotonic() - start
 
     old, new = sides["before"], sides["after"]

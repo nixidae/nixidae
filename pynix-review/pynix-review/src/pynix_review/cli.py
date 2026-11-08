@@ -19,6 +19,7 @@ import huggorm
 
 from . import bundle
 from .buildtimes import UNREPORTED_PHASE_SECONDS
+from .evaluate import SCRATCH_STORE
 from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
 from .review import diff
 
@@ -40,6 +41,11 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=UNREPORTED_PHASE_SECONDS,
         help="seconds assumed for a logged phase that printed no footer (under 30 s)",
+    )
+    cmd.add_argument(
+        "--after-store",
+        default=SCRATCH_STORE,
+        help="store for the after side's .drv files; `daemon` makes them buildable",
     )
     cmd.add_argument("--pool-size", type=int, default=4, help="huggorm's thread pool, for the closure walk")
     cmd.add_argument("--out", type=Path, help="write the bundle's files into this directory")
@@ -71,6 +77,7 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
         build_times=args.build_times,
         hydra=args.hydra,
         per_phase=args.phase_seconds,
+        after_store=args.after_store,
     )
     made = bundle.from_diff(result, before=args.before, after=args.after, system=args.system, timed=args.build_times)
     if args.out is None:

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 SETTINGS: Final = {"allow-import-from-derivation": "false", "pure-eval": "false"}
 # What CI's ci/eval/outpaths.nix passes, minus what only matters there.
+SCRATCH_STORE: Final = "dummy://?read-only=false"
 CONFIG: Final = "{ allowAliases = false; allowUnfree = true; allowInsecurePredicate = _: true; }"
 
 
@@ -101,15 +102,23 @@ async def _resolve(state: huggorm.AsyncEvalState, pkgs: huggorm.AsyncValue, attr
     return value
 
 
-async def evaluate(tree: str, attrs: Sequence[str], *, system: str, overlay: str | None = None) -> Side:
+async def evaluate(
+    tree: str,
+    attrs: Sequence[str],
+    *,
+    system: str,
+    overlay: str | None = None,
+    store_url: str = SCRATCH_STORE,
+) -> Side:
     """Each attribute's `.drv`, and the closure under all of them.
 
     An attribute that fails to evaluate lands in `Side.failed` with the first
-    line of its error; the rest go on."""
+    line of its error; the rest go on. `store_url` is where the `.drv` files
+    go: `daemon` writes them where a later build can read them."""
     side = Side()
     start = time.monotonic()
     async with contextlib.AsyncExitStack() as stack:
-        store = huggorm.AsyncStore("dummy://?read-only=false")
+        store = huggorm.AsyncStore(store_url)
         stack.push_async_callback(store.aclose)
         state = huggorm.AsyncEvalState(store, settings=SETTINGS)
         stack.push_async_callback(state.aclose)
