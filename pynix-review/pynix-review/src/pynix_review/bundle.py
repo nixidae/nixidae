@@ -273,6 +273,10 @@ def to_dot(bundle: Bundle, built: Report | None = None) -> str:
     cached, red failed, yellow out of budget. A dotted border marks a
     derivation the build has no result for."""
     results = {r.drv: r for r in built.results} if built is not None else None
+    # Short node ids, the `.drv` in the tooltip: with `.drv` names as ids, each
+    # edge repeats two store hashes, and hdf4's PR (201 nodes) made a 147 KB
+    # link, over GitHub's 65536-character comment.
+    ids = {d.drv: f"n{n}" for n, d in enumerate(bundle.derivations)}
     out = [
         f"digraph {'changed' if built is None else 'built'} {{",
         "  rankdir=BT;",
@@ -282,18 +286,14 @@ def to_dot(bundle: Bundle, built: Report | None = None) -> str:
         out.append(f'  labelloc="t"; fontname="{FONT}"; label={_quote(_built_line(built, len(bundle.derivations)))};')
     rows: list[list[str]] = []
     for depth in sorted({d.depth for d in bundle.derivations}):
-        members = [d.drv for d in bundle.derivations if d.depth == depth]
+        members = [ids[d.drv] for d in bundle.derivations if d.depth == depth]
         rows.extend(members[i : i + ROW_WIDTH] for i in range(0, len(members), ROW_WIDTH))
-    out.extend(f"  {{ rank=same; {' '.join(_quote(m) for m in row)} }}" for row in rows)
+    out.extend(f"  {{ rank=same; {' '.join(row)} }}" for row in rows)
     # Every row above the one before, across depths too, column by column:
     # with only the changed edges dot puts depth 5's first row beside depth
     # 4's second, and with only the first column it shifts each row aside
     # (fzf: 5943 pt wide at 12 a row).
-    out.extend(
-        f"  {_quote(x)} -> {_quote(y)} [style=invis];"
-        for a, b in itertools.pairwise(rows)
-        for x, y in zip(a, b, strict=False)
-    )
+    out.extend(f"  {x} -> {y} [style=invis];" for a, b in itertools.pairwise(rows) for x, y in zip(a, b, strict=False))
     for d in bundle.derivations:
         extra, styled = _outcome(results.get(d.drv)) if results is not None else ([], [])
         label = "\\n".join([_label(d, "est " if results is not None else ""), *(_escape(line) for line in extra)])
@@ -304,8 +304,8 @@ def to_dot(bundle: Bundle, built: Report | None = None) -> str:
             attrs.extend(styled)
         elif d.time is None:
             attrs.append('style="dashed"')
-        out.append(f"  {_quote(d.drv)} [{', '.join(attrs)}];")
-    out.extend(f"  {_quote(i)} -> {_quote(d.drv)};" for d in bundle.derivations for i in d.changed_inputs)
+        out.append(f"  {ids[d.drv]} [{', '.join(attrs)}];")
+    out.extend(f"  {ids[i]} -> {ids[d.drv]};" for d in bundle.derivations for i in d.changed_inputs if i in ids)
     out.append("}")
     return "\n".join(out) + "\n"
 

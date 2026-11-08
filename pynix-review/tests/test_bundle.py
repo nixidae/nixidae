@@ -87,16 +87,25 @@ def test_bundle_round_trips() -> None:
     assert Bundle.model_validate_json(made.model_dump_json()) == made
 
 
+def node(dot: str, drv: str) -> str:
+    """The node line of `drv`, found by its tooltip."""
+    return next(ln for ln in dot.splitlines() if f'tooltip="{drv}"' in ln)
+
+
+def node_id(dot: str, drv: str) -> str:
+    return node(dot, drv).split()[0]
+
+
 def test_dot_ranks_by_depth_and_points_inputs_up() -> None:
     dot = to_dot(font_bundle())
     assert dot.startswith("digraph changed {")
-    assert f'{{ rank=same; "{CAIRO}" }}' in dot
-    assert f'"{LIBPNG}" -> "{CAIRO}";' in dot
+    assert f"{{ rank=same; {node_id(dot, CAIRO)} }}" in dot
+    assert f"{node_id(dot, LIBPNG)} -> {node_id(dot, CAIRO)};" in dot
     assert '"cairo\\n1.18\\n55 s"' in dot
     assert '"libpng\\n1.6\\n≈ 38 s"' in dot
     assert '"freetype\\n2.14\\n≈ 7 s ~"' in dot
-    fontconfig_line = next(line for line in dot.splitlines() if line.startswith(f'  "{FONTCONFIG}" ['))
-    assert 'style="dashed"' in fontconfig_line
+    assert 'style="dashed"' in node(dot, FONTCONFIG)
+    assert CAIRO not in dot.replace(f'tooltip="{CAIRO}"', "")
 
 
 def test_a_wide_depth_stacks_its_rows() -> None:
@@ -105,9 +114,10 @@ def test_a_wide_depth_stacks_its_rows() -> None:
     wide = [libpng.model_copy(update={"drv": base(f"lib{n}-1", "b")}) for n in range(ROW_WIDTH * 2 + 1)]
     dot = to_dot(made.model_copy(update={"derivations": wide}))
     rows = [line for line in dot.splitlines() if "rank=same" in line]
-    assert [row.count('"') // 2 for row in rows] == [ROW_WIDTH, ROW_WIDTH, 1]
-    assert f'"{wide[0].drv}" -> "{wide[ROW_WIDTH].drv}" [style=invis];' in dot
-    assert f'"{wide[ROW_WIDTH].drv}" -> "{wide[2 * ROW_WIDTH].drv}" [style=invis];' in dot
+    assert [len(row.split()) - 3 for row in rows] == [ROW_WIDTH, ROW_WIDTH, 1]
+    first, second, third = (node_id(dot, wide[n].drv) for n in (0, ROW_WIDTH, 2 * ROW_WIDTH))
+    assert f"{first} -> {second} [style=invis];" in dot
+    assert f"{second} -> {third} [style=invis];" in dot
 
 
 async def test_write_makes_four_files(tmp_path: anyio.Path) -> None:

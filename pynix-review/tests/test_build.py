@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import anyio
 from shapes import base
-from test_bundle import CAIRO, FONTCONFIG, FREETYPE, LIBPNG, font_bundle
+from test_bundle import CAIRO, FONTCONFIG, FREETYPE, LIBPNG, font_bundle, node
 
 from pynix_review.build import Outcome, Report, failure_status, held_back, report, schedule
 from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, Bundle, to_dot
@@ -20,10 +20,6 @@ def outcomes() -> list[Outcome]:
 
 def made(found: list[Outcome] | None = None) -> Report:
     return report(font_bundle(), outcomes() if found is None else found, budget=3600, wall_seconds=61.25)
-
-
-def node(dot: str, drv: str) -> str:
-    return next(ln for ln in dot.splitlines() if ln.startswith(f'  "{drv}" ['))
 
 
 def test_report_times_what_a_builder_ran() -> None:
