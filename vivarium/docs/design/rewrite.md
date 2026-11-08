@@ -428,7 +428,8 @@ Each step keeps `checks` green and moves the consumers with it.
    `boot` recipe's `nodesFromDependents`). A full run still boots every
    guest first. The guest-suite recipe is `vivarium.recipes.suites`, and
    pynixd's suites run through it. Open: a phase that starts when its
-   own guests are up in a full run (readiness in `Machine.start`).
+   own guests are up in a full run (readiness in `Machine.start`),
+   nixidae/nixidae#1229.
 6. The agent surface.
 7. `default.nix` split into `tests/<name>/default.nix`.
 
