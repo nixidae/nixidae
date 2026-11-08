@@ -162,7 +162,8 @@ async def daemon_answers(vsock: Path) -> bool:
     return len(reply) == WORD.size and WORD.unpack(reply)[0] == WORKER_MAGIC_2
 
 
-async def set_clock(vsock: Path) -> None:
+async def set_clock(vsock: Path) -> str:
+    """Set the guest clock; returns en0's address, which the guest renews if it has none."""
     async with await connect_guest(vsock, CLOCK_PORT) as stream:
         await stream.send(f"{int(time.time())}\n".encode())
         await stream.send_eof()
@@ -170,9 +171,11 @@ async def set_clock(vsock: Path) -> None:
         with contextlib.suppress(anyio.EndOfStream):
             while True:
                 reply += await stream.receive()
-    if reply.strip() != b"ok":
+    words = reply.split()
+    if not words or words[0] != b"ok":
         msg = f"the guest did not set its clock: {reply!r}"
         raise RuntimeError(msg)
+    return words[1].decode() if len(words) > 1 else ""
 
 
 async def pump(source: ByteStream, sink: ByteStream) -> None:
@@ -345,6 +348,14 @@ async def save(guest: Path, snap: Path) -> None:
             )
         # Let launchd settle, so the snapshot is of an idle guest.
         await anyio.sleep(float(os.environ.get("SETTLE", "30")))
+        # A macOS 15 guest was once saved with no address on en0: every start
+        # of that snapshot had no network. The clock port renews the lease.
+        address = await set_clock(snap / "vsock.sock")
+        if not address:
+            sys.exit(
+                "the guest has no address on en0 after a DHCP renewal; not saving it"
+            )
+        log(event="network", address=address)
         await qmp.call("stop")
         await migrate(qmp, snap / "full.bin")
         log(event="saved", seconds=round(time.monotonic() - start, 1))

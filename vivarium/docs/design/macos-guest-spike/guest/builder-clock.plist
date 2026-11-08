@@ -4,7 +4,9 @@
 <dict>
     <key>Label</key>
     <string>org.nixidae.builder-clock</string>
-    <!-- A restored guest wakes at the snapshot's time: the host sends the epoch. -->
+    <!-- A restored guest wakes at the snapshot's time: the host sends the epoch.
+         A macOS 15 guest was once saved with no DHCP lease on en0, so this also
+         renews the lease when en0 has no address, and answers "ok ADDRESS". -->
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/vsockcat</string>
@@ -12,7 +14,7 @@
         <string>3031</string>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>read t &amp;&amp; /bin/date -u -f %s "$t" &gt;/dev/null &amp;&amp; echo ok</string>
+        <string>read t &amp;&amp; /bin/date -u -f %s "$t" &gt;/dev/null || exit 1; a=$(/usr/sbin/ipconfig getifaddr en0) || { /usr/sbin/ipconfig set en0 DHCP; for i in 1 2 3 4 5 6 7 8 9 10; do a=$(/usr/sbin/ipconfig getifaddr en0) &amp;&amp; break; sleep 0.5; done; }; echo "ok $a"</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
