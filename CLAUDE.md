@@ -278,7 +278,7 @@ Phases: `prepare`, then `unit`, `protocol` and `parity` at once, then `leaks` (r
 
 ### Architecture
 
-Protocol support: builder stores >= 1.32 (nixbuild.net), local stores >= 1.35 (Lix; untested, guests run Nix >= 2.34, `supportedNixFloor`). pynixd advertises 1.38 and translates.
+Protocol support: clients, builder stores and local stores >= 1.35 (`MINIMUM_PROTOCOL`: Lix and nixbuild.net speak 1.35; untested, guests run Nix >= 2.34, `supportedNixFloor`). No legacy below it. pynixd advertises 1.38 and translates.
 
 1. `OpRequest.handle(proxy)`: decodes from the client, delegates `await proxy.local_store.execute(request)`. Streaming ops (`NarFromPath`, `AddToStore`) override it.
 2. `OpRequest.execute(store, client=None, suppress_last=False)`: the recipe and its fast paths (SQLite, caches); else `await store.call(self, client=client, suppress_last=suppress_last)`.
