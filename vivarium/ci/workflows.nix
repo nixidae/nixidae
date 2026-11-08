@@ -441,12 +441,14 @@ let
     ghanix = sandboxBootstrap;
     steps = [
       (steps.build {
-        name = "The session: phase rules, knobs, --only, recipes, stream, pytest, breakpoints, printed commands, parallel, peers, switch, cleanup, interactive";
+        name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, peers, switch, cleanup, interactive";
         attrs = [
           "checks.phase-rules"
           "checks.knobs"
           "checks.only-rules"
+          "checks.on-demand"
           "checks.recipes"
+          "checks.suite-recipe"
           "checks.stream"
           "checks.pytest-phase"
           "checks.breakpoint"
