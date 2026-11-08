@@ -81,6 +81,26 @@ def dependents(name: str, phases: Iterable[PhaseSpec]) -> set[str]:
         found = grown
 
 
+def selected(names: Iterable[str], phases: Iterable[PhaseSpec]) -> set[str]:
+    """What `--only` runs: *names* and every phase they run after, transitively.
+
+    Without the `after` closure, `--only check` ran `check` on a guest that
+    `cluster` never set up (nixidae/nixidae#661). Only upward: an `always`
+    phase after *names* stays deselected, because the caller did not ask
+    for it.
+    """
+    by_name = {phase.name: phase for phase in phases}
+    found: set[str] = set()
+    todo = list(names)
+    while todo:
+        name = todo.pop()
+        if name in found:
+            continue
+        found.add(name)
+        todo.extend(by_name[name].after if name in by_name else ())
+    return found
+
+
 def skipped_by(failed: str, phases: Iterable[PhaseSpec]) -> set[str]:
     """What a failure of *failed* means for the phases not yet run."""
     return dependents(failed, phases)
@@ -99,8 +119,7 @@ def ready(phases: Iterable[PhaseSpec], state: dict[str, PhaseState]) -> list[Pha
 
     Any answer, not only a pass. A failure has already marked what it
     takes with it `SKIPPED`, so a phase still pending here is one the
-    failure does not reach -- an `always` phase, or one after a
-    deselected phase that `--only` left out.
+    failure does not reach: an `always` phase.
     """
     return [
         phase

@@ -18,7 +18,7 @@ A test is `mkTest`: guests (`nodes.<name>`, NixOS modules) plus phases (`async d
 
 - A test that pulls from the internet must run as a driver. In the sandbox it fails on DNS, which reads like a broken test.
 - `--offline` makes a by-hand run match the sandbox. A sandbox failure reproduces this way; there is no way into a sandboxed run.
-- Driver flags: `--break PHASE`, `--break-on-start`, `--only PHASE` (also skips its `after` phases), `-v` (every command sent), `--keep`.
+- Driver flags: `--break PHASE`, `--break-on-start`, `--only PHASE` (runs its `after` phases too, nothing after it), `-v` (every command sent), `--keep`.
 - `--out` may be relative; use a new directory per run, in the scratchpad. Files a container guest wrote there can be owned by a sub-uid and resist `rm` (nixidae/nixidae#1064): pick a new name instead.
 - Never edit a phase and start a new run to test the edit. Pause and send it (below).
 

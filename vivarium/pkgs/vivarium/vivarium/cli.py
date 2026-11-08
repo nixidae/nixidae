@@ -30,7 +30,7 @@ from vivarium_runner import MachineError
 from . import monitor, namespace, repl, runroot
 from .control import SOCKET, Controller, Op, request
 from .events import Kind, Level
-from .phases import PhaseState, launchable, ready, summarise
+from .phases import PhaseState, launchable, ready, selected, summarise
 from .session import Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
@@ -77,7 +77,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         action="append",
         default=[],
         metavar="PHASE",
-        help="run only this phase; repeatable",
+        help="run only this phase and the phases it runs after; repeatable",
     )
     run.add_argument(
         "--break",
@@ -286,8 +286,9 @@ async def run(args: argparse.Namespace) -> int:
         # Deselected, not skipped. The two read the same in a list and
         # mean opposite things: one says nobody knows the answer, the
         # other says nobody wanted it.
+        wanted = selected(args.only, session.spec.phases)
         for phase in session.spec.phases:
-            if phase.name not in args.only:
+            if phase.name not in wanted:
                 session.state[phase.name] = PhaseState.DESELECTED
                 session.emit(
                     Kind.PHASE_FINISHED,

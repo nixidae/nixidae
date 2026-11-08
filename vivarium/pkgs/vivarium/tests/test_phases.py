@@ -19,6 +19,7 @@ from vivarium.phases import (
     passed,
     ready,
     runnable,
+    selected,
     skipped_by,
     summarise,
 )
@@ -83,6 +84,23 @@ class TestSkippedBy:
         """And not pytest's answer either: `check` against a cluster that
         does not exist is a second failure that says nothing."""
         assert skipped_by("cluster", CHAIN) == {"check", "report"}
+
+
+class TestSelected:
+    """`--only`: the named phases and what they run after. nixidae/nixidae#661."""
+
+    def test_the_after_closure_comes_with_it(self) -> None:
+        assert selected(["check"], CHAIN) == {"boot", "cluster", "check"}
+
+    def test_nothing_after_it_comes(self) -> None:
+        assert "report" not in selected(["check"], CHAIN)
+
+    def test_an_always_phase_after_it_stays_out(self) -> None:
+        journal = phase("journal", "check", always=True)
+        assert "journal" not in selected(["check"], [*CHAIN, journal])
+
+    def test_several_names_join(self) -> None:
+        assert selected(["unrelated", "cluster"], CHAIN) == {"boot", "cluster", "unrelated"}
 
 
 class TestAlways:

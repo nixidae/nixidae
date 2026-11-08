@@ -821,11 +821,17 @@ let
               script = ./tests/phases/only.py;
               after = [ "boot" ];
             };
-            # Fails if it ever runs, which is the point: `--only` must
-            # not reach it, and building this session whole must fail.
+            # Each fails if it ever runs, which is the point: `--only`
+            # must not reach either, and building this session whole must
+            # fail. `--only` takes what `only` runs after, never what runs
+            # after it.
             never = {
               script = ./tests/phases/check.py;
               after = [ "boot" ];
+            };
+            later = {
+              script = ./tests/phases/check.py;
+              after = [ "only" ];
             };
           };
         };
@@ -853,8 +859,9 @@ let
           }
 
           want only passed
-          want boot deselected
+          want boot passed
           want never deselected
+          want later deselected
 
           if [ "$(jq -r '.passed' "$out_dir/phases.json")" != "true" ]; then
             echo "asking for one phase by name reported failure" >&2
