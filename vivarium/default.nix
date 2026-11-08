@@ -198,12 +198,12 @@ let
     mkTest {
       name = "kata-${cri}";
       backend = "qemu";
+      vivarium.recipes.kubernetes.enable = true;
       phases.test = {
         script = ./tests/containerd.py;
         after = [ "boot" ];
       };
       nodes.node = {
-        imports = [ ./modules/k8s.nix ];
         services.vivarium-k8s = {
           enable = true;
           role = "worker";
@@ -380,8 +380,8 @@ let
       script = ./tests/pull.py;
       after = [ "boot" ];
     };
+    vivarium.recipes.kubernetes.enable = true;
     nodes.cp = {
-      imports = [ ./modules/k8s.nix ];
       services.vivarium-k8s = {
         enable = true;
         role = "control-plane";
@@ -2483,6 +2483,7 @@ let
     */
     containerd = mkTest {
       name = "containerd";
+      vivarium.recipes.kubernetes.enable = true;
       phases.test = {
         script = ./tests/containerd.py;
         after = [ "boot" ];
@@ -2490,7 +2491,6 @@ let
       nodes.node =
         { config, ... }:
         {
-          imports = [ ./modules/k8s.nix ];
           services.vivarium-k8s = {
             enable = true;
             role = "worker";
@@ -2549,7 +2549,6 @@ let
           containerd: address:
           { ... }:
           {
-            imports = [ ./modules/k8s.nix ];
             # The module names pkgs.containerd.
             nixpkgs.overlays = lib.optional (containerd != null) (_: _: { inherit containerd; });
             services.vivarium-k8s = {
@@ -2596,6 +2595,7 @@ let
       in
       mkTest {
         name = "containerd-zero-layers";
+        vivarium.recipes.kubernetes.enable = true;
         nodes = {
           stock = node null "10.106.0.1/24";
           fixed = node fixed "10.106.0.2/24";
@@ -2634,6 +2634,7 @@ let
     # The same questions under CRI-O. nixidae/nixidae#534.
     crio = mkTest {
       name = "crio";
+      vivarium.recipes.kubernetes.enable = true;
       phases.test = {
         script = ./tests/containerd.py;
         after = [ "boot" ];
@@ -2641,7 +2642,6 @@ let
       nodes.node =
         { config, ... }:
         {
-          imports = [ ./modules/k8s.nix ];
           services.vivarium-k8s = {
             enable = true;
             role = "worker";
@@ -2678,6 +2678,7 @@ let
         after = [ "boot" ];
       };
       nodes = k8sNodes;
+      vivarium.recipes.kubernetes.enable = true;
       settings = {
         inherit (k8sConfig.services.vivarium-k8s) podSubnet workloadImage;
         kubernetesVersion = pkgs.kubernetes.version;

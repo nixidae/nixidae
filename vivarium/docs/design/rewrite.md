@@ -392,12 +392,14 @@ Each step keeps `checks` green and moves the consumers with it.
 
 1. `python.packages` on the run and the guest, one venv for the
    wrappers and the check. `typeCheck` moves from the first guest to
-   the run.
+   the run. Done: `checks.python-packages`.
 2. Kubernetes as `vivarium.recipes.kubernetes`. It imports the k8s
-   module into the guests it names and adds the `cluster` phase.
-   `vivarium_k8s` becomes its own package. The k8s fields leave
+   module into every guest, reads the nodes from `systems` and writes
+   their facts to `settings.kubernetes.nodes`. The k8s fields leave
    `machineSpec` and `MachineSpec`. nixkube and easykubenix move with
-   it.
+   it. Done. `vivarium_k8s` becomes its own package next. The recipe
+   adds no `cluster` phase: each of the five callers of `bring_up`
+   passes its own arguments, in a phase that does more than that.
 3. The backend contract: `launch` and `requiredSystemFeatures`, entry
    points, capabilities. One backend at a time, UML first. The global
    toolchain, `toolchainFor` and `featuresFor` go with the last one.

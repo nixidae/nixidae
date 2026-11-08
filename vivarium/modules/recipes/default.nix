@@ -14,5 +14,6 @@
   imports = [
     ./boot.nix
     ./cache.nix
+    ./kubernetes.nix
   ];
 }

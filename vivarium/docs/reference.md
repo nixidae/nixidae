@@ -674,6 +674,26 @@ on one worker reaching a Service backed by a pod on the other. That last
 step is the point — it only passes if the CNI bridge, the routes between
 the nodes, kube-proxy's iptables rules and cluster DNS all work.
 
+A run with nodes sets `vivarium.recipes.kubernetes.enable = true`. The
+recipe imports `modules/k8s.nix` into every guest. Each guest with
+`services.vivarium-k8s.enable` is a node, and the recipe writes its CNI,
+image source and skipped addons to `settings.kubernetes.nodes`.
+`vivarium_runner.cluster.bring_up` reads the nodes from there, so a
+guest that is not a node, such as the cache guest, stays out of the
+cluster.
+
+```nix
+mkTest {
+  name = "mine";
+  vivarium.recipes.kubernetes.enable = true;
+  nodes.cp.services.vivarium-k8s = {
+    enable = true;
+    role = "control-plane";
+  };
+  phases.cluster.script = ./cluster.py;  # await bring_up(vms)
+}
+```
+
 Then storage. `services.vivarium-k8s.persistentVolumes` gives a node that many
 hostPath volumes and the cluster a default StorageClass named `standard`,
 which is what a chart that names no class needs. The test writes from one

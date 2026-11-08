@@ -175,10 +175,6 @@ class MachineSpecJson(TypedDict, total=False):
     boot: BootSpec
     toplevel: str
     configurations: dict[str, str]
-    kubernetes: bool
-    cni: str
-    images: str
-    skipAddons: list[str]
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
@@ -292,18 +288,6 @@ class MachineSpec:
     guest's Nix database already holds."""
     interfaces: tuple[Interface, ...] = ()
     """The guest's segment links, in NIC order."""
-    kubernetes: bool = False
-    """`services.vivarium-k8s.enable`: whether `cluster.bring_up` makes
-    this guest a node. A run's cache guest, for one, is not."""
-    cni: str = "bridge"
-    """`services.vivarium-k8s.cni`: `bridge` when `cluster.bring_up` wires
-    the pod network, `external` when the test's own CNI does."""
-    images: str = "nix"
-    """`services.vivarium-k8s.images`: `nix` when the node imports
-    kubeadm's images at boot, `pull` when it fetches them."""
-    skip_addons: tuple[str, ...] = ()
-    """`services.vivarium-k8s.skipAddons`: the addons kubeadm does not
-    install."""
     uplink: str | None = None
     """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
     out-of-band management network a peer serves (nixidae/nixidae#958).
@@ -336,10 +320,6 @@ class MachineSpec:
             boot=data.get("boot", {}),
             toplevel=data.get("toplevel"),
             configurations=data.get("configurations", {}),
-            kubernetes=data.get("kubernetes", False),
-            cni=data.get("cni", "bridge"),
-            images=data.get("images", "nix"),
-            skip_addons=tuple(data.get("skipAddons", [])),
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             uplink_proxy=data.get("uplinkProxy", "passt"),

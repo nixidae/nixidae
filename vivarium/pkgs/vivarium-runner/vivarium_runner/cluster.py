@@ -23,11 +23,35 @@ objects, so nothing here assumes the guests came from this repository's
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import anyio
 
-from .machine import Machine, MachineError
+from .machine import Machine, MachineError, Machines
+
+
+class NodeFacts(TypedDict):
+    """One node's `services.vivarium-k8s`, as `vivarium.recipes.kubernetes`
+    writes it to `settings.kubernetes.nodes`."""
+
+    cni: str
+    images: str
+    skipAddons: list[str]  # noqa: N815 -- Nix writes it, so Nix spells it
+
+
+def nodes(vms: Machines) -> dict[str, NodeFacts]:
+    """The run's Kubernetes nodes, by name.
+
+    The recipe lists every guest with `services.vivarium-k8s.enable`, so a
+    cache guest, for one, is not here.
+    """
+    found = cast(dict[str, NodeFacts], vms.settings.get("kubernetes", {}).get("nodes", {}))
+    if not found:
+        raise MachineError(
+            "this run has no Kubernetes node: set vivarium.recipes.kubernetes.enable"
+            " in mkTest and services.vivarium-k8s.enable on a guest"
+        )
+    return found
 
 # These are stuck-detectors, and that is the only thing they are.
 #
@@ -294,7 +318,12 @@ async def wait_for_images(vms: Mapping[str, Machine]) -> None:
 INIT_LOG = "/tmp/kubeadm-init.log"
 
 
-async def init_control_plane(cp: Machine) -> None:
+async def init_control_plane(cp: Machine, *, patch_proxy: bool = True) -> None:
+    """`kubeadm init` on *cp*.
+
+    *patch_proxy* gives kube-proxy the store, which a node needs when its
+    images are symlinks into `/nix/store` and kubeadm installs kube-proxy.
+    """
     print("[k8s] cp: kubeadm init ...", flush=True)
     # Redirected and then printed, rather than piped through `tee`: a pipe
     # would report tee's exit status, and /bin/sh here has no `pipefail`.
@@ -314,7 +343,7 @@ async def init_control_plane(cp: Machine) -> None:
     if rc != 0:
         raise MachineError(f"[cp] kubeadm init failed (exit {rc}):\n{out}\n" + await diagnose(cp))
     # A skipped kube-proxy has no DaemonSet to patch: kubectl answers "not found".
-    if cp.spec.images == "nix" and "kube-proxy" not in cp.spec.skip_addons:
+    if patch_proxy:
         await patch_kube_proxy(cp)
     print("[k8s] cp: control plane is up", flush=True)
 
@@ -595,7 +624,7 @@ async def _apply_node_manifests(cp: Machine, vms: Mapping[str, Machine], path: s
 
 
 async def bring_up(
-    vms: Mapping[str, Machine],
+    vms: Machines,
     cp_name: str = "cp",
     schedulable: bool | None = None,
     addons: Sequence[str] = DEFAULT_ADDONS,
@@ -624,8 +653,9 @@ async def bring_up(
     until the deadline, and not waiting for one that exists lets a test
     start before cluster DNS answers.
 
-    Only guests with `services.vivarium-k8s` enabled are nodes; the rest of
-    the run, a cache guest for one, is left alone.
+    The nodes are what `vivarium.recipes.kubernetes` wrote to
+    `vms.settings`: every guest with `services.vivarium-k8s` enabled. The
+    rest of the run, a cache guest for one, is left alone.
 
     Nodes with `services.vivarium-k8s.cni = "external"` get no pod network
     from here: the test deploys its own CNI. Until it does, no node is
@@ -633,33 +663,41 @@ async def bring_up(
     without waiting for either; host-network addons such as kube-proxy are
     still waited for.
     """
-    vms = {name: vm for name, vm in vms.items() if vm.spec.kubernetes}
-    external = {vm.spec.cni for vm in vms.values()} == {"external"}
-    if not external and any(vm.spec.cni == "external" for vm in vms.values()):
+    facts = nodes(vms)
+    absent = sorted(set(facts) - set(vms))
+    if absent:
+        raise MachineError(f"this phase does not hold the nodes {absent}; add them to its `nodes`")
+    cluster = {name: vms[name] for name in facts}
+    cnis = {node["cni"] for node in facts.values()}
+    external = cnis == {"external"}
+    if not external and "external" in cnis:
         raise MachineError("services.vivarium-k8s.cni differs between nodes; one cluster has one CNI")
-    sources = {vm.spec.images for vm in vms.values()}
+    sources = {node["images"] for node in facts.values()}
     if len(sources) != 1:
         raise MachineError(f"services.vivarium-k8s.images differs between nodes ({sorted(sources)}); set one for all")
-    cp = vms[cp_name]
-    workers = [vm for name, vm in vms.items() if name != cp_name]
+    cp = cluster[cp_name]
+    workers = [vm for name, vm in cluster.items() if name != cp_name]
     if schedulable is None:
         schedulable = not workers
 
-    for vm in vms.values():
+    for vm in cluster.values():
         await vm.wait_for_unit("vivarium-k8s-cri.target", timeout=UNIT_TIMEOUT)
     if sources == {"nix"}:
-        await wait_for_images(vms)
+        await wait_for_images(cluster)
     else:
-        for vm in vms.values():
+        for vm in cluster.values():
             await wait_for_dns(vm)
 
-    await init_control_plane(cp)
+    await init_control_plane(
+        cp,
+        patch_proxy=sources == {"nix"} and "kube-proxy" not in facts[cp_name]["skipAddons"],
+    )
     await join(cp, workers)
     if not external:
-        await wire_pod_network(cp, vms)
-        await wait_for_ready_nodes(cp, len(vms))
-    await provision_storage(cp, vms)
-    await provision_runtimes(cp, vms)
+        await wire_pod_network(cp, cluster)
+        await wait_for_ready_nodes(cp, len(cluster))
+    await provision_storage(cp, cluster)
+    await provision_runtimes(cp, cluster)
     for selector in addons:
         if external and selector == KUBE_DNS:
             continue
@@ -679,6 +717,7 @@ __all__ = [
     "KUBE_DNS",
     "KUBE_PROXY",
     "POLL",
+    "NodeFacts",
     "READY_TIMEOUT",
     "RUNTIME_MANIFEST",
     "STORAGE_MANIFEST",
@@ -689,6 +728,7 @@ __all__ = [
     "init_control_plane",
     "join",
     "kubectl",
+    "nodes",
     "provision_runtimes",
     "provision_storage",
     "untaint",
