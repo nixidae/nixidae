@@ -308,3 +308,7 @@ of starting, so it needs more work before it is useful.
 4. GPU mode: handle `msr S3_6_C15_C8_3` (d51ef860). macOS 27: find what LLB's
    log buffer address comes from.
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
+6. A macOS 26 `save` right after `prepare` timed out before the daemon
+   answered, three times in about ten runs, and passed when run again. The
+   failing runs logged no daemon event, so it stopped while connecting to QMP
+   or on the first handshake; the traceback was filtered away each time.
