@@ -68,6 +68,9 @@ class PhaseSpec(Strict):
     """The guests this phase uses; empty is every guest. Two phases whose
     guests do not overlap run at the same time. See `phases.launchable`."""
 
+    timeout: float | None = None
+    """Seconds the phase may run before it fails; none is no limit."""
+
     @model_validator(mode="after")
     def _one_kind(self) -> PhaseSpec:
         if (self.script is None) == (self.pytest is None):

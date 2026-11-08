@@ -30,6 +30,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import math
 import sys
 import time
 import traceback
@@ -47,7 +48,7 @@ from vivarium_runner.report import Report
 
 from . import journal, junit_in
 from .events import Event, Kind, Level
-from .phases import PhaseState, passed, runnable, skipped_by
+from .phases import PhaseState, PhaseTimeout, passed, runnable, skipped_by
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 
 if TYPE_CHECKING:
@@ -589,7 +590,16 @@ class Session:
         await self.drain()
         self.case = None
 
-    async def _pytest(self, name: str, spec: PytestSpec, vms: Machines, *, by_hand: bool = False) -> str:
+    async def _pytest(
+        self,
+        name: str,
+        spec: PytestSpec,
+        vms: Machines,
+        *,
+        by_hand: bool = False,
+        deadline: float | None = None,
+        timeout: float | None = None,
+    ) -> str:
         """One pytest run, in a worker thread, against these guests.
 
         `by_hand` is a run sent to a paused session, not a phase: it takes
@@ -602,7 +612,7 @@ class Session:
         imported = set(sys.modules)
         try:
             async with BlockingPortal() as portal:
-                plugin = Plugin(self, name, portal, by_hand=by_hand)
+                plugin = Plugin(self, name, portal, by_hand=by_hand, deadline=deadline, timeout=timeout)
                 plugins = [plugin, machine_fixtures(vms)]
                 extra = spec.args if by_hand else [*spec.args, *self.pytest_args]
                 args = arguments(str(spec.tests), extra)
@@ -620,6 +630,8 @@ class Session:
         if code == pytest.ExitCode.USAGE_ERROR:
             # pytest says why on its own stderr, not through any hook.
             raise CasesFailed(f"pytest rejected its arguments: {args[1:]}")
+        if plugin.timed_out is not None:
+            raise PhaseTimeout(f"{plugin.timed_out}; {plugin.summary()}")
         if code != pytest.ExitCode.OK:
             raise CasesFailed(plugin.summary() if plugin.outcomes else f"pytest exited {code}")
         self.emit(Kind.NOTE, plugin.summary(), phase=name)
@@ -669,17 +681,21 @@ class Session:
             self.running[name] = phase.name
         self.emit(Kind.PHASE_STARTED, phase.name, phase=phase.name, nodes=nodes)
         started = time.monotonic()
+        deadline = None if phase.timeout is None else anyio.current_time() + phase.timeout
         try:
             vms = self.view(phase)
             if phase.pytest is not None:
-                await self._pytest(phase.name, phase.pytest, vms)
+                await self._pytest(phase.name, phase.pytest, vms, deadline=deadline, timeout=phase.timeout)
             elif phase.script is not None:
                 # Loaded inside the `try`: a script that does not import
                 # is this phase failing. Outside it, an ImportError took
                 # the whole drive down with no failed phase and no pause.
                 test = load_phase(phase.script)
-                with self._capture(phase.name):
+                limit = anyio.CancelScope(deadline=math.inf if deadline is None else deadline)
+                with self._capture(phase.name), limit:
                     await test(vms)
+                if limit.cancelled_caught:
+                    raise PhaseTimeout(f"phase {phase.name} ran past its timeout of {phase.timeout:g}s")
         except Exception as error:
             took = time.monotonic() - started
             await self.settle(nodes=nodes)

@@ -304,6 +304,40 @@ class TestAScriptThatDoesNotImport:
 
 
 @pytest.mark.anyio
+class TestTimeout:
+    async def test_a_script_past_its_timeout_fails_the_phase(self, tmp_path: Path) -> None:
+        script = tmp_path / "phase.py"
+        script.write_text("import anyio\nasync def test(vms):\n    await anyio.sleep(30)\n")
+        session = session_for(tmp_path, Collect())
+        session.state = {"phase": PhaseState.PENDING}
+        assert await session.run(PhaseSpec(name="phase", script=script, timeout=0.2)) is PhaseState.FAILED
+        assert session.errors["phase"].startswith("PhaseTimeout: phase phase ran past its timeout of 0.2s")
+
+    async def test_a_command_timing_out_is_not_the_phase_timing_out(self, tmp_path: Path) -> None:
+        script = tmp_path / "phase.py"
+        script.write_text("async def test(vms):\n    raise TimeoutError('the command')\n")
+        session = session_for(tmp_path, Collect())
+        session.state = {"phase": PhaseState.PENDING}
+        assert await session.run(PhaseSpec(name="phase", script=script, timeout=30)) is PhaseState.FAILED
+        assert session.errors["phase"] == "TimeoutError: the command"
+
+    async def test_a_pytest_phase_stops_at_its_timeout(self, tmp_path: Path) -> None:
+        """The running test fails, and no later test starts."""
+        tests = write_tests(
+            tmp_path,
+            "import anyio\n\nasync def test_slow():\n    await anyio.sleep(30)\n\n"
+            "def test_later():\n    assert True\n",
+        )
+        sink = Collect()
+        session = session_for(tmp_path, sink)
+        session.state = {"cases": PhaseState.PENDING}
+        spec = PhaseSpec(name="cases", pytest=PytestSpec(tests=tests), timeout=0.5)
+        assert await session.run(spec) is PhaseState.FAILED
+        assert "ran past its timeout of 0.5s" in session.errors["cases"]
+        assert [e.data["outcome"] for e in sink.of(Kind.CASE)] == ["failed"]
+
+
+@pytest.mark.anyio
 class TestRunningAgain:
     """ "Edit a test, run it again" against the same guests, in one process."""
 

@@ -498,6 +498,7 @@ rec {
                 nodes
                 ;
             }
+            // lib.optionalAttrs (phase.timeout != null) { inherit (phase) timeout; }
             // (
               if phase.pytest != null then
                 {

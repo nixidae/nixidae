@@ -25,13 +25,16 @@ from __future__ import annotations
 
 import functools
 import inspect
+import math
 import types
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal
 
+import anyio
 import pytest
 
 from .events import Kind, Level
+from .phases import PhaseTimeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -80,21 +83,28 @@ def machine_fixtures(vms: Machines) -> MachineFixtures:
     return module
 
 
-def _in_loop(portal: BlockingPortal, func: Callable[..., Any]) -> Callable[..., Any]:
+def _in_loop(
+    portal: BlockingPortal, func: Callable[..., Any], bound: Callable[..., Any] | None = None
+) -> Callable[..., Any]:
     """A sync stand-in for an async fixture, run on the session's loop.
 
     An async generator fixture spans two portal calls, one per
     `__anext__`, so its setup and teardown are separate tasks. An anyio
     task group held open across its `yield` does not survive that.
     """
+    def run(step: Callable[[], Any]) -> Any:
+        return portal.call(step if bound is None else functools.partial(bound, step))
+
     if inspect.isasyncgenfunction(func):
 
         def generator(**kwargs: Any) -> Generator[Any]:
             agen = func(**kwargs)
-            value = portal.call(agen.__anext__)
+            value = run(agen.__anext__)
             try:
                 yield value
             finally:
+                # Unbounded: past the deadline a bounded teardown would be
+                # cancelled before it cleaned anything up.
                 try:
                     portal.call(agen.__anext__)
                 except StopAsyncIteration:
@@ -105,7 +115,7 @@ def _in_loop(portal: BlockingPortal, func: Callable[..., Any]) -> Callable[..., 
         return generator
 
     def call(**kwargs: Any) -> Any:
-        return portal.call(functools.partial(func, **kwargs))
+        return run(functools.partial(func, **kwargs))
 
     return call
 
@@ -113,12 +123,38 @@ def _in_loop(portal: BlockingPortal, func: Callable[..., Any]) -> Callable[..., 
 class Plugin:
     """The hooks that tie one pytest run to one session."""
 
-    def __init__(self, session: Session, phase: str, portal: BlockingPortal, *, by_hand: bool = False) -> None:
+    def __init__(
+        self,
+        session: Session,
+        phase: str,
+        portal: BlockingPortal,
+        *,
+        by_hand: bool = False,
+        deadline: float | None = None,
+        timeout: float | None = None,
+    ) -> None:
         self.session = session
         self.phase = phase
         self.portal = portal
         self.marks: dict[str, Any] = {"by_hand": True} if by_hand else {}
         self.outcomes: Counter[Outcome] = Counter()
+        self.deadline = math.inf if deadline is None else deadline
+        """On the loop's clock, `anyio.current_time()`."""
+        self.timeout = timeout
+        self.timed_out: PhaseTimeout | None = None
+
+    async def _bounded(self, step: Callable[[], Any]) -> Any:
+        """*step* on the loop, cancelled at the phase's deadline.
+
+        Each test and async fixture gets the same deadline, not a timeout
+        of its own: the limit is the phase's.
+        """
+        with anyio.CancelScope(deadline=self.deadline):
+            return await step()
+        # Only this scope's own deadline gets here: a cancel from outside
+        # propagates out of the `with`.
+        self.timed_out = PhaseTimeout(f"phase {self.phase} ran past its timeout of {self.timeout:g}s")
+        raise self.timed_out
 
     def _emit(self, kind: Kind, text: str, **fields: Any) -> None:
         # On the loop, never from this thread: the sinks write files and
@@ -134,8 +170,14 @@ class Plugin:
             return None
         names = pyfuncitem._fixtureinfo.argnames
         kwargs = {name: pyfuncitem.funcargs[name] for name in names}
-        self.portal.call(functools.partial(test, **kwargs))
+        self.portal.call(self._bounded, functools.partial(test, **kwargs))
         return True
+
+    def pytest_runtest_teardown(self, item: pytest.Item) -> None:
+        # Past the deadline every test would fail at its first await, so
+        # pytest starts no other.
+        if self.timed_out is not None:
+            item.session.shouldstop = str(self.timed_out)
 
     @pytest.hookimpl(hookwrapper=True, tryfirst=True)
     def pytest_fixture_setup(
@@ -148,7 +190,7 @@ class Plugin:
         # Restored afterwards, as anyio's own plugin does: the definition
         # is shared by every test that asks for it.
         # pytest declares `func` Final. anyio's plugin swaps it the same way.
-        fixturedef.func = _in_loop(self.portal, func)  # type: ignore[misc]
+        fixturedef.func = _in_loop(self.portal, func, self._bounded)  # type: ignore[misc]
         try:
             yield
         finally:

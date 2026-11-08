@@ -146,6 +146,21 @@ Without it, evidence ordered after everything is skipped by the very
 failure it exists to explain. A failure is not passed on through such a
 phase either, so a phase after it still runs.
 
+## `timeout`: a phase that must end
+
+```nix
+phases.cluster = {
+  script = ./cluster.py;
+  after = [ "boot" ];
+  timeout = 600;
+};
+```
+
+At 600 seconds the phase fails with `PhaseTimeout`, and what runs after
+it is skipped. In a pytest phase the running test fails and no other test
+starts. An async fixture's teardown still runs, with no limit. Without
+`timeout` a phase has no limit.
+
 ## Running with no internet
 
 ```console

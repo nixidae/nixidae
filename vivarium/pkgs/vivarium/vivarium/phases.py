@@ -53,6 +53,11 @@ class PhaseState(StrEnum):
     by running a subset."""
 
 
+class PhaseTimeout(TimeoutError):
+    """A phase ran past its `timeout`. Not a bare TimeoutError: a command
+    in the phase that times out raises that, and is a different failure."""
+
+
 def dependents(name: str, phases: Iterable[PhaseSpec]) -> set[str]:
     """Every phase that depends on *name*, directly or through another.
 

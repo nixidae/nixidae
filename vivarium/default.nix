@@ -820,6 +820,8 @@ let
             only = {
               script = ./tests/phases/only.py;
               after = [ "boot" ];
+              # Carried through the spec; a pass says the limit is not hit.
+              timeout = 300;
             };
             # Each fails if it ever runs, which is the point: `--only`
             # must not reach either, and building this session whole must

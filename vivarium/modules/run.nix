@@ -238,6 +238,17 @@ in
                 '';
               };
 
+              timeout = mkOption {
+                type = types.nullOr types.ints.positive;
+                default = null;
+                example = 600;
+                description = ''
+                  Seconds the phase may run before it fails. Null has no
+                  limit. A pytest phase fails its running test at the
+                  limit and runs no more tests.
+                '';
+              };
+
               description = mkOption {
                 type = types.str;
                 default = name;
