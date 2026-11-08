@@ -24,6 +24,9 @@ class Diff:
     layers: list[set[str]]
     nearest: dict[str, int]
     twins: dict[str, str] = field(default_factory=dict)
+    reference: Side | None = None
+    references: dict[str, str] = field(default_factory=dict)
+    """The reference tree's derivation for each changed one it has."""
     timings: dict[str, Timing] = field(default_factory=dict)
     seconds: dict[str, float] = field(default_factory=dict)
 
@@ -47,11 +50,17 @@ async def diff(
     hydra: bool = False,
     per_phase: float = UNREPORTED_PHASE_SECONDS,
     after_store: str = SCRATCH_STORE,
+    reference: str | None = None,
 ) -> Diff:
     """What `after` changes against `before`, for the closure of `attrs`.
 
     `before` and `after` are nixpkgs directories or tarball URLs. The after
-    side's `.drv` files go to `after_store`; `daemon` makes them buildable."""
+    side's `.drv` files go to `after_store`; `daemon` makes them buildable.
+
+    With `build_times`, `reference` is a third tree that Hydra has built,
+    such as the nixpkgs-unstable channel. A merge base younger than Hydra's
+    backlog has no logs: on NixOS/nixpkgs#584702, 0 of 100 derivations had a
+    time. The reference's build of the same package then stands in."""
     start = time.monotonic()
     sides: dict[str, Side] = {}
 
@@ -61,6 +70,8 @@ async def diff(
     async with anyio.create_task_group() as tg:
         tg.start_soon(one, "before", before, None, SCRATCH_STORE)
         tg.start_soon(one, "after", after, after_overlay, after_store)
+        if build_times and reference is not None:
+            tg.start_soon(one, "reference", reference, None, SCRATCH_STORE)
     eval_wall = time.monotonic() - start
 
     old, new = sides["before"], sides["after"]
@@ -85,8 +96,15 @@ async def diff(
         result.twins = graph.twins(old.graph, new.graph, pairs, changed)
         # The after .drv first: for a merged change Hydra has built it.
         candidates = {d: [d, *([result.twins[d]] if d in result.twins else [])] for d in changed}
+        if (ref := sides.get("reference")) is not None:
+            result.reference = ref
+            result.seconds["reference"] = ref.seconds
+            ref_pairs = [(a, ref.roots[attr]) for attr, a in new.roots.items() if attr in ref.roots]
+            result.references = graph.twins(ref.graph, new.graph, ref_pairs, changed)
+        nearby = {d: [r] for d, r in result.references.items() if r not in candidates[d]}
         jobs = {a: f"{attr}.{system}" for attr, a in new.roots.items() if a in changed}
-        outs = {d.base: d.out for g in (old.graph, new.graph) for d in g.values() if d.out is not None}
-        result.timings = await fetch(candidates, jobs, hydra=hydra, per_phase=per_phase, outs=outs)
+        graphs = [old.graph, new.graph, *([ref.graph] if ref is not None else [])]
+        outs = {d.base: d.out for g in graphs for d in g.values() if d.out is not None}
+        result.timings = await fetch(candidates, jobs, hydra=hydra, per_phase=per_phase, outs=outs, nearby=nearby)
         result.seconds["build_times"] = time.monotonic() - start
     return result

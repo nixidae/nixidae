@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from .buildtimes import Timing
     from .review import Diff
 
-FORMAT: Final = 1
+FORMAT: Final = 2
 BUNDLE_FILE: Final = "bundle.json"
 SCHEMA_FILE: Final = "bundle.schema.json"
 DOT_FILE: Final = "changed.dot"
@@ -109,6 +109,8 @@ class Bundle(_Model):
     system: str
     before: str
     after: str
+    reference: str | None = None
+    """The tree whose builds stand in for times the merge base lacks."""
     timed: bool
     attrs: list[Attr]
     failed: dict[str, dict[str, str]]
@@ -132,7 +134,15 @@ def _summary(drvs: Iterable[str], timings: Mapping[str, Timing]) -> TimeSummary:
     )
 
 
-def from_diff(result: Diff, *, before: str, after: str, system: str, timed: bool) -> Bundle:
+def from_diff(  # noqa: PLR0913 -- keyword-only, one per bundle header field
+    result: Diff,
+    *,
+    before: str,
+    after: str,
+    system: str,
+    timed: bool,
+    reference: str | None = None,
+) -> Bundle:
     new = result.after.graph
     depth_of = {d: n for n, layer in enumerate(result.layers, 1) for d in layer}
     attrs_of: dict[str, list[str]] = {}
@@ -165,6 +175,7 @@ def from_diff(result: Diff, *, before: str, after: str, system: str, timed: bool
         system=system,
         before=before,
         after=after,
+        reference=reference if result.reference is not None else None,
         timed=timed,
         attrs=[
             Attr(
@@ -177,7 +188,11 @@ def from_diff(result: Diff, *, before: str, after: str, system: str, timed: bool
             for a in sorted(every)
         ],
         failed={"before": result.before.failed, "after": result.after.failed},
-        closure={"before": len(result.before.graph), "after": len(new)},
+        closure={
+            "before": len(result.before.graph),
+            "after": len(new),
+            **({"reference": len(result.reference.graph)} if result.reference is not None else {}),
+        },
         derivations=[
             Derivation(
                 drv=d,

@@ -168,15 +168,19 @@ async def fetch(
     hydra_limit: int = 2,
     per_phase: float = UNREPORTED_PHASE_SECONDS,
     outs: Mapping[str, str] | None = None,
+    nearby: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Timing]:
     """A timing for each key of `candidates`, where one exists.
 
     `candidates` names, per derivation, the `.drv`s whose log may stand in
     for it, best first. `jobs` maps a derivation to its Hydra job. `outs`
     maps a `.drv` to its output path, to find the `.drv` that built it.
-    Order: Hydra on the same `.drv`, then the logs, then the logs of the
-    `.drv`s that built the same outputs, then the job's latest build."""
+    `nearby` names other `.drv`s of the same package, such as its build in
+    a channel Hydra has finished. Order: Hydra on the same `.drv`, then the
+    logs, then the logs of the `.drv`s that built the same outputs, then
+    the job's latest build, then the logs of `nearby` and of that build."""
     outs = outs or {}
+    nearby = nearby or {}
     hydra_slots = anyio.CapacityLimiter(hydra_limit)
     hydra_refused = anyio.Event()
     out: dict[str, Timing] = {}
@@ -206,13 +210,13 @@ async def fetch(
             if (timing := await log_timing(http, built_by, Source.LOG, per_phase)) is not None:
                 out[key] = timing
                 return
-        if latest is None:
+        if latest is not None and latest[1] is not None:
+            out[key] = Timing(latest[1], Source.HYDRA_NEARBY, latest[0], latest[1])
             return
-        drv, seconds = latest
-        if seconds is not None:
-            out[key] = Timing(seconds, Source.HYDRA_NEARBY, drv, seconds)
-        elif (timing := await log_timing(http, drv, Source.LOG_NEARBY, per_phase)) is not None:
-            out[key] = timing
+        for drv in [*nearby.get(key, ()), *([latest[0]] if latest is not None else [])]:
+            if (timing := await log_timing(http, drv, Source.LOG_NEARBY, per_phase)) is not None:
+                out[key] = timing
+                return
 
     async with contextlib.AsyncExitStack() as stack:
         http = client or await stack.enter_async_context(new_client())

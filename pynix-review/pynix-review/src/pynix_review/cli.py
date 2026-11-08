@@ -25,6 +25,8 @@ from .evaluate import SCRATCH_STORE
 from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
 from .review import diff
 
+CHANNEL = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz"
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pynix-review", description=__doc__)
@@ -48,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
         "--after-store",
         default=SCRATCH_STORE,
         help="store for the after side's .drv files; `daemon` makes them buildable",
+    )
+    cmd.add_argument(
+        "--reference",
+        help=f"with --build-times, a tree Hydra has built, for times the merge base lacks; e.g. {CHANNEL}",
     )
     cmd.add_argument("--pool-size", type=int, default=4, help="huggorm's thread pool, for the closure walk")
     cmd.add_argument("--out", type=Path, help="write the bundle's files into this directory")
@@ -111,8 +117,16 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
         hydra=args.hydra,
         per_phase=args.phase_seconds,
         after_store=args.after_store,
+        reference=args.reference,
     )
-    made = bundle.from_diff(result, before=args.before, after=args.after, system=args.system, timed=args.build_times)
+    made = bundle.from_diff(
+        result,
+        before=args.before,
+        after=args.after,
+        system=args.system,
+        timed=args.build_times,
+        reference=args.reference,
+    )
     if args.out is None:
         return made.model_dump_json(indent=2)
     written = await bundle.write(made, anyio.Path(args.out))

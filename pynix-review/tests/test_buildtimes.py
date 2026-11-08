@@ -123,6 +123,12 @@ async def test_log_of_the_drv_that_built_the_same_output() -> None:
     assert timings == {NEW: Timing(3758, Source.LOG, built_by, 3760)}
 
 
+async def test_the_reference_build_stands_in_when_the_merge_base_has_no_log() -> None:
+    client = _client({f"https://cache.nixos.org/log/{OTHER}": _log(CAIRO_LOG)})
+    out = await fetch({NEW: [NEW, OLD]}, {}, hydra=False, client=client, nearby={NEW: [OTHER]})
+    assert out == {NEW: Timing(3758, Source.LOG_NEARBY, OTHER, 3760)}
+
+
 async def test_a_busy_hydra_is_left_alone_and_logs_answer_instead() -> None:
     other_job = "https://hydra.nixos.org/job/nixpkgs/trunk/pango.x86_64-linux/latest"
     pango = "f" * 32 + "-pango-1.56.drv"
