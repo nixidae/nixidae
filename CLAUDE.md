@@ -274,7 +274,7 @@ nix run --file . internal.tests.guest.driver -- --out ./out
 
 ### Guest tests
 
-Phases: `prepare`, then `unit`, `protocol` and `parity` at once, then `leaks` (runs after a failure too; fails on a daemon that outlived its suite, which found nixidae/nixidae#426). `tests/guest/` holds `prepare.py`, `suite.py` (all suites, told apart by `vms.phase`) and `leaks.py`; `tests/derivations/guest/` declares them. Evidence goes to `/artifacts` (`$PYNIXD_TEST_LOG_DIR`); `/tmp` dies with the guest. Suites run as `tester` through the guest's daemon.
+Phases: `prepare`, then `unit`, `protocol` and `parity` at once, then `leaks` (runs after a failure too; fails on a daemon that outlived its suite, which found nixidae/nixidae#426). `tests/guest/` holds `prepare.py` and `leaks.py`; `tests/derivations/guest/` declares them, and each suite through vivarium's `suites` recipe. `-- -k name` selects inside every suite (pair it with `--only`); `PYNIXD_NO_DAEMON=1` is a knob. Evidence goes to `/artifacts` (`$PYNIXD_TEST_LOG_DIR`); `/tmp` dies with the guest. Suites run as `tester` through the guest's daemon.
 
 ### Architecture
 
