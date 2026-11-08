@@ -21,7 +21,7 @@ from .buildtimes import Source
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from .build import Built
+    from .build import Built, Report
     from .buildtimes import Timing
     from .review import Diff
 
@@ -35,9 +35,11 @@ VIEWER: Final = "https://dreampuf.github.io/GraphvizOnline/?engine=dot#"
 from cdnjs. graphvizonline.net carries ads and reads base64 instead."""
 FILL_BUILT: Final = "palegreen"
 FILL_CACHED: Final = "lightgrey"
+"""Substituted or already valid: no builder ran."""
 FILL_FAILED: Final = "salmon"
-FILL_DEPENDENCY: Final = "khaki"
+FILL_OUT_OF_BUDGET: Final = "gold"
 DEPENDENCY_FAILED: Final = "dependency-failed"
+OUT_OF_BUDGET: Final = "out-of-budget"
 ROW_WIDTH: Final = 12
 """Nodes per row. The fzf PR puts 51 derivations at depth 4, and one row of
 them is a strip no browser shows readably; a wider depth stacks its rows."""
@@ -196,13 +198,13 @@ def _quote(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _label(d: Derivation) -> str:
+def _label(d: Derivation, prefix: str = "") -> str:
     version = d.name.removeprefix(d.pname).removeprefix("-")
     lines = [d.pname, *([version] if version else [])]
     if d.time is not None:
         logged = d.time.source in {Source.LOG, Source.LOG_NEARBY}
         nearby = " ~" if d.time.source in {Source.HYDRA_NEARBY, Source.LOG_NEARBY} else ""
-        lines.append(f"{'≈ ' if logged else ''}{d.time.estimate} s{nearby}")
+        lines.append(f"{prefix}{'≈ ' if logged else ''}{d.time.estimate} s{nearby}")
     return "\\n".join(_escape(line) for line in lines)
 
 
@@ -210,31 +212,51 @@ def _escape(line: str) -> str:
     return line.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _filled(fill: str) -> list[str]:
+    return ['style="filled"', f'fillcolor="{fill}"']
+
+
 def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
     """Extra label lines and node attributes for a build result."""
     if r is None:
         return [], ['style="dotted"']
     if r.ok and r.seconds is not None:
-        return [f"took {r.seconds} s"], ['style="filled"', f'fillcolor="{FILL_BUILT}"']
+        return [f"took {r.seconds} s"], _filled(FILL_BUILT)
     if r.ok:
-        return [r.status], ['style="filled"', f'fillcolor="{FILL_CACHED}"']
-    fill = FILL_DEPENDENCY if r.status == DEPENDENCY_FAILED else FILL_FAILED
-    return [r.status], ['style="filled"', f'fillcolor="{fill}"']
+        return [r.status], _filled(FILL_CACHED)
+    if r.status == OUT_OF_BUDGET:
+        return ["out of budget"], _filled(FILL_OUT_OF_BUDGET)
+    after = f" after {r.seconds} s" if r.seconds is not None else ""
+    return [f"{r.status}{after}"], _filled(FILL_FAILED)
 
 
-def to_dot(bundle: Bundle, results: Mapping[str, Built] | None = None) -> str:
+def _built_line(made: Report, total: int) -> str:
+    return (
+        f"built {made.built} of {total}: took {made.built_seconds} s, est {made.built_estimate} s"
+        f" | failed {made.failed} | out of budget {made.out_of_budget}"
+        f" | wall {made.wall_seconds:.0f} s of {made.budget} s"
+    )
+
+
+def to_dot(bundle: Bundle, built: Report | None = None) -> str:
     """The changed subgraph: rows of `ROW_WIDTH` per longest-path depth, inputs below.
 
     An edge runs from an input to what needs it. An attribute's own `.drv`
     has a double border; a derivation with no time has a dashed one. `≈`
     marks an estimate from a log, `~` a time from another `.drv` of the same
-    job. With `results`, the fill shows what the build did and a dotted
-    border marks what the plan left out."""
+    job. With `built`, the fill shows what the build did: green built, grey
+    cached, red failed, yellow out of budget. A dotted border marks a
+    derivation the build has no result for."""
+    results = {r.drv: r for r in built.results} if built is not None else None
     out = [
-        f"digraph {'changed' if results is None else 'built'} {{",
+        f"digraph {'changed' if built is None else 'built'} {{",
         "  rankdir=BT;",
         '  node [shape=box, fontname="monospace"];',
     ]
+    if built is not None:
+        out.append(
+            f'  labelloc="t"; fontname="monospace"; label={_quote(_built_line(built, len(bundle.derivations)))};'
+        )
     rows: list[list[str]] = []
     for depth in sorted({d.depth for d in bundle.derivations}):
         members = [d.drv for d in bundle.derivations if d.depth == depth]
@@ -251,7 +273,7 @@ def to_dot(bundle: Bundle, results: Mapping[str, Built] | None = None) -> str:
     )
     for d in bundle.derivations:
         extra, styled = _outcome(results.get(d.drv)) if results is not None else ([], [])
-        label = "\\n".join([_label(d), *(_escape(line) for line in extra)])
+        label = "\\n".join([_label(d, "est " if results is not None else ""), *(_escape(line) for line in extra)])
         attrs = [f'label="{label}"', f"tooltip={_quote(d.drv)}"]
         if d.attrs:
             attrs.append("peripheries=2")

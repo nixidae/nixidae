@@ -4,8 +4,8 @@ With `--out DIR` it writes `bundle.json`, `bundle.schema.json`,
 `changed.dot` and `changed.url` there, and prints the paths and the view
 link as JSON. Without it, it prints `bundle.json`.
 
-`pynix-review plan BUNDLE`: what to build within a build-time budget.
-`pynix-review build PLAN --bundle BUNDLE`: build it, a result per derivation.
+`pynix-review plan BUNDLE`: what would build within a build-time budget, by the estimates.
+`pynix-review build BUNDLE`: build what fits in a wall-clock budget, a result per derivation.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ import anyio
 import huggorm
 
 from . import bundle
-from .build import DAEMON, build, write as write_built
+from .build import DAEMON, JOBS, WALL_SECONDS, build, write as write_built
 from .buildtimes import UNREPORTED_PHASE_SECONDS
 from .evaluate import SCRATCH_STORE
-from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, Plan, plan
+from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
 from .review import diff
 
 
@@ -62,9 +62,16 @@ def _parser() -> argparse.ArgumentParser:
         help="seconds assumed for a derivation with no time",
     )
 
-    cmd = commands.add_parser("build", help="build a plan and report on each derivation")
-    cmd.add_argument("plan", type=Path, help="the output of `pynix-review plan`")
-    cmd.add_argument("--bundle", type=Path, required=True, help=f"the {bundle.BUNDLE_FILE} the plan came from")
+    cmd = commands.add_parser("build", help="build what fits in a wall-clock budget, and report on each derivation")
+    cmd.add_argument("bundle", type=Path, help=f"a {bundle.BUNDLE_FILE}")
+    cmd.add_argument("--wall", type=int, default=WALL_SECONDS, help="seconds to start builds in; running ones finish")
+    cmd.add_argument("--jobs", type=int, default=JOBS, help="builds at once")
+    cmd.add_argument(
+        "--untimed-seconds",
+        type=int,
+        default=UNTIMED_SECONDS,
+        help="seconds assumed for a derivation with no time, for the order",
+    )
     cmd.add_argument("--store", default=DAEMON, help="the store that builds; the daemon picks the machines")
     cmd.add_argument("--out", type=Path, help="write built.json, built.dot and built.url into this directory")
     cmd.add_argument("--print-build-logs", action="store_true", help="each builder's output and Nix's info on stderr")
@@ -73,12 +80,18 @@ def _parser() -> argparse.ArgumentParser:
 
 async def _build(args: argparse.Namespace) -> str:
     made = bundle.Bundle.model_validate_json(await anyio.Path(args.bundle).read_text())
-    chosen = Plan.model_validate_json(await anyio.Path(args.plan).read_text())
-    result = await build(chosen, made, store_url=args.store, build_logs=args.print_build_logs)
+    result = await build(
+        made,
+        wall=args.wall,
+        jobs=args.jobs,
+        untimed_seconds=args.untimed_seconds,
+        store_url=args.store,
+        build_logs=args.print_build_logs,
+    )
     if args.out is None:
         return result.model_dump_json(indent=2)
     written = await write_built(result, made, anyio.Path(args.out))
-    url = bundle.view_url(bundle.to_dot(made, {r.drv: r for r in result.results}))
+    url = bundle.view_url(bundle.to_dot(made, result))
     return json.dumps({"files": [str(p) for p in written], "view": url}, indent=2)
 
 
@@ -109,8 +122,13 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
-    if args.command in {"plan", "build"}:
-        sys.stdout.write(anyio.run(_plan if args.command == "plan" else _build, args) + "\n")
+    if args.command == "plan":
+        sys.stdout.write(anyio.run(_plan, args) + "\n")
+        return
+    if args.command == "build":
+        # Each build holds a pool thread for its whole run; two more for parse_derived_path.
+        huggorm.set_pool_size(args.jobs + 2)
+        sys.stdout.write(anyio.run(_build, args) + "\n")
         return
     huggorm.set_pool_size(args.pool_size)
 

@@ -46,6 +46,11 @@ def cost(d: Derivation, untimed_seconds: int) -> int:
     return d.time.estimate if d.time is not None else untimed_seconds
 
 
+def order(bundle: Bundle, untimed_seconds: int = UNTIMED_SECONDS) -> list[Derivation]:
+    """Shallowest first, then cheapest: every changed input comes before what needs it."""
+    return sorted(bundle.derivations, key=lambda d: (d.depth, cost(d, untimed_seconds), d.drv))
+
+
 def plan(
     bundle: Bundle,
     *,
@@ -55,7 +60,7 @@ def plan(
 ) -> Plan:
     chosen: set[str] = set()
     spent = 0
-    for d in sorted(bundle.derivations, key=lambda d: (d.depth, cost(d, untimed_seconds), d.drv)):
+    for d in order(bundle, untimed_seconds):
         price = cost(d, untimed_seconds)
         if spent + price <= budget and chosen.issuperset(d.changed_inputs):
             chosen.add(d.drv)
