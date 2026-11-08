@@ -25,5 +25,6 @@ guest-options
 :caption: Design
 
 design/runner
+design/rewrite
 design/console-guests
 ```
