@@ -440,6 +440,7 @@ class Session:
         # before the suites, read by the phase that looks for leaks.
         vms.shared = {}
         vms.phase = None
+        vms.pytest_args = self.pytest_args
 
         # Serially, and before anything spawns: picking a free host
         # address means binding a port and letting go of it again, so two
@@ -726,6 +727,7 @@ class Session:
         vms.artifacts = self.vms.artifacts
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
+        vms.pytest_args = self.pytest_args
         # One script may serve several phases, told apart by this.
         vms.phase = phase.name
         return vms

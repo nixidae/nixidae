@@ -2326,6 +2326,53 @@ let
         '';
 
     /*
+      Does the `suites` recipe run pytest inside a guest?
+
+      The suite holds one passing and one failing test. The check's own
+      run fails, and both become cases with the guest's name. A driver
+      run given `-- -k test_ok` passes, so the driver's arguments reach
+      the pytest in the guest.
+    */
+    suite-recipe =
+      let
+        run = mkTest {
+          name = "suite-recipe";
+          nodes.one = { };
+          vivarium.recipes.suites.inner = {
+            node = "one";
+            tests = ".";
+            directory = "${./tests/guest-suite}";
+            pytest = "${pkgs.python3.withPackages (p: [ p.pytest ])}/bin/pytest";
+            timeout = 600;
+          };
+        };
+      in
+      pkgs.runCommand "vivarium-check-suite-recipe"
+        {
+          nativeBuildInputs = [ pkgs.jq ];
+          passthru.session = run;
+        }
+        ''
+          export HOME="$TMPDIR"
+          a=${run.attempt}
+          fail() { echo "$*" >&2; exit 1; }
+          jq -r '.phases[] | "\(.name)\t\(.state)"' $a/phases.json
+          [ "$(cat $a/status)" = 1 ] || fail "a suite with a failing test passed"
+          jq -c 'select(.kind == "case")' $a/events.jsonl | tee cases
+          jq -e 'select(.data.outcome == "failed" and .machine == "one" and .phase == "inner")' cases > /dev/null \
+            || fail "the failing test is not a failed case of the phase"
+          jq -e 'select(.data.outcome == "passed")' cases > /dev/null || fail "the passing test is not a case"
+          test -s $a/artifacts/one/inner.log || fail "the suite's output is not in the artifacts"
+          echo "ok: the suite ran in the guest, and its tests are cases"
+
+          o="$TMPDIR/k"
+          ${lib.getExe run.driver} --out "$o" -- -k test_ok || fail "-k test_ok did not reach the guest's pytest"
+          echo "ok: the driver's -- arguments reached the suite"
+
+          touch $out
+        '';
+
+    /*
       Does `--kernel` boot the kernel it names?
 
       The by-hand loop for kernel work: `make` in a tree, then boot what it

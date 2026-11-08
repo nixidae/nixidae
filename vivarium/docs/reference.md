@@ -128,6 +128,21 @@ phases.boot.script = ./my-own-boot.py;     # replaced
 system and names the failed units when one does not. Forgetting that
 wait is how a test becomes flaky.
 
+`suites` runs pytest inside a guest, one phase per suite:
+
+```nix
+vivarium.recipes.suites.unit = {
+  tests = "tests/unit";
+  directory = "/work";
+  user = "tester";
+  after = [ "prepare" ];
+};
+```
+
+The suite's JUnit becomes cases of the run, its output goes to
+`artifacts/<guest>/unit.log`, and `vivarium run ... -- -k name` reaches
+its pytest. Suites on different guests run at the same time.
+
 No recipe collects the journal: every guest streams it to the host
 while it runs (`vivarium.journal`, on by default), so it survives a
 guest that is killed, and each entry is an event in `events.jsonl`

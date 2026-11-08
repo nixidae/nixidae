@@ -1716,6 +1716,10 @@ class Machines(dict[str, Machine]):
     apart by name: ``mkTest`` phases generated from one list in Nix.
     ``None`` between phases."""
 
+    pytest_args: list[str]
+    """What followed ``--`` on the run's command line. Every pytest phase
+    gets them; a script that runs pytest inside a guest passes them on."""
+
     def __getattr__(self, name: str) -> Machine:
         try:
             return self[name]
