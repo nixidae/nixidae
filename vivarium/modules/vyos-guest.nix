@@ -253,6 +253,7 @@ in
     vivarium.kind = "vyos";
     vivarium.rootImage = cfg.squashfs;
     vivarium.closure = pkgs.closureInfo { rootPaths = roots; };
+    vivarium.nixDatabase.enable = false;
     vivarium.launch.config.root = lib.mkIf (config.vivarium.backend == "uml") {
       initrd = "${initrd}/initrd";
       inherit (cfg) kernelParams;

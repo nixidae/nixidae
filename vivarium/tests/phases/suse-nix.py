@@ -1,8 +1,9 @@
 """openSUSE with a writable /nix; see `suse-nix` in default.nix.
 
 Nix in the guest opens a local store, knows the paths the guest booted
-with, and adds a path of its own. A collection deletes that unrooted
-path and keeps the agent: the agent answers after it.
+with and the paths the runner registered after boot, and adds a path of
+its own. A collection deletes that unrooted path and keeps the agent:
+the agent answers after it.
 """
 
 from vivarium_runner import Machines
@@ -20,6 +21,11 @@ async def test(vms: Machines) -> None:
     valid = await suse.succeed(f"{nix}/bin/nix-store --check-validity {nix_path} && echo valid")
     assert valid.strip() == "valid", valid
     print("[test] Nix on openSUSE opens a local store that knows its own closure")
+
+    hello = vms.settings["hello"]
+    late = await suse.succeed(f"{nix}/bin/nix-store --check-validity {hello} && echo valid")
+    assert late.strip() == "valid", late
+    print("[test] the store knows a path the runner registered after boot")
 
     added = (await suse.succeed(f"echo garbage > /tmp/g && {nix}/bin/nix-store --add /tmp/g")).strip()
     await suse.succeed(f"test -f {added}")

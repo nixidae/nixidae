@@ -93,6 +93,7 @@ in
     kind = "appliance";
     rootImage = cfg.disk;
     closure = null;
+    nixDatabase.enable = false;
     control = {
       kind = "none";
       config = { inherit (cfg) ready; };

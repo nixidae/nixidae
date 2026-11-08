@@ -543,6 +543,19 @@ in
         '';
       };
 
+      loader = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        internal = true;
+        default =
+          if config.vivarium.nixDatabase.enable then "${config.nix.package.out}/bin/nix-store" else null;
+        defaultText = lib.literalExpression ''"''${config.nix.package.out}/bin/nix-store"'';
+        description = ''
+          The `nix-store` the runner calls in the guest to register a path
+          after boot (`add_closure`). `null` is a guest with no Nix
+          database: the runner adds the path to its store view only.
+        '';
+      };
+
       extraRoots = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];

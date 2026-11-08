@@ -1732,6 +1732,8 @@ let
     suse-nix = mkTest {
       name = "suse-nix";
       settings.nix = "${pkgs.nix}";
+      # Not in the image's own roots: the runner registers it after boot.
+      settings.hello = "${pkgs.hello}";
       nodes.suse = {
         imports = [ vivarium.kinds.image ];
         vivarium.image = images.opensuse-leap-16_0 // {

@@ -178,6 +178,9 @@ rec {
       forward = machine.vivarium.forward;
       inherit (machine.vivarium) control;
     }
+    // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
+      nixStore = machine.vivarium.nixDatabase.loader;
+    }
     // lib.optionalAttrs (machine.vivarium.launch != null) {
       inherit (machine.vivarium) launch;
     }
@@ -502,7 +505,9 @@ rec {
               inherit (machine.vivarium) closure;
             in
             machineSpec machine
-            // lib.optionalAttrs (machine.vivarium.nixDatabase.enable && closure != null) settingsClosure
+            // lib.optionalAttrs (
+              machine.vivarium.nixDatabase.loader != null && closure != null
+            ) settingsClosure
             // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
               storePaths = "${closure}/store-paths";
             }

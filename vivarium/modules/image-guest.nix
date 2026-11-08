@@ -24,14 +24,16 @@ let
   runner = config.system.build.vivariumRunnerPackage;
 
   # What the guest's store view holds: the agent and its units. With a
-  # writable store also every `extraRoots` path, where `mkTest` puts
-  # `settings`, as a NixOS guest has them. A read-only view leaves them
-  # out, for `add_closure` to bring in.
+  # writable store also every `extraRoots` path, as a NixOS guest has
+  # them, and the Nix that registers a path after boot. A read-only view
+  # leaves them out, for `add_closure` to bring in.
   roots = [
     runner
     units
   ]
-  ++ lib.optionals cfg.writableStore config.vivarium.nixDatabase.extraRoots;
+  ++ lib.optionals cfg.writableStore (
+    [ config.nix.package.out ] ++ config.vivarium.nixDatabase.extraRoots
+  );
   registration = pkgs.closureInfo { rootPaths = roots; };
 
   # A database over `roots`, built as a NixOS guest's is (default.nix
@@ -220,9 +222,9 @@ in
               Without it, `/nix` is the host's store view, read-only, and
               Nix in the guest cannot open a local store.
 
-              A path `add_closure` brings in later is not in the database,
-              so Nix in the guest calls it invalid, and its collector
-              deletes it.
+              The runner registers a path `add_closure` brings in later
+              with the guest's own Nix (`config.nix.package`), which the
+              view holds for that.
             '';
           };
           userData = mkOption {
@@ -255,6 +257,7 @@ in
     ];
     vivarium.kind = "image";
     vivarium.rootImage = cfg.disk;
+    vivarium.nixDatabase.enable = cfg.writableStore;
     vivarium.launch.config = lib.mkIf (config.vivarium.backend == "uml") {
       root = {
         inherit (cfg) partition init;

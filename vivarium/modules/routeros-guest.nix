@@ -97,6 +97,7 @@ in
     vivarium.kind = "routeros";
     vivarium.rootImage = cfg.disk;
     vivarium.closure = null;
+    vivarium.nixDatabase.enable = false;
     vivarium.control = {
       kind = "routeros";
       config.configure = true;

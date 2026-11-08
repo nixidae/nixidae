@@ -141,6 +141,7 @@ class MachineSpecJson(TypedDict, total=False):
     store: str
     storePaths: str
     settingsClosure: str
+    nixStore: str
     boot: BootSpec
     systems: SystemsJson
     launch: LaunchSpecJson
@@ -250,6 +251,10 @@ class MachineSpec:
     and registers once the guest is up. Not in the root image: the settings
     name what a test runs, often a source tree, and in the image every edit
     rebuilt every guest root (nixidae/nixidae#1182)."""
+    nix_store: str | None = None
+    """The `nix-store` in the guest that registers a closure after boot.
+    `None` is a guest with no Nix database: a path reaches its store view
+    only."""
     boot: BootSpec = field(default_factory=BootSpec)
     """What a QEMU guest boots: kernel, initrd, toplevel and cmdline, as
     ``modules/qemu.nix`` worked them out.  Empty under UML, which boots the
@@ -292,6 +297,7 @@ class MachineSpec:
             store=data.get("store", "/nix"),
             store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
             settings_closure=Path(data["settingsClosure"]) if data.get("settingsClosure") else None,
+            nix_store=data.get("nixStore"),
             boot=data.get("boot", {}),
             systems=Systems.from_json(data.get("systems", {})),
             launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,
@@ -536,11 +542,12 @@ class Machine:
         return [] if info is None else [*storeview.read_paths(info / "store-paths"), str(info)]
 
     async def _load_registration(self, info: str) -> None:
-        """Register a closureInfo in the guest's Nix database; a cloud image guest has none."""
+        """Register a closureInfo in the guest's Nix database, if it has one."""
         # A VM's overlay keeps a negative dentry for a name looked up before
         # it existed. A container has no overlay here, and may not drop caches.
         drop = "" if self.spec.backend == "container" else "echo 2 > /proc/sys/vm/drop_caches && "
-        load = "true" if self.systems.toplevel is None else f"nix-store --load-db < {shlex.quote(info)}/registration"
+        nix_store = self.spec.nix_store
+        load = "true" if nix_store is None else f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
         rc, out = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
         if rc != 0:
             raise MachineError(f"[{self.name}] loading {info} failed (exit {rc}):\n{out}")
@@ -1189,9 +1196,9 @@ class Machine:
         guest's store view and its registration into the guest's Nix
         database. Returns the paths that were new to the view.
 
-        A cloud image guest (`vivarium.image`) has no Nix database: the
-        paths become visible under its /nix, and that is all, which is
-        enough to run a tool the host built.
+        A guest with no Nix database (a cloud image guest without
+        `writableStore`) sees the paths under its /nix, and that is all,
+        which is enough to run a tool the host built.
         """
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
