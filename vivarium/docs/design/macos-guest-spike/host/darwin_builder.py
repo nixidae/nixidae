@@ -13,8 +13,9 @@ sudo without a password). IMG_DIR is also the IMG environment variable of the
 other steps, because the overlays name its disk.raw.
 
 SNAP_DIR holds the disk overlay as it was at the save (read only from then on),
-aux.img, ram.bin (guest RAM, a shared memory-backend-file) and state.bin (device
-state; x-ignore-shared leaves RAM out of it). A start maps ram.bin private and
+aux.img, ram.bin (guest RAM) and state.bin (device state; x-ignore-shared
+leaves RAM out of it). The saved guest runs on anonymous RAM; a paused QEMU
+then moves its RAM into ram.bin. A start maps ram.bin private and
 copy-on-write, so pages fault in on first touch and the file never changes, and
 puts a fresh qcow2 overlay over the saved one. Every start is the saved guest.
 
@@ -182,7 +183,7 @@ def ecid(img: Path) -> int:
 
 
 def qemu_args(img: Path, run: str, ram: str, *, ssh_port: int | None = None) -> list[str]:
-    """The arguments of run-hvf.sh, with the guest's RAM a memory-backend-file.
+    """The arguments of run-hvf.sh, with the guest's RAM the memory backend *ram*.
 
     *run* is the run directory, or ``{run}`` for a snapshot's template.
     """
@@ -191,7 +192,7 @@ def qemu_args(img: Path, run: str, ram: str, *, ssh_port: int | None = None) -> 
         "-M", f"vmapple,uuid={ecid(img)},gfx=off,memory-backend=ram0",
         "-accel", "hvf",
         "-m", RAM, "-smp", CPUS,
-        "-object", f"memory-backend-file,id=ram0,size={RAM},{ram}",
+        "-object", f"{ram},id=ram0,size={RAM}",
         "-bios", str(ROM),
         "-drive", f"file={run}/aux.img,if=pflash,format=raw",
         "-drive", f"file={img}/disk.raw,if=pflash,format=raw,readonly=on",
@@ -229,13 +230,50 @@ async def stop(vm: Process, qmp: Qmp | None) -> None:
         await vm.wait()
 
 
+async def migrate(qmp: Qmp, target: Path) -> None:
+    await qmp.call("migrate", uri=f"file:{target}")
+    while True:
+        status = await qmp.call("query-migrate")
+        if isinstance(status, dict) and status.get("status") in ("completed", "failed", "cancelled"):
+            break
+        await anyio.sleep(0.05)
+    if status.get("status") != "completed":
+        msg = f"migration to {target} failed: {status}"
+        raise RuntimeError(msg)
+
+
+async def split_ram(img: Path, snap: Path) -> None:
+    """Turn full.bin, RAM and all, into ram.bin and state.bin.
+
+    A paused QEMU loads full.bin into a shared RAM file, then saves its device
+    state with x-ignore-shared. No guest ever runs on the shared mapping.
+    """
+    t0 = time.monotonic()
+    ram = f"memory-backend-file,mem-path={snap / 'ram.bin'},share=on"
+    vm = await launch(snap, [*qemu_args(img, str(snap), ram), "-incoming", "defer"])
+    qmp = None
+    try:
+        qmp = await Qmp.connect(snap / "qmp.sock")
+        await qmp.call("migrate-incoming", uri=f"file:{snap / 'full.bin'}")
+        while await qmp.status() == "inmigrate":
+            await anyio.sleep(0.05)
+        await qmp.call("migrate-set-capabilities", capabilities=X_IGNORE_SHARED)
+        await migrate(qmp, snap / "state.bin")
+    finally:
+        await stop(vm, qmp)
+    await anyio.Path(snap / "full.bin").unlink()
+    log(event="split", seconds=round(time.monotonic() - t0, 1))
+
+
 async def save(guest: Path, snap: Path) -> None:
     image = anyio.Path(guest / "image")
     img = Path((await image.read_text()).strip()) if await image.exists() else IMG
     await anyio.Path(snap).mkdir(parents=True)
     for name in ("overlay.qcow2", "aux.img"):
         await anyio.run_process(["cp", "-c", str(guest / name), str(snap / name)])
-    vm = await launch(snap, qemu_args(img, str(snap), f"mem-path={snap / 'ram.bin'},share=on"))
+    # Anonymous RAM: a guest running on a shared file mapping stalls for
+    # seconds at a time while the host pager writes its pages back.
+    vm = await launch(snap, qemu_args(img, str(snap), "memory-backend-ram"))
     qmp = None
     try:
         qmp = await Qmp.connect(snap / "qmp.sock")
@@ -260,23 +298,16 @@ async def save(guest: Path, snap: Path) -> None:
         # Let launchd settle, so the snapshot is of an idle guest.
         await anyio.sleep(float(os.environ.get("SETTLE", "30")))
         await qmp.call("stop")
-        await qmp.call("migrate-set-capabilities", capabilities=X_IGNORE_SHARED)
-        await qmp.call("migrate", uri=f"file:{snap / 'state.bin'}")
-        while True:
-            status = await qmp.call("query-migrate")
-            if isinstance(status, dict) and status.get("status") in ("completed", "failed", "cancelled"):
-                break
-            await anyio.sleep(0.05)
-        log(event="saved", status=status.get("status"))
-        if status.get("status") != "completed":
-            sys.exit(f"migration failed: {status}")
+        await migrate(qmp, snap / "full.bin")
+        log(event="saved", seconds=round(time.monotonic() - start, 1))
     finally:
         await stop(vm, qmp)
+    await split_ram(img, snap)
     await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
     # Private: with a MAP_SHARED mapping the host pager writes dirty guest pages
-    # back to the file, and the guest stalled for 5-25 s at a time. The stream
+    # back to the file, and the guest stalled for 5-25 s at a time. The state
     # carries no RAM, so the destination keeps the file's pages.
-    ram = f"mem-path={snap / 'ram.bin'},share=off,readonly=on,rom=off"
+    ram = f"memory-backend-file,mem-path={snap / 'ram.bin'},share=off,readonly=on,rom=off"
     manifest = {
         "qemu": str(await anyio.Path(QEMU).resolve()),
         "qemuImg": str(await anyio.Path(QEMU_IMG).resolve()),
@@ -329,7 +360,8 @@ async def prepare(img: Path, guest: Path) -> None:
                                  str(img / "disk.raw"), str(guest / "overlay.qcow2")])  # fmt: skip
         await anyio.run_process(["cp", "-c", str(img / "aux.img"), str(guest / "aux.img")])
     await anyio.Path(guest / "image").write_text(f"{img}\n")
-    vm = await launch(guest, qemu_args(img, str(guest), f"mem-path={guest / 'ram.bin'},share=on", ssh_port=port))
+    # Anonymous: a shared file mapping stalls the guest, and nothing reads this RAM later.
+    vm = await launch(guest, qemu_args(img, str(guest), "memory-backend-ram", ssh_port=port))
     qmp = None
     try:
         qmp = await Qmp.connect(guest / "qmp.sock")
@@ -363,8 +395,6 @@ async def prepare(img: Path, guest: Path) -> None:
         log(event="prepared", seconds=round(time.monotonic() - start, 1))
     finally:
         await stop(vm, qmp)
-    # RAM of a cold boot is no use to a save, which boots again.
-    await anyio.Path(guest / "ram.bin").unlink(missing_ok=True)
 
 
 @contextlib.asynccontextmanager
