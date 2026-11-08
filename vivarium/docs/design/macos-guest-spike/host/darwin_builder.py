@@ -366,16 +366,18 @@ async def save(guest: Path, snap: Path) -> None:
     # Private: with a MAP_SHARED mapping the host pager writes dirty guest pages
     # back to the file, and the guest stalled for 5-25 s at a time. The state
     # carries no RAM, so the destination keeps the file's pages.
+    # Paths inside the snapshot are relative, and {snapshot} in the arguments,
+    # so the directory can move.
     ram = (
-        f"memory-backend-file,mem-path={snap / 'ram.bin'},share=off,readonly=on,rom=off"
+        "memory-backend-file,mem-path={snapshot}/ram.bin,share=off,readonly=on,rom=off"
     )
     manifest = {
         "qemu": str(await anyio.Path(QEMU).resolve()),
         "qemuImg": str(await anyio.Path(QEMU_IMG).resolve()),
         "args": [*qemu_args(img, "{run}", ram), "-incoming", "defer"],
-        "overlay": str(snap / "overlay.qcow2"),
-        "aux": str(snap / "aux.img"),
-        "state": str(snap / "state.bin"),
+        "overlay": "overlay.qcow2",
+        "aux": "aux.img",
+        "state": "state.bin",
         "daemonVsockPort": DAEMON_PORT,
         "clockVsockPort": CLOCK_PORT,
     }
@@ -548,18 +550,25 @@ async def started(snap: Path, run: Path) -> AsyncIterator[Started]:
     await anyio.Path(run).mkdir(parents=True)
     t0 = time.monotonic()
     manifest = json.loads(await anyio.Path(snap / "snapshot.json").read_text())
-    await anyio.run_process(["cp", "-c", manifest["aux"], str(run / "aux.img")])
+
+    def at(name: str) -> str:
+        return name if Path(name).is_absolute() else str(snap / name)
+
+    await anyio.run_process(["cp", "-c", at(manifest["aux"]), str(run / "aux.img")])
     await anyio.run_process(
-        [manifest["qemuImg"], "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", manifest["overlay"],
+        [manifest["qemuImg"], "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", at(manifest["overlay"]),
          str(run / "overlay.qcow2")],
     )  # fmt: skip
-    args = [arg.replace("{run}", str(run)) for arg in manifest["args"]]
+    args = [
+        arg.replace("{run}", str(run)).replace("{snapshot}", str(snap))
+        for arg in manifest["args"]
+    ]
     vm = await launch(run, args, Path(os.environ.get("QEMU", manifest["qemu"])))
     qmp = None
     try:
         qmp = await Qmp.connect(run / "qmp.sock")
         await qmp.call("migrate-set-capabilities", capabilities=X_IGNORE_SHARED)
-        await qmp.call("migrate-incoming", uri=f"file:{manifest['state']}")
+        await qmp.call("migrate-incoming", uri=f"file:{at(manifest['state'])}")
         while await qmp.status() == "inmigrate":
             await anyio.sleep(0.01)
         loaded = time.monotonic() - t0
