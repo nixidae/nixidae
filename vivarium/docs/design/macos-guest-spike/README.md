@@ -177,11 +177,14 @@ pynix build --darwin-builder --darwin-builder-snapshot snap-tahoe --file hello.n
   `full.bin`. A paused QEMU then loads `full.bin` into a shared `ram.bin` and
   writes the device state (`state.bin`, 0.8 MB) with `x-ignore-shared`.
   `snapshot.json` names QEMU, its arguments with `{run}` for the run
-  directory, the read-only overlay and the vsock ports.
+  directory and `{snapshot}` for its own, the read-only overlay and the
+  vsock ports; a snapshot directory can move. Before the save the clock port
+  must report an address on en0, or there is no save.
 - **start** (pynix `_impl/darwin_builder.py`): map `ram.bin` private
   (`share=off,readonly=on,rom=off`), so pages fault in on first touch and the
   file never changes; a new qcow2 overlay over the saved one; `-incoming`,
-  `cont`; wait for the daemon; set the clock; serve the daemon port on a Unix
+  `cont`; wait for the daemon; set the clock (the guest also renews its DHCP
+  lease if en0 has no address, and reports it); serve the daemon port on a Unix
   socket in a 0700 directory. The store URI carries `local-fs=false`: stock
   Nix reads a `unix://` store's paths from the host's own /nix/store.
 
@@ -231,6 +234,15 @@ on darwin.
 - **One vsock request to a fresh macOS 26 guest got no answer and no reset**,
   and the wait for the daemon spent its 30 s on it. It did not happen again.
   Every handshake now times out after 2 s and is retried.
+- **A macOS 15 guest was saved with no DHCP lease on en0.** Every build from
+  that snapshot failed on `Could not resolve host: cache.nixos.org`; a build
+  that ran `scutil --dns` and `ifconfig` showed no address and no route.
+  Seeding goes over vsock, so nothing had needed the network. The clock
+  service renews the lease at every start, and `save` refuses a guest with no
+  address.
+- **beartype cannot check anyio's `TaskStatus`** (a Protocol that is not
+  runtime-checkable). Its warning reached every pynix command's stderr and
+  failed 13 tests; the forwarder carries `@no_runtime_type_check`.
 - **About 150 vsock connections in flight at once** (each closed before its
   `nix-daemon` started) make macOS refuse more until they are gone; 300
   sequential full handshakes pass. `vsockcat serve` listened with a backlog of
