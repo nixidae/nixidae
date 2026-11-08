@@ -4,7 +4,10 @@
   intermediates included. stdenv prints `<phase> completed in ...` only for
   a phase of 30 s or more (pkgs/stdenv/generic/setup.sh, `showPhaseFooter`),
   so the sum is a lower bound. On NixOS/nixpkgs#584542 it was 86 % of
-  Hydra's time over 57 builds, and 0 for 46 of them.
+  Hydra's time over 57 builds, and 0 for 46 of them. Every phase prints
+  `Running phase: X`, so the log also counts the phases with no footer.
+  Against those 57 builds, the error of `footers + k * unreported` was
+  least at k = 0.86 s; k = 15 put the total at 3x Hydra's.
 - hydra.nixos.org job JSON: `stoptime - starttime`, exact, for jobs only.
   A build Hydra reused from another jobset reads 0 s; its HTML page names the
   build that ran ("Cached from: ... build N"). Hydra is shared and
@@ -37,7 +40,10 @@ PHASE_FOOTER: Final = re.compile(
     r"^(\w+) completed in (?:(\d+) hours )?(?:(\d+) minutes )?(\d+) seconds$",
     re.MULTILINE,
 )
+PHASE_HEADER: Final = re.compile(r"^Running phase: (\w+)$", re.MULTILINE)
 CACHED_FROM: Final = re.compile(r"Cached from:.*?/build/(\d+)", re.DOTALL)
+UNREPORTED_PHASE_SECONDS: Final = 1.0
+ZSTD_MAGIC: Final = b"\x28\xb5\x2f\xfd"
 
 
 class Source(enum.StrEnum):
@@ -54,9 +60,13 @@ class Source(enum.StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Timing:
+    """`seconds` is exact from Hydra and a lower bound from a log;
+    `estimate` is the best guess either way."""
+
     seconds: int
     source: Source
     drv: str
+    estimate: int
 
 
 class _Build(BaseModel):
@@ -74,23 +84,41 @@ def phase_seconds(log: str) -> int:
     return total
 
 
+def unreported_phases(log: str) -> int:
+    """Phases that ran without a footer: each took under 30 s."""
+    reported = {phase for phase, *_ in PHASE_FOOTER.findall(log)}
+    return sum(1 for phase in PHASE_HEADER.findall(log) if phase not in reported)
+
+
+def log_estimate(log: str, per_phase: float = UNREPORTED_PHASE_SECONDS) -> int:
+    return phase_seconds(log) + round(per_phase * unreported_phases(log))
+
+
 async def _get(client: httpx.AsyncClient, url: str, *, accept: str | None = None) -> bytes | None:
     response = await client.get(url, headers={"Accept": accept} if accept else None)
     if response.status_code == 404:
         return None
     response.raise_for_status()
-    # Without the `zstandard` extra, httpx 0.28 returns a zstd body as it
-    # came, and raises nothing.
-    if response.headers.get("content-encoding") == "zstd":
+    # cache.nixos.org stores logs zstd-compressed with `content-encoding:
+    # zstd`. httpx 0.28 decodes that only with the `zstandard` package, and
+    # without it returns the body as it came, keeping the header either way.
+    # So the bytes decide, not the header.
+    if response.content[:4] == ZSTD_MAGIC:
         return zstd.decompress(response.content)
     return response.content
 
 
-async def log_timing(client: httpx.AsyncClient, drv: str, source: Source = Source.LOG) -> Timing | None:
+async def log_timing(
+    client: httpx.AsyncClient,
+    drv: str,
+    source: Source = Source.LOG,
+    per_phase: float = UNREPORTED_PHASE_SECONDS,
+) -> Timing | None:
     body = await _get(client, f"{CACHE}/log/{drv}")
     if body is None:
         return None
-    return Timing(phase_seconds(body.decode(errors="replace")), source, drv)
+    log = body.decode(errors="replace")
+    return Timing(phase_seconds(log), source, drv, log_estimate(log, per_phase))
 
 
 async def _build(client: httpx.AsyncClient, url: str) -> _Build | None:
@@ -122,6 +150,7 @@ async def fetch(
     hydra: bool,
     client: httpx.AsyncClient | None = None,
     hydra_limit: int = 2,
+    per_phase: float = UNREPORTED_PHASE_SECONDS,
 ) -> dict[str, Timing]:
     """A timing for each key of `candidates`, where one exists.
 
@@ -137,18 +166,18 @@ async def fetch(
             async with hydra_slots:
                 latest = await hydra_latest(http, jobs[key])
         if latest is not None and latest[1] is not None and latest[0] in drvs:
-            out[key] = Timing(latest[1], Source.HYDRA, latest[0])
+            out[key] = Timing(latest[1], Source.HYDRA, latest[0], latest[1])
             return
         for drv in drvs:
-            if (timing := await log_timing(http, drv)) is not None:
+            if (timing := await log_timing(http, drv, Source.LOG, per_phase)) is not None:
                 out[key] = timing
                 return
         if latest is None:
             return
         drv, seconds = latest
         if seconds is not None:
-            out[key] = Timing(seconds, Source.HYDRA_NEARBY, drv)
-        elif (timing := await log_timing(http, drv, Source.LOG_NEARBY)) is not None:
+            out[key] = Timing(seconds, Source.HYDRA_NEARBY, drv, seconds)
+        elif (timing := await log_timing(http, drv, Source.LOG_NEARBY, per_phase)) is not None:
             out[key] = timing
 
     async with contextlib.AsyncExitStack() as stack:

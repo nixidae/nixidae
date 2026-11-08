@@ -1,8 +1,8 @@
 """`pynix-review diff`: the review bundle of two nixpkgs trees.
 
-With `--out DIR` it writes `bundle.json`, `bundle.schema.json` and
-`changed.dot` there, and prints the paths as JSON. Without it, it prints
-`bundle.json`.
+With `--out DIR` it writes `bundle.json`, `bundle.schema.json`,
+`changed.dot` and `changed.url` there, and prints the paths and the view
+link as JSON. Without it, it prints `bundle.json`.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import anyio
 import huggorm
 
 from . import bundle
+from .buildtimes import UNREPORTED_PHASE_SECONDS
 from .review import diff
 
 
@@ -31,6 +32,12 @@ def _parser() -> argparse.ArgumentParser:
     cmd.add_argument("--after-overlay", help="a Nix overlay applied to the after tree only")
     cmd.add_argument("--build-times", action="store_true", help="time changed derivations from cache.nixos.org logs")
     cmd.add_argument("--hydra", action="store_true", help="with --build-times, ask hydra.nixos.org for exact times")
+    cmd.add_argument(
+        "--phase-seconds",
+        type=float,
+        default=UNREPORTED_PHASE_SECONDS,
+        help="seconds assumed for a logged phase that printed no footer (under 30 s)",
+    )
     cmd.add_argument("--pool-size", type=int, default=4, help="huggorm's thread pool, for the closure walk")
     cmd.add_argument("--out", type=Path, help="write the bundle's files into this directory")
     return parser
@@ -45,12 +52,13 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
         after_overlay=args.after_overlay,
         build_times=args.build_times,
         hydra=args.hydra,
+        per_phase=args.phase_seconds,
     )
     made = bundle.from_diff(result, before=args.before, after=args.after, system=args.system, timed=args.build_times)
     if args.out is None:
         return made.model_dump_json(indent=2)
     written = await bundle.write(made, anyio.Path(args.out))
-    return json.dumps({"files": [str(p) for p in written]}, indent=2)
+    return json.dumps({"files": [str(p) for p in written], "view": bundle.view_url(bundle.to_dot(made))}, indent=2)
 
 
 def main() -> None:

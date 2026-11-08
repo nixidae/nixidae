@@ -7,6 +7,7 @@ inputs, its before twin and its time, so a consumer needs nothing else.
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import TYPE_CHECKING, Final
 
@@ -26,6 +27,8 @@ FORMAT: Final = 1
 BUNDLE_FILE: Final = "bundle.json"
 SCHEMA_FILE: Final = "bundle.schema.json"
 DOT_FILE: Final = "changed.dot"
+URL_FILE: Final = "changed.url"
+VIEWER: Final = "https://graphvizonline.net/?engine=dot#"
 
 
 class _Model(BaseModel):
@@ -34,6 +37,9 @@ class _Model(BaseModel):
 
 class Time(_Model):
     seconds: int
+    """Exact from Hydra; from a log, the sum of its phase footers, a lower bound."""
+    estimate: int
+    """The best guess: `seconds` from Hydra; from a log, the footers plus a second per phase without one."""
     source: Source
     drv: str
     """The `.drv` whose record gave the time: this one, its before twin, or a nearby build."""
@@ -64,6 +70,7 @@ class Attr(_Model):
 
 class TimeSummary(_Model):
     seconds: int
+    estimate: int
     by_source: dict[Source, int]
     untimed: int
 
@@ -99,6 +106,7 @@ def _summary(drvs: Iterable[str], timings: Mapping[str, Timing]) -> TimeSummary:
     timed = [timings[d] for d in listed if d in timings]
     return TimeSummary(
         seconds=sum(t.seconds for t in timed),
+        estimate=sum(t.estimate for t in timed),
         by_source={s: n for s in Source if (n := sum(1 for t in timed if t.source is s))},
         untimed=len(listed) - len(timed),
     )
@@ -113,7 +121,7 @@ def from_diff(result: Diff, *, before: str, after: str, system: str, timed: bool
 
     def time(base: str) -> Time | None:
         t = result.timings.get(base)
-        return Time(seconds=t.seconds, source=t.source, drv=t.drv) if t else None
+        return Time(seconds=t.seconds, estimate=t.estimate, source=t.source, drv=t.drv) if t else None
 
     def depths(selections: list[set[str]], builds: list[set[str]]) -> list[Depth]:
         return [
@@ -180,10 +188,7 @@ def _label(d: Derivation) -> str:
     if d.time is not None:
         logged = d.time.source in {Source.LOG, Source.LOG_NEARBY}
         nearby = " ~" if d.time.source in {Source.HYDRA_NEARBY, Source.LOG_NEARBY} else ""
-        if logged and d.time.seconds == 0:
-            lines.append(f"< 30 s/phase{nearby}")
-        else:
-            lines.append(f"{'≥ ' if logged else ''}{d.time.seconds} s{nearby}")
+        lines.append(f"{'≈ ' if logged else ''}{d.time.estimate} s{nearby}")
     return "\\n".join(line.replace("\\", "\\\\").replace('"', '\\"') for line in lines)
 
 
@@ -191,9 +196,9 @@ def to_dot(bundle: Bundle) -> str:
     """The changed subgraph: one rank per longest-path depth, inputs below.
 
     An edge runs from an input to what needs it. An attribute's own `.drv`
-    has a double border; a derivation with no time has a dashed one. `≥`
-    marks a log lower bound, and `< 30 s/phase` a log with no phase footer.
-    `~` marks a time from another `.drv` of the same job."""
+    has a double border; a derivation with no time has a dashed one. `≈`
+    marks an estimate from a log, `~` a time from another `.drv` of the same
+    job."""
     out = [
         "digraph changed {",
         "  rankdir=BT;",
@@ -214,13 +219,25 @@ def to_dot(bundle: Bundle) -> str:
     return "\n".join(out) + "\n"
 
 
+def view_url(dot: str) -> str:
+    """A graphvizonline.net link that renders `dot`.
+
+    The page reads the fragment as base64 of UTF-8
+    (`atob` then `decodeURIComponent(escape(...))`) and renders it in the
+    browser. A browser never sends the fragment, so the graph stays with
+    whoever opens the link."""
+    return VIEWER + base64.b64encode(dot.encode()).decode()
+
+
 async def write(bundle: Bundle, directory: anyio.Path) -> list[anyio.Path]:
     """Write the bundle's files into `directory`, made if missing."""
     await directory.mkdir(parents=True, exist_ok=True)
+    dot = to_dot(bundle)
     files = {
         BUNDLE_FILE: bundle.model_dump_json(indent=2) + "\n",
         SCHEMA_FILE: json.dumps(Bundle.model_json_schema(), indent=2) + "\n",
-        DOT_FILE: to_dot(bundle),
+        DOT_FILE: dot,
+        URL_FILE: view_url(dot) + "\n",
     }
     written = []
     for name, text in files.items():

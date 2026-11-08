@@ -5,7 +5,7 @@ import json
 import httpx
 from compression import zstd
 
-from pynix_review.buildtimes import Source, Timing, fetch, phase_seconds
+from pynix_review.buildtimes import Source, Timing, fetch, log_estimate, phase_seconds, unreported_phases
 
 CAIRO_LOG = """Running phase: unpackPhase
 Running phase: buildPhase
@@ -22,6 +22,15 @@ def test_phase_seconds_sums_every_footer() -> None:
 
 def test_phase_seconds_is_zero_without_a_footer() -> None:
     assert phase_seconds("Running phase: buildPhase\n") == 0
+
+
+def test_unreported_phases_are_headers_without_a_footer() -> None:
+    assert unreported_phases(CAIRO_LOG) == 2
+
+
+def test_log_estimate_adds_a_guess_per_unreported_phase() -> None:
+    assert log_estimate(CAIRO_LOG) == 3758 + 2
+    assert log_estimate(CAIRO_LOG, per_phase=15) == 3758 + 30
 
 
 def _client(routes: dict[str, httpx.Response]) -> httpx.AsyncClient:
@@ -56,7 +65,16 @@ JOB = "https://hydra.nixos.org/job/nixpkgs/trunk/cairo.x86_64-linux/latest"
 async def test_log_of_the_twin_when_the_new_drv_has_none() -> None:
     client = _client({f"https://cache.nixos.org/log/{OLD}": _log(CAIRO_LOG)})
     out = await fetch({NEW: [NEW, OLD]}, {}, hydra=False, client=client)
-    assert out == {NEW: Timing(3758, Source.LOG, OLD)}
+    assert out == {NEW: Timing(3758, Source.LOG, OLD, 3760)}
+
+
+async def test_a_log_httpx_already_decoded_is_read_as_is() -> None:
+    """With the `zstandard` package, httpx decodes the body and keeps the header."""
+    plain = httpx.Response(200, content=CAIRO_LOG.encode(), headers={"content-encoding": "identity"})
+    plain.headers["content-encoding"] = "zstd"
+    client = _client({f"https://cache.nixos.org/log/{NEW}": plain})
+    out = await fetch({NEW: [NEW]}, {}, hydra=False, client=client)
+    assert out == {NEW: Timing(3758, Source.LOG, NEW, 3760)}
 
 
 async def test_hydra_on_the_same_drv_wins_over_a_log() -> None:
@@ -67,7 +85,7 @@ async def test_hydra_on_the_same_drv_wins_over_a_log() -> None:
         }
     )
     out = await fetch({NEW: [NEW]}, {NEW: "cairo.x86_64-linux"}, hydra=True, client=client)
-    assert out == {NEW: Timing(55, Source.HYDRA, NEW)}
+    assert out == {NEW: Timing(55, Source.HYDRA, NEW, 55)}
 
 
 async def test_reused_build_follows_cached_from() -> None:
@@ -80,13 +98,13 @@ async def test_reused_build_follows_cached_from() -> None:
         }
     )
     out = await fetch({NEW: [NEW]}, {NEW: "cairo.x86_64-linux"}, hydra=True, client=client)
-    assert out == {NEW: Timing(55, Source.HYDRA, NEW)}
+    assert out == {NEW: Timing(55, Source.HYDRA, NEW, 55)}
 
 
 async def test_nearby_build_when_nothing_else_has_a_record() -> None:
     client = _client({JOB: _build(OTHER, 0, 40)})
     out = await fetch({NEW: [NEW, OLD]}, {NEW: "cairo.x86_64-linux"}, hydra=True, client=client)
-    assert out == {NEW: Timing(40, Source.HYDRA_NEARBY, OTHER)}
+    assert out == {NEW: Timing(40, Source.HYDRA_NEARBY, OTHER, 40)}
 
 
 async def test_hydra_is_not_asked_without_the_flag() -> None:

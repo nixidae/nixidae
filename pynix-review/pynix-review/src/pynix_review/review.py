@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import anyio
 
 from . import graph
-from .buildtimes import Timing, fetch
+from .buildtimes import UNREPORTED_PHASE_SECONDS, Timing, fetch
 from .evaluate import Side, evaluate
 
 if TYPE_CHECKING:
@@ -45,6 +45,7 @@ async def diff(
     after_overlay: str | None = None,
     build_times: bool = False,
     hydra: bool = False,
+    per_phase: float = UNREPORTED_PHASE_SECONDS,
 ) -> Diff:
     """What `after` changes against `before`, for the closure of `attrs`.
 
@@ -83,6 +84,6 @@ async def diff(
         # The after .drv first: for a merged change Hydra has built it.
         candidates = {d: [d, *([result.twins[d]] if d in result.twins else [])] for d in changed}
         jobs = {a: f"{attr}.{system}" for attr, a in new.roots.items() if a in changed}
-        result.timings = await fetch(candidates, jobs, hydra=hydra)
+        result.timings = await fetch(candidates, jobs, hydra=hydra, per_phase=per_phase)
         result.seconds["build_times"] = time.monotonic() - start
     return result
