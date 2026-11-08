@@ -43,6 +43,11 @@ FILL_CACHED: Final = "lightgrey"
 FILL_FAILED: Final = "salmon"
 FILL_OUT_OF_BUDGET: Final = "gold"
 DEPENDENCY_FAILED: Final = "dependency-failed"
+"""A changed input failed: the build held this one back."""
+UNCHANGED_INPUT_FAILED: Final = "unchanged-input-failed"
+"""Nix's own dependency-failed. A build starts only after its changed
+inputs built, so the input that failed is one the change does not touch:
+the merge base is broken there, not the change."""
 OUT_OF_BUDGET: Final = "out-of-budget"
 ROW_WIDTH: Final = 12
 """Nodes per row. The fzf PR puts 51 derivations at depth 4, and one row of
@@ -252,7 +257,8 @@ def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
 def _built_line(made: Report, total: int) -> str:
     return (
         f"built {made.built} of {total}: took {made.built_seconds} s, est {made.built_estimate} s"
-        f" | failed {made.failed} | out of budget {made.out_of_budget}"
+        f" | failed {made.failed} ({made.unchanged_input_failed} on an unchanged input)"
+        f" | out of budget {made.out_of_budget}"
         f" | wall {made.wall_seconds:.0f} s of {made.budget} s"
     )
 

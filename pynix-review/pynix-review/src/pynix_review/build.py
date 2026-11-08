@@ -23,7 +23,7 @@ import anyio
 import huggorm
 from pydantic import BaseModel, ConfigDict
 
-from .bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, to_dot, view_url
+from .bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, to_dot, view_url
 from .evaluate import error_line
 from .plan import STORE_DIR, UNTIMED_SECONDS, cost, order
 
@@ -91,13 +91,23 @@ class Report(_Model):
     wall_seconds: float
     failed: int
     """Failed builds, and derivations a failed input held back."""
+    unchanged_input_failed: int
+    """Of `failed`, those an input the change does not touch failed."""
     out_of_budget: int
+
+
+def failure_status(nix_status: str) -> str:
+    """The status word for a build Nix reports as failed."""
+    return UNCHANGED_INPUT_FAILED if nix_status == DEPENDENCY_FAILED else nix_status
 
 
 def held_back(drv: str, inputs: Sequence[Outcome]) -> Outcome | None:
     """`drv`'s outcome with no build, from its changed inputs' outcomes;
     None when they all succeeded."""
-    if any(not o.ok and o.status != OUT_OF_BUDGET for o in inputs):
+    failed = [o for o in inputs if not o.ok and o.status != OUT_OF_BUDGET]
+    if failed and all(o.status == UNCHANGED_INPUT_FAILED for o in failed):
+        return Outcome(drv, UNCHANGED_INPUT_FAILED, False, 0, 0, "a changed input failed on an unchanged input")
+    if failed:
         return Outcome(drv, DEPENDENCY_FAILED, False, 0, 0, "a changed input failed")
     if any(o.status == OUT_OF_BUDGET for o in inputs):
         return Outcome(drv, OUT_OF_BUDGET, False, 0, 0, "a changed input ran out of budget")
@@ -172,6 +182,7 @@ def report(
         built_estimate=sum(r.estimate or 0 for r in timed),
         wall_seconds=round(wall_seconds, 3),
         failed=sum(1 for r in results if not r.ok and r.status != OUT_OF_BUDGET),
+        unchanged_input_failed=sum(1 for r in results if r.status == UNCHANGED_INPUT_FAILED),
         out_of_budget=sum(1 for r in results if r.status == OUT_OF_BUDGET),
     )
 
@@ -208,7 +219,9 @@ async def _build_one(store: huggorm.AsyncStore, drv: str) -> Outcome:
     success, error = result.success(), result.error()
     return Outcome(
         drv=drv,
-        status=str(success.status()) if success is not None else str(error.status if error else "unknown"),
+        status=str(success.status())
+        if success is not None
+        else failure_status(str(error.status if error else "unknown")),
         ok=success is not None,
         start=result.start_time(),
         stop=result.stop_time(),

@@ -4,8 +4,8 @@ import anyio
 from shapes import base
 from test_bundle import CAIRO, FONTCONFIG, FREETYPE, LIBPNG, font_bundle
 
-from pynix_review.build import Outcome, Report, held_back, report, schedule
-from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, Bundle, to_dot
+from pynix_review.build import Outcome, Report, failure_status, held_back, report, schedule
+from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, Bundle, to_dot
 from pynix_review.plan import order
 
 
@@ -44,6 +44,25 @@ def test_report_counts() -> None:
     assert (counted.built, counted.failed, counted.out_of_budget) == (1, 1, 1)
     assert (counted.built_seconds, counted.built_estimate) == (40, 38)
     assert counted.estimate == 55 + 38 + 7 + 60
+
+
+def test_nix_dependency_failed_means_an_unchanged_input_failed() -> None:
+    assert failure_status(DEPENDENCY_FAILED) == UNCHANGED_INPUT_FAILED
+    assert failure_status("permanent-failure") == "permanent-failure"
+    counted = made([*outcomes()[:3], Outcome(CAIRO, UNCHANGED_INPUT_FAILED, False, 0, 0, "error: Cannot build")])
+    assert (counted.failed, counted.unchanged_input_failed) == (2, 1)
+    assert "failed 2 (1 on an unchanged input)" in to_dot(font_bundle(), counted)
+
+
+def test_held_back_by_a_base_failure_is_a_base_failure_too() -> None:
+    base = Outcome(FONTCONFIG, UNCHANGED_INPUT_FAILED, False, 0, 0, None)
+    pr = Outcome(LIBPNG, "permanent-failure", False, 1, 2, None)
+    held = held_back(CAIRO, [base])
+    assert held is not None
+    assert held.status == UNCHANGED_INPUT_FAILED
+    mixed = held_back(CAIRO, [base, pr])
+    assert mixed is not None
+    assert mixed.status == DEPENDENCY_FAILED
 
 
 def test_report_round_trips() -> None:
@@ -115,7 +134,10 @@ def test_built_dot_fills_by_outcome_and_shows_both_times() -> None:
         font_bundle(), made([*outcomes()[:3], Outcome(CAIRO, OUT_OF_BUDGET, False, 0, 0, "not started within 60 s")])
     )
     assert dot.startswith("digraph built {")
-    assert 'label="built 1 of 4: took 40 s, est 38 s | failed 1 | out of budget 1 | wall 61 s of 3600 s"' in dot
+    summary = (
+        "built 1 of 4: took 40 s, est 38 s | failed 1 (0 on an unchanged input) | out of budget 1 | wall 61 s of 3600 s"
+    )
+    assert f'label="{summary}"' in dot
     assert 'fillcolor="palegreen"' in node(dot, LIBPNG)
     assert "est ≈ 38 s\\ntook 40 s" in node(dot, LIBPNG)
     assert 'fillcolor="lightgrey"' in node(dot, FREETYPE)
