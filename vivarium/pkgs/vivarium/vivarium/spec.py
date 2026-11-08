@@ -15,12 +15,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-
-if TYPE_CHECKING:
-    from vivarium_runner.machine import ToolchainJson
 
 type JsonObject = dict[str, object]
 
@@ -135,16 +132,6 @@ class Spec(Strict):
     """Directories every phase script can import from."""
     knobs: dict[str, Knob] = Field(default_factory=dict)
 
-    passt: Path | None = None
-    qemu: Path | None = None
-    qemuImg: Path | None = None  # noqa: N815 -- Nix writes it, so Nix spells it
-    virtiofsd: Path | None = None
-    krun: Path | None = None
-    gvproxy: Path | None = None
-    crun: Path | None = None
-    setpriv: Path | None = None
-    tesseract: Path | None = None
-    magick: Path | None = None
     unshare: Path | None = None
     """util-linux's, which puts `vivarium run` in its own namespace. See
     `vivarium/namespace.py`."""
@@ -167,32 +154,3 @@ class Spec(Strict):
                 " A newer vivarium wrote it; run it with the `vivarium` it"
                 f" names, {raw.get('vivarium') or '(none named)'}"
             ) from None
-
-    def toolchain(self) -> ToolchainJson:
-        """The toolchain fields, as `vivarium_runner.Toolchain` wants them.
-
-        Only what this run's backend needs is set; naming a store path is
-        what makes Nix build it, so a UML run carries no QEMU.
-        """
-        tools: ToolchainJson = {}
-        if self.passt is not None:
-            tools["passt"] = str(self.passt)
-        if self.qemu is not None:
-            tools["qemu"] = str(self.qemu)
-        if self.qemuImg is not None:
-            tools["qemuImg"] = str(self.qemuImg)
-        if self.virtiofsd is not None:
-            tools["virtiofsd"] = str(self.virtiofsd)
-        if self.krun is not None:
-            tools["krun"] = str(self.krun)
-        if self.gvproxy is not None:
-            tools["gvproxy"] = str(self.gvproxy)
-        if self.crun is not None:
-            tools["crun"] = str(self.crun)
-        if self.setpriv is not None:
-            tools["setpriv"] = str(self.setpriv)
-        if self.tesseract is not None:
-            tools["tesseract"] = str(self.tesseract)
-        if self.magick is not None:
-            tools["magick"] = str(self.magick)
-        return tools

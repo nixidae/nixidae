@@ -45,15 +45,19 @@ from typing import TYPE_CHECKING, Protocol
 from . import container, forward, mconsole, qmp
 
 if TYPE_CHECKING:
-    from .machine import BootSpec, Machine, MachineSpec, MemoryControl, Toolchain
+    from .machine import BootSpec, Machine, MachineSpec, MemoryControl
 
 
 class BackendError(Exception):
     """A guest could not be assembled: a helper that would not start."""
 
 
-def launch_config(spec: MachineSpec, backend: str, fields: frozenset[str]) -> Mapping[str, object]:
+def launch_config(
+    spec: MachineSpec, backend: str, fields: frozenset[str], optional: frozenset[str] = frozenset()
+) -> Mapping[str, object]:
     """`spec.launch.config`, checked against the fields *backend* reads.
+
+    *fields* must all be there; *optional* may be.
 
     A missing field or one the backend does not know is an error that
     names the guest and the option: a misspelled field otherwise starts
@@ -65,17 +69,11 @@ def launch_config(spec: MachineSpec, backend: str, fields: frozenset[str]) -> Ma
     if spec.launch.backend != backend:
         raise BackendError(f"{owner}.backend is {spec.launch.backend!r}, but the guest runs on {backend!r}")
     given = set(spec.launch.config)
-    if unknown := sorted(given - fields):
+    if unknown := sorted(given - fields - optional):
         raise BackendError(f"{owner}.config has fields the {backend} backend does not know: {', '.join(unknown)}")
     if missing := sorted(fields - given):
         raise BackendError(f"{owner}.config lacks fields the {backend} backend needs: {', '.join(missing)}")
     return spec.launch.config
-
-
-def no_launch(spec: MachineSpec, backend: str) -> None:
-    """For a backend that reads nothing from `vivarium.launch` yet."""
-    if spec.launch is not None:
-        raise BackendError(f"{spec.name}: vivarium.launch is set, but the {backend} backend reads no launch config")
 
 
 @dataclass(frozen=True)
@@ -86,11 +84,106 @@ class UmlConfig:
     """The UML kernel, `linux`, which the guest runs as."""
     bridge: Path
     """`uml-passt-bridge`, which forks passt for the uplink."""
+    passt: Path
+    qemu_img: Path | None
+    """For a cloud image, which is qcow2 and which ubd cannot read."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> UmlConfig:
-        config = launch_config(spec, "uml", frozenset({"kernel", "bridge"}))
-        return cls(kernel=Path(str(config["kernel"])), bridge=Path(str(config["bridge"])))
+        config = launch_config(spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg"}))
+        return cls(
+            kernel=_path(config, "kernel"),
+            bridge=_path(config, "bridge"),
+            passt=_path(config, "passt"),
+            qemu_img=_maybe(config, "qemuImg"),
+        )
+
+
+@dataclass(frozen=True)
+class QemuConfig:
+    """`vivarium.launch.config` under QEMU."""
+
+    qemu: Path
+    qemu_img: Path
+    virtiofsd: Path
+    passt: Path
+    ocr: tuple[Path, Path] | None
+    """tesseract and magick, for a guest with `vivarium.display`."""
+
+    @classmethod
+    def of(cls, spec: MachineSpec) -> QemuConfig:
+        config = launch_config(
+            spec, "qemu", frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}), frozenset({"tesseract", "magick"})
+        )
+        tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
+        if (tesseract is None) != (magick is None):
+            raise BackendError(f"{spec.name}: vivarium.launch.config names one of tesseract and magick; OCR needs both")
+        return cls(
+            qemu=_path(config, "qemu"),
+            qemu_img=_path(config, "qemuImg"),
+            virtiofsd=_path(config, "virtiofsd"),
+            passt=_path(config, "passt"),
+            ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
+        )
+
+
+@dataclass(frozen=True)
+class ApplianceConfig:
+    """`vivarium.launch.config` under the appliance backend."""
+
+    qemu: Path
+    qemu_img: Path
+    passt: Path
+
+    @classmethod
+    def of(cls, spec: MachineSpec) -> ApplianceConfig:
+        config = launch_config(spec, "appliance", frozenset({"qemu", "qemuImg", "passt"}))
+        return cls(qemu=_path(config, "qemu"), qemu_img=_path(config, "qemuImg"), passt=_path(config, "passt"))
+
+
+@dataclass(frozen=True)
+class KrunConfig:
+    """`vivarium.launch.config` under krun."""
+
+    krun: Path
+    """`vivarium-krun`, the process a krun guest runs as."""
+    qemu_img: Path
+    passt: Path
+    gvproxy: Path | None
+    """For `vivarium.uplink.proxy = "gvproxy"`."""
+
+    @classmethod
+    def of(cls, spec: MachineSpec) -> KrunConfig:
+        config = launch_config(spec, "krun", frozenset({"krun", "qemuImg", "passt"}), frozenset({"gvproxy"}))
+        return cls(
+            krun=_path(config, "krun"),
+            qemu_img=_path(config, "qemuImg"),
+            passt=_path(config, "passt"),
+            gvproxy=_maybe(config, "gvproxy"),
+        )
+
+
+@dataclass(frozen=True)
+class ContainerConfig:
+    """`vivarium.launch.config` under the container backend."""
+
+    crun: Path
+    setpriv: Path
+    passt: Path
+    """passt's own path; pasta is the same program, beside it."""
+
+    @classmethod
+    def of(cls, spec: MachineSpec) -> ContainerConfig:
+        config = launch_config(spec, "container", frozenset({"crun", "setpriv", "passt"}))
+        return cls(crun=_path(config, "crun"), setpriv=_path(config, "setpriv"), passt=_path(config, "passt"))
+
+
+def _path(config: Mapping[str, object], key: str) -> Path:
+    return Path(str(config[key]))
+
+
+def _maybe(config: Mapping[str, object], key: str) -> Path | None:
+    return _path(config, key) if key in config else None
 
 
 REBOOTED = "reboot: Restarting system"
@@ -359,6 +452,10 @@ class Backend(Protocol):
 
     def memory_control(self, path: Path) -> MemoryControl: ...
 
+    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
+        """tesseract and magick, for a backend whose guest has a screen."""
+        ...
+
 
 class Uml:
     """A guest as an ordinary Linux process.
@@ -378,6 +475,10 @@ class Uml:
     def validate(spec: MachineSpec) -> None:
         UmlConfig.of(spec)
 
+    @staticmethod
+    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
+        return None
+
     def launch(
         self,
         machine: Machine,
@@ -387,13 +488,13 @@ class Uml:
         boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
         config = UmlConfig.of(spec)
         ram = physmem_dir(spec.memory)
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
             str(config.kernel),
-            *self._root(tools, rundir, spec),
+            *self._root(config.qemu_img, rundir, spec),
             "rw",
             f"mem={spec.memory}",
             f"ssl0=fd:{agent_fd}",
@@ -445,7 +546,7 @@ class Uml:
 
         pass_fds = (agent_fd, *lan_fds.values())
         # The bridge finds passt on PATH.
-        env = dict(os.environ, PATH=f"{tools.passt.parent}:{os.environ['PATH']}")
+        env = dict(os.environ, PATH=f"{config.passt.parent}:{os.environ['PATH']}")
         # The guest's RAM, and nothing else: the runner's own temporary
         # files -- the cow file above among them -- keep the caller's
         # TMPDIR, because a guest's disk belongs on a disk.  See
@@ -473,7 +574,7 @@ class Uml:
         return mconsole.Mconsole(path, path.with_name("client"))
 
     @staticmethod
-    def _root(tools: Toolchain, rundir: Path, spec: MachineSpec) -> list[str]:
+    def _root(qemu_img: Path | None, rundir: Path, spec: MachineSpec) -> list[str]:
         """The disks and the root, for a NixOS image, a cloud image or VyOS.
 
         A cloud image is qcow2, which ubd cannot read. It becomes a raw
@@ -487,8 +588,10 @@ class Uml:
             # VyOS: a squashfs, read-only, which the initramfs overlays.
             return [f"ubd0r={spec.image}", f"initrd={image['initrd']}", *image["kernelParams"]]
         raw = rundir / "disk.raw"
+        if qemu_img is None:
+            raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
         subprocess.run(
-            [str(tools.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
+            [str(qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
             check=True,
             capture_output=True,
         )
@@ -537,7 +640,10 @@ class Qemu:
         return any(REBOOTED in line for line in console)
 
     def validate(self, spec: MachineSpec) -> None:
-        no_launch(spec, self.name)
+        QemuConfig.of(spec)
+
+    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
+        return QemuConfig.of(spec).ocr
 
     def launch(
         self,
@@ -594,10 +700,10 @@ class Qemu:
         out-of-band management network a peer serves -- there is no passt,
         and so no forwards (nixidae/nixidae#958).
         """
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
         if spec.uplink is not None:
             return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
-        passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+        passt_fd, passt_proc = self._passt(QemuConfig.of(spec).passt, rundir, machine.forward, machine.offline)
         helpers.append(passt_proc)
         opened.append(passt_fd)
         return f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}", passt_fd
@@ -613,7 +719,8 @@ class Qemu:
         boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
+        config = QemuConfig.of(spec)
 
         # Every unix socket this guest needs, in one directory short
         # enough to name them: virtiofsd's, the artifacts one, and the
@@ -623,13 +730,13 @@ class Qemu:
         # A guest that rebooted left its monitor's socket.
         (sockets / "qmp").unlink(missing_ok=True)
 
-        vfs_fd, vfsd = self._virtiofsd(tools, sockets, "vfs", spec.store)
+        vfs_fd, vfsd = self._virtiofsd(config.virtiofsd, sockets, "vfs", spec.store)
         helpers.append(vfsd)
         opened.append(vfs_fd)
 
         art_fd: int | None = None
         if machine.artifacts is not None:
-            art_fd, artd = self._virtiofsd(tools, sockets, "art", str(machine.artifacts))
+            art_fd, artd = self._virtiofsd(config.virtiofsd, sockets, "art", str(machine.artifacts))
             helpers.append(artd)
             opened.append(art_fd)
 
@@ -646,17 +753,17 @@ class Qemu:
             )
             opened.extend(disk_fds)
         else:
-            disk_fds = self._scratch_disk(tools, rundir, spec.image)
+            disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image)
             opened.extend(disk_fds)
             if efi:
-                esp_fds = self._scratch_disk(tools, rundir, Path(efi["esp"]), backing="qcow2")
+                esp_fds = self._scratch_disk(config.qemu_img, rundir, Path(efi["esp"]), backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
         uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
 
         argv = [
-            str(tools.qemu),
+            str(config.qemu),
             "-machine",
             "q35,accel=kvm,memory-backend=guest-memory",
             # Nested virtualization only when the guest asked: `-cpu host`
@@ -805,17 +912,18 @@ class Qemu:
         the agent would get: `control.ConsoleControl` drives it. The
         uplink is the first NIC, so it is the OS's first interface.
         """
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
+        config = QemuConfig.of(spec)
         image = spec.boot["image"]
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
-        disk_fds = self._scratch_disk(tools, rundir, spec.image, image.get("format", "raw"))
+        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, image.get("format", "raw"))
         opened.extend(disk_fds)
 
         uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
 
         argv = [
-            str(tools.qemu),
+            str(config.qemu),
             "-machine",
             "q35,accel=kvm",
             "-cpu",
@@ -848,10 +956,10 @@ class Qemu:
             "-qmp",
             f"unix:{sockets}/qmp,server=on,wait=off",
         ]
-        if config := image.get("configDisk"):
+        if config_disk := image.get("configDisk"):
             # A copy, writable: RouterOS does not mount a read-only disk.
             disk = rundir / "config.img"
-            shutil.copyfile(config, disk)
+            shutil.copyfile(config_disk, disk)
             disk.chmod(0o600)
             argv += ["-drive", f"file={disk},if=virtio,format=raw"]
         for nic in spec.interfaces:
@@ -876,7 +984,7 @@ class Qemu:
         return qmp.Qmp(path)
 
     @staticmethod
-    def _scratch_disk(tools: Toolchain, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
+    def _scratch_disk(qemu_img: Path, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
         """A writable layer over the read-only root image, with no name.
 
         The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -898,7 +1006,7 @@ class Qemu:
         scratch = rundir / "root.qcow2"
         done = subprocess.run(
             [
-                str(tools.qemu_img),
+                str(qemu_img),
                 "create",
                 "-q",
                 "-f",
@@ -924,7 +1032,7 @@ class Qemu:
 
     @staticmethod
     def _virtiofsd(
-        tools: Toolchain, rundir: Path, socket_name: str, shared: str
+        virtiofsd: Path, rundir: Path, socket_name: str, shared: str
     ) -> tuple[int, subprocess.Popen[bytes]]:
         """Serve a host directory, and leave no socket behind.
 
@@ -971,7 +1079,7 @@ class Qemu:
 
         proc = subprocess.Popen(
             [
-                str(tools.virtiofsd),
+                str(virtiofsd),
                 f"--fd={listener.fileno()}",
                 f"--shared-dir={shared}",
                 # Nothing left to drop: this is already unprivileged, and
@@ -1006,7 +1114,7 @@ class Qemu:
 
     @staticmethod
     def _passt(
-        tools: Toolchain, rundir: Path, rules: list[forward.Rule], offline: bool = False
+        passt: Path, rundir: Path, rules: list[forward.Rule], offline: bool = False
     ) -> tuple[int, subprocess.Popen[bytes]]:
         """Start passt on one end of a socketpair; return QEMU's end.
 
@@ -1030,7 +1138,7 @@ class Qemu:
         handle = log.open("wb")
         proc = subprocess.Popen(
             [
-                str(tools.passt),
+                str(passt),
                 "--foreground",
                 "--fd",
                 str(passt_end.fileno()),
@@ -1075,6 +1183,12 @@ class Appliance(Qemu):
     name = "appliance"
     reboots = False
 
+    def validate(self, spec: MachineSpec) -> None:
+        ApplianceConfig.of(spec)
+
+    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
+        return None
+
     def launch(
         self,
         machine: Machine,
@@ -1105,22 +1219,23 @@ class Appliance(Qemu):
         helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
     ) -> Launch:
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
+        config = ApplianceConfig.of(spec)
         appliance = spec.boot["appliance"]
 
-        disk_fds = self._scratch_disk(tools, rundir, spec.image, appliance["format"])
+        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, appliance["format"])
         opened.extend(disk_fds)
 
         uplink = appliance.get("uplink", True)
         passt_fds: tuple[int, ...] = ()
         if uplink:
-            passt_fd, passt_proc = self._passt(tools, rundir, machine.forward, machine.offline)
+            passt_fd, passt_proc = self._passt(config.passt, rundir, machine.forward, machine.offline)
             helpers.append(passt_proc)
             opened.append(passt_fd)
             passt_fds = (passt_fd,)
 
         argv = [
-            str(tools.qemu),
+            str(config.qemu),
             "-machine",
             "q35,accel=kvm",
             "-cpu",
@@ -1203,8 +1318,13 @@ class Krun:
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
         return returncode == KrunExit.REBOOT
 
-    def validate(self, spec: MachineSpec) -> None:
-        no_launch(spec, self.name)
+    @staticmethod
+    def validate(spec: MachineSpec) -> None:
+        KrunConfig.of(spec)
+
+    @staticmethod
+    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
+        return None
 
     @staticmethod
     def memory_control(path: Path) -> MemoryControl:
@@ -1212,7 +1332,7 @@ class Krun:
 
     @staticmethod
     def _gvproxy(
-        tools: Toolchain, rundir: Path, spec: MachineSpec, rules: list[forward.Rule]
+        gvproxy: Path | None, rundir: Path, spec: MachineSpec, rules: list[forward.Rule]
     ) -> tuple[int, subprocess.Popen[bytes]]:
         """Start gvproxy for one guest's uplink; return the guest's end.
 
@@ -1226,8 +1346,8 @@ class Krun:
         Under `--offline` gvproxy runs in the session's own network
         namespace, as passt does, and reaches nothing.
         """
-        if tools.gvproxy is None:
-            raise BackendError(f"{spec.name}: the toolchain has no gvproxy")
+        if gvproxy is None:
+            raise BackendError(f"{spec.name}: vivarium.launch.config has no gvproxy")
         sock = rundir / "gvproxy.sock"
         # sun_path holds 108 bytes with the NUL.
         if len(os.fsencode(sock)) > 107:
@@ -1254,7 +1374,7 @@ class Krun:
         log = rundir / "gvproxy.log"
         with log.open("wb") as handle:
             proc = subprocess.Popen(
-                [str(tools.gvproxy), "-config", str(config_path)],
+                [str(gvproxy), "-config", str(config_path)],
                 stdin=subprocess.DEVNULL,
                 stdout=handle,
                 stderr=subprocess.STDOUT,
@@ -1298,7 +1418,8 @@ class Krun:
                 "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
                 "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
             )
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
+        config = KrunConfig.of(spec)
         boot = boot or spec.boot
         # libkrun loads the ELF vmlinux, and a bootspec names only the
         # bzImage. The spec's vmlinux is that kernel's only while the
@@ -1317,12 +1438,12 @@ class Krun:
             if disk_fds:
                 disk_rw = disk_fds[0]
             else:
-                disk_rw, disk_ro = Qemu._scratch_disk(tools, rundir, spec.image)
+                disk_rw, disk_ro = Qemu._scratch_disk(config.qemu_img, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
             if spec.uplink_proxy == "gvproxy":
-                passt_fd, passt_proc = Krun._gvproxy(tools, rundir, spec, machine.forward)
+                passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
             else:
-                passt_fd, passt_proc = Qemu._passt(tools, rundir, machine.forward, machine.offline)
+                passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
             helpers.append(passt_proc)
             opened.append(passt_fd)
         except BaseException:
@@ -1337,10 +1458,8 @@ class Krun:
         if disk_ro is not None:
             os.close(disk_ro)
 
-        if tools.krun is None:
-            raise BackendError(f"{spec.name}: the toolchain has no vivarium-krun")
         argv = [
-            str(tools.krun),
+            str(config.krun),
             f"--vmlinux={boot['vmlinux']}",
             f"--initrd={boot['initrd']}",
             f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
@@ -1383,8 +1502,13 @@ class Container:
     name = "container"
     reboots = False
 
-    def validate(self, spec: MachineSpec) -> None:
-        no_launch(spec, self.name)
+    @staticmethod
+    def validate(spec: MachineSpec) -> None:
+        ContainerConfig.of(spec)
+
+    @staticmethod
+    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
+        return None
 
     @staticmethod
     def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
@@ -1403,7 +1527,8 @@ class Container:
         boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        spec, tools = machine.spec, machine.tools
+        spec = machine.spec
+        config = ContainerConfig.of(spec)
         missing = container.probe(tun=bool(lan_fds))
         if missing:
             raise BackendError("this host cannot run a container guest:\n" + "\n".join(f"  {item}" for item in missing))
@@ -1445,7 +1570,7 @@ class Container:
                 container.oci_config(
                     hostname=spec.name,
                     init=f"{spec.boot['toplevel']}/init",
-                    setpriv=str(tools.setpriv),
+                    setpriv=str(config.setpriv),
                     rootfs=rootfs,
                     store=spec.store,
                     agent_dir=agent_dir,
@@ -1478,7 +1603,7 @@ class Container:
                 "vivarium_runner.crun_launch",
                 "run",
                 "--crun",
-                str(tools.crun),
+                str(config.crun),
                 "--state",
                 str(state),
                 "--bundle",
@@ -1493,7 +1618,7 @@ class Container:
                         "--pasta-log",
                         str(rundir / "passt.log"),
                         "--",
-                        str(tools.passt.with_name("pasta")),
+                        str(config.passt.with_name("pasta")),
                         "--foreground",
                         "--ns-ifname",
                         "vec0",

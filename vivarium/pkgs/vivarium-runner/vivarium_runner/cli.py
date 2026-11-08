@@ -17,7 +17,7 @@ from pathlib import Path
 import anyio
 
 from .forward import ForwardError, Rule
-from .machine import LaunchSpec, Machine, MachineError, MachineSpec, Toolchain
+from .machine import LaunchSpec, Machine, MachineError, MachineSpec
 
 _WATCH_INTERVAL = 1.0
 """How often to ask the guest what it is listening on.  The same rate
@@ -94,9 +94,10 @@ async def _run(args: argparse.Namespace) -> int:
             ssh_port=args.ssh_port,
             mtu=args.mtu,
             forward=tuple(Rule.from_json(rule) for rule in json.loads(args.forward)),
-            launch=LaunchSpec("uml", {"kernel": str(args.kernel), "bridge": str(args.bridge)}),
+            launch=LaunchSpec(
+                "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
+            ),
         ),
-        Toolchain(passt=args.passt),
     )
     machine.resolve_forward(set())
     await machine.start()

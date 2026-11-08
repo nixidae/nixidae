@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 import anyio
 import pytest
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec, Toolchain
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec
 from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
@@ -53,7 +53,7 @@ from .pytest_plugin import Plugin, arguments, machine_fixtures
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Collection, Iterator
 
-    from vivarium_runner.machine import MachineSpecJson, ToolchainJson
+    from vivarium_runner.machine import MachineSpecJson
 
     from .sinks import Sink
     from .spec import PhaseSpec, PytestSpec, Spec
@@ -337,7 +337,6 @@ class Session:
         if self._booted:
             raise SessionError("already booted")
         # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
-        toolchain = self.spec.toolchain()
         machines = cast("list[MachineSpecJson]", self.spec.machines)
         if self.kernel is not None:
             machines = with_kernel(machines, self.kernel)
@@ -347,7 +346,6 @@ class Session:
                 level=Level.ERROR,
                 kernel=str(self.kernel),
             )
-        tools = Toolchain.from_json(toolchain)
         specs = [MachineSpec.from_json(m) for m in machines]
 
         # A segment's members are `<machine>/<interface>`: neither name
@@ -391,7 +389,6 @@ class Session:
                 one.name,
                 Machine(
                     one,
-                    tools,
                     lan_fds=lan_fds.get(one.name),
                     artifacts=self._guest_artifacts(one.name),
                     recorder=self.report,

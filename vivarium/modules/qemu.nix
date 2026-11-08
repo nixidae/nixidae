@@ -27,6 +27,7 @@
 }:
 let
   cfg = config.vivarium;
+  tools = import ./tools.nix { inherit pkgs lib; };
   krun = cfg.backend == "krun";
   # libkrun 2.0 describes an x86 guest's devices in ACPI on request, and
   # ends on the guest's S5. Its ACPI tables are x86 only.
@@ -100,6 +101,40 @@ lib.mkIf
     # Under OVMF the console port stops delivering what the host sends once
     # Linux has it; a named port does not.
     vivarium.agentDevice = if krun || cfg.efi then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
+
+    vivarium.launch =
+      if krun then
+        {
+          backend = "krun";
+          config = {
+            inherit (tools) krun qemuImg passt;
+          }
+          // lib.optionalAttrs (cfg.uplink.proxy == "gvproxy") { inherit (tools) gvproxy; };
+        }
+      else
+        {
+          backend = "qemu";
+          config = {
+            inherit (tools)
+              qemu
+              qemuImg
+              virtiofsd
+              passt
+              ;
+          }
+          // lib.optionalAttrs cfg.display.enable { inherit (tools) tesseract magick; };
+        };
+
+    /*
+      KVM, because a QEMU or libkrun guest is only worth booting with it.
+      `uid-range` too: virtiofsd serves a file as the guest user that made
+      it, and in a sandbox that maps one uid it cannot become uid 1000
+      (EINVAL, measured: `artifacts.qemu`).
+    */
+    vivarium.requiredSystemFeatures = [
+      "kvm"
+      "uid-range"
+    ];
 
     # Without ACPI, libkrun's machine has no power-off: a poweroff only
     # halts the CPU, and the process stays up at 100% of a core (measured:

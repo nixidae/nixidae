@@ -34,7 +34,7 @@ class FakeMachine(Machine):
     """Answers only on the loop it was made on.
 
     A `Machine` subclass, so a `Machines` holds it without a cast. The real
-    constructor needs a spec and a toolchain, so it is not called.
+    constructor needs a spec with a launch config, so it is not called.
     """
 
     def __init__(self, name: str) -> None:

@@ -403,6 +403,9 @@ Each step keeps `checks` green and moves the consumers with it.
 3. The backend contract: `launch` and `requiredSystemFeatures`, entry
    points, capabilities. One backend at a time, UML first. The global
    toolchain, `toolchainFor` and `featuresFor` go with the last one.
+   Done for `launch`, `requiredSystemFeatures` and the toolchain: each
+   backend has a strict config class, and `modules/tools.nix` names the
+   paths. Entry points and the `systems` move are next.
    havsorm reads `vm.spec.toplevel` and `vm.spec.configurations`, which
    move under `systems`; it moves in this step.
 4. Guest kinds: `control`, and the RouterOS, SONiC, VyOS, image and

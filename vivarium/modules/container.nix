@@ -12,8 +12,18 @@
 }:
 let
   cfg = config.vivarium;
+  tools = import ./tools.nix { inherit pkgs lib; };
 in
 lib.mkIf (cfg.backend == "container") {
+  vivarium.launch = {
+    backend = "container";
+    config = { inherit (tools) crun setpriv passt; };
+  };
+  # `uid-range`: 65536 ids and a cgroup of its own, which a plain sandbox
+  # build does not have. With `nestedVirtualization` the container binds
+  # the host's /dev/kvm.
+  vivarium.requiredSystemFeatures = [ "uid-range" ] ++ lib.optional cfg.nestedVirtualization "kvm";
+
   boot.isContainer = true;
   # isContainer shares the host's resolv.conf, which guest.nix's resolved
   # refuses. The guest resolves the way the other backends do.

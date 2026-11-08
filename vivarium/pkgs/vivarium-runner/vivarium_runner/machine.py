@@ -128,21 +128,6 @@ class BootloaderSpec(TypedDict):
     toplevel: str
 
 
-class ToolchainJson(TypedDict, total=False):
-    """`Toolchain` as Nix wrote it. Every value is a path."""
-
-    passt: str
-    qemu: str
-    qemuImg: str
-    virtiofsd: str
-    krun: str
-    gvproxy: str
-    crun: str
-    setpriv: str
-    tesseract: str
-    magick: str
-
-
 class InterfaceJson(TypedDict, total=False):
     """`Interface` as Nix wrote it."""
 
@@ -205,47 +190,6 @@ class LaunchSpec:
 
 class MachineError(Exception):
     """A guest failed to boot, or a command in it did not do as told."""
-
-
-@dataclass(frozen=True)
-class Toolchain:
-    """Host-side binaries shared by every guest in a run.
-
-    Only passt is wanted by both backends.  The rest is per backend, and
-    absent rather than empty when the run does not use that backend -- a
-    QEMU run must not name the UML kernel, because naming it is what makes
-    Nix spend half an hour building it.
-    """
-
-    passt: Path
-    qemu: Path | None = None
-    qemu_img: Path | None = None
-    virtiofsd: Path | None = None
-    krun: Path | None = None
-    """`vivarium-krun`, the process a krun guest runs as."""
-    gvproxy: Path | None = None
-    crun: Path | None = None
-    setpriv: Path | None = None
-    tesseract: Path | None = None
-    magick: Path | None = None
-
-    @classmethod
-    def from_json(cls, data: ToolchainJson) -> Toolchain:
-        def maybe(value: str | None) -> Path | None:
-            return Path(value) if value else None
-
-        return cls(
-            passt=Path(data["passt"]),
-            qemu=maybe(data.get("qemu")),
-            qemu_img=maybe(data.get("qemuImg")),
-            virtiofsd=maybe(data.get("virtiofsd")),
-            krun=maybe(data.get("krun")),
-            gvproxy=maybe(data.get("gvproxy")),
-            crun=maybe(data.get("crun")),
-            setpriv=maybe(data.get("setpriv")),
-            tesseract=maybe(data.get("tesseract")),
-            magick=maybe(data.get("magick")),
-        )
 
 
 @dataclass(frozen=True)
@@ -447,7 +391,6 @@ class Machine:
     def __init__(
         self,
         spec: MachineSpec,
-        tools: Toolchain,
         *,
         lan_fds: dict[str, int] | None = None,
         artifacts: Path | None = None,
@@ -461,7 +404,6 @@ class Machine:
         on_command: Callable[[str, str, float, dict[str, object]], None] | None = None,
     ) -> None:
         self.spec = spec
-        self.tools = tools
         self.backend = backends.get(spec.backend)
         # Here, not at start: a run makes every Machine before it boots
         # any, so one guest's bad launch config stops the run before
@@ -1520,13 +1462,14 @@ class Machine:
         Most callers want :meth:`screen_text`, :meth:`find_text` or
         :meth:`wait_for_text` instead.
         """
-        if self.tools.tesseract is None or self._rundir is None:
-            raise MachineError(f"[{self.name}] has no OCR: the run has no guest with a display")
+        tools = self.backend.ocr(self.spec)
+        if tools is None or self._rundir is None:
+            raise MachineError(f"[{self.name}] has no OCR: it has no `vivarium.display`")
         with tempfile.TemporaryDirectory(dir=self._rundir) as scratch:
             ppm = Path(scratch) / "screen.ppm"
             await self._qmp(lambda monitor: monitor.screendump(ppm, png=False))
             try:
-                return await ocr.read(ppm, self.tools.tesseract, self.tools.magick)
+                return await ocr.read(ppm, *tools)
             except ocr.OcrError as error:
                 raise MachineError(f"[{self.name}] {error}") from error
 

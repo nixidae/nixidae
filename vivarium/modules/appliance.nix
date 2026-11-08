@@ -4,9 +4,15 @@
 #
 # The node is still a NixOS evaluation, for the options every guest has
 # (memory, cpus, interfaces, forwards). Its system is never built.
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   inherit (lib) mkOption types;
+  tools = import ./tools.nix { inherit pkgs lib; };
 in
 {
   options.vivarium.uplink.enable = mkOption {
@@ -82,6 +88,14 @@ in
         };
       }
     );
+  };
+
+  config.vivarium = lib.mkIf (config.vivarium.backend == "appliance") {
+    launch = {
+      backend = "appliance";
+      config = { inherit (tools) qemu qemuImg passt; };
+    };
+    requiredSystemFeatures = [ "kvm" ];
   };
 
   config.assertions = [

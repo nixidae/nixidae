@@ -17,7 +17,7 @@ class FakeGuest(Machine):
     """Answers `execute` from a table: the last command sent decides.
 
     A `Machine` subclass, because `nixos_test` takes the runner's `Machine`.
-    The real constructor needs a spec and a toolchain, so it is not called.
+    The real constructor needs a spec with a launch config, so it is not called.
     """
 
     def __init__(self, name: str, answers: dict[str, tuple[int, str]] | None = None) -> None:

@@ -15,6 +15,8 @@
   ...
 }:
 let
+  tools = import ./tools.nix { inherit pkgs lib; };
+
   portPair = lib.types.submodule {
     options = {
       host = lib.mkOption {
@@ -748,7 +750,12 @@ in
       config = {
         kernel = "${config.system.build.umlKernel}/linux";
         bridge = lib.getExe config.system.build.umlPasstBridge;
-      };
+        inherit (tools) passt;
+      }
+      # UML reads raw disks, and a cloud image is qcow2: the runner converts
+      # it into the run directory, sparse, rather than the store holding the
+      # raw form, which a NAR cannot keep sparse.
+      // lib.optionalAttrs (config.vivarium.image != null) { inherit (tools) qemuImg; };
     };
 
     vivarium.nixDatabase.extraRoots = map toString (

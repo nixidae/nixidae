@@ -206,90 +206,13 @@ rec {
       boot = machine.system.build.containerBoot;
     };
 
-  /**
-    The host-side binaries a run needs, and none of the other backend's.
-
-    Naming a store path is what builds it. A QEMU run that mentioned
-    `umlKernel` would spend half an hour on a kernel it never boots, and a
-    UML run that mentioned `qemu_kvm` would pull QEMU into a sandbox that
-    has no use for it.
-
-    Taken from the machines and not from the run's `backend`: a node may
-    set its own `vivarium.backend`, and a run then holds both kinds. The
-    runner picks a backend per machine, and a segment carries raw frames
-    that both accept, so nothing else has to know.
-  */
-  toolchainFor =
-    machines:
-    let
-      on = backend: lib.filter (machine: machine.vivarium.backend == backend) machines;
-    in
-    {
-      passt = "${pkgs.callPackage ./pkgs/passt { }}/bin/passt";
-    }
-    # UML reads raw disks, and a cloud image is qcow2: the runner converts
-    # it into the run directory, sparse, rather than the store holding the
-    # raw form, which a NAR cannot keep sparse.
-    // lib.optionalAttrs (lib.any (machine: machine.vivarium.uplink.proxy == "gvproxy") machines) {
-      gvproxy = lib.getExe' pkgs.gvproxy "gvproxy";
-    }
-    // lib.optionalAttrs (lib.any (machine: machine.vivarium.image != null) machines) {
-      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
-    }
-    // lib.optionalAttrs (on "qemu" != [ ]) {
-      qemu = "${pkgs.qemu_kvm}/bin/qemu-system-x86_64";
-      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
-      virtiofsd = "${pkgs.virtiofsd}/bin/virtiofsd";
-    }
-    // lib.optionalAttrs (on "appliance" != [ ]) {
-      qemu = "${pkgs.qemu_kvm}/bin/qemu-system-x86_64";
-      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
-    }
-    // lib.optionalAttrs (on "krun" != [ ]) {
-      krun = lib.getExe (
-        pkgs.callPackage ./pkgs/krun-launch/package.nix {
-          libkrun = pkgs.callPackage ./pkgs/libkrun/package.nix { };
-        }
-      );
-      qemuImg = "${pkgs.qemu_kvm}/bin/qemu-img";
-    }
-    # nixos-test's OCR packages, for the same reading of the same screens.
-    // lib.optionalAttrs (lib.any (machine: machine.vivarium.display.enable) machines) {
-      tesseract = "${pkgs.tesseract4}/bin/tesseract";
-      magick = "${pkgs.imagemagick_light}/bin/magick";
-    }
-    // lib.optionalAttrs (on "container" != [ ]) {
-      crun = lib.getExe pkgs.crun;
-      setpriv = "${lib.getBin pkgs.util-linux}/bin/setpriv";
-    };
-
   /*
-    What the daemon must give a run's derivation, by the backends in it.
-
-    A QEMU guest is only worth booting with KVM, and the daemon only hands
-    /dev/kvm to a derivation that asks for it. A container needs the
-    `uid-range` feature: 65536 ids and a cgroup of its own, which a plain
-    sandbox build does not have (measured, see Area 8 of the design).
-
-    QEMU needs `uid-range` too. virtiofsd serves a file as the guest user
-    that made it, and in a sandbox that maps one uid it cannot become
-    uid 1000 (EINVAL, measured: `artifacts.qemu`). UML asks for nothing,
-    which is the whole point of UML. A container guest with
-    `nestedVirtualization` binds the host's /dev/kvm, so it asks for `kvm`.
+    What the daemon must give a run's derivation: what each guest's backend
+    module asked for in `vivarium.requiredSystemFeatures`. UML asks for
+    nothing, which is the whole point of UML.
   */
   featuresFor =
-    machines:
-    let
-      any = backend: lib.any (machine: machine.vivarium.backend == backend) machines;
-      kvmContainer = lib.any (
-        machine: machine.vivarium.backend == "container" && machine.vivarium.nestedVirtualization
-      ) machines;
-    in
-    lib.unique (
-      lib.concatMap (machine: machine.vivarium.requiredSystemFeatures) machines
-      ++ lib.optional (any "qemu" || any "krun" || any "appliance" || kvmContainer) "kvm"
-      ++ lib.optional (any "qemu" || any "krun" || any "container") "uid-range"
-    );
+    machines: lib.unique (lib.concatMap (machine: machine.vivarium.requiredSystemFeatures) machines);
 
   /**
     Whether this sandbox can run a container guest, answered in seconds.
@@ -542,66 +465,63 @@ rec {
         }}";
 
       spec = pkgs.writeText "vivarium-${name}-spec.json" (
-        builtins.toJSON (
-          toolchainFor machines
-          // {
-            inherit (checkedConfig) name settings;
-            unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
-            # The runner that knows every field below. No cycle: the
-            # package does not depend on any spec.
-            vivarium = "${runVenv}";
-            pythonPath = map (path: "${path}") checkedConfig.pythonPath;
-            knobs = checkedConfig.resolved;
-            phases = map (
-              phase:
-              {
-                inherit (phase)
-                  name
-                  after
-                  always
-                  nodes
-                  ;
-              }
-              // (
-                if phase.pytest != null then
-                  {
-                    pytest = {
-                      tests = "${phase.pytest.tests}";
-                      inherit (phase.pytest) args;
-                    };
-                  }
-                else
-                  { script = "${phase.script}"; }
-              )
-            ) checkedConfig.ordered;
-            # Each guest's closure, which the runner turns into its store
-            # view. The same closureInfo its Nix database is loaded from.
-            # Not for `vivarium.hostStore`, whose point is the host's whole
-            # store and its database under the guest's own. Nor for a
-            # guest that never sees the store (`vivarium.routeros`).
-            machines = map (
-              machine:
-              let
-                build = machine.system.build;
-                seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
-              in
-              machineSpec machine
-              // lib.optionalAttrs (
-                machine.vivarium.nixDatabase.enable && machine.vivarium.appliance == null && seesStore
-              ) settingsClosure
-              //
-                lib.optionalAttrs
-                  (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore)
-                  {
-                    storePaths =
-                      if machine.system.build ? vivariumImageGuest then
-                        "${machine.system.build.vivariumImageClosure}/store-paths"
-                      else
-                        "${machine.system.build.vivariumNixRegistration}/store-paths";
-                  }
-            ) machines;
-          }
-        )
+        builtins.toJSON {
+          inherit (checkedConfig) name settings;
+          unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
+          # The runner that knows every field below. No cycle: the
+          # package does not depend on any spec.
+          vivarium = "${runVenv}";
+          pythonPath = map (path: "${path}") checkedConfig.pythonPath;
+          knobs = checkedConfig.resolved;
+          phases = map (
+            phase:
+            {
+              inherit (phase)
+                name
+                after
+                always
+                nodes
+                ;
+            }
+            // (
+              if phase.pytest != null then
+                {
+                  pytest = {
+                    tests = "${phase.pytest.tests}";
+                    inherit (phase.pytest) args;
+                  };
+                }
+              else
+                { script = "${phase.script}"; }
+            )
+          ) checkedConfig.ordered;
+          # Each guest's closure, which the runner turns into its store
+          # view. The same closureInfo its Nix database is loaded from.
+          # Not for `vivarium.hostStore`, whose point is the host's whole
+          # store and its database under the guest's own. Nor for a
+          # guest that never sees the store (`vivarium.routeros`).
+          machines = map (
+            machine:
+            let
+              build = machine.system.build;
+              seesStore = !(build ? vivariumImageGuest) || build ? vivariumImageClosure;
+            in
+            machineSpec machine
+            // lib.optionalAttrs (
+              machine.vivarium.nixDatabase.enable && machine.vivarium.appliance == null && seesStore
+            ) settingsClosure
+            //
+              lib.optionalAttrs
+                (!machine.vivarium.hostStore.enable && machine.vivarium.appliance == null && seesStore)
+                {
+                  storePaths =
+                    if machine.system.build ? vivariumImageGuest then
+                      "${machine.system.build.vivariumImageClosure}/store-paths"
+                    else
+                      "${machine.system.build.vivariumNixRegistration}/store-paths";
+                }
+          ) machines;
+        }
       );
 
       vivarium = lib.getExe runVenv;
