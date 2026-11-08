@@ -21,12 +21,15 @@ class Drv:
     """One derivation, as the graph needs it.
 
     `base` is the `.drv` base name, `<hash>-<name>.drv`. `fixed` holds the
-    content address of each output when every output is fixed, else None."""
+    content address of each output when every output is fixed, else None.
+    `out` is the base name of the `out` output (else the first) when it is
+    input-addressed."""
 
     base: str
     name: str
     inputs: frozenset[str]
     fixed: tuple[str, ...] | None = None
+    out: str | None = None
 
 
 Graph = dict[str, Drv]

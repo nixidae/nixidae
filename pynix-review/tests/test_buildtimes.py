@@ -107,6 +107,22 @@ async def test_nearby_build_when_nothing_else_has_a_record() -> None:
     assert out == {NEW: Timing(40, Source.HYDRA_NEARBY, OTHER, 40)}
 
 
+async def test_log_of_the_drv_that_built_the_same_output() -> None:
+    """The twin has no log, but its output's narinfo names the `.drv` Hydra built."""
+    built_by = "d" * 32 + "-cairo-1.18.4.drv"
+    out = "e" * 32 + "-cairo-1.18.4"
+    narinfo = httpx.Response(200, text=f"StorePath: /nix/store/{out}\nDeriver: {built_by}\n")
+    client = _client(
+        {
+            f"https://cache.nixos.org/{'e' * 32}.narinfo": narinfo,
+            f"https://cache.nixos.org/log/{built_by}": _log(CAIRO_LOG),
+        }
+    )
+    out_map = {OLD: out}
+    timings = await fetch({NEW: [NEW, OLD]}, {}, hydra=False, client=client, outs=out_map)
+    assert timings == {NEW: Timing(3758, Source.LOG, built_by, 3760)}
+
+
 async def test_hydra_is_not_asked_without_the_flag() -> None:
     client = _client({JOB: _build(NEW, 0, 40)})
     out = await fetch({NEW: [NEW]}, {NEW: "cairo.x86_64-linux"}, hydra=False, client=client)

@@ -60,11 +60,14 @@ async def _read(store: huggorm.AsyncStore, base: str) -> Drv:
     parsed = await store.read_derivation(huggorm.StorePath(base))
     outputs = await parsed.outputs()
     fixed = [o for o in outputs.values() if isinstance(o, huggorm.DerivationOutputCAFixed)]
+    addressed = {n: o for n, o in outputs.items() if isinstance(o, huggorm.DerivationOutputInputAddressed)}
+    out = addressed.get("out") or next(iter(addressed.values()), None)
     return Drv(
         base=base,
         name=await parsed.name(),
         inputs=frozenset(await parsed.input_drvs()),
         fixed=tuple(str(o.ca()) for o in fixed) if fixed and len(fixed) == len(outputs) else None,
+        out=str(out.path()) if out else None,
     )
 
 

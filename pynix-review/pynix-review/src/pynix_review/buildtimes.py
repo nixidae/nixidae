@@ -42,6 +42,7 @@ PHASE_FOOTER: Final = re.compile(
 )
 PHASE_HEADER: Final = re.compile(r"^Running phase: (\w+)$", re.MULTILINE)
 CACHED_FROM: Final = re.compile(r"Cached from:.*?/build/(\d+)", re.DOTALL)
+DERIVER: Final = re.compile(r"^Deriver: (\S+\.drv)$", re.MULTILINE)
 UNREPORTED_PHASE_SECONDS: Final = 1.0
 ZSTD_MAGIC: Final = b"\x28\xb5\x2f\xfd"
 
@@ -121,6 +122,18 @@ async def log_timing(
     return Timing(phase_seconds(log), source, drv, log_estimate(log, per_phase))
 
 
+async def deriver(client: httpx.AsyncClient, out: str) -> str | None:
+    """The `.drv` cache.nixos.org names as the builder of output `out`.
+
+    Two `.drv`s that differ only in fixed-output inputs share their output
+    paths, and the log sits under the one Hydra built. On a local libpng
+    change, libwebp's before `.drv` had no log, but its output named another
+    `.drv`, which had one."""
+    body = await _get(client, f"{CACHE}/{out.split('-', 1)[0]}.narinfo")
+    found = DERIVER.search(body.decode(errors="replace")) if body else None
+    return found.group(1) if found else None
+
+
 async def _build(client: httpx.AsyncClient, url: str) -> _Build | None:
     body = await _get(client, url, accept="application/json")
     return _Build.model_validate_json(body) if body else None
@@ -151,12 +164,16 @@ async def fetch(
     client: httpx.AsyncClient | None = None,
     hydra_limit: int = 2,
     per_phase: float = UNREPORTED_PHASE_SECONDS,
+    outs: Mapping[str, str] | None = None,
 ) -> dict[str, Timing]:
     """A timing for each key of `candidates`, where one exists.
 
     `candidates` names, per derivation, the `.drv`s whose log may stand in
-    for it, best first. `jobs` maps a derivation to its Hydra job. Order:
-    Hydra on the same `.drv`, then the logs, then the job's latest build."""
+    for it, best first. `jobs` maps a derivation to its Hydra job. `outs`
+    maps a `.drv` to its output path, to find the `.drv` that built it.
+    Order: Hydra on the same `.drv`, then the logs, then the logs of the
+    `.drv`s that built the same outputs, then the job's latest build."""
+    outs = outs or {}
     hydra_slots = anyio.CapacityLimiter(hydra_limit)
     out: dict[str, Timing] = {}
 
@@ -170,6 +187,13 @@ async def fetch(
             return
         for drv in drvs:
             if (timing := await log_timing(http, drv, Source.LOG, per_phase)) is not None:
+                out[key] = timing
+                return
+        for drv in drvs:
+            built_by = await deriver(http, outs[drv]) if drv in outs else None
+            if built_by is None or built_by in drvs:
+                continue
+            if (timing := await log_timing(http, built_by, Source.LOG, per_phase)) is not None:
                 out[key] = timing
                 return
         if latest is None:

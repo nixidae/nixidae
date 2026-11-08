@@ -84,6 +84,7 @@ async def diff(
         # The after .drv first: for a merged change Hydra has built it.
         candidates = {d: [d, *([result.twins[d]] if d in result.twins else [])] for d in changed}
         jobs = {a: f"{attr}.{system}" for attr, a in new.roots.items() if a in changed}
-        result.timings = await fetch(candidates, jobs, hydra=hydra, per_phase=per_phase)
+        outs = {d.base: d.out for g in (old.graph, new.graph) for d in g.values() if d.out is not None}
+        result.timings = await fetch(candidates, jobs, hydra=hydra, per_phase=per_phase, outs=outs)
         result.seconds["build_times"] = time.monotonic() - start
     return result
