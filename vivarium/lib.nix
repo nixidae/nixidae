@@ -163,6 +163,7 @@ rec {
     {
       name = machine.networking.hostName;
       backend = machine.vivarium.backend;
+      inherit (machine.vivarium) kind;
       index = machine.vivarium.index;
       memory = machine.vivarium.memory;
       seccomp = machine.vivarium.seccomp;

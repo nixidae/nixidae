@@ -30,8 +30,8 @@ async def test(vms: Machines) -> None:
     try:
         await suse.switch_to()
     except MachineError as error:
-        if "vivarium.image" not in str(error):
+        if "vivarium.kinds.image" not in str(error):
             raise
     else:
         raise AssertionError("switch_to on a cloud image guest did not refuse")
-    print("[test] switch_to refuses, naming vivarium.image")
+    print("[test] switch_to refuses, naming vivarium.kinds.image")

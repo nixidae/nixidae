@@ -128,6 +128,7 @@ class MachineSpecJson(TypedDict, total=False):
 
     name: str
     backend: str
+    kind: str
     index: int
     image: str
     memory: str
@@ -227,6 +228,8 @@ class MachineSpec:
 
     name: str
     backend: str = "uml"
+    kind: str = "nixos"
+    """`vivarium.kind`: `nixos`, or the guest kind it imports from `vivarium.kinds`."""
     index: int = 0
     image: Path | None = None
     memory: str = "128M"
@@ -276,6 +279,7 @@ class MachineSpec:
         return cls(
             name=data["name"],
             backend=data.get("backend", "uml"),
+            kind=data.get("kind", "nixos"),
             index=data.get("index", 0),
             image=Path(image) if image else None,
             memory=data.get("memory", "128M"),
@@ -1144,7 +1148,10 @@ class Machine:
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] runs {self.control_kind}, and has no NixOS to switch")
         if self.systems.toplevel is None:
-            raise MachineError(f"[{self.name}] is a guest kind, not NixOS, and has no NixOS to switch")
+            raise MachineError(
+                f"[{self.name}] is a {self.spec.kind} guest (vivarium.kinds.{self.spec.kind}), not NixOS, "
+                "and has no NixOS to switch"
+            )
         if name is None:
             if self.systems.toplevel is None:
                 raise MachineError(f"[{self.name}] the spec names no booted system")
