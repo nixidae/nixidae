@@ -30,7 +30,7 @@ from vivarium_runner import MachineError
 from . import monitor, namespace, repl, runroot
 from .control import SOCKET, Controller, Op, request
 from .events import Kind, Level
-from .phases import PhaseState, launchable, ready, selected, summarise
+from .phases import END, FAILURE, START, PhaseState, breakpoints, launchable, ready, selected, summarise
 from .session import Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
@@ -84,8 +84,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         dest="breaks",
         action="append",
         default=[],
-        metavar="PHASE",
-        help="pause before this phase, with the guests up; repeatable. `vivarium ctl` reaches in",
+        metavar="POINT",
+        help=(
+            "pause before this phase, or at `start` (before the first phase),"
+            " `failure` (when a phase fails) or `end` (after the last phase),"
+            " with the guests up; repeatable. `vivarium ctl` reaches in"
+        ),
     )
     run.add_argument(
         "--kernel",
@@ -298,19 +302,20 @@ async def run(args: argparse.Namespace) -> int:
                     state=str(PhaseState.DESELECTED),
                 )
 
-    unknown = set(args.breaks) - {phase.name for phase in session.spec.phases}
-    if unknown:
-        # A misspelled breakpoint is a run that never stops.
-        raise SessionError(f"no such phase to break before: {', '.join(sorted(unknown))}")
+    try:
+        before, points = breakpoints(args.breaks, session.spec.phases)
+    except ValueError as error:
+        raise SessionError(str(error)) from None
 
     try:
         async with anyio.create_task_group() as group:
             group.start_soon(_stop_on_signal, session, group.cancel_scope)
             await drive(
                 session,
-                breaks=args.breaks,
-                break_on_failure=args.break_on_failure or args.interactive,
-                break_on_start=args.break_on_start or args.interactive,
+                breaks=before,
+                break_on_failure=args.break_on_failure or args.interactive or FAILURE in points,
+                break_on_start=args.break_on_start or args.interactive or START in points,
+                break_at_end=args.interactive or END in points,
                 interactive=args.interactive,
                 serial=args.serial,
                 control=args.control,
@@ -344,6 +349,7 @@ async def drive(
     breaks: Collection[str] = (),
     break_on_failure: bool = False,
     break_on_start: bool = False,
+    break_at_end: bool = False,
     interactive: bool = False,
     serial: bool = False,
     control: bool = True,
@@ -360,7 +366,7 @@ async def drive(
     whole drive unless `control` is false, so `exec` reaches a run that
     never pauses.
     """
-    wanted = control or breaks or break_on_failure or break_on_start or interactive
+    wanted = control or breaks or break_on_failure or break_on_start or break_at_end or interactive
     controller = Controller(session) if wanted else None
     async with anyio.create_task_group() as group:
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
@@ -377,7 +383,7 @@ async def drive(
                 break_on_failure,
                 serial,
                 start=break_on_start,
-                end=interactive,
+                end=break_at_end or interactive,
             )
         finally:
             group.cancel_scope.cancel()

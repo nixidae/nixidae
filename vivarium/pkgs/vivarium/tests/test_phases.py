@@ -14,6 +14,7 @@ from typing import ClassVar
 import pytest
 from vivarium.phases import (
     PhaseState,
+    breakpoints,
     dependents,
     launchable,
     passed,
@@ -101,6 +102,19 @@ class TestSelected:
 
     def test_several_names_join(self) -> None:
         assert selected(["unrelated", "cluster"], CHAIN) == {"boot", "cluster", "unrelated"}
+
+
+class TestBreakpoints:
+    def test_phases_and_points_come_apart(self) -> None:
+        assert breakpoints(["check", "end", "failure"], CHAIN) == ({"check"}, {"end", "failure"})
+
+    def test_a_misspelling_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="chek"):
+            breakpoints(["chek"], CHAIN)
+
+    def test_a_phase_named_like_a_point_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="clash"):
+            breakpoints([], [*CHAIN, phase("end", "report")])
 
 
 class TestAlways:

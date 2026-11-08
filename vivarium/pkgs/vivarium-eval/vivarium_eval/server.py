@@ -400,7 +400,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         """Start a run in the background; returns its id at once.
 
         `attr` is evaluated from `file` (a directory means its default.nix),
-        or give `spec`, a spec path. `breaks` pauses before those phases;
+        or give `spec`, a spec path. `breaks` pauses before those phases,
+        or at `start`, `failure` or `end`;
         `break_on_failure` pauses on a failed phase. `env` is added to the
         run's environment, which the evaluation reads: a knob's variable,
         or `UMBRELLA_DEV` to build against a working copy.

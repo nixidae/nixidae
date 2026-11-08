@@ -167,8 +167,14 @@ and resolves `example.com`, `--offline` does neither, and the forward on
 ```console
 $ nix run --file . mine.driverDebug -- --out ./out      # pause on the first failure
 $ nix run --file . mine.driver -- --out ./out --break check   # pause before `check`
+$ nix run --file . mine.driver -- --out ./out --break end     # pause after the last phase
 $ nix run --file . mine.driverInteractive               # a REPL, paused before anything runs
 ```
+
+`--break` takes a phase name, or one of three points: `start` (before the
+first phase), `failure` (when a phase fails) and `end` (after the last
+phase). A phase with one of those names is an error, because `--break`
+could not tell the two apart.
 
 A paused run keeps its guests up with the state the failure left, and the
 evidence is written first. `vivarium ctl --out ./out` sends Python in;

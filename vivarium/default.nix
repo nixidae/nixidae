@@ -2410,6 +2410,21 @@ let
           echo "ok: and its cases are events, outside the verdict and junit.xml"
           test ! -e "$o/control.sock" || fail "the socket outlived the run"
 
+          # A point, not a phase: `end` pauses after the last phase.
+          o="$TMPDIR/end"
+          ${lib.getExe run.driver} --out "$o" --break end > end.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 600); do
+            [ "$(ctl state 2>/dev/null | head -1)" = paused ] && break
+            kill -0 "$pid" 2>/dev/null || { cat end.log; fail "the run ended without pausing at end"; }
+            sleep 0.1
+          done
+          ctl state | tee state
+          grep -qx "later	passed" state || fail "--break end paused before the last phase ran"
+          ctl continue
+          wait "$pid" || { cat end.log; fail "the run failed after continue at end"; }
+          echo "ok: --break end paused after the last phase"
+
           touch $out
         '';
 

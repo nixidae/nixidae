@@ -101,6 +101,35 @@ def selected(names: Iterable[str], phases: Iterable[PhaseSpec]) -> set[str]:
     return found
 
 
+START = "start"
+FAILURE = "failure"
+END = "end"
+POINTS = frozenset({START, FAILURE, END})
+"""What `--break` takes beside a phase name: before the first phase, at a
+failure, after the last phase."""
+
+
+def breakpoints(names: Iterable[str], phases: Iterable[PhaseSpec]) -> tuple[set[str], set[str]]:
+    """`--break` arguments, as the phases to pause before and the points.
+
+    A phase named like a point is refused rather than guessed at: either
+    reading of `--break end` would surprise somebody.
+    """
+    have = {phase.name for phase in phases}
+    clash = POINTS & have
+    if clash:
+        raise ValueError(f"phases named {', '.join(sorted(clash))} clash with `--break` points of the same name")
+    names = set(names)
+    unknown = names - have - POINTS
+    if unknown:
+        # A misspelled breakpoint is a run that never stops.
+        raise ValueError(
+            f"no such phase to break before: {', '.join(sorted(unknown))};"
+            f" have {', '.join(sorted(have))}, or one of {', '.join(sorted(POINTS))}"
+        )
+    return names - POINTS, names & POINTS
+
+
 def skipped_by(failed: str, phases: Iterable[PhaseSpec]) -> set[str]:
     """What a failure of *failed* means for the phases not yet run."""
     return dependents(failed, phases)
