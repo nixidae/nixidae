@@ -20,6 +20,7 @@ from .buildtimes import Source
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
+    from .build import Built
     from .buildtimes import Timing
     from .review import Diff
 
@@ -31,6 +32,11 @@ URL_FILE: Final = "changed.url"
 VIEWER: Final = "https://dreampuf.github.io/GraphvizOnline/?engine=dot#"
 """The author's own copy: no ads, and no third-party script but lz-string
 from cdnjs. graphvizonline.net carries ads and reads base64 instead."""
+FILL_BUILT: Final = "palegreen"
+FILL_CACHED: Final = "lightgrey"
+FILL_FAILED: Final = "salmon"
+FILL_DEPENDENCY: Final = "khaki"
+DEPENDENCY_FAILED: Final = "dependency-failed"
 FRAGMENT_SAFE: Final = "!$&'()*+,;=:@/?"
 """RFC 3986 fragment characters `quote` escapes by default."""
 
@@ -193,18 +199,35 @@ def _label(d: Derivation) -> str:
         logged = d.time.source in {Source.LOG, Source.LOG_NEARBY}
         nearby = " ~" if d.time.source in {Source.HYDRA_NEARBY, Source.LOG_NEARBY} else ""
         lines.append(f"{'≈ ' if logged else ''}{d.time.estimate} s{nearby}")
-    return "\\n".join(line.replace("\\", "\\\\").replace('"', '\\"') for line in lines)
+    return "\\n".join(_escape(line) for line in lines)
 
 
-def to_dot(bundle: Bundle) -> str:
+def _escape(line: str) -> str:
+    return line.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
+    """Extra label lines and node attributes for a build result."""
+    if r is None:
+        return [], ['style="dotted"']
+    if r.ok and r.seconds is not None:
+        return [f"took {r.seconds} s"], ['style="filled"', f'fillcolor="{FILL_BUILT}"']
+    if r.ok:
+        return [r.status], ['style="filled"', f'fillcolor="{FILL_CACHED}"']
+    fill = FILL_DEPENDENCY if r.status == DEPENDENCY_FAILED else FILL_FAILED
+    return [r.status], ['style="filled"', f'fillcolor="{fill}"']
+
+
+def to_dot(bundle: Bundle, results: Mapping[str, Built] | None = None) -> str:
     """The changed subgraph: one rank per longest-path depth, inputs below.
 
     An edge runs from an input to what needs it. An attribute's own `.drv`
     has a double border; a derivation with no time has a dashed one. `≈`
     marks an estimate from a log, `~` a time from another `.drv` of the same
-    job."""
+    job. With `results`, the fill shows what the build did and a dotted
+    border marks what the plan left out."""
     out = [
-        "digraph changed {",
+        f"digraph {'changed' if results is None else 'built'} {{",
         "  rankdir=BT;",
         '  node [shape=box, fontname="monospace"];',
     ]
@@ -212,10 +235,14 @@ def to_dot(bundle: Bundle) -> str:
         members = " ".join(_quote(d.drv) for d in bundle.derivations if d.depth == depth)
         out.append(f"  {{ rank=same; {members} }}")
     for d in bundle.derivations:
-        attrs = [f'label="{_label(d)}"', f"tooltip={_quote(d.drv)}"]
+        extra, styled = _outcome(results.get(d.drv)) if results is not None else ([], [])
+        label = "\\n".join([_label(d), *(_escape(line) for line in extra)])
+        attrs = [f'label="{label}"', f"tooltip={_quote(d.drv)}"]
         if d.attrs:
             attrs.append("peripheries=2")
-        if d.time is None:
+        if styled:
+            attrs.extend(styled)
+        elif d.time is None:
             attrs.append('style="dashed"')
         out.append(f"  {_quote(d.drv)} [{', '.join(attrs)}];")
     out.extend(f"  {_quote(i)} -> {_quote(d.drv)};" for d in bundle.derivations for i in d.changed_inputs)

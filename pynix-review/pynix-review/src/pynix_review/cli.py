@@ -5,6 +5,7 @@ With `--out DIR` it writes `bundle.json`, `bundle.schema.json`,
 link as JSON. Without it, it prints `bundle.json`.
 
 `pynix-review plan BUNDLE`: what to build within a build-time budget.
+`pynix-review build PLAN --bundle BUNDLE`: build it, a result per derivation.
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ import anyio
 import huggorm
 
 from . import bundle
+from .build import DAEMON, build, write as write_built
 from .buildtimes import UNREPORTED_PHASE_SECONDS
 from .evaluate import SCRATCH_STORE
-from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
+from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, Plan, plan
 from .review import diff
 
 
@@ -59,7 +61,24 @@ def _parser() -> argparse.ArgumentParser:
         default=UNTIMED_SECONDS,
         help="seconds assumed for a derivation with no time",
     )
+
+    cmd = commands.add_parser("build", help="build a plan and report on each derivation")
+    cmd.add_argument("plan", type=Path, help="the output of `pynix-review plan`")
+    cmd.add_argument("--bundle", type=Path, required=True, help=f"the {bundle.BUNDLE_FILE} the plan came from")
+    cmd.add_argument("--store", default=DAEMON, help="the store that builds; the daemon picks the machines")
+    cmd.add_argument("--out", type=Path, help="write built.json, built.dot and built.url into this directory")
     return parser
+
+
+async def _build(args: argparse.Namespace) -> str:
+    made = bundle.Bundle.model_validate_json(await anyio.Path(args.bundle).read_text())
+    chosen = Plan.model_validate_json(await anyio.Path(args.plan).read_text())
+    result = await build(chosen, made, store_url=args.store)
+    if args.out is None:
+        return result.model_dump_json(indent=2)
+    written = await write_built(result, made, anyio.Path(args.out))
+    url = bundle.view_url(bundle.to_dot(made, {r.drv: r for r in result.results}))
+    return json.dumps({"files": [str(p) for p in written], "view": url}, indent=2)
 
 
 async def _plan(args: argparse.Namespace) -> str:
@@ -89,8 +108,8 @@ async def _run(args: argparse.Namespace, attrs: list[str]) -> str:
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
-    if args.command == "plan":
-        sys.stdout.write(anyio.run(_plan, args) + "\n")
+    if args.command in {"plan", "build"}:
+        sys.stdout.write(anyio.run(_plan if args.command == "plan" else _build, args) + "\n")
         return
     huggorm.set_pool_size(args.pool_size)
 
