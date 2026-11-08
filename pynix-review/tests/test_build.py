@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
 import anyio
 from shapes import base
 from test_bundle import CAIRO, FONTCONFIG, FREETYPE, LIBPNG, font_bundle, node
 
-from pynix_review.build import Outcome, Report, failure_status, held_back, report, schedule
+from pynix_review.build import Outcome, Report, build_message, failure_status, held_back, report, schedule, tail
 from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, Bundle, to_dot
 from pynix_review.plan import order
 
@@ -28,6 +30,38 @@ def test_report_times_what_a_builder_ran() -> None:
     assert by_drv[FREETYPE].seconds is None
     assert by_drv[FONTCONFIG].seconds == 10
     assert by_drv[CAIRO].seconds is None
+
+
+def test_report_carries_the_log_tail_and_the_outputs() -> None:
+    found = [
+        Outcome(LIBPNG, "built", True, 1, 2, None, outputs={"out": "/nix/store/x-libpng", "dev": "/nix/store/y-dev"}),
+        Outcome(FONTCONFIG, "permanent-failure", False, 1, 2, "error: x", log_tail="make: *** Error 1"),
+    ]
+    by_drv = {r.drv: r for r in made(found).results}
+    assert by_drv[LIBPNG].outputs == {"out": "/nix/store/x-libpng", "dev": "/nix/store/y-dev"}
+    assert (by_drv[LIBPNG].log_tail, by_drv[FONTCONFIG].log_tail) == (None, "make: *** Error 1")
+
+
+def test_tail_keeps_the_last_lines_without_colour() -> None:
+    log = "".join(f"line {n}\n" for n in range(100)) + "\x1b[31;1mboom\x1b[0m\n"
+    assert tail(log, 3) == "line 98\nline 99\nboom"
+
+
+ERROR: Final = (
+    "error: Cannot build '/nix/store/3qw4-hello-2.12.3.drv'.\n"
+    "       Reason: builder failed with exit code 3.\n"
+    "       Output paths:\n         /nix/store/fgrl-hello-2.12.3\n"
+    "       Last 25 log lines:\n       > make[1]: Leaving directory '/build/hello-2.12.3'\n"
+    "       > pynix-review-probe-failure"
+)
+
+
+def test_a_logged_failure_message_leaves_the_quoted_log_lines_out() -> None:
+    assert build_message(ERROR, logged=True) == (
+        "error: Cannot build '/nix/store/3qw4-hello-2.12.3.drv'. Reason: builder failed with exit code 3. "
+        "Output paths: /nix/store/fgrl-hello-2.12.3"
+    )
+    assert "probe-failure" in build_message(ERROR, logged=False)
 
 
 def test_a_build_with_no_reported_times_has_no_seconds() -> None:

@@ -13,9 +13,10 @@ pynixd keeps building after its client goes.
 
 from __future__ import annotations
 
+import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -38,6 +39,8 @@ JOBS: Final = 8
 REPORT_FILE: Final = "built.json"
 DOT_FILE: Final = "built.dot"
 URL_FILE: Final = "built.url"
+LOG_LINES: Final = 60
+LOG_QUOTE: Final = re.compile(r"\s*Last \d+ log lines:")
 RAN: Final = "built"
 """The success word for a builder that ran; the other success words ran none."""
 BUILD_LOG_RESULTS: Final = frozenset({huggorm.ResultType.BUILD_LOG_LINE, huggorm.ResultType.POST_BUILD_LOG_LINE})
@@ -55,6 +58,8 @@ class Outcome:
     start: int
     stop: int
     message: str | None
+    log_tail: str | None = None
+    outputs: dict[str, str] = field(default_factory=dict[str, str])
 
 
 class _Model(BaseModel):
@@ -73,7 +78,12 @@ class Built(_Model):
     estimate: int | None
     """The bundle's estimate for this derivation."""
     message: str | None
-    """The first line of the error, on failure."""
+    """The last error paragraph on one line, on failure."""
+    log_tail: str | None
+    """The last `LOG_LINES` lines of the builder's log, when it ran and failed and the store kept its log."""
+    outputs: dict[str, str]
+    """Each output's store path, on success. Only a `built` one is this run's own to delete:
+    an `already-valid` or `substituted` one was there, or in a cache, before."""
 
 
 class Report(_Model):
@@ -169,6 +179,8 @@ def report(
             seconds=o.stop - o.start if (o.status == RAN or not o.ok) and 0 < o.start <= o.stop else None,
             estimate=t.estimate if (t := by_drv[o.drv].time if o.drv in by_drv else None) else None,
             message=o.message,
+            log_tail=o.log_tail,
+            outputs=o.outputs,
         )
         for o in outcomes
     ]
@@ -218,19 +230,40 @@ def log_line(record: huggorm.LogRecord, *, build_logs: bool) -> str | None:
             return None
 
 
+def tail(log: str, lines: int = LOG_LINES) -> str:
+    """The last `lines` lines of a build log, without colour codes."""
+    return "\n".join(huggorm.filter_ansi_escapes(log, filter_all=True).splitlines()[-lines:])
+
+
+def build_message(error: str, *, logged: bool) -> str:
+    """The error on one line. With the log at hand, without the log lines
+    libstore quotes after the reason: `error_line` would clip them anyway."""
+    return error_line(LOG_QUOTE.split(error, maxsplit=1)[0] if logged else error)
+
+
 async def _build_one(store: huggorm.AsyncStore, drv: str) -> Outcome:
     target = await store.parse_derived_path(f"{STORE_DIR}/{drv}^*")
     [result] = await store.build_paths_with_results([target])
     success, error = result.success(), result.error()
+    status = str(success.status()) if success is not None else failure_status(str(error.status if error else "unknown"))
+    path = await store.parse_store_path(f"{STORE_DIR}/{drv}")
+    outputs: dict[str, str] = {}
+    log_tail = None
+    if success is not None:
+        outputs = {
+            name: await store.print_store_path(p) for name, p in (await store.query_derivation_output_map(path)).items()
+        }
+    elif status != UNCHANGED_INPUT_FAILED and (log := await store.get_build_log(path)) is not None:
+        log_tail = tail(log)
     return Outcome(
         drv=drv,
-        status=str(success.status())
-        if success is not None
-        else failure_status(str(error.status if error else "unknown")),
+        status=status,
         ok=success is not None,
         start=result.start_time(),
         stop=result.stop_time(),
-        message=error_line(str(error)) if error is not None else None,
+        message=build_message(str(error), logged=log_tail is not None) if error is not None else None,
+        log_tail=log_tail,
+        outputs=outputs,
     )
 
 
