@@ -1,3 +1,20 @@
+# Default-deny at the top level: a new file or directory here stays
+# untracked until it is named below.
+/*
+!/.gitignore
+!/LICENSE
+!/README.md
+!/default.nix
+!/docs/
+!/flake.lock
+!/flake.nix
+!/formulas/
+!/mypy.ini
+!/nix/
+!/pyproject.toml
+!/src/
+!/tests/
+
 result
 result-*
 .scratchpad

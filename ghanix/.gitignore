@@ -1,0 +1,13 @@
+# Default-deny at the top level: a new file or directory here stays
+# untracked until it is named below.
+/*
+!/.gitignore
+!/LICENSE
+!/README.md
+!/default.nix
+!/docs/
+!/nix/
+!/schema.nix
+!/steps.nix
+!/to_yaml.py
+

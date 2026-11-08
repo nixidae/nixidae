@@ -1,3 +1,18 @@
+# Default-deny at the top level: a new file or directory here stays
+# untracked until it is named below.
+/*
+!/.editorconfig
+!/.github/
+!/.gitignore
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
+!/LICENSE
+!/README.md
+!/SECURITY.md
+!/SUPPORT.md
+!/assets/
+!/profile/
+
 # Nix build outputs
 result
 result-*

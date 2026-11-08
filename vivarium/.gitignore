@@ -1,3 +1,28 @@
+# Default-deny at the top level: a new file or directory here stays
+# untracked until it is named below.
+/*
+!/.gitignore
+!/.mcp.json
+!/LICENSE
+!/README.md
+!/ci/
+!/default.nix
+!/docs/
+!/examples/
+!/flake.lock
+!/flake.nix
+!/images.nix
+!/lib.nix
+!/modules/
+!/nix/
+!/nixos-test.nix
+!/pkgs/
+!/recipes/
+!/ruff.toml
+!/run.sh
+!/skill/
+!/tests/
+
 result*
 # Throwaway experiments; see spike/default.nix.
 /spike/
