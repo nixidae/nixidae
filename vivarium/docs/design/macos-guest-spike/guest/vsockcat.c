@@ -128,7 +128,8 @@ static int serve(unsigned port, char **argv)
     struct sockaddr_vm a = addr(VMADDR_CID_ANY, port);
     int s = socket(AF_VSOCK, SOCK_STREAM, 0);
 
-    if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof(a)) < 0 || listen(s, 16) < 0) {
+    if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof(a)) < 0 ||
+        listen(s, SOMAXCONN) < 0) {
         perror("serve");
         return 1;
     }
