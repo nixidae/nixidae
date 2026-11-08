@@ -764,6 +764,21 @@ let
       };
     };
 
+    # The run's and a guest's `python.packages` reach the phase and its
+    # type check, in one venv.
+    python-packages = mkTest {
+      name = "python-packages";
+      nodes.one.vivarium.python.packages = [ pkgs.python3Packages.humanize ];
+      python.packages = [ pkgs.python3Packages.tomli-w ];
+      phases = {
+        boot.script = ./tests/phases/boot.py;
+        imports = {
+          script = ./tests/phases/python-packages.py;
+          after = [ "boot" ];
+        };
+      };
+    };
+
     /*
       Can a caller run one phase and leave the rest alone?
 
@@ -2697,6 +2712,11 @@ let
         # consumer rather than this repository.
         lib.filesystem.listFilesRecursive ./recipes ++ lib.filesystem.listFilesRecursive ./tests
       );
+      # What `python-packages` gives its phase.
+      extraPackages = [
+        pkgs.python3Packages.humanize
+        pkgs.python3Packages.tomli-w
+      ];
     };
 
     # zuban, strict, over `runner` and `session` and their unit tests. Each

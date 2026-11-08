@@ -313,6 +313,61 @@ in
       '';
     };
 
+    python.packages = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      example = lib.literalExpression "[ pkgs.python3Packages.kubernetes ]";
+      description = ''
+        Python packages the phase scripts import beyond `vivarium_runner`.
+
+        The run's `vivarium` program runs in one venv that holds these,
+        each guest's `vivarium.python.packages` and the runner. The type
+        check reads the same venv, so what a script imports at run time
+        is what zuban checks it against.
+
+        Build them for `pkgs.python3`, the interpreter of that venv.
+      '';
+    };
+
+    typeCheck = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        example = false;
+        description = ''
+          Run zuban over every phase script, as an input of the run.
+
+          A script is Python that nothing imports until the guests have
+          booted, so a typo in it otherwise costs a boot to find. The
+          check takes seconds.
+        '';
+      };
+
+      strict = mkOption {
+        type = types.bool;
+        default = true;
+        example = false;
+        description = ''
+          Use mypy's `strict` mode.
+
+          Off, an unannotated function is still an error, because mypy
+          checks nothing inside one.
+        '';
+      };
+
+      ignore = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = lib.literalExpression ''[ "import-not-found" ]'';
+        description = ''
+          mypy error codes to turn off for every script. They go to
+          `disable_error_code` in the generated `mypy.ini`. Use it for a
+          check that is right about something the author cannot fix, such
+          as an import that exists only inside a guest.
+        '';
+      };
+    };
+
     settings = mkOption {
       type = types.attrs;
       default = { };

@@ -60,7 +60,7 @@ rec {
 
         typeCheck { scripts = [ ./tests/vivarium/run.py ]; }
 
-    `mkTest` calls this itself -- see `vivarium.typeCheck`.  Call it
+    `mkTest` calls this itself -- see the run's `typeCheck`.  Call it
     directly for scripts that are not a test's.
   */
   typeCheck =
@@ -502,7 +502,20 @@ rec {
 
       machines = map (hostName: nodes.${hostName}) (lib.attrNames checkedConfig.nodes);
 
-      first = lib.head machines;
+      pythonPackages = lib.unique (
+        checkedConfig.python.packages ++ lib.concatMap (machine: machine.vivarium.python.packages) machines
+      );
+
+      # `cli` itself when nothing adds a package, so most runs share it.
+      runVenv =
+        if pythonPackages == [ ] then
+          cli
+        else
+          nixvenv {
+            python = pkgs.python3;
+            packages = _: [ session ] ++ pythonPackages;
+            executables = [ "vivarium" ];
+          };
 
       # Named in the builder rather than added to it: naming a store path
       # is what makes Nix build it, so the check runs before the guests
@@ -510,7 +523,7 @@ rec {
       # check is a recipe that breaks its consumers.
       checked =
         let
-          typing = first.vivarium.typeCheck;
+          typing = checkedConfig.typeCheck;
         in
         lib.optionalString typing.enable "${typeCheck {
           name = "${name}-phases";
@@ -518,7 +531,8 @@ rec {
             phase: if phase.pytest != null then phase.pytest.tests else phase.script
           ) checkedConfig.ordered;
           extraPaths = checkedConfig.pythonPath;
-          inherit (typing) extraPackages strict ignore;
+          extraPackages = pythonPackages;
+          inherit (typing) strict ignore;
         }}";
 
       spec = pkgs.writeText "vivarium-${name}-spec.json" (
@@ -529,7 +543,7 @@ rec {
             unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
             # The runner that knows every field below. No cycle: the
             # package does not depend on any spec.
-            vivarium = "${cli}";
+            vivarium = "${runVenv}";
             pythonPath = map (path: "${path}") checkedConfig.pythonPath;
             knobs = checkedConfig.resolved;
             phases = map (
@@ -584,7 +598,7 @@ rec {
         )
       );
 
-      vivarium = lib.getExe cli;
+      vivarium = lib.getExe runVenv;
 
       /*
         The run outside the sandbox.

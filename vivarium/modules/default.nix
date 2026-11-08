@@ -169,7 +169,24 @@ in
     ./sonic-guest.nix
     ./store.nix
     ./vyos-guest.nix
-  ];
+  ]
+  ++
+    map
+      (
+        option:
+        lib.mkRemovedOptionModule [ "vivarium" "typeCheck" option ] (
+          if option == "extraPackages" then
+            "Set the run's `python.packages` in mkTest."
+          else
+            "Set the run's `typeCheck.${option}` in mkTest."
+        )
+      )
+      [
+        "enable"
+        "extraPackages"
+        "strict"
+        "ignore"
+      ];
 
   options.vivarium = {
     backend = lib.mkOption {
@@ -568,68 +585,18 @@ in
       '';
     };
 
-    /*
-      `mkTest` reads this off the first guest, the way it reads the kernel
-      and the toolchain. The script belongs to the test and not to a node,
-      but a node's options are where a test's Nix-side settings live.
-    */
-    typeCheck = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-        example = false;
-        description = ''
-          Run zuban over the test's script, as an input of the test
-          derivation.
+    python.packages = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [ ];
+      example = lib.literalExpression "[ pkgs.python3Packages.pyroute2 ]";
+      description = ''
+        Python packages, on the host, that a phase needs to drive this
+        guest. They go into the run's venv beside the run's own
+        `python.packages`, and the type check reads them too.
 
-          A script is Python that nothing imports until the guests have
-          booted, so a typo in it otherwise costs a boot to find.  The
-          check takes seconds.
-
-          Turn it off for a script whose imports the check's environment
-          cannot provide.
-        '';
-      };
-
-      extraPackages = lib.mkOption {
-        type = lib.types.listOf lib.types.package;
-        default = [ ];
-        example = lib.literalExpression "[ pkgs.python3Packages.kubernetes ]";
-        description = ''
-          Python packages the script imports beyond `vivarium_runner`.
-
-          Without them zuban reports the import as an error, which is
-          the right answer: an import it cannot resolve is a name it
-          cannot check.
-        '';
-      };
-
-      strict = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-        example = false;
-        description = ''
-          Use mypy's `strict` mode.
-
-          Off, an unannotated function is still an error, because mypy
-          checks nothing inside one.
-        '';
-      };
-
-      ignore = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ];
-        example = lib.literalExpression ''[ "import-not-found" ]'';
-        description = ''
-          mypy error codes to turn off for the whole script, the way
-          `pkgs.writers.writePython3Bin` takes `flakeIgnore`.
-
-          They go to `disable_error_code` in the generated `mypy.ini`.
-          For a check that is right about something
-          the author cannot fix -- an import that only exists inside a
-          guest, say -- rather than for one that is inconvenient.
-        '';
-      };
+        The module that gives a guest its kind sets this, so a test that
+        uses the guest needs no import list of its own.
+      '';
     };
 
     interfaces = lib.mkOption {
