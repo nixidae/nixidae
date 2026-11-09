@@ -53,9 +53,9 @@ in
         message = "vivarium.sonic boots under QEMU only; this guest is ${config.vivarium.backend}.";
       }
     ];
-    # vrnetlab runs SONiC VS in 4 GiB and two cores.
+    # vrnetlab runs SONiC VS in 4 GiB. Cores: every host core, as any
+    # QEMU guest.
     vivarium.memory = lib.mkDefault "4096M";
-    vivarium.cpus = lib.mkDefault 2;
     vivarium.kind = "sonic";
     vivarium.rootImage = cfg.disk;
     vivarium.closure = null;
