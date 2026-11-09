@@ -395,8 +395,10 @@ as the default entrypoint.
 - `ctl stop`, and `ctl state` with the failure text. `stop` is done: a
   typed `Stop`, exit 5, verdict `stopped`.
 - `monitor` documents that a wrapper must not swallow its exit code.
+  Done.
 - `inject --reload` drops the helpers it imported, and `switch` appears
-  in the commands a pause prints.
+  in the commands a pause prints. Done: `--reload DIR`, and `switch`
+  for a run that `vivarium run <attr>` started.
 
 ## Order of work
 
@@ -442,7 +444,14 @@ Each step keeps `checks` green and moves the consumers with it.
    pynixd's suites run through it. Open: a phase that starts when its
    own guests are up in a full run (readiness in `Machine.start`),
    nixidae/nixidae#1229.
-6. The agent surface.
+6. The agent surface. Done: `run.json`; `ctl stop` (exit 5, verdict
+   `stopped`); `ctl state` with the pause reason and each error, and
+   `ctl --json`; the monitor's exit status documented; `inject --reload
+   DIR`; a `switch` line for a run started by name. The CLI on PATH is
+   the huggorm `vivarium`, the runner is `vivarium-runner`, and the
+   pynixd, nixkube and easykubenix dev shells carry the CLI. Every check
+   body with logic is Python in `tests/checks/`. Next for the CLI:
+   `vivarium.nix` as the default entrypoint, nixidae/nixidae#1254.
 7. `default.nix` split into `tests/<name>/default.nix`.
 
 Speed items from section 3 land when found; they do not wait on the
