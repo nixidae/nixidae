@@ -2620,6 +2620,8 @@ in
       vivarium-eval
       ;
     vivarium = tools;
+    # `nix run --file . packages.vivarium-mcp`: what `.mcp.json` starts.
+    vivarium-mcp = lib.addMetaAttrs { mainProgram = "vivarium-mcp"; } vivarium-eval;
     libkrun = pkgs.callPackage ./pkgs/libkrun/package.nix { };
     # The slowest thing in the repository and the same for every guest, so
     # CI builds it once on its own and lets the cache hand it to the test

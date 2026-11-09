@@ -2,7 +2,7 @@
   "mcpServers": {
     "vivarium": {
       "command": "nix",
-      "args": ["shell", "--file", ".", "packages.vivarium", "--command", "vivarium-mcp"]
+      "args": ["run", "--file", ".", "packages.vivarium-mcp"]
     }
   }
 }
