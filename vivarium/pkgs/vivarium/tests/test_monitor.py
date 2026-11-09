@@ -356,7 +356,8 @@ class TestBuildTally:
     def test_a_path_counts_once_however_often_it_is_named(self) -> None:
         tally = BuildTally()
         records: list[dict[str, Any]] = [
-            {"action": PLANNED, "type": BUILD, "fields": ["/nix/store/a.drv", "/nix/store/b.drv"]},
+            # A plan names a path without the store directory; activities with it.
+            {"action": PLANNED, "type": BUILD, "fields": ["a.drv", "/nix/store/b.drv"]},
             {"action": PLANNED, "type": SUBSTITUTE, "fields": ["/nix/store/s"]},
             # A second plan names `b` again: a later realise asked for it too.
             {"action": PLANNED, "type": BUILD, "fields": ["/nix/store/b.drv", "/nix/store/c.drv"]},

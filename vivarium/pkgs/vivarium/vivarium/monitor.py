@@ -192,6 +192,12 @@ PLANNED: Final = "planned"
 kind (`type`, `BUILD` or `SUBSTITUTE`) that Nix's `query_missing` named."""
 
 
+def _store_name(path: str) -> str:
+    """`<hash>-<name>`: a plan spells a path without the store directory,
+    Nix's activities with it."""
+    return path.rsplit("/", 1)[-1]
+
+
 @dataclass
 class BuildTally:
     """Builds and downloads of one run, by store path, so a path two plans
@@ -221,10 +227,10 @@ class BuildTally:
         action, kind = record.get("action"), record.get("type")
         fields: list[Any] = record.get("fields") or []
         if action == PLANNED and kind in self.planned:
-            self.planned[kind].update(str(path) for path in fields)
+            self.planned[kind].update(_store_name(str(path)) for path in fields)
             return {"run": run, "event": "builds", "text": "planned", **self.counts()}
         if action == "start" and kind in self.started:
-            path = str(fields[0]) if fields else str(record.get("text", ""))
+            path = _store_name(str(fields[0])) if fields else str(record.get("text", ""))
             self.started[kind].add(path)
             self.running[int(record.get("id", 0))] = (kind, path)
             if kind == BUILD:

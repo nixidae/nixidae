@@ -169,6 +169,8 @@ async def resolve(file: Path, attr: list[str], command: str, recorder: Recorder)
         # `vivarium run` runs the session's `.driver`; `phases` its `.phases`.
         member = await select_attr_path(state, target, [{"run": "driver"}.get(command, command)])
         if command == "run":
+            # `drv_path` reads an attribute set; a selected attribute is a thunk until forced.
+            await state.force(member)
             missing = await store.query_missing([DerivedPathBuilt(await member.drv_path(), OutputsSpec(all=True))])
             recorder.planned(
                 [str(path) for path in missing.will_build()], [str(path) for path in missing.will_substitute()]
