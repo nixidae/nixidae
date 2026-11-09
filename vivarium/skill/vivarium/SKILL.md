@@ -55,7 +55,7 @@ vivarium ctl --out "$OUT" continue
 vivarium ctl --out "$OUT" stop                           # end it here, guests down
 ```
 
-- `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec` and `inject` also work while phases run; `pytest`, `run`, `continue` need a pause.
+- `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec`, `inject`, `state` and `stop` also work while phases run; `pytest`, `run`, `continue` need a pause.
 - Loop: read the failure, probe with `exec`, edit the test file, `inject`/`pytest` again, repeat until it passes, then `continue`.
 - `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported. To test an edited helper, name its working-tree directory: `vivarium ctl --out "$OUT" inject ./phases/x.py --reload ./lib` (repeatable; `pytest` takes it too). The directory goes first on `sys.path`, and the modules it provides are dropped.
 - A run started by `vivarium run <attr>` also prints a `switch` line (`vivarium switch <attr> --file F --out O --node N --module ./module.nix`): edit a NixOS module, switch one guest to it, no new run. A `nix run` driver prints none.

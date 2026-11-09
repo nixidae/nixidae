@@ -1,4 +1,5 @@
-# `vivarium-eval`: the evaluating front door, built on huggorm.
+# The `vivarium` CLI, built on huggorm: run by name, phases, switch, ctl,
+# monitor, and `vivarium-mcp`. The package keeps the name `vivarium-eval`.
 #
 # On nanopynix's Python set rather than nixpkgs' python3Packages,
 # because huggorm is built there and one interpreter has to hold it,
@@ -7,9 +8,10 @@
 # pyproject.toml, as easykubenix does for `ekn`. The set moves out of
 # nanopynix with the rest of its packaging (nixidae/nixidae#866).
 #
-# Nothing else in this repository depends on this. `mkTest` and every
-# check use the nixpkgs build of `vivarium`, so a consumer never
-# builds huggorm -- the sandboxed path must not evaluate anyway.
+# Nothing a test needs depends on this. `mkTest` and every check use the
+# nixpkgs build of the runner, `vivarium-runner`, so `nix build` and
+# `nix run` of a test never build huggorm -- the sandboxed path must not
+# evaluate anyway. The dev shells that run tests carry this CLI.
 {
   pkgs,
   sources,
@@ -70,6 +72,9 @@ let
       '';
 in
 app.overrideAttrs (old: {
+  meta = (old.meta or { }) // {
+    mainProgram = "vivarium";
+  };
   passthru = (old.passthru or { }) // {
     inherit tests pythonSet;
   };
