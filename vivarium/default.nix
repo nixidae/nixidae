@@ -2554,17 +2554,29 @@ let
 
   /*
     What a person or an agent installs: `vivarium` (the CLI, built on
-    huggorm), `vivarium-mcp`, and the agent skill at
-    `share/skills/vivarium/vivarium`. Not the runner: a run names its own,
+    huggorm), `vivarium-mcp`, the agent skill at
+    `share/skills/vivarium/vivarium`, and the Claude Code mod at
+    `share/claude-plugins/vivarium-runs`. Not the runner: a run names its own,
     and every command it prints is absolute. Not inside `cli`: every
     test's spec names `cli`, so a skill inside it would rebuild every test
     on each edit.
   */
   tools = pkgs.runCommand "vivarium-tools" { meta.mainProgram = "vivarium"; } ''
-    mkdir -p $out/bin $out/share/skills/vivarium
+    mkdir -p $out/bin $out/share/skills/vivarium $out/share/claude-plugins
     ln -s ${vivarium-eval}/bin/vivarium ${vivarium-eval}/bin/vivarium-mcp $out/bin/
     cp -r ${./skill/vivarium} $out/share/skills/vivarium/vivarium
+    cp -r ${mod} $out/share/claude-plugins/vivarium-runs
   '';
+  # Not the types Claude Code writes into `.claude-plugin/types` on each load.
+  mod = lib.fileset.toSource {
+    root = ./claude-plugin;
+    fileset = lib.fileset.unions [
+      ./claude-plugin/.claude-plugin/plugin.json
+      ./claude-plugin/hooks
+      ./claude-plugin/types
+      ./claude-plugin/README.md
+    ];
+  };
 in
 # The schema of nixidae/nixidae#1103. Every other name is under `internal`.
 {

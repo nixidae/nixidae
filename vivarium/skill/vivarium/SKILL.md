@@ -80,6 +80,7 @@ The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr,
 
 - `start` takes `attr` (with `file`, the directory or file to evaluate) or `spec`, never `file` alone. It runs with `--break-on-failure`.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.
+- The `vivarium-runs` mod (`share/claude-plugins/vivarium-runs`, if loaded) shows each run in a pane with Continue and Stop; it follows `start` and `vivarium run --out <literal>` by itself, `/vivarium-runs <out>` any other.
 - `events` replies have no size limit: always pass `kind`, `machine`, `phase` or `contains`, and a small `limit`. One unfiltered `case` query returned 233k characters.
 
 ## Evidence

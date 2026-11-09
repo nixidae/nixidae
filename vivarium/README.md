@@ -189,7 +189,9 @@ guests. nixidae's CLAUDE.md (vivarium) describes the tools and the pause-and-ins
 name, `phases`, `switch`, `reload`, `ctl`, `monitor`), `vivarium-mcp` and an agent
 skill at `share/skills/vivarium/vivarium`
 ([skill/vivarium/SKILL.md](skill/vivarium/SKILL.md)). Install the package
-and link the skill into the agent's skills directory.
+and link the skill into the agent's skills directory. It also holds a
+Claude Code mod, `share/claude-plugins/vivarium-runs`, that shows each run
+in a pane ([claude-plugin/README.md](claude-plugin/README.md)).
 
 An agent without MCP uses `vivarium` from a dev shell, or reads
 `<out>/run.json`: a run writes there the command lines that watch it and

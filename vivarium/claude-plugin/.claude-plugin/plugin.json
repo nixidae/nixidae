@@ -1,0 +1,6 @@
+{
+  "name": "vivarium-runs",
+  "version": "0.1.0",
+  "description": "A pane with each vivarium run of this session: its build, phases, pause and verdict, with continue and stop",
+  "types": "./types/index.d.ts"
+}
