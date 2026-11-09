@@ -325,6 +325,12 @@ Standing rule (maintainer, 2026-11-09): where pynixd can do better than Nix, it 
 
 Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` is the user guide and stays true when a command, flag or printed line changes. `docs/design/runner.md` is the design.
 
+### Rules
+
+- Every test runs with plain Nix, in the sandbox and out of it: `nix build --file . <test>` and `nix run --file . <test>.driver`. The runner (`vivarium-runner`, in each spec) never evaluates. Anything else may use vivarium's own programs, as long as a Nix-compatible CLI wraps them.
+- The `vivarium` CLI is built on huggorm (`pkgs/vivarium-eval`). Impure runs evaluate in-process through it, so it can evaluate a run again, switch a guest and reload a live run. This is the base for agent troubleshooting workflows on impure runs. Prefer a huggorm solution over one that shells out to `nix`.
+- Python, not bash. A check body is a script in `tests/checks/` on the shared `harness.py`, and the Nix builder only calls it. A bash body that a change touches moves to Python in that change. Bash needs a strong reason, such as the busybox `/init` of a guest with no Python.
+
 ### Structure
 
 - `mkTest` is the one function: guests plus named phases ordered in Nix, with `.driver`, `.driverDebug`, `.driverInteractive`. `fromNixosTest` (`nixos-test.nix`) maps a nixos-test spec onto it.
