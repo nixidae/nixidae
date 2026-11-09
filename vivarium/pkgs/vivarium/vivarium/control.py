@@ -8,11 +8,10 @@ the working tree, `pytest` runs tests from it, `run` runs a declared
 phase, `continue` resumes. `exec` and `inject` also reach a run that is
 not paused, beside the phases that are running.
 
-    uml run --spec s --out o --break check
-    uml ctl --out o exec 'await one.succeed("systemctl --failed")'
-    uml ctl --out o inject ./scratch.py
-    uml ctl --out o pytest ./tests/chaos -- -k etcd
-    uml ctl --out o continue
+    vivarium ctl --out o exec 'await one.succeed("systemctl --failed")'
+    vivarium ctl --out o inject ./scratch.py
+    vivarium ctl --out o pytest ./tests/chaos -- -k etcd
+    vivarium ctl --out o continue
 
 The operations are the MCP server's tools as well; it is one more
 client of `<out>/control.sock`.
@@ -301,9 +300,10 @@ def run_file(vivarium: Path, out: Path, pid: int, *, control: bool) -> RunFile:
 
 
 def vivarium_command(session: Session) -> Path:
-    """The `vivarium` executable of this run."""
+    """The runner executable of this run: the printed commands use it, so
+    a command always speaks the socket protocol of the run it reaches."""
     if session.spec.vivarium is not None:
-        return session.spec.vivarium / "bin" / "vivarium"
+        return session.spec.vivarium / "bin" / "vivarium-runner"
     return Path(sys.argv[0]).resolve()
 
 

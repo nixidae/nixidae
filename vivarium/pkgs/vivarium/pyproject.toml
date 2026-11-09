@@ -14,7 +14,7 @@ requires-python = ">=3.12"
 dependencies = ["anyio", "pydantic", "pytest", "vivarium-runner"]
 
 [project.scripts]
-vivarium = "vivarium.cli:main"
+vivarium-runner = "vivarium.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vivarium"]

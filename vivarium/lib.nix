@@ -42,14 +42,16 @@ rec {
   k8s = pkgs.callPackage ./pkgs/vivarium-k8s { vivarium-runner = runner; };
 
   /**
-    The `vivarium` program, in a venv that holds `session`. A child of
+    The runner, `vivarium-runner`, in a venv that holds `session`. What a
+    test's spec names and its driver runs; it never evaluates. The CLI a
+    person runs is `vivarium` from `packages.vivarium`, built on huggorm. A child of
     `sys.executable` then imports what the program imports, with no
     PYTHONPATH: the runner starts its launcher and its probes that way.
   */
   cli = nixvenv {
     python = pkgs.python3;
     packages = _: [ session ];
-    executables = [ "vivarium" ];
+    executables = [ "vivarium-runner" ];
   };
 
   /**
@@ -458,7 +460,7 @@ rec {
           nixvenv {
             python = pkgs.python3;
             packages = _: [ session ] ++ pythonPackages;
-            executables = [ "vivarium" ];
+            executables = [ "vivarium-runner" ];
           };
 
       # Named in the builder rather than added to it: naming a store path
@@ -565,7 +567,7 @@ rec {
         environment variable nobody remembers.
       */
       /*
-        `vivarium` with this run's spec and some flags baked in: a binary
+        `vivarium-runner` with this run's spec and some flags baked in: a binary
         wrapper, no shell. The type check is named in its environment,
         which makes it a dependency: the by-hand door is where a type
         error gets written, so it must not skip the check.

@@ -187,7 +187,7 @@ class TestRunArgv:
             pytest_args=[],
             runner=Path("/nix/store/y-vivarium"),
         )
-        assert argv[:4] == ["/nix/store/y-vivarium/bin/vivarium", "run", "--spec", "/nix/store/x-spec.json"]
+        assert argv[:4] == ["/nix/store/y-vivarium/bin/vivarium-runner", "run", "--spec", "/nix/store/x-spec.json"]
 
     def test_a_kernel_from_a_working_tree(self, tmp_path: Path) -> None:
         argv = run_argv(

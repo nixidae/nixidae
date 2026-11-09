@@ -161,7 +161,7 @@ def run_argv(
         head = [str(bin_dir / "vivarium-eval"), "run", attr, "--file", file]
     elif runner is not None:
         # The spec's own `vivarium`, which knows every field in it.
-        head = [str(runner / "bin" / "vivarium"), "run", "--spec", str(spec)]
+        head = [str(runner / "bin" / "vivarium-runner"), "run", "--spec", str(spec)]
     else:
         head = [sys.executable, "-m", "vivarium.cli", "run", "--spec", str(spec)]
     argv = [*head, "--out", str(out)]

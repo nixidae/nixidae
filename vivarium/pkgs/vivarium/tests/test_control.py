@@ -83,7 +83,7 @@ class TestConsole:
         assert "SyntaxError" in (reply.error or "")
 
 
-VIVARIUM = Path("/nix/store/x-vivarium/bin/vivarium")
+VIVARIUM = Path("/nix/store/x-vivarium/bin/vivarium-runner")
 
 
 def test_the_run_file_reads_back_what_it_wrote() -> None:

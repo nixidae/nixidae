@@ -44,6 +44,6 @@ python3Packages.buildPythonPackage {
     description = "Drive a run of NixOS guests a step at a time";
     license = lib.licenses.asl20;
     platforms = lib.platforms.linux;
-    mainProgram = "vivarium";
+    mainProgram = "vivarium-runner";
   };
 }

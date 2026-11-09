@@ -18,11 +18,11 @@ A run by hand prints the commands that reach it, before the first
 phase and again at each pause:
 
 ```
-[vivarium] wait for a pause or the verdict (exits 4 at a pause): /nix/store/…/bin/vivarium monitor /home/me/out --quiet
-[vivarium] run Python against the guests: /nix/store/…/bin/vivarium ctl --out /home/me/out exec 'print(list(vms))'
-[vivarium] run a file's `async def test(vms)`: /nix/store/…/bin/vivarium ctl --out /home/me/out inject ./check.py
-[vivarium] each phase's state: /nix/store/…/bin/vivarium ctl --out /home/me/out state
-[vivarium] resume a paused run: /nix/store/…/bin/vivarium ctl --out /home/me/out continue
+[vivarium] wait for a pause or the verdict (exits 4 at a pause): /nix/store/…/bin/vivarium-runner monitor /home/me/out --quiet
+[vivarium] run Python against the guests: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out exec 'print(list(vms))'
+[vivarium] run a file's `async def test(vms)`: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out inject ./check.py
+[vivarium] each phase's state: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out state
+[vivarium] resume a paused run: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out continue
 ```
 
 Copy a line as it is. The paths are absolute, so the command works from
