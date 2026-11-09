@@ -267,14 +267,14 @@ nix build --file . checks.format checks.lint checks.types --no-link
 nix run --file . internal.tests.guest.driver -- --out ./out
 ```
 
-- `tests.guest` runs the five suites (unit, protocol, parity, functional, differential) at once, each in a vivarium container guest: 115 s for the session, 2 s of it booting. One suite: `-- --out ./out --only prepare --only unit`; `--break-on-failure` keeps the guest up, `vivarium ctl --out ./out exec ...` reaches in. Timings: unit 13 s, protocol 3 s, parity 17 s, differential 22 s, functional 109 s. Run it in the background; with the vivarium MCP, `start` with `attr = "internal.tests.guest"` and watch the `monitor` command.
+- `tests.guest` runs the five suites (unit, protocol, parity, functional, differential) at once, each in a vivarium container guest: 115 s for the session, 2 s of it booting. One suite: `-- --out ./out --only unit` (boots the unit guest alone; MCP `start` with `only = ["unit"]`); `--break-on-failure` keeps the guest up, `vivarium ctl --out ./out exec ...` reaches in. Timings: unit 13 s, protocol 3 s, parity 17 s, differential 22 s, functional 109 s. Run it in the background; with the vivarium MCP, `start` with `attr = "internal.tests.guest"` and watch the `monitor` command.
 - Never the suites with host pytest: it reads the host's config (`use-cgroups` killed every managed nix-daemon on one host; functional and differential errored, wirelog tests waited out 30 s). If anyway, one pytest process at a time: functional tests share store paths, sockets and `/tmp/pynixd-stores`.
 - `checks.*` are gates; `nix run --file . internal.fix` is the rewriter, never a gate.
 - Evidence: `a=$(nix eval --raw --file . internal.tests.guest.attempt)` keeps a failed run: `phases.json`, `junit.xml`, `events.jsonl`, `artifacts/<suite>/`, each guest's process census. `jq -c 'select(.kind == "case" and .data.outcome == "failed") | .text' $a/events.jsonl`.
 
 ### Guest tests
 
-Phases: `prepare`, then `unit`, `protocol` and `parity` at once, then `leaks` (runs after a failure too; fails on a daemon that outlived its suite, which found nixidae/nixidae#426). `tests/guest/` holds `prepare.py` and `leaks.py`; `tests/derivations/guest/` declares them, and each suite through vivarium's `suites` recipe. `-- -k name` selects inside every suite (pair it with `--only`); `PYNIXD_NO_DAEMON=1` is a knob. Evidence goes to `/artifacts` (`$PYNIXD_TEST_LOG_DIR`); `/tmp` dies with the guest. Suites run as `tester` through the guest's daemon.
+Phases: per suite `prepare-<suite>` in that suite's guest, then the suite; the suites run at once; then `leaks` (runs after a failure too; fails on a daemon that outlived its suite, which found nixidae/nixidae#426). `tests/guest/` holds `prepare.py` and `leaks.py`; `tests/derivations/guest/` declares them, and each suite through vivarium's `suites` recipe. `-- -k name` selects inside every suite (pair it with `--only`); `PYNIXD_NO_DAEMON=1` is a knob. Evidence goes to `/artifacts` (`$PYNIXD_TEST_LOG_DIR`); `/tmp` dies with the guest. Suites run as `tester` through the guest's daemon.
 
 ### Architecture
 
