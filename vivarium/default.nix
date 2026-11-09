@@ -2848,23 +2848,25 @@ let
     Name a run and it is evaluated, built and run, with no `nix build`
     first:
 
-        nix run --file . packages.vivarium-eval -- run checks.pytest-phase --out ./out -- -k hostname
+        nix run --file . packages.vivarium -- run checks.pytest-phase --out ./out -- -k hostname
 
-    Built on nanopynix, so not a check and not a dependency of anything
-    a consumer uses. `vivarium-eval.tests` holds its unit tests.
+    The `vivarium` CLI. Built on nanopynix and huggorm, so not a check
+    and not a dependency of `nix build` or `nix run` of a test.
+    `vivarium-eval.tests` holds its unit tests.
   */
   vivarium-eval = import ./pkgs/vivarium-eval { inherit pkgs sources; };
 
   /*
-    What a person or an agent installs: `vivarium`, `vivarium-eval`,
-    `vivarium-mcp`, and the agent skill at `share/skills/vivarium/vivarium`.
-    Not `cli` itself: every test's spec names `cli`, so a skill inside it
-    would rebuild every test on each edit.
+    What a person or an agent installs: `vivarium` (the CLI, built on
+    huggorm), `vivarium-mcp`, and the agent skill at
+    `share/skills/vivarium/vivarium`. Not the runner: a run names its own,
+    and every command it prints is absolute. Not inside `cli`: every
+    test's spec names `cli`, so a skill inside it would rebuild every test
+    on each edit.
   */
   tools = pkgs.runCommand "vivarium-tools" { meta.mainProgram = "vivarium"; } ''
     mkdir -p $out/bin $out/share/skills/vivarium
-    ln -s ${lib.getExe cli} $out/bin/vivarium
-    ln -s ${vivarium-eval}/bin/vivarium-eval ${vivarium-eval}/bin/vivarium-mcp $out/bin/
+    ln -s ${vivarium-eval}/bin/vivarium ${vivarium-eval}/bin/vivarium-mcp $out/bin/
     cp -r ${./skill/vivarium} $out/share/skills/vivarium/vivarium
   '';
 in

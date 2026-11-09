@@ -170,6 +170,15 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     phases = sub.add_parser("phases", help="list the phases and exit")
     phases.add_argument("--spec", type=_absolute, required=True)
 
+    add_ctl(sub)
+    add_monitor(sub)
+    args = parser.parse_args(argv)
+    args.pytest_args = extra
+    return args
+
+
+def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """`ctl`: one request to a run. The runner and the `vivarium` CLI both take it."""
     ctl = sub.add_parser(
         "ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused"
     )
@@ -185,6 +194,10 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " run: a phase"
         ),
     )
+
+
+def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """`monitor`: a run's events until its verdict. The runner and the `vivarium` CLI both take it."""
     watch = sub.add_parser(
         "monitor",
         help="print a run's events, one line each, until its verdict",
@@ -213,9 +226,6 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="SECONDS",
         help="how long to wait for a run that has not started (default: %(default)g)",
     )
-    args = parser.parse_args(argv)
-    args.pytest_args = extra
-    return args
 
 
 def announce(session: Session) -> None:
@@ -601,32 +611,37 @@ async def phases(args: argparse.Namespace) -> int:
     return 0
 
 
+def watch(args: argparse.Namespace) -> int:
+    """`monitor`: follow a run until its verdict; the exit status."""
+    socket = monitor.locate(args.target)
+    options = {"as_json": args.json, "quiet": args.quiet, "until_pause": not args.through_pauses}
+    try:
+        if not anyio.run(monitor.wait_for_run, socket.parent, args.wait):
+            print(
+                f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 3
+        try:
+            return anyio.run(functools.partial(monitor.follow, socket, **options))
+        except (FileNotFoundError, ConnectionRefusedError):
+            # No vivarium-mcp behind this run: follow what it writes.
+            pass
+        if not (socket.parent / "events.jsonl").exists():
+            print(f"[vivarium] no run in {socket.parent}: no events.jsonl", file=sys.stderr, flush=True)
+            return 3
+        return anyio.run(functools.partial(monitor.follow_file, socket.parent, **options))
+    except KeyboardInterrupt:
+        return 130
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse(argv)
     if args.command == "ctl":
         raise SystemExit(anyio.run(ctl, args))
     if args.command == "monitor":
-        socket = monitor.locate(args.target)
-        options = {"as_json": args.json, "quiet": args.quiet, "until_pause": not args.through_pauses}
-        try:
-            if not anyio.run(monitor.wait_for_run, socket.parent, args.wait):
-                print(
-                    f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                raise SystemExit(3)
-            try:
-                raise SystemExit(anyio.run(functools.partial(monitor.follow, socket, **options)))
-            except (FileNotFoundError, ConnectionRefusedError):
-                # No vivarium-mcp behind this run: follow what it writes.
-                pass
-            if not (socket.parent / "events.jsonl").exists():
-                print(f"[vivarium] no run in {socket.parent}: no events.jsonl", file=sys.stderr, flush=True)
-                raise SystemExit(3)
-            raise SystemExit(anyio.run(functools.partial(monitor.follow_file, socket.parent, **options)))
-        except KeyboardInterrupt:
-            raise SystemExit(130) from None
+        raise SystemExit(watch(args))
     try:
         if args.command == "phases":
             raise SystemExit(anyio.run(phases, args))

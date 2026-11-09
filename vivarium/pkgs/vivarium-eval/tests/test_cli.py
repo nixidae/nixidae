@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from vivarium_eval.cli import entry, parse, split_attr
+from vivarium.control import Op
+from vivarium_eval.cli import entry, main, parse, parser, split_attr
 
 
 class TestParse:
@@ -24,6 +25,29 @@ class TestParse:
         request = parse(["run", "x", "--", "--file", "t.py"])
         assert request.file == Path(".")
         assert request.rest == ["--", "--file", "t.py"]
+
+
+class TestRunnerCommands:
+    """`ctl` and `monitor` are the runner's, taken the same way."""
+
+    def test_ctl_takes_every_op(self) -> None:
+        for op in Op:
+            args = parser().parse_args(["ctl", "--out", "/o", str(op)])
+            assert (args.command, args.op, args.out) == ("ctl", str(op), Path("/o"))
+
+    def test_monitor_takes_the_runner_options(self) -> None:
+        args = parser().parse_args(["monitor", "/o", "--quiet", "--through-pauses", "--wait", "5"])
+        assert (args.target, args.quiet, args.through_pauses, args.wait) == ("/o", True, True, 5.0)
+
+    def test_ctl_reaches_the_runner_code(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exited:
+            main(["ctl", "--out", str(tmp_path), "state"])
+        assert exited.value.code == 1
+        assert "no run is listening" in capsys.readouterr().err
+
+    def test_parse_refuses_a_command_that_does_not_evaluate(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["ctl", "--out", "/o", "state"])
 
 
 class TestAttr:

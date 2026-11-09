@@ -1,18 +1,24 @@
-"""`vivarium-eval`: name a run, and it is evaluated, built and run.
+"""`vivarium`: the CLI a person or an agent runs, built on huggorm.
 
-    vivarium-eval run checks.pytest-phase --out ./out -- -k hostname
-    vivarium-eval phases checks.recipes --file ~/Code/myproject
-    vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix
+    vivarium run checks.pytest-phase --out ./out -- -k hostname
+    vivarium phases checks.recipes --file ~/Code/myproject
+    vivarium switch checks.switch --out ./out --node one --module ./more.nix
+    vivarium ctl --out ./out exec 'print(list(vms))'
+    vivarium monitor ./out --quiet
 
-`nix run --file . <attr>.run` with the evaluation and the build moved
-inside it: huggorm evaluates `--file`, selects the attribute, builds
-its `.run` (which pulls in the spec and the phase type check) and execs
-it. There is no `nix build` first and no store path to paste.
+`run` is `nix run --file . <attr>.driver` with the evaluation and the
+build moved inside it: huggorm evaluates `--file`, selects the
+attribute, builds its `.driver` (which pulls in the spec and the phase
+type check) and execs it. There is no `nix build` first and no store
+path to paste. `ctl` and `monitor` are the runner's own, from its
+library: the socket protocol is JSON, so they reach a run of another
+vivarium too.
 
-**A separate package from `vivarium`, on purpose.** huggorm links Nix, and
-`vivarium` is what every sandboxed check runs. A sandboxed check must not
-evaluate -- everything is decided by the time it runs -- so it never
-needs this, and a consumer of `mkTest` never builds it.
+**The runner is a separate program, `vivarium-runner`, on purpose.**
+huggorm links Nix, and the runner is what every sandboxed check runs. A
+sandboxed check must not evaluate -- everything is decided by the time
+it runs -- so it never needs this, and a consumer of `mkTest` never
+builds it to run a test with `nix build` or `nix run`.
 
 Evaluation is impure, as `nix build --file` is, so a knob reads the
 environment the same way here as there.
@@ -34,7 +40,7 @@ import anyio
 import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
-from vivarium import control
+from vivarium import cli as runner_cli, control
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -67,35 +73,55 @@ def entry(file: Path) -> Path:
     return file / "default.nix" if file.is_dir() else file
 
 
-def parse(argv: list[str]) -> Request:
-    """Our two options, and the rest untouched for `vivarium`.
+EVALUATE: Final = frozenset({"run", "phases"})
+"""The commands that evaluate an attribute and exec what it builds."""
 
-    `--` is found by hand: argparse drops it, and `vivarium` needs it to know
-    where pytest's arguments begin.
-    """
-    head, tail = argv, []
-    if "--" in argv:
-        at = argv.index("--")
-        head, tail = argv[:at], argv[at:]
-    parser = argparse.ArgumentParser(
-        prog="vivarium-eval",
-        description="Evaluate a run, build it and run it",
-        epilog="Anything else goes to `vivarium`: `vivarium-eval run x --out o -v -- -k name`.",
+
+def parser() -> argparse.ArgumentParser:
+    """Every command. `ctl` and `monitor` come from the runner's parser,
+    so the two programs take them the same way."""
+    top = argparse.ArgumentParser(
+        prog="vivarium",
+        description="Evaluate a run, build it and run it; reach into a run; follow it",
+        epilog="run and phases hand anything else to the runner: `vivarium run x --out o -v -- -k name`.",
     )
-    parser.add_argument("command", choices=["run", "phases"])
-    parser.add_argument("attr", help="the attribute to run, such as `lan` or `lan.qemu`")
-    parser.add_argument(
-        "--file",
-        "-f",
-        type=Path,
-        default=Path("."),
-        help="the file or directory to evaluate, as `nix build --file` takes it",
-    )
-    args, rest = parser.parse_known_args(head)
+    sub = top.add_subparsers(dest="command", required=True)
+    for command, what in (("run", "evaluate, build and run a session"), ("phases", "list a session's phases")):
+        evaluate = sub.add_parser(command, help=what)
+        evaluate.add_argument("attr", help="the attribute to run, such as `lan` or `lan.qemu`")
+        evaluate.add_argument(
+            "--file",
+            "-f",
+            type=Path,
+            default=Path("."),
+            help="the file or directory to evaluate, as `nix build --file` takes it",
+        )
+    add_switch(sub)
+    runner_cli.add_ctl(sub)
+    runner_cli.add_monitor(sub)
+    return top
+
+
+def split_dashdash(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Before `--`, and from it on. argparse drops `--`, and the runner
+    needs it to know where pytest's arguments begin."""
+    if "--" not in argv:
+        return argv, []
+    at = argv.index("--")
+    return argv[:at], argv[at:]
+
+
+def parse(argv: list[str]) -> Request:
+    """`run` or `phases`: our two options, and the rest untouched for the runner."""
+    head, tail = split_dashdash(argv)
+    top = parser()
+    args, rest = top.parse_known_args(head)
+    if args.command not in EVALUATE:
+        top.error(f"{args.command} does not evaluate")
     try:
         attr = split_attr(args.attr)
     except ValueError as error:
-        parser.error(str(error))
+        top.error(str(error))
     return Request(args.command, args.file, attr, [*rest, *tail])
 
 
@@ -176,22 +202,20 @@ def switch_code(node: str, system: str, registration: str, action: Action) -> st
     )
 
 
-def parse_switch(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="vivarium-eval switch",
-        description="Add a module to one guest of a running session, build it on the host and switch to it",
+def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    switching = sub.add_parser(
+        "switch",
+        help="add a module to one guest of a running session, build it on the host and switch to it",
     )
-    parser.add_argument("attr", help="the session the run was started from, such as `switch`")
-    parser.add_argument("--file", "-f", type=Path, default=Path("."))
-    parser.add_argument("--out", type=Path, required=True, help="the running session's --out")
-    parser.add_argument("--node", required=True, help="the guest to change")
-    parser.add_argument("--module", type=Path, required=True, help="a NixOS module file")
-    parser.add_argument("--action", choices=["switch", "boot", "test", "dry-activate"], default="switch")
-    return parser.parse_args(argv)
+    switching.add_argument("attr", help="the session the run was started from, such as `switch`")
+    switching.add_argument("--file", "-f", type=Path, default=Path("."))
+    switching.add_argument("--out", type=Path, required=True, help="the running session's --out")
+    switching.add_argument("--node", required=True, help="the guest to change")
+    switching.add_argument("--module", type=Path, required=True, help="a NixOS module file")
+    switching.add_argument("--action", choices=["switch", "boot", "test", "dry-activate"], default="switch")
 
 
-def switch(argv: list[str]) -> int:
-    args = parse_switch(argv)
+def switch(args: argparse.Namespace) -> int:
     try:
         attr = split_attr(args.attr)
     except ValueError as error:
@@ -243,8 +267,19 @@ def say(text: str) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["switch"]:
-        raise SystemExit(switch(argv[1:]))
+    head, tail = split_dashdash(argv)
+    top = parser()
+    args, rest = top.parse_known_args(head)
+    if args.command not in EVALUATE:
+        if rest:
+            top.error(f"unrecognized arguments: {' '.join(rest)}")
+        # `vivarium ctl --out o pytest ./tests -- -k x`, as the runner takes it.
+        args.pytest_args = tail[1:]
+        if args.command == "ctl":
+            raise SystemExit(anyio.run(runner_cli.ctl, args))
+        if args.command == "monitor":
+            raise SystemExit(runner_cli.watch(args))
+        raise SystemExit(switch(args))
     request = parse(argv)
     started = time.monotonic()
     say(f"evaluating {'.'.join(request.attr)} from {entry(request.file)}")

@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = ["anyio", "huggorm", "mcp", "vivarium"]
 
 [project.scripts]
-vivarium-eval = "vivarium_eval.cli:main"
+vivarium = "vivarium_eval.cli:main"
 vivarium-mcp = "vivarium_eval.server:main"
 
 [tool.hatch.build.targets.wheel]

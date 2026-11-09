@@ -11,7 +11,7 @@ Claude Code hears about it without polling:
 **The run is a child process, never this one.** MCP's stdio transport
 is this process's stdout, and a session writes to stdout -- the terminal
 sink, and a phase's captured `print`. One stray line there corrupts the
-protocol. So a run is `vivarium-eval run ...` (or `python -m vivarium.cli run`
+protocol. So a run is `vivarium run ...` (or `python -m vivarium.cli run`
 for a spec) with its output in `<out>/terminal.log`, and this process
 is one more client of `<out>/control.sock`, as `vivarium ctl` is.
 
@@ -151,14 +151,14 @@ def run_argv(
     runner: Path | None = None,
     kernel: str | None = None,
 ) -> list[str]:
-    """The child's command line. By attribute through `vivarium-eval`, which
+    """The child's command line. By attribute through the `vivarium` CLI, which
     evaluates first; by spec straight to the `vivarium` the spec names."""
     if (attr is None) == (spec is None):
         raise ValueError("give exactly one of attr and spec")
     bin_dir = Path(sys.executable).parent
     if attr is not None:
         split_attr(attr)
-        head = [str(bin_dir / "vivarium-eval"), "run", attr, "--file", file]
+        head = [str(bin_dir / "vivarium"), "run", attr, "--file", file]
     elif runner is not None:
         # The spec's own `vivarium`, which knows every field in it.
         head = [str(runner / "bin" / "vivarium-runner"), "run", "--spec", str(spec)]
@@ -365,7 +365,7 @@ def _read(path: Path) -> str:
 def why_it_exited(output: str, lines: int = 15) -> str:
     """The part of a dead run's output that says why.
 
-    An evaluation failure is printed point first by `vivarium-eval`, with the
+    An evaluation failure is printed point first by the `vivarium` CLI, with the
     Nix trace after it, so its opening lines are the ones to show; the
     last lines would be the trace. Anything else died at the end.
     """
@@ -508,7 +508,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         if found.source is None:
             return {"ok": False, "error": "this run was started from a spec; switch needs one started by attr"}
         argv = [
-            str(Path(sys.executable).parent / "vivarium-eval"),
+            str(Path(sys.executable).parent / "vivarium"),
             "switch",
             found.source.attr,
             "--file",

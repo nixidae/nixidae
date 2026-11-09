@@ -153,7 +153,7 @@ class TestRunArgv:
             offline=True,
             pytest_args=["-k", "x"],
         )
-        assert argv[0].endswith("/vivarium-eval")
+        assert argv[0].endswith("/vivarium")
         assert argv[1:5] == ["run", "pytest-phase", "--file", "/src"]
         assert argv[-7:] == ["--break", "cases", "--break-on-failure", "--offline", "--", "-k", "x"]
 
