@@ -14,6 +14,7 @@ import {
   outOfCommand,
   parseItem,
   startReply,
+  statusText,
   summary,
 } from './runs'
 
@@ -34,11 +35,15 @@ type Run$ = EngineInterface
 const change = (run$: Run$, out: string, fn: (run: Run) => Run) =>
   update(run$, runs, list => list.map(run => (run.out === out ? fn(run) : run)))
 
+let written: string | undefined
+
+/** The status line holds the newest live run, coarse, and is written only
+ * when that text changes; with no live run it is cleared. */
 const showStatus = async ($: Run$) => {
-  const list = await read($, runs)
-  const live = list.filter(run => !isFinal(run))
-  const shown = live.length > 0 ? live[live.length - 1] : list[list.length - 1]
-  $.ui.status(shown ? `vivarium ${shown.id}: ${summary(shown)}` : undefined)
+  const text = statusText(await read($, runs))
+  if (text === written) return
+  written = text
+  $.ui.status(text)
 }
 
 /** What `run.json` says, once the run has written it: its CLI and phases. */

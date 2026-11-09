@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { apply, fresh, lines, merged, outOfCommand, parseItem, progress, startReply, summary } from './runs'
+import { apply, fresh, lines, merged, outOfCommand, parseItem, progress, startReply, statusText, summary } from './runs'
 
 const RUN = 'vivarium-internal-incr-q9okrapd'
 
@@ -116,4 +116,21 @@ test('build counts from the plan to the run', () => {
 test('progress names only the kinds with work', () => {
   expect(progress({ built: 2, builds: 2, running: 0, downloaded: 0, downloads: 0 })).toBe('builds 2/2')
   expect(progress({ built: 0, builds: 0, running: 0, downloaded: 5, downloads: 9 })).toBe('downloads 5/9')
+})
+
+test('the status line holds a live run, coarse, and clears without one', () => {
+  const building = apply(fresh('/tmp/a', ['vivarium']), {
+    event: 'builds',
+    text: 'planned',
+    built: '2',
+    builds: '7',
+    running: '1',
+    downloaded: '0',
+    downloads: '0',
+  })
+  expect(statusText([building])).toBe('vivarium a: building')
+  const passed = apply(fresh('/tmp/b', ['vivarium']), { event: 'finished', passed: 'true', text: 'run passed' })
+  expect(statusText([building, passed])).toBe('vivarium a: building')
+  expect(statusText([passed])).toBeUndefined()
+  expect(statusText([])).toBeUndefined()
 })

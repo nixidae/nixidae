@@ -6,7 +6,8 @@ beside the chat: what Nix has left to do before the run starts
 before building, each store path counted once), each phase's state, the
 pause reason, the first line of an error, and the verdict. A paused run
 has a Continue button (hotkey `c`), and a live run has a Stop button
-(hotkey `s`). The status line names the newest live run, and a toast
+(hotkey `s`). The status line names the newest live run and its state, with no
+counts, and is empty when no run is live. A toast
 says when a run pauses or ends.
 
 The mod follows a run without being told when:

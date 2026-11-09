@@ -182,3 +182,13 @@ export const summary = (run: Run): string => {
       return run.status
   }
 }
+
+/** The status line: the newest live run and where it is, without counts,
+ * which change with every build. Nothing when no run is live. */
+export const statusText = (list: Run[]): string | undefined => {
+  const live = list.filter(run => !isFinal(run))
+  const run = live[live.length - 1]
+  if (!run) return undefined
+  const where = run.status === 'building' ? 'building' : summary(run)
+  return `vivarium ${run.id}: ${where}`
+}
