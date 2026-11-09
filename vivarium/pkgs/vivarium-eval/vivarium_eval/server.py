@@ -18,7 +18,7 @@ is one more client of `<out>/control.sock`, as `vivarium ctl` is.
 Channels are a Claude Code research preview. The server declares the
 `claude/channel` capability, and until it is on the allowlist Claude
 Code takes its events only with
-`claude --dangerously-load-development-channels server:uml`. Without it
+`claude --dangerously-load-development-channels server:vivarium`. Without it
 the tools work and the events are dropped, so `state` and `events`
 still answer.
 """
