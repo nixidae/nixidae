@@ -208,6 +208,8 @@ def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> Non
             "Follow a run that vivarium-mcp started. Exit 0 if it passed, 1 if it"
             " failed, 2 if it exited without a verdict, 3 if the stream ended early"
             " or no run started within --wait, 4 if it paused, 5 if it was stopped."
+            " The exit status is the verdict: run it bare, with no pipe and no"
+            " `; echo` after it, or a pause reads as success."
         ),
     )
     watch.add_argument("target", help="the run's --out directory, or its id")

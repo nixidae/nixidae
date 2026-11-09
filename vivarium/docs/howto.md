@@ -204,6 +204,8 @@ With MCP, `vivarium-mcp` starts runs and reaches into them. nixidae's CLAUDE.md
 lists its tools. `start` returns two monitor commands:
 
 - `monitor`: pauses, failures and the verdict; exits 4 at a pause, 5 for a stopped run.
+  Run it bare: a pipe or a `; echo` after it hides that exit status, and a
+  pause then reads as success.
 - `monitor_all`: every event, through pauses to the verdict.
 
 An agent that only runs shell commands does not need MCP:

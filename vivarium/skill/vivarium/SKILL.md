@@ -36,6 +36,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
 - The driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
+- Run the monitor bare. `vivarium monitor ... | tail` or `...; echo rc=$?` makes the task exit 0 at a pause; a paused run then reads as "completed (exit code 0)".
 - Name what you wait on when you stop: "waiting on the monitor for <test> (task X); then <next step>".
 - Never wait on GitHub Actions. A local pass is the verdict.
 
