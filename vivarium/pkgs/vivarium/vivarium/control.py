@@ -261,6 +261,35 @@ class Use(StrEnum):
     INJECT = "inject"
     STATE = "state"
     CONTINUE = "continue"
+    SWITCH = "switch"
+
+
+ORIGIN: Final = "VIVARIUM_ORIGIN"
+"""The environment variable the `vivarium` CLI sets for a run it starts."""
+
+
+@dataclass(frozen=True, slots=True)
+class Origin:
+    """How the `vivarium` CLI started a run: what `vivarium switch` needs to
+    evaluate it again. Only a run started by attribute has one."""
+
+    cli: Path
+    attr: str
+    file: Path
+
+    def to_json(self) -> str:
+        return json.dumps({"cli": str(self.cli), "attr": self.attr, "file": str(self.file)})
+
+    @classmethod
+    def from_json(cls, text: str) -> Origin:
+        """Raises ValueError on anything but the three absolute fields."""
+        raw = json.loads(text)
+        if not isinstance(raw, dict) or not all(isinstance(raw.get(key), str) for key in ("cli", "attr", "file")):
+            raise ValueError(f"{ORIGIN} is not an origin: {text!r}")
+        origin = cls(Path(raw["cli"]), raw["attr"], Path(raw["file"]))
+        if not (origin.cli.is_absolute() and origin.file.is_absolute()):
+            raise ValueError(f"{ORIGIN} names a relative path: {text!r}")
+        return origin
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,12 +311,20 @@ class Command:
         return self.use is not Use.MONITOR
 
 
-def commands(vivarium: Path, out: Path) -> list[Command]:
+def commands(vivarium: Path, out: Path, origin: Origin | None = None, node: str | None = None) -> list[Command]:
     """Each command that reaches the run in `out`, with what it does.
 
     The run prints them, so an agent that reads the run's output can copy
-    one as it is: absolute paths, no PATH, no knowledge of vivarium."""
+    one as it is: absolute paths, no PATH, no knowledge of vivarium.
+    `switch` only with an origin: a run by `nix run` cannot be evaluated
+    again, and a line with placeholders is not one to copy."""
     ctl = (str(vivarium), "ctl", "--out", str(out))
+    switch: list[Command] = []
+    if origin is not None and node is not None:
+        argv = (str(origin.cli), "switch", origin.attr, "--file", str(origin.file), "--out", str(out))
+        switch = [
+            Command(Use.SWITCH, f"add a module to {node} and switch it", (*argv, "--node", node, "--module", "./module.nix"))
+        ]
     return [
         Command(
             Use.MONITOR,
@@ -298,6 +335,7 @@ def commands(vivarium: Path, out: Path) -> list[Command]:
         Command(Use.INJECT, "run a file's `async def test(vms)`", (*ctl, "inject", "./check.py")),
         Command(Use.STATE, "each phase's state", (*ctl, "state")),
         Command(Use.CONTINUE, "resume a paused run", (*ctl, "continue")),
+        *switch,
     ]
 
 
@@ -314,6 +352,7 @@ class RunFile:
     socket: Path | None
     """`None` for a run with no control socket (`--no-control`)."""
     commands: tuple[Command, ...]
+    origin: Origin | None = None
 
     def command(self, use: Use) -> Command | None:
         return next((c for c in self.commands if c.use is use), None)
@@ -328,6 +367,7 @@ class RunFile:
             "commands": [
                 {"use": str(c.use), "what": c.what, "argv": list(c.argv), "command": c.line} for c in self.commands
             ],
+            "origin": None if self.origin is None else json.loads(self.origin.to_json()),
         }
         return json.dumps(document, indent=2) + "\n"
 
@@ -340,18 +380,27 @@ class RunFile:
             vivarium=Path(raw["vivarium"]),
             socket=None if raw["socket"] is None else Path(raw["socket"]),
             commands=tuple(Command(Use(c["use"]), str(c["what"]), tuple(c["argv"])) for c in raw["commands"]),
+            origin=None if raw.get("origin") is None else Origin.from_json(json.dumps(raw["origin"])),
         )
 
 
-def run_file(vivarium: Path, out: Path, pid: int, *, control: bool) -> RunFile:
+def run_file(
+    vivarium: Path, out: Path, pid: int, *, control: bool, origin: Origin | None = None, node: str | None = None
+) -> RunFile:
     """The run file of a run in `out`; with no socket, only what works without one."""
     return RunFile(
         pid=pid,
         out=out,
         vivarium=vivarium,
         socket=out / SOCKET if control else None,
-        commands=tuple(c for c in commands(vivarium, out) if control or not c.needs_socket),
+        commands=tuple(c for c in commands(vivarium, out, origin, node) if control or not c.needs_socket),
+        origin=origin,
     )
+
+
+def first_guest(session: Session) -> str | None:
+    """The guest a printed `switch` names; the caller edits it as needed."""
+    return next((str(machine["name"]) for machine in session.spec.machines), None)
 
 
 def vivarium_command(session: Session) -> Path:
@@ -374,9 +423,13 @@ class Controller:
 
     ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP})
 
-    def __init__(self, session: Session, stop: Callable[[], None] | None = None) -> None:
-        """`stop` cancels the drive; without it, `stop` is refused."""
+    def __init__(
+        self, session: Session, stop: Callable[[], None] | None = None, origin: Origin | None = None
+    ) -> None:
+        """`stop` cancels the drive; without it, `stop` is refused. `origin`
+        adds `switch` to the printed commands."""
         self.session = session
+        self.origin = origin
         self._stop = stop
         self._stopping = False
         self.path = session.out / SOCKET
@@ -436,7 +489,7 @@ class Controller:
     def announce(self, level: Level = Level.INFO) -> None:
         """The command lines that reach this run, one event each."""
         out = self.session.out.resolve()
-        for command in commands(vivarium_command(self.session), out):
+        for command in commands(vivarium_command(self.session), out, self.origin, first_guest(self.session)):
             self.session.emit(Kind.NOTE, f"{command.what}: {command.line}", level=level, command=command.what)
 
     def _bind_guests(self) -> None:

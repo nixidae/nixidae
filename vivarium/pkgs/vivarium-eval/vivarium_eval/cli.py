@@ -294,6 +294,11 @@ def main(argv: list[str] | None = None) -> None:
     # built, with its own `vivarium`. Calling this package's `vivarium` instead ran
     # a spec from a newer lib.nix with an older runner, and a phase failed
     # on an import the newer field existed to make work.
+    if request.command == "run":
+        # So the run prints a `switch` line: only this CLI can evaluate it again.
+        cli = Path(sys.executable).parent / "vivarium"
+        origin = control.Origin(cli, ".".join(request.attr), request.file.absolute())
+        os.environ[control.ORIGIN] = origin.to_json()
     os.execv(program, [program, *request.rest])
 
 

@@ -148,6 +148,11 @@ $ vivarium switch checks.switch --out ./out --node one --module ./more.nix
 $ vivarium switch checks.switch --out ./out --node one --module ./more.nix --action test
 ```
 
+A run started this way prints its own `switch` line at each pause, and
+`<out>/run.json` holds it. Copy it and change `--node` and `--module`. A
+run started by `nix run` prints none: only the `vivarium` CLI can
+evaluate it again.
+
 The MCP server's `switch` tool does the same: `switch(run, node, module)`.
 
 The host evaluates the session again with the module on the node, and

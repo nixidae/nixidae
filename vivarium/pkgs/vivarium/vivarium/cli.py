@@ -31,7 +31,19 @@ import anyio
 from vivarium_runner import MachineError
 
 from . import monitor, namespace, repl, runroot
-from .control import RUN_FILE, SOCKET, Controller, Op, RunFile, request, run_file, vivarium_command
+from .control import (
+    ORIGIN,
+    RUN_FILE,
+    SOCKET,
+    Controller,
+    Op,
+    Origin,
+    RunFile,
+    first_guest,
+    request,
+    run_file,
+    vivarium_command,
+)
 from .events import Kind, Level
 from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
 from .session import Session, SessionError
@@ -338,6 +350,7 @@ async def run(args: argparse.Namespace) -> int:
 
     try:
         before, points = breakpoints(args.breaks, session.spec.phases)
+        origin = None if ORIGIN not in os.environ else Origin.from_json(os.environ[ORIGIN])
     except ValueError as error:
         raise SessionError(str(error)) from None
 
@@ -353,6 +366,7 @@ async def run(args: argparse.Namespace) -> int:
                 interactive=args.interactive,
                 serial=args.serial,
                 control=args.control,
+                origin=origin,
             )
             group.cancel_scope.cancel()
         if session.stopped is not None:
@@ -387,6 +401,7 @@ async def drive(
     interactive: bool = False,
     serial: bool = False,
     control: bool = True,
+    origin: Origin | None = None,
 ) -> None:
     """Boot, run what is pending, write the evidence, put the guests down.
 
@@ -404,7 +419,7 @@ async def drive(
     async with anyio.create_task_group() as group:
         # `ctl stop` cancels this group; `_sequence`'s shielded `finally`
         # still writes the evidence and puts the guests down.
-        controller = Controller(session, stop=group.cancel_scope.cancel) if wanted else None
+        controller = Controller(session, stop=group.cancel_scope.cancel, origin=origin) if wanted else None
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
@@ -412,7 +427,14 @@ async def drive(
             if interactive:
                 group.start_soon(repl.serve, controller)
         # Before any guest boots, and after the socket it names exists.
-        about = run_file(vivarium_command(session), session.out.resolve(), os.getpid(), control=controller is not None)
+        about = run_file(
+            vivarium_command(session),
+            session.out.resolve(),
+            os.getpid(),
+            control=controller is not None,
+            origin=origin,
+            node=first_guest(session),
+        )
         out = anyio.Path(session.out)
         await out.mkdir(parents=True, exist_ok=True)
         await (out / RUN_FILE).write_text(about.to_json())

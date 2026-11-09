@@ -13,6 +13,7 @@ from vivarium.control import (
     Console,
     Controller,
     Op,
+    Origin,
     Reply,
     Request,
     RunFile,
@@ -176,4 +177,38 @@ def test_each_printed_command_reaches_the_run_it_names() -> None:
     watch = next(c for c in listed if c.use is Use.MONITOR)
     assert watch.argv[1:] == ("monitor", str(out), "--quiet")
     ctl = {c.use: c.argv[1:5] for c in listed if c.needs_socket}
-    assert ctl == {use: ("ctl", "--out", str(out), str(use)) for use in Use if use is not Use.MONITOR}
+    assert ctl == {use: ("ctl", "--out", str(out), str(use)) for use in Use if use not in {Use.MONITOR, Use.SWITCH}}
+
+
+ORIGIN = Origin(Path("/nix/store/y-vivarium/bin/vivarium"), "checks.switch", Path("/src/default.nix"))
+
+
+def test_switch_is_printed_only_for_a_run_with_an_origin() -> None:
+    out = Path("/o")
+    assert all(c.use is not Use.SWITCH for c in commands(VIVARIUM, out))
+    switch = next(c for c in commands(VIVARIUM, out, ORIGIN, "one") if c.use is Use.SWITCH)
+    assert switch.argv == (
+        "/nix/store/y-vivarium/bin/vivarium",
+        "switch",
+        "checks.switch",
+        "--file",
+        "/src/default.nix",
+        "--out",
+        "/o",
+        "--node",
+        "one",
+        "--module",
+        "./module.nix",
+    )
+
+
+def test_the_run_file_keeps_its_origin() -> None:
+    about = run_file(VIVARIUM, Path("/o"), 42, control=True, origin=ORIGIN, node="one")
+    assert RunFile.from_json(about.to_json()) == about
+    assert about.command(Use.SWITCH) is not None
+
+
+@pytest.mark.parametrize("text", ["[]", '{"cli": "/v", "attr": "x"}', '{"cli": "v", "attr": "x", "file": "/f"}'])
+def test_a_bad_origin_is_refused(text: str) -> None:
+    with pytest.raises(ValueError):
+        Origin.from_json(text)
