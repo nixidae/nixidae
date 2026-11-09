@@ -256,6 +256,12 @@ class TestBreakpoints:
             reply = await request(socket, Op.EXEC, "print('beside'); 1")
             assert reply.ok, reply.error
             assert (reply.output, reply.result) == ("beside\n", "1")
+            chunks: list[str] = []
+            code = "print('one'); await anyio.sleep(0); print('two')"
+            streamed = await request(socket, Op.EXEC, code, chunk=chunks.append)
+            assert streamed.ok, streamed.error
+            assert "".join(chunks) == streamed.output == "one\ntwo\n"
+            assert len(chunks) > 1, "the output came in one piece, not as it was printed"
             for op, arg in ((Op.RUN, "one"), (Op.PYTEST, str(tmp_path)), (Op.CONTINUE, "")):
                 reply = await request(socket, op, arg)
                 assert not reply.ok

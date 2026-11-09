@@ -49,6 +49,13 @@ class TestSplitLastExpression:
 
 
 class TestParseRequest:
+    def test_stream_round_trips_for_the_ops_that_print(self) -> None:
+        assert parse_request(Request(Op.EXEC, "1", stream=True).encode()).stream
+        assert not parse_request(Request(Op.EXEC, "1").encode()).stream
+
+    def test_stream_is_dropped_for_an_op_that_prints_nothing(self) -> None:
+        assert not parse_request(b'{"op": "state", "stream": true}').stream
+
     def test_a_request(self) -> None:
         assert parse_request(b'{"op": "exec", "arg": "1"}') == Request(Op.EXEC, "1")
 

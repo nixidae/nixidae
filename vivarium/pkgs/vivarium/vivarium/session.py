@@ -670,11 +670,13 @@ class Session:
         by_hand: bool = False,
         deadline: float | None = None,
         timeout: float | None = None,
+        on_case: Callable[[str], None] | None = None,
     ) -> str:
         """One pytest run, in a worker thread, against these guests.
 
         `by_hand` is a run sent to a paused session, not a phase: it takes
         only its own arguments, and its cases stay out of junit.xml.
+        `on_case` gets one line per case as it ends, on the loop.
         """
         # `--import-mode=importlib` puts nothing on `sys.path`, so a test
         # could not import a helper module beside it without this.
@@ -683,7 +685,9 @@ class Session:
         imported = set(sys.modules)
         try:
             async with BlockingPortal() as portal:
-                plugin = Plugin(self, name, portal, by_hand=by_hand, deadline=deadline, timeout=timeout)
+                plugin = Plugin(
+                    self, name, portal, by_hand=by_hand, deadline=deadline, timeout=timeout, on_case=on_case
+                )
                 plugins = [plugin, machine_fixtures(vms)]
                 extra = spec.args if by_hand else [*spec.args, *self.pytest_args]
                 args = arguments(str(spec.tests), extra)

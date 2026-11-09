@@ -626,10 +626,18 @@ async def ctl(args: argparse.Namespace) -> int:
     if args.wait and args.op != Op.CONTINUE:
         print("[vivarium] --wait is for continue", file=sys.stderr)
         return 2
+    streamed: list[str] = []
+
+    def show(text: str) -> None:
+        # As it comes: a long `pytest` or `exec` is not silent until it ends.
+        streamed.append(text)
+        print(text, end="", flush=True)
+
     try:
         if args.op == Op.WATCH:
             return await monitor.follow(socket, as_json=args.json, until_pause=False)
-        reply = await request(socket, Op(args.op), arg, tuple(args.reload))
+        chunk = None if args.json else show
+        reply = await request(socket, Op(args.op), arg, tuple(args.reload), chunk)
     except OSError as error:
         print(f"[vivarium] no run is listening at {socket}: {error}", file=sys.stderr)
         return 1
@@ -656,7 +664,11 @@ async def ctl(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(dataclasses.asdict(reply)))
         return 0 if reply.ok else 1
-    if reply.output:
+    if streamed:
+        # The reply's output is what was printed already.
+        if not streamed[-1].endswith("\n"):
+            print()
+    elif reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.result is not None:
         print(reply.result if reply.pause is None else f"{reply.result} {reply.pause}")

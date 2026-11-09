@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from vivarium import cli
 from vivarium.cli import parse
 from vivarium.control import Op, Reply
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.mark.parametrize(
@@ -45,7 +49,9 @@ async def test_ctl_sends_a_file_as_an_absolute_path(
     monkeypatch.chdir(tmp_path)
     requests: list[tuple[Op, str]] = []
 
-    async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
+    async def request(
+        socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = (), chunk: Callable[[str], None] | None = None
+    ) -> Reply:
         requests.append((op, arg))
         return Reply(ok=True)
 
@@ -59,7 +65,9 @@ async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypa
     monkeypatch.chdir(tmp_path)
     sent: list[tuple[Path, ...]] = []
 
-    async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
+    async def request(
+        socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = (), chunk: Callable[[str], None] | None = None
+    ) -> Reply:
         sent.append(reload)
         return Reply(ok=True)
 

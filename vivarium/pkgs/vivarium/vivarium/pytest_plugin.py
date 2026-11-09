@@ -132,8 +132,10 @@ class Plugin:
         by_hand: bool = False,
         deadline: float | None = None,
         timeout: float | None = None,
+        on_case: Callable[[str], None] | None = None,
     ) -> None:
         self.session = session
+        self.on_case = on_case
         self.phase = phase
         self.portal = portal
         self.marks: dict[str, Any] = {"by_hand": True} if by_hand else {}
@@ -258,11 +260,19 @@ class Plugin:
         )
         if bad:
             self._emit(Kind.ERROR, report.longreprtext, level=Level.ERROR, case=nodeid)
+        if self.on_case is not None:
+            self.portal.call(self.on_case, case_line(nodeid, outcome, seconds, fields.get("message")))
 
     def summary(self) -> str:
         """`2 passed, 1 failed`, in pytest's own order."""
         order: tuple[Outcome, ...] = ("failed", "error", "passed", "skipped")
         return ", ".join(f"{self.outcomes[name]} {name}" for name in order if self.outcomes[name]) or "no tests ran"
+
+
+def case_line(nodeid: str, outcome: str, seconds: float, message: str | None = None) -> str:
+    """One case as a streaming client prints it: `failed tests/x.py::t (1.2s): boom`."""
+    tail = f": {message.strip().splitlines()[0]}" if message and message.strip() else ""
+    return f"{outcome} {nodeid} ({seconds:.1f}s){tail}\n"
 
 
 def arguments(tests: str, extra: list[str]) -> list[str]:

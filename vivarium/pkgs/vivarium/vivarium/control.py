@@ -31,9 +31,11 @@ import contextlib
 import inspect
 import io
 import json
+import math
 import os
 import shlex
 import sys
+import threading
 import traceback
 from dataclasses import asdict, dataclass, fields
 from enum import StrEnum
@@ -125,15 +127,24 @@ class Request:
     reload: tuple[Path, ...] = ()
     """`inject` and `pytest`: working-tree directories to import from
     first, their modules dropped. Absent from an older client's request."""
+    stream: bool = False
+    """`exec`, `inject` and `pytest`: send the output as it comes, one
+    `{"chunk": ...}` line each, before the reply. An older runner ignores
+    it and sends the reply alone."""
 
     def encode(self) -> bytes:
         document: dict[str, object] = {"op": str(self.op), "arg": self.arg}
         if self.reload:
             document["reload"] = [str(path) for path in self.reload]
+        if self.stream:
+            document["stream"] = True
         return json.dumps(document).encode() + b"\n"
 
 
 RELOADS: Final = frozenset({Op.INJECT, Op.PYTEST})
+
+STREAMS: Final = frozenset({Op.EXEC, Op.INJECT, Op.PYTEST})
+"""The ops whose output a client may take as it comes."""
 
 
 def parse_request(line: bytes) -> Request:
@@ -158,7 +169,10 @@ def parse_request(line: bytes) -> Request:
         raise ValueError("reload is a list of absolute directories")
     if reload and op not in RELOADS:
         raise ValueError(f"reload is for {' and '.join(sorted(RELOADS))}, not {op}")
-    return Request(op, arg, tuple(Path(path) for path in reload))
+    stream = raw.get("stream", False)
+    if not isinstance(stream, bool):
+        raise ValueError("stream is true or false")
+    return Request(op, arg, tuple(Path(path) for path in reload), stream=stream and op in STREAMS)
 
 
 def provided(directory: Path) -> set[str]:
@@ -198,8 +212,8 @@ class Console:
         # `Session._capture`.
         self.capture = capture
 
-    async def execute(self, source: str) -> Reply:
-        output = io.StringIO()
+    async def execute(self, source: str, chunk: Callable[[str], None] | None = None) -> Reply:
+        output = _Tee(chunk)
         flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
         try:
             body, last = split_last_expression(source)
@@ -215,6 +229,29 @@ class Console:
             output=output.getvalue(),
             result=None if result is None else repr(result),
         )
+
+
+class _Tee(io.StringIO):
+    """A reply's output, and each write handed on as it happens: what a
+    streaming client prints at once.
+
+    `chunk` belongs to the event loop's thread. A print from a thread the
+    sent code started crosses back through `anyio.from_thread`; from a
+    thread anyio did not start, it reaches only the reply."""
+
+    def __init__(self, chunk: Callable[[str], None] | None) -> None:
+        super().__init__()
+        self._chunk = chunk
+        self._thread = threading.get_ident()
+
+    def write(self, text: str) -> int:
+        if self._chunk is not None and text:
+            if threading.get_ident() == self._thread:
+                self._chunk(text)
+            else:
+                with contextlib.suppress(RuntimeError):
+                    anyio.from_thread.run_sync(self._chunk, text)
+        return super().write(text)
 
 
 async def _run(code: Any, namespace: dict[str, Any]) -> Any:
@@ -252,6 +289,13 @@ async def _receive_line(stream: ByteStream) -> bytes:
         except anyio.EndOfStream:
             break
     return buffer.split(b"\n", 1)[0]
+
+
+def _streams(line: bytes) -> bool:
+    try:
+        return parse_request(line).stream
+    except ValueError:
+        return False
 
 
 def _is_watch(line: bytes) -> bool:
@@ -577,7 +621,10 @@ class Controller:
             if self.feed is not None and _is_watch(line):
                 await self._watch(stream, self.feed)
                 return
-            reply = await self.handle(line)
+            if _streams(line):
+                reply = await self._streamed(stream, line)
+            else:
+                reply = await self.handle(line)
             await stream.send(reply.encode())
         # After the reply, not in `handle`: resuming lets the drive
         # finish, and a finished drive cancels this server -- measured,
@@ -591,6 +638,27 @@ class Controller:
             self.session.emit(Kind.NOTE, "ctl stop: tearing the guests down")
             self._stop()
 
+    async def _streamed(self, stream: ByteStream, line: bytes) -> Reply:
+        """`handle`, with each piece of output sent as it comes."""
+        send, receive = anyio.create_memory_object_stream[str](math.inf)
+
+        async def pump() -> None:
+            async with receive:
+                async for chunk in receive:
+                    try:
+                        await stream.send(json.dumps({"chunk": chunk}).encode() + b"\n")
+                    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                        # The client left; the code it sent runs to its end.
+                        continue
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(pump)
+            try:
+                reply = await self.handle(line, chunk=send.send_nowait)
+            finally:
+                send.close()
+        return reply
+
     async def _watch(self, stream: ByteStream, feed: Feed) -> None:
         with feed.watch() as events:
             async for item in events:
@@ -599,7 +667,7 @@ class Controller:
                 except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                     return
 
-    async def handle(self, line: bytes) -> Reply:
+    async def handle(self, line: bytes, chunk: Callable[[str], None] | None = None) -> Reply:
         try:
             asked = parse_request(line)
         except ValueError as error:
@@ -631,13 +699,13 @@ class Controller:
             self._continuing = True
             return Reply(ok=True)
         if op is Op.EXEC:
-            return self._record("exec", await self.console.execute(arg))
+            return self._record("exec", await self.console.execute(arg, chunk))
         if op is Op.INJECT:
             self._reload(asked.reload)
-            return self._record(f"inject:{Path(arg).name}", await self._inject(arg))
+            return self._record(f"inject:{Path(arg).name}", await self._inject(arg, chunk))
         if op is Op.PYTEST:
             self._reload(asked.reload)
-            return await self._pytest(arg)
+            return await self._pytest(arg, chunk)
         return await self._run(arg)
 
     def _record(self, source: str, reply: Reply) -> Reply:
@@ -665,13 +733,13 @@ class Controller:
                 dropped=dropped,
             )
 
-    async def _inject(self, arg: str) -> Reply:
+    async def _inject(self, arg: str, chunk: Callable[[str], None] | None = None) -> Reply:
         """A file's `test(vms)`, read from where it is, not from the store.
 
         Imported fresh each time, so an edit is picked up by sending it
         again. Its outcome is the reply; the run's verdict is untouched.
         """
-        output = io.StringIO()
+        output = _Tee(chunk)
         try:
             test = load_phase(Path(arg).expanduser().resolve())
             vms = self.session.vms
@@ -683,7 +751,7 @@ class Controller:
             return Reply(ok=False, output=output.getvalue(), error=traceback.format_exc())
         return Reply(ok=True, output=output.getvalue())
 
-    async def _pytest(self, arg: str) -> Reply:
+    async def _pytest(self, arg: str, chunk: Callable[[str], None] | None = None) -> Reply:
         """pytest from the working tree against the paused guests.
 
         What `inject` is for a script: the loop for a pytest phase is
@@ -701,7 +769,7 @@ class Controller:
         name = f"pytest:{tests.name}"
         spec = PytestSpec(tests=tests, args=args)
         try:
-            summary = await self.session._pytest(name, spec, self.session.vms, by_hand=True)
+            summary = await self.session._pytest(name, spec, self.session.vms, by_hand=True, on_case=chunk)
         except CasesFailed as error:
             return Reply(ok=False, result="failed", error=str(error))
         except Exception:  # noqa: BLE001 -- the tests' failure to load is the reply
@@ -774,13 +842,33 @@ class WatchRefused(Exception):
     """The run answered `watch` with a reply, not a stream."""
 
 
-async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
-    """One request, one reply. What `vivarium ctl` and a test both use."""
+async def request(
+    socket: Path,
+    op: Op,
+    arg: str = "",
+    reload: tuple[Path, ...] = (),
+    chunk: Callable[[str], None] | None = None,
+) -> Reply:
+    """One request, one reply. What `vivarium ctl` and a test both use.
+
+    With `chunk`, an `exec`, `inject` or `pytest` hands each piece of
+    output to it as the run sends it; the reply still holds all of it."""
     with reachable(socket) as name:
         connected = await anyio.connect_unix(name)
+    asked = Request(op, arg, reload, stream=chunk is not None and op in STREAMS)
     async with connected as stream:
-        await stream.send(Request(op, arg, reload).encode())
-        line = await _receive_line(stream)
-    if not line:
-        return Reply(ok=False, error="the run closed the connection without a reply")
-    return Reply.decode(line)
+        await stream.send(asked.encode())
+        buffer = b""
+        while True:
+            try:
+                buffer += await stream.receive()
+            except (anyio.EndOfStream, anyio.BrokenResourceError):
+                return Reply(ok=False, error="the run closed the connection without a reply")
+            *lines, buffer = buffer.split(b"\n")
+            for raw in lines:
+                piece = json.loads(raw)
+                if "chunk" in piece:
+                    if chunk is not None:
+                        chunk(str(piece["chunk"]))
+                    continue
+                return Reply.decode(raw)
