@@ -123,6 +123,32 @@ class InterfaceJson(TypedDict, total=False):
     mac: str
 
 
+class CpuScale(TypedDict):
+    """`vivarium.cpus = { scale = s; }`: the host's cores times `s`."""
+
+    scale: float
+
+
+Cpus = int | CpuScale
+"""`vivarium.cpus` as Nix wrote it: a count, or a share of the host."""
+
+
+def host_cpus(environ: Mapping[str, str] = os.environ) -> int:
+    """The cores this run may use: `NIX_BUILD_CORES` inside a build (0 is
+    every core), else the cores this process may run on."""
+    granted = environ.get("NIX_BUILD_CORES", "")
+    if granted.isdigit() and int(granted) > 0:
+        return int(granted)
+    return len(os.sched_getaffinity(0))
+
+
+def resolve_cpus(cpus: Cpus, host: int) -> int:
+    """A guest's processor count, from `vivarium.cpus` and the host's cores."""
+    if isinstance(cpus, int):
+        return cpus
+    return max(1, round(host * cpus["scale"]))
+
+
 class MachineSpecJson(TypedDict, total=False):
     """`MachineSpec` as Nix wrote it. See ``mkTest`` in flake.nix."""
 
@@ -133,7 +159,7 @@ class MachineSpecJson(TypedDict, total=False):
     image: str
     memory: str
     seccomp: str
-    cpus: int
+    cpus: Cpus
     sshPort: int
     mtu: int
     network: str
@@ -237,6 +263,7 @@ class MachineSpec:
     memory: str = "128M"
     seccomp: str = "auto"
     cpus: int = 1
+    """Resolved: `vivarium.cpus` against the host's cores at start."""
     ssh_port: int = 4325
     mtu: int = 65000
     network: str | None = None
@@ -291,7 +318,7 @@ class MachineSpec:
             image=Path(image) if image else None,
             memory=data.get("memory", "128M"),
             seccomp=data.get("seccomp", "auto"),
-            cpus=data.get("cpus", 1),
+            cpus=resolve_cpus(data.get("cpus", 1), host_cpus()),
             ssh_port=data.get("sshPort", 4325),
             mtu=data.get("mtu", 65000),
             network=data.get("network"),

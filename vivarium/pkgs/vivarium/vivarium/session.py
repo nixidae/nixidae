@@ -67,7 +67,7 @@ from .sinks import Broadcast
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Collection, Iterator
 
-    from vivarium_runner.machine import MachineSpecJson
+    from vivarium_runner.machine import Cpus, MachineSpecJson
 
     from .sinks import Sink
     from .spec import PhaseSpec, PytestSpec, Spec
@@ -174,6 +174,12 @@ def with_kernel(machines: list[MachineSpecJson], kernel: Path) -> list[MachineSp
     return [_with_kernel(machine, kernel) for machine in machines]
 
 
+def with_cpus(machines: list[MachineSpecJson], cpus: Cpus) -> list[MachineSpecJson]:
+    """The machines, each with `cpus` in place of its own `vivarium.cpus`.
+    From `--cpus` or `--cpu-scale`; the runner resolves it at start."""
+    return [{**machine, "cpus": cpus} for machine in machines]
+
+
 class Session:
     """One run, from evaluation to teardown, driven a step at a time."""
 
@@ -186,10 +192,12 @@ class Session:
         sink: Sink | None = None,
         pytest_args: list[str] | None = None,
         kernel: Path | None = None,
+        cpus: Cpus | None = None,
     ) -> None:
         self.spec = spec
         # A kernel from a working tree, by hand. See `with_kernel`.
         self.kernel = kernel
+        self.cpus = cpus
         self.out = out
         self.offline = offline
         self.sink = sink
@@ -391,6 +399,8 @@ class Session:
                 level=Level.ERROR,
                 kernel=str(self.kernel),
             )
+        if self.cpus is not None:
+            machines = with_cpus(machines, self.cpus)
         specs = [MachineSpec.from_json(m) for m in machines]
         self._requires = {one.name: list(one.requires) for one in specs}
 

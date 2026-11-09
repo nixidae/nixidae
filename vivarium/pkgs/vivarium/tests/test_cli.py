@@ -75,3 +75,17 @@ async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypa
     argv = ["ctl", "--out", "out", "inject", "check.py", "--reload", "lib", "--reload", "more"]
     assert await cli.ctl(parse(argv)) == 0
     assert sent == [(tmp_path / "lib", tmp_path / "more")]
+
+
+@pytest.mark.parametrize(
+    ("flags", "cpus"),
+    [([], None), (["--cpus", "4"], 4), (["--cpu-scale", "0.5"], {"scale": 0.5})],
+)
+def test_cpus_of_a_run(flags: list[str], cpus: object) -> None:
+    assert cli.cpus_of(parse(["run", "--spec", "s.json", "--out", "o", *flags])) == cpus
+
+
+@pytest.mark.parametrize("flags", [["--cpus", "0"], ["--cpu-scale", "-1"], ["--cpus", "2", "--cpu-scale", "1"]])
+def test_cpus_refused(flags: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse(["run", "--spec", "s.json", "--out", "o", *flags])

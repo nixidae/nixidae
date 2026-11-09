@@ -169,7 +169,7 @@ $ jq -r 'select(.kind=="rpc") | "\(.phase)\t\(.seconds)\t\(.text)"' out/events.j
 | | `uml` (default) | `qemu` | `krun` | `container` |
 | --- | --- | --- | --- | --- |
 | needs | user namespaces | `/dev/kvm` | `/dev/kvm` | subordinate ids, a cgroup |
-| processors | one | `vivarium.cpus` | `vivarium.cpus` | the host's |
+| processors | one | the host's cores (`vivarium.cpus`) | the host's cores (`vivarium.cpus`) | the host's |
 | kernel | its own, built for `ARCH=um` | its own | its own | the host's |
 
 `krun` boots the same guest as `qemu` under libkrun, and maps the host's

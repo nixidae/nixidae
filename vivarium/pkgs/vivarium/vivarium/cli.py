@@ -23,12 +23,13 @@ import os
 import shlex
 import signal
 import sys
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Final
 
 import anyio
 from vivarium_runner import MachineError
+from vivarium_runner.machine import Cpus
 
 from . import monitor, namespace, repl, runroot
 from .control import (
@@ -69,6 +70,25 @@ def _absolute(value: str) -> Path:
     directory, so a relative `--out` boots no guest. nixidae/nixidae#17.
     """
     return Path(value).absolute()
+
+
+def _positive(kind: type[int] | type[float]) -> Callable[[str], int | float]:
+    def parsed(value: str) -> int | float:
+        number = kind(value)
+        if number <= 0:
+            raise argparse.ArgumentTypeError(f"{value} is not above zero")
+        return number
+
+    return parsed
+
+
+def cpus_of(args: argparse.Namespace) -> Cpus | None:
+    """`--cpus N` or `--cpu-scale S`, as `vivarium.cpus` would hold it."""
+    if args.cpus is not None:
+        return int(args.cpus)
+    if args.cpu_scale is not None:
+        return {"scale": float(args.cpu_scale)}
+    return None
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -126,6 +146,19 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " tree, a bzImage for QEMU (virtio built in). For iterating on a"
             " kernel without a Nix build per change; never the check's kernel"
         ),
+    )
+    cpus = run.add_mutually_exclusive_group()
+    cpus.add_argument(
+        "--cpus",
+        type=_positive(int),
+        metavar="N",
+        help="give every guest N processors, in place of its `vivarium.cpus`",
+    )
+    cpus.add_argument(
+        "--cpu-scale",
+        type=_positive(float),
+        metavar="S",
+        help="give every guest the host's cores times S (0.5 is half), in place of its `vivarium.cpus`",
     )
     run.add_argument(
         "--break-on-start",
@@ -336,6 +369,7 @@ async def run(args: argparse.Namespace) -> int:
         sink=sink,
         pytest_args=args.pytest_args,
         kernel=args.kernel.resolve() if args.kernel else None,
+        cpus=cpus_of(args),
     )
     session.emit(Kind.RUN_STARTED, f"output in {args.out}")
     session.emit(Kind.NOTE, namespace.describe(Path("/proc/self/uid_map").read_text()))

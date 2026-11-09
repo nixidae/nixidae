@@ -393,7 +393,7 @@ same two node configurations run as `lan` and as `lan.qemu`.
 |  | `uml` (default) | `qemu` | `krun` |
 | --- | --- | --- | --- |
 | needs | nothing | `/dev/kvm` | `/dev/kvm` |
-| processors | one | `vivarium.cpus` | `vivarium.cpus` |
+| processors | one | the host's cores (`vivarium.cpus`) | the host's cores (`vivarium.cpus`) |
 | kernel | built for `ARCH=um`, all built in | the host's, with an initrd | the same as `qemu` |
 | the store | hostfs | virtiofs | virtiofs with a DAX window |
 | default RAM | 256M | 512M | 512M |
@@ -840,7 +840,11 @@ after it changes, and cached by cachix after that.
 - A UML guest is single-CPU. The kernel takes `smp = true`, but UML only
   allows SMP with the seccomp userspace, and two vCPUs measured *slower*
   than one on the iperf test — the cross-CPU work costs more than the
-  parallelism buys. A QEMU guest takes `vivarium.cpus`.
+  parallelism buys. A QEMU or krun guest takes `vivarium.cpus`: by default
+  every core the run may use (`NIX_BUILD_CORES` in a build), counted when
+  the guest starts. `{ scale = 0.5; }` is half; `vivarium run --cpus N` or
+  `--cpu-scale S` (MCP `start`: `cpus`, `cpu_scale`) sets every guest of
+  one run.
 - `lan` and `iperf` have been run on both backends, and so has nixkube's
   own node test — a kubeadm control plane, a CSI driver and nine chaos
   scenarios — inside the sandbox and outside it. This repository's

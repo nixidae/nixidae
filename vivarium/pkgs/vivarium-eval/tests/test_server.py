@@ -206,6 +206,33 @@ class TestRunArgv:
         assert argv[argv.index("--kernel") + 1] == "/home/me/linux/linux"
         assert argv.index("--kernel") < argv.index("--")
 
+    def _cpus_argv(self, out: Path, cpus: int | None, cpu_scale: float | None) -> list[str]:
+        return run_argv(
+            out=out,
+            attr="x",
+            spec=None,
+            file=".",
+            breaks=[],
+            break_on_failure=True,
+            only=[],
+            offline=False,
+            pytest_args=["-k", "y"],
+            cpus=cpus,
+            cpu_scale=cpu_scale,
+        )
+
+    def test_cpus_reach_the_run_before_pytest(self, tmp_path: Path) -> None:
+        fixed = self._cpus_argv(tmp_path, 4, None)
+        assert fixed[fixed.index("--cpus") + 1] == "4"
+        assert fixed.index("--cpus") < fixed.index("--")
+        scaled = self._cpus_argv(tmp_path, None, 0.5)
+        assert scaled[scaled.index("--cpu-scale") + 1] == "0.5"
+        assert "--cpus" not in scaled
+
+    def test_at_most_one_of_cpus_and_cpu_scale(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="at most one"):
+            self._cpus_argv(tmp_path, 4, 0.5)
+
     @pytest.mark.parametrize(("attr", "spec"), [(None, None), ("a", "b")])
     def test_exactly_one_of_attr_and_spec(self, attr: str | None, spec: str | None, tmp_path: Path) -> None:
         with pytest.raises(ValueError):

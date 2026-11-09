@@ -337,10 +337,36 @@ in
     };
 
     cpus = lib.mkOption {
-      type = lib.types.ints.positive;
-      default = 1;
+      type = lib.types.either lib.types.ints.positive (
+        lib.types.submodule {
+          options.scale = lib.mkOption {
+            type = lib.types.addCheck lib.types.number (x: x > 0) // {
+              description = "positive number";
+            };
+            description = "The host's cores times this, rounded, at least one.";
+          };
+        }
+      );
+      default =
+        if
+          lib.elem config.vivarium.backend [
+            "qemu"
+            "krun"
+          ]
+        then
+          { scale = 1; }
+        else
+          1;
+      defaultText = lib.literalExpression ''if backend is "qemu" or "krun" then { scale = 1; } else 1'';
+      example = lib.literalExpression "{ scale = 0.5; }";
       description = ''
-        Processors the guest gets. Only the QEMU backend honours it.
+        Processors the guest gets: a number, or `{ scale = s; }` for the
+        host's cores times `s`. The runner counts the cores when the
+        guest starts, so the derivation does not depend on the machine
+        that evaluated it: `NIX_BUILD_CORES` inside a build, else the
+        cores this process may run on. `vivarium run --cpus N` or
+        `--cpu-scale S` sets every guest of one run. QEMU and krun honour
+        it; UML and container guests do not.
 
         Worth about 11% on the iperf test at two processors, measured.
         Under UML two vCPUs measured *slower* than one on that same test

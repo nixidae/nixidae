@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vivarium.session import with_kernel
+from vivarium.session import with_cpus, with_kernel
 
 if TYPE_CHECKING:
     from vivarium_runner.machine import MachineSpecJson
@@ -43,3 +43,10 @@ class TestWithKernel:
         with_kernel(machines, MINE)
         assert machines[0]["boot"]["kernel"] == "/nix/store/b"
         assert machines[1]["launch"]["config"]["kernel"] == "/nix/store/k"
+
+
+class TestWithCpus:
+    def test_every_guest_takes_the_run_s_cpus(self) -> None:
+        machines: list[MachineSpecJson] = [{"name": "a", "cpus": 2}, {"name": "b"}]
+        assert [m["cpus"] for m in with_cpus(machines, {"scale": 0.5})] == [{"scale": 0.5}, {"scale": 0.5}]
+        assert machines[0]["cpus"] == 2, "the spec is not changed"
