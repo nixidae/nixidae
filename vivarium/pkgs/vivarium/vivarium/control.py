@@ -316,20 +316,24 @@ def commands(vivarium: Path, out: Path, origin: Origin | None = None, node: str 
 
     The run prints them, so an agent that reads the run's output can copy
     one as it is: absolute paths, no PATH, no knowledge of vivarium.
-    `switch` only with an origin: a run by `nix run` cannot be evaluated
-    again, and a line with placeholders is not one to copy."""
-    ctl = (str(vivarium), "ctl", "--out", str(out))
+
+    A run the `vivarium` CLI started names that CLI in every line, so the
+    lines and the skill use one name; the CLI's `ctl` and `monitor` are the
+    runner's own code. A run by `nix run` names its runner. `switch` only
+    with an origin: a run by `nix run` cannot be evaluated again, and a line
+    with placeholders is not one to copy. It needs no attribute: `switch`
+    reads the origin back from `run.json`."""
+    tool = str(vivarium if origin is None else origin.cli)
+    ctl = (tool, "ctl", "--out", str(out))
     switch: list[Command] = []
     if origin is not None and node is not None:
-        argv = (str(origin.cli), "switch", origin.attr, "--file", str(origin.file), "--out", str(out))
-        switch = [
-            Command(Use.SWITCH, f"add a module to {node} and switch it", (*argv, "--node", node, "--module", "./module.nix"))
-        ]
+        argv = (tool, "switch", "--out", str(out), "--node", node, "--module", "./module.nix")
+        switch = [Command(Use.SWITCH, f"add a module to {node} and switch it", argv)]
     return [
         Command(
             Use.MONITOR,
             "wait for a pause or the verdict (exits 4 at a pause)",
-            (str(vivarium), "monitor", str(out), "--quiet"),
+            (tool, "monitor", str(out), "--quiet"),
         ),
         Command(Use.EXEC, "run Python against the guests", (*ctl, "exec", "print(list(vms))")),
         Command(Use.INJECT, "run a file's `async def test(vms)`", (*ctl, "inject", "./check.py")),
@@ -423,9 +427,7 @@ class Controller:
 
     ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP})
 
-    def __init__(
-        self, session: Session, stop: Callable[[], None] | None = None, origin: Origin | None = None
-    ) -> None:
+    def __init__(self, session: Session, stop: Callable[[], None] | None = None, origin: Origin | None = None) -> None:
         """`stop` cancels the drive; without it, `stop` is refused. `origin`
         adds `switch` to the printed commands."""
         self.session = session

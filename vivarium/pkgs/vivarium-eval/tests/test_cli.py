@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from vivarium.control import Op
-from vivarium_eval.cli import entry, main, parse, parser, split_attr
+from vivarium.control import RUN_FILE, Op, Origin, run_file
+from vivarium_eval.cli import entry, main, origin_of, parse, parser, split_attr
 
 
 class TestParse:
@@ -48,6 +48,35 @@ class TestRunnerCommands:
     def test_parse_refuses_a_command_that_does_not_evaluate(self) -> None:
         with pytest.raises(SystemExit):
             parse(["ctl", "--out", "/o", "state"])
+
+
+class TestSwitchOrigin:
+    """`switch` with `--out` alone evaluates what the run was started from."""
+
+    def test_the_origin_comes_from_run_json(self, tmp_path: Path) -> None:
+        origin = Origin(Path("/nix/store/v/bin/vivarium"), "checks.switch", Path("/src"))
+        about = run_file(
+            Path("/nix/store/r/bin/vivarium-runner"), tmp_path, 42, control=True, origin=origin, node="one"
+        )
+        (tmp_path / RUN_FILE).write_text(about.to_json())
+        assert origin_of(None, None, tmp_path) == origin
+
+    def test_an_attribute_given_wins(self, tmp_path: Path) -> None:
+        origin = origin_of("lan", Path("/src"), tmp_path)
+        assert (origin.attr, origin.file) == ("lan", Path("/src"))
+
+    def test_a_run_by_nix_run_needs_the_attribute(self, tmp_path: Path) -> None:
+        (tmp_path / RUN_FILE).write_text(run_file(Path("/r"), tmp_path, 42, control=True).to_json())
+        with pytest.raises(ValueError, match="name the attribute"):
+            origin_of(None, None, tmp_path)
+
+    def test_no_run_needs_the_attribute(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="no run"):
+            origin_of(None, None, tmp_path)
+
+    def test_file_without_an_attribute_is_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="--file"):
+            origin_of(None, Path("/src"), tmp_path)
 
 
 class TestAttr:

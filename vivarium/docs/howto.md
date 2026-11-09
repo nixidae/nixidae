@@ -144,14 +144,16 @@ attribute:
 
 ```console
 $ vivarium run checks.switch --out ./out --break switch &
-$ vivarium switch checks.switch --out ./out --node one --module ./more.nix
-$ vivarium switch checks.switch --out ./out --node one --module ./more.nix --action test
+$ vivarium switch --out ./out --node one --module ./more.nix
+$ vivarium switch --out ./out --node one --module ./more.nix --action test
 ```
 
-A run started this way prints its own `switch` line at each pause, and
-`<out>/run.json` holds it. Copy it and change `--node` and `--module`. A
-run started by `nix run` prints none: only the `vivarium` CLI can
-evaluate it again.
+`switch` reads the attribute and the file from `<out>/run.json`. A run
+started this way prints its own `switch` line at each pause, and
+`run.json` holds it. Copy it and change `--node` and `--module`. A run
+started by `nix run` prints none: only the `vivarium` CLI can evaluate
+it again. To evaluate such a run's session anyway, name the attribute:
+`vivarium switch checks.switch --file . --out ./out ...`.
 
 The MCP server's `switch` tool does the same: `switch(run, node, module)`.
 

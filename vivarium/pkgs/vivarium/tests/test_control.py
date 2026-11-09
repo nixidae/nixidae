@@ -187,12 +187,10 @@ def test_switch_is_printed_only_for_a_run_with_an_origin() -> None:
     out = Path("/o")
     assert all(c.use is not Use.SWITCH for c in commands(VIVARIUM, out))
     switch = next(c for c in commands(VIVARIUM, out, ORIGIN, "one") if c.use is Use.SWITCH)
+    # No attribute: `vivarium switch` reads the origin back from run.json.
     assert switch.argv == (
         "/nix/store/y-vivarium/bin/vivarium",
         "switch",
-        "checks.switch",
-        "--file",
-        "/src/default.nix",
         "--out",
         "/o",
         "--node",
@@ -200,6 +198,11 @@ def test_switch_is_printed_only_for_a_run_with_an_origin() -> None:
         "--module",
         "./module.nix",
     )
+
+
+def test_a_run_the_cli_started_names_the_cli_in_every_line() -> None:
+    listed = commands(VIVARIUM, Path("/o"), ORIGIN, "one")
+    assert {c.argv[0] for c in listed} == {str(ORIGIN.cli)}
 
 
 def test_the_run_file_keeps_its_origin() -> None:

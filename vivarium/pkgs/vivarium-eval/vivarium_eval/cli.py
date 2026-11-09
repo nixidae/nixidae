@@ -2,7 +2,7 @@
 
     vivarium run checks.pytest-phase --out ./out -- -k hostname
     vivarium phases checks.recipes --file ~/Code/myproject
-    vivarium switch checks.switch --out ./out --node one --module ./more.nix
+    vivarium switch --out ./out --node one --module ./more.nix
     vivarium ctl --out ./out exec 'print(list(vms))'
     vivarium monitor ./out --quiet
 
@@ -207,24 +207,51 @@ def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         "switch",
         help="add a module to one guest of a running session, build it on the host and switch to it",
     )
-    switching.add_argument("attr", help="the session the run was started from, such as `switch`")
-    switching.add_argument("--file", "-f", type=Path, default=Path("."))
+    switching.add_argument(
+        "attr",
+        nargs="?",
+        help="the session the run was started from; by default the one `run.json` names",
+    )
+    switching.add_argument("--file", "-f", type=Path, help="with an attribute: as `run` takes it (default `.`)")
     switching.add_argument("--out", type=Path, required=True, help="the running session's --out")
     switching.add_argument("--node", required=True, help="the guest to change")
     switching.add_argument("--module", type=Path, required=True, help="a NixOS module file")
     switching.add_argument("--action", choices=["switch", "boot", "test", "dry-activate"], default="switch")
 
 
+def this_cli() -> Path:
+    """This program, by the name a printed command uses: the venv's script
+    beside its interpreter, not `sys.argv[0]`, which may be a relative name."""
+    return Path(sys.executable).parent / "vivarium"
+
+
+def origin_of(attr: str | None, file: Path | None, out: Path) -> control.Origin:
+    """What to evaluate again: the attribute given, or the origin the run
+    in `out` wrote to `run.json`. Raises ValueError when neither names one."""
+    if attr is not None:
+        return control.Origin(this_cli(), attr, (file or Path(".")).absolute())
+    if file is not None:
+        raise ValueError("--file needs an attribute")
+    try:
+        about = control.RunFile.from_json((out / control.RUN_FILE).read_text())
+    except FileNotFoundError:
+        raise ValueError(f"no run in {out}: name the attribute") from None
+    if about.origin is None:
+        raise ValueError(f"the run in {out} was not started by `vivarium run`: name the attribute")
+    return about.origin
+
+
 def switch(args: argparse.Namespace) -> int:
     try:
-        attr = split_attr(args.attr)
+        origin = origin_of(args.attr, args.file, args.out)
+        attr = split_attr(origin.attr)
     except ValueError as error:
         say(str(error))
         return 2
     started = time.monotonic()
-    say(f"evaluating {args.attr} with {args.module} on {args.node}")
+    say(f"evaluating {origin.attr} with {args.module} on {args.node}")
     try:
-        system, registration = anyio.run(build_extended, args.file, attr, args.node, args.module)
+        system, registration = anyio.run(build_extended, origin.file, attr, args.node, args.module)
     except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
         return 1
@@ -296,8 +323,7 @@ def main(argv: list[str] | None = None) -> None:
     # on an import the newer field existed to make work.
     if request.command == "run":
         # So the run prints a `switch` line: only this CLI can evaluate it again.
-        cli = Path(sys.executable).parent / "vivarium"
-        origin = control.Origin(cli, ".".join(request.attr), request.file.absolute())
+        origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
         os.environ[control.ORIGIN] = origin.to_json()
     os.execv(program, [program, *request.rest])
 
