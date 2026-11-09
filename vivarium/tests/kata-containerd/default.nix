@@ -1,0 +1,2 @@
+{ kataTest, ... }:
+kataTest "containerd"

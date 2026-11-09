@@ -3,7 +3,7 @@
 Carl and Claude write this together. It holds what is decided and what
 is open, in the present tense. When a decision changes, the text changes;
 the commit log holds the history. Evidence is a spike attribute
-(`nix run --file spike <attr>`, gitignored) or a check in `default.nix`.
+(`nix run --file spike <attr>`, gitignored) or a check in `tests/<name>/default.nix`.
 The long record up to 2026-09-30 is `history/running-anywhere.md`.
 
 ## What a test is

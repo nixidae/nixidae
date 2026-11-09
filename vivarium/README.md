@@ -139,7 +139,7 @@ The result is an ordinary `mkTest` run, with all the attributes above.
 `nixosTest` API: `start_all`, `machine.succeed`, `wait_for_unit`,
 `subtest` and the rest. A test that reads a screen gets one: its nodes
 run under QEMU with `vivarium.display`, and `screenshot`, `send_chars`
-and `wait_for_text` work. `nixos-tests` in `default.nix` runs three
+and `wait_for_text` work. `tests/nixos-tests` runs three
 tests from nixpkgs this way, and `nixos-screen-tests` runs `cage`
 (Wayland) and `xterm` (X11).
 
@@ -203,13 +203,14 @@ reach into it.
 ```
 lib.nix              mkTest, mkNode, fromNixosTest: the `lib` output
 nixos-test.nix       the nixos-test mapper
-default.nix          this repository's own tests
+default.nix          the outputs: lib, checks, packages
 modules/             the guest modules: vivarium options, backends, k8s
 pkgs/vivarium        the runner, `vivarium-runner`: runs, phases, pauses, cleanup; never evaluates
 pkgs/vivarium-runner guests, backends, networking, the guest agent
 pkgs/vivarium-eval   the `vivarium` CLI on huggorm, and the MCP server
 pkgs/uml-kernel      the User-Mode Linux kernel
-tests/               the phase scripts for the tests in default.nix
+tests/<name>/        one check each; tests/default.nix holds the shared guests
+tests/               the phase scripts those checks run
 ci/                  the GitHub Actions workflows, written in Nix
 ```
 

@@ -452,7 +452,10 @@ Each step keeps `checks` green and moves the consumers with it.
    pynixd, nixkube and easykubenix dev shells carry the CLI. Every check
    body with logic is Python in `tests/checks/`. Next for the CLI:
    `vivarium.nix` as the default entrypoint, nixidae/nixidae#1254.
-7. `default.nix` split into `tests/<name>/default.nix`.
+7. Done: one `tests/<name>/default.nix` per check, a directory
+   per test found by `tests/default.nix`, which also holds the guests
+   more than one test shares. `default.nix` is the outputs only; every
+   check, package and internal derivation kept its drvPath.
 
 Speed items from section 3 land when found; they do not wait on the
 order.
