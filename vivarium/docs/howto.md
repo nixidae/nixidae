@@ -26,10 +26,12 @@ phase and again at each pause:
 ```
 
 Copy a line as it is. The paths are absolute, so the command works from
-any directory and needs nothing on `PATH`. In the rest of this file,
-`vivarium` means the path in those lines, or the `vivarium` in
-`packages.vivarium`. That package also holds `vivarium-eval`,
-`vivarium-mcp` and an agent skill, `share/skills/vivarium/vivarium`.
+any directory and needs nothing on `PATH`. `<out>/run.json` holds the same
+lines. In the rest of this file, `vivarium` is the CLI in
+`packages.vivarium`, on `PATH` in the dev shell of each project that runs
+vivarium tests. It is built on huggorm and takes `ctl` and `monitor` as
+the runner does. The package also holds `vivarium-mcp` and an agent
+skill, `share/skills/vivarium/vivarium`.
 
 ## Wait for the run without watching it
 
@@ -135,9 +137,9 @@ Write the change as a module file and apply it to a run you started by
 attribute:
 
 ```console
-$ vivarium-eval run checks.switch --out ./out --break switch &
-$ vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix
-$ vivarium-eval switch checks.switch --out ./out --node one --module ./more.nix --action test
+$ vivarium run checks.switch --out ./out --break switch &
+$ vivarium switch checks.switch --out ./out --node one --module ./more.nix
+$ vivarium switch checks.switch --out ./out --node one --module ./more.nix --action test
 ```
 
 The MCP server's `switch` tool does the same: `switch(run, node, module)`.

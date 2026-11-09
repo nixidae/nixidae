@@ -41,7 +41,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 
 ## At a pause
 
-The run prints the exact command lines at start and at each pause. `$OUT/run.json` holds the same lines and the CLI path: `jq -r .vivarium "$OUT/run.json"` when `vivarium` is not on PATH. Never scrape `$OUT.log` for them.
+`vivarium` is on PATH in the dev shell of each project that runs vivarium tests (`packages.vivarium`, built on huggorm). The run also prints absolute command lines at start and at each pause, and `$OUT/run.json` holds them with the runner's path. Never scrape `$OUT.log` for them.
 
 ```sh
 vivarium ctl --out "$OUT" state

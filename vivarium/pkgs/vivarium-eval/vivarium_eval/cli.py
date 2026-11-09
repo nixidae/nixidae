@@ -136,7 +136,7 @@ async def resolve(file: Path, attr: list[str], command: str) -> str:
     """
     async with evaluator() as state:
         target = await session_of(state, file, attr)
-        # `vivarium-eval run` runs the session's `.driver`; `phases` its `.phases`.
+        # `vivarium run` runs the session's `.driver`; `phases` its `.phases`.
         member = await select_attr_path(state, target, [{"run": "driver"}.get(command, command)])
         built = Path(await member.realise_string())
     [program] = sorted((built / "bin").iterdir())

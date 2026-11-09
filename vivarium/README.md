@@ -184,13 +184,15 @@ the default for every guest.
 It starts runs, pauses them on failure, and runs Python against the live
 guests. nixidae's CLAUDE.md (vivarium) describes the tools and the pause-and-inspect loop.
 
-`packages.vivarium` holds `vivarium`, `vivarium-eval`, `vivarium-mcp` and
-an agent skill at `share/skills/vivarium/vivarium`
+`packages.vivarium` holds `vivarium`, the CLI built on huggorm (`run` by
+name, `phases`, `switch`, `ctl`, `monitor`), `vivarium-mcp` and an agent
+skill at `share/skills/vivarium/vivarium`
 ([skill/vivarium/SKILL.md](skill/vivarium/SKILL.md)). Install the package
 and link the skill into the agent's skills directory.
 
-An agent without MCP can use a run's own output: a run prints the
-command lines that watch it and reach into it.
+An agent without MCP uses `vivarium` from a dev shell, or reads
+`<out>/run.json`: a run writes there the command lines that watch it and
+reach into it.
 [docs/howto.md](docs/howto.md#run-a-test-from-an-agent) has the steps.
 
 ## Repository layout
@@ -200,9 +202,9 @@ lib.nix              mkTest, mkNode, fromNixosTest: the `lib` output
 nixos-test.nix       the nixos-test mapper
 default.nix          this repository's own tests
 modules/             the guest modules: vivarium options, backends, k8s
-pkgs/vivarium        the `vivarium` CLI: runs, phases, pauses, cleanup
+pkgs/vivarium        the runner, `vivarium-runner`: runs, phases, pauses, cleanup; never evaluates
 pkgs/vivarium-runner guests, backends, networking, the guest agent
-pkgs/vivarium-eval   evaluate-and-run by name, and the MCP server
+pkgs/vivarium-eval   the `vivarium` CLI on huggorm, and the MCP server
 pkgs/uml-kernel      the User-Mode Linux kernel
 tests/               the phase scripts for the tests in default.nix
 ci/                  the GitHub Actions workflows, written in Nix
