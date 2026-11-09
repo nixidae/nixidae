@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import functools
+import json
 import os
 import shlex
 import signal
@@ -183,6 +185,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         "ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused"
     )
     ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
+    ctl.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
     ctl.add_argument("op", choices=[str(op) for op in Op])
     ctl.add_argument(
         "arg",
@@ -574,13 +577,18 @@ async def ctl(args: argparse.Namespace) -> int:
         else:
             reply.ok = False
             reply.error = f"the run did not exit within {STOP_WAIT:g}s of stop"
+    if args.json:
+        print(json.dumps(dataclasses.asdict(reply)))
+        return 0 if reply.ok else 1
     if reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.result is not None:
-        print(reply.result)
+        print(reply.result if reply.pause is None else f"{reply.result} {reply.pause}")
     if reply.state:
+        errors = reply.errors or {}
         for name, state in reply.state.items():
-            print(f"{name}\t{state}")
+            why = errors.get(name, "").strip().splitlines()[:1]
+            print("\t".join([name, state, *why]))
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
     return 0 if reply.ok else 1

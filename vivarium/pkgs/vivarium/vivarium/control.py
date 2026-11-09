@@ -35,7 +35,7 @@ import os
 import shlex
 import sys
 import traceback
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -76,9 +76,22 @@ class Reply:
     result: str | None = None
     error: str | None = None
     state: dict[str, str] | None = None
+    pause: str | None = None
+    """Why the run is paused, as `state` answers it: `before later`."""
+    errors: dict[str, str] | None = None
+    """Each failed phase's error, as `state` answers it."""
 
     def encode(self) -> bytes:
         return json.dumps(asdict(self)).encode() + b"\n"
+
+    @classmethod
+    def decode(cls, line: bytes) -> Reply:
+        """A reply from a run of any vivarium. The CLI on PATH and the
+        runner of a run are built apart, so a field this one does not know
+        is dropped, not an error."""
+        raw = json.loads(line)
+        known = {f.name for f in fields(cls)}
+        return cls(**{key: value for key, value in raw.items() if key in known})
 
 
 # ── pure ────────────────────────────────────────────────────────────
@@ -327,6 +340,7 @@ class Controller:
         self.path = session.out / SOCKET
         self.console = Console(self._namespace(), lambda copy: session._capture("exec", copy))
         self._resume: anyio.Event | None = None
+        self._pause: str | None = None
         self._continuing = False
 
     def _namespace(self) -> dict[str, Any]:
@@ -359,6 +373,7 @@ class Controller:
     async def pause(self, reason: str) -> None:
         """Hold the drive here until a client says `continue`."""
         self._resume = anyio.Event()
+        self._pause = reason
         self._bind_guests()
         self.session.emit(
             Kind.NOTE,
@@ -373,6 +388,7 @@ class Controller:
             await self._resume.wait()
         finally:
             self._resume = None
+            self._pause = None
         self.session.emit(Kind.NOTE, f"resumed, paused {reason}", resumed=reason)
 
     def announce(self, level: Level = Level.INFO) -> None:
@@ -414,7 +430,13 @@ class Controller:
             return Reply(ok=False, error=str(error))
         self.session.emit(Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg)
         if op is Op.STATE:
-            return Reply(ok=True, state=self._state(), result="paused" if self.paused else "running")
+            return Reply(
+                ok=True,
+                state=self._state(),
+                result="paused" if self.paused else "running",
+                pause=self._pause,
+                errors=dict(self.session.errors) or None,
+            )
         if op is Op.STOP:
             if self._stop is None:
                 return Reply(ok=False, error="this run cannot be stopped through its socket")
@@ -535,4 +557,4 @@ async def request(socket: Path, op: Op, arg: str = "") -> Reply:
         line = await _receive_line(stream)
     if not line:
         return Reply(ok=False, error="the run closed the connection without a reply")
-    return Reply(**json.loads(line))
+    return Reply.decode(line)

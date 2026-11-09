@@ -97,6 +97,10 @@ $ vivarium ctl --out ./out continue
 
 `continue` returns when the run is no longer paused.
 
+`state` says why the run paused and, for each failed phase, the first
+line of its error. `vivarium ctl --out ./out --json state` gives the
+whole reply as JSON, with each error in full.
+
 To end a run without the phases that are left, stop it:
 
 ```console

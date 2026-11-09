@@ -886,6 +886,7 @@ let
       `check` runs on `a`, and `a` requires `b`. `other` runs on `c`, and
       `--only check` deselects it, so `c` never boots. The `boot` recipe
       is in the `after` closure and takes the guests of `check` alone.
+      tests/checks/on_demand.py.
     */
     on-demand =
       let
@@ -910,47 +911,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-on-demand"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          export HOME="$TMPDIR"
-          o="$TMPDIR/run"
-          fail() { echo "$*" >&2; exit 1; }
-          ${lib.getExe run.driver} --out "$o" --only check
-          jq -r '.phases[] | "\(.name)\t\(.state)"' "$o/phases.json"
-
-          [ "$(jq -r '.passed' "$o/phases.json")" = true ] || fail "the run failed"
-          jq -r 'select(.kind == "boot") | .text' "$o/events.jsonl" | tee booted
-          grep -qx "booting a, b" booted || fail "a and b did not boot together"
-          if grep -qw c booted; then fail "c booted, and no selected phase needs it"; fi
-          # `prepare` resolves every guest's forwards and says so; past
-          # that line, c's console is empty only if c never ran.
-          ran=$(jq -c 'select(.machine == "c" and .kind == "console" and (.text | startswith("forwarding ") | not))' \
-            "$o/events.jsonl" | wc -l)
-          [ "$ran" = 0 ] || fail "c wrote to its console, so it ran"
-          echo "ok: --only check booted a and b, and not c"
-
-          # A pause before a phase has that phase's guests up, though
-          # under `--only` no phase has booted them yet.
-          o="$TMPDIR/pause"
-          ctl() { ${lib.getExe cli} ctl --out "$o" "$@"; }
-          ${lib.getExe run.driver} --out "$o" --only check --break boot > pause.log 2>&1 &
-          pid=$!
-          for _ in $(seq 1 600); do
-            [ "$(ctl state 2>/dev/null | head -1)" = paused ] && break
-            kill -0 "$pid" 2>/dev/null || { cat pause.log; fail "the run ended without pausing"; }
-            sleep 0.1
-          done
-          [ "$(ctl exec 'sorted(vms)')" = "['a', 'b']" ] || { ctl exec 'sorted(vms)'; fail "the pause before boot has the wrong guests up"; }
-          ctl continue
-          wait "$pid" || { cat pause.log; fail "the run failed after the pause"; }
-          echo "ok: paused before boot with a and b up"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-on-demand" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/on_demand.py ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+        touch $out
+      '';
 
     /*
       Does evidence get collected on the run that went wrong?
@@ -2438,7 +2402,7 @@ let
       The loop this is for: changing a phase costs an evaluation and a
       store path, and changing a guest costs an image, so the fast way is
       neither -- pause with the guests up and send Python in. And can
-      `ctl stop` end the run? tests/breakpoint.py.
+      `ctl stop` end the run? tests/checks/breakpoint.py.
     */
     breakpoint =
       let
@@ -2452,7 +2416,7 @@ let
         };
       in
       pkgs.runCommand "vivarium-check-breakpoint" { passthru.session = run; } ''
-        ${pkgs.python3.interpreter} ${./tests/breakpoint.py} ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+        ${pkgs.python3.interpreter} ${./tests/checks}/breakpoint.py ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
         touch $out
       '';
 
@@ -2820,6 +2784,8 @@ let
         pkgs.python3Packages.tomli-w
         k8s
       ];
+      # The check scripts import their shared `harness` by name.
+      extraPaths = [ ./tests/checks ];
     };
 
     # zuban, strict, over `runner` and `session` and their unit tests. Each

@@ -5,9 +5,24 @@ from __future__ import annotations
 import ast
 import shlex
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
-from vivarium.control import Console, Op, RunFile, Use, commands, parse_request, run_file, split_last_expression
+from vivarium.control import (
+    Console,
+    Controller,
+    Op,
+    Reply,
+    RunFile,
+    Use,
+    commands,
+    parse_request,
+    run_file,
+    split_last_expression,
+)
+from vivarium.phases import PhaseState
+from vivarium.session import Session
 
 
 class TestSplitLastExpression:
@@ -84,6 +99,36 @@ class TestConsole:
 
 
 VIVARIUM = Path("/nix/store/x-vivarium/bin/vivarium-runner")
+
+
+@pytest.mark.anyio
+async def test_state_names_each_failed_phase_and_why(tmp_path: Path) -> None:
+    def emit(*_: Any, **__: Any) -> None:
+        return None
+
+    session = SimpleNamespace(
+        out=tmp_path,
+        state={"cluster": PhaseState.FAILED, "check": PhaseState.SKIPPED},
+        errors={"cluster": "MachineError: VFS: Mount too revealing"},
+        emit=emit,
+        vms=None,
+    )
+    reply = await Controller(cast("Session", session)).handle(b'{"op": "state"}')
+    assert reply.state == {"cluster": "failed", "check": "skipped"}
+    assert reply.errors == {"cluster": "MachineError: VFS: Mount too revealing"}
+    assert (reply.result, reply.pause) == ("running", None)
+
+
+class TestReply:
+    def test_a_reply_reads_back_what_it_wrote(self) -> None:
+        reply = Reply(ok=True, result="paused", state={"x": "failed"}, pause="before y", errors={"x": "boom"})
+        assert Reply.decode(reply.encode()) == reply
+
+    def test_a_field_from_a_newer_runner_is_dropped(self) -> None:
+        assert Reply.decode(b'{"ok": true, "result": "running", "later": 1}') == Reply(ok=True, result="running")
+
+    def test_a_reply_from_an_older_runner_has_the_defaults(self) -> None:
+        assert Reply.decode(b'{"ok": true}') == Reply(ok=True)
 
 
 def test_the_run_file_reads_back_what_it_wrote() -> None:
