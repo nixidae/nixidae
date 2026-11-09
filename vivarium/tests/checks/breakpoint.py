@@ -7,8 +7,9 @@ in the build directory, and were never in the store: that is the point
 of `inject` and `ctl pytest`.
 
 - paused before `later`: `state` says why, `exec`, a namespace that
-  survives, an exception as the reply, `inject`, `pytest` by hand and
-  then its edit, `continue`;
+  survives, an exception as the reply, `inject`, a helper edited and
+  read again with `inject --reload`, `pytest` by hand and then its edit,
+  `continue`;
 - `--break end` pauses after the last phase;
 - `ctl stop` ends a paused run: it returns once the run has exited, the
   run exits 5, the verdict says stopped, and no guest process is left.
@@ -31,6 +32,14 @@ from vivarium_runner import Machines
 async def test(vms: Machines) -> None:
     await vms.one.succeed("echo injected > /artifacts/injected")
     print("[scratch] wrote it")
+"""
+
+USES_LAB = """\
+from lab import VERSION
+from vivarium_runner import Machines
+
+async def test(vms: Machines) -> None:
+    print(f"lab {VERSION}")
 """
 
 BY_HAND = 'async def test_host(one): assert (await one.succeed("hostname")).strip() == "{name}"\n'
@@ -69,6 +78,8 @@ def by_hand(vivarium: str, driver: str, work: Path) -> None:
         run.fail("inject did not run the file")
     print("ok: a file from outside the store ran against the guest")
 
+    reload_a_helper(run, work)
+
     tree = work / "tree"
     tree.mkdir()
     (tree / "test_by_hand.py").write_text(BY_HAND.format(name="one"))
@@ -103,6 +114,23 @@ def by_hand(vivarium: str, driver: str, work: Path) -> None:
     print("ok: and its cases are events, outside the verdict and junit.xml")
     if (run.out / "control.sock").exists():
         run.fail("the socket outlived the run")
+
+
+def reload_a_helper(run: Run, work: Path) -> None:
+    """An edited helper is read again only with `--reload`. nixidae/nixidae#851."""
+    lib = work / "lib"
+    lib.mkdir()
+    (lib / "lab.py").write_text('VERSION = "first"\n')
+    uses = work / "uses_lab.py"
+    uses.write_text(USES_LAB)
+    if "lab first" not in run.ok("inject", str(uses), "--reload", str(lib)):
+        run.fail("inject did not import the helper from the working tree")
+    (lib / "lab.py").write_text('VERSION = "edited"\n')
+    if "lab first" not in run.ok("inject", str(uses)):
+        run.fail("without --reload the helper was read again; the control proves nothing")
+    if "lab edited" not in run.ok("inject", str(uses), "--reload", str(lib)):
+        run.fail("--reload did not read the edited helper")
+    print("ok: an edited helper is the old one until --reload, then the edit")
 
 
 def break_at_end(vivarium: str, driver: str, work: Path) -> None:

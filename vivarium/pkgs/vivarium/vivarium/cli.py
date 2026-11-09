@@ -186,6 +186,17 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     )
     ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     ctl.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
+    ctl.add_argument(
+        "--reload",
+        action="append",
+        default=[],
+        type=_absolute,
+        metavar="DIR",
+        help=(
+            "inject and pytest: import from this working-tree directory first, and"
+            " drop the modules it provides, so an edited helper is read again; repeatable"
+        ),
+    )
     ctl.add_argument("op", choices=[str(op) for op in Op])
     ctl.add_argument(
         "arg",
@@ -563,7 +574,7 @@ async def ctl(args: argparse.Namespace) -> int:
         arg = shlex.join([arg, *args.pytest_args])
     socket = args.out / SOCKET
     try:
-        reply = await request(socket, Op(args.op), arg)
+        reply = await request(socket, Op(args.op), arg, tuple(args.reload))
     except OSError as error:
         print(f"[vivarium] no run is listening at {socket}: {error}", file=sys.stderr)
         return 1

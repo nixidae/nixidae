@@ -57,7 +57,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 
 - `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec` and `inject` also work while phases run; `pytest`, `run`, `continue` need a pause.
 - Loop: read the failure, probe with `exec`, edit the test file, `inject`/`pytest` again, repeat until it passes, then `continue`.
-- `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported (nixidae/nixidae#851). To test an edited helper: `exec` a `sys.path.insert(0, "<working-tree dir>")` and `sys.modules.pop("<module>")`, then `inject`.
+- `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported. To test an edited helper, name its working-tree directory: `vivarium ctl --out "$OUT" inject ./phases/x.py --reload ./lib` (repeatable; `pytest` takes it too). The directory goes first on `sys.path`, and the modules it provides are dropped.
 - `ctl stop` ends the run, paused or running: guests down, exit 5, verdict `stopped`. It returns once the run has exited. Never kill the driver by pid or pattern.
 - `ctl state` prints `paused before <phase>` (or `running`), then `phase\tstate`, with the first line of the error on a failed phase. `ctl --json <op>` prints the whole reply as one JSON object: `pause`, `state`, `errors` (full text).
 - Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.

@@ -45,10 +45,25 @@ async def test_ctl_sends_a_file_as_an_absolute_path(
     monkeypatch.chdir(tmp_path)
     requests: list[tuple[Op, str]] = []
 
-    async def request(socket: Path, op: Op, arg: str = "") -> Reply:
+    async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
         requests.append((op, arg))
         return Reply(ok=True)
 
     monkeypatch.setattr(cli, "request", request)
     assert await cli.ctl(parse(["ctl", "--out", "out", *argv])) == 0
     assert requests == [(Op(argv[0]), sent.format(cwd=tmp_path))]
+
+
+@pytest.mark.anyio
+async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    sent: list[tuple[Path, ...]] = []
+
+    async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
+        sent.append(reload)
+        return Reply(ok=True)
+
+    monkeypatch.setattr(cli, "request", request)
+    argv = ["ctl", "--out", "out", "inject", "check.py", "--reload", "lib", "--reload", "more"]
+    assert await cli.ctl(parse(argv)) == 0
+    assert sent == [(tmp_path / "lib", tmp_path / "more")]

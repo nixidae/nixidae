@@ -89,6 +89,8 @@ $ vivarium ctl --out ./out run check                       # a phase from the te
 ```
 
 `inject` and `pytest` read the file each time, so edit and send again.
+A helper module the file imports stays the copy the run imported. To
+read an edited helper again, name its directory: `--reload ./lib`.
 When the test passes, resume:
 
 ```console

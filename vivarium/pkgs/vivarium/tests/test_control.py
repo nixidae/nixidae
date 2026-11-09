@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import shlex
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -14,10 +14,13 @@ from vivarium.control import (
     Controller,
     Op,
     Reply,
+    Request,
     RunFile,
     Use,
     commands,
+    forget,
     parse_request,
+    provided,
     run_file,
     split_last_expression,
 )
@@ -44,10 +47,14 @@ class TestSplitLastExpression:
 
 class TestParseRequest:
     def test_a_request(self) -> None:
-        assert parse_request(b'{"op": "exec", "arg": "1"}') == (Op.EXEC, "1")
+        assert parse_request(b'{"op": "exec", "arg": "1"}') == Request(Op.EXEC, "1")
 
     def test_state_needs_no_arg(self) -> None:
-        assert parse_request(b'{"op": "state"}') == (Op.STATE, "")
+        assert parse_request(b'{"op": "state"}') == Request(Op.STATE)
+
+    def test_a_request_reads_back_what_it_wrote(self) -> None:
+        asked = Request(Op.INJECT, "/t/x.py", (Path("/t/lib"),))
+        assert parse_request(asked.encode()) == asked
 
     @pytest.mark.parametrize(
         ("line", "says"),
@@ -57,6 +64,8 @@ class TestParseRequest:
             (b'{"op": "rm"}', "no such op"),
             (b'{"op": "exec"}', "needs an arg"),
             (b'{"op": "exec", "arg": 1}', "is a string"),
+            (b'{"op": "inject", "arg": "x", "reload": ["lib"]}', "absolute"),
+            (b'{"op": "exec", "arg": "1", "reload": ["/lib"]}', "reload is for"),
         ],
     )
     def test_what_is_refused(self, line: bytes, says: str) -> None:
@@ -117,6 +126,20 @@ async def test_state_names_each_failed_phase_and_why(tmp_path: Path) -> None:
     assert reply.state == {"cluster": "failed", "check": "skipped"}
     assert reply.errors == {"cluster": "MachineError: VFS: Mount too revealing"}
     assert (reply.result, reply.pause) == ("running", None)
+
+
+def test_a_directory_provides_its_modules_and_packages(tmp_path: Path) -> None:
+    (tmp_path / "lab.py").write_text("")
+    (tmp_path / "helpers").mkdir()
+    (tmp_path / "helpers" / "__init__.py").write_text("")
+    (tmp_path / "notes.txt").write_text("")
+    assert provided(tmp_path) == {"lab", "helpers"}
+
+
+def test_forget_drops_a_module_and_its_submodules_only() -> None:
+    modules = {name: ModuleType(name) for name in ("lab", "helpers", "helpers.net", "helpersx", "os")}
+    assert forget({"lab", "helpers"}, modules) == ["helpers", "helpers.net", "lab"]
+    assert sorted(modules) == ["helpersx", "os"]
 
 
 class TestReply:

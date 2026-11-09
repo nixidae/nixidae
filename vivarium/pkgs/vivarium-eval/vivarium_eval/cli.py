@@ -230,7 +230,8 @@ def switch(args: argparse.Namespace) -> int:
         return 1
     say(f"built {system} in {time.monotonic() - started:.1f}s")
     code = switch_code(args.node, system, registration, args.action)
-    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.EXEC, code)
+    # Every argument given: zuban's TypeVarTuple does not count a defaulted parameter.
+    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.EXEC, code, ())
     if reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.error:

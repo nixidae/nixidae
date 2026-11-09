@@ -327,6 +327,10 @@ async def _monitor(run: Run, stream: SocketStream) -> None:
         send.close()
 
 
+def _directories(paths: list[str] | None) -> tuple[Path, ...]:
+    return tuple(Path(path).absolute() for path in paths or [])
+
+
 async def _stop(run: Run) -> None:
     """`ctl stop` through the socket, so the verdict says stopped; SIGINT
     when the run has no socket or does not know `stop`. The run answers
@@ -464,21 +468,27 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         return _reply(await request(runs().get(run).socket, Op.EXEC, code))
 
     @server.tool()
-    async def inject(run: str, path: str) -> dict[str, Any]:
+    async def inject(run: str, path: str, reload: list[str] | None = None) -> dict[str, Any]:
         """Run a local file's `async def test(vms)` in the run, paused or
         running, read fresh from disk, so an edit takes effect by
-        injecting it again."""
-        return _reply(await request(runs().get(run).socket, Op.INJECT, os.path.abspath(path)))
+        injecting it again. `reload` names working-tree directories of
+        helper modules: imported from first, their modules dropped, so an
+        edited helper is read again too."""
+        return _reply(
+            await request(runs().get(run).socket, Op.INJECT, os.path.abspath(path), _directories(reload))
+        )
 
     @server.tool()
-    async def run_pytest(run: str, path: str, args: list[str] | None = None) -> dict[str, Any]:
+    async def run_pytest(
+        run: str, path: str, args: list[str] | None = None, reload: list[str] | None = None
+    ) -> dict[str, Any]:
         """Run pytest on a local test file or directory against the paused
         guests, read fresh from disk: edit a test and run it again without
         rebuilding the setup. `args` go to pytest (`["-k", "etcd"]`). The
         cases are events marked by_hand and do not count toward the run's
-        verdict."""
+        verdict. `reload` is as for `inject`."""
         arg = shlex.join([os.path.abspath(path), *(args or [])])
-        return _reply(await request(runs().get(run).socket, Op.PYTEST, arg))
+        return _reply(await request(runs().get(run).socket, Op.PYTEST, arg, _directories(reload)))
 
     @server.tool()
     async def run_phase(run: str, phase: str) -> dict[str, Any]:

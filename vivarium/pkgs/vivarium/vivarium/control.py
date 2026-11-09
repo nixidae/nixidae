@@ -50,6 +50,7 @@ from .spec import PytestSpec
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from contextlib import AbstractContextManager
+    from types import ModuleType
 
     from anyio.abc import ByteStream, TaskStatus
 
@@ -111,8 +112,28 @@ def split_last_expression(source: str) -> tuple[ast.Module, ast.Expression | Non
     return tree, None
 
 
-def parse_request(line: bytes) -> tuple[Op, str]:
-    """One request: `{"op": ..., "arg": ...}`. Raises ValueError."""
+@dataclass(frozen=True, slots=True)
+class Request:
+    """One request on the socket."""
+
+    op: Op
+    arg: str = ""
+    reload: tuple[Path, ...] = ()
+    """`inject` and `pytest`: working-tree directories to import from
+    first, their modules dropped. Absent from an older client's request."""
+
+    def encode(self) -> bytes:
+        document: dict[str, object] = {"op": str(self.op), "arg": self.arg}
+        if self.reload:
+            document["reload"] = [str(path) for path in self.reload]
+        return json.dumps(document).encode() + b"\n"
+
+
+RELOADS: Final = frozenset({Op.INJECT, Op.PYTEST})
+
+
+def parse_request(line: bytes) -> Request:
+    """One request: `{"op": ..., "arg": ..., "reload": [...]}`. Raises ValueError."""
     try:
         raw = json.loads(line)
     except json.JSONDecodeError as error:
@@ -128,7 +149,28 @@ def parse_request(line: bytes) -> tuple[Op, str]:
         raise ValueError("arg is a string")
     if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST) and not arg:
         raise ValueError(f"{op} needs an arg")
-    return op, arg
+    reload = raw.get("reload", [])
+    if not isinstance(reload, list) or not all(isinstance(path, str) and Path(path).is_absolute() for path in reload):
+        raise ValueError("reload is a list of absolute directories")
+    if reload and op not in RELOADS:
+        raise ValueError(f"reload is for {' and '.join(sorted(RELOADS))}, not {op}")
+    return Request(op, arg, tuple(Path(path) for path in reload))
+
+
+def provided(directory: Path) -> set[str]:
+    """The top-level modules a directory on `sys.path` provides."""
+    modules = {path.stem for path in directory.glob("*.py")}
+    packages = {path.parent.name for path in directory.glob("*/__init__.py")}
+    return modules | packages
+
+
+def forget(names: set[str], modules: dict[str, ModuleType]) -> list[str]:
+    """Drop each named module and its submodules from `modules`; the names
+    dropped, sorted."""
+    dropped = sorted(key for key in modules if key in names or key.split(".", 1)[0] in names)
+    for key in dropped:
+        del modules[key]
+    return dropped
 
 
 # ── the console ─────────────────────────────────────────────────────
@@ -425,9 +467,10 @@ class Controller:
 
     async def handle(self, line: bytes) -> Reply:
         try:
-            op, arg = parse_request(line)
+            asked = parse_request(line)
         except ValueError as error:
             return Reply(ok=False, error=str(error))
+        op, arg = asked.op, asked.arg
         self.session.emit(Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg)
         if op is Op.STATE:
             return Reply(
@@ -453,8 +496,10 @@ class Controller:
         if op is Op.EXEC:
             return self._record("exec", await self.console.execute(arg))
         if op is Op.INJECT:
+            self._reload(asked.reload)
             return self._record(f"inject:{Path(arg).name}", await self._inject(arg))
         if op is Op.PYTEST:
+            self._reload(asked.reload)
             return await self._pytest(arg)
         return await self._run(arg)
 
@@ -465,6 +510,23 @@ class Controller:
         if reply.error:
             self.session.emit(Kind.ERROR, reply.error.rstrip(), level=Level.ERROR, phase=source)
         return reply
+
+    def _reload(self, directories: tuple[Path, ...]) -> None:
+        """Each directory first on `sys.path`, and the modules it provides
+        dropped, so the next import reads the working tree and not the
+        store copy the run imported. nixidae/nixidae#851."""
+        for directory in directories:
+            dropped = forget(provided(directory), sys.modules)
+            if str(directory) in sys.path:
+                sys.path.remove(str(directory))
+            sys.path.insert(0, str(directory))
+            self.session.emit(
+                Kind.NOTE,
+                f"reload {directory}: dropped {', '.join(dropped) or 'nothing'}",
+                level=Level.DETAIL,
+                reload=str(directory),
+                dropped=dropped,
+            )
 
     async def _inject(self, arg: str) -> Reply:
         """A file's `test(vms)`, read from where it is, not from the store.
@@ -548,12 +610,12 @@ class Controller:
 # ── the client ──────────────────────────────────────────────────────
 
 
-async def request(socket: Path, op: Op, arg: str = "") -> Reply:
+async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
     """One request, one reply. What `vivarium ctl` and a test both use."""
     with reachable(socket) as name:
         connected = await anyio.connect_unix(name)
     async with connected as stream:
-        await stream.send(json.dumps({"op": str(op), "arg": arg}).encode() + b"\n")
+        await stream.send(Request(op, arg, reload).encode())
         line = await _receive_line(stream)
     if not line:
         return Reply(ok=False, error="the run closed the connection without a reply")
