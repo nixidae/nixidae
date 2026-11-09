@@ -91,6 +91,24 @@ $ vivarium ctl --out ./out run check                       # a phase from the te
 `inject` and `pytest` read the file each time, so edit and send again.
 A helper module the file imports stays the copy the run imported. To
 read an edited helper again, name its directory: `--reload ./lib`.
+
+To change the phases themselves, edit the test's Nix or its scripts and
+reload a run you started by attribute:
+
+```console
+$ vivarium reload --out ./out             # evaluate again; the run takes the new phases
+$ vivarium ctl --out ./out run check      # the new `check`, against the same guests
+```
+
+`reload` evaluates the session again and builds it, with the phases'
+type check. The paused run then takes the new phase list: scripts,
+pytest specs, `after`, `nodes`, settings and knobs. A phase that ran
+keeps its verdict until it runs again, and a new phase runs when the
+run resumes. The run refuses the reload when a guest changed: a guest
+needs a new run, or `switch` (below). The run must be paused. Like
+`switch`, `reload` reads the attribute from `<out>/run.json`, and the
+MCP server has a `reload(run)` tool.
+
 When the test passes, resume:
 
 ```console

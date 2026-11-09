@@ -231,7 +231,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         help=(
             "exec: Python, or - for stdin. inject: a file with `test(vms)`."
             " pytest: a test file or directory, pytest's arguments after --."
-            " run: a phase"
+            " run: a phase. reload: a spec file (`vivarium reload` builds one)"
         ),
     )
 
@@ -617,7 +617,7 @@ async def ctl(args: argparse.Namespace) -> int:
     """One request to a run; its output, its value, its error."""
     arg = sys.stdin.read() if args.arg == "-" else args.arg
     # The run resolves a path against its own working directory, not ours.
-    if args.op in {Op.INJECT, Op.PYTEST}:
+    if args.op in {Op.INJECT, Op.PYTEST, Op.RELOAD}:
         arg = str(Path(arg).absolute())
     if args.op == Op.PYTEST:
         # `vivarium ctl --out o pytest ./tests -- -k x`, as `vivarium run` takes them.

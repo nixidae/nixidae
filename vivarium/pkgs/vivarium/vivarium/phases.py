@@ -282,6 +282,48 @@ def passed(state: dict[str, PhaseState]) -> bool:
     return all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
 
 
+class ReloadRefused(ValueError):
+    """A new spec that a reload cannot take into the running session."""
+
+
+@dataclass(frozen=True, slots=True)
+class Reloaded:
+    """What a reload changes: the new state, and the phases by change."""
+
+    state: dict[str, PhaseState]
+    added: tuple[str, ...]
+    removed: tuple[str, ...]
+    changed: tuple[str, ...]
+
+    def describe(self) -> str:
+        groups = (("added", self.added), ("removed", self.removed), ("changed", self.changed))
+        return "; ".join(f"{what} {', '.join(names)}" for what, names in groups if names) or "no phase changed"
+
+
+def reloaded(old: list[PhaseSpec], new: list[PhaseSpec], state: dict[str, PhaseState]) -> Reloaded:
+    """The state after the phases `old` become `new`.
+
+    A phase keeps its state, so a phase that ran keeps its verdict until
+    it is run again. A new phase is pending, or deselected when the run
+    has `--only`: a reload does not grow a selection. A phase that ran
+    must stay, because its verdict is part of the run's. Raises
+    `ReloadRefused`."""
+    names = {phase.name for phase in new}
+    unrun = (PhaseState.PENDING, PhaseState.DESELECTED)
+    ran = [name for name, value in state.items() if name not in names and value not in unrun]
+    if ran:
+        missing = ", ".join(f"{name} ({state[name]})" for name in ran)
+        raise ReloadRefused(f"a reload keeps each phase that ran; the new spec has no {missing}")
+    fresh = PhaseState.DESELECTED if PhaseState.DESELECTED in state.values() else PhaseState.PENDING
+    before = {phase.name: phase for phase in old}
+    return Reloaded(
+        state={phase.name: state.get(phase.name, fresh) for phase in new},
+        added=tuple(phase.name for phase in new if phase.name not in before),
+        removed=tuple(name for name in before if name not in names),
+        changed=tuple(phase.name for phase in new if phase.name in before and before[phase.name] != phase),
+    )
+
+
 def summarise(state: dict[str, PhaseState]) -> str:
     """One line per outcome, for the end of a run."""
     counts: dict[PhaseState, int] = {}

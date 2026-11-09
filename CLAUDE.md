@@ -348,11 +348,12 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 ### The MCP server
 
-`.mcp.json` registers `vivarium-mcp` as `vivarium`: `start`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `screenshot`, `stop`, `events`, `runs`.
+`.mcp.json` registers `vivarium-mcp` as `vivarium`: `start`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `reload`, `screenshot`, `stop`, `events`, `runs`.
 
 - Two `.mcp.json`: the root one (any session in nixidae) and `vivarium/.mcp.json`. Both `nix run` `packages.vivarium-mcp` from the working tree; `/mcp` reconnect picks up an edit. A user-scope `vivarium` server (croshome) loses to them by name.
-- `packages.vivarium`: `vivarium` (the huggorm CLI: run, phases, switch, ctl, monitor; on PATH in the pynixd, nixkube and easykubenix dev shells), `vivarium-mcp`, and the agent skill `vivarium/skill/vivarium/SKILL.md` at `share/skills/vivarium/vivarium`. Keep the skill true when a command, flag or printed line changes, as `docs/howto.md`.
+- `packages.vivarium`: `vivarium` (the huggorm CLI: run, phases, switch, reload, ctl, monitor; on PATH in the pynixd, nixkube and easykubenix dev shells), `vivarium-mcp`, and the agent skill `vivarium/skill/vivarium/SKILL.md` at `share/skills/vivarium/vivarium`. Keep the skill true when a command, flag or printed line changes, as `docs/howto.md`.
 - `screenshot` returns image content (FastMCP `structured_output=False`). Acting on the screen: `exec` with `Machine`'s screen methods (`vivarium.display`, QEMU only; `checks.screen`).
+- `reload` runs `vivarium reload`: host eval and build of the session (`.driver`, so the type check, then `.spec`), then `Op.RELOAD` with the spec path. The paused run swaps its phases (`phases.reloaded`), refuses a changed `machines`.
 - `switch` runs `vivarium switch`: host eval of the session plus one module on one node, `Machine.add_closure`, `switch_to(<path>)`. A container guest takes late paths through `crun_launch attach`.
 - A run started by `start` is a child with `--break-on-failure`: MCP's stdio is the server's stdout.
 - Channel events (`failed|paused|finished|exited`) reach Claude only when started with `claude --dangerously-load-development-channels server:vivarium`. Without it, `start` returns `monitor`, a `vivarium monitor --quiet` command line: prints a pause, a failure and the verdict, exits 4 at a pause (re-arm after `resume`). `monitor_all` drops `--quiet` and adds `--through-pauses`.

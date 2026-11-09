@@ -20,7 +20,7 @@ A test is `mkTest`: guests (`nodes.<name>`, NixOS modules) plus phases (`async d
 - `--offline` makes a by-hand run match the sandbox. A sandbox failure reproduces this way; there is no way into a sandboxed run.
 - Driver flags: `--break PHASE|start|failure|end`, `--only PHASE` (runs its `after` phases too, nothing after it), `-v` (every command sent), `--keep`.
 - `--out` may be relative; use a new directory per run, in the scratchpad. Files a container guest wrote there can be owned by a sub-uid and resist `rm` (nixidae/nixidae#1064): pick a new name instead.
-- Never edit a phase and start a new run to test the edit. Pause and send it (below).
+- Never edit a phase and start a new run to test the edit. Pause and send it, or `vivarium reload` (below).
 
 ## Wait
 
@@ -67,6 +67,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 - `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec` and `inject` print the code's output as it comes, and `pytest` one line per case as it ends (`--json`: the whole reply at the end). `exec`, `inject`, `state` and `stop` also work while phases run; `pytest`, `run`, `continue` need a pause.
 - Loop: read the failure, probe with `exec`, edit the test file, `inject`/`pytest` again, repeat until it passes, then `continue`.
 - `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported. To test an edited helper, name its working-tree directory: `vivarium ctl --out "$OUT" inject ./phases/x.py --reload ./lib` (repeatable; `pytest` takes it too). The directory goes first on `sys.path`, and the modules it provides are dropped.
+- A run started by `vivarium run <attr>` also prints `vivarium reload --out O`: evaluate the test again and give the paused run its edited phases (scripts, pytest specs, `after`, `nodes`, settings), guests kept. Then `ctl run <phase>` or `continue`. Refused if a guest changed. A phase that ran keeps its verdict until run again.
 - A run started by `vivarium run <attr>` also prints a `switch` line (`vivarium switch --out O --node N --module ./module.nix`; the attribute comes from `run.json`): edit a NixOS module, switch one guest to it, no new run. A `nix run` driver prints none.
 - `ctl stop` ends the run, paused or running: guests down, exit 5, verdict `stopped`. It returns once the run has exited. Never kill the driver by pid or pattern.
 - `ctl state` prints `paused before <phase>` (or `running`), then `phase\tstate`, with the first line of the error on a failed phase. `ctl --json <op>` prints the whole reply as one JSON object: `pause`, `state`, `errors` (full text).
@@ -75,7 +76,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 
 ## MCP
 
-The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `screenshot`, `events`, `runs`, `stop`.
+The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
 
 - `start` takes `attr` (with `file`, the directory or file to evaluate) or `spec`, never `file` alone. It runs with `--break-on-failure`.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.

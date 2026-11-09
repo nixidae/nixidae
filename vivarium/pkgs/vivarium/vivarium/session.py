@@ -48,7 +48,19 @@ from vivarium_runner.report import Report
 
 from . import journal, junit_in
 from .events import Event, Kind, Level
-from .phases import PhaseState, PhaseTimeout, Stop, guests, passed, required, runnable, skipped_by
+from .phases import (
+    PhaseState,
+    PhaseTimeout,
+    Reloaded,
+    ReloadRefused,
+    Stop,
+    guests,
+    passed,
+    reloaded,
+    required,
+    runnable,
+    skipped_by,
+)
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 from .sinks import Broadcast
 
@@ -905,6 +917,21 @@ class Session:
             stopped=None if self.stopped is None else self.stopped.reason,
             states={name: str(state) for name, state in self.state.items()},
         )
+
+    def reload(self, spec: Spec) -> Reloaded:
+        """Take the phases, settings and knobs of `spec`; the guests stay.
+
+        Refused when the guests differ: a guest is booted from its spec,
+        and a changed one needs a new run, or `vivarium switch`."""
+        if spec.machines != self.spec.machines:
+            raise ReloadRefused("the guests changed; a reload takes phases only: start a new run, or switch a guest")
+        result = reloaded(self.spec.phases, spec.phases, self.state)
+        self.spec = spec
+        self.state = result.state
+        if self.vms is not None:
+            self.vms.settings = spec.settings
+            self.vms.knobs = {name: knob.value for name, knob in spec.knobs.items()}
+        return result
 
     def pending(self) -> list[PhaseSpec]:
         """The phases still worth running, in the order Nix sorted them."""

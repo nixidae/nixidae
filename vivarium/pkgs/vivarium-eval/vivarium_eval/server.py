@@ -63,7 +63,9 @@ Python against the live guests (top-level await; `vms`, `session` and
 each guest by name are in scope, and names persist between calls), and
 `inject` runs a local file's `async def test(vms)`; both work while
 phases run, not only while paused. `switch` adds a module file to one
-guest and switches it, evaluated and built on the host. `screenshot`
+guest and switches it, evaluated and built on the host; `reload`
+evaluates the test again and gives a paused run its edited phases, guests
+kept. `screenshot`
 shows a guest's screen (`vivarium.display.enable`); act on it through
 `exec` with `click`, `send_chars`, `send_key`, `click_text` and
 `wait_for_text`. While paused, `run_pytest` runs local
@@ -530,6 +532,34 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             os.path.abspath(module),
             "--action",
             action,
+        ]
+        done = await anyio.run_process(
+            argv,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            env={**os.environ, **found.source.env},
+        )
+        return {"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}
+
+    @server.tool()
+    async def reload(run: str) -> dict[str, Any]:
+        """Evaluate a paused session again and give the run its edited
+        phases: scripts, pytest specs, `after`, `nodes`, settings. The guests
+        stay; a change to a guest is refused (use `switch`). A phase that ran
+        keeps its verdict until `run_phase` runs it again. Only for a run
+        started by `attr`."""
+        found = runs().get(run)
+        if found.source is None:
+            return {"ok": False, "error": "this run was started from a spec; reload needs one started by attr"}
+        argv = [
+            str(Path(sys.executable).parent / "vivarium"),
+            "reload",
+            found.source.attr,
+            "--file",
+            found.source.file,
+            "--out",
+            str(found.out),
         ]
         done = await anyio.run_process(
             argv,

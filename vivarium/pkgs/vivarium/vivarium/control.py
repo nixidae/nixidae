@@ -37,17 +37,18 @@ import shlex
 import sys
 import threading
 import traceback
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 import anyio
+from pydantic import ValidationError
 
 from .events import Kind, Level
-from .phases import PhaseState, Stop
+from .phases import PhaseState, ReloadRefused, Stop
 from .session import CasesFailed, load_phase
-from .spec import PytestSpec
+from .spec import PytestSpec, Spec, SpecError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
@@ -71,6 +72,9 @@ class Op(StrEnum):
     PYTEST = "pytest"
     CONTINUE = "continue"
     STOP = "stop"
+    RELOAD = "reload"
+    """A new spec of the same test: its phases replace the run's, and
+    the guests stay. `vivarium reload` evaluates it and sends this."""
     WATCH = "watch"
     """Not one reply: the run's channel events, one JSON object a line,
     until the run ends. `vivarium monitor` reads it."""
@@ -162,7 +166,7 @@ def parse_request(line: bytes) -> Request:
     arg = raw.get("arg", "")
     if not isinstance(arg, str):
         raise ValueError("arg is a string")
-    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST) and not arg:
+    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST, Op.RELOAD) and not arg:
         raise ValueError(f"{op} needs an arg")
     reload = raw.get("reload", [])
     if not isinstance(reload, list) or not all(isinstance(path, str) and Path(path).is_absolute() for path in reload):
@@ -317,6 +321,7 @@ class Use(StrEnum):
     STATE = "state"
     CONTINUE = "continue"
     SWITCH = "switch"
+    RELOAD = "reload"
 
 
 ORIGIN: Final = "VIVARIUM_ORIGIN"
@@ -374,16 +379,19 @@ def commands(vivarium: Path, out: Path, origin: Origin | None = None, node: str 
 
     A run the `vivarium` CLI started names that CLI in every line, so the
     lines and the skill use one name; the CLI's `ctl` and `monitor` are the
-    runner's own code. A run by `nix run` names its runner. `switch` only
-    with an origin: a run by `nix run` cannot be evaluated again, and a line
-    with placeholders is not one to copy. It needs no attribute: `switch`
-    reads the origin back from `run.json`."""
+    runner's own code. A run by `nix run` names its runner. `switch` and
+    `reload` only with an origin: a run by `nix run` cannot be evaluated
+    again, and a line with placeholders is not one to copy. Neither needs an
+    attribute: both read the origin back from `run.json`."""
     tool = str(vivarium if origin is None else origin.cli)
     ctl = (tool, "ctl", "--out", str(out))
-    switch: list[Command] = []
+    again: list[Command] = []
+    if origin is not None:
+        reload = (tool, "reload", "--out", str(out))
+        again.append(Command(Use.RELOAD, "evaluate again and take the edited phases", reload))
     if origin is not None and node is not None:
         argv = (tool, "switch", "--out", str(out), "--node", node, "--module", "./module.nix")
-        switch = [Command(Use.SWITCH, f"add a module to {node} and switch it", argv)]
+        again.append(Command(Use.SWITCH, f"add a module to {node} and switch it", argv))
     return [
         Command(
             Use.MONITOR,
@@ -394,7 +402,7 @@ def commands(vivarium: Path, out: Path, origin: Origin | None = None, node: str 
         Command(Use.INJECT, "run a file's `async def test(vms)`", (*ctl, "inject", "./check.py")),
         Command(Use.STATE, "each phase's state", (*ctl, "state")),
         Command(Use.CONTINUE, "resume a paused run", (*ctl, "continue")),
-        *switch,
+        *again,
     ]
 
 
@@ -706,6 +714,8 @@ class Controller:
         if op is Op.PYTEST:
             self._reload(asked.reload)
             return await self._pytest(arg, chunk)
+        if op is Op.RELOAD:
+            return await self._reload_spec(Path(arg))
         return await self._run(arg)
 
     def _record(self, source: str, reply: Reply) -> Reply:
@@ -732,6 +742,38 @@ class Controller:
                 reload=str(directory),
                 dropped=dropped,
             )
+
+    async def _reload_spec(self, path: Path) -> Reply:
+        """The phases of the spec at `path` in place of the run's.
+
+        A phase run after this, by the drive or by `run`, is the new one;
+        one that ran keeps its verdict until it runs again. A new
+        `pythonPath` directory goes first on `sys.path`, as `--reload` does."""
+        old = self.session.spec
+        try:
+            spec = Spec.read(path)
+            done = self.session.reload(spec)
+        except (OSError, json.JSONDecodeError, ValidationError, SpecError, ReloadRefused) as error:
+            return Reply(ok=False, error=f"reload {path}: {error}")
+        fresh = tuple(directory for directory in spec.pythonPath if directory not in old.pythonPath)
+        self._reload(fresh)
+        self.session.emit(
+            Kind.NOTE,
+            f"reloaded {path}: {done.describe()}",
+            spec=str(path),
+            added=list(done.added),
+            removed=list(done.removed),
+            changed=list(done.changed),
+        )
+        await self._rewrite_run_file(path)
+        return Reply(ok=True, result=done.describe(), state=self._state())
+
+    async def _rewrite_run_file(self, spec: Path) -> None:
+        """`run.json` names the new spec and phases; the rest stays."""
+        file = anyio.Path(self.session.out / RUN_FILE)
+        with contextlib.suppress(FileNotFoundError):
+            about = RunFile.from_json(await file.read_text())
+            await file.write_text(replace(about, test=Subject.of(self.session, spec)).to_json())
 
     async def _inject(self, arg: str, chunk: Callable[[str], None] | None = None) -> Reply:
         """A file's `test(vms)`, read from where it is, not from the store.

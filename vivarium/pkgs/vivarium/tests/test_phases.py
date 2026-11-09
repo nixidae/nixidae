@@ -14,12 +14,14 @@ from typing import ClassVar
 import pytest
 from vivarium.phases import (
     PhaseState,
+    ReloadRefused,
     breakpoints,
     dependents,
     guests,
     launchable,
     passed,
     ready,
+    reloaded,
     required,
     runnable,
     selected,
@@ -345,3 +347,39 @@ class TestPhaseStateIsAString:
     @pytest.mark.parametrize("state", list(PhaseState))
     def test_every_member_reads_as_a_word(self, state: PhaseState) -> None:
         assert state.value.isalpha()
+
+
+class TestReload:
+    """A reload swaps the phase list under a run that has state."""
+
+    def test_a_phase_keeps_its_state_and_a_new_one_is_pending(self) -> None:
+        old = [phase("boot"), phase("check", "boot")]
+        new = [
+            phase("boot"),
+            PhaseSpec(name="check", script=Path("/dev/null/v2.py"), after=["boot"]),
+            phase("more", "check"),
+        ]
+        state = {"boot": PhaseState.PASSED, "check": PhaseState.FAILED}
+        done = reloaded(old, new, state)
+        assert done.state == {"boot": PhaseState.PASSED, "check": PhaseState.FAILED, "more": PhaseState.PENDING}
+        assert (done.added, done.removed, done.changed) == (("more",), (), ("check",))
+        assert done.describe() == "added more; changed check"
+
+    def test_a_selection_does_not_grow(self) -> None:
+        state = {"boot": PhaseState.PASSED, "other": PhaseState.DESELECTED}
+        done = reloaded([phase("boot"), phase("other")], [phase("boot"), phase("other"), phase("new")], state)
+        assert done.state["new"] is PhaseState.DESELECTED
+
+    def test_a_phase_that_did_not_run_may_go(self) -> None:
+        done = reloaded(
+            [phase("boot"), phase("old")], [phase("boot")], {"boot": PhaseState.PASSED, "old": PhaseState.PENDING}
+        )
+        assert done.state == {"boot": PhaseState.PASSED}
+        assert done.removed == ("old",)
+
+    def test_a_phase_that_ran_must_stay(self) -> None:
+        with pytest.raises(ReloadRefused, match=r"no check \(failed\)"):
+            reloaded([phase("check")], [phase("other")], {"check": PhaseState.FAILED})
+
+    def test_nothing_changed(self) -> None:
+        assert reloaded([phase("a")], [phase("a")], {"a": PhaseState.PENDING}).describe() == "no phase changed"

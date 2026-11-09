@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 from vivarium.cli import drive
-from vivarium.control import SOCKET, Op, request, watch
+from vivarium.control import RUN_FILE, SOCKET, Op, RunFile, request, watch
 from vivarium.events import Event, Kind, Level
 from vivarium.monitor import LIVE
 from vivarium.phases import PhaseState, Stop
@@ -282,6 +282,52 @@ class TestBreakpoints:
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
+            assert (await request(socket, Op.CONTINUE)).ok
+        assert session.ran == ["one"]
+
+    async def test_reload_runs_the_new_phases_on_the_same_guests(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = FakeSession(out=tmp_path)
+        ran: list[tuple[str, Path | None]] = []
+
+        async def record(phase: PhaseSpec) -> PhaseState:
+            ran.append((phase.name, phase.script))
+            session.state[phase.name] = PhaseState.PASSED
+            return PhaseState.PASSED
+
+        monkeypatch.setattr(session, "run", record)
+        new = Spec(
+            machines=[],
+            phases=[PhaseSpec(name="one", script=Path("v2")), PhaseSpec(name="two", script=Path("t"), after=["one"])],
+        )
+        spec = tmp_path / "spec.json"
+        spec.write_text(new.model_dump_json())
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"], spec=Path("old.json")))
+            await until_paused(socket)
+            reply = await request(socket, Op.RELOAD, str(spec))
+            assert reply.ok, reply.error
+            assert reply.result == "added two; changed one"
+            about = RunFile.from_json((tmp_path / RUN_FILE).read_text())
+            assert about.test is not None
+            assert (about.test.phases, about.test.spec) == (("one", "two"), spec)
+            assert (await request(socket, Op.CONTINUE)).ok
+        assert ran == [("one", Path("v2")), ("two", Path("t"))]
+
+    async def test_reload_refuses_changed_guests_and_waits_for_a_pause(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        spec = tmp_path / "spec.json"
+        spec.write_text(Spec(machines=[{"name": "new"}], phases=session.spec.phases).model_dump_json())
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            reply = await request(socket, Op.RELOAD, str(spec))
+            assert not reply.ok
+            assert "the guests changed" in (reply.error or "")
+            assert session.spec.machines == []
             assert (await request(socket, Op.CONTINUE)).ok
         assert session.ran == ["one"]
 

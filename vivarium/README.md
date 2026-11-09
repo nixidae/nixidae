@@ -186,7 +186,7 @@ It starts runs, pauses them on failure, and runs Python against the live
 guests. nixidae's CLAUDE.md (vivarium) describes the tools and the pause-and-inspect loop.
 
 `packages.vivarium` holds `vivarium`, the CLI built on huggorm (`run` by
-name, `phases`, `switch`, `ctl`, `monitor`), `vivarium-mcp` and an agent
+name, `phases`, `switch`, `reload`, `ctl`, `monitor`), `vivarium-mcp` and an agent
 skill at `share/skills/vivarium/vivarium`
 ([skill/vivarium/SKILL.md](skill/vivarium/SKILL.md)). Install the package
 and link the skill into the agent's skills directory.

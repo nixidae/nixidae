@@ -3,6 +3,7 @@
     vivarium run checks.pytest-phase --out ./out -- -k hostname
     vivarium phases checks.recipes --file ~/Code/myproject
     vivarium switch --out ./out --node one --module ./more.nix
+    vivarium reload --out ./out
     vivarium ctl --out ./out exec 'print(list(vms))'
     vivarium monitor ./out --quiet
 
@@ -114,6 +115,7 @@ def parser() -> argparse.ArgumentParser:
                 ),
             )
     add_switch(sub)
+    add_reload(sub)
     runner_cli.add_ctl(sub)
     runner_cli.add_monitor(sub)
     return top
@@ -254,6 +256,56 @@ def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     switching.add_argument("--action", choices=["switch", "boot", "test", "dry-activate"], default="switch")
 
 
+def add_reload(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    reloading = sub.add_parser(
+        "reload",
+        help=(
+            "evaluate a paused session again and give the run its new phases; the guests stay."
+            " Refused when a guest changed"
+        ),
+    )
+    reloading.add_argument(
+        "attr",
+        nargs="?",
+        help="the session the run was started from; by default the one `run.json` names",
+    )
+    reloading.add_argument("--file", "-f", type=Path, help="with an attribute: as `run` takes it (default `.`)")
+    reloading.add_argument("--out", type=Path, required=True, help="the paused session's --out")
+
+
+async def build_spec(file: Path, attr: list[str]) -> Path:
+    """The session's spec, built as `run` builds it: `.driver` runs the
+    phases' type check, and a reload of a phase that does not type check
+    fails here, not in the run."""
+    async with evaluator(Recorder(None, sys.stderr)) as state:
+        target = await session_of(state, file, attr)
+        await (await select_attr_path(state, target, ["driver"])).realise_string()
+        return Path(await (await select_attr_path(state, target, ["spec"])).realise_string())
+
+
+def reload(args: argparse.Namespace) -> int:
+    try:
+        origin = origin_of(args.attr, args.file, args.out)
+        attr = split_attr(origin.attr)
+    except ValueError as error:
+        say(str(error))
+        return 2
+    started = time.monotonic()
+    say(f"evaluating {origin.attr}")
+    try:
+        spec = anyio.run(build_spec, origin.file, attr)
+    except (NixError, AttrPathError) as error:
+        say(f"evaluation failed: {explain(str(error))}")
+        return 1
+    say(f"built {spec} in {time.monotonic() - started:.1f}s")
+    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.RELOAD, str(spec), (), None)
+    if reply.result is not None:
+        print(reply.result)
+    if reply.error:
+        print(reply.error.rstrip(), file=sys.stderr)
+    return 0 if reply.ok else 1
+
+
 def this_cli() -> Path:
     """This program, by the name a printed command uses: the venv's script
     beside its interpreter, not `sys.argv[0]`, which may be a relative name."""
@@ -342,6 +394,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(runner_cli.ctl, args))
         if args.command == "monitor":
             raise SystemExit(runner_cli.watch(args))
+        if args.command == "reload":
+            raise SystemExit(reload(args))
         raise SystemExit(switch(args))
     request = parse(argv)
     if request.until_pause:

@@ -186,7 +186,8 @@ def test_each_printed_command_reaches_the_run_it_names() -> None:
     watch = next(c for c in listed if c.use is Use.MONITOR)
     assert watch.argv[1:] == ("monitor", str(out), "--quiet")
     ctl = {c.use: c.argv[1:5] for c in listed if c.needs_socket}
-    assert ctl == {use: ("ctl", "--out", str(out), str(use)) for use in Use if use not in {Use.MONITOR, Use.SWITCH}}
+    not_ctl = {Use.MONITOR, Use.SWITCH, Use.RELOAD}
+    assert ctl == {use: ("ctl", "--out", str(out), str(use)) for use in Use if use not in not_ctl}
 
 
 ORIGIN = Origin(Path("/nix/store/y-vivarium/bin/vivarium"), "checks.switch", Path("/src/default.nix"))
@@ -207,6 +208,13 @@ def test_switch_is_printed_only_for_a_run_with_an_origin() -> None:
         "--module",
         "./module.nix",
     )
+
+
+def test_reload_is_printed_only_for_a_run_with_an_origin() -> None:
+    out = Path("/o")
+    assert all(c.use is not Use.RELOAD for c in commands(VIVARIUM, out))
+    reload = next(c for c in commands(VIVARIUM, out, ORIGIN, "one") if c.use is Use.RELOAD)
+    assert reload.argv == ("/nix/store/y-vivarium/bin/vivarium", "reload", "--out", "/o")
 
 
 def test_a_run_the_cli_started_names_the_cli_in_every_line() -> None:
