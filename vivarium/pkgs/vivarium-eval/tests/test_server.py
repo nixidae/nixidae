@@ -10,15 +10,15 @@ from typing import TYPE_CHECKING, Any
 import anyio
 import pytest
 from mcp.shared.message import SessionMessage
-from mcp.types import ImageContent, TextContent
+from mcp.types import ImageContent, JSONRPCNotification, TextContent
 from vivarium.control import Op, Reply
-from vivarium.monitor import channel_event
+from vivarium.monitor import LIVE, channel_event
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
-from vivarium_eval.server import Run, Runs, _monitor, build, run_argv, select, why_it_exited
+from vivarium_eval.server import Run, Runs, build, run_argv, select, why_it_exited
 
 if TYPE_CHECKING:
-    from anyio.abc import ByteReceiveStream
+    pass
 
 
 class TestAnEvaluationError:
@@ -238,8 +238,10 @@ class FakeProcess:
         pass
 
 
-def _run(out: Path, backlog: list[dict[str, str]] | None = None) -> Run:
-    return Run(id="r", out=out, process=FakeProcess(), backlog=backlog or [])
+def _run(out: Path, backlog: list[dict[str, str]] | None = None, returncode: int | None = None) -> Run:
+    process = FakeProcess()
+    process.returncode = returncode
+    return Run(id="r", out=out, process=process, backlog=backlog or [])
 
 
 @pytest.fixture
@@ -247,46 +249,66 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _read_lines(stream: ByteReceiveStream) -> list[dict[str, Any]]:
-    buffer = b""
-    while True:
-        try:
-            buffer += await stream.receive()
-        except anyio.EndOfStream:
-            return [json.loads(raw) for raw in buffer.splitlines()]
+class Pushed:
+    """What `Runs.push` sent to the channel."""
+
+    def __init__(self) -> None:
+        self.send, self.receive = anyio.create_memory_object_stream[SessionMessage](100)
+
+    def contents(self) -> list[str]:
+        found: list[str] = []
+        while True:
+            try:
+                message = self.receive.receive_nowait()
+            except anyio.WouldBlock:
+                return found
+            notification = message.message.root
+            assert isinstance(notification, JSONRPCNotification)
+            assert notification.params is not None
+            found.append(f"{notification.params['meta']['event']}: {notification.params['content']}")
+
+
+async def _serve_watch(path: Path, events: list[dict[str, str]]) -> None:
+    """A run's control socket that answers `watch` with these, then ends."""
+    async with await anyio.create_unix_listener(str(path)) as listener, await listener.accept() as stream:
+        await stream.receive()
+        for event in events:
+            await stream.send(json.dumps(event).encode() + b"\n")
 
 
 @pytest.mark.anyio
-async def test_a_monitor_gets_the_backlog_then_each_event_until_the_verdict(tmp_path: Path) -> None:
-    run = _run(tmp_path, [{"run": "r", "event": "progress", "text": "phase boot started"}])
-    path = str(tmp_path / "monitor.sock")
-    async with await anyio.create_unix_listener(path) as listener, anyio.create_task_group() as group:
-        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
+async def test_the_channel_carries_what_the_run_watch_streams(tmp_path: Path) -> None:
+    pushed = Pushed()
+    run = _run(tmp_path)
+    events = [
+        {"run": "r", "event": "progress", "phase": "boot", "text": "phase boot started"},
+        LIVE,
+        {"run": "r", "event": "finished", "passed": "true", "text": "run passed: boot passed"},
+    ]
+    async with anyio.create_task_group() as group:
+        group.start_soon(_serve_watch, tmp_path / "control.sock", events)
+        runs = Runs(group, pushed.send)
+        runs.runs["r"] = run
         with anyio.fail_after(5):
-            client = await anyio.connect_unix(path)
-            while not run.watchers:
-                await anyio.sleep(0.01)
-            live = {"run": "r", "event": "finished", "passed": "true", "text": "run passed"}
-            run.backlog.append(live)
-            run.watchers[0].send_nowait(live)
-            async with client:
-                lines = await _read_lines(client)
-        group.cancel_scope.cancel()
-    assert [event["event"] for event in lines] == ["progress", "live", "finished"]
-    assert run.watchers == []
+            await runs._watch(run)
+    assert pushed.contents() == ["progress: phase boot started", "finished: run passed: boot passed"]
+    assert run.finished
+    assert [event["event"] for event in run.backlog] == ["progress", "finished"]
 
 
 @pytest.mark.anyio
-async def test_a_monitor_of_a_finished_run_gets_the_backlog_and_an_end(tmp_path: Path) -> None:
-    run = _run(tmp_path, [{"run": "r", "event": "exited", "text": "run exited 1 without a verdict:"}])
-    path = str(tmp_path / "monitor.sock")
-    async with await anyio.create_unix_listener(path) as listener, anyio.create_task_group() as group:
-        group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
+async def test_a_run_gone_before_its_socket_is_exited(tmp_path: Path) -> None:
+    pushed = Pushed()
+    run = _run(tmp_path, returncode=1)
+    (tmp_path / "terminal.log").write_text("[vivarium] evaluation failed: error: boom\n")
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, pushed.send)
+        runs.runs["r"] = run
         with anyio.fail_after(5):
-            async with await anyio.connect_unix(path) as client:
-                lines = await _read_lines(client)
-        group.cancel_scope.cancel()
-    assert [event["event"] for event in lines] == ["exited"]
+            await runs._watch(run)
+    [exited] = pushed.contents()
+    assert exited.startswith("exited: run exited 1 without a verdict:")
+    assert "boom" in exited
 
 
 @pytest.mark.anyio

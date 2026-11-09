@@ -100,7 +100,10 @@ class Event:
     reader asks for the keys its kind has, so no one type covers them."""
 
     def as_json(self) -> str:
-        body = {
+        return json.dumps(self.as_dict())
+
+    def as_dict(self) -> dict[str, Any]:  # Any: the JSON document `events.jsonl` holds
+        body: dict[str, Any] = {
             "at": round(self.at, 3),
             "kind": str(self.kind),
             "level": int(self.level),
@@ -114,7 +117,7 @@ class Event:
             body["seconds"] = round(self.seconds, 3)
         if self.data:
             body["data"] = self.data
-        return json.dumps(body)
+        return body
 
 
 def wanted(event: Event, level: Level) -> bool:

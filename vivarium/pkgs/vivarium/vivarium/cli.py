@@ -40,17 +40,22 @@ from .control import (
     Origin,
     RunFile,
     Subject,
+    WatchRefused,
     first_guest,
     request,
     run_file,
     vivarium_command,
+    watch as watch_run,
 )
 from .events import Kind, Level
+from .feed import Feed
 from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
 from .session import Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
 
+DRAIN: Final = 5.0
+"""Seconds the run waits, after its verdict, for each watcher to have it."""
 
 STOP_WAIT: Final = 300.0
 """Seconds `ctl stop` waits for the run to exit. Teardown powers each
@@ -199,6 +204,14 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     )
     ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     ctl.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
+    ctl.add_argument(
+        "--wait",
+        action="store_true",
+        help=(
+            "continue: then wait for the next pause or the verdict, as `monitor --quiet` does,"
+            " and exit with its status (0 passed, 1 failed, 4 paused, 5 stopped)"
+        ),
+    )
     ctl.add_argument(
         "--reload",
         action="append",
@@ -419,10 +432,15 @@ async def drive(
     never pauses.
     """
     wanted = control or breaks or break_on_failure or break_on_start or break_at_end or interactive
+    # `ctl stop` cancels the sequence and nothing else: its shielded
+    # `finally` writes the evidence and puts the guests down, and the
+    # socket stays up until each watcher has the verdict.
+    sequence = anyio.CancelScope()
+    feed = Feed(session.out.name) if wanted else None
+    if feed is not None:
+        session.tap(feed)
     async with anyio.create_task_group() as group:
-        # `ctl stop` cancels this group; `_sequence`'s shielded `finally`
-        # still writes the evidence and puts the guests down.
-        controller = Controller(session, stop=group.cancel_scope.cancel, origin=origin) if wanted else None
+        controller = Controller(session, stop=sequence.cancel, origin=origin, feed=feed) if wanted else None
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
@@ -443,16 +461,22 @@ async def drive(
         await out.mkdir(parents=True, exist_ok=True)
         await (out / RUN_FILE).write_text(about.to_json())
         try:
-            await _sequence(
-                session,
-                controller,
-                set(breaks),
-                break_on_failure,
-                serial,
-                start=break_on_start,
-                end=break_at_end or interactive,
-            )
+            with sequence:
+                await _sequence(
+                    session,
+                    controller,
+                    set(breaks),
+                    break_on_failure,
+                    serial,
+                    start=break_on_start,
+                    end=break_at_end or interactive,
+                )
         finally:
+            if feed is not None:
+                feed.close()
+                # Bounded: a watcher that stopped reading must not hold the run up.
+                with anyio.CancelScope(shield=True), anyio.move_on_after(DRAIN):
+                    await feed.drained()
             group.cancel_scope.cancel()
 
 
@@ -599,17 +623,30 @@ async def ctl(args: argparse.Namespace) -> int:
         # `vivarium ctl --out o pytest ./tests -- -k x`, as `vivarium run` takes them.
         arg = shlex.join([arg, *args.pytest_args])
     socket = args.out / SOCKET
+    if args.wait and args.op != Op.CONTINUE:
+        print("[vivarium] --wait is for continue", file=sys.stderr)
+        return 2
     try:
+        if args.op == Op.WATCH:
+            return await monitor.follow(socket, as_json=args.json, until_pause=False)
         reply = await request(socket, Op(args.op), arg, tuple(args.reload))
     except OSError as error:
         print(f"[vivarium] no run is listening at {socket}: {error}", file=sys.stderr)
         return 1
+    except WatchRefused as error:
+        print(f"[vivarium] the run at {socket} serves no watch: {error}", file=sys.stderr)
+        return 1
     if args.op == Op.CONTINUE and reply.ok:
-        # The run emits `resumed` in the same step that ends the pause, so
-        # once `state` says running, a monitor armed now replays no open pause.
+        # Returns once the run has said `resumed`, so a monitor armed now
+        # replays no open pause.
         with anyio.move_on_after(10), contextlib.suppress(OSError):
-            while (await request(socket, Op.STATE)).result == "paused":
-                await anyio.sleep(0.05)
+            await _resumed(socket)
+        if args.wait:
+            try:
+                return await monitor.follow(socket, quiet=True, replay=False)
+            except (OSError, WatchRefused) as error:
+                print(f"[vivarium] cannot wait on {socket}: {error}", file=sys.stderr)
+                return 3
     if args.op == Op.STOP and reply.ok:
         if await _wait_for_exit(args.out):
             reply.result = "stopped"
@@ -631,6 +668,24 @@ async def ctl(args: argparse.Namespace) -> int:
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
     return 0 if reply.ok else 1
+
+
+async def _resumed(socket: Path) -> None:
+    """Until the run's pause is closed: no open pause once `watch` is live."""
+    seen: list[dict[str, str]] = []
+    live = False
+    try:
+        async for event in watch_run(socket):
+            if event == monitor.LIVE:
+                live = True
+            else:
+                seen.append(event)
+            if live and not monitor.paused_now(seen):
+                return
+    except WatchRefused:
+        # A runner with no `watch`: ask until `state` says running.
+        while (await request(socket, Op.STATE)).result == "paused":
+            await anyio.sleep(0.05)
 
 
 async def _wait_for_exit(out: Path) -> bool:
@@ -672,8 +727,9 @@ def watch(args: argparse.Namespace) -> int:
             return 3
         try:
             return anyio.run(functools.partial(monitor.follow, socket, **options))
-        except (FileNotFoundError, ConnectionRefusedError):
-            # No vivarium-mcp behind this run: follow what it writes.
+        except (FileNotFoundError, ConnectionRefusedError, WatchRefused):
+            # No `watch` here: `--no-control`, an older runner, or a run
+            # gone without removing its socket. Follow what it writes.
             pass
         if not (socket.parent / "events.jsonl").exists():
             print(f"[vivarium] no run in {socket.parent}: no events.jsonl", file=sys.stderr, flush=True)

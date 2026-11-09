@@ -48,12 +48,13 @@ from .session import CasesFailed, load_phase
 from .spec import PytestSpec
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import AsyncIterator, Callable, Iterator
     from contextlib import AbstractContextManager
     from types import ModuleType
 
     from anyio.abc import ByteStream, TaskStatus
 
+    from .feed import Feed
     from .session import Session
 
 SOCKET: Final = "control.sock"
@@ -68,6 +69,9 @@ class Op(StrEnum):
     PYTEST = "pytest"
     CONTINUE = "continue"
     STOP = "stop"
+    WATCH = "watch"
+    """Not one reply: the run's channel events, one JSON object a line,
+    until the run ends. `vivarium monitor` reads it."""
 
 
 @dataclass
@@ -248,6 +252,13 @@ async def _receive_line(stream: ByteStream) -> bytes:
         except anyio.EndOfStream:
             break
     return buffer.split(b"\n", 1)[0]
+
+
+def _is_watch(line: bytes) -> bool:
+    try:
+        return parse_request(line).op is Op.WATCH
+    except ValueError:
+        return False
 
 
 # ── the controller ──────────────────────────────────────────────────
@@ -474,13 +485,21 @@ class Controller:
     reentrant.
     """
 
-    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP})
+    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH})
 
-    def __init__(self, session: Session, stop: Callable[[], None] | None = None, origin: Origin | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        stop: Callable[[], None] | None = None,
+        origin: Origin | None = None,
+        feed: Feed | None = None,
+    ) -> None:
         """`stop` cancels the drive; without it, `stop` is refused. `origin`
-        adds `switch` to the printed commands."""
+        adds `switch` to the printed commands. `feed` serves `watch`;
+        without it, `watch` is refused."""
         self.session = session
         self.origin = origin
+        self.feed = feed
         self._stop = stop
         self._stopping = False
         self.path = session.out / SOCKET
@@ -555,6 +574,9 @@ class Controller:
             line = await _receive_line(stream)
             if not line:
                 return
+            if self.feed is not None and _is_watch(line):
+                await self._watch(stream, self.feed)
+                return
             reply = await self.handle(line)
             await stream.send(reply.encode())
         # After the reply, not in `handle`: resuming lets the drive
@@ -568,6 +590,14 @@ class Controller:
             self.session.stopped = Stop.by_request()
             self.session.emit(Kind.NOTE, "ctl stop: tearing the guests down")
             self._stop()
+
+    async def _watch(self, stream: ByteStream, feed: Feed) -> None:
+        with feed.watch() as events:
+            async for item in events:
+                try:
+                    await stream.send(json.dumps(item).encode() + b"\n")
+                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    return
 
     async def handle(self, line: bytes) -> Reply:
         try:
@@ -584,6 +614,9 @@ class Controller:
                 pause=self._pause,
                 errors=dict(self.session.errors) or None,
             )
+        if op is Op.WATCH:
+            # A feed answers on the stream, in `_client`, before this.
+            return Reply(ok=False, error="this run serves no watch")
         if op is Op.STOP:
             if self._stop is None:
                 return Reply(ok=False, error="this run cannot be stopped through its socket")
@@ -712,6 +745,33 @@ class Controller:
 
 
 # ── the client ──────────────────────────────────────────────────────
+
+
+async def watch(socket: Path) -> AsyncIterator[dict[str, str]]:
+    """The run's channel events, from its control socket, until it ends.
+
+    Raises `WatchRefused` when the run serves no `watch`: an older runner,
+    or a run with no feed."""
+    with reachable(socket) as name:
+        connected = await anyio.connect_unix(name)
+    async with connected as stream:
+        await stream.send(Request(Op.WATCH).encode())
+        buffer = b""
+        while True:
+            try:
+                buffer += await stream.receive()
+            except (anyio.EndOfStream, anyio.BrokenResourceError):
+                return
+            *lines, buffer = buffer.split(b"\n")
+            for raw in lines:
+                item = json.loads(raw)
+                if "ok" in item:
+                    raise WatchRefused(str(item.get("error")))
+                yield item
+
+
+class WatchRefused(Exception):
+    """The run answered `watch` with a reply, not a stream."""
 
 
 async def request(socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:

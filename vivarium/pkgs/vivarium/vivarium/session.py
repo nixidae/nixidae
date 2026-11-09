@@ -50,6 +50,7 @@ from . import journal, junit_in
 from .events import Event, Kind, Level
 from .phases import PhaseState, PhaseTimeout, Stop, guests, passed, required, runnable, skipped_by
 from .pytest_plugin import Plugin, arguments, machine_fixtures
+from .sinks import Broadcast
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Collection, Iterator
@@ -251,6 +252,10 @@ class Session:
                 data=dict(data),
             )
         )
+
+    def tap(self, sink: Sink) -> None:
+        """Another sink beside the run's own: the control socket's feed."""
+        self.sink = sink if self.sink is None else Broadcast([self.sink, sink])
 
     def _console(self, machine: str, line: str) -> None:
         self.emit(Kind.CONSOLE, line, level=Level.CONSOLE, machine=machine)

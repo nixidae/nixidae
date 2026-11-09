@@ -32,7 +32,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 ```
 
 - The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`.
-- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped. Re-arm after each `continue`.
+- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped. Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
 - The driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
@@ -52,6 +52,8 @@ vivarium ctl --out "$OUT" inject ./tests/check.py        # a file's async def te
 vivarium ctl --out "$OUT" pytest ./tests/guest -- -k etcd
 vivarium ctl --out "$OUT" run check                       # a declared phase
 vivarium ctl --out "$OUT" continue
+vivarium ctl --out "$OUT" continue --wait                # then wait: exit 4 at the next pause, else the verdict
+vivarium ctl --out "$OUT" watch                          # progress, pauses, verdict: one line each, to the end
 vivarium ctl --out "$OUT" stop                           # end it here, guests down
 ```
 

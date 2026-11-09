@@ -9,10 +9,10 @@ from typing import Any
 
 import anyio
 import pytest
+from vivarium.control import SOCKET
 from vivarium.monitor import (
     LIVE,
     PAUSED,
-    SOCKET,
     channel_event,
     follow,
     follow_file,

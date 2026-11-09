@@ -97,7 +97,13 @@ When the test passes, resume:
 $ vivarium ctl --out ./out continue
 ```
 
-`continue` returns when the run is no longer paused.
+`continue` returns when the run is no longer paused. With `--wait`, it
+returns at the next pause or at the verdict instead, and exits as
+`vivarium monitor` does: 0 passed, 1 failed, 4 paused, 5 stopped.
+
+`vivarium ctl --out ./out watch` prints the run's progress, pauses,
+failures and verdict, one line each, until the run ends. Every run with
+a control socket serves this stream; `vivarium monitor` reads it too.
 
 `state` says why the run paused and, for each failed phase, the first
 line of its error. `vivarium ctl --out ./out --json state` gives the
@@ -226,4 +232,5 @@ An agent that only runs shell commands does not need MCP:
    first guest boots. Do not scrape the output file for them.
 4. At a pause, copy the `exec` line from the file, change the Python,
    and run it.
-5. Run the `continue` line, then start the monitor again.
+5. Run the `continue` line with `--wait`. It exits at the next pause or
+   at the verdict, so there is no monitor to start again.

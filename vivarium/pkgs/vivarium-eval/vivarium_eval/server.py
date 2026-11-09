@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import math
 import os
 import shlex
 import signal
@@ -43,14 +42,14 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
-from vivarium.control import SOCKET, Op, Reply, reachable, request
+from vivarium.control import SOCKET, Op, Reply, WatchRefused, request, watch
 from vivarium.journal import Tail
-from vivarium.monitor import LIVE, SOCKET as MONITOR_SOCKET, TERMINAL, channel_event, paused_now
+from vivarium.monitor import LIVE, channel_event, paused_now
 
 from .cli import split_attr
 
 if TYPE_CHECKING:
-    from anyio.abc import SocketStream, TaskGroup
+    from anyio.abc import TaskGroup
     from anyio.streams.memory import MemoryObjectSendStream
 
 CHANNEL: Final = "notifications/claude/channel"
@@ -212,13 +211,15 @@ class Run:
     process: Child
     source: Source | None = None
     finished: bool = False
-    tail: Tail = field(init=False)
     backlog: list[dict[str, str]] = field(default_factory=list)
-    """Every event pushed for this run, for a monitor that connects late."""
-    watchers: list[MemoryObjectSendStream[dict[str, str]]] = field(default_factory=list)
+    """Every event pushed for this run: `resume` reads whether a pause is open."""
+    pushed: anyio.Event = field(default_factory=anyio.Event)
+    """Set, and replaced, at each push: what `resume` waits on."""
 
-    def __post_init__(self) -> None:
-        self.tail = Tail(self.out / "events.jsonl")
+    def took(self, event: dict[str, str]) -> None:
+        self.backlog.append(event)
+        self.pushed.set()
+        self.pushed = anyio.Event()
 
     @property
     def socket(self) -> Path:
@@ -234,13 +235,10 @@ class Runs:
         self.runs: dict[str, Run] = {}
 
     async def push(self, content: str, meta: dict[str, str]) -> None:
-        """To the channel, and to every monitor of the run."""
-        event = {**meta, "text": content}
+        """To the channel, and to the run's backlog."""
         run = self.runs.get(meta["run"])
         if run is not None:
-            run.backlog.append(event)
-            for watcher in run.watchers:
-                watcher.send_nowait(event)
+            run.took({**meta, "text": content})
         notification = JSONRPCNotification(jsonrpc="2.0", method=CHANNEL, params={"content": content, "meta": meta})
         await self.push_stream.send(SessionMessage(message=JSONRPCMessage(notification)))
 
@@ -256,32 +254,27 @@ class Runs:
         log.close()
         run = Run(id=out.name, out=out, process=process, source=source)
         self.runs[run.id] = run
-        # Bound before `start` answers, so a monitor started on the reply
-        # finds the socket.
-        path = out / MONITOR_SOCKET
-        with reachable(path) as name:
-            listener = await anyio.create_unix_listener(name)
-        path.chmod(0o600)
-        self.group.start_soon(listener.serve, lambda stream: _monitor(run, stream))  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         self.group.start_soon(self._watch, run)
         return run
 
     async def _watch(self, run: Run) -> None:
-        """Follow the run's events and push what matters, until it exits."""
-        while True:
-            for line in await run.tail.read():
-                try:
-                    event: dict[str, Any] = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if event.get("kind") == "run_finished":
-                    run.finished = True
-                pushed = channel_event(event, run.id)
-                if pushed is not None:
-                    await self.push(*pushed)
-            if run.process.returncode is not None:
-                break
-            await anyio.sleep(0.25)
+        """Push what matters of the run's events, until it exits: from
+        `watch` on its control socket, or from `events.jsonl` for a runner
+        that serves none."""
+        try:
+            if await _bound(run):
+                async for event in watch(run.socket):
+                    if event == LIVE:
+                        continue
+                    run.finished = run.finished or event.get("event") == "finished"
+                    meta = {key: value for key, value in event.items() if key != "text"}
+                    await self.push(event.get("text", ""), meta)
+        except WatchRefused:
+            await self._tail(run)
+        except OSError:
+            # The run went away between binding its socket and our connect.
+            pass
+        await run.process.wait()
         if not run.finished:
             # Died before a verdict: an evaluation error, a crash. The
             # reason is at the end of what it printed.
@@ -290,6 +283,24 @@ class Runs:
                 f"run exited {run.process.returncode} without a verdict:\n{tail}",
                 {"run": run.id, "event": "exited"},
             )
+
+    async def _tail(self, run: Run) -> None:
+        """`_watch` for an older runner: polls `events.jsonl`, the only
+        thing such a run offers."""
+        tail = Tail(run.out / "events.jsonl")
+        while True:
+            for line in await tail.read():
+                try:
+                    event: dict[str, Any] = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                run.finished = run.finished or event.get("kind") == "run_finished"
+                pushed = channel_event(event, run.id)
+                if pushed is not None:
+                    await self.push(*pushed)
+            if run.process.returncode is not None:
+                return
+            await anyio.sleep(0.25)
 
     def get(self, run: str) -> Run:
         found = self.runs.get(run)
@@ -302,29 +313,17 @@ class Runs:
             await _stop(run)
 
 
-async def _monitor(run: Run, stream: SocketStream) -> None:
-    """One `vivarium monitor`: the backlog, `LIVE`, then each event, until the verdict."""
-    send, receive = anyio.create_memory_object_stream[dict[str, str]](math.inf)
-    # No await between the copy and the append, so no event falls between.
-    backlog = list(run.backlog)
-    run.watchers.append(send)
-    try:
-        async with stream, receive:
-            for event in backlog:
-                await stream.send(json.dumps(event).encode() + b"\n")
-                if event.get("event") in TERMINAL:
-                    return
-            await stream.send(json.dumps(LIVE).encode() + b"\n")
-            async for event in receive:
-                await stream.send(json.dumps(event).encode() + b"\n")
-                if event.get("event") in TERMINAL:
-                    return
-    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-        # The monitor went away first; that ends only its own stream.
-        return
-    finally:
-        run.watchers.remove(send)
-        send.close()
+async def _bound(run: Run) -> bool:
+    """Whether the run binds its control socket before it exits.
+
+    Polls: the child evaluates and builds first, then binds the socket,
+    and says so nowhere a process can wait on."""
+    socket = anyio.Path(run.socket)
+    while run.process.returncode is None:
+        if await socket.exists():
+            return True
+        await anyio.sleep(0.25)
+    return False
 
 
 def _directories(paths: list[str] | None) -> tuple[Path, ...]:
@@ -504,7 +503,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         # armed on this reply would otherwise replay the pause and exit.
         with anyio.move_on_after(10):
             while paused_now(found.backlog) and found.process.returncode is None:
-                await anyio.sleep(0.05)
+                await found.pushed.wait()
         return reply
 
     @server.tool()

@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 from vivarium.cli import drive
-from vivarium.control import SOCKET, Op, request
-from vivarium.phases import PhaseState
+from vivarium.control import SOCKET, Op, request, watch
+from vivarium.events import Event, Kind, Level
+from vivarium.monitor import LIVE
+from vivarium.phases import PhaseState, Stop
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, Spec
 from vivarium_runner import MachineError, Machines
@@ -27,7 +29,7 @@ from vivarium_runner import MachineError, Machines
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterator
 
-    from vivarium.events import Kind
+    from vivarium.sinks import Sink
 
 
 class FakeSession(Session):
@@ -51,9 +53,13 @@ class FakeSession(Session):
         self.wrote = False
         self.said: list[str] = []
         self.following: bool | None = None
+        self.sink: Sink | None = None
+        self.stopped: Stop | None = None
 
-    def emit(self, kind: Kind, text: str, **_kwargs: object) -> None:
+    def emit(self, kind: Kind, text: str, *, level: Level = Level.INFO, **data: object) -> None:
         self.said.append(f"{kind}:{text}")
+        if self.sink is not None:
+            self.sink.emit(Event(at=0.0, kind=kind, level=level, text=text, data=dict(data)))
 
     def _replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
         self.said.append("replay")
@@ -86,6 +92,10 @@ class FakeSession(Session):
     def write_output(self) -> None:
         self.wrote = True
         self.said.append("write")
+        states = {name: str(state) for name, state in self.state.items()}
+        stopped = None if self.stopped is None else self.stopped.reason
+        passed = stopped is None and all(state == "passed" for state in states.values())
+        self.emit(Kind.RUN_FINISHED, "verdict", passed=passed, states=states, stopped=stopped)
 
     async def teardown(self) -> None:
         self.torn_down = True
@@ -268,6 +278,40 @@ class TestBreakpoints:
             await until_paused(socket)
             assert (await request(socket, Op.CONTINUE)).ok
         assert session.ran == ["one"]
+
+    async def _watched(self, session: FakeSession, socket: Path, op: Op) -> list[str]:
+        """The `event` of each item `watch` streams across a pause that `op` ends."""
+        seen: list[str] = []
+        live = anyio.Event()
+
+        async def follow() -> None:
+            async for item in watch(socket):
+                if item == LIVE:
+                    live.set()
+                seen.append(item["event"])
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            group.start_soon(follow)
+            with anyio.fail_after(5):
+                await live.wait()
+                assert (await request(socket, op)).ok
+        return seen
+
+    async def test_watch_streams_the_pause_and_then_the_verdict(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        seen = await self._watched(session, tmp_path / SOCKET, Op.CONTINUE)
+        assert seen == ["paused", "live", "resumed", "finished"]
+
+    async def test_a_watcher_of_a_stopped_run_gets_its_verdict(self, tmp_path: Path) -> None:
+        """`stop` cancels the phases, not the socket: the verdict reaches
+        each watcher before the run closes it."""
+        session = FakeSession(out=tmp_path)
+        seen = await self._watched(session, tmp_path / SOCKET, Op.STOP)
+        assert seen == ["paused", "live", "finished"]
+        assert session.stopped is not None
+        assert session.torn_down
 
     @pytest.mark.parametrize("control", [True, False])
     async def test_a_socket_without_a_breakpoint_unless_turned_off(

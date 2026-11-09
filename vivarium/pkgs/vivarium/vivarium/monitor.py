@@ -1,21 +1,21 @@
 """`vivarium monitor`: a run's events, one line each, for a process that watches stdout.
 
-`vivarium-mcp` serves `<out>/monitor.sock` for each run it starts, and writes
-there the same events it pushes over its Claude channel: progress, a
+Every run with a control socket serves `watch` on it (`vivarium/feed.py`):
+the events `vivarium-mcp` pushes over its Claude channel -- progress, a
 pause, a failed phase, the verdict. Channels need a development flag;
 a command whose every stdout line is an event needs nothing, and Claude
 Code's Monitor tool shows it as a running shell. So the socket carries
 the channel to whoever is watching, flag or not.
 
 A client connecting late gets the run's earlier events first, then the
-live ones. The server closes the stream after the verdict, and the exit
+live ones. The run closes the stream after the verdict, and the exit
 status says what the verdict was.
 
-A run that no `vivarium-mcp` started has no `monitor.sock`, and a server
-that is gone leaves one nobody answers. Then the monitor reads
-`events.jsonl` and makes the same events from it with `channel_event`.
-The run is up while `control.sock` exists; the run writes its verdict
-before it removes the socket, so a run gone with no verdict exits 2.
+A run with no control socket (`--no-control`), or a runner too old to
+serve `watch`, leaves the monitor `events.jsonl`: it makes the same
+events from it with `channel_event`. The run is up while `control.sock`
+exists; the run writes its verdict before it removes the socket, so a
+run gone with no verdict exits 2.
 
 `--quiet` leaves out `progress` and `resumed`, so an agent that runs this
 in a Monitor wakes for a pause, a failure and the verdict, and not for
@@ -42,11 +42,9 @@ from typing import Any, Final
 
 import anyio
 
-from .control import SOCKET as CONTROL_SOCKET, reachable
+from .control import SOCKET, watch
 from .journal import Tail
 from .phases import STOPPED
-
-SOCKET: Final = "monitor.sock"
 
 TERMINAL: Final = frozenset({"finished", "exited"})
 """The events after which a run sends nothing more."""
@@ -183,12 +181,16 @@ async def wait_for_run(out: Path, timeout: float = WAIT) -> bool:
 
 class Watch:
     """Prints each event and says when to stop: the verdict, or with
-    `until_pause` an open pause once the replay is over."""
+    `until_pause` an open pause once the replay is over. Without `replay`,
+    only what happens from now on is printed: `ctl continue --wait`."""
 
-    def __init__(self, *, as_json: bool = False, quiet: bool = False, until_pause: bool = True) -> None:
+    def __init__(
+        self, *, as_json: bool = False, quiet: bool = False, until_pause: bool = True, replay: bool = True
+    ) -> None:
         self.as_json = as_json
         self.quiet = quiet
         self.until_pause = until_pause
+        self.replay = replay
         self.seen: list[dict[str, Any]] = []
         self.live = False
 
@@ -197,7 +199,7 @@ class Watch:
             self.live = True
         else:
             self.seen.append(event)
-            if shown(event, quiet=self.quiet):
+            if (self.live or self.replay) and shown(event, quiet=self.quiet):
                 print(line(event, as_json=self.as_json), flush=True)
             code = status(event)
             if code is not None:
@@ -208,30 +210,25 @@ class Watch:
 
 
 async def follow(socket: Path, **options: bool) -> int:
-    """Print the run's events until its verdict, or with `until_pause`
-    until it is paused; answer the exit status."""
-    watch = Watch(**options)
-    with reachable(socket) as name:
-        stream = await anyio.connect_unix(name)
-    async with stream:
-        buffer = b""
-        while True:
-            try:
-                buffer += await stream.receive()
-            except (anyio.EndOfStream, anyio.BrokenResourceError):
-                return 3
-            *lines, buffer = buffer.split(b"\n")
-            for raw in lines:
-                code = watch.take(json.loads(raw))
-                if code is not None:
-                    return code
+    """Print the run's events from `watch` on its control socket until its
+    verdict, or with `until_pause` until it is paused; the exit status.
+    Raises `WatchRefused` for a run that serves no `watch`."""
+    printer = Watch(**options)
+    async for event in watch(socket):
+        code = printer.take(event)
+        if code is not None:
+            return code
+    return 3
 
 
 async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> int:
-    """`follow`, from `<out>/events.jsonl`, for a run with no monitor socket."""
-    watch = Watch(**options)
+    """`follow`, from `<out>/events.jsonl`, for a run that serves no `watch`.
+
+    Polls: the file is all such a run offers, and a file has no
+    notification here."""
+    printer = Watch(**options)
     tail = Tail(out / "events.jsonl")
-    control = anyio.Path(out / CONTROL_SOCKET)
+    control = anyio.Path(out / SOCKET)
     started = anyio.current_time()
     was_up = False
     while True:
@@ -245,11 +242,11 @@ async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> in
             except json.JSONDecodeError:
                 continue
             if pushed is not None:
-                code = watch.take({**pushed[1], "text": pushed[0]})
+                code = printer.take({**pushed[1], "text": pushed[0]})
                 if code is not None:
                     return code
-        if not watch.live:
-            code = watch.take(LIVE)
+        if not printer.live:
+            code = printer.take(LIVE)
             if code is not None:
                 return code
         if not up and (was_up or anyio.current_time() - started > grace):
