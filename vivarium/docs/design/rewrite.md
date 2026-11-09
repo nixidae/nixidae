@@ -378,10 +378,22 @@ The rest of §5:
 
 ## The agent surface
 
+vivarium is Nix and Python. A test runs with `nix build` and `nix run`,
+and the runner a test's spec names never evaluates. The CLI a person or
+an agent runs is built on huggorm: it evaluates in its own process, so
+it can evaluate a run again, switch a guest and reload a live run
+(user, 2026-11-09). One program, `vivarium`, carries every command:
+today's `vivarium-eval` (run by name, `phases`, `switch`) with `ctl`,
+`monitor` and `stop` from the runner's library. The runner binary in a
+spec takes an internal name. nixidae/nixidae#1254 adds `vivarium.nix`
+as the default entrypoint.
+
 - `packages.vivarium` is the one CLI, on PATH in every dev shell that
   runs a test. `run` writes `<out>/run.json` first: the CLI path, the
-  control socket, the commands. Nothing scrapes `run.log`.
-- `ctl stop`, and `ctl state` with the failure text.
+  control socket, the commands. Nothing scrapes `run.log`. Done, with
+  typed `RunFile` and `Command`.
+- `ctl stop`, and `ctl state` with the failure text. `stop` is done: a
+  typed `Stop`, exit 5, verdict `stopped`.
 - `monitor` documents that a wrapper must not swallow its exit code.
 - `inject --reload` drops the helpers it imported, and `switch` appears
   in the commands a pause prints.
