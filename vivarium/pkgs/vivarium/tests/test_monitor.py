@@ -13,6 +13,7 @@ from vivarium.monitor import (
     LIVE,
     PAUSED,
     SOCKET,
+    channel_event,
     follow,
     follow_file,
     line,
@@ -21,6 +22,7 @@ from vivarium.monitor import (
     status,
     wait_for_run,
 )
+from vivarium.phases import STOPPED
 
 
 class TestLine:
@@ -46,12 +48,21 @@ class TestStatus:
             ({"event": "finished", "passed": "true"}, 0),
             ({"event": "finished", "passed": "false"}, 1),
             ({"event": "exited"}, 2),
+            ({"event": "finished", "passed": "false", "stopped": "true"}, STOPPED),
             ({"event": "paused"}, None),
             ({"event": "progress"}, None),
         ],
     )
     def test_the_verdict_is_the_exit_status(self, event: dict[str, Any], code: int | None) -> None:
         assert status(event) == code
+
+    def test_a_stopped_run_reads_stopped_not_failed(self) -> None:
+        verdict = {"kind": "run_finished", "data": {"passed": False, "stopped": "ctl stop", "states": {"x": "pending"}}}
+        pushed = channel_event(verdict, "r")
+        assert pushed is not None
+        text, meta = pushed
+        assert text == "run stopped (ctl stop): x pending"
+        assert status(meta) == STOPPED
 
 
 PAUSE = {"run": "r", "event": "paused", "text": "paused after boot failed"}

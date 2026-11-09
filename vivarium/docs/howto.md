@@ -95,6 +95,16 @@ $ vivarium ctl --out ./out continue
 
 `continue` returns when the run is no longer paused.
 
+To end a run without the phases that are left, stop it:
+
+```console
+$ vivarium ctl --out ./out stop
+```
+
+`stop` works paused or running. It returns when the run has exited, after
+the guests are down. The run exits 5, and its verdict says `stopped`, not
+`failed`.
+
 ## Switch a guest to another configuration
 
 Declare each configuration on the node. Each one is the node plus a
@@ -187,7 +197,7 @@ run writes.
 With MCP, `vivarium-mcp` starts runs and reaches into them. nixidae's CLAUDE.md
 lists its tools. `start` returns two monitor commands:
 
-- `monitor`: pauses, failures and the verdict; exits 4 at a pause.
+- `monitor`: pauses, failures and the verdict; exits 4 at a pause, 5 for a stopped run.
 - `monitor_all`: every event, through pauses to the verdict.
 
 An agent that only runs shell commands does not need MCP:
@@ -195,7 +205,8 @@ An agent that only runs shell commands does not need MCP:
 1. Start the run in the background, with its output in a file.
 2. Start `vivarium monitor <out> --quiet` in the background at the same
    time. It waits for the run, and exits at a pause or at the verdict.
-3. Read the file for the commands the run printed.
+3. Read `<out>/run.json` for the commands: the run writes it before the
+   first guest boots. Do not scrape the output file for them.
 4. At a pause, copy the `exec` line from the file, change the Python,
    and run it.
 5. Run the `continue` line, then start the monitor again.

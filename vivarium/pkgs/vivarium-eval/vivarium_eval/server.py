@@ -25,6 +25,7 @@ still answer.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -327,10 +328,17 @@ async def _monitor(run: Run, stream: SocketStream) -> None:
 
 
 async def _stop(run: Run) -> None:
-    """SIGINT, which the run answers with its shielded teardown."""
+    """`ctl stop` through the socket, so the verdict says stopped; SIGINT
+    when the run has no socket or does not know `stop`. The run answers
+    either with its shielded teardown."""
     if run.process.returncode is not None:
         return
-    run.process.send_signal(signal.SIGINT)
+    asked = False
+    # Bounded: a run that hangs on its socket still gets the signal.
+    with anyio.move_on_after(10), contextlib.suppress(OSError):
+        asked = (await request(run.socket, Op.STOP)).ok
+    if not asked:
+        run.process.send_signal(signal.SIGINT)
     with anyio.move_on_after(60):
         await run.process.wait()
         return

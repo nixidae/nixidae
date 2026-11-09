@@ -48,7 +48,7 @@ from vivarium_runner.report import Report
 
 from . import journal, junit_in
 from .events import Event, Kind, Level
-from .phases import PhaseState, PhaseTimeout, guests, passed, required, runnable, skipped_by
+from .phases import PhaseState, PhaseTimeout, Stop, guests, passed, required, runnable, skipped_by
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 
 if TYPE_CHECKING:
@@ -189,8 +189,8 @@ class Session:
         self.artifacts = out / "artifacts"
         self.state: dict[str, PhaseState] = {phase.name: PhaseState.PENDING for phase in spec.phases}
         self.errors: dict[str, str] = {}
-        self.stopped_by: int | None = None
-        """The signal that ended the run early, if one did."""
+        self.stopped: Stop | None = None
+        """What ended the run before its verdict, if anything did."""
         # Which phase holds each guest, so a command or a journal entry
         # carries the phase it belonged to. By guest because two phases
         # on disjoint guests run at once, and a guest is only ever held by
@@ -869,6 +869,7 @@ class Session:
             json.dumps(
                 {
                     "passed": self.passed,
+                    "stopped": None if self.stopped is None else self.stopped.reason,
                     "phases": [
                         {
                             "name": name,
@@ -884,11 +885,15 @@ class Session:
         )
         first = next(iter(self.errors.values()), None)
         self.report.write(self.out / "report.json", self.passed, first)
+        verdict = "passed" if self.passed else "failed"
+        if self.stopped is not None:
+            verdict = f"stopped ({self.stopped.reason})"
         self.emit(
             Kind.RUN_FINISHED,
-            "passed" if self.passed else "failed",
+            verdict,
             level=Level.ERROR if not self.passed else Level.INFO,
             passed=self.passed,
+            stopped=None if self.stopped is None else self.stopped.reason,
             states={name: str(state) for name, state in self.state.items()},
         )
 
@@ -898,7 +903,8 @@ class Session:
 
     @property
     def passed(self) -> bool:
-        return passed(self.state)
+        """A stopped run has no verdict, so it never passes."""
+        return self.stopped is None and passed(self.state)
 
     async def teardown(self) -> None:
         """Guests down. Safe to call twice; never called for you."""

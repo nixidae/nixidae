@@ -18,8 +18,9 @@ is a list of names and not an order number.  See
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -38,8 +39,8 @@ class PhaseState(StrEnum):
     A run holding one of these did not pass."""
 
     INTERRUPTED = "interrupted"
-    """It was running when the run was stopped -- ^C, or `stop` from the
-    MCP server. Without this it stayed `running` in `phases.json` for
+    """It was running when the run was stopped -- ^C, a signal, or
+    `ctl stop`. Without this it stayed `running` in `phases.json` for
     good, which reads as a run still in progress."""
 
     DESELECTED = "deselected"
@@ -51,6 +52,27 @@ class PhaseState(StrEnum):
     dependency failed must not report success. Nothing in a sandbox can
     produce this -- the check passes no `--only` -- so CI cannot go green
     by running a subset."""
+
+
+STOPPED: Final = 5
+"""The exit status of a run stopped by `ctl stop`, and of a monitor that
+sees one: not a pass, and not a failure either."""
+
+
+@dataclass(frozen=True, slots=True)
+class Stop:
+    """Why a run ended before its verdict, and the status it exits with."""
+
+    reason: str
+    status: int
+
+    @classmethod
+    def by_request(cls) -> Stop:
+        return cls("ctl stop", STOPPED)
+
+    @classmethod
+    def by_signal(cls, number: int, name: str) -> Stop:
+        return cls(name, 128 + number)
 
 
 class PhaseTimeout(TimeoutError):

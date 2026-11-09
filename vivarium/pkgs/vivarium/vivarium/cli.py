@@ -23,17 +23,23 @@ import signal
 import sys
 from collections.abc import Collection
 from pathlib import Path
+from typing import Final
 
 import anyio
 from vivarium_runner import MachineError
 
 from . import monitor, namespace, repl, runroot
-from .control import RUN_FILE, SOCKET, Controller, Op, request, run_file, vivarium_command
+from .control import RUN_FILE, SOCKET, Controller, Op, RunFile, request, run_file, vivarium_command
 from .events import Kind, Level
-from .phases import END, FAILURE, START, PhaseState, breakpoints, launchable, ready, selected, summarise
+from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
 from .session import Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
+
+
+STOP_WAIT: Final = 300.0
+"""Seconds `ctl stop` waits for the run to exit. Teardown powers each
+guest off, then signals what is left, each step bounded."""
 
 
 def _absolute(value: str) -> Path:
@@ -164,7 +170,9 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     phases = sub.add_parser("phases", help="list the phases and exit")
     phases.add_argument("--spec", type=_absolute, required=True)
 
-    ctl = sub.add_parser("ctl", help="reach into a run: exec and inject any time, the rest while paused")
+    ctl = sub.add_parser(
+        "ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused"
+    )
     ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     ctl.add_argument("op", choices=[str(op) for op in Op])
     ctl.add_argument(
@@ -183,7 +191,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         description=(
             "Follow a run that vivarium-mcp started. Exit 0 if it passed, 1 if it"
             " failed, 2 if it exited without a verdict, 3 if the stream ended early"
-            " or no run started within --wait, 4 if it paused."
+            " or no run started within --wait, 4 if it paused, 5 if it was stopped."
         ),
     )
     watch.add_argument("target", help="the run's --out directory, or its id")
@@ -321,8 +329,8 @@ async def run(args: argparse.Namespace) -> int:
                 control=args.control,
             )
             group.cancel_scope.cancel()
-        if session.stopped_by is not None:
-            return 128 + session.stopped_by
+        if session.stopped is not None:
+            return session.stopped.status
         for line in session.report.summary().splitlines():
             session.emit(Kind.NOTE, line.removeprefix("[time] "))
         session.emit(Kind.NOTE, summarise(session.state))
@@ -337,7 +345,7 @@ async def _stop_on_signal(session: Session, scope: anyio.CancelScope) -> None:
     signals each guest's process group, SIGTERM and then SIGKILL."""
     with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGHUP) as signals:
         async for received in signals:
-            session.stopped_by = int(received)
+            session.stopped = Stop.by_signal(int(received), signal.Signals(received).name)
             session.emit(Kind.NOTE, f"{signal.Signals(received).name}: tearing the guests down")
             scope.cancel()
             return
@@ -367,8 +375,10 @@ async def drive(
     never pauses.
     """
     wanted = control or breaks or break_on_failure or break_on_start or break_at_end or interactive
-    controller = Controller(session) if wanted else None
     async with anyio.create_task_group() as group:
+        # `ctl stop` cancels this group; `_sequence`'s shielded `finally`
+        # still writes the evidence and puts the guests down.
+        controller = Controller(session, stop=group.cancel_scope.cancel) if wanted else None
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
@@ -548,6 +558,12 @@ async def ctl(args: argparse.Namespace) -> int:
         with anyio.move_on_after(10), contextlib.suppress(OSError):
             while (await request(socket, Op.STATE)).result == "paused":
                 await anyio.sleep(0.05)
+    if args.op == Op.STOP and reply.ok:
+        if await _wait_for_exit(args.out):
+            reply.result = "stopped"
+        else:
+            reply.ok = False
+            reply.error = f"the run did not exit within {STOP_WAIT:g}s of stop"
     if reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.result is not None:
@@ -558,6 +574,23 @@ async def ctl(args: argparse.Namespace) -> int:
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
     return 0 if reply.ok else 1
+
+
+async def _wait_for_exit(out: Path) -> bool:
+    """Whether the run in `out` exited within `STOP_WAIT`: its pid from
+    `run.json`, through a pidfd, so the exit wakes this and nothing polls."""
+    about = RunFile.from_json(await anyio.Path(out / RUN_FILE).read_text())
+    try:
+        pidfd = os.pidfd_open(about.pid)
+    except ProcessLookupError:
+        return True
+    try:
+        with anyio.move_on_after(STOP_WAIT):
+            await anyio.wait_readable(pidfd)
+            return True
+        return False
+    finally:
+        os.close(pidfd)
 
 
 async def phases(args: argparse.Namespace) -> int:

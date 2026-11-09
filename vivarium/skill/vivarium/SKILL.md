@@ -32,7 +32,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 ```
 
 - The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`.
-- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused. Re-arm after each `continue`.
+- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped. Re-arm after each `continue`.
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
 - The driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
@@ -51,12 +51,13 @@ vivarium ctl --out "$OUT" inject ./tests/check.py        # a file's async def te
 vivarium ctl --out "$OUT" pytest ./tests/guest -- -k etcd
 vivarium ctl --out "$OUT" run check                       # a declared phase
 vivarium ctl --out "$OUT" continue
+vivarium ctl --out "$OUT" stop                           # end it here, guests down
 ```
 
 - `exec`: Python on the host, top-level await; `vms`, `session`, `anyio` and each guest by name in scope; names persist between calls. `exec` and `inject` also work while phases run; `pytest`, `run`, `continue` need a pause.
 - Loop: read the failure, probe with `exec`, edit the test file, `inject`/`pytest` again, repeat until it passes, then `continue`.
 - `inject` reads the phase file fresh, but a helper module on the test's `pythonPath` stays the store copy the run imported (nixidae/nixidae#851). To test an edited helper: `exec` a `sys.path.insert(0, "<working-tree dir>")` and `sys.modules.pop("<module>")`, then `inject`.
-- `ctl` has no `stop` (nixidae/nixidae#860). To end a paused run: `continue`, or SIGTERM the driver; both tear the guests down.
+- `ctl stop` ends the run, paused or running: guests down, exit 5, verdict `stopped`. It returns once the run has exited. Never kill the driver by pid or pattern.
 - Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.
 - Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
 

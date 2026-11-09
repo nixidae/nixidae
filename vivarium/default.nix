@@ -2437,12 +2437,8 @@ let
 
       The loop this is for: changing a phase costs an evaluation and a
       store path, and changing a guest costs an image, so the fast way is
-      neither -- pause with the guests up and send Python in. Driven with
-      the real binaries, the way a person or an agent drives them:
-      `vivarium run --break` in the background, `vivarium ctl` against its socket.
-
-      The file injected is written here, in the build directory, and was
-      never in the store: that is the point of `inject`.
+      neither -- pause with the guests up and send Python in. And can
+      `ctl stop` end the run? tests/breakpoint.py.
     */
     breakpoint =
       let
@@ -2455,99 +2451,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-breakpoint"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          export HOME="$TMPDIR"
-          o="$TMPDIR/run"
-          ctl() { ${lib.getExe cli} ctl --out "$o" "$@"; }
-          fail() { echo "$*" >&2; kill "$pid" 2>/dev/null; exit 1; }
-
-          ${lib.getExe run.driver} --out "$o" --break later > run.log 2>&1 &
-          pid=$!
-
-          for _ in $(seq 1 600); do
-            [ "$(ctl state 2>/dev/null | head -1)" = paused ] && break
-            kill -0 "$pid" 2>/dev/null || { cat run.log; fail "the run ended without pausing"; }
-            sleep 0.1
-          done
-          ctl state | tee state
-          grep -qx "later	pending" state || fail "the phase ran through its breakpoint"
-          echo "ok: paused before later"
-
-          ctl exec 'await one.succeed("hostname")' | tee hostname
-          grep -q one hostname || fail "exec did not reach the guest"
-          echo "ok: exec reached the guest"
-
-          ctl exec 'n = (await one.succeed("echo 7")).strip()'
-          [ "$(ctl exec 'n')" = "'7'" ] || fail "a name did not survive to the next exec"
-          echo "ok: the namespace survives between calls"
-
-          if ctl exec '1/0' 2> err; then fail "an exception was reported as success"; fi
-          grep -q ZeroDivisionError err || fail "the traceback did not come back"
-          echo "ok: an exception comes back as the reply, and the run stays up"
-
-          cat > scratch.py <<'EOF'
-          from vivarium_runner import Machines
-
-          async def test(vms: Machines) -> None:
-              await vms.one.succeed("echo injected > /artifacts/injected")
-              print("[scratch] wrote it")
-          EOF
-          ctl inject scratch.py | tee injected
-          grep -q "wrote it" injected || fail "inject did not run the file"
-          echo "ok: a file from outside the store ran against the guest"
-
-          mkdir tree
-          echo 'async def test_host(one): assert (await one.succeed("hostname")).strip() == "one"' \
-            > tree/test_by_hand.py
-          ctl pytest tree | tee by-hand
-          grep -qx "1 passed" by-hand || fail "pytest by hand did not pass against the guest"
-          echo 'async def test_host(one): assert (await one.succeed("hostname")).strip() == "edited"' \
-            > tree/test_by_hand.py
-          if ctl pytest tree -- -k host; then fail "pytest by hand ran the old test after an edit"; fi
-          echo "ok: pytest ran a working tree's test, then its edit, against the paused guest"
-
-          ctl continue
-          wait "$pid" || { cat run.log; fail "the run failed after continue"; }
-          echo "ok: continue finished the run"
-
-          jq -r '.phases[] | "\(.name)\t\(.state)"' "$o/phases.json"
-          [ "$(jq -r '.phases[] | select(.name == "later") | .state' "$o/phases.json")" = passed ] \
-            || fail "later did not run after continue"
-          test -f "$o/artifacts/one/injected" || fail "the injected write is not on the host"
-          jq -e 'select(.kind == "output" and .phase == "inject:scratch.py")' "$o/events.jsonl" > /dev/null \
-            || fail "what the injected file printed is not in the events"
-          jq -e 'select(.kind == "note" and .data.op == "exec")' "$o/events.jsonl" > /dev/null \
-            || fail "the exec is not recorded in the events"
-          echo "ok: and events.jsonl records what was done by hand"
-          [ "$(cat "$o/status")" = 0 ] || fail "a failing test sent by hand failed the run"
-          if grep -q test_by_hand "$o/junit.xml"; then fail "a test sent by hand is in junit.xml"; fi
-          jq -e 'select(.kind == "case" and .data.by_hand and .data.outcome == "failed")' \
-            "$o/events.jsonl" > /dev/null || fail "the by-hand case is not in the events"
-          echo "ok: and its cases are events, outside the verdict and junit.xml"
-          test ! -e "$o/control.sock" || fail "the socket outlived the run"
-
-          # A point, not a phase: `end` pauses after the last phase.
-          o="$TMPDIR/end"
-          ${lib.getExe run.driver} --out "$o" --break end > end.log 2>&1 &
-          pid=$!
-          for _ in $(seq 1 600); do
-            [ "$(ctl state 2>/dev/null | head -1)" = paused ] && break
-            kill -0 "$pid" 2>/dev/null || { cat end.log; fail "the run ended without pausing at end"; }
-            sleep 0.1
-          done
-          ctl state | tee state
-          grep -qx "later	passed" state || fail "--break end paused before the last phase ran"
-          ctl continue
-          wait "$pid" || { cat end.log; fail "the run failed after continue at end"; }
-          echo "ok: --break end paused after the last phase"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-breakpoint" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/breakpoint.py} ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+        touch $out
+      '';
 
     /*
       Can a guest host a userspace filesystem?

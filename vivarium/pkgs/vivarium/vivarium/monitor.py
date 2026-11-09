@@ -44,6 +44,7 @@ import anyio
 
 from .control import SOCKET as CONTROL_SOCKET, reachable
 from .journal import Tail
+from .phases import STOPPED
 
 SOCKET: Final = "monitor.sock"
 
@@ -110,6 +111,9 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
         meta |= {"event": "finished", "passed": "true" if passed else "false"}
         states: dict[str, str] = data.get("states") or {}
         summary = ", ".join(f"{name} {state}" for name, state in states.items())
+        if stopped := data.get("stopped"):
+            meta["stopped"] = "true"
+            return f"run stopped ({stopped}): {summary}", meta
         return f"run {'passed' if passed else 'failed'}: {summary}", meta
     return None
 
@@ -122,8 +126,10 @@ def status(event: dict[str, Any]) -> int | None:
     """The exit status a terminal event means, or `None` for any other.
 
     0 passed, 1 failed, 2 exited with no verdict: a crash or an
-    evaluation error.
+    evaluation error, 5 stopped.
     """
+    if event.get("event") == "finished" and event.get("stopped") == "true":
+        return STOPPED
     if event.get("event") == "finished":
         return 0 if event.get("passed") == "true" else 1
     if event.get("event") == "exited":

@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Final
 import anyio
 
 from .events import Kind, Level
-from .phases import PhaseState
+from .phases import PhaseState, Stop
 from .session import CasesFailed, load_phase
 from .spec import PytestSpec
 
@@ -67,6 +67,7 @@ class Op(StrEnum):
     RUN = "run"
     PYTEST = "pytest"
     CONTINUE = "continue"
+    STOP = "stop"
 
 
 @dataclass
@@ -316,10 +317,13 @@ class Controller:
     reentrant.
     """
 
-    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT})
+    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP})
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, stop: Callable[[], None] | None = None) -> None:
+        """`stop` cancels the drive; without it, `stop` is refused."""
         self.session = session
+        self._stop = stop
+        self._stopping = False
         self.path = session.out / SOCKET
         self.console = Console(self._namespace(), lambda copy: session._capture("exec", copy))
         self._resume: anyio.Event | None = None
@@ -397,6 +401,11 @@ class Controller:
         if self._continuing and self._resume is not None:
             self._continuing = False
             self._resume.set()
+        if self._stopping and self._stop is not None:
+            self._stopping = False
+            self.session.stopped = Stop.by_request()
+            self.session.emit(Kind.NOTE, "ctl stop: tearing the guests down")
+            self._stop()
 
     async def handle(self, line: bytes) -> Reply:
         try:
@@ -406,6 +415,11 @@ class Controller:
         self.session.emit(Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg)
         if op is Op.STATE:
             return Reply(ok=True, state=self._state(), result="paused" if self.paused else "running")
+        if op is Op.STOP:
+            if self._stop is None:
+                return Reply(ok=False, error="this run cannot be stopped through its socket")
+            self._stopping = True
+            return Reply(ok=True, result="stopping")
         if op not in self.ANY_TIME and not self.paused:
             return Reply(ok=False, error=f"{op} only while paused; the run is running")
         if op is Op.INJECT and self.session.vms is None:
