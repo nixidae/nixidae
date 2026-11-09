@@ -147,6 +147,7 @@ tests from nixpkgs this way, and `nixos-screen-tests` runs `cage`
 
 ```
 run.json        how to reach the run: CLI, socket, commands, pid, the test
+build.jsonl     what Nix said while `vivarium run` evaluated and built
 status          0 or 1
 log             everything, readable
 events.jsonl    everything, one JSON object per line

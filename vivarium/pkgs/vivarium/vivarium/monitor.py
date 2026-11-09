@@ -35,21 +35,24 @@ evaluates and builds for minutes before it writes `events.jsonl`.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import Any, Final
 
 import anyio
 
-from .control import SOCKET, watch
+from .control import RUN_FILE, SOCKET, watch
 from .journal import Tail
 from .phases import STOPPED
 
 TERMINAL: Final = frozenset({"finished", "exited"})
 """The events after which a run sends nothing more."""
 
-QUIET_SKIPS: Final = frozenset({"progress", "resumed"})
+QUIET_SKIPS: Final = frozenset({"progress", "resumed", "building"})
 """What `--quiet` leaves out: nobody needs to wake for these."""
 
 LIVE: Final = {"event": "live"}
@@ -170,13 +173,75 @@ def locate(target: str) -> Path:
     return path.absolute() / SOCKET
 
 
-async def wait_for_run(out: Path, timeout: float = WAIT) -> bool:
-    """Whether a run appears in `out` within `timeout` seconds."""
-    with anyio.move_on_after(timeout):
-        while not (await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(out / SOCKET).exists()):
-            await anyio.sleep(0.25)
+BUILD_LOG: Final = "build.jsonl"
+"""What `vivarium run` writes while it evaluates and builds, before a runner exists."""
+
+BUILD: Final = 105
+"""`ActivityType.BUILD`: one derivation being built."""
+
+
+class Arrival(Enum):
+    UP = "up"
+    """The run has its events or its socket."""
+    GONE = "gone"
+    """The process `run.json` names exited before the run was up."""
+    NEVER = "never"
+    """Nothing within the wait."""
+
+
+def building(record: dict[str, Any], run: str) -> dict[str, str] | None:
+    """A `build.jsonl` record as a monitor event: a derivation's build
+    starting, or why there is no run."""
+    if record.get("action") == "start" and record.get("type") == BUILD:
+        return {"run": run, "event": "building", "text": str(record.get("text", ""))}
+    if record.get("action") == "failed":
+        return {"run": run, "event": "exited", "text": f"no run: {record.get('text', '')}"}
+    return None
+
+
+def starter_gone(out: Path) -> bool:
+    """Whether `run.json` names a process that no longer exists."""
+    try:
+        pid = int(json.loads((out / RUN_FILE).read_text())["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return True
+    except PermissionError:
+        return False
     return False
+
+
+async def wait_for_run(out: Path, timeout: float = WAIT, printer: Watch | None = None) -> Arrival:
+    """Until a run is up in `out`, for at most `timeout` seconds.
+
+    Meanwhile each build that `build.jsonl` starts goes to `printer`, and a
+    run that died first says why there. Polls: these are files, and a file
+    has no notification here.
+    """
+    log = Tail(out / BUILD_LOG)
+
+    async def up() -> bool:
+        return await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(out / SOCKET).exists()
+
+    with anyio.move_on_after(timeout):
+        while True:
+            if await up():
+                return Arrival.UP
+            for raw in await log.read():
+                with contextlib.suppress(json.JSONDecodeError):
+                    event = building(json.loads(raw), out.name)
+                    if event is not None and printer is not None:
+                        printer.take(event)
+            # `up` again: a run can come up and end between the two looks.
+            if starter_gone(out) and not await up():
+                if printer is not None and not any(e.get("event") == "exited" for e in printer.seen):
+                    printer.take({"run": out.name, "event": "exited", "text": "run exited before it started"})
+                return Arrival.GONE
+            await anyio.sleep(0.25)
+    return Arrival.NEVER
 
 
 class Watch:

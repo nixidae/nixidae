@@ -718,7 +718,10 @@ def watch(args: argparse.Namespace) -> int:
     socket = monitor.locate(args.target)
     options = {"as_json": args.json, "quiet": args.quiet, "until_pause": not args.through_pauses}
     try:
-        if not anyio.run(monitor.wait_for_run, socket.parent, args.wait):
+        arrival = anyio.run(monitor.wait_for_run, socket.parent, args.wait, monitor.Watch(**options))
+        if arrival is monitor.Arrival.GONE:
+            return 2
+        if arrival is monitor.Arrival.NEVER:
             print(
                 f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
                 file=sys.stderr,

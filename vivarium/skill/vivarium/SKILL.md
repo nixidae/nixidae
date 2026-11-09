@@ -31,10 +31,10 @@ nix run --file . <test>.driverDebug -- --out "$OUT" > "$OUT.log" 2>&1   # backgr
 vivarium monitor "$OUT" --quiet                                          # background
 ```
 
-- The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`.
+- The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`. For a run `vivarium run` started, it prints each derivation as it starts building (not with `--quiet`), and exits 2 with the error if evaluating or building fails; `$OUT/build.jsonl` holds every Nix log record, build log lines included.
 - Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped. Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
-- The driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
+- With a `nix run` driver, the driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
 - Run the monitor bare. `vivarium monitor ... | tail` or `...; echo rc=$?` makes the task exit 0 at a pause; a paused run then reads as "completed (exit code 0)".
 - Name what you wait on when you stop: "waiting on the monitor for <test> (task X); then <next step>".

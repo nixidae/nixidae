@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import anyio
 import pytest
-from vivarium.control import SOCKET
+from vivarium.control import RUN_FILE, SOCKET
 from vivarium.monitor import (
+    BUILD,
+    BUILD_LOG,
     LIVE,
     PAUSED,
+    Arrival,
+    Watch,
     channel_event,
     follow,
     follow_file,
@@ -115,13 +121,56 @@ async def test_wait_for_run_returns_when_the_run_starts(tmp_path: Path) -> None:
     async with anyio.create_task_group() as group:
         group.start_soon(start)
         with anyio.fail_after(5):
-            assert await wait_for_run(out, timeout=10)
+            assert await wait_for_run(out, timeout=10) is Arrival.UP
 
 
 @pytest.mark.anyio
 async def test_wait_for_run_gives_up_after_its_timeout(tmp_path: Path) -> None:
     with anyio.fail_after(5):
-        assert not await wait_for_run(tmp_path / "never", timeout=0.3)
+        assert await wait_for_run(tmp_path / "never", timeout=0.3) is Arrival.NEVER
+
+
+async def _dead_pid() -> int:
+    process = await anyio.open_process([sys.executable, "-c", ""])
+    await process.wait()
+    return process.pid
+
+
+def _run_json(out: Path, pid: int) -> None:
+    out.mkdir(exist_ok=True)
+    (out / RUN_FILE).write_text(json.dumps({"pid": pid}))
+
+
+@pytest.mark.anyio
+async def test_a_run_that_dies_while_it_builds_is_gone_with_its_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run_json(tmp_path, await _dead_pid())
+    with (tmp_path / BUILD_LOG).open("w") as log:
+        log.write(json.dumps({"action": "start", "type": BUILD, "text": "building '/nix/store/x.drv'"}) + "\n")
+        log.write(json.dumps({"action": "failed", "text": "error: builder for x failed"}) + "\n")
+    with anyio.fail_after(5):
+        assert await wait_for_run(tmp_path, timeout=10, printer=Watch()) is Arrival.GONE
+    assert capsys.readouterr().out.splitlines() == [
+        f"{tmp_path.name} building: building '/nix/store/x.drv'",
+        f"{tmp_path.name} exited: no run: error: builder for x failed",
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_live_builder_is_waited_for(tmp_path: Path) -> None:
+    _run_json(tmp_path, os.getpid())
+    with anyio.fail_after(5):
+        assert await wait_for_run(tmp_path, timeout=0.5) is Arrival.NEVER
+
+
+@pytest.mark.anyio
+async def test_quiet_leaves_out_the_builds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _run_json(tmp_path, await _dead_pid())
+    (tmp_path / BUILD_LOG).write_text(json.dumps({"action": "start", "type": BUILD, "text": "building x"}) + "\n")
+    with anyio.fail_after(5):
+        assert await wait_for_run(tmp_path, timeout=10, printer=Watch(quiet=True)) is Arrival.GONE
+    assert capsys.readouterr().out.splitlines() == [f"{tmp_path.name} exited: run exited before it started"]
 
 
 async def _serve(path: Path, events: list[dict[str, Any]]) -> None:

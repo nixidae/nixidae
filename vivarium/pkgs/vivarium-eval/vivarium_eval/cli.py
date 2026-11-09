@@ -42,6 +42,8 @@ from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from vivarium import cli as runner_cli, control
 
+from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -56,6 +58,9 @@ class Request:
     rest: list[str]
     """Everything else, for `vivarium` itself: its options, and `--` with
     pytest's arguments after it."""
+    out: Path | None = None
+    """The runner's `--out`, read and left in `rest`: the build log and the
+    first `run.json` go there."""
 
 
 def split_attr(text: str) -> list[str]:
@@ -122,10 +127,13 @@ def parse(argv: list[str]) -> Request:
         attr = split_attr(args.attr)
     except ValueError as error:
         top.error(str(error))
-    return Request(args.command, args.file, attr, [*rest, *tail])
+    peek = argparse.ArgumentParser(add_help=False)
+    peek.add_argument("--out", type=Path)
+    out = peek.parse_known_args(rest)[0].out
+    return Request(args.command, args.file, attr, [*rest, *tail], None if out is None else out.absolute())
 
 
-async def resolve(file: Path, attr: list[str], command: str) -> str:
+async def resolve(file: Path, attr: list[str], command: str, recorder: Recorder) -> str:
     """Evaluate, build the attribute's `.run` or `.phases`, and return
     the program in it.
 
@@ -134,7 +142,7 @@ async def resolve(file: Path, attr: list[str], command: str) -> str:
     of the spec. Building `.run` also runs the type check of every phase
     script, exactly as `nix run --file . <attr>.run` does.
     """
-    async with evaluator() as state:
+    async with evaluator(recorder) as state:
         target = await session_of(state, file, attr)
         # `vivarium run` runs the session's `.driver`; `phases` its `.phases`.
         member = await select_attr_path(state, target, [{"run": "driver"}.get(command, command)])
@@ -144,11 +152,19 @@ async def resolve(file: Path, attr: list[str], command: str) -> str:
 
 
 @asynccontextmanager
-async def evaluator() -> AsyncIterator[AsyncEvalState]:
-    """An evaluator on the ambient store, with nix.conf read as `nix` reads it."""
+async def evaluator(recorder: Recorder) -> AsyncIterator[AsyncEvalState]:
+    """An evaluator on the ambient store, with nix.conf read as `nix` reads
+    it. What Nix says while the block runs goes to `recorder`: the
+    evaluator's own records, and the builds' and fetches', which no
+    evaluator's thread claims."""
     huggorm.load_config()
     async with huggorm.AsyncSession() as session:
-        yield session.eval(session.store())
+        state = session.eval(session.store())
+        async with (
+            session.forward(state, recorder.take, level=int(SHOWN)),
+            session.forward_process(recorder.take, level=int(SHOWN)),
+        ):
+            yield state
 
 
 async def session_of(state: AsyncEvalState, file: Path, attr: list[str]) -> AsyncValue:
@@ -182,7 +198,7 @@ Action = Literal["switch", "boot", "test", "dry-activate"]
 
 async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str]:
     """The node's system with *module* added, and its closure's registration."""
-    async with evaluator() as state:
+    async with evaluator(Recorder(None, sys.stderr)) as state:
         target = await session_of(state, file, attr)
         extend = await state.eval_expr(EXTENDED)
         extended = await (await (await extend(target))(await state.make_string(node)))(
@@ -309,13 +325,22 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(runner_cli.watch(args))
         raise SystemExit(switch(args))
     request = parse(argv)
+    origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
+    log = None if request.out is None or request.command != "run" else request.out / BUILD_LOG
+    if log is not None and request.out is not None:
+        announce(request.out, origin)
+    recorder = Recorder(log, sys.stderr)
     started = time.monotonic()
     say(f"evaluating {'.'.join(request.attr)} from {entry(request.file)}")
     try:
-        program = anyio.run(resolve, request.file, request.attr, request.command)
+        program = anyio.run(resolve, request.file, request.attr, request.command, recorder)
     except (NixError, AttrPathError) as error:
-        say(f"evaluation failed: {explain(str(error))}")
+        explained = explain(str(error))
+        recorder.failed(explained)
+        say(f"evaluation failed: {explained}")
         raise SystemExit(1) from None
+    finally:
+        recorder.close()
     say(f"evaluated and built in {time.monotonic() - started:.1f}s")
     # Exec'd, not called: the program is the one the evaluated library
     # built, with its own `vivarium`. Calling this package's `vivarium` instead ran
@@ -323,9 +348,18 @@ def main(argv: list[str] | None = None) -> None:
     # on an import the newer field existed to make work.
     if request.command == "run":
         # So the run prints a `switch` line: only this CLI can evaluate it again.
-        origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
         os.environ[control.ORIGIN] = origin.to_json()
     os.execv(program, [program, *request.rest])
+
+
+def announce(out: Path, origin: control.Origin) -> None:
+    """`run.json` before the evaluation: the pid, which the exec keeps, and
+    the monitor line. A monitor armed now follows the build in
+    `build.jsonl`, and sees the run gone if it dies first. The runner
+    writes the whole file once it has a socket."""
+    out.mkdir(parents=True, exist_ok=True)
+    about = control.run_file(this_cli(), out, os.getpid(), control=False, origin=origin)
+    (out / control.RUN_FILE).write_text(about.to_json())
 
 
 if __name__ == "__main__":
