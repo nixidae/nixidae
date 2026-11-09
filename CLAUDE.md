@@ -300,6 +300,8 @@ Builds: a global `BuildQueue` and a DAG-aware `Scheduler`. `BuildPaths` and `Bui
 
 Matching `nix-daemon` byte for byte is a measure, not the goal. Every divergence gets a verdict, and "pynixd is right" is one.
 
+Standing rule (maintainer, 2026-11-09): where pynixd can do better than Nix, it does, and tags it with one of the markers below. Copying a Nix weakness is never the default. Parity holds where Nix is right. An improvement the maintainer defers becomes an issue (nixidae/nixidae#1257: store health remembered across clients, where Nix forgets it per worker).
+
 | Verdict | Marker |
 | --- | --- |
 | Nix is wrong; pynixd copies it, or answers correctly | `NIX-DEFECT (#23):` (nixidae/nixidae#412) |
