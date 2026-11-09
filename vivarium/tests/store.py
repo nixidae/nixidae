@@ -56,19 +56,19 @@ def with_references(candidates: list[str]) -> str:
     A path with no references proves only that the lower store has a row
     for it.  One with references proves the lower store served the
     metadata too, which is the half that a registration would otherwise
-    explain -- and `--all` is in database order, so the first path is as
-    likely as not to be a lone script.
+    explain. `--all` sorts by hash, and a run of sources with no references
+    can be long: measured on dynhetz, the first 400 had none.
     """
     # Not a .drv: one is a store path like any other, so it would pass,
     # but a build output is the thing a guest would actually want.
     wanted = [p for p in candidates if not p.endswith(".drv")]
-    for batch in range(0, min(len(wanted), 400), 100):
+    for batch in range(0, len(wanted), 100):
         window = wanted[batch : batch + 100]
         info = json.loads(_nix("--json", *window))
         for path in window:
             if info.get(path, {}).get("references"):
                 return path
-    raise AssertionError("no path in the lower store's first 400 has references")
+    raise AssertionError("no path in the lower store has references")
 
 
 def _nix(*args: str) -> str:
