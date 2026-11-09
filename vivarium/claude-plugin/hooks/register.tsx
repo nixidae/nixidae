@@ -72,7 +72,7 @@ const watch = ($: Run$, run: Run) => {
           if (!item) continue
           // The first event from the run itself: `run.json` names its phases
           // by then. The monitor prints no `live` marker to wait for.
-          if (!named && item.event !== 'building') {
+          if (!named && item.event !== 'building' && item.event !== 'builds') {
             const known = await runFile($, run.out)
             if (known.phases.length > 0) {
               named = true

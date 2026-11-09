@@ -39,6 +39,7 @@ import contextlib
 import json
 import os
 import tempfile
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Final
@@ -52,7 +53,7 @@ from .phases import STOPPED
 TERMINAL: Final = frozenset({"finished", "exited"})
 """The events after which a run sends nothing more."""
 
-QUIET_SKIPS: Final = frozenset({"progress", "resumed", "building"})
+QUIET_SKIPS: Final = frozenset({"progress", "resumed", "building", "builds"})
 """What `--quiet` leaves out: nobody needs to wake for these."""
 
 LIVE: Final = {"event": "live"}
@@ -119,7 +120,11 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
     return None
 
 
-def shown(event: dict[str, Any], *, quiet: bool) -> bool:
+def shown(event: dict[str, Any], *, quiet: bool, as_json: bool = False) -> bool:
+    """`builds` is JSON only: one line per download is too many for a
+    person, and each `building` line carries the counts."""
+    if event.get("event") == "builds" and not as_json:
+        return False
     return not (quiet and event.get("event") in QUIET_SKIPS)
 
 
@@ -179,6 +184,62 @@ BUILD_LOG: Final = "build.jsonl"
 BUILD: Final = 105
 """`ActivityType.BUILD`: one derivation being built."""
 
+SUBSTITUTE: Final = 108
+"""`ActivityType.SUBSTITUTE`: one path fetched from a substituter."""
+
+PLANNED: Final = "planned"
+"""Not Nix's: `vivarium run` writes it before it builds, the paths of one
+kind (`type`, `BUILD` or `SUBSTITUTE`) that Nix's `query_missing` named."""
+
+
+@dataclass
+class BuildTally:
+    """Builds and downloads of one run, by store path, so a path two plans
+    name or two activities touch counts once. A build no plan named, as an
+    import from a derivation, joins the total when it starts."""
+
+    planned: dict[int, set[str]] = field(default_factory=lambda: {BUILD: set(), SUBSTITUTE: set()})
+    started: dict[int, set[str]] = field(default_factory=lambda: {BUILD: set(), SUBSTITUTE: set()})
+    done: dict[int, set[str]] = field(default_factory=lambda: {BUILD: set(), SUBSTITUTE: set()})
+    running: dict[int, tuple[int, str]] = field(default_factory=dict)
+    """Activity id to its kind and path, until it stops."""
+
+    def counts(self) -> dict[str, str]:
+        def total(kind: int) -> int:
+            return len(self.planned[kind] | self.started[kind])
+
+        return {
+            "built": str(len(self.done[BUILD])),
+            "builds": str(total(BUILD)),
+            "running": str(sum(1 for kind, _ in self.running.values() if kind == BUILD)),
+            "downloaded": str(len(self.done[SUBSTITUTE])),
+            "downloads": str(total(SUBSTITUTE)),
+        }
+
+    def take(self, record: dict[str, Any], run: str) -> dict[str, str] | None:
+        """The monitor event for one `build.jsonl` record, if it is one."""
+        action, kind = record.get("action"), record.get("type")
+        fields: list[Any] = record.get("fields") or []
+        if action == PLANNED and kind in self.planned:
+            self.planned[kind].update(str(path) for path in fields)
+            return {"run": run, "event": "builds", "text": "planned", **self.counts()}
+        if action == "start" and kind in self.started:
+            path = str(fields[0]) if fields else str(record.get("text", ""))
+            self.started[kind].add(path)
+            self.running[int(record.get("id", 0))] = (kind, path)
+            if kind == BUILD:
+                counts = self.counts()
+                text = f"{record.get('text', '')} ({counts['built']}/{counts['builds']} built)"
+                return {"run": run, "event": "building", "text": text, **counts}
+            return None
+        if action == "stop" and int(record.get("id", 0)) in self.running:
+            kind, path = self.running.pop(int(record.get("id", 0)))
+            self.done[kind].add(path)
+            return {"run": run, "event": "builds", "text": path, **self.counts()}
+        if action == "failed":
+            return {"run": run, "event": "exited", "text": f"no run: {record.get('text', '')}"}
+        return None
+
 
 class Arrival(Enum):
     UP = "up"
@@ -187,16 +248,6 @@ class Arrival(Enum):
     """The process `run.json` names exited before the run was up."""
     NEVER = "never"
     """Nothing within the wait."""
-
-
-def building(record: dict[str, Any], run: str) -> dict[str, str] | None:
-    """A `build.jsonl` record as a monitor event: a derivation's build
-    starting, or why there is no run."""
-    if record.get("action") == "start" and record.get("type") == BUILD:
-        return {"run": run, "event": "building", "text": str(record.get("text", ""))}
-    if record.get("action") == "failed":
-        return {"run": run, "event": "exited", "text": f"no run: {record.get('text', '')}"}
-    return None
 
 
 def starter_gone(out: Path) -> bool:
@@ -222,6 +273,7 @@ async def wait_for_run(out: Path, timeout: float = WAIT, printer: Watch | None =
     has no notification here.
     """
     log = Tail(out / BUILD_LOG)
+    tally = BuildTally()
 
     async def up() -> bool:
         return await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(out / SOCKET).exists()
@@ -232,7 +284,7 @@ async def wait_for_run(out: Path, timeout: float = WAIT, printer: Watch | None =
                 return Arrival.UP
             for raw in await log.read():
                 with contextlib.suppress(json.JSONDecodeError):
-                    event = building(json.loads(raw), out.name)
+                    event = tally.take(json.loads(raw), out.name)
                     if event is not None and printer is not None:
                         printer.take(event)
             # `up` again: a run can come up and end between the two looks.
@@ -264,7 +316,7 @@ class Watch:
             self.live = True
         else:
             self.seen.append(event)
-            if (self.live or self.replay) and shown(event, quiet=self.quiet):
+            if (self.live or self.replay) and shown(event, quiet=self.quiet, as_json=self.as_json):
                 print(line(event, as_json=self.as_json), flush=True)
             code = status(event)
             if code is not None:

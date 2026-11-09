@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import huggorm
+from vivarium.monitor import BUILD, PLANNED, SUBSTITUTE
 from vivarium_eval.build_log import FAILED, BuildRecord, Recorder, line
 
 INFO = int(huggorm.Verbosity.INFO)
@@ -40,3 +41,20 @@ def test_a_log_line_stays_in_the_file(tmp_path: Path) -> None:
     assert records[0]["fields"] == ["compiling"]
     assert records[1]["text"] == "error: builder for x failed"
     assert stderr.getvalue() == ""
+
+
+def test_the_monitor_names_nix_s_activities() -> None:
+    """`vivarium` reads `build.jsonl` without huggorm, so it spells the numbers."""
+    assert BUILD == int(huggorm.ActivityType.BUILD)
+    assert SUBSTITUTE == int(huggorm.ActivityType.SUBSTITUTE)
+
+
+def test_a_plan_is_one_record_per_kind(tmp_path: Path) -> None:
+    recorder = Recorder(tmp_path / "build.jsonl", io.StringIO())
+    recorder.planned(["/nix/store/b.drv", "/nix/store/a.drv"], ["/nix/store/s"])
+    recorder.close()
+    records = [json.loads(raw) for raw in (tmp_path / "build.jsonl").read_text().splitlines()]
+    assert [(r["action"], r["type"], r["fields"]) for r in records] == [
+        (PLANNED, BUILD, ["/nix/store/a.drv", "/nix/store/b.drv"]),
+        (PLANNED, SUBSTITUTE, ["/nix/store/s"]),
+    ]

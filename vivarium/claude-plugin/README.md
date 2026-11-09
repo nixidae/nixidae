@@ -1,7 +1,9 @@
 # vivarium-runs
 
 A Claude Code mod. It shows each vivarium run of the session in a pane
-beside the chat: the derivations as they build, each phase's state, the
+beside the chat: what Nix has left to do before the run starts
+(`builds 3/10, 1 running · downloads 12/40`, from the plan Nix gave
+before building, each store path counted once), each phase's state, the
 pause reason, the first line of an error, and the verdict. A paused run
 has a Continue button (hotkey `c`), and a live run has a Stop button
 (hotkey `s`). The status line names the newest live run, and a toast

@@ -17,7 +17,10 @@ from vivarium.monitor import (
     BUILD_LOG,
     LIVE,
     PAUSED,
+    PLANNED,
+    SUBSTITUTE,
     Arrival,
+    BuildTally,
     Watch,
     channel_event,
     follow,
@@ -147,12 +150,15 @@ async def test_a_run_that_dies_while_it_builds_is_gone_with_its_reason(
 ) -> None:
     _run_json(tmp_path, await _dead_pid())
     with (tmp_path / BUILD_LOG).open("w") as log:
-        log.write(json.dumps({"action": "start", "type": BUILD, "text": "building '/nix/store/x.drv'"}) + "\n")
+        log.write(
+            json.dumps({"action": "start", "id": 1, "type": BUILD, "text": "building '/nix/store/x.drv'", "fields": ["/nix/store/x.drv"]})
+            + "\n"
+        )
         log.write(json.dumps({"action": "failed", "text": "error: builder for x failed"}) + "\n")
     with anyio.fail_after(5):
         assert await wait_for_run(tmp_path, timeout=10, printer=Watch()) is Arrival.GONE
     assert capsys.readouterr().out.splitlines() == [
-        f"{tmp_path.name} building: building '/nix/store/x.drv'",
+        f"{tmp_path.name} building: building '/nix/store/x.drv' (0/1 built)",
         f"{tmp_path.name} exited: no run: error: builder for x failed",
     ]
 
@@ -344,3 +350,36 @@ class TestFollowFile:
         with anyio.move_on_after(0.8) as scope:
             await follow_file(tmp_path, grace=0, until_pause=True)
         assert scope.cancelled_caught
+
+
+class TestBuildTally:
+    def test_a_path_counts_once_however_often_it_is_named(self) -> None:
+        tally = BuildTally()
+        records: list[dict[str, Any]] = [
+            {"action": PLANNED, "type": BUILD, "fields": ["/nix/store/a.drv", "/nix/store/b.drv"]},
+            {"action": PLANNED, "type": SUBSTITUTE, "fields": ["/nix/store/s"]},
+            # A second plan names `b` again: a later realise asked for it too.
+            {"action": PLANNED, "type": BUILD, "fields": ["/nix/store/b.drv", "/nix/store/c.drv"]},
+            {"action": "start", "id": 1, "type": BUILD, "text": "building a", "fields": ["/nix/store/a.drv"]},
+            {"action": "start", "id": 2, "type": SUBSTITUTE, "fields": ["/nix/store/s", "https://cache"]},
+            {"action": "stop", "id": 2},
+            {"action": "stop", "id": 1},
+            # `a` again, under another activity: still one build.
+            {"action": "start", "id": 3, "type": BUILD, "text": "building a", "fields": ["/nix/store/a.drv"]},
+            {"action": "stop", "id": 3},
+            # Nothing planned it: an import from a derivation.
+            {"action": "start", "id": 4, "type": BUILD, "text": "building ifd", "fields": ["/nix/store/ifd.drv"]},
+        ]
+        events = [event for record in records if (event := tally.take(record, "r")) is not None]
+        assert tally.counts() == {"built": "1", "builds": "4", "running": "1", "downloaded": "1", "downloads": "1"}
+        assert events[-1]["event"] == "building"
+        assert events[-1]["text"] == "building ifd (1/4 built)"
+
+    def test_a_stop_of_an_activity_never_started_is_nothing(self) -> None:
+        assert BuildTally().take({"action": "stop", "id": 9}, "r") is None
+
+    def test_builds_events_are_for_json_only(self, capsys: pytest.CaptureFixture[str]) -> None:
+        event = {"run": "r", "event": "builds", "text": "planned", "built": "0", "builds": "2"}
+        Watch().take(event)
+        Watch(as_json=True).take(event)
+        assert capsys.readouterr().out.splitlines() == [json.dumps(event, separators=(",", ":"))]

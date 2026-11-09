@@ -10,6 +10,15 @@ export type RunStatus =
 
 export type PhaseRow = { name: string; state: string }
 
+/** Nix's work before the run: each store path once, planned or seen. */
+export type BuildCounts = {
+  built: number
+  builds: number
+  running: number
+  downloaded: number
+  downloads: number
+}
+
 export type Run = {
   /** The run's `--out`, absolute: what every command takes. */
   out: string
@@ -21,6 +30,7 @@ export type Run = {
   phases: PhaseRow[]
   reason?: string
   building?: string
+  builds?: BuildCounts
   last?: string
   error?: string
 }

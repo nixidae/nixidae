@@ -3,7 +3,10 @@
 Every record goes to `<out>/build.jsonl`, one JSON object a line, as huggorm
 hands it over: Nix's activity tree with its typed progress, each build's
 log lines included. `vivarium monitor` reads that file while the run has
-no control socket yet, so a slow build is not a silent one.
+no control socket yet, so a slow build is not a silent one. Before it
+builds, `vivarium run` asks Nix what the driver needs (`query_missing`)
+and writes the plan as `planned` records, so the monitor can count what
+is left.
 
 stderr gets what `nix build` prints at its default verbosity: each
 message, each activity's `...` line. Not a count of builds: `vivarium run`
@@ -21,6 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TextIO
 
 import huggorm
+from vivarium.monitor import BUILD, PLANNED, SUBSTITUTE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -104,6 +108,14 @@ class Recorder:
         if shown is not None:
             self._stderr.write(shown + "\n")
             self._stderr.flush()
+
+    def planned(self, builds: list[str], downloads: list[str]) -> None:
+        """What Nix plans to build and to download for the run, before it
+        starts: one `planned` record per kind, its `type` the activity
+        each path will show up as. The monitor joins every plan it reads."""
+        if self._file is not None:
+            for kind, paths in ((BUILD, builds), (SUBSTITUTE, downloads)):
+                self._file.write(BuildRecord(PLANNED, type=kind, fields=tuple(sorted(paths))).to_json() + "\n")
 
     def failed(self, error: str) -> None:
         """The last line: why there is no run."""

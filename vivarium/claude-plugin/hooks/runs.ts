@@ -1,4 +1,4 @@
-import type { PhaseRow, Run, RunStatus } from '../types'
+import type { BuildCounts, PhaseRow, Run, RunStatus } from '../types'
 
 /** One line of `vivarium monitor --json`. */
 export type Item = {
@@ -10,7 +10,34 @@ export type Item = {
   reason?: string
   passed?: string
   stopped?: string
+  built?: string
+  builds?: string
+  running?: string
+  downloaded?: string
+  downloads?: string
 }
+
+/** The counts a `building` or `builds` item carries, if it carries them. */
+export const counts = (item: Item): BuildCounts | undefined => {
+  if (item.builds === undefined) return undefined
+  const n = (value: string | undefined): number => Number.parseInt(value ?? '0', 10) || 0
+  return {
+    built: n(item.built),
+    builds: n(item.builds),
+    running: n(item.running),
+    downloaded: n(item.downloaded),
+    downloads: n(item.downloads),
+  }
+}
+
+/** `builds 3/10, 1 running · downloads 12/40`: only the kinds with work. */
+export const progress = (c: BuildCounts): string =>
+  [
+    c.builds > 0 ? `builds ${c.built}/${c.builds}${c.running > 0 ? `, ${c.running} running` : ''}` : '',
+    c.downloads > 0 ? `downloads ${c.downloaded}/${c.downloads}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
 const FINAL: ReadonlySet<RunStatus> = new Set(['passed', 'failed', 'stopped', 'gone'])
 
@@ -64,7 +91,13 @@ export const apply = (run: Run, item: Item): Run => {
   const moving = isFinal(run) ? run.status : 'running'
   switch (item.event) {
     case 'building':
-      return { ...next, status: isFinal(run) ? run.status : 'building', building: text }
+      return { ...next, status: isFinal(run) ? run.status : 'building', building: text, builds: counts(item) ?? run.builds }
+    case 'builds':
+      return {
+        ...run,
+        status: run.status === 'waiting' ? 'building' : run.status,
+        builds: counts(item) ?? run.builds,
+      }
     case 'live':
       return { ...run, status: run.status === 'waiting' || run.status === 'building' ? 'running' : run.status }
     case 'progress':
@@ -140,7 +173,7 @@ export const summary = (run: Run): string => {
     case 'waiting':
       return 'waiting for the run'
     case 'building':
-      return 'building'
+      return run.builds && run.builds.builds + run.builds.downloads > 0 ? `building: ${progress(run.builds)}` : 'building'
     case 'running':
       return running ? `running ${running.name}` : 'running'
     case 'paused':

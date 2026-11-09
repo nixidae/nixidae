@@ -36,12 +36,13 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 import anyio
 import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
+from huggorm_bindings import DerivedPathBuilt, OutputsSpec
 from vivarium import cli as runner_cli, control, monitor
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
@@ -49,7 +50,7 @@ from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from huggorm import AsyncEvalState, AsyncValue
+    from huggorm import AsyncEvalState, AsyncStore, AsyncValue
 
 
 @dataclass(frozen=True)
@@ -163,29 +164,40 @@ async def resolve(file: Path, attr: list[str], command: str, recorder: Recorder)
     of the spec. Building `.run` also runs the type check of every phase
     script, exactly as `nix run --file . <attr>.run` does.
     """
-    async with evaluator(recorder) as state:
+    async with evaluator(recorder) as (state, store):
         target = await session_of(state, file, attr)
         # `vivarium run` runs the session's `.driver`; `phases` its `.phases`.
         member = await select_attr_path(state, target, [{"run": "driver"}.get(command, command)])
+        if command == "run":
+            missing = await store.query_missing([DerivedPathBuilt(await member.drv_path(), OutputsSpec(all=True))])
+            recorder.planned(
+                [str(path) for path in missing.will_build()], [str(path) for path in missing.will_substitute()]
+            )
         built = Path(await member.realise_string())
     [program] = sorted((built / "bin").iterdir())
     return str(program)
 
 
+class Evaluator(NamedTuple):
+    state: AsyncEvalState
+    store: AsyncStore
+
+
 @asynccontextmanager
-async def evaluator(recorder: Recorder) -> AsyncIterator[AsyncEvalState]:
+async def evaluator(recorder: Recorder) -> AsyncIterator[Evaluator]:
     """An evaluator on the ambient store, with nix.conf read as `nix` reads
     it. What Nix says while the block runs goes to `recorder`: the
     evaluator's own records, and the builds' and fetches', which no
     evaluator's thread claims."""
     huggorm.load_config()
     async with huggorm.AsyncSession() as session:
-        state = session.eval(session.store())
+        store = session.store()
+        state = session.eval(store)
         async with (
             session.forward(state, recorder.take, level=int(SHOWN)),
             session.forward_process(recorder.take, level=int(SHOWN)),
         ):
-            yield state
+            yield Evaluator(state, store)
 
 
 async def session_of(state: AsyncEvalState, file: Path, attr: list[str]) -> AsyncValue:
@@ -219,7 +231,7 @@ Action = Literal["switch", "boot", "test", "dry-activate"]
 
 async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str]:
     """The node's system with *module* added, and its closure's registration."""
-    async with evaluator(Recorder(None, sys.stderr)) as state:
+    async with evaluator(Recorder(None, sys.stderr)) as (state, _):
         target = await session_of(state, file, attr)
         extend = await state.eval_expr(EXTENDED)
         extended = await (await (await extend(target))(await state.make_string(node)))(
@@ -277,7 +289,7 @@ async def build_spec(file: Path, attr: list[str]) -> Path:
     """The session's spec, built as `run` builds it: `.driver` runs the
     phases' type check, and a reload of a phase that does not type check
     fails here, not in the run."""
-    async with evaluator(Recorder(None, sys.stderr)) as state:
+    async with evaluator(Recorder(None, sys.stderr)) as (state, _):
         target = await session_of(state, file, attr)
         await (await select_attr_path(state, target, ["driver"])).realise_string()
         return Path(await (await select_attr_path(state, target, ["spec"])).realise_string())
