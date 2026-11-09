@@ -223,7 +223,20 @@ lists its tools. `start` returns two monitor commands:
   pause then reads as success.
 - `monitor_all`: every event, through pauses to the verdict.
 
-An agent that only runs shell commands does not need MCP:
+An agent that only runs shell commands does not need MCP. With the
+`vivarium` CLI, one command starts the run and waits:
+
+```console
+$ vivarium run checks.breakpoint --out ./out --break-on-failure --until-pause
+$ vivarium ctl --out ./out continue --wait
+```
+
+`--until-pause` starts the run in its own session, with its output in
+`<out>/run.log`, and exits at the first pause or at the verdict: 4 at a
+pause, then 0, 1, 2 or 5 as the monitor exits. The run and its guests
+stay up after a pause. `continue --wait` does the same from a pause.
+
+With a `nix run` driver instead:
 
 1. Start the run in the background, with its output in a file.
 2. Start `vivarium monitor <out> --quiet` in the background at the same

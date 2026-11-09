@@ -21,6 +21,15 @@ class TestParse:
         assert request.file == Path("/src")
         assert request.rest == ["--out", "o"]
 
+    def test_until_pause_is_ours_and_out_is_read_but_passed_on(self) -> None:
+        request = parse(["run", "x", "--until-pause", "--out", "/o", "-v"])
+        assert request.until_pause
+        assert request.out == Path("/o")
+        assert request.rest == ["--out", "/o", "-v"]
+
+    def test_phases_takes_no_until_pause(self) -> None:
+        assert not parse(["phases", "x"]).until_pause
+
     def test_an_option_after_dashdash_is_pytests_not_ours(self) -> None:
         request = parse(["run", "x", "--", "--file", "t.py"])
         assert request.file == Path(".")

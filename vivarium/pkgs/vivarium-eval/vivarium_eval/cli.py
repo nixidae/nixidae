@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -40,7 +41,7 @@ import anyio
 import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
-from vivarium import cli as runner_cli, control
+from vivarium import cli as runner_cli, control, monitor
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
@@ -61,6 +62,7 @@ class Request:
     out: Path | None = None
     """The runner's `--out`, read and left in `rest`: the build log and the
     first `run.json` go there."""
+    until_pause: bool = False
 
 
 def split_attr(text: str) -> list[str]:
@@ -101,6 +103,16 @@ def parser() -> argparse.ArgumentParser:
             default=Path("."),
             help="the file or directory to evaluate, as `nix build --file` takes it",
         )
+        if command == "run":
+            evaluate.add_argument(
+                "--until-pause",
+                action="store_true",
+                help=(
+                    "start the run in the background, its output in <out>/run.log; wait as"
+                    " `monitor --quiet` does and exit with its status (0 passed, 1 failed,"
+                    " 2 no run, 4 paused, 5 stopped). The run goes on after a pause"
+                ),
+            )
     add_switch(sub)
     runner_cli.add_ctl(sub)
     runner_cli.add_monitor(sub)
@@ -130,7 +142,14 @@ def parse(argv: list[str]) -> Request:
     peek = argparse.ArgumentParser(add_help=False)
     peek.add_argument("--out", type=Path)
     out = peek.parse_known_args(rest)[0].out
-    return Request(args.command, args.file, attr, [*rest, *tail], None if out is None else out.absolute())
+    return Request(
+        args.command,
+        args.file,
+        attr,
+        [*rest, *tail],
+        None if out is None else out.absolute(),
+        until_pause=args.command == "run" and args.until_pause,
+    )
 
 
 async def resolve(file: Path, attr: list[str], command: str, recorder: Recorder) -> str:
@@ -325,6 +344,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(runner_cli.watch(args))
         raise SystemExit(switch(args))
     request = parse(argv)
+    if request.until_pause:
+        raise SystemExit(until_pause(argv, request))
     origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
     log = None if request.out is None or request.command != "run" else request.out / BUILD_LOG
     if log is not None and request.out is not None:
@@ -350,6 +371,37 @@ def main(argv: list[str] | None = None) -> None:
         # So the run prints a `switch` line: only this CLI can evaluate it again.
         os.environ[control.ORIGIN] = origin.to_json()
     os.execv(program, [program, *request.rest])
+
+
+LOG: Final = "run.log"
+"""Where `--until-pause` puts the run's own output."""
+
+
+def until_pause(argv: list[str], request: Request) -> int:
+    """`run --until-pause`: the same run in its own session, then wait for it.
+
+    The child is this command without the flag, so it evaluates, builds and
+    becomes the runner as any `vivarium run` does. It outlives this
+    process: the point is to return at a pause with the guests up."""
+    if request.out is None:
+        say("--until-pause needs --out")
+        return 2
+    request.out.mkdir(parents=True, exist_ok=True)
+    child_argv = [str(this_cli()), *(arg for arg in argv if arg != "--until-pause")]
+    with (request.out / LOG).open("wb") as log:
+        child = subprocess.Popen(  # noqa: S603 -- this program, with the caller's own arguments
+            child_argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+        )
+    # Its pid now, before the child writes it: a child that dies at once
+    # is then a run gone, not a run never seen.
+    origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
+    about = control.run_file(this_cli(), request.out, child.pid, control=False, origin=origin)
+    (request.out / control.RUN_FILE).write_text(about.to_json())
+    say(f"started the run, pid {child.pid}, output in {request.out / LOG}")
+    args = argparse.Namespace(
+        target=str(request.out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT
+    )
+    return runner_cli.watch(args)
 
 
 def announce(out: Path, origin: control.Origin) -> None:

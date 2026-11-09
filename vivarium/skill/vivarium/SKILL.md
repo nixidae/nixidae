@@ -24,7 +24,14 @@ A test is `mkTest`: guests (`nodes.<name>`, NixOS modules) plus phases (`async d
 
 ## Wait
 
-Start the driver and the monitor together, both in the background:
+One command, in the background, run bare: it starts the run detached (its output in `$OUT/run.log`) and exits at the first pause or at the verdict, with the monitor's codes. The guests stay up after it exits 4.
+
+```sh
+vivarium run <test> --out "$OUT" --break-on-failure --until-pause    # background
+vivarium ctl --out "$OUT" continue --wait                            # after probing: next pause or verdict
+```
+
+Without the `vivarium` CLI, start the driver and the monitor together, both in the background:
 
 ```sh
 nix run --file . <test>.driverDebug -- --out "$OUT" > "$OUT.log" 2>&1   # background

@@ -12,6 +12,7 @@ check, `--out` by hand:
 ```
 run.json        how to reach the run: CLI, socket, commands, pid, the test
                 (name, guests, phases, spec), the origin (written first)
+run.log         `vivarium run --until-pause` only: the run's own output
 build.jsonl     `vivarium run` only: each Nix log record of the evaluation
                 and the build, build log lines included; `failed` last
                 when there is no run
