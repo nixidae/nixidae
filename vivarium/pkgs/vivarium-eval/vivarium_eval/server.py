@@ -138,6 +138,29 @@ def select(
     return found[-limit:] if limit > 0 else found
 
 
+def _per_guest(value: float | dict[str, int] | dict[str, float] | None) -> dict[str | None, float]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {guest: number for guest, number in value.items()}
+    return {None: value}
+
+
+def cpu_flags(cpus: int | dict[str, int] | None, cpu_scale: float | dict[str, float] | None) -> list[str]:
+    """`--cpus` and `--cpu-scale` for the run: a number is every guest not
+    named, a mapping one count or scale per guest. Each guest takes one."""
+    counts, scales = _per_guest(cpus), _per_guest(cpu_scale)
+    both = set(counts) & set(scales)
+    if both:
+        names = ", ".join("every guest" if guest is None else guest for guest in sorted(both, key=str))
+        raise ValueError(f"give {names} either cpus or cpu_scale, not both")
+    flags: list[str] = []
+    for flag, given in (("--cpus", counts), ("--cpu-scale", scales)):
+        for guest, number in given.items():
+            flags += [flag, str(number) if guest is None else f"{guest}={number}"]
+    return flags
+
+
 def run_argv(
     *,
     out: Path,
@@ -151,15 +174,13 @@ def run_argv(
     pytest_args: list[str],
     runner: Path | None = None,
     kernel: str | None = None,
-    cpus: int | None = None,
-    cpu_scale: float | None = None,
+    cpus: int | dict[str, int] | None = None,
+    cpu_scale: float | dict[str, float] | None = None,
 ) -> list[str]:
     """The child's command line. By attribute through the `vivarium` CLI, which
     evaluates first; by spec straight to the `vivarium` the spec names."""
     if (attr is None) == (spec is None):
         raise ValueError("give exactly one of attr and spec")
-    if cpus is not None and cpu_scale is not None:
-        raise ValueError("give at most one of cpus and cpu_scale")
     bin_dir = Path(sys.executable).parent
     if attr is not None:
         split_attr(attr)
@@ -180,10 +201,7 @@ def run_argv(
         argv.append("--offline")
     if kernel is not None:
         argv += ["--kernel", kernel]
-    if cpus is not None:
-        argv += ["--cpus", str(cpus)]
-    if cpu_scale is not None:
-        argv += ["--cpu-scale", str(cpu_scale)]
+    argv += cpu_flags(cpus, cpu_scale)
     if pytest_args:
         argv += ["--", *pytest_args]
     return argv
@@ -417,8 +435,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         pytest_args: list[str] | None = None,
         env: dict[str, str] | None = None,
         kernel: str | None = None,
-        cpus: int | None = None,
-        cpu_scale: float | None = None,
+        cpus: int | dict[str, int] | None = None,
+        cpu_scale: float | dict[str, float] | None = None,
     ) -> dict[str, str]:
         """Start a run in the background; returns its id at once.
 
@@ -430,8 +448,9 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         or `UMBRELLA_DEV` to build against a working copy.
         `kernel` boots a kernel from a working tree instead of Nix's:
         `linux` from a UML build, or a bzImage with virtio built in.
-        `cpus` gives every guest that many processors, `cpu_scale` the
-        host's cores times it; each replaces the guests' `vivarium.cpus`.
+        `cpus` is a processor count, `cpu_scale` a share of the host's
+        cores (0.5 is half); a number is every guest, `{"db": 8}` one
+        guest. Either replaces `vivarium.cpus` for this run.
         Events arrive on the vivarium channel. `monitor` in the reply is a
         command that prints the pauses, failures and verdict, one line
         each, and exits 4 at a pause; `monitor_all` prints every event

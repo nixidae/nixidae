@@ -364,8 +364,9 @@ in
         host's cores times `s`. The runner counts the cores when the
         guest starts, so the derivation does not depend on the machine
         that evaluated it: `NIX_BUILD_CORES` inside a build, else the
-        cores this process may run on. `vivarium run --cpus N` or
-        `--cpu-scale S` sets every guest of one run. QEMU and krun honour
+        cores this process may run on. Each guest sets its own here.
+        `vivarium run --cpus [GUEST=]N` or `--cpu-scale [GUEST=]S`
+        replaces it for one run: one guest, or every guest not named. QEMU and krun honour
         it; UML and container guests do not.
 
         Worth about 11% on the iperf test at two processors, measured.

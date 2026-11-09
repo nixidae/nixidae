@@ -9,6 +9,7 @@ import pytest
 from vivarium import cli
 from vivarium.cli import parse
 from vivarium.control import Op, Reply
+from vivarium.session import CpuOverride
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -79,13 +80,27 @@ async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypa
 
 @pytest.mark.parametrize(
     ("flags", "cpus"),
-    [([], None), (["--cpus", "4"], 4), (["--cpu-scale", "0.5"], {"scale": 0.5})],
+    [
+        ([], None),
+        (["--cpus", "4"], CpuOverride(every=4)),
+        (["--cpu-scale", "0.5"], CpuOverride(every={"scale": 0.5})),
+        (["--cpus", "2", "--cpus", "db=8", "--cpu-scale", "web=0.5"], CpuOverride(every=2, guests={"db": 8, "web": {"scale": 0.5}})),
+    ],
 )
-def test_cpus_of_a_run(flags: list[str], cpus: object) -> None:
+def test_cpus_of_a_run(flags: list[str], cpus: CpuOverride | None) -> None:
     assert cli.cpus_of(parse(["run", "--spec", "s.json", "--out", "o", *flags])) == cpus
 
 
-@pytest.mark.parametrize("flags", [["--cpus", "0"], ["--cpu-scale", "-1"], ["--cpus", "2", "--cpu-scale", "1"]])
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--cpus", "0"],
+        ["--cpu-scale", "-1"],
+        ["--cpus", "x"],
+        ["--cpus", "2", "--cpu-scale", "1"],
+        ["--cpus", "db=2", "--cpu-scale", "db=1"],
+    ],
+)
 def test_cpus_refused(flags: list[str]) -> None:
     with pytest.raises(SystemExit):
-        parse(["run", "--spec", "s.json", "--out", "o", *flags])
+        cli.cpus_of(parse(["run", "--spec", "s.json", "--out", "o", *flags]))

@@ -51,7 +51,7 @@ from .control import (
 from .events import Kind, Level
 from .feed import Feed
 from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
-from .session import Session, SessionError
+from .session import CpuOverride, Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
 
@@ -72,23 +72,40 @@ def _absolute(value: str) -> Path:
     return Path(value).absolute()
 
 
-def _positive(kind: type[int] | type[float]) -> Callable[[str], int | float]:
-    def parsed(value: str) -> int | float:
-        number = kind(value)
-        if number <= 0:
-            raise argparse.ArgumentTypeError(f"{value} is not above zero")
-        return number
+def _cpus_value(kind: type[int] | type[float]) -> Callable[[str], tuple[str | None, Cpus]]:
+    """`N` for every guest, or `GUEST=N` for one; a scale for `float`."""
+
+    def parsed(value: str) -> tuple[str | None, Cpus]:
+        guest, _, number = value.rpartition("=")
+        try:
+            amount = kind(number)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{value}: {number!r} is not a number") from None
+        if amount <= 0:
+            raise argparse.ArgumentTypeError(f"{value}: {number} is not above zero")
+        cpus: Cpus = {"scale": float(amount)} if kind is float else int(amount)
+        return (guest or None, cpus)
 
     return parsed
 
 
-def cpus_of(args: argparse.Namespace) -> Cpus | None:
-    """`--cpus N` or `--cpu-scale S`, as `vivarium.cpus` would hold it."""
-    if args.cpus is not None:
-        return int(args.cpus)
-    if args.cpu_scale is not None:
-        return {"scale": float(args.cpu_scale)}
-    return None
+def cpus_of(args: argparse.Namespace) -> CpuOverride | None:
+    """`--cpus` and `--cpu-scale`, each `N` for every guest or `GUEST=N`."""
+    given: list[tuple[str | None, Cpus]] = [*args.cpus, *args.cpu_scale]
+    if not given:
+        return None
+    every: Cpus | None = None
+    guests: dict[str, Cpus] = {}
+    for guest, cpus in given:
+        if guest is None:
+            if every is not None:
+                raise SystemExit("vivarium: give the processors of every guest once")
+            every = cpus
+        elif guest in guests:
+            raise SystemExit(f"vivarium: give {guest}'s processors once")
+        else:
+            guests[guest] = cpus
+    return CpuOverride(every=every, guests=guests)
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -147,18 +164,21 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " kernel without a Nix build per change; never the check's kernel"
         ),
     )
-    cpus = run.add_mutually_exclusive_group()
-    cpus.add_argument(
+    run.add_argument(
         "--cpus",
-        type=_positive(int),
-        metavar="N",
-        help="give every guest N processors, in place of its `vivarium.cpus`",
+        type=_cpus_value(int),
+        action="append",
+        default=[],
+        metavar="[GUEST=]N",
+        help="N processors for GUEST, or for every guest not named; in place of `vivarium.cpus`; repeatable",
     )
-    cpus.add_argument(
+    run.add_argument(
         "--cpu-scale",
-        type=_positive(float),
-        metavar="S",
-        help="give every guest the host's cores times S (0.5 is half), in place of its `vivarium.cpus`",
+        type=_cpus_value(float),
+        action="append",
+        default=[],
+        metavar="[GUEST=]S",
+        help="the host's cores times S (0.5 is half) for GUEST, or for every guest not named; repeatable",
     )
     run.add_argument(
         "--break-on-start",

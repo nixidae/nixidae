@@ -842,9 +842,10 @@ after it changes, and cached by cachix after that.
   than one on the iperf test — the cross-CPU work costs more than the
   parallelism buys. A QEMU or krun guest takes `vivarium.cpus`: by default
   every core the run may use (`NIX_BUILD_CORES` in a build), counted when
-  the guest starts. `{ scale = 0.5; }` is half; `vivarium run --cpus N` or
-  `--cpu-scale S` (MCP `start`: `cpus`, `cpu_scale`) sets every guest of
-  one run.
+  the guest starts. `{ scale = 0.5; }` is half; each guest sets its own.
+  `vivarium run --cpus [GUEST=]N` or `--cpu-scale [GUEST=]S` (MCP `start`:
+  `cpus`, `cpu_scale`, a number or `{"db": 8}`) replaces it for one run:
+  one guest, or every guest not named.
 - `lan` and `iperf` have been run on both backends, and so has nixkube's
   own node test — a kubeadm control plane, a CSI driver and nine chaos
   scenarios — inside the sandbox and outside it. This repository's

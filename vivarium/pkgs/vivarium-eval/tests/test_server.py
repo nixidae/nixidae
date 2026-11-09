@@ -206,7 +206,9 @@ class TestRunArgv:
         assert argv[argv.index("--kernel") + 1] == "/home/me/linux/linux"
         assert argv.index("--kernel") < argv.index("--")
 
-    def _cpus_argv(self, out: Path, cpus: int | None, cpu_scale: float | None) -> list[str]:
+    def _cpus_argv(
+        self, out: Path, cpus: int | dict[str, int] | None, cpu_scale: float | dict[str, float] | None
+    ) -> list[str]:
         return run_argv(
             out=out,
             attr="x",
@@ -229,9 +231,17 @@ class TestRunArgv:
         assert scaled[scaled.index("--cpu-scale") + 1] == "0.5"
         assert "--cpus" not in scaled
 
-    def test_at_most_one_of_cpus_and_cpu_scale(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="at most one"):
-            self._cpus_argv(tmp_path, 4, 0.5)
+    def test_cpus_per_guest(self, tmp_path: Path) -> None:
+        argv = self._cpus_argv(tmp_path, {"db": 8}, 0.5)
+        assert argv[argv.index("--cpus") + 1] == "db=8"
+        assert argv[argv.index("--cpu-scale") + 1] == "0.5"
+
+    @pytest.mark.parametrize(("cpus", "scale"), [(4, 0.5), ({"db": 2}, {"db": 0.5})])
+    def test_one_guest_takes_one_of_cpus_and_cpu_scale(
+        self, cpus: int | dict[str, int], scale: float | dict[str, float], tmp_path: Path
+    ) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            self._cpus_argv(tmp_path, cpus, scale)
 
     @pytest.mark.parametrize(("attr", "spec"), [(None, None), ("a", "b")])
     def test_exactly_one_of_attr_and_spec(self, attr: str | None, spec: str | None, tmp_path: Path) -> None:

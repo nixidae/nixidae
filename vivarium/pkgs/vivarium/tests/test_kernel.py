@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vivarium.session import with_cpus, with_kernel
+import pytest
+from vivarium.session import CpuOverride, SessionError, with_cpus, with_kernel
 
 if TYPE_CHECKING:
     from vivarium_runner.machine import MachineSpecJson
@@ -48,5 +49,17 @@ class TestWithKernel:
 class TestWithCpus:
     def test_every_guest_takes_the_run_s_cpus(self) -> None:
         machines: list[MachineSpecJson] = [{"name": "a", "cpus": 2}, {"name": "b"}]
-        assert [m["cpus"] for m in with_cpus(machines, {"scale": 0.5})] == [{"scale": 0.5}, {"scale": 0.5}]
+        got = with_cpus(machines, CpuOverride(every={"scale": 0.5}))
+        assert [m["cpus"] for m in got] == [{"scale": 0.5}, {"scale": 0.5}]
         assert machines[0]["cpus"] == 2, "the spec is not changed"
+
+    def test_a_named_guest_takes_its_own(self) -> None:
+        machines: list[MachineSpecJson] = [{"name": "a", "cpus": 2}, {"name": "b"}, {"name": "c", "cpus": 3}]
+        got = with_cpus(machines, CpuOverride(every=1, guests={"b": 8}))
+        assert [m.get("cpus") for m in got] == [1, 8, 1]
+        alone = with_cpus(machines, CpuOverride(guests={"b": {"scale": 0.5}}))
+        assert [m.get("cpus") for m in alone] == [2, {"scale": 0.5}, 3], "a guest not named keeps vivarium.cpus"
+
+    def test_an_unknown_guest_is_refused(self) -> None:
+        with pytest.raises(SessionError, match="no guest x"):
+            with_cpus([{"name": "a"}], CpuOverride(guests={"x": 2}))

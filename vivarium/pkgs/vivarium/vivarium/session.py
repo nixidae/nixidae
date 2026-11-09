@@ -36,6 +36,7 @@ import time
 import traceback
 from collections import defaultdict
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -174,10 +175,26 @@ def with_kernel(machines: list[MachineSpecJson], kernel: Path) -> list[MachineSp
     return [_with_kernel(machine, kernel) for machine in machines]
 
 
-def with_cpus(machines: list[MachineSpecJson], cpus: Cpus) -> list[MachineSpecJson]:
-    """The machines, each with `cpus` in place of its own `vivarium.cpus`.
-    From `--cpus` or `--cpu-scale`; the runner resolves it at start."""
-    return [{**machine, "cpus": cpus} for machine in machines]
+@dataclass(frozen=True, slots=True)
+class CpuOverride:
+    """`--cpus` and `--cpu-scale` of one run: one guest's own, then `every`
+    for each guest not named. The runner resolves a scale at start."""
+
+    every: Cpus | None = None
+    guests: dict[str, Cpus] = field(default_factory=dict)
+
+
+def with_cpus(machines: list[MachineSpecJson], override: CpuOverride) -> list[MachineSpecJson]:
+    """The machines, with the run's processors in place of `vivarium.cpus`.
+    A guest the override names and the run lacks is refused."""
+    unknown = sorted(set(override.guests) - {m["name"] for m in machines})
+    if unknown:
+        raise SessionError(f"no guest {', '.join(unknown)} to give processors; the guests: {', '.join(m['name'] for m in machines)}")
+    out: list[MachineSpecJson] = []
+    for machine in machines:
+        cpus = override.guests.get(machine["name"], override.every)
+        out.append(machine if cpus is None else {**machine, "cpus": cpus})
+    return out
 
 
 class Session:
@@ -192,7 +209,7 @@ class Session:
         sink: Sink | None = None,
         pytest_args: list[str] | None = None,
         kernel: Path | None = None,
-        cpus: Cpus | None = None,
+        cpus: CpuOverride | None = None,
     ) -> None:
         self.spec = spec
         # A kernel from a working tree, by hand. See `with_kernel`.
