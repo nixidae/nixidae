@@ -47,6 +47,7 @@ let
     "check-mount=false"
     "lower-store=${lowerStore}"
   ];
+  unitStoreUrl = lib.replaceStrings [ "%" ] [ "%%" ] storeUrl;
 in
 {
   options.vivarium.hostStore.enable = lib.mkEnableOption ''
@@ -57,20 +58,32 @@ in
   '';
 
   config = lib.mkIf cfg.hostStore.enable {
-    nix.settings = {
-      # Two features, not one: the overlay store itself, and the
-      # read-only opening of its lower store.
-      experimental-features = [
-        "nix-command"
-        "local-overlay-store"
-        "read-only-local-store"
-      ];
-      store = storeUrl;
-    };
+    # Two features, not one: the overlay store itself, and the read-only
+    # opening of its lower store.
+    nix.settings.experimental-features = [
+      "nix-command"
+      "local-overlay-store"
+      "read-only-local-store"
+    ];
 
-    # `nix.checkConfig` runs the guest's `nix` against this configuration at
-    # build time, where `/host` does not exist.
-    nix.checkConfig = false;
+    /*
+      The store URL goes to the daemon alone, never as `store` in
+      `nix.conf`. A setting in a file beats `NIX_REMOTE`, and every `nix`
+      reads `/etc/nix/nix.conf`, the one in a recursive-nix build too. That
+      `nix` then ignores the socket its daemon hands it and opens this
+      store. Measured: four tests of Nix's functional suite failed with
+      "opening lock file /nix/var/nix/db/big-lock". nixidae/nixidae#1159.
+
+      Root's `auto` would open `/nix/store` as a plain local store. So the
+      agent opens the overlay itself, which `nix-store --load-db` of a
+      closure registration needs, and login shells use the daemon.
+
+      `%%`: systemd reads `%3F` in `Environment=` as a specifier, logs
+      "Failed to resolve specifiers", and drops the whole assignment.
+    */
+    systemd.services.nix-daemon.environment.NIX_REMOTE = unitStoreUrl;
+    systemd.services.vivarium-agent.environment.NIX_REMOTE = unitStoreUrl;
+    environment.variables.NIX_REMOTE = "daemon";
 
     systemd.services.vivarium-host-store = {
       description = "Check the host's Nix database is readable";
