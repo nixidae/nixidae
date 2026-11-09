@@ -3,11 +3,13 @@
 Each case starts `vivarium run` on one guest, signals the runner once a
 phase has started, and looks for what is left: a run root, or a process
 by its exact name. SIGKILL: the cleaner removes the root. SIGTERM: the
-run exits 143 after the guest has powered itself off.
+run exits 143 after the guest has powered itself off. `ctl stop` while
+the phase runs: the run exits 5 and says stopped.
 
     cleanup VIVARIUM SPEC WORKDIR BACKEND
 """
 
+import json
 import os
 import shutil
 import signal
@@ -17,6 +19,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Final, Literal
 
 LEFT_BEHIND = {
     "uml": ("linux", "uml-passt-bridge", "passt"),
@@ -25,6 +28,9 @@ LEFT_BEHIND = {
 }
 """The runner's own children per backend, by the name the kernel keeps:
 `comm`, cut at 15 bytes."""
+
+STOPPED: Final = 5
+"""The exit status of a run that `ctl stop` ended."""
 
 POWERED_OFF = {
     "uml": "the kernel exited (0)",
@@ -62,16 +68,21 @@ def until(check: Callable[[], bool], seconds: float, step: float = 0.1) -> bool:
     return check()
 
 
+STOP: Final = "ctl-stop"
+"""End the run with `vivarium ctl stop` rather than a signal."""
+
+
 def case(
     vivarium: str,
     spec: str,
     work: Path,
-    sig: signal.Signals,
+    end: signal.Signals | Literal["ctl-stop"],
     left_behind: tuple[str, ...],
     *,
     keep: bool = False,
 ) -> int:
-    name = f"{sig.name}{'-keep' if keep else ''}"
+    how = end if isinstance(end, str) else end.name
+    name = f"{how}{'-keep' if keep else ''}"
     out = work / f"run-{name}"
     log = work / f"run-{name}.log"
     env = {**os.environ, **({"VIVARIUM_KEEP": "1"} if keep else {})}
@@ -85,12 +96,19 @@ def case(
 
     def started() -> bool:
         if runner.poll() is not None:
-            sys.exit(f"{sig.name}: the runner ended first:\n{log.read_text()}")
+            sys.exit(f"{how}: the runner ended first:\n{log.read_text()}")
         return "[phase] hold" in log.read_text()
 
     if not until(started, 300, 0.2):
-        sys.exit(f"{sig.name}: no phase started")
-    runner.send_signal(sig)
+        sys.exit(f"{how}: no phase started")
+    if isinstance(end, str):
+        # While `hold` runs: the drive is cancelled from the socket's
+        # handler, not from a signal handler, and must still tear down.
+        stopped = subprocess.run([vivarium, "ctl", "--out", str(out), "stop"], capture_output=True, text=True)
+        if stopped.returncode != 0 or stopped.stdout.strip() != "stopped":
+            sys.exit(f"{how}: ctl stop exited {stopped.returncode}: {stopped.stdout}{stopped.stderr}")
+    else:
+        runner.send_signal(end)
     status = runner.wait()
     # Keeping the root keeps files, never processes.
     if until(lambda: not running(left_behind), 5) is False:
@@ -106,8 +124,8 @@ def case(
         return status
     # The cleaner removes the root just after the runner is gone.
     if not until(lambda: not roots(), 5):
-        sys.exit(f"{sig.name}: left {roots()}")
-    print(f"ok: {sig.name}, exit {status}, nothing left")
+        sys.exit(f"{how}: left {roots()}")
+    print(f"ok: {how}, exit {status}, nothing left")
     return status
 
 
@@ -126,6 +144,15 @@ def main() -> None:
     if POWERED_OFF[backend] not in console:
         sys.exit("SIGTERM: the guest did not power itself off")
     print("ok: SIGTERM powered the guest off before the run ended")
+
+    status = case(vivarium, spec, work, STOP, left_behind)
+    if status != STOPPED:
+        sys.exit(f"{STOP}: exit {status}, not {STOPPED}")
+    phases = json.loads((work / f"run-{STOP}" / "phases.json").read_text())
+    states = {phase["name"]: phase["state"] for phase in phases["phases"]}
+    if phases["stopped"] != "ctl stop" or states.get("hold") != "interrupted":
+        sys.exit(f"{STOP}: phases.json says {phases}")
+    print("ok: ctl stop while a phase ran: exit 5, hold interrupted, the run says stopped")
 
 
 if __name__ == "__main__":
