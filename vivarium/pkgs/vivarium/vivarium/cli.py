@@ -39,6 +39,7 @@ from .control import (
     Op,
     Origin,
     RunFile,
+    Subject,
     first_guest,
     request,
     run_file,
@@ -367,6 +368,7 @@ async def run(args: argparse.Namespace) -> int:
                 serial=args.serial,
                 control=args.control,
                 origin=origin,
+                spec=args.spec,
             )
             group.cancel_scope.cancel()
         if session.stopped is not None:
@@ -402,6 +404,7 @@ async def drive(
     serial: bool = False,
     control: bool = True,
     origin: Origin | None = None,
+    spec: Path | None = None,
 ) -> None:
     """Boot, run what is pending, write the evidence, put the guests down.
 
@@ -434,6 +437,7 @@ async def drive(
             control=controller is not None,
             origin=origin,
             node=first_guest(session),
+            test=Subject.of(session, spec),
         )
         out = anyio.Path(session.out)
         await out.mkdir(parents=True, exist_ok=True)

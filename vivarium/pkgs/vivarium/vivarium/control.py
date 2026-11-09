@@ -357,6 +357,7 @@ class RunFile:
     """`None` for a run with no control socket (`--no-control`)."""
     commands: tuple[Command, ...]
     origin: Origin | None = None
+    test: Subject | None = None
 
     def command(self, use: Use) -> Command | None:
         return next((c for c in self.commands if c.use is use), None)
@@ -367,6 +368,7 @@ class RunFile:
             "out": str(self.out),
             "vivarium": str(self.vivarium),
             "socket": None if self.socket is None else str(self.socket),
+            "test": None if self.test is None else self.test.to_dict(),
             # `command` beside `argv` for a shell reader: `jq -r` gives a line to paste.
             "commands": [
                 {"use": str(c.use), "what": c.what, "argv": list(c.argv), "command": c.line} for c in self.commands
@@ -385,11 +387,57 @@ class RunFile:
             socket=None if raw["socket"] is None else Path(raw["socket"]),
             commands=tuple(Command(Use(c["use"]), str(c["what"]), tuple(c["argv"])) for c in raw["commands"]),
             origin=None if raw.get("origin") is None else Origin.from_json(json.dumps(raw["origin"])),
+            test=None if raw.get("test") is None else Subject.from_dict(raw["test"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Subject:
+    """The test the run in `run.json` runs, so a tool finds its way without
+    reading the spec."""
+
+    name: str
+    guests: tuple[str, ...]
+    phases: tuple[str, ...]
+    spec: Path | None = None
+    """`None` for a session driven with no spec file, as a test drives one."""
+
+    def to_dict(self) -> dict[str, object]:  # object: a JSON document of mixed values
+        return {
+            "name": self.name,
+            "guests": list(self.guests),
+            "phases": list(self.phases),
+            "spec": None if self.spec is None else str(self.spec),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> Subject:  # Any: parsed JSON, checked field by field here
+        return cls(
+            name=str(raw["name"]),
+            guests=tuple(str(g) for g in raw["guests"]),
+            phases=tuple(str(p) for p in raw["phases"]),
+            spec=None if raw.get("spec") is None else Path(raw["spec"]),
+        )
+
+    @classmethod
+    def of(cls, session: Session, spec: Path | None = None) -> Subject:
+        return cls(
+            name=session.spec.name,
+            guests=tuple(str(machine["name"]) for machine in session.spec.machines),
+            phases=tuple(phase.name for phase in session.spec.phases),
+            spec=spec,
         )
 
 
 def run_file(
-    vivarium: Path, out: Path, pid: int, *, control: bool, origin: Origin | None = None, node: str | None = None
+    vivarium: Path,
+    out: Path,
+    pid: int,
+    *,
+    control: bool,
+    origin: Origin | None = None,
+    node: str | None = None,
+    test: Subject | None = None,
 ) -> RunFile:
     """The run file of a run in `out`; with no socket, only what works without one."""
     return RunFile(
@@ -399,6 +447,7 @@ def run_file(
         socket=out / SOCKET if control else None,
         commands=tuple(c for c in commands(vivarium, out, origin, node) if control or not c.needs_socket),
         origin=origin,
+        test=test,
     )
 
 

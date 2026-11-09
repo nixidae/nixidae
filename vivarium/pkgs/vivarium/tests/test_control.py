@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import shlex
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -17,6 +18,7 @@ from vivarium.control import (
     Reply,
     Request,
     RunFile,
+    Subject,
     Use,
     commands,
     forget,
@@ -209,6 +211,24 @@ def test_the_run_file_keeps_its_origin() -> None:
     about = run_file(VIVARIUM, Path("/o"), 42, control=True, origin=ORIGIN, node="one")
     assert RunFile.from_json(about.to_json()) == about
     assert about.command(Use.SWITCH) is not None
+
+
+def test_the_run_file_names_the_test() -> None:
+    test = Subject("pytest-phase", ("one", "two"), ("boot", "cases"), Path("/nix/store/s-spec.json"))
+    about = run_file(VIVARIUM, Path("/o"), 42, control=True, test=test)
+    assert json.loads(about.to_json())["test"] == {
+        "name": "pytest-phase",
+        "guests": ["one", "two"],
+        "phases": ["boot", "cases"],
+        "spec": "/nix/store/s-spec.json",
+    }
+    assert RunFile.from_json(about.to_json()) == about
+
+
+def test_a_run_file_from_an_older_runner_has_no_test() -> None:
+    document = json.loads(run_file(VIVARIUM, Path("/o"), 42, control=True).to_json())
+    del document["test"]
+    assert RunFile.from_json(json.dumps(document)).test is None
 
 
 @pytest.mark.parametrize("text", ["[]", '{"cli": "/v", "attr": "x"}', '{"cli": "v", "attr": "x", "file": "/f"}'])

@@ -42,7 +42,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 
 ## At a pause
 
-`vivarium` is on PATH in the dev shell of each project that runs vivarium tests (`packages.vivarium`, built on huggorm). The run also prints absolute command lines at start and at each pause, and `$OUT/run.json` holds them. A run the `vivarium` CLI started prints `vivarium` lines; a `nix run` driver prints its runner's path. Never scrape `$OUT.log` for them.
+`vivarium` is on PATH in the dev shell of each project that runs vivarium tests (`packages.vivarium`, built on huggorm). The run also prints absolute command lines at start and at each pause, and `$OUT/run.json` holds them, with the test's name, guests, phases and spec. A run the `vivarium` CLI started prints `vivarium` lines; a `nix run` driver prints its runner's path. Never scrape `$OUT.log` for them.
 
 ```sh
 vivarium ctl --out "$OUT" state

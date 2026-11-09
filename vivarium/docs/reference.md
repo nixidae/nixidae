@@ -10,7 +10,8 @@ The same directory whichever door you came through — `$out` for the
 check, `--out` by hand:
 
 ```
-run.json        how to reach the run: CLI, socket, commands, pid (written first)
+run.json        how to reach the run: CLI, socket, commands, pid, the test
+                (name, guests, phases, spec), the origin (written first)
 status          0 or 1
 log             everything, readable, never filtered
 events.jsonl    everything, one JSON object per line
