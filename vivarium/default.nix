@@ -838,47 +838,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-only"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          export HOME="$TMPDIR"
-          out_dir="$TMPDIR/run"
-          ${lib.getExe run.driver} --out "$out_dir" --only only
-          echo "--- phases.json ---"
-          cat "$out_dir/phases.json"
-
-          want() {
-            got=$(jq -r --arg n "$1" '.phases[] | select(.name == $n) | .state' \
-              "$out_dir/phases.json")
-            if [ "$got" != "$2" ]; then
-              echo "phase $1 is '$got', expected '$2'" >&2
-              exit 1
-            fi
-            echo "ok: $1 is $2"
-          }
-
-          want only passed
-          want boot passed
-          want never deselected
-          want later deselected
-
-          if [ "$(jq -r '.passed' "$out_dir/phases.json")" != "true" ]; then
-            echo "asking for one phase by name reported failure" >&2
-            exit 1
-          fi
-          echo "ok: a deselected phase does not fail the run"
-
-          # And the guest really did the work, rather than the phase
-          # being counted without running.
-          test -f "$out_dir/artifacts/only-ran" \
-            || { echo "the phase was counted but never ran" >&2; exit 1; }
-          echo "ok: and it left its evidence in the artifacts"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-only" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/only.py ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+        touch $out
+      '';
 
     /*
       Does `--only` boot only what its phases need?
@@ -950,46 +913,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-recipes"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          report=${run.attempt}/phases.json
-          echo "--- $report ---"
-          cat "$report"
-
-          want() {
-            got=$(jq -r --arg n "$1" '.phases[] | select(.name == $n) | .state' "$report")
-            if [ "$got" != "$2" ]; then
-              echo "phase $1 is '$got', expected '$2'" >&2
-              exit 1
-            fi
-            echo "ok: $1 is $2"
-          }
-
-          # The recipe's own phase, which nothing in this session declared.
-          want boot passed
-          want cluster failed
-          # The rule `always` exists for.
-          want evidence passed
-          echo "ok: evidence ran although the phase before it failed"
-          test -f ${run.attempt}/artifacts/one/failed-units \
-            || { echo "evidence passed and left nothing" >&2; exit 1; }
-          # And the failure did not travel through it.
-          want later passed
-
-          # It must still be a failed run: evidence is not an answer to
-          # the question the failed phase was asked.
-          if [ "$(jq -r '.passed' "$report")" != "false" ]; then
-            echo "collecting evidence turned a failure into a pass" >&2
-            exit 1
-          fi
-          echo "ok: and the run still failed"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-recipes" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/recipes.py ${run.attempt}
+        touch $out
+      '';
 
     /*
       Does a guest's journal survive the guest?
@@ -1012,53 +939,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-stream"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          events=${run.attempt}/events.jsonl
-          jq -r '.phases[] | "\(.name)\t\(.state)"' ${run.attempt}/phases.json
-
-          found=$(jq -c 'select(.kind == "journal"
-                                and .machine == "one"
-                                and .data.unit == "probe.service"
-                                and .text == "streamed-before-the-crash")' "$events")
-          if [ -z "$found" ]; then
-            echo "the line is not in events.jsonl as a journal event from probe.service" >&2
-            jq -c 'select(.kind == "journal")' "$events" | tail -20 >&2
-            exit 1
-          fi
-          echo "ok: $found"
-
-          if [ "$(echo "$found" | jq -r .phase)" != "crash" ]; then
-            echo "the entry is not attributed to the phase that caused it" >&2
-            exit 1
-          fi
-          echo "ok: attributed to the phase that logged it"
-
-          grep -q streamed-before-the-crash ${run.attempt}/artifacts/one/journal.jsonl \
-            || { echo "the raw journal on the host lost the line" >&2; exit 1; }
-          echo "ok: and the raw stream is in the artifacts"
-
-          # A guest that shut down cleanly would have had time to flush,
-          # and then this check proves nothing about a crash.
-          if grep -qE 'Reached target.*Power-Off|reboot: ' ${run.attempt}/console/one.log; then
-            echo "the guest shut down cleanly; crash() did not kill it" >&2
-            exit 1
-          fi
-          if jq -e 'select(.kind == "rpc" and .text == "systemctl poweroff")' "$events" > /dev/null; then
-            echo "teardown asked a dead guest to power off" >&2
-            exit 1
-          fi
-          echo "ok: and the guest died without a shutdown"
-
-          n=$(jq -s 'map(select(.kind == "journal")) | length' "$events")
-          echo "ok: $n journal entries streamed in all"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-stream" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/stream.py ${run.attempt}
+        touch $out
+      '';
 
     /*
       Is a pytest phase pytest, against real guests?
@@ -1084,58 +968,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-pytest-phase"
-        {
-          nativeBuildInputs = [
-            pkgs.jq
-            pkgs.libxml2
-          ];
-          passthru.session = run;
-        }
-        ''
-          a=${run.attempt}
-          jq -r '.phases[] | "\(.name)\t\(.state)"' $a/phases.json
-          fail() { echo "$*" >&2; exit 1; }
-
-          [ "$(jq -r '.phases[] | select(.name == "cases") | .state' $a/phases.json)" = failed ] \
-            || fail "a phase with a failing test did not fail"
-          echo "ok: the failing test failed the phase"
-
-          n=$(xmllint --xpath 'count(//testcase[@classname="pytest.cases"])' $a/junit.xml)
-          [ "$n" = 8 ] || fail "junit has $n cases under pytest.cases, expected 8"
-          echo "ok: 8 JUnit cases, one per test"
-
-          xmllint --xpath 'string(//testcase[contains(@name,"test_fails_on_purpose")]/failure/@message)' \
-            $a/junit.xml | tee message
-          grep -q "assert '2' == '3'" message || fail "the failure is not pytest's rewritten assertion"
-          echo "ok: the failure message is the rewritten assertion"
-
-          test -f $a/artifacts/one/fixture-teardown || fail "the async fixture's teardown never ran"
-          echo "ok: the fixture's teardown ran on the guest"
-
-          case=$(jq -r 'select(.kind == "journal" and .text == "from-a-test") | .data.case' $a/events.jsonl)
-          case "$case" in
-            *::test_the_journal_names_the_test) echo "ok: the journal entry names $case" ;;
-            *) fail "the journal entry names '$case'" ;;
-          esac
-
-          jq -e 'select(.kind == "rpc" and .text == "hostname" and (.data.case | endswith("::test_hostname")))' \
-            $a/events.jsonl > /dev/null || fail "the command does not name its test"
-          echo "ok: and so does the command"
-
-          # Logged by a test that returned at once. Without the phase's
-          # settle it was lost to the teardown -- measured, before settle.
-          jq -e 'select(.kind == "journal" and .text == "logged-and-left" and .phase == "cases")' \
-            $a/events.jsonl > /dev/null || fail "a line logged as a test returned was lost"
-          echo "ok: a line logged on the way out still reached the phase"
-
-          if jq -e 'select(.kind == "journal" and .data.identifier == "vivarium-settle")' $a/events.jsonl > /dev/null; then
-            fail "the settle marker leaked into the events"
-          fi
-          echo "ok: and the runner's own marker stayed out of them"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-pytest-phase" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/pytest_phase.py ${run.attempt}
+        touch $out
+      '';
 
     /*
       One guest as a rootless container under crun (Area 8 of the design).
@@ -1950,48 +1786,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-parallel"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          a=${run.attempt}
-          fail() { echo "$*" >&2; exit 1; }
-          jq -r '.phases[] | "\(.name)\t\(.state)"' $a/phases.json
-          [ "$(cat $a/status)" = 0 ] || fail "the run failed"
-
-          jq -s '[.[] | select(.kind == "phase_started" or .kind == "phase_finished")]
-                 | group_by(.phase)
-                 | map({(.[0].phase): {
-                     start: (map(select(.kind == "phase_started"))[0].at),
-                     end: (map(select(.kind == "phase_finished"))[0].at)}})
-                 | add' $a/events.jsonl | tee spans.json
-
-          jq -e '.left.start < .right.end and .right.start < .left.end' spans.json > /dev/null \
-            || fail "left and right did not overlap"
-          echo "ok: left and right ran at once"
-
-          jq -e '.both.start >= ([.left.end, .right.end] | max)' spans.json > /dev/null \
-            || fail "both started while left or right still ran"
-          echo "ok: and both, which holds every guest, ran alone"
-
-          jq -c 'select(.kind == "journal" and .data.identifier == "parallel")
-                 | {machine, phase, text}' $a/events.jsonl | tee markers
-          [ "$(wc -l < markers)" = 12 ] || fail "expected 12 markers: 3 on a, 3 on b, 6 from both"
-          jq -e -s 'all(.[]; (.text | split("-")[0]) == .phase)' markers > /dev/null \
-            || fail "a journal marker was filed under a phase that did not write it"
-          echo "ok: every journal marker names the phase that held its guest"
-
-          jq -c 'select(.kind == "output" and (.text | test(" step "))) | {phase, text}' \
-            $a/events.jsonl | tee said
-          [ "$(wc -l < said)" = 9 ] || fail "expected 9 printed lines"
-          jq -e -s 'all(.[]; (.text | split(" ")[0]) == .phase)' said > /dev/null \
-            || fail "a print was filed under the other phase"
-          echo "ok: and so does every print"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-parallel" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/parallel.py ${run.attempt}
+        touch $out
+      '';
 
     /*
       Does every guest import `defaults`, and know each peer by name?
@@ -2274,36 +2072,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-guest-suites"
-        {
-          nativeBuildInputs = [
-            pkgs.jq
-            pkgs.libxml2
-          ];
-          passthru.session = run;
-        }
-        ''
-          a=${run.attempt}
-          fail() { echo "$*" >&2; exit 1; }
-          jq -r '.phases[] | "\(.name)\t\(.state)"' $a/phases.json
-          [ "$(cat $a/status)" = 0 ] || fail "the run failed; the script's verdict is the phase's, not the cases'"
-          echo "ok: both phases passed, one script serving both"
-
-          jq -c 'select(.kind == "case")' $a/events.jsonl | tee cases
-          [ "$(wc -l < cases)" = 2 ] || fail "expected the two cases the guest wrote"
-          jq -e 'select(.text == "inner.test_a::test_bad" and .data.outcome == "failed"
-                        and .machine == "one" and .phase == "suite")' cases > /dev/null \
-            || fail "the failed case lost its outcome, machine or phase"
-          echo "ok: the guest's JUnit became cases, with machine and phase"
-
-          n=$(xmllint --xpath 'count(//testcase[@classname="guest-suites.suite"])' $a/junit.xml)
-          [ "$n" = 2 ] || fail "junit.xml holds $n of the guest's cases, expected 2"
-          xmllint --xpath 'string(//testcase[@name="inner.test_a::test_bad"]/failure/@message)' $a/junit.xml \
-            | grep -q "assert 1 == 2" || fail "the failure message did not survive"
-          echo "ok: and they are cases in the run's own junit.xml"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-guest-suites" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/guest_suites.py ${run.attempt}
+        touch $out
+      '';
 
     /*
       Does the `suites` recipe run pytest inside a guest?
@@ -2327,30 +2099,10 @@ let
           };
         };
       in
-      pkgs.runCommand "vivarium-check-suite-recipe"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          export HOME="$TMPDIR"
-          a=${run.attempt}
-          fail() { echo "$*" >&2; exit 1; }
-          jq -r '.phases[] | "\(.name)\t\(.state)"' $a/phases.json
-          [ "$(cat $a/status)" = 1 ] || fail "a suite with a failing test passed"
-          jq -c 'select(.kind == "case")' $a/events.jsonl | tee cases
-          jq -e 'select(.data.outcome == "failed" and .machine == "one" and .phase == "inner")' cases > /dev/null \
-            || fail "the failing test is not a failed case of the phase"
-          jq -e 'select(.data.outcome == "passed")' cases > /dev/null || fail "the passing test is not a case"
-          test -s $a/artifacts/one/inner.log || fail "the suite's output is not in the artifacts"
-          echo "ok: the suite ran in the guest, and its tests are cases"
-
-          o="$TMPDIR/k"
-          ${lib.getExe run.driver} --out "$o" -- -k test_ok || fail "-k test_ok did not reach the guest's pytest"
-          echo "ok: the driver's -- arguments reached the suite"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-suite-recipe" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/suite_recipe.py ${run.attempt} ${lib.getExe run.driver} "$TMPDIR"
+        touch $out
+      '';
 
     /*
       Does `--kernel` boot the kernel it names?
@@ -2369,32 +2121,10 @@ let
           nodes.one = { };
         };
       in
-      pkgs.runCommand "vivarium-check-kernel-override"
-        {
-          nativeBuildInputs = [ pkgs.jq ];
-          passthru.session = run;
-        }
-        ''
-          export HOME="$TMPDIR"
-          fail() { echo "$*" >&2; exit 1; }
-          cp "$(jq -er '.machines[0].launch.config.kernel' ${run.spec})" "$TMPDIR/linux"
-          chmod +x "$TMPDIR/linux"
-
-          ${lib.getExe run.driver} --out "$TMPDIR/good" --kernel "$TMPDIR/linux" \
-            || fail "the run with a copied kernel failed"
-          jq -e --arg k "$TMPDIR/linux" 'select(.kind == "note" and .data.kernel == $k)' \
-            "$TMPDIR/good/events.jsonl" > /dev/null || fail "the run did not record the override"
-          echo "ok: a kernel from outside the store booted, and the run says so"
-
-          printf 'not a kernel\n' > "$TMPDIR/bogus"
-          chmod +x "$TMPDIR/bogus"
-          if ${lib.getExe run.driver} --out "$TMPDIR/bad" --kernel "$TMPDIR/bogus"; then
-            fail "a run whose kernel is not a kernel passed -- the override is ignored"
-          fi
-          echo "ok: and a path that is not a kernel fails the boot"
-
-          touch $out
-        '';
+      pkgs.runCommand "vivarium-check-kernel-override" { passthru.session = run; } ''
+        ${pkgs.python3.interpreter} ${./tests/checks}/kernel_override.py ${run.spec} ${lib.getExe run.driver} "$TMPDIR"
+        touch $out
+      '';
 
     /*
       Can a person reach into a paused run?
