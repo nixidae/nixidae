@@ -148,13 +148,14 @@ let
     "__pycache__"
   ];
 
-  cleanSource =
-    { src, name }:
-    lib.cleanSourceWith {
-      inherit name;
-      src = lib.cleanSource src;
-      filter = path: type: !(type == "directory" && builtins.elem (baseNameOf path) cacheDirs);
-    };
+  noCaches =
+    src:
+    lib.fileset.fromSource (
+      lib.cleanSourceWith {
+        inherit src;
+        filter = path: type: !(type == "directory" && builtins.elem (baseNameOf path) cacheDirs);
+      }
+    );
 
   /*
     The files of a project that its own `pyproject.toml` names.
@@ -167,8 +168,8 @@ let
     step. A project that adds a licence file or moves its package directory
     gets the new source with no edit to this file.
 
-    This is a filter and not a list of paths to copy, so an entry that names
-    nothing in the checkout matches nothing and raises nothing. Two projects
+    `projectSource` takes each entry through `lib.fileset.maybeMissing`, so an
+    entry that names nothing in the checkout adds nothing and raises nothing. Two projects
     rely on that: `nanopynix-proto` and `greeter-proto` have no `src/` at all,
     because protoc writes every module of theirs. Both override `src` with the
     generated tree anyway, so what this returns for them is read at evaluation
@@ -188,20 +189,6 @@ let
     ++ (wheel.packages or [ ])
     ++ (project.license-files or [ ])
     ++ lib.optional (project ? readme) project.readme;
-
-  /*
-    Whether *path* is *entry*, is inside it, or is a directory on the way to it.
-
-    The third case is what makes a nested entry work. `src/nanopynix` cannot be
-    reached unless the filter also says yes to `src`, and a filter that a
-    directory fails is never asked about anything under that directory.
-  */
-  isUnder =
-    prefix: entry: path:
-    let
-      relative = lib.removePrefix prefix (toString path);
-    in
-    relative == entry || lib.hasPrefix "${entry}/" relative || lib.hasPrefix "${relative}/" entry;
 
 in
 # Five entry points, all of them used: two package-set constructors, the
@@ -248,17 +235,16 @@ in
   projectSource =
     { src, name }:
     let
-      # A trailing separator, so `removePrefix` leaves a path relative to the
-      # project and not one that starts with `/`.
-      prefix = "${toString src}/";
-      kept = buildInputsOf src;
+      kept = map (entry: lib.fileset.maybeMissing (src + "/${entry}")) (buildInputsOf src);
     in
-    cleanSource {
-      src = lib.cleanSourceWith {
-        inherit src;
-        filter = path: _type: lib.any (entry: isUnder prefix entry path) kept;
-      };
+    # `cleanSourceWith` over `toSource` only names the result: `toSource` returns a filtered source,
+    # so the two filters compose into one copy.
+    lib.cleanSourceWith {
       inherit name;
+      src = lib.fileset.toSource {
+        root = src;
+        fileset = lib.fileset.intersection (noCaches src) (lib.fileset.unions kept);
+      };
     };
 
   /*
