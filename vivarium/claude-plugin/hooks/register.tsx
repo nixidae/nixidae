@@ -14,7 +14,7 @@ import {
   outOfCommand,
   parseItem,
   startReply,
-  statusText,
+  transition,
   summary,
 } from './runs'
 
@@ -35,15 +35,13 @@ type Run$ = EngineInterface
 const change = (run$: Run$, out: string, fn: (run: Run) => Run) =>
   update(run$, runs, list => list.map(run => (run.out === out ? fn(run) : run)))
 
-let written: string | undefined
-
-/** The status line holds the newest live run, coarse, and is written only
- * when that text changes; with no live run it is cleared. */
-const showStatus = async ($: Run$) => {
-  const text = statusText(await read($, runs))
-  if (text === written) return
-  written = text
-  $.ui.status(text)
+/** Changes one run, and writes a transcript line when its stage moved. */
+const step = async ($: Run$, out: string, fn: (run: Run) => Run) => {
+  const before = (await read($, runs)).find(run => run.out === out)
+  await change($, out, fn)
+  const after = (await read($, runs)).find(run => run.out === out)
+  const said = after && transition(before, after)
+  if (said) $.ui.log(said)
 }
 
 /** What `run.json` says, once the run has written it: its CLI and phases. */
@@ -84,18 +82,16 @@ const watch = ($: Run$, run: Run) => {
               await change($, run.out, r => ({ ...r, phases: merged(known.phases, r.phases) }))
             }
           }
-          await change($, run.out, r => apply(r, item))
+          await step($, run.out, r => apply(r, item))
           if (item.event === 'paused') $.ui.toast(`${run.id}: paused ${item.reason ?? ''}`.trim())
           if (item.event === 'finished') $.ui.toast(`${run.id}: ${item.text ?? 'finished'}`)
-          await showStatus($)
         }
       }
     } catch (error) {
-      await change($, run.out, r => ({ ...r, status: isFinal(r) ? r.status : 'gone', error: String(error) }))
+      await step($, run.out, r => ({ ...r, status: isFinal(r) ? r.status : 'gone', error: String(error) }))
     } finally {
       watching.delete(run.out)
-      await change($, run.out, r => (isFinal(r) ? r : { ...r, status: 'gone' }))
-      await showStatus($)
+      await step($, run.out, r => (isFinal(r) ? r : { ...r, status: 'gone' }))
     }
   })()
 }
@@ -109,7 +105,6 @@ const add = async ($: Run$, out: string, cli?: string[]) => {
   await update($, runs, list => [...list.filter(r => r.out !== out), run].slice(-8))
   void $.ui.open({ id: PANE, title: TITLE })
   watch($, run)
-  await showStatus($)
 }
 
 const send = async ($: Run$, run: Run, op: string) => {
@@ -126,7 +121,8 @@ export const register: Register = on => {
       description: 'Follow a vivarium run in a pane: /vivarium-runs <out>; with no argument, open the pane',
     })
     for (const run of await read($, runs)) if (!isFinal(run)) watch($, run)
-    await showStatus($)
+    // Run state goes to the transcript; clear a line an older version pinned.
+    $.ui.status(undefined)
     return started
   })
 

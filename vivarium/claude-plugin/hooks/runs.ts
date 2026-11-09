@@ -183,12 +183,21 @@ export const summary = (run: Run): string => {
   }
 }
 
-/** The status line: the newest live run and where it is, without counts,
- * which change with every build. Nothing when no run is live. */
-export const statusText = (list: Run[]): string | undefined => {
-  const live = list.filter(run => !isFinal(run))
-  const run = live[live.length - 1]
-  if (!run) return undefined
-  const where = run.status === 'building' ? 'building' : summary(run)
-  return `vivarium ${run.id}: ${where}`
+/** Where a run is, coarse: its state and a pause's reason, not its phase
+ * or its counts, so a transcript gets a handful of lines per run. */
+const stage = (run: Run): string => (run.status === 'paused' ? `paused ${run.reason ?? ''}`.trim() : run.status)
+
+/** The transcript line for a run that moved from `before` to `after`, or
+ * nothing when its stage is the same. The verdict line carries the
+ * run's own words; a run that died, its error. */
+export const transition = (before: Run | undefined, after: Run): string | undefined => {
+  const now = stage(after)
+  if (after.status === 'waiting' || (before !== undefined && stage(before) === now)) return undefined
+  const words =
+    after.status === 'passed' || after.status === 'failed' || after.status === 'stopped'
+      ? (after.last ?? now)
+      : after.status === 'gone'
+        ? `gone${after.error ? `: ${after.error.split('\n')[0]}` : ''}`
+        : now
+  return `vivarium ${after.id}: ${words}`
 }

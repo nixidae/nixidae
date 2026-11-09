@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { apply, fresh, lines, merged, outOfCommand, parseItem, progress, startReply, statusText, summary } from './runs'
+import { apply, fresh, lines, merged, outOfCommand, parseItem, progress, startReply, summary, transition } from './runs'
 
 const RUN = 'vivarium-internal-incr-q9okrapd'
 
@@ -118,19 +118,32 @@ test('progress names only the kinds with work', () => {
   expect(progress({ built: 0, builds: 0, running: 0, downloaded: 5, downloads: 9 })).toBe('downloads 5/9')
 })
 
-test('the status line holds a live run, coarse, and clears without one', () => {
-  const building = apply(fresh('/tmp/a', ['vivarium']), {
-    event: 'builds',
-    text: 'planned',
-    built: '2',
-    builds: '7',
-    running: '1',
-    downloaded: '0',
-    downloads: '0',
-  })
-  expect(statusText([building])).toBe('vivarium a: building')
-  const passed = apply(fresh('/tmp/b', ['vivarium']), { event: 'finished', passed: 'true', text: 'run passed' })
-  expect(statusText([building, passed])).toBe('vivarium a: building')
-  expect(statusText([passed])).toBeUndefined()
-  expect(statusText([])).toBeUndefined()
+test('the transcript gets a line per stage, not per event', () => {
+  const tally = { built: '1', builds: '7', running: '1', downloaded: '0', downloads: '0' }
+  const items = [
+    { event: 'builds', text: 'planned', ...tally },
+    { event: 'building', text: "building 'b.drv' (1/7 built)", ...tally },
+    { event: 'progress', phase: 'boot', state: 'started', text: 'phase boot started' },
+    { event: 'progress', phase: 'check', state: 'started', text: 'phase check started' },
+    { event: 'paused', reason: 'before check', text: 'paused before check' },
+    { event: 'resumed', text: 'resumed' },
+    { event: 'finished', passed: 'true', text: 'run passed: boot passed, check passed' },
+  ]
+  let run = fresh('/tmp/a', ['vivarium'], ['boot', 'check'])
+  const said: string[] = []
+  for (const item of items) {
+    const next = apply(run, item)
+    const line = transition(run, next)
+    if (line) said.push(line)
+    run = next
+  }
+  expect(said).toEqual([
+    'vivarium a: building',
+    'vivarium a: running',
+    'vivarium a: paused before check',
+    'vivarium a: running',
+    'vivarium a: run passed: boot passed, check passed',
+  ])
+  const gone = { ...fresh('/tmp/b', ['vivarium']), status: 'gone' as const, error: 'no run: error: x\nmore' }
+  expect(transition(fresh('/tmp/b', ['vivarium']), gone)).toBe('vivarium b: gone: no run: error: x')
 })
