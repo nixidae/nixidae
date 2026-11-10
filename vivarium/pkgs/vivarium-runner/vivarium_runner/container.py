@@ -236,7 +236,11 @@ def oci_config(
         # build does not mount, and says "invalid file system type".
         _fs("cgroup2", "/sys/fs/cgroup", "nosuid", "noexec", "nodev", "rw"),
         _fs("tmpfs", "/run", "nosuid", "nodev", "mode=755"),
-        _fs("tmpfs", "/tmp", "nosuid", "nodev", "mode=1777"),
+        # No mount at /tmp: the rootfs's own directory, on the run root's
+        # disk, which the run's cleaner removes however the run ends. A
+        # tmpfs puts every store and build the pynixd suites make in host
+        # memory (nixidae/nixidae#1258). A directory cannot be unlinked
+        # from the host early: a removed directory refuses new entries.
         # The host's store below, the guest's writes above. `userxattr`
         # because an unprivileged overlay may not use trusted.* xattrs.
         #

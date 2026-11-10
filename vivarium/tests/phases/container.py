@@ -36,6 +36,14 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"nobody runs as {who.strip()}")
     print("[test] systemd is up, nothing failed, and nobody is 65534")
 
+    # /tmp is on a disk, not in host memory (nixidae/nixidae#1258), and
+    # every user may write there.
+    fstype = (await one.succeed("stat -f -c %T /tmp")).strip()
+    if fstype == "tmpfs":
+        raise AssertionError("/tmp is a tmpfs")
+    await one.succeed("test $(stat -c %a /tmp) = 1777 && runuser -u nobody -- touch /tmp/by-nobody")
+    print(f"[test] /tmp is {fstype}, mode 1777, and nobody writes there")
+
     # What a login shell gets, as on the other backends. `daemon` here made
     # a user's own `nix daemon` connect to itself.
     remote = (await one.succeed("bash -lc 'echo $NIX_REMOTE'")).strip()

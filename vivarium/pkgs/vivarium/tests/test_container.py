@@ -92,6 +92,10 @@ class TestOciConfig:
         assert "upperdir=/run/r/root/.nix-upper" in nix[0]["options"]
         assert "userxattr" in nix[0]["options"]
 
+    def test_tmp_is_the_rootfs_and_not_a_tmpfs(self) -> None:
+        """A tmpfs /tmp put the pynixd suites' stores in host memory (nixidae/nixidae#1258)."""
+        assert "/tmp" not in destinations(config())
+
     def test_sysfs_is_read_only(self) -> None:
         """Writable, it starts udevd, which gets no uevents in a user
         namespace, and networkd then never configures vec0."""
