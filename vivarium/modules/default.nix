@@ -242,21 +242,34 @@ in
     };
 
     memory = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.either lib.types.str (
+        lib.types.submodule {
+          options.scale = lib.mkOption {
+            type = lib.types.addCheck lib.types.number (x: x > 0) // {
+              description = "positive number";
+            };
+            description = "The host's available memory times this, at least 512M.";
+          };
+        }
+      );
       default =
-        if
-          lib.elem config.vivarium.backend [
-            "qemu"
-            "krun"
-          ]
-        then
+        if config.vivarium.backend == "krun" then
+          { scale = 1; }
+        else if config.vivarium.backend == "qemu" then
           "512M"
         else
           "256M";
-      defaultText = lib.literalExpression ''if backend is "qemu" or "krun" then "512M" else "256M"'';
+      defaultText = lib.literalExpression ''if backend is "krun" then { scale = 1; } else if backend is "qemu" then "512M" else "256M"'';
       example = "1024M";
       description = ''
-        Guest RAM, as UML's `mem=` and QEMU's `-m` both take it.
+        Guest RAM, as UML's `mem=` and QEMU's `-m` both take it, or
+        `{ scale = s; }` for the host's `MemAvailable` times `s`, which the
+        runner reads when the guest starts. A krun guest gets the scale by
+        default: it backs only the pages it touches, and free page
+        reporting gives freed pages back, so a high ceiling costs the host
+        nothing until the guest uses it. Each guest reads the host on its
+        own, so guests that start together can each get the whole host.
+        UML's `vivarium-run` takes a size only.
 
         A ceiling rather than a cost, under UML. The guest's memory is
         a sparse file and the guest punches holes in it as it frees

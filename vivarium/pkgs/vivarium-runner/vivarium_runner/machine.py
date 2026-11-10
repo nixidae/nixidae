@@ -149,6 +149,38 @@ def resolve_cpus(cpus: Cpus, host: int) -> int:
     return max(1, round(host * cpus["scale"]))
 
 
+class MemoryScale(TypedDict):
+    """`vivarium.memory = { scale = s; }`: the host's available memory times `s`."""
+
+    scale: float
+
+
+Memory = str | MemoryScale
+"""`vivarium.memory` as Nix wrote it: a size such as `"512M"`, or a share of the host."""
+
+MEMORY_SCALE_FLOOR_MIB = 512
+"""The least a scaled guest gets: the krun and QEMU default size, which boots."""
+
+
+def host_available_mib(meminfo: Path = Path("/proc/meminfo")) -> int:
+    """`MemAvailable` of the host, in MiB."""
+    for line in meminfo.read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) // 1024
+    raise RuntimeError(f"{meminfo} has no MemAvailable")
+
+
+def resolve_memory(memory: Memory, available_mib: Callable[[], int] = host_available_mib) -> str:
+    """A guest's memory size, from `vivarium.memory` and the host's available memory at start.
+
+    A scaled guest's size is a ceiling and not a cost: krun and QEMU back
+    only the pages the guest touches, and free page reporting gives freed
+    ones back."""
+    if isinstance(memory, str):
+        return memory
+    return f"{max(MEMORY_SCALE_FLOOR_MIB, round(available_mib() * memory['scale']))}M"
+
+
 class MachineSpecJson(TypedDict, total=False):
     """`MachineSpec` as Nix wrote it. See ``mkTest`` in flake.nix."""
 
@@ -157,7 +189,7 @@ class MachineSpecJson(TypedDict, total=False):
     kind: str
     index: int
     image: str
-    memory: str
+    memory: Memory
     seccomp: str
     cpus: Cpus
     sshPort: int
@@ -261,6 +293,7 @@ class MachineSpec:
     index: int = 0
     image: Path | None = None
     memory: str = "128M"
+    """Resolved: `vivarium.memory` against the host's available memory at start."""
     seccomp: str = "auto"
     cpus: int = 1
     """Resolved: `vivarium.cpus` against the host's cores at start."""
@@ -316,7 +349,7 @@ class MachineSpec:
             kind=data.get("kind", "nixos"),
             index=data.get("index", 0),
             image=Path(image) if image else None,
-            memory=data.get("memory", "128M"),
+            memory=resolve_memory(data.get("memory", "128M")),
             seccomp=data.get("seccomp", "auto"),
             cpus=resolve_cpus(data.get("cpus", 1), host_cpus()),
             ssh_port=data.get("sshPort", 4325),
