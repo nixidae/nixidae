@@ -142,7 +142,15 @@ def load_phase(script: Path) -> Callable[[Machines], Awaitable[None]]:
     if spec is None or spec.loader is None:
         raise SessionError(f"cannot import a phase from {script}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # In sys.modules before it runs, as importlib's recipe for a source
+    # file has it: dataclasses resolves a string annotation through the
+    # module's entry there (nixidae/nixidae#1222).
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[spec.name]
+        raise
     test: object = getattr(module, "test", None)
     if test is None:
         raise SessionError(f"{script} exports no `test`")
