@@ -108,6 +108,33 @@ async def test_auto_call_answers_anything_else_as_it_is(state: Any, expr: str) -
     assert await auto_call(state, value) is value
 
 
+async def _args(state: AsyncEvalState, **values: str) -> AsyncValue:
+    args = await state.make_attrs()
+    for name, value in values.items():
+        await state.attrs_set(args, name, await state.make_string(value))
+    return args
+
+
+async def test_auto_call_passes_the_arguments_a_function_names(state: Any) -> None:
+    f = await state.eval_expr('{ x ? "d", y ? "e" }: x + y')
+    assert await text(state, await auto_call(state, f, await _args(state, x="a", z="unused"))) == "ae"
+
+
+async def test_auto_call_passes_every_argument_through_an_ellipsis(state: Any) -> None:
+    f = await state.eval_expr('{ ... }@all: builtins.concatStringsSep "," (builtins.attrNames all)')
+    assert await text(state, await auto_call(state, f, await _args(state, a="1", b="2"))) == "a,b"
+
+
+async def test_auto_call_passes_the_arguments_through_a_functor(state: Any) -> None:
+    f = await state.eval_expr("{ __functor = self: { x }: x; }")
+    assert await text(state, await auto_call(state, f, await _args(state, x="f"))) == "f"
+
+
+async def test_auto_call_leaves_a_set_alone_with_arguments(state: Any) -> None:
+    value = await state.eval_expr("{ a = 1; }")
+    assert await auto_call(state, value, await _args(state, a="2")) is value
+
+
 def test_show_attr_paths_joins_as_nix_does() -> None:
     assert show_attr_paths([]) == ""
     assert show_attr_paths(["a"]) == "'a'"

@@ -190,21 +190,23 @@ async def select_flake_attr(
     raise AttrPathError(message)
 
 
-async def auto_call(state: AsyncEvalState, value: AsyncValue) -> AsyncValue:
-    """Apply with no arguments, as `autoCallFunction` does for `--file`.
+async def auto_call(state: AsyncEvalState, value: AsyncValue, args: AsyncValue | None = None) -> AsyncValue:
+    """Apply *args*, as `autoCallFunction` does for `--file` with `--arg`.
 
-    A lambda with formals gets its defaults, and a `__functor` is
-    followed. Anything else answers as it is, where `apply_auto`
-    refuses: a file that is an attribute set is the ordinary case.
-    The result is forced.
+    *args* is an attribute set; `None` is the empty one. A lambda with
+    formals gets the arguments it names and its defaults for the rest,
+    or every argument when it has an ellipsis. A `__functor` is
+    followed. Anything else answers as it is, with *args* unused, where
+    `apply_auto` refuses: a file that is an attribute set is the
+    ordinary case. The result is forced.
     """
     await state.force(value)
     kind = await value.type_name()
     if kind == "attrs" and await value.has("__functor"):
         functor = await value.get("__functor")
         await state.force(functor)
-        return await auto_call(state, await functor(value))
+        return await auto_call(state, await functor(value), args)
     if kind == "function" and await value.is_lambda() and await value.has_formals():
-        value = await value.apply_auto(await state.make_attrs())
+        value = await value.apply_auto(args if args is not None else await state.make_attrs())
         await state.force(value)
     return value
