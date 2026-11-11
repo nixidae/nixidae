@@ -1458,15 +1458,22 @@ return self.wrap(made);
         """)
 
     @needs(Local("nix/cmd/common-eval-args.hh"))
-    def load_file(self, path: Str) -> Value:
-        """What `:load` adds: the file, called with no arguments when
-        it is a function. Nothing is added; `add_attrs` adds it."""
+    def load_file(self, path: Str, args: Value) -> Value:
+        """What `:load` adds: the file, called with `args` when it is a
+        function, as `nix repl --arg` calls it (`autoCallFunction` in
+        `NixRepl::loadFile`). An empty set calls it with none. Nothing
+        is added; `add_attrs` adds it.
+
+        `args` is an attribute set; anything else raises before the
+        file is read."""
         Cxx("""
+if (huggorm::value_type(*args.get()) != nix::nAttrs)
+    throw std::invalid_argument("load_file needs an attribute set of arguments");
 auto & state = self.state();
 nix::Value loaded;
 state.evalFile(nix::lookupFileArg(state, path), loaded);
 auto * made = state.allocValue();
-state.autoCallFunction(*state.buildBindings(0).finish(), loaded, *made);
+state.autoCallFunction(*args.get()->attrs(), loaded, *made);
 return self.wrap(made);
         """)
 

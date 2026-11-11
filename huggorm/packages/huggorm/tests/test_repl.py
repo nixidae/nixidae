@@ -112,16 +112,27 @@ def test_a_file_is_found_in_the_lookup_path(tmp_path: pathlib.Path) -> None:
     repl.process_line("x = 41")
     assert repl.eval_file("<example>").integer() == 42
     assert state.eval_file("<plain>").type_name() == "function"
-    assert repl.load_file("<plain>").integer() == 1
+    assert repl.load_file("<plain>", state.make_attrs()).integer() == 1
 
 
 def test_a_loaded_file_is_called_and_not_added(repl: Repl, tmp_path: pathlib.Path) -> None:
     (tmp_path / "default.nix").write_text("{ value ? 41 }: { answer = value + 1; }")
-    loaded = repl.load_file(str(tmp_path))
+    loaded = repl.load_file(str(tmp_path), repl.eval_expr("{ }"))
     assert loaded.type_name() == "attrs"
     assert "answer" not in repl.names()
     repl.add_attrs(loaded)
     assert repl.eval_expr("answer").integer() == 42
+
+
+def test_a_loaded_file_takes_the_arguments(repl: Repl, tmp_path: pathlib.Path) -> None:
+    (tmp_path / "default.nix").write_text('{ value ? 41, unused ? throw "no" }: value + 1')
+    assert repl.load_file(str(tmp_path), repl.eval_expr("{ value = 1; }")).integer() == 2
+
+
+def test_loading_refuses_arguments_that_are_not_a_set(repl: Repl, tmp_path: pathlib.Path) -> None:
+    (tmp_path / "default.nix").write_text("{ value ? 41 }: value")
+    with pytest.raises(ValueError, match="attribute set"):
+        repl.load_file(str(tmp_path), repl.eval_expr("1"))
 
 
 REPL_SIZE = 32768
