@@ -51,6 +51,8 @@ jobs:
       run: |
         mkdir -p ~/.ssh
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q
+    - name: Extended client tests
+      run: nix develop --impure --file shell.nix --command pytest tests/client -m extended
     timeout-minutes: 120
 name: 'pynixd: extended'
 'on':

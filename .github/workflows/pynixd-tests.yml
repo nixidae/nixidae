@@ -124,6 +124,8 @@ jobs:
       run: nix develop --impure --file shell.nix --command pytest tests/differential
     - name: Parity tests
       run: nix develop --impure --file shell.nix --command pytest tests/parity
+    - name: Client tests
+      run: nix develop --impure --file shell.nix --command pytest tests/client
     - name: The workflow render
       run: nix build --file . checks.ciWorkflow --no-link --print-build-logs
     - if: failure()
