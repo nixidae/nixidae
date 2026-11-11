@@ -1,0 +1,40 @@
+`addSignatures` drops the store's cached path info for the path.
+
+`LocalStore::addSignatures` writes the new signatures to SQLite, and
+`RemoteStore::addSignatures` sends them to the daemon. Neither touches
+`pathInfoCache`, so a later `queryPathInfo` on the same Store answers
+the signatures the path had before. The nix CLI does not see it: each
+command is a new process with an empty cache. A huggorm Store lives for
+the session, and `add_signatures` then `query_path_info` answered no
+signatures (measured on 2.35.2, tests/test_signature.py).
+
+`BinaryCacheStore` writes a new .narinfo and upserts the cache, so it
+needs no change.
+
+Reported as Lillecarl/nix#425. It is meant for upstream.
+
+--- a/src/libstore/local-store.cc
++++ b/src/libstore/local-store.cc
+@@ -1577,8 +1577,10 @@
+         updatePathInfo(*state, *info);
+
+         txn.commit();
+     });
++
++    invalidatePathInfoCacheFor(storePath);
+ }
+
+ std::optional<std::pair<int64_t, UnkeyedRealisation>>
+ LocalStore::queryRealisationCore_(LocalStore::State & state, const DrvOutput & id)
+--- a/src/libstore/remote-store.cc
++++ b/src/libstore/remote-store.cc
+@@ -755,8 +755,9 @@
+     WorkerProto::write(*this, *conn, storePath);
+     WorkerProto::write(*this, *conn, sigs);
+     conn.processStderr();
+     readInt(conn->from);
++    invalidatePathInfoCacheFor(storePath);
+ }
+
+ MissingPaths RemoteStore::queryMissing(const std::vector<DerivedPath> & targets)
+ {

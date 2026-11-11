@@ -69,6 +69,10 @@ let
   # `unix://?local-fs=false` reads over the socket, for a daemon whose
   # store this machine cannot see (nixidae/nixidae#1138).
   udsLocalFS = patch "nix-uds-local-fs";
+  # `addSignatures` leaves the path's cached path info stale, so a Store
+  # that lives on answers the old signatures (nixidae/nixidae#115,
+  # Lillecarl/nix#425).
+  addSignatures = patch "nix-add-signatures-invalidates-path-info";
   # `nix develop`'s erase of `outputChecks` reaches the dev-env derivation:
   # 2.36 serialises `__json` from the parsed text.
   developOutputChecks = patch "nix-2.36-develop-drops-output-checks";
@@ -96,6 +100,7 @@ in
       lstatMiss234
       workdirInfo234
       udsLocalFS
+      addSignatures
     ];
   };
   nix_2_35 = {
@@ -115,6 +120,7 @@ in
       ownsPrimOps
       forgetSrcToStore
       udsLocalFS
+      addSignatures
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -137,6 +143,7 @@ in
       ownsPrimOps
       forgetSrcToStore
       udsLocalFS
+      addSignatures
       developOutputChecks
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
@@ -177,6 +184,7 @@ in
       ownsPrimOps
       forgetSrcToStore
       udsLocalFS
+      addSignatures
     ];
     # The fork's collector is newer bdwgc: the same three changes as
     # `boehmgcPatches` below, where its code moved.
