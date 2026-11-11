@@ -2099,6 +2099,7 @@ return self.wrap_builder(made);
 
     @needs(
         Local("huggorm_decl/cpp/call_settings.hpp"),
+        Local("huggorm_decl/cpp/flake_config.hpp"),
         Local("nix/flake/settings.hh"),
         Local("nix/fetchers/input-cache.hh"),
     )
@@ -2109,6 +2110,7 @@ return self.wrap_builder(made);
         update: Opt[Vec[Str]] = None,
         write_lock_file: Bint = True,
         fail_on_unlocked: Bint = False,
+        apply_nix_config: Bint = False,
         settings: Opt[Map[Str]] = None,
     ) -> LockedFlake:
         """Lock a flake, as `nix flake lock` does.
@@ -2119,6 +2121,12 @@ return self.wrap_builder(made);
         `nix flake lock` does; without it Nix warns and writes nothing.
         `settings` are flake settings over the process's, such as
         `accept-flake-config`.
+
+        `apply_nix_config` applies the flake's `nixConfig` first, with
+        Nix's trust rules, as `nix flake lock` and every flake command
+        do. An evaluator or fetcher setting goes to THIS state's own
+        settings and stays there; a store setting goes to the process,
+        as in Nix, and so reaches every state.
 
         Each call fetches its inputs anew, as one `nix` command does: it
         clears this state's input cache, and with it the process-wide
@@ -2140,6 +2148,14 @@ for (auto & input : update) {
     if (!path)
         throw nix::UsageError("an input path must not be empty: '%s'", input);
     flags.inputUpdates.insert(*path);
+}
+if (apply_nix_config) {
+    // `lockFlake`'s own first step, so its `getFlake` comes from the input cache.
+    auto flake = nix::flake::getFlake(
+        self.state(), ref,
+        flake_settings->useRegistries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
+    huggorm::apply_flake_config(flake.config, *flake_settings, self.eval_settings(), self.fetch_settings());
+    self.state().store->setOptions();
 }
 return self.keep(nix::flake::lockFlake(*flake_settings, self.state(), ref, flags));
         """)

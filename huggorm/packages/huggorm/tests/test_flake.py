@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from huggorm_bindings import EvalState, Store, parse_flake_ref
+from huggorm_bindings import EvalState, Store, get_setting, parse_flake_ref
 from huggorm_bindings.errors import NixError, UsageError
 from huggorm_dsl.declare import NIX_2_35
 from huggorm_generated import AsyncEvalState, AsyncStore
@@ -169,6 +169,62 @@ def test_a_second_lock_sees_a_new_commit(tmp_path: pathlib.Path, same_state: boo
     assert dep_node.locked_ref().to_attrs()["rev"] == moved
     written = json.loads((root / "flake.lock").read_text())
     assert written["nodes"]["dep"]["locked"]["rev"] == moved
+
+
+#: Five calls deep is too deep for `nixConfig.max-call-depth = 5`, and
+#: nothing for the default of 10000. The state reads it at each call.
+DEEP = "let f = n: if n == 0 then 0 else f (n - 1); in f 10"
+ACCEPT = {"accept-flake-config": "true"}
+
+
+@pytest.fixture
+def trust_dir(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
+    """Where `trusted-settings.json` is read, so the host's stays out."""
+    data = tmp_path / "data"
+    monkeypatch.setenv("NIX_DATA_HOME", str(data))
+    return data
+
+
+@pytest.fixture
+def shallow(tmp_path: pathlib.Path) -> pathlib.Path:
+    return _flake(tmp_path / "shallow", "{ nixConfig.max-call-depth = 5; outputs = _: { }; }")
+
+
+@pytest.mark.usefixtures("trust_dir")
+def test_nix_config_reaches_the_locking_state_and_no_other(state: EvalState, shallow: pathlib.Path) -> None:
+    before = get_setting("max-call-depth")
+    state.lock_flake(parse_flake_ref(f"path:{shallow}"), apply_nix_config=True, settings=ACCEPT)
+    with pytest.raises(NixError, match="max-call-depth exceeded"):
+        state.eval_expr(DEEP, "/")
+    assert get_setting("max-call-depth") == before
+    other = EvalState(Store("dummy://"), NO_GLOBAL)
+    assert other.eval_expr(DEEP, "/").integer() == 0
+
+
+@pytest.mark.usefixtures("trust_dir")
+def test_nix_config_is_not_applied_unless_asked(state: EvalState, shallow: pathlib.Path) -> None:
+    state.lock_flake(parse_flake_ref(f"path:{shallow}"), settings=ACCEPT)
+    assert state.eval_expr(DEEP, "/").integer() == 0
+
+
+@pytest.mark.usefixtures("trust_dir")
+def test_an_untrusted_nix_config_setting_is_ignored_with_nix_s_warning(state: EvalState, shallow: pathlib.Path) -> None:
+    stream = state.subscribe_logs()
+    try:
+        state.lock_flake(parse_flake_ref(f"path:{shallow}"), apply_nix_config=True)
+        texts = [r.text() for r in stream.drain()]
+    finally:
+        state.unsubscribe_logs()
+    assert any("ignoring untrusted flake configuration setting 'max-call-depth'" in t for t in texts), texts
+    assert state.eval_expr(DEEP, "/").integer() == 0
+
+
+def test_a_saved_trust_applies_the_setting(state: EvalState, shallow: pathlib.Path, trust_dir: pathlib.Path) -> None:
+    trust_dir.mkdir()
+    (trust_dir / "trusted-settings.json").write_text(json.dumps({"max-call-depth": {"5": True}}))
+    state.lock_flake(parse_flake_ref(f"path:{shallow}"), apply_nix_config=True)
+    with pytest.raises(NixError, match="max-call-depth exceeded"):
+        state.eval_expr(DEEP, "/")
 
 
 def _dirty_input(tmp_path: pathlib.Path) -> pathlib.Path:
