@@ -121,6 +121,29 @@ async def test_a_pool_runner_constructs_once_under_concurrent_first_calls() -> N
     assert len(made) == 1, f"factory ran {len(made)}x under concurrent first-calls"
 
 
+async def test_closing_a_pool_runner_frees_its_object() -> None:
+    """A remote store holds its daemon connections until it is destroyed,
+    so a closed store that stays alive keeps its sockets open. pynixd's
+    `tests/client` ran out of descriptors that way (nixidae/nixidae#1249).
+    No collection here: the object must go at the close, not at the next
+    `gc.collect`."""
+    import weakref
+
+    from huggorm_generated import _runtime
+
+    class Probe:
+        def noop(self) -> str:
+            return "ok"
+
+    runner = _runtime.PoolRunner(Probe)
+    assert await runner.call(_probe("noop"), []) == "ok"
+    alive = weakref.ref(runner._obj)
+    await runner.aclose()
+    assert alive() is None, "the closed runner's object outlived the close"
+    with pytest.raises(RuntimeError, match="closed"):
+        runner._resolve()
+
+
 async def test_a_failing_factory_runs_once_and_every_caller_sees_why() -> None:
     from huggorm_generated import _runtime
     from huggorm_generated._runtime import InternalError

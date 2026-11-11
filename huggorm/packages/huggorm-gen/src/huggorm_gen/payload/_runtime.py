@@ -819,8 +819,9 @@ class BaseRunner:
                 if self._construct_error is not None:
                     # Factory already failed once; re-raise without retrying.
                     raise self._construct_error
+                if self._factory is None:
+                    raise RuntimeError(f"{type(self).__name__}: the object is closed")
                 try:
-                    assert self._factory is not None
                     self._obj = self._factory()
                 except Exception as e:
                     self._construct_error = e
@@ -1006,7 +1007,25 @@ class PoolRunner(BaseRunner):
         return _shared_pool()
 
     async def aclose(self) -> None:
-        return None  # shared pool outlives wrappers
+        """Drop the object. The shared pool outlives the wrapper; the object
+        does not, and a closed runner builds no fresh one."""
+        # A remote store holds its daemon connections until it is destroyed:
+        # `RemoteStore::shutdownConnections` closes no descriptor. Kept until
+        # a collection, each closed store left its sockets open, and pynixd's
+        # `tests/client` ran out of descriptors (nixidae/nixidae#1249).
+        obj: Any = self._obj
+        self._obj = None
+        self._factory = None
+        if obj is None:
+            return
+        # The last reference goes on a pool thread, where the C++ destructor runs.
+        done = asyncio.get_running_loop().run_in_executor(self._executor(), _drop, obj)
+        del obj
+        await done
+
+
+def _drop(obj: object) -> None:
+    del obj
 
 
 class InlineRunner(BaseRunner):
