@@ -956,7 +956,7 @@ class Semantics:
 
     # The accessor `str()` answers with, or "".
     text: str = ""
-    # The accessor a repr with no fields shows, or "".
+    # The accessor a repr shows in place of the parts, as declared, or "".
     shown: str = ""
     # `==` is the C++ type's own operator, not a comparison of parts.
     cxx_equal: bool = False
@@ -968,6 +968,11 @@ class Semantics:
     @classmethod
     def of(cls, decl: Decl) -> Semantics:
         return cls(decl.text, decl.shown, decl.compare is Compare.CXX, decl.order, decl.unit)
+
+    @property
+    def fieldless_shown(self) -> str:
+        """The accessor a repr with no fields shows: `shown`, else `text`."""
+        return self.shown or self.text
 
     @property
     def cxx_order(self) -> bool:

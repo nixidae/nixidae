@@ -1388,7 +1388,7 @@ class Emitter:
         one matches every same-type comparison, and the parts one never
         ran. They agreed only because the members ARE the parts."""
         fields = wire_fields(cls)
-        if not fields and cls.semantics.shown:
+        if not fields and cls.semantics.fieldless_shown:
             # A value that declares no FIELDS and one thing worth showing.
             # The repr then has no name to print, so it prints the value
             # alone - `ValidPathInfo('/nix/store/...')`. Weaker than a
@@ -1396,7 +1396,7 @@ class Emitter:
             return [
                 f'{INDENT * 2}.def("__repr__", [](nb::handle h) {{',
                 f'{INDENT * 3}return nb::str("{cls.name}({{!r}})").format(',
-                f'{INDENT * 4}h.attr("{cls.semantics.shown}")());',
+                f'{INDENT * 4}h.attr("{cls.semantics.fieldless_shown}")());',
                 f"{INDENT * 2}}})",
             ]
         # A UNIT value has no parts and still compares, hashes and prints:
@@ -1406,6 +1406,10 @@ class Emitter:
             return []
         spec = ", ".join(f"{name}={{!r}}" for name, _, _ in fields)
         reads = ", ".join(read for _, _, read in fields)
+        if cls.semantics.shown:
+            # The parts are not fit to print: a SecretKey's part is the secret.
+            spec = f"{cls.semantics.shown}={{!r}}"
+            reads = f'h.attr("{cls.semantics.shown}")()'
         hashed = ", ".join(f"{NAMESPACE}::hashable({read})" if _unhashable(t) else read for _, t, read in fields)
         out = []
         if equality and not cls.semantics.cxx_equal:

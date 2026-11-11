@@ -1101,10 +1101,11 @@ def wire_value(
     was a bug. `text` names the accessor `str()` answers with, and it
     is a CONVERSION: only a value that IS a string should have one, so
     a StorePath does and a nine-field record does not. `shown` names
-    the accessor a repr identifies the value by, which every value
-    has. A value with a `text` is shown by it unless it says
-    otherwise."""
-    return _WireValue(fields, Compare(compare), text, order, shown or text, unit)
+    the accessor a repr identifies the value by, in place of its
+    parts: a `SecretKey` crosses as its text and is shown by its name,
+    so a repr in a traceback does not print the secret. A value with
+    no fields and a `text` is shown by the text."""
+    return _WireValue(fields, Compare(compare), text, order, shown, unit)
 
 
 @marker(Target.METHOD)
