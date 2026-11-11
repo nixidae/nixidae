@@ -2675,6 +2675,31 @@ if (!nix::globalConfig.set(name, value))
     """)
 
 
+@needs(Local("nix/store/globals.hh"))
+def set_read_only_mode(read_only: Bint) -> None:
+    """Evaluate without writing to the store, as `--read-only` and
+    `nix flake check --no-build` do.
+
+    A derivation then gets its `.drv` path computed and not written,
+    and a path literal is hashed and not copied.
+
+    FOR THE WHOLE PROCESS. `derivationStrict` reads the global
+    `nix::settings.readOnlyMode`, and every `EvalState` refers to it,
+    as Nix's CLI wires them. A state reads it at the point of use, so
+    a change reaches the next evaluation of every state, running ones
+    included.
+
+    Not a setting: `readOnlyMode` is a plain `bool`, so `set_setting`
+    cannot name it."""
+    Cxx("nix::settings.readOnlyMode = read_only;")
+
+
+@needs(Local("nix/store/globals.hh"))
+def read_only_mode() -> Bint:
+    """Whether `set_read_only_mode` is on."""
+    Cxx("return nix::settings.readOnlyMode;")
+
+
 @needs(Local("huggorm_decl/cpp/settings.hpp"))
 def list_settings(overridden_only: Bint = False) -> Map[Str]:
     """Every registered setting and its effective value.

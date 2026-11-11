@@ -74,6 +74,7 @@ namespace nb = nanobind;
 #include "nix/expr/value.hh"
 #include "nix/fetchers/fetch-settings.hh"
 #include "nix/flake/flake.hh"
+#include "nix/store/globals.hh"
 #include "nix/store/store-api.hh"
 #include "nix/store/store-open.hh"
 
@@ -356,9 +357,8 @@ inline void forget_file(nix::EvalState & state, const nix::SourcePath & given)
  * `bad_weak_ptr` - verified, not guessed.
  *
  * Member order IS construction order, and it is not arbitrary:
- * `EvalSettings` takes `read_only_` BY REFERENCE and `EvalState`
- * takes both settings objects by reference, so each has to already
- * exist. One class is what makes that a compile-time fact rather
+ * `EvalState` takes both settings objects by reference, so each has
+ * to already exist. One class is what makes that a compile-time fact rather
  * than a comment.
  */
 class EvalCore
@@ -366,7 +366,9 @@ class EvalCore
 public:
     EvalCore(nix::ref<nix::Store> store, const Settings & settings,
              std::shared_ptr<nix::Store> build_store)
-        : eval_settings_(read_only_)
+        // The process's `readOnlyMode`, as `common-eval-args.cc:25` wires
+        // it: `derivationStrict` reads that global and not this object.
+        : eval_settings_(nix::settings.readOnlyMode)
         , configured_(apply_configured(fetch_settings_, eval_settings_, settings))
         , store_(std::move(store))
         , build_store_(std::move(build_store))
@@ -507,7 +509,6 @@ private:
     {
         GcStarted() { gc_start(); }
     } gc_started_;
-    bool read_only_ = false;
     nix::fetchers::Settings fetch_settings_;
     nix::EvalSettings eval_settings_;
     // Between the settings and the state: nix.conf has to reach the

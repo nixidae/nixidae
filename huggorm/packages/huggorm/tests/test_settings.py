@@ -297,6 +297,41 @@ def test_a_live_state_refuses_a_name_it_does_not_hold(name: str) -> None:
         EvalState(Store("dummy://")).set_setting(name, "false")
 
 
+_DRV = 'derivation { name = "ro"; system = "x"; builder = "/b"; }'
+
+
+@pytest.fixture
+def read_only_mode() -> Iterator[Callable[[bool], None]]:
+    """`set_read_only_mode`, put back afterwards: it is the process's."""
+    from huggorm_bindings import read_only_mode, set_read_only_mode
+
+    before = read_only_mode()
+    yield set_read_only_mode
+    set_read_only_mode(before)
+
+
+@pytest.mark.parametrize("read_only", [True, False])
+def test_read_only_mode_writes_no_derivation(
+    tmp_path: pathlib.Path, read_only_mode: Callable[[bool], None], read_only: bool
+) -> None:
+    from huggorm_bindings import EvalState, Store
+
+    store = Store(str(tmp_path))
+    state = EvalState(store)
+    read_only_mode(read_only)
+    drv = state.eval_expr(_DRV).drv_path()
+    assert store.is_valid_path(drv) is not read_only
+
+
+def test_read_only_mode_reads_back(read_only_mode: Callable[[bool], None]) -> None:
+    from huggorm_bindings import read_only_mode as current
+
+    read_only_mode(True)
+    assert current() is True
+    read_only_mode(False)
+    assert current() is False
+
+
 def test_a_stack_overflow_is_not_an_eval_error() -> None:
     from huggorm_bindings import EvalState, Store
     from huggorm_bindings.errors import EvalBaseError, EvalError
