@@ -69,6 +69,13 @@ class FlakeRef:
         Cxx("return self.toAttrs();")
 
     @local
+    def source_path(self) -> Opt[Path]:
+        """The top of the input on this machine, without the subdirectory,
+        or None for an input that is not on this machine. What `nix fmt`
+        sets `PRJ_ROOT` to."""
+        Cxx("return self.input.getSourcePath();")
+
+    @local
     def lock_file_path(self) -> Opt[Path]:
         """Where `lockFlake` writes this flake's `flake.lock`, or None for
         a flake that is not on this machine, which it never writes.
