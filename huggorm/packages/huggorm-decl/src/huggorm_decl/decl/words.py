@@ -513,3 +513,32 @@ class FileType(StrEnum):
     SOCKET = "socket"
     FIFO = "fifo"
     UNKNOWN = "unknown"
+
+
+if DETERMINATE:
+
+    @header(Local("nix/util/signature/local-keys.hh"))
+    @words(
+        parsed_by="nix::parseKeyType",
+        enumerated=Enumerated(
+            "nix::KeyType",
+            spelled={
+                "ED25519": "Ed25519",
+                "ML_DSA_44": "MLDSA44",
+                "ML_DSA_65": "MLDSA65",
+                "ML_DSA_87": "MLDSA87",
+                "ECDSA_P384": "ECDSAP384",
+            },
+        ),
+    )
+    class KeyType(StrEnum):
+        """The algorithm of a signing key, as `nix key generate-secret
+        --key-type` names it. Determinate Nix alone has more than one."""
+
+        ED25519 = "ed25519"
+        """What every Nix signs with, and the default."""
+
+        ML_DSA_44 = "ml-dsa-44"
+        ML_DSA_65 = "ml-dsa-65"
+        ML_DSA_87 = "ml-dsa-87"
+        ECDSA_P384 = "ecdsa-p384"

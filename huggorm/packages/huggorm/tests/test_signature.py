@@ -1,0 +1,145 @@
+"""Signing keys and store path signatures: `nix key` and `nix store sign`.
+
+A path is signed as `ValidPathInfo::sign` signs it: the secret key signs
+`Store.fingerprint` of the path info, and `Store.add_signatures` keeps it.
+"""
+
+from __future__ import annotations
+
+import copy
+import pathlib
+from collections.abc import Iterator
+
+import pytest
+from nixversion import EXPERIMENTAL_FEATURE
+
+from huggorm_bindings import (
+    ContentAddressMethod,
+    HashAlgorithm,
+    PublicKey,
+    SecretKey,
+    Signature,
+    Store,
+    generate_secret_key,
+    get_setting,
+    set_setting,
+)
+from huggorm_bindings.errors import NixError
+from huggorm_dsl.declare import DETERMINATE
+
+if DETERMINATE:
+    from huggorm_bindings import KeyType
+
+
+@pytest.fixture(params=["local", "daemon"])
+def signing_store(request: pytest.FixtureRequest, tmp_path: pathlib.Path) -> Store:
+    """A LocalStore, and a RemoteStore over a daemon of this lane's Nix: the
+    two `addSignatures` that keep a cached path info."""
+    if request.param == "daemon":
+        return Store(request.getfixturevalue("private_daemon"))
+    return Store(str(tmp_path / "store"))
+
+
+def test_a_secret_key_reads_its_own_text_back() -> None:
+    key = generate_secret_key("cache-1")
+    assert key.name() == "cache-1"
+    assert key.to_string().startswith("cache-1:")
+    assert SecretKey(key.to_string()) == key
+
+
+def test_the_public_key_has_the_name_of_the_secret_key() -> None:
+    public = generate_secret_key("cache-1").to_public_key()
+    assert public.name() == "cache-1"
+    assert PublicKey(public.to_string()) == public
+    assert str(public) == public.to_string()
+
+
+def test_a_repr_does_not_print_the_secret() -> None:
+    key = generate_secret_key("cache-1")
+    secret = key.to_string().split(":", 1)[1]
+    assert secret not in repr(key)
+    assert "cache-1" in repr(key)
+
+
+@pytest.mark.parametrize("text", ["cache-1", "cache-1:not-base64!", ":"])
+def test_a_corrupt_key_is_refused(text: str) -> None:
+    with pytest.raises(NixError):
+        SecretKey(text)
+    with pytest.raises(NixError):
+        PublicKey(text)
+
+
+def test_a_signature_verifies_with_its_own_key_only() -> None:
+    key = generate_secret_key("cache-1")
+    sig = key.sign_detached("data")
+    assert sig.key_name() == "cache-1"
+    assert key.to_public_key().verify_detached("data", sig)
+    assert not key.to_public_key().verify_detached("other data", sig)
+    # Same name, another key: Nix checks the bytes, not only the name.
+    assert not generate_secret_key("cache-1").to_public_key().verify_detached("data", sig)
+
+
+def test_a_copied_key_still_signs_and_verifies() -> None:
+    """A Determinate key is one class per key type. A copy of the C++
+    base would keep the bytes and lose the type, and then throw."""
+    key = copy.copy(generate_secret_key("cache-1"))
+    sig = copy.deepcopy(key).sign_detached("data")
+    assert copy.copy(key.to_public_key()).verify_detached("data", sig)
+
+
+if DETERMINATE:
+    # More than one key type is Determinate Nix's. mypy.ini states the
+    # lane the tree is checked against, so this block is not checked.
+
+    @pytest.fixture
+    def cnsa() -> Iterator[None]:
+        """The `cnsa` feature, which every key type but ed25519 needs, on
+        for one test. The setting belongs to the process."""
+        before = get_setting("experimental-features") or ""
+        set_setting("extra-experimental-features", "cnsa")
+        try:
+            yield
+        finally:
+            set_setting("experimental-features", before)
+
+    @pytest.mark.parametrize("key_type", [t for t in KeyType if t is not KeyType.ED25519])
+    def test_a_key_type_past_ed25519_needs_cnsa(key_type: KeyType) -> None:
+        with pytest.raises(NixError, match=EXPERIMENTAL_FEATURE):
+            generate_secret_key("cache-1", key_type)
+
+    @pytest.mark.parametrize("key_type", list(KeyType))
+    def test_every_key_type_signs_and_parses_back(key_type: KeyType, cnsa: None) -> None:
+        key = generate_secret_key("cache-1", key_type)
+        sig = key.sign_detached("data")
+        public = PublicKey(key.to_public_key().to_string())
+        assert public.verify_detached("data", sig)
+        assert SecretKey(key.to_string()).sign_detached("other").key_name() == "cache-1"
+
+
+def test_a_signed_path_keeps_the_signature(signing_store: Store) -> None:
+    """The same Store answers the new signature: `addSignatures` drops its
+    cached path info (`nix-add-signatures-invalidates-path-info.patch`)."""
+    store = signing_store
+    path = store.add_to_store("greeting", b"hello\n", ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    info = store.query_path_info(path)
+    assert info.sigs() == []
+    fingerprint = store.fingerprint(info)
+    assert fingerprint.startswith(f"1;{store.print_store_path(path)};sha256:")
+
+    key = generate_secret_key("cache-1")
+    sig = key.sign_detached(fingerprint)
+    store.add_signatures(path, [sig])
+    store.add_signatures(path, [sig])
+
+    signed = store.query_path_info(path)
+    assert signed.sigs() == [sig]
+    assert key.to_public_key().verify_detached(store.fingerprint(signed), signed.sigs()[0])
+
+
+def test_a_store_that_cannot_keep_signatures_says_so() -> None:
+    store = Store("dummy://")
+    with pytest.raises(NixError):
+        store.add_signatures(
+            store.parse_store_path("/nix/store/7rjjfrn5w3z1kb2v9v0ilxmvmb2n5k1y-hello-2.12.1"),
+            [Signature("k", bytes(64))],
+        )

@@ -20,6 +20,7 @@ from huggorm_decl.decl.path import StorePath
 from huggorm_decl.decl.pathinfo import PathInfo
 from huggorm_decl.decl.realisation import DrvOutput, Realisation
 from huggorm_decl.decl.serialise import Sink, Source
+from huggorm_decl.decl.signature import Signature
 from huggorm_decl.decl.source_accessor import SourceAccessor
 from huggorm_decl.decl.words import (
     BuildMode,
@@ -683,6 +684,26 @@ return local->config->getBuildDir().string();
         crosses the wire as a copy and a caller reads it without
         another round trip."""
         Cxx("return *self.queryPathInfo(path);")
+
+    # On the store, not on PathInfo: `ValidPathInfo::fingerprint` takes
+    # the store's directory, and `decl/pathinfo.py` cannot import this
+    # file, which imports it.
+    @instant
+    def fingerprint(self, info: PathInfo) -> Str:
+        """What a signature of `info` signs, as `ValidPathInfo::fingerprint`
+        renders it: the path, the NAR hash and size, and the references.
+
+        Raises when `info` has no NAR hash or size, as Nix does."""
+        Cxx("return info.fingerprint(self);")
+
+    @needs(Local("nix/util/signature/local-keys.hh"))
+    def add_signatures(self, path: StorePath, sigs: Vec[Signature]) -> None:
+        """Add `sigs` to the signatures of `path`, as `nix store sign`
+        does. A signature the path has already is kept once.
+
+        Raises InvalidPath when the store does not hold `path`. A store
+        that cannot keep signatures raises Unsupported."""
+        Cxx("self.addSignatures(path, as_set<std::set<nix::Signature>>(sigs));")
 
     def nar_from_path(self, path: StorePath, sink: Sink) -> None:
         """Write `path` as a NAR into `sink`. `nix-store --dump`.

@@ -1,24 +1,43 @@
 """
-nix::Signature: `nix/util/signature/local-keys.hh`.
+nix::Signature, nix::PublicKey and nix::SecretKey:
+`nix/util/signature/local-keys.hh`.
 
-A MESSAGE rather than a string, for the reason `decl/hash.py` gives.
-`<key-name>:<base64>` is one rendering of two facts - who vouched, and
-what they wrote - and a caller who wants to know WHICH key signed a
-path should not be splitting a string to find out.
+A signature is a MESSAGE rather than a string, for the reason
+`decl/hash.py` gives. `<key-name>:<base64>` is one rendering of two
+facts - who vouched, and what they wrote - and a caller who wants to
+know WHICH key signed a path should not be splitting a string to find
+out.
+
+A key is the opposite case: its text is the only form Nix reads or
+writes, and its constructor is the parser, so a key crosses as text.
+
+Determinate Nix makes a key polymorphic: one class per algorithm, made by
+`parse` and `generate` as a `unique_ptr`, and no public constructor. So
+there Python holds a key through a `shared_ptr`, and a factory opens one.
+The surface is the same, plus the `KeyType` that `generate` takes.
 """
 
 from huggorm_dsl.declare import (
+    DETERMINATE,
+    Bint,
     Bytes,
     Cxx,
+    Field,
     Local,
     Str,
     binding,
+    constructs,
     header,
     instant,
     local,
+    needs,
     reads,
+    threading,
     wire_value,
 )
+
+if DETERMINATE:
+    from huggorm_decl.decl.words import KeyType
 
 
 @header(Local("nix/util/signature/local-keys.hh"))
@@ -71,3 +90,138 @@ class Signature:
     def to_string(self) -> Str:
         """`<key-name>:<base64>` - what a .narinfo carries and what
         `nix path-info --sigs` prints."""
+
+
+@header(Local("nix/util/signature/local-keys.hh"))
+@binding(
+    cxx="nix::PublicKey",
+    # Two strings the object owns, and libsodium over them.
+    threading="pool",
+    blocking=False,
+    holder="shared_ptr" if DETERMINATE else "",
+)
+@wire_value(
+    # The text IS the key: `<name>:<base64>`, which the constructor parses.
+    fields=(Field("text", read="to_string"),),
+    text="to_string",
+)
+class PublicKey:
+    """A key that verifies signatures, as `trusted-public-keys` lists it."""
+
+    if DETERMINATE:
+
+        def __init__(self) -> None:
+            """Parse `<name>:<base64>`. Raises when the key is corrupt.
+
+            `parse_public_key` is the factory, because each key type is
+            its own class."""
+
+    else:
+
+        def __init__(self, text: Str) -> None:
+            """Parse `<name>:<base64>`. Raises when the key is corrupt."""
+            ...
+
+    @reads("name")
+    def name(self) -> Str:
+        """The key name, which a signature names to say which key made it."""
+
+    @local
+    @instant
+    def to_string(self) -> Str:
+        """`<name>:<base64>`, as `nix key convert-secret-to-public` prints it."""
+        ...
+
+    @local
+    @instant
+    def verify_detached(self, data: Str, sig: Signature) -> Bint:
+        """Whether `sig` is this key's signature of `data`. A signature
+        of another key name is false."""
+        Cxx("return self.verifyDetached(data, sig);")
+
+
+@header(Local("nix/util/signature/local-keys.hh"))
+@binding(
+    cxx="nix::SecretKey",
+    threading="pool",
+    blocking=False,
+    holder="shared_ptr" if DETERMINATE else "",
+)
+@wire_value(
+    fields=(Field("text", read="to_string"),),
+    # A repr names the key and does not print the secret.
+    shown="name",
+)
+class SecretKey:
+    """A key that signs store paths, as `secret-key-files` names one."""
+
+    if DETERMINATE:
+
+        def __init__(self) -> None:
+            """Parse `<name>:<base64>`. Raises when the key is corrupt.
+
+            `parse_secret_key` is the factory, because each key type is
+            its own class."""
+
+    else:
+
+        def __init__(self, text: Str) -> None:
+            """Parse `<name>:<base64>`. Raises when the key is corrupt."""
+            ...
+
+    @reads("name")
+    def name(self) -> Str:
+        """The key name, which every signature of this key carries."""
+
+    @local
+    @instant
+    def to_string(self) -> Str:
+        """`<name>:<base64>`, as `nix key generate-secret` prints it."""
+        ...
+
+    @local
+    @instant
+    def to_public_key(self) -> PublicKey:
+        """The public half, which verifies what this key signs."""
+        Cxx("return self.toPublicKey();")
+
+    @local
+    @instant
+    def sign_detached(self, data: Str) -> Signature:
+        """The signature of `data`, under this key's name.
+
+        For a store path, `data` is `Store.fingerprint` of its path info,
+        as `ValidPathInfo::sign` signs it."""
+        Cxx("return self.signDetached(data);")
+
+
+if DETERMINATE:
+    # `parse` answers a `unique_ptr`, and the `shared_ptr` holder takes it.
+
+    @constructs(PublicKey)
+    @needs(Local("nix/util/signature/local-keys.hh"))
+    @threading("pool")
+    def parse_public_key(text: Str) -> PublicKey:
+        """Parse `<name>:<base64>` as the key type its bytes say."""
+        Cxx("return nix::PublicKey::parse(text);")
+
+    @constructs(SecretKey)
+    @needs(Local("nix/util/signature/local-keys.hh"))
+    @threading("pool")
+    def parse_secret_key(text: Str) -> SecretKey:
+        """Parse `<name>:<base64>` as the key type its bytes say."""
+        Cxx("return nix::SecretKey::parse(text);")
+
+    @needs(Local("nix/util/signature/local-keys.hh"))
+    @threading("pool")
+    def generate_secret_key(name: Str, key_type: KeyType = KeyType.ED25519) -> SecretKey:
+        """A new random key called `name`, as `nix key generate-secret` makes one."""
+        Cxx("return nix::SecretKey::generate(name, key_type);")
+
+else:
+
+    @needs(Local("nix/util/signature/local-keys.hh"))
+    @threading("pool")
+    def generate_secret_key(name: Str) -> SecretKey:
+        """A new random key called `name`, as `nix key generate-secret` makes one."""
+        Cxx("return nix::SecretKey::generate(name);")

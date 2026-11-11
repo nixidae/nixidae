@@ -87,6 +87,7 @@ from huggorm_bindings import (
     StoreReferenceSpecified,
     Trace,
     TrustedFlag,
+    generate_secret_key,
 )
 from huggorm_bindings.errors import (
     BadStorePath,
@@ -1695,6 +1696,12 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
             [(CA.FLAT, Hash(HashAlgorithm.SHA1, bytes(range(20))))],
         ),
         "Signature": (Signature("cache.nixos.org-1", bytes(range(64))), [("builder-2", bytes(range(1, 65)))]),
+        # A key crosses as its text, and its constructor parses it back.
+        "SecretKey": (generate_secret_key("cache-1"), [(generate_secret_key("cache-2").to_string(),)]),
+        "PublicKey": (
+            generate_secret_key("cache-1").to_public_key(),
+            [(generate_secret_key("cache-2").to_public_key().to_string(),)],
+        ),
         # A CA derivation's output, and what it turned out to be. Both
         # constructed: a hermetic store answers None for every id,
         # because `ca-derivations` is off and there is no mapping to
