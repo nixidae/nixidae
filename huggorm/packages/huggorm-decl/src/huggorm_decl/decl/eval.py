@@ -463,6 +463,25 @@ huggorm::gc_register_thread();
 return self.state().realiseString(*self.get(), nullptr, false, nix::noPos);
         """)
 
+    @blocks
+    def coerce_to_string(self) -> Str:
+        """This value as a string, as `nix eval --raw` prints it.
+
+        A string as is; a path copied into the store, answering the
+        store path; a set through `__toString` or `outPath`. Nothing
+        is built: a derivation output answers a path that may not
+        exist yet (`realise_string` builds it).
+
+        BLOCKS: it forces the value. Raises for an integer, a list
+        and every other type that `"${v}"` refuses."""
+        Cxx("""
+huggorm::gc_register_thread();
+nix::NixStringContext context;
+return self.state().coerceToString(
+    nix::noPos, *self.get(), context,
+    "while generating the eval command output").toOwned();
+        """)
+
     @guard("list")
     @blocks
     def realise_argv(self) -> Vec[Str]:

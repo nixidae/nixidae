@@ -304,6 +304,23 @@ def test_a_function_has_no_json(state: Any) -> None:
         state.eval_expr("{ f = x: x; }").to_json()
 
 
+def test_coercing_is_what_nix_eval_raw_prints(state: Any, tmp_path: pathlib.Path) -> None:
+    (tmp_path / "f").write_text("hi\n")
+    assert state.eval_expr('"a b"').coerce_to_string() == "a b"
+    assert state.eval_expr('{ outPath = "o"; }').coerce_to_string() == "o"
+    assert state.eval_expr('{ __toString = _: "t"; }').coerce_to_string() == "t"
+    copied = state.eval_expr("./f", str(tmp_path)).coerce_to_string()
+    assert copied.startswith("/nix/store/") and copied.endswith("-f")
+
+
+@pytest.mark.parametrize("expr", ["1", "[ ]", "{ }", "null"])
+def test_a_value_that_does_not_coerce_is_nix_s_type_error(state: Any, expr: str) -> None:
+    from huggorm_bindings.errors import NixTypeError
+
+    with pytest.raises(NixTypeError, match="cannot coerce"):
+        state.eval_expr(expr).coerce_to_string()
+
+
 def test_a_string_with_nothing_to_build_realises_as_itself(state: Any) -> None:
     assert state.eval_expr('"plain"').realise_string() == "plain"
 
