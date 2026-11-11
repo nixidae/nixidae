@@ -2108,13 +2108,17 @@ return self.wrap_builder(made);
         recreate: Bint = False,
         update: Opt[Vec[Str]] = None,
         write_lock_file: Bint = True,
+        fail_on_unlocked: Bint = False,
         settings: Opt[Map[Str]] = None,
     ) -> LockedFlake:
         """Lock a flake, as `nix flake lock` does.
 
         `recreate` drops the old lock file; `update` names the inputs to
-        refresh, `nixpkgs` or `a/b`. `settings` are flake settings over
-        the process's, such as `accept-flake-config`.
+        refresh, `nixpkgs` or `a/b`. `fail_on_unlocked` raises where a
+        lock file with an unlocked input would be written, as
+        `nix flake lock` does; without it Nix warns and writes nothing.
+        `settings` are flake settings over the process's, such as
+        `accept-flake-config`.
 
         Each call fetches its inputs anew, as one `nix` command does: it
         clears this state's input cache, and with it the process-wide
@@ -2130,6 +2134,7 @@ auto flake_settings = huggorm::call_settings<nix::flake::Settings>(settings);
 nix::flake::LockFlags flags;
 flags.recreateLockFile = recreate;
 flags.writeLockFile = write_lock_file;
+flags.failOnUnlocked = fail_on_unlocked;
 for (auto & input : update) {
     auto path = nix::flake::NonEmptyInputAttrPath::parse(input);
     if (!path)

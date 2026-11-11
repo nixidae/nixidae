@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from huggorm_bindings import EvalState, Store, parse_flake_ref
-from huggorm_bindings.errors import UsageError
+from huggorm_bindings.errors import NixError, UsageError
 from huggorm_dsl.declare import NIX_2_35
 from huggorm_generated import AsyncEvalState, AsyncStore
 
@@ -169,6 +169,34 @@ def test_a_second_lock_sees_a_new_commit(tmp_path: pathlib.Path, same_state: boo
     assert dep_node.locked_ref().to_attrs()["rev"] == moved
     written = json.loads((root / "flake.lock").read_text())
     assert written["nodes"]["dep"]["locked"]["rev"] == moved
+
+
+def _dirty_input(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A root flake whose git input has an uncommitted change, so its
+    locked reference carries no `rev` (`LockFile::isUnlocked`)."""
+    dep = tmp_path / "dep"
+    _commit(dep, "{ outputs = _: { }; }")
+    (dep / "flake.nix").write_text("{ outputs = _: { y = 1; }; }")
+    return _flake(
+        tmp_path / "root-flake",
+        f"""{{
+  inputs.dep.url = "git+file://{dep}";
+  outputs = _: {{ }};
+}}""",
+    )
+
+
+def test_an_unlocked_input_fails_the_lock_when_asked(state: EvalState, tmp_path: pathlib.Path) -> None:
+    root = _dirty_input(tmp_path)
+    with pytest.raises(NixError, match=r"Not writing lock file of flake .* because it has an unlocked input"):
+        state.lock_flake(parse_flake_ref(f"path:{root}"), fail_on_unlocked=True)
+    assert not (root / "flake.lock").exists()
+
+
+def test_an_unlocked_input_writes_no_lock_file_by_default(state: EvalState, tmp_path: pathlib.Path) -> None:
+    root = _dirty_input(tmp_path)
+    state.lock_flake(parse_flake_ref(f"path:{root}"))
+    assert not (root / "flake.lock").exists()
 
 
 def _locked_dep(tmp_path: pathlib.Path) -> Any:
