@@ -32,6 +32,15 @@ def test_a_relative_path_parses_against_the_base(tmp_path: pathlib.Path) -> None
     assert parse_flake_ref("./f", base=str(tmp_path)).to_string() == f"path:{tmp_path}/f"
 
 
+def test_a_local_flake_names_its_lock_file(tmp_path: pathlib.Path) -> None:
+    assert parse_flake_ref(f"path:{tmp_path}").lock_file_path() == tmp_path / "flake.lock"
+    assert parse_flake_ref(f"path:{tmp_path}?dir=sub").lock_file_path() == tmp_path / "sub" / "flake.lock"
+
+
+def test_a_remote_flake_has_no_lock_file_here() -> None:
+    assert parse_flake_ref("github:o/r").lock_file_path() is None
+
+
 def test_equal_references_compare_equal() -> None:
     assert parse_flake_ref("github:o/r") == parse_flake_ref("github:o/r")
     assert parse_flake_ref("github:o/r") != parse_flake_ref("github:o/s")

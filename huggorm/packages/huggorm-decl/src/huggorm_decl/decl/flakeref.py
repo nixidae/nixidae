@@ -17,6 +17,7 @@ from huggorm_dsl.declare import (
     Local,
     Map,
     Opt,
+    Path,
     Str,
     binding,
     blocks,
@@ -66,6 +67,19 @@ class FlakeRef:
     def to_attrs(self) -> Map[Attr]:
         """The input's attributes, with the subdirectory as `dir`."""
         Cxx("return self.toAttrs();")
+
+    @local
+    def lock_file_path(self) -> Opt[Path]:
+        """Where `lockFlake` writes this flake's `flake.lock`, or None for
+        a flake that is not on this machine, which it never writes.
+
+        `lockFlake`'s own two lines, from the top reference."""
+        Cxx("""
+auto source = self.input.getSourcePath();
+if (!source)
+    return std::nullopt;
+return *source / ((self.subdir == "" ? "" : self.subdir + "/") + "flake.lock");
+        """)
 
     @staticmethod
     @needs(
