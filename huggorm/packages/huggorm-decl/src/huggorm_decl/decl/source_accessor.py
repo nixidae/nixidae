@@ -111,6 +111,23 @@ class SourceAccessor:
         """The contents of the regular file at `path`. Not a symlink's
         target: Nix follows a symlink itself."""
 
+    def lstat(self, path: Str) -> Stat:
+        """What is at `path`. Raises Nix's error when nothing is:
+        `path '«unknown»/x' does not exist`."""
+        Cxx("return self.lstat(nix::CanonPath(path));")
+
+    @needs(Local("nix/util/nar-listing.hh"), Local("nlohmann/json.hpp"))
+    def list_nar(self, path: Str, recursive: Bint = False) -> Str:
+        """The object at `path` as JSON text, as `nix nar ls --json`
+        prints it: `listNarShallow`, or `listNarDeep` when
+        `recursive`. A regular file in a NAR carries its `narOffset`."""
+        Cxx("""
+nix::CanonPath at{path};
+nlohmann::json j = recursive ? nlohmann::json(nix::listNarDeep(self, at))
+                             : nlohmann::json(nix::listNarShallow(self, at));
+return j.dump();
+        """)
+
 
 @needs(Local("huggorm_decl/cpp/source_accessor.hpp"))
 def filesystem_accessor(root: Path) -> SourceAccessor:
@@ -125,4 +142,19 @@ def filesystem_accessor(root: Path) -> SourceAccessor:
     Cxx("""
 return std::make_shared<huggorm::SourceAccessor>(
     nix::makeFSSourceAccessor(std::filesystem::absolute(root)).get_ptr());
+    """)
+
+
+@needs(
+    Local("huggorm_decl/cpp/source_accessor.hpp"),
+    Local("nix/util/file-system.hh"),
+    Local("nix/util/nar-accessor.hh"),
+)
+def nar_accessor(nar: Path) -> SourceAccessor:
+    """The file tree inside the NAR file at `nar`, as `nix nar ls`
+    reads one. The whole NAR is read into memory and parsed once, so a
+    file that is not a NAR raises here."""
+    Cxx("""
+return std::make_shared<huggorm::SourceAccessor>(
+    std::shared_ptr<nix::SourceAccessor>(nix::makeNarAccessor(nix::readFile(nar)).get_ptr()));
     """)

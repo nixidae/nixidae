@@ -26,11 +26,14 @@ the method runs on the loop of the call that reads it (nixidae/nixidae#740).
 from huggorm_dsl.declare import (
     U64,
     Bytes,
+    Cxx,
     Local,
+    Path,
     binding,
     calls_back,
     header,
     in_process,
+    needs,
     posted,
     virtual,
 )
@@ -69,3 +72,14 @@ class Source:
     @virtual
     def read(self, n: U64) -> Bytes:
         """At most `n` bytes, and at least one. `b""` ends the stream."""
+
+
+@needs(Local("huggorm_decl/cpp/serialise.hpp"), Local("nix/util/archive.hh"))
+def dump_path(path: Path, sink: Sink) -> None:
+    """Write the file system object at `path` as a NAR into `sink`, as
+    `nix nar pack` does. A symlink is not followed."""
+    Cxx("""
+huggorm::SinkBuffer buffered{sink};
+nix::dumpPath(path, buffered);
+buffered.flush();
+    """)
