@@ -122,6 +122,43 @@ class FileSerialisationMethod(StrEnum):
     NAR = "nar"
 
 
+@header(Local("nix/util/file-content-address.hh"))
+@words(
+    parsed_by="nix::parseFileIngestionMethod",
+    enumerated=Enumerated(
+        "nix::FileIngestionMethod",
+        spelled={"FLAT": "Flat", "NAR": "NixArchive", "GIT": "Git"},
+    ),
+)
+class FileIngestionMethod(StrEnum):
+    """How a file system object is hashed: its flat contents, its NAR,
+    or Git's tree hashing. `nix hash path --mode`."""
+
+    FLAT = "flat"
+    NAR = "nar"
+    GIT = "git"
+
+
+@header(Local("nix/util/hash.hh"))
+@words(
+    parsed_by="nix::parseHashFormat",
+    enumerated=Enumerated(
+        "nix::HashFormat",
+        spelled={"BASE64": "Base64", "NIX32": "Nix32", "BASE16": "Base16", "SRI": "SRI"},
+    ),
+)
+class HashFormat(StrEnum):
+    """The alphabets Nix prints a digest in. `nix hash convert --to`.
+
+    `base32` is not a word here: `parseHashFormat` takes it as a
+    deprecated alias of `nix32`, and `printHashFormat` never prints it."""
+
+    BASE64 = "base64"
+    NIX32 = "nix32"
+    BASE16 = "base16"
+    SRI = "sri"
+
+
 @header(Local("nix/store/store-api.hh"))
 @words(
     # No `parsed_by`, and that is a fact about upstream rather than an

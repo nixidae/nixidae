@@ -14,13 +14,16 @@ converting - but a StrEnum compiles to nothing, so it has no
 extension of its own to live in.
 """
 
-from huggorm_decl.decl.words import HashAlgorithm
+from huggorm_decl.decl.words import FileIngestionMethod, HashAlgorithm, HashFormat
 from huggorm_dsl.declare import (
     Bytes,
     Cxx,
     Local,
+    Opt,
+    Path,
     Str,
     binding,
+    blocks,
     header,
     instant,
     local,
@@ -138,15 +141,61 @@ return self.to_string(nix::HashFormat::Base16, /*includeAlgo=*/false);
 return self.to_string(nix::HashFormat::SRI, /*includeAlgo=*/true);
         """)
 
+    @local
+    @instant
+    def render(self, format: HashFormat) -> Str:
+        """The digest in `format`, as `nix hash` prints it: the
+        algorithm in front for SRI only."""
+        Cxx("""
+return self.to_string(format, format == nix::HashFormat::SRI);
+        """)
+
 
 @needs(Local("nix/util/hash.hh"))
 @threading("pool")
-def parse_hash(text: Str, algorithm: HashAlgorithm = HashAlgorithm.SHA256) -> Hash:
+def parse_hash(text: Str, algorithm: Opt[HashAlgorithm] = None) -> Hash:
     """Parse a hash in any form Nix prints one, as `Hash::parseAny` does.
 
     SRI (`sha256-<base64>`), a prefixed one (`sha256:<digest>`), or a
     bare digest in base16, Nix32 or base64. A bare digest is read as
-    `algorithm`. A hash whose own prefix names another algorithm is
-    refused with Nix's message. The default is the one `nix store
-    prefetch-file --hash-type` has."""
+    `algorithm`, and refused without one. A hash whose own prefix
+    names another algorithm is refused with Nix's message."""
     Cxx("return nix::Hash::parseAny(text, algorithm);")
+
+
+@needs(Local("nix/util/hash.hh"))
+@threading("pool")
+def parse_hash_format(text: Str, algorithm: Opt[HashAlgorithm] = None) -> HashFormat:
+    """The format `text` is written in. `parse_hash` reads it, and
+    raises the same errors. `nix hash convert --from` compares it."""
+    Cxx("""
+return std::string{
+    nix::printHashFormat(nix::Hash::parseAnyReturningFormat(text, algorithm).second)};
+    """)
+
+
+@needs(
+    Local("nix/util/hash.hh"),
+    Local("nix/util/file-content-address.hh"),
+    Local("nix/util/file-system.hh"),
+    Local("nix/util/source-path.hh"),
+)
+@threading("pool")
+@blocks
+def hash_path(path: Path, method: FileIngestionMethod, algorithm: HashAlgorithm) -> Hash:
+    """The hash of the file system object at `path`, as `nix hash
+    path --mode` computes it.
+
+    `flat` reads the file and follows a symlink, so a FIFO works, as
+    `nix hash file` does. `nar` and `git` serialise the object without
+    following a symlink."""
+    Cxx("""
+if (method == nix::FileIngestionMethod::Flat) {
+    nix::HashSink sink{algorithm};
+    nix::readFile(path, sink);
+    return sink.finish().hash;
+}
+return nix::hashPath(
+    nix::SourcePath{nix::makeFSSourceAccessor(std::filesystem::absolute(path))},
+    method, algorithm).first;
+    """)
