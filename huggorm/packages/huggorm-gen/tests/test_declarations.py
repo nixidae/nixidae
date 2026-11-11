@@ -388,7 +388,11 @@ def test_a_produced_class_nothing_returns_fails_the_build(tmp_path: pathlib.Path
         ir.Model({c.name: c for c in unit.classes}, {}, {}, {}, ir.Errors("", {}), (unit,))
 
     model = declared_model()
-    assert model.producers["PathInfo"] == ("LayeredStore.query_path_info", "Store.query_path_info")
+    assert model.producers["PathInfo"] == (
+        "LayeredStore.query_path_info",
+        "Store.add_to_store_slow",
+        "Store.query_path_info",
+    )
     # A dict's value is made too: on 2.35 this is the only call that
     # makes an UnkeyedRealisation (nixidae/nixidae#698).
     built = next(m for m in model.classes["BuildSuccess"].bound if m.name == "built_outputs")

@@ -11,9 +11,11 @@ what makes this testable in a build sandbox.
 # declaration's type by importing it, and the reader follows the
 # import - nothing here runs, so this costs a parse.
 from huggorm_decl.decl.build_result import KeyedBuildResult
+from huggorm_decl.decl.content_address import ContentAddress
 from huggorm_decl.decl.derivation import Derivation
 from huggorm_decl.decl.derived_path import DerivedPath
 from huggorm_decl.decl.gc import GCOptions, GCResults
+from huggorm_decl.decl.hash import Hash
 from huggorm_decl.decl.path import StorePath
 from huggorm_decl.decl.pathinfo import PathInfo
 from huggorm_decl.decl.realisation import DrvOutput, Realisation
@@ -379,6 +381,45 @@ return self.computeStorePath(
     method,
     hash_algo,
     as_set<nix::StorePathSet>(references)).first;
+        """)
+
+    @needs(Local("nix/util/source-accessor.hh"))
+    def add_to_store_slow(
+        self,
+        name: Str,
+        path: Str,
+        method: ContentAddressMethod = ContentAddressMethod.NAR,
+        hash_algo: HashAlgorithm = HashAlgorithm.SHA256,
+        expected_hash: Opt[Hash] = None,
+    ) -> PathInfo:
+        """Add a file or a directory from the filesystem, hashing it here.
+
+        `addToStoreSlow`, which is what `nix store prefetch-file` calls.
+        It computes the content address in this process before it adds,
+        so it can check `expected_hash`: a hash that differs raises with
+        Nix's hash-mismatch message, and nothing is added. The answer
+        is the path info, whose `ca` holds the hash under `hash_algo`.
+
+        `path` is on the filesystem of the process that runs the
+        binding. The added path has no references."""
+        Cxx("""
+nix::SourcePath source{
+    nix::getFSSourceAccessor(),
+    nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
+return self.addToStoreSlow(name, source, method, hash_algo, {}, expected_hash);
+        """)
+
+    @needs(Local("nix/store/content-address.hh"))
+    @instant
+    def make_fixed_output_path_from_ca(self, name: Str, ca: ContentAddress) -> StorePath:
+        """The path a content-addressed object with no references gets.
+
+        `makeFixedOutputPathFromCA`. Nothing is read or written: the
+        path follows from the name, the method and the hash alone,
+        which is how `nix store prefetch-file --expected-hash` finds a
+        file it already holds without a download."""
+        Cxx("""
+return self.makeFixedOutputPathFromCA(name, nix::ContentAddressWithReferences::withoutRefs(ca));
         """)
 
     def add_accessor_to_store(

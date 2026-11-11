@@ -24,7 +24,9 @@ from huggorm_dsl.declare import (
     header,
     instant,
     local,
+    needs,
     reads,
+    threading,
     wire_value,
 )
 
@@ -135,3 +137,16 @@ return self.to_string(nix::HashFormat::Base16, /*includeAlgo=*/false);
         Cxx("""
 return self.to_string(nix::HashFormat::SRI, /*includeAlgo=*/true);
         """)
+
+
+@needs(Local("nix/util/hash.hh"))
+@threading("pool")
+def parse_hash(text: Str, algorithm: HashAlgorithm = HashAlgorithm.SHA256) -> Hash:
+    """Parse a hash in any form Nix prints one, as `Hash::parseAny` does.
+
+    SRI (`sha256-<base64>`), a prefixed one (`sha256:<digest>`), or a
+    bare digest in base16, Nix32 or base64. A bare digest is read as
+    `algorithm`. A hash whose own prefix names another algorithm is
+    refused with Nix's message. The default is the one `nix store
+    prefetch-file --hash-type` has."""
+    Cxx("return nix::Hash::parseAny(text, algorithm);")

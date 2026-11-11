@@ -65,6 +65,9 @@ NANOBIND = (
     "fetchers.py",
     "flakeref.py",
     "terminal.py",
+    "filetransfer.py",
+    "tarfile.py",
+    "url.py",
 )
 
 # Vocabularies. A StrEnum whose members ARE the strings a Nix parser

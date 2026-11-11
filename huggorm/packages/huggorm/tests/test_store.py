@@ -8,6 +8,7 @@ nothing on disk, which is what makes it testable in a build sandbox.
 
 import datetime
 import gc
+import hashlib
 import os
 import pathlib
 import sys
@@ -2521,3 +2522,26 @@ def test_two_stores_on_one_directory_keep_their_own_temp_roots(tmp_path: pathlib
     assert len(held) == 2, held
     assert not [h for h in held if h.endswith(" (deleted)")], held
     assert sorted(p.name for p in temp_roots.iterdir()) == sorted(os.path.basename(h) for h in held)
+
+
+def test_add_to_store_slow_answers_the_hash_of_the_method(tmp_path: pathlib.Path) -> None:
+    """A flat file's address is the hash of its bytes, as `nix store prefetch-file` prints it."""
+    store = Store(str(tmp_path / "store"))
+    source = tmp_path / "file"
+    source.write_bytes(b"hello\n")
+    info = store.add_to_store_slow("file", str(source), CA.FLAT, HashAlgorithm.SHA256)
+    ca = info.ca()
+    assert ca is not None
+    assert ca.hash() == Hash(HashAlgorithm.SHA256, hashlib.sha256(b"hello\n").digest())
+    assert store.is_valid_path(info.path())
+    assert store.make_fixed_output_path_from_ca("file", ContentAddress(CA.FLAT, ca.hash())) == info.path()
+
+
+def test_add_to_store_slow_refuses_an_expected_hash_that_differs(tmp_path: pathlib.Path) -> None:
+    store = Store(str(tmp_path / "store"))
+    source = tmp_path / "file"
+    source.write_bytes(b"hello\n")
+    wrong = Hash(HashAlgorithm.SHA256, bytes(32))
+    with pytest.raises(NixError, match="hash mismatch"):
+        store.add_to_store_slow("file", str(source), CA.FLAT, HashAlgorithm.SHA256, wrong)
+    assert store.query_all_valid_paths() == []
