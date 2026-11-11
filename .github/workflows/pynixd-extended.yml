@@ -53,6 +53,12 @@ jobs:
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q
     - name: Extended client tests
       run: nix develop --impure --file shell.nix --command pytest tests/client -m extended
+    - name: Extended client tests on nix_2_34
+      run: nix develop --impure --file . internal.laneShells.nix_2_34 --command pytest tests/client -m extended
+    - name: Extended client tests on git
+      run: nix develop --impure --file . internal.laneShells.git --command pytest tests/client -m extended
+    - name: Extended client tests on determinate
+      run: nix develop --impure --file . internal.laneShells.determinate --command pytest tests/client -m extended
     timeout-minutes: 120
 name: 'pynixd: extended'
 'on':
