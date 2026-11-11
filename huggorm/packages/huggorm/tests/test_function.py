@@ -26,6 +26,8 @@ from typing import Any
 import pytest
 from nixversion import MISSING_ARGUMENT, NOT_A_FUNCTION
 
+from huggorm_bindings.errors import NoPositionInfo
+
 URI = "dummy://"
 
 
@@ -345,6 +347,11 @@ def test_a_path_is_edited_as_the_whole_file(state: Any, tmp_path: Any) -> None:
     target.write_text("1\n")
     where = state.eval_expr(f"{target}").edit_location()
     assert (where.path(), where.line()) == (str(target), 0)
+
+
+def test_a_package_without_a_position_raises_no_position_info(state: Any) -> None:
+    with pytest.raises(NoPositionInfo, match="has no source location information"):
+        state.eval_expr('{ type = "derivation"; }').edit_location()
 
 
 def test_a_lambda_from_a_string_cannot_be_edited(state: Any) -> None:

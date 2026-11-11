@@ -200,6 +200,13 @@ class UnimplementedError(NixError):
     this platform or in this build."""
 
 
+@throws("nix::NoPositionInfo", Local("nix/expr/attr-path.hh"))
+class NoPositionInfo(NixError):
+    """nix::NoPositionInfo - a package has no `meta.position`, so no
+    file says where it is defined. `nix edit` reports it in its own
+    words."""
+
+
 @throws("nix::ParseError", Local("nix/expr/eval-error.hh"))
 class ParseError(NixError):
     """nix::ParseError - the text is not a Nix expression.

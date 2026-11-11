@@ -1639,6 +1639,7 @@ def test_a_catch_brings_the_header_that_declares_it() -> None:
     headers = declared_model().errors.headers
     assert [h.name for h in headers] == [
         "huggorm_decl/cpp/eval_errors.hpp",
+        "nix/expr/attr-path.hh",
         "nix/expr/eval-error.hh",
         "nix/store/store-api.hh",
         "nix/store/store-dir-config.hh",
