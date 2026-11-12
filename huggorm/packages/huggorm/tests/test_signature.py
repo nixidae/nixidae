@@ -136,6 +136,47 @@ def test_a_signed_path_keeps_the_signature(signing_store: Store) -> None:
     assert key.to_public_key().verify_detached(store.fingerprint(signed), signed.sigs()[0])
 
 
+@pytest.fixture
+def trusted_key() -> Iterator[SecretKey]:
+    """A key whose public half is the one `trusted-public-keys` names, for
+    one test. The setting belongs to the process."""
+    key = generate_secret_key("cache-1")
+    before = get_setting("trusted-public-keys") or ""
+    set_setting("trusted-public-keys", key.to_public_key().to_string())
+    try:
+        yield key
+    finally:
+        set_setting("trusted-public-keys", before)
+
+
+def test_a_signature_checks_against_the_trusted_keys(signing_store: Store, trusted_key: SecretKey) -> None:
+    store = signing_store
+    path = store.add_to_store("greeting", b"hello\n", ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    info = store.query_path_info(path)
+    assert store.check_signature(info, trusted_key.sign_detached(store.fingerprint(info)))
+    assert not store.check_signature(info, trusted_key.sign_detached("other data"))
+    # Same name, another key.
+    assert not store.check_signature(info, generate_secret_key("cache-1").sign_detached(store.fingerprint(info)))
+
+
+def test_a_path_is_content_addressed_in_its_own_store_directory_only(tmp_path: pathlib.Path) -> None:
+    store = Store(str(tmp_path / "store"))
+    path = store.add_to_store("greeting", b"hello\n", ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    info = store.query_path_info(path)
+    assert store.is_content_addressed(info)
+    assert not Store("dummy://?store=/other/store").is_content_addressed(info)
+
+
+def test_the_nar_hash_of_a_path_is_the_one_the_store_registered(tmp_path: pathlib.Path) -> None:
+    """A local store only: a `unix://` store reads the NAR from this host's
+    `/nix/store` (`LocalFSStore::narFromPath`), not from the daemon's chroot."""
+    store = Store(str(tmp_path / "store"))
+    path = store.add_to_store("greeting", b"hello\n", ContentAddressMethod.TEXT, HashAlgorithm.SHA256)
+    info = store.query_path_info(path)
+    assert store.compute_nar_hash(path, info.nar_hash().algorithm()) == info.nar_hash()
+    assert store.compute_nar_hash(path, HashAlgorithm.SHA512) != info.nar_hash()
+
+
 def test_a_store_that_cannot_keep_signatures_says_so() -> None:
     store = Store("dummy://")
     with pytest.raises(NixError):

@@ -696,6 +696,37 @@ return local->config->getBuildDir().string();
         Raises when `info` has no NAR hash or size, as Nix does."""
         Cxx("return info.fingerprint(self);")
 
+    @instant
+    def is_content_addressed(self, info: PathInfo) -> Bint:
+        """Whether `info`'s content address gives its path in this
+        store's directory, as `ValidPathInfo::isContentAddressed` checks.
+
+        Nix logs a warning for a path that claims a content address that
+        does not give it."""
+        Cxx("return info.isContentAddressed(self);")
+
+    # The keys are Nix's own, and a caller cannot pass others: Determinate
+    # Nix holds `PublicKeys` as `unique_ptr`s and Nix holds them by value,
+    # so a list from Python has no one conversion to both.
+    @needs(Local("nix/store/keys.hh"))
+    def check_signature(self, info: PathInfo, sig: Signature) -> Bint:
+        """Whether `sig` signs `info` with a trusted key, as
+        `ValidPathInfo::checkSignature` checks it with
+        `getDefaultPublicKeys`: `trusted-public-keys`, and the public half
+        of each key in `secret-key-files`."""
+        Cxx("return info.checkSignature(self, nix::getDefaultPublicKeys(), sig);")
+
+    def compute_nar_hash(self, path: StorePath, algorithm: HashAlgorithm) -> Hash:
+        """The hash of `path`'s NAR in `algorithm`, as `nix store verify`
+        computes it. The NAR does not leave the store's side.
+
+        Raises InvalidPath when the store does not hold it."""
+        Cxx("""
+nix::HashSink sink{algorithm};
+self.narFromPath(path, sink);
+return sink.finish().hash;
+        """)
+
     @needs(Local("nix/util/signature/local-keys.hh"))
     def add_signatures(self, path: StorePath, sigs: Vec[Signature]) -> None:
         """Add `sigs` to the signatures of `path`, as `nix store sign`
