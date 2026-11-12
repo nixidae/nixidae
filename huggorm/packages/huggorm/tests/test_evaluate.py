@@ -238,6 +238,46 @@ def test_an_error_python_builds_carries_no_info() -> None:
     from huggorm_bindings.errors import NixError
 
     assert NixError("made here").info is None
+    assert NixError("made here").native is None
+
+
+def test_an_error_carries_nix_s_own_error(state: Any) -> None:
+    """The handle holds what the info parts read (nixidae/nixidae#1300)."""
+    from huggorm_bindings.errors import EvalError
+
+    with pytest.raises(EvalError) as caught:
+        state.eval_expr('let\n  x = 1;\nin\n  x + "a"')
+    info, native = caught.value.info, caught.value.native
+    assert info is not None
+    assert native is not None
+    assert native.info().msg() == info.msg()
+    assert native.info().pos() == info.pos()
+
+
+def test_the_handle_stays_out_of_the_parts(state: Any) -> None:
+    """Two errors are one answer whatever handles they hold, and the
+    handle never reaches what crosses a wire."""
+    from huggorm_bindings.errors import ThrownError
+
+    raised = []
+    for _ in range(2):
+        with pytest.raises(ThrownError) as caught:
+            state.eval_expr('throw "boom"')
+        raised.append(caught.value)
+    assert raised[0].native is not raised[1].native
+    assert raised[0] == raised[1]
+    assert "native" not in raised[0].to_dict()
+
+
+def test_a_caller_s_error_colours_its_arguments_as_nix_does() -> None:
+    """`HintFmt` puts each argument in magenta, so a caller's own error
+    reads as one Nix made."""
+    from huggorm_bindings import NativeError
+
+    info = NativeError("flake attribute '%s' is not a derivation", ["x"]).info()
+    assert info.msg_bytes() == b"flake attribute '\x1b[35;1mx\x1b[0m' is not a derivation"
+    assert info.pos() is None
+    assert info.traces() == []
 
 
 def test_an_index_past_the_end_names_both_numbers(state: Any) -> None:

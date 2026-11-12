@@ -136,7 +136,7 @@ def test_a_part_beyond_the_message_needs_a_reader(tmp_path: pathlib.Path) -> Non
 
     So the reader refuses it, and the shipped declaration, whose
     classes name a reader, gets one argument per extra part, typed by
-    the part's record."""
+    the part's C++ type."""
     from huggorm_dsl.read import DeclarationError, read
     from huggorm_gen.cppgen import pyerrors
     from huggorm_gen.cppgen.generate import declared_model
@@ -146,7 +146,9 @@ def test_a_part_beyond_the_message_needs_a_reader(tmp_path: pathlib.Path) -> Non
         read(path)
 
     chain = "\n".join(pyerrors.chain(declared_model().errors, "raise_as"))
-    assert ('"ThrownError", e, huggorm::error_info<huggorm::ErrorInfo>);') in chain
+    assert (
+        '"ThrownError", e, huggorm::error_info<huggorm::ErrorInfo>, huggorm::error_info<huggorm::NativeError>);'
+    ) in chain
 
 
 def test_the_emitted_module_keeps_no_trace_of_the_branch(tmp_path: pathlib.Path) -> None:

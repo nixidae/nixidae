@@ -1,5 +1,6 @@
 #pragma once
-// A `nix::ErrorInfo`, read into the records `decl/path.py` declares.
+// A `nix::ErrorInfo`, read into the records and the handle
+// `decl/path.py` declares.
 //
 // Templates over the record types, so the catch chain names the
 // record each part reads into, and a part that is not a record fails
@@ -14,6 +15,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "nix/util/error.hh"
@@ -109,10 +111,26 @@ Info info_record(const nix::ErrorInfo & info)
     };
 }
 
-template <typename Info>
-Info error_info(const nix::BaseError & e)
+/**
+ * Nix's own error, as a value a caller can add frames to and have
+ * Nix render.
+ *
+ * A copy of the `ErrorInfo`, not of the thrown exception: an
+ * `EvalBaseError` holds a reference to its `EvalState`
+ * (`eval-error.hh:30`), and this can outlive the state.
+ */
+struct NativeError
 {
-    return info_record<Info>(e.info());
+    nix::Error error;
+};
+
+template <typename Part>
+Part error_info(const nix::BaseError & e)
+{
+    if constexpr (std::is_same_v<Part, NativeError>)
+        return NativeError{nix::Error(e.info())};
+    else
+        return info_record<Part>(e.info());
 }
 
 }  // namespace huggorm

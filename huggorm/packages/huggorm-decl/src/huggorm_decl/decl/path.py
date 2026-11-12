@@ -15,6 +15,7 @@ from huggorm_dsl.declare import (
     I64,
     Bint,
     Bytes,
+    Cxx,
     Field,
     Local,
     Opt,
@@ -224,6 +225,29 @@ class ErrorInfo:
     @reads("suggestions")
     def suggestions_bytes(self) -> Vec[Bytes]:
         """The suggestions as bytes, exactly as Nix raised them."""
+
+
+@header(Local("huggorm_decl/cpp/error_info.hpp"))
+# `pool`: the handle is data. The one step that reads a source file,
+# rendering a frame's code, is an `EvalState` method (nixidae/nixidae#1300).
+@binding(cxx="huggorm::NativeError", threading="pool", blocking=False)
+class NativeError:
+    """Nix's own error behind a `NixError`, with every frame, for a
+    caller that adds frames and has Nix render the result."""
+
+    def __init__(self, format_string: Str, args: Vec[Str]) -> None:
+        """An error of the caller's own, as Nix makes one: each `%s`
+        in `format_string` takes the next of `args`, in magenta."""
+        Cxx("""
+auto hint = nix::HintFmt::fromFormatString(format_string);
+for (const auto & arg : args)
+    hint % arg;
+new (self) huggorm::NativeError{nix::Error(hint)};
+        """)
+
+    def info(self) -> ErrorInfo:
+        """What the error holds, as `NixError.info` reads it."""
+        Cxx("return huggorm::info_record<huggorm::ErrorInfo>(self.error.info());")
 
 
 # --- what the module does before a caller exists -------------------

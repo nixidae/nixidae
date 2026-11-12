@@ -25,7 +25,7 @@ message from naming any importable class (nixidae/nixidae#573). The set is
 this file: the emitter writes the module and knows where it put it.
 """
 
-from huggorm_decl.decl.path import ErrorInfo
+from huggorm_decl.decl.path import ErrorInfo, NativeError
 from huggorm_dsl.declare import Local, throws
 
 
@@ -42,6 +42,10 @@ class NixError(Exception):
     `e.info` is the `ErrorInfo` behind the message: the position, the
     evaluation trace and the suggestions. C++ is the only place that
     holds them. None when Python built the error (nixidae/nixidae#637).
+
+    `e.native` is Nix's own error, for a caller that adds frames and has
+    Nix render it. It stays in process: None when Python built the error,
+    and on the far side of a wire.
 
     Both strings decode lossily: a message of bytes no decoder
     accepts reads with U+FFFD rather than failing the translation
@@ -61,12 +65,20 @@ class NixError(Exception):
     # an error travels in a FAULT frame rather than as a result
     # (nixidae/nixidae#573).
     _wire_fields: tuple[tuple[str, object], ...] = (("message", str), ("colored", str), ("info", ErrorInfo | None))
+    _local_fields: tuple[tuple[str, object], ...] = (("native", NativeError | None),)
 
-    def __init__(self, message: str, colored: str | None = None, info: ErrorInfo | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        colored: str | None = None,
+        info: ErrorInfo | None = None,
+        native: NativeError | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.colored = message if colored is None else colored
         self.info = info
+        self.native = native
 
     @property
     def code(self) -> str:

@@ -1542,22 +1542,25 @@ class ErrorModel:
         local = tuple(FieldModel(part, type_ref(t, resolver, spelled=False)) for part, t in raised.local_parts)
         readers: tuple[str, ...] = ()
         if raised.cxx:
-            readers = tuple(_reader(error.name, raised.reader, f) for f in parts[MESSAGE_PARTS:] + local)
+            readers = tuple(
+                _reader(error.name, raised.reader, f, resolver.known) for f in parts[MESSAGE_PARTS:] + local
+            )
         return cls(error.name, raised.bases, parts, raised.cxx, raised.header, readers, local)
 
 
-def _reader(error: str, reader: str, part: FieldModel) -> str:
-    """The reader template given the part's record type, so a part
-    that is not a record is refused rather than cross as something it
-    is not."""
-    record = part.type.required
-    if record.kind != Kind.VALUE:
+def _reader(error: str, reader: str, part: FieldModel, known: Mapping[str, Class]) -> str:
+    """The reader template given the part's C++ type: a record, or a
+    bound class as its holder. Any other part is refused rather than
+    cross as something it is not."""
+    declared = part.type.required
+    if declared.kind not in (Kind.VALUE, Kind.PROXY):
         raise TypeError(
-            f"{error}: part '{part.name}' is a {record.kind}, and "
-            f"`{reader}` reads a record - a declared value - off the "
+            f"{error}: part '{part.name}' is a {declared.kind}, and "
+            f"`{reader}` reads a record or a bound class off the "
             f"caught exception."
         )
-    return f"{reader}<{cxx.NAMESPACE}::{record.name}>"
+    held, _ = cxx.value(declared, known)
+    return f"{reader}<{held}>"
 
 
 @dataclass(frozen=True)
