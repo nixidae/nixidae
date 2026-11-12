@@ -1724,6 +1724,42 @@ def test_a_reader_reads_a_record(tmp_path: pathlib.Path) -> None:
         _errors(read(path), ir)
 
 
+LOCAL_PART = """
+from huggorm_dsl.declare import Local, I64, throws
+
+
+@throws("nix::Error", Local("nix/util/error.hh"))
+class NixError(Exception):
+    reader = "huggorm::error_info"
+    _wire_fields = (("message", str), ("colored", str))
+    _local_fields = (("code", I64),)
+
+    def __init__(self, message, colored=None, code=None):
+        pass
+"""
+
+
+def test_a_local_part_is_read_as_a_wire_part_is(tmp_path: pathlib.Path) -> None:
+    """A part that stays in process still comes off the caught
+    exception through the reader, so the reader's rule holds for it."""
+    from huggorm_dsl.read import read
+    from huggorm_gen import ir
+
+    path = _declaration(tmp_path, LOCAL_PART)
+    with pytest.raises(TypeError, match="part 'code' is a scalar"):
+        _errors(read(path), ir)
+
+
+def test_a_constructor_takes_the_wire_parts_before_the_local_ones(tmp_path: pathlib.Path) -> None:
+    """`as_error` passes every part by position, so a constructor in
+    another order would put one part in another's place."""
+    from huggorm_dsl.read import DeclarationError, read
+
+    path = _declaration(tmp_path, LOCAL_PART.replace("colored=None, code=None", "code=None, colored=None"))
+    with pytest.raises(DeclarationError, match="the catch passes"):
+        read(path)
+
+
 def test_the_cxx_does_not_reach_the_emitted_module() -> None:
     """`@throws` and `reader` name C++, so they go nowhere a caller
     can see.

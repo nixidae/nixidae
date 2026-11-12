@@ -124,6 +124,10 @@ FROM_PARTS = "_from_parts"
 # the import, so a subclass inherits them.
 READER = "reader"
 WIRE_FIELDS = "_wire_fields"
+# Parts read off the caught exception that stay in this process: after
+# the wire parts in the constructor, and absent from the wire and from
+# `__eq__`.
+LOCAL_FIELDS = "_local_fields"
 # The parts `as_error` fills from `what()` itself.
 MESSAGE_PARTS = 2
 
@@ -551,6 +555,8 @@ class Raised:
     bases: tuple[str, ...]
     # What crosses the wire, in constructor order.
     parts: tuple[tuple[str, Type], ...] = ()
+    # What stays in process, in constructor order after `parts`.
+    local_parts: tuple[tuple[str, Type], ...] = ()
     # The C++ class the translator catches, and the header that
     # declares it. Both empty for an exception only this binding raises.
     cxx: str = ""
@@ -2275,20 +2281,34 @@ def _raised(node: ast.ClassDef, kls: type, home: dict[str, Any], thrown: declare
     cxx = thrown.cxx if thrown is not None else ""
     header = thrown.header if thrown is not None else None
     fields = tuple(getattr(kls, WIRE_FIELDS, ()))
+    local = tuple(getattr(kls, LOCAL_FIELDS, ()))
     reader = getattr(kls, READER, "")
-    extra = fields[MESSAGE_PARTS:]
+    extra = fields[MESSAGE_PARTS:] + local
     if cxx and extra and not reader:
         raise DeclarationError(
             node,
-            f"{node.name}: `_wire_fields` declares "
+            f"{node.name}: `_wire_fields` and `_local_fields` declare "
             f"{[f for f, _ in extra]} beyond the message, and no "
             f'`reader = "..."` says which C++ reads them off the '
             f"caught exception.",
         )
+    if cxx:
+        # `as_error` passes every part by position, wire parts first:
+        # a constructor in another order fills one part with another.
+        names = [f for f, _ in fields + local]
+        signature = list(inspect.signature(kls.__init__).parameters.values())[1:]
+        params = [p.name for p in signature]
+        takes_any = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in signature)
+        if not takes_any and params[: len(names)] != names:
+            raise DeclarationError(
+                node,
+                f"{node.name}: the constructor takes {params}, and the catch passes {names} in that order.",
+            )
     here = home["__name__"]
     return Raised(
         bases=tuple(b.__name__ for b in kls.__bases__ if b.__module__ == here),
         parts=tuple((part, type_of(t, node, home)) for part, t in fields),
+        local_parts=tuple((part, type_of(t, node, home)) for part, t in local),
         cxx=cxx,
         header=header,
         reader=reader,

@@ -1524,8 +1524,12 @@ class ErrorModel:
     # The header that declares `cxx`.
     header: Include | None = None
     # The reader each part past the message is read off the caught
-    # exception with, as C++, in part order.
+    # exception with, as C++, in part order: the wire parts, then the
+    # local ones.
     readers: tuple[str, ...] = ()
+    # The parts that stay in process: read off the caught exception,
+    # never on the wire.
+    local_fields: tuple[FieldModel, ...] = ()
 
     @classmethod
     def of(cls, error: Class, resolver: Resolver) -> ErrorModel:
@@ -1535,10 +1539,11 @@ class ErrorModel:
         # Unspelled: a part crosses the wire and is read off the caught
         # exception by its record type, and no C++ signature names it.
         parts = tuple(FieldModel(part, type_ref(t, resolver, spelled=False)) for part, t in raised.parts)
+        local = tuple(FieldModel(part, type_ref(t, resolver, spelled=False)) for part, t in raised.local_parts)
         readers: tuple[str, ...] = ()
         if raised.cxx:
-            readers = tuple(_reader(error.name, raised.reader, f) for f in parts[MESSAGE_PARTS:])
-        return cls(error.name, raised.bases, parts, raised.cxx, raised.header, readers)
+            readers = tuple(_reader(error.name, raised.reader, f) for f in parts[MESSAGE_PARTS:] + local)
+        return cls(error.name, raised.bases, parts, raised.cxx, raised.header, readers, local)
 
 
 def _reader(error: str, reader: str, part: FieldModel) -> str:
