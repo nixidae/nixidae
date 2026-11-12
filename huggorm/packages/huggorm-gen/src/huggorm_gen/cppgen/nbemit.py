@@ -284,9 +284,17 @@ def _value_semantics(cls: ir.ClassModel) -> list[str]:
         # TypeError rather than a copy.
         #
         # A bound value is immutable, so a deep copy IS a copy.
+        #
+        # A value held through a `shared_ptr` copies as a share. Its C++
+        # copy is a different object: a new LazyAttr computation, or a
+        # Determinate key sliced to a base that cannot sign or verify.
+        if cls.holder is Holder.SHARED_PTR:
+            param, copied = f"const std::shared_ptr<{held}> &{obj}", obj
+        else:
+            param, copied = ref, f"{held}({obj})"
         out += [
-            f'{INDENT * 2}.def("__copy__", []({ref}) {{ return {held}({obj}); }})',
-            f'{INDENT * 2}.def("__deepcopy__", []({ref}, nb::dict) {{ return {held}({obj}); }}, "memo"_a)',
+            f'{INDENT * 2}.def("__copy__", []({param}) {{ return {copied}; }})',
+            f'{INDENT * 2}.def("__deepcopy__", []({param}, nb::dict) {{ return {copied}; }}, "memo"_a)',
         ]
 
     for name, op in _cxx_comparisons(cls):
