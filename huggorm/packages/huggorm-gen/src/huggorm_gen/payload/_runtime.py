@@ -127,6 +127,23 @@ def typed_or_internal(label: str, e: Exception) -> Exception:
     return InternalError(f"{label} failed", cause=e)
 
 
+def _with_async_parts(e: Exception) -> None:
+    """Put each in-process part of a typed error `e` that is a served
+    class in its async form, as a call's return is. Not in `typed_or_internal`,
+    which a server and a client call to encode a fault.
+
+    By name off `_local_fields`, which the declaration states and
+    the errors module carries: this module must not import the
+    library it wraps. Only a pool class adopts here, because a part
+    has no producing runner; an affine one refuses in its `adopt`."""
+    classes = _classes().CLASSES
+    for name, _ in getattr(e, "_local_fields", ()):
+        part = getattr(e, name)
+        served = classes.get(type(part).__name__)
+        if served is not None and not isinstance(part, served):
+            setattr(e, name, served._adopt(part, PoolRunner(None)))
+
+
 @contextlib.contextmanager
 def _typed(label: str) -> Iterator[None]:
     """Raise what `typed_or_internal` makes of a failure."""
@@ -135,6 +152,7 @@ def _typed(label: str) -> Iterator[None]:
     except Exception as e:
         failure = typed_or_internal(label, e)
         if failure is e:
+            _with_async_parts(e)
             raise
         raise failure from e
 

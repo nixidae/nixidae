@@ -478,6 +478,24 @@ async def test_an_error_arrives_as_itself_or_as_internal_error() -> None:
     await state.aclose()
 
 
+async def test_an_error_s_handle_arrives_in_its_async_form() -> None:
+    """A raw handle on the loop thread would be a sync object in an async
+    surface, so the runtime adopts it as it adopts a return
+    (nixidae/nixidae#1300)."""
+    from huggorm_generated import AsyncEvalState, AsyncNativeError, AsyncStore
+    from huggorm_generated._policy import ERROR_MODULE
+
+    NixError = importlib.import_module(ERROR_MODULE).NixError
+
+    state = AsyncEvalState(AsyncStore(URI))
+    with pytest.raises(NixError) as caught:
+        await state.eval_expr('throw "boom"')
+    native = caught.value.native
+    assert isinstance(native, AsyncNativeError), type(native)
+    assert (await native.info()).msg() == caught.value.info.msg()
+    await state.aclose()
+
+
 async def test_an_attribute_set_is_built_in_name_order() -> None:
     """Nix attribute sets are alphabetical, so an index walk IS the
     listing order. The C++ side keeps a sorted array, like
