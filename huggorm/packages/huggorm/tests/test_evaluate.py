@@ -301,6 +301,14 @@ def test_a_source_position_is_where_the_set_defines_the_name(state: Any, tmp_pat
     assert value.attr_source_pos("b") is None
 
 
+def test_symbol_order_is_the_order_the_names_were_first_read(state: Any) -> None:
+    """Names no evaluation read before, so the order is this
+    expression's: the reverse of the alphabet here."""
+    value = state.eval_expr("{ zq9symbolorder = 1; aq9symbolorder = 2; }")
+    assert value.names_in_symbol_order() == ["zq9symbolorder", "aq9symbolorder"]
+    assert value.names() == ["aq9symbolorder", "zq9symbolorder"]
+
+
 def test_an_added_frame_renders_with_its_code(state: Any, tmp_path: pathlib.Path) -> None:
     """The frame is outside the others, and Nix prints the code at its
     position. The error it was added to keeps its frames."""

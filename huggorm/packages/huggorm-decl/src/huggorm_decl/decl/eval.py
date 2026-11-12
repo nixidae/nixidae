@@ -300,6 +300,20 @@ for (const auto * attr : self.sorted())
 return names;
         """)
 
+    @guard("attrs")
+    def names_in_symbol_order(self) -> Vec[Str]:
+        """Every attribute name, in the order Nix's own loops visit
+        them: Symbol ID, which is the order the evaluator first saw
+        each name. So the order depends on what the evaluator read
+        before, and two evaluators agree on it only when they read the
+        same things first."""
+        Cxx("""
+std::vector<std::string> names;
+for (const auto & attr : *self.get()->attrs())
+    names.push_back(self.symbol(attr.name));
+return names;
+        """)
+
     @guard("list")
     @needs(Local("huggorm_decl/cpp/eval_errors.hpp"))
     def at(self, index: I64) -> Value:
