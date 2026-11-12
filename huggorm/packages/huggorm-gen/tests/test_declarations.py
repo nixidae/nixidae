@@ -1854,6 +1854,7 @@ BODY_STD = {
     "std::shared_ptr": "memory",
     "std::dynamic_pointer_cast": "memory",
     "std::tie": "tuple",
+    "std::ostringstream": "sstream",
 }
 
 

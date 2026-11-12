@@ -280,6 +280,47 @@ def test_a_caller_s_error_colours_its_arguments_as_nix_does() -> None:
     assert info.traces() == []
 
 
+def test_nix_renders_its_own_error_as_it_threw_it(state: Any) -> None:
+    """With no frame added, the render is the message Nix wrote."""
+    from huggorm_bindings.errors import EvalError
+
+    with pytest.raises(EvalError) as caught:
+        state.eval_expr('let\n  x = 1;\nin\n  x + "a"')
+    native = caught.value.native
+    assert native is not None
+    assert state.render_error(native) == caught.value.colored
+
+
+def test_a_source_position_is_where_the_set_defines_the_name(state: Any, tmp_path: pathlib.Path) -> None:
+    src = tmp_path / "f.nix"
+    src.write_text("{\n  a = 1;\n}\n")
+    value = state.eval_file(str(src))
+    pos = value.attr_source_pos("a")
+    assert pos is not None
+    assert pos.position() == value.attr_pos("a")
+    assert value.attr_source_pos("b") is None
+
+
+def test_an_added_frame_renders_with_its_code(state: Any, tmp_path: pathlib.Path) -> None:
+    """The frame is outside the others, and Nix prints the code at its
+    position. The error it was added to keeps its frames."""
+    from huggorm_bindings import NativeError, filter_ansi_escapes
+
+    src = tmp_path / "f.nix"
+    src.write_text("{\n  a = 1;\n}\n")
+    pos = state.eval_file(str(src)).attr_source_pos("a")
+    plain = NativeError("'%s' is not a derivation", ["a"])
+    traced = plain.add_trace(pos, "while checking '%s'", ["a"])
+    assert plain.info().traces() == []
+    assert [t.hint() for t in traced.info().traces()] == ["while checking '\x1b[35;1ma\x1b[0m'"]
+    rendered = filter_ansi_escapes(state.render_error(traced, show_trace=True), True)
+    assert "error:" in rendered
+    assert "… while checking 'a'" in rendered
+    assert f"at {src}:2:3:" in rendered
+    assert "2|   a = 1;" in rendered
+    assert "'a' is not a derivation" in rendered
+
+
 def test_an_index_past_the_end_names_both_numbers(state: Any) -> None:
     from huggorm_bindings.errors import EvalError, ListIndex
 

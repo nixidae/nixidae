@@ -121,14 +121,59 @@ Info info_record(const nix::ErrorInfo & info)
  */
 struct NativeError
 {
-    nix::Error error;
+    /**
+     * Reads the `ErrorInfo` without `BaseError::info()`. That fills the
+     * cached `what()` through `showErrorInfo`, which reads each
+     * position's source (`error.cc:41`): a source read on a pool thread,
+     * and a write to a `mutable` member two threads can race on.
+     */
+    struct Held : nix::Error
+    {
+        explicit Held(const nix::ErrorInfo & info)
+            : nix::Error(info)
+        {
+        }
+
+        explicit Held(nix::HintFmt hint)
+            : nix::Error(std::move(hint))
+        {
+        }
+
+        const nix::ErrorInfo & held() const
+        {
+            return err;
+        }
+    };
+
+    Held error;
+};
+
+/**
+ * A message as Nix formats one: each `%s` takes the next argument, in
+ * magenta (`HintFmt::operator%`).
+ */
+inline nix::HintFmt hint(const std::string & format_string, const std::vector<std::string> & args)
+{
+    auto hint = nix::HintFmt::fromFormatString(format_string);
+    for (const auto & arg : args)
+        hint % arg;
+    return hint;
+}
+
+/**
+ * A place in Nix source as Nix holds it: with its origin, so a frame
+ * at it renders the code there.
+ */
+struct SourcePos
+{
+    std::shared_ptr<const nix::Pos> pos;
 };
 
 template <typename Part>
 Part error_info(const nix::BaseError & e)
 {
     if constexpr (std::is_same_v<Part, NativeError>)
-        return NativeError{nix::Error(e.info())};
+        return NativeError{NativeError::Held(e.info())};
     else
         return info_record<Part>(e.info());
 }

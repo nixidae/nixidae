@@ -238,16 +238,35 @@ class NativeError:
     def __init__(self, format_string: Str, args: Vec[Str]) -> None:
         """An error of the caller's own, as Nix makes one: each `%s`
         in `format_string` takes the next of `args`, in magenta."""
-        Cxx("""
-auto hint = nix::HintFmt::fromFormatString(format_string);
-for (const auto & arg : args)
-    hint % arg;
-new (self) huggorm::NativeError{nix::Error(hint)};
-        """)
+        Cxx("new (self) huggorm::NativeError{huggorm::NativeError::Held(huggorm::hint(format_string, args))};")
 
     def info(self) -> ErrorInfo:
         """What the error holds, as `NixError.info` reads it."""
-        Cxx("return huggorm::info_record<huggorm::ErrorInfo>(self.error.info());")
+        Cxx("return huggorm::info_record<huggorm::ErrorInfo>(self.error.held());")
+
+    def add_trace(self, pos: Opt[SourcePos], format_string: Str, args: Vec[Str]) -> NativeError:
+        """This error with one more frame, outside the others, as Nix
+        adds one while an error passes up through it. The hint is
+        formatted as the constructor formats a message."""
+        Cxx("""
+auto traced = self;
+traced.error.addTrace(pos ? std::shared_ptr<const nix::Pos>(pos->pos) : nullptr, huggorm::hint(format_string, args));
+return traced;
+        """)
+
+
+@produced
+@header(Local("huggorm_decl/cpp/error_info.hpp"))
+# `pool` as `NativeError` is: reading the source it points into is a
+# render, which is an `EvalState` method.
+@binding(cxx="huggorm::SourcePos", threading="pool", blocking=False)
+class SourcePos:
+    """A place in Nix source as Nix holds it, with its origin, so a
+    frame at it renders the code there."""
+
+    def position(self) -> Opt[Position]:
+        """The file, line and column, or None when Nix holds no place."""
+        Cxx("return huggorm::position_of<huggorm::Position>(self.pos);")
 
 
 # --- what the module does before a caller exists -------------------

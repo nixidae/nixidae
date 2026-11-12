@@ -493,6 +493,7 @@ async def test_an_error_s_handle_arrives_in_its_async_form() -> None:
     native = caught.value.native
     assert isinstance(native, AsyncNativeError), type(native)
     assert (await native.info()).msg() == caught.value.info.msg()
+    assert await state.render_error(native) == caught.value.colored
     await state.aclose()
 
 

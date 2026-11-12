@@ -32,7 +32,7 @@ from huggorm_decl.decl.log import (  # noqa: F401 -- named by `@spells` on LogRe
     ResultType,
     Verbosity,
 )
-from huggorm_decl.decl.path import ErrorInfo, Position, StorePath
+from huggorm_decl.decl.path import ErrorInfo, NativeError, Position, SourcePos, StorePath
 from huggorm_decl.decl.source_accessor import SourceAccessor
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
@@ -968,6 +968,22 @@ return huggorm::position_of<huggorm::Position>(std::make_shared<const nix::Pos>(
         """)
 
     @blocks
+    def attr_source_pos(self, name: Str) -> Opt[SourcePos]:
+        """Where this set defines `name`, as `attr_pos` says, held as
+        Nix holds it: a frame at it renders the code there.
+
+        None when the set has no such attribute. Forces the set."""
+        Cxx("""
+huggorm::gc_register_thread();
+auto & state = self.state();
+state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
+const auto * attr = self.get()->attrs()->get(self.intern(name));
+if (attr == nullptr)
+    return std::nullopt;
+return huggorm::SourcePos{std::make_shared<const nix::Pos>(state.positions[attr->pos])};
+        """)
+
+    @blocks
     @needs(Local("nix/expr/attr-path.hh"))
     def edit_location(self) -> SourceLocation:
         """The file and line `nix edit` and the REPL's `:edit` open.
@@ -1763,6 +1779,21 @@ state.allowPath(at);
 if (!path || !state.store->isValidPath(at))
     state.storeFS->mount(nix::CanonPath(state.store->printStorePath(at)), tree);
 return at;
+        """)
+
+    @blocks
+    def render_error(self, error: NativeError, show_trace: Bint = False) -> Str:
+        """`error` as Nix prints it, with Nix's escape sequences: the
+        message, and the code at each position.
+
+        On the state, because the code is read through each position's
+        source accessor, and an accessor such as a Git tree's belongs to
+        the evaluator's thread. `show_trace` prints every frame, as
+        `--show-trace` does."""
+        Cxx("""
+std::ostringstream out;
+nix::showErrorInfo(out, error.error.held(), show_trace);
+return out.str();
         """)
 
     def cached_files(self) -> Vec[Str]:
