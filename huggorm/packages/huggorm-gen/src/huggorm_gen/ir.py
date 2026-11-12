@@ -1324,14 +1324,14 @@ def _shaped(cls: ClassModel) -> ClassModel:
         and (fields or cls.semantics.unit)
         and not cls.is_value
         and cls.init is not None
-        and len(cls.init.params) != len(fields)
+        and len(cls.ctor) != len(fields)
     ):
         # `_from_parts` IS the constructor here. A forgotten `@local`
         # breaks that: an accessor joins the wire by existing, `_parts`
         # grows a value, and the constructor does not.
         raise TypeError(
             f"{cls.name}: `_from_parts` is the constructor, which "
-            f"takes {len(cls.init.params)} parameter(s), and "
+            f"takes {len(cls.ctor)} parameter(s), and "
             f"{len(fields)} accessor(s) cross the wire: "
             f"{fields}. An accessor joins the "
             f"wire by existing - mark the ones that should not "
