@@ -57,7 +57,27 @@ def test_a_declared_error_crosses_as_its_own_message() -> None:
 
     # An UNDECLARED cause crosses by name, with no parts.
     plain = faults.encode(InternalError("something else failed", cause=ValueError("nope")))
-    assert plain[2:] == ["ValueError", "nope", None, None], plain
+    assert plain[2:] == ["ValueError", "nope", None, None, None], plain
+
+
+def test_every_handle_part_of_an_error_is_leased(model: ir.Model) -> None:
+    """The lease table holds each error's in-process parts that are
+    handles, and no other part (nixidae/nixidae#1300). Both directions,
+    so a part that stops being a handle drops out."""
+    from huggorm_gen.payload._callspec import WireKind as ModelWireKind
+    from huggorm_generated._callspec import WireKind
+    from huggorm_generated._policy import ERROR_LEASES
+
+    expected = {
+        # The model's WireKind is huggorm_gen's copy of the module: a
+        # different class from the emitted one.
+        name: [f.name for f in error.local_fields if f.type.required.kind.wire is ModelWireKind.PROXY]
+        for name, error in model.errors.classes.items()
+    }
+    expected = {name: fields for name, fields in expected.items() if fields}
+    assert expected, "no error has a handle part: NixError.native is one"
+    assert {name: [a.name for a in args] for name, args in ERROR_LEASES.items()} == expected
+    assert all(a.type.kind is WireKind.PROXY for args in ERROR_LEASES.values() for a in args)
 
 
 def test_every_declared_error_has_its_parts(model: ir.Model) -> None:

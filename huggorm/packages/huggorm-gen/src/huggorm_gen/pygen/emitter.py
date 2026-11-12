@@ -412,6 +412,15 @@ def policy_module(model: ir.Model) -> str:
             [(n, _args([(f.name, f.type) for f in e.wire_fields])) for n, e in model.errors.classes.items()],
         )
     )
+    # An in-process part that is a handle crosses as a lease to the
+    # caller's connection, outside the compared parts
+    # (nixidae/nixidae#1300). Any other in-process part stays behind.
+    leases = []
+    for n, e in model.errors.classes.items():
+        handles = [(f.name, f.type) for f in e.local_fields if f.type.required.kind.wire is cs.WireKind.PROXY]
+        if handles:
+            leases.append((n, _args(handles)))
+    body.append(_table("ERROR_LEASES", "dict[str, tuple[Arg, ...]]", leases))
     body.append(
         _table(
             "UNION_ARMS",

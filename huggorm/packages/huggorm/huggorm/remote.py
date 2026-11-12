@@ -154,8 +154,9 @@ class NixClient:
         self.codec = Codec()
         # Rebuilds a declared error from its parts, so a remote failure
         # has the same shape as an in-process one: an InternalError
-        # whose __cause__ is the real error (nixidae/nixidae#573).
-        self.faults = Faults(self.codec)
+        # whose __cause__ is the real error (nixidae/nixidae#573). A
+        # handle part comes back as a tracked proxy (nixidae/nixidae#1300).
+        self.faults = Faults(self.codec, proxy=self._proxy)
         self._link: _Link | None = None
         # The task group each link runs in. None outside `async with`,
         # which is why `bind` there refuses rather than starting a

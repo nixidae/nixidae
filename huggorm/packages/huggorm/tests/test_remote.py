@@ -128,6 +128,27 @@ async def test_thunks_force_remotely(client: Any) -> None:
 # -- error fidelity --------------------------------------------------------
 
 
+async def test_nix_error_crosses_with_a_lease_on_its_own_error(client: Any) -> None:
+    """The server leases Nix's own error to the caller
+    (nixidae/nixidae#1300), so the caller adds a frame and renders it
+    through the server."""
+    from huggorm_bindings import filter_ansi_escapes
+    from huggorm_bindings.errors import EvalError
+    from huggorm_generated import AsyncNativeError
+
+    state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, "dummy://"))
+    with pytest.raises(EvalError) as caught:
+        await state.eval_expr('let\n  x = 1;\nin\n  x + "a"')
+    native = caught.value.native
+    assert isinstance(native, AsyncNativeError)
+    assert handle_of(native) is not None, "the error is a proxy, not a copy"
+    assert await state.render_error(native) == caught.value.colored
+    traced = await native.add_trace(None, "while checking '%s'", ["a"])
+    rendered = filter_ansi_escapes(await state.render_error(traced, show_trace=True), True)
+    assert "… while checking 'a'" in rendered
+    await state.aclose()
+
+
 async def test_a_decoded_cause_survives_the_wire(client: Any) -> None:
     """A C++ failure crosses as a rebuilt InternalError whose cause
     survives: __cause__ must be the original ValueError, not None -

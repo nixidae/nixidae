@@ -61,7 +61,7 @@ from anyio.abc import ByteStream, SocketAttribute, TaskGroup
 from anyio.streams.buffered import BufferedByteReceiveStream
 
 from huggorm_generated._callspec import Call, Wire, WireKind
-from huggorm_generated._policy import ERROR_FIELDS, ERROR_MODULE, FREE, METHODS
+from huggorm_generated._policy import ERROR_FIELDS, ERROR_LEASES, ERROR_MODULE, FREE, METHODS
 
 from .codec import Codec, pack, unpack
 
@@ -337,17 +337,29 @@ _ERRORS = tuple(ERROR_FIELDS)
 class Faults:
     """A failure as one msgpack value, and back.
 
-        [code, message, cause_type, cause_message, error, parts]
+        [code, message, cause_type, cause_message, error, parts, handles]
 
     A DECLARED error crosses as itself: `error` indexes the declared
     error classes and `parts` are its parts, and the far side rebuilds
     that class, so `except BadStorePath` works over the wire
     (nixidae/nixidae#603). Anything else crosses as an InternalError: its cause
-    crosses as itself when declared, and by builtin name when not."""
+    crosses as itself when declared, and by builtin name when not.
 
-    def __init__(self, codec: Codec | None = None, module: ModuleType | None = None) -> None:
+    `handles` are the error's in-process parts that are handles
+    (`ERROR_LEASES`), leased to the caller's connection by the `lease`
+    that `encode` takes, and rebuilt by `proxy` (nixidae/nixidae#1300).
+    An end that passes no `lease` sends None, and the far side's error
+    has no handle."""
+
+    def __init__(
+        self,
+        codec: Codec | None = None,
+        module: ModuleType | None = None,
+        proxy: Callable[[str, str], Any] | None = None,
+    ) -> None:
         self.codec = codec or Codec()
         self._module = module
+        self._proxy = proxy
 
     @property
     def module(self) -> ModuleType:
@@ -370,16 +382,31 @@ class Faults:
     def _parts(self, index: int, err: BaseException) -> Any:
         return self.codec.encode(Wire(WireKind.ERROR, _ERRORS[index]), err, _no_proxy)
 
-    def encode(self, wrapper: Any) -> list[Any]:
-        """`wrapper` is a declared error, a WrapperError or a Refused."""
+    def _leases(self, index: int, err: BaseException, lease: Callable[[Any], str] | None) -> list[Any] | None:
+        fields = ERROR_LEASES.get(_ERRORS[index])
+        if not fields or lease is None:
+            return None
+        return [self.codec.encode(f.type, getattr(err, f.name), lease) for f in fields]
+
+    def encode(self, wrapper: Any, lease: Callable[[Any], str] | None = None) -> list[Any]:
+        """`wrapper` is a declared error, a WrapperError or a Refused.
+        `lease` gives a handle part to the caller and answers its id."""
         if isinstance(wrapper, Refused):
-            return [wrapper.code, wrapper.message, "", "", None, None]
+            return [wrapper.code, wrapper.message, "", "", None, None, None]
         itself = self._declared(wrapper)
         if itself is not None:
-            return [wrapper.code, wrapper.message, "", "", itself, self._parts(itself, wrapper)]
+            return [
+                wrapper.code,
+                wrapper.message,
+                "",
+                "",
+                itself,
+                self._parts(itself, wrapper),
+                self._leases(itself, wrapper, lease),
+            ]
         cause: BaseException | None = getattr(wrapper, "__cause__", None)
         if cause is None:
-            return [wrapper.code, wrapper.message, "", "", None, None]
+            return [wrapper.code, wrapper.message, "", "", None, None, None]
         declared = self._declared(cause)
         return [
             wrapper.code,
@@ -388,22 +415,37 @@ class Faults:
             str(cause),
             declared,
             None if declared is None else self._parts(declared, cause),
+            None if declared is None else self._leases(declared, cause, lease),
         ]
+
+    def _adopt(self, index: int, err: BaseException, handles: Any) -> None:
+        """Put the proxies for `handles` on the rebuilt `err`."""
+        fields = ERROR_LEASES.get(_ERRORS[index], ())
+        if type(handles) is not list or len(handles) != len(fields):
+            raise ProtocolError(f"{_ERRORS[index]} arrived with handles {handles!r:.80}")
+        if self._proxy is None:
+            raise ProtocolError(f"{_ERRORS[index]} arrived with handles, and this end holds none")
+        for f, raw in zip(fields, handles, strict=True):
+            setattr(err, f.name, self.codec.decode(f.type, raw, functools.partial(self._proxy, f.type.name)))
 
     def decode(self, raw: Any) -> BaseException:
         from huggorm_generated._runtime import InternalError, WrapperError
 
-        if type(raw) is not list or len(raw) != 6:
+        if type(raw) is not list or len(raw) != 7:
             raise ProtocolError(f"a fault arrived as {raw!r:.80}")
-        code, message, cause_type, cause_message, error, parts = raw
+        code, message, cause_type, cause_message, error, parts, handles = raw
         reason = _REFUSALS.get(code)
         if reason is not None and error is None and not cause_type:
             return Refused(reason, message)
         rebuilt = None
+        if error is None and handles is not None:
+            raise ProtocolError(f"a fault with no declared error arrived with handles {handles!r:.80}")
         if error is not None:
             if type(error) is not int or not 0 <= error < len(_ERRORS):
                 raise ProtocolError(f"no declared error numbered {error!r}")
             rebuilt = self.codec.decode(Wire(WireKind.ERROR, _ERRORS[error]), parts, _no_proxy)
+            if handles is not None:
+                self._adopt(error, rebuilt, handles)
         if not cause_type:
             return rebuilt or WrapperError(message)
         return InternalError(message, cause=rebuilt or _approximate(cause_type, cause_message))

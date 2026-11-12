@@ -44,8 +44,9 @@ class NixError(Exception):
     holds them. None when Python built the error (nixidae/nixidae#637).
 
     `e.native` is Nix's own error, for a caller that adds frames and has
-    Nix render it. It stays in process: None when Python built the error,
-    and on the far side of a wire.
+    Nix render it. None when Python built the error. It is outside the
+    compared parts. Over a wire it crosses as a handle the server leases
+    to the caller (nixidae/nixidae#1300).
 
     Both strings decode lossily: a message of bytes no decoder
     accepts reads with U+FFFD rather than failing the translation

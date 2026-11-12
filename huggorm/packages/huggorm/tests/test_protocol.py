@@ -288,5 +288,30 @@ def test_an_internal_error_keeps_its_cause() -> None:
     assert str(rebuilt) == "Store.get_uri failed"
     assert type(rebuilt.__cause__) is KeyError
     # A name outside builtins never reaches a constructor.
-    odd = faults.decode(["internal", "m", "os.system", "x", None, None])
+    odd = faults.decode(["internal", "m", "os.system", "x", None, None, None])
     assert type(odd.__cause__) is Exception
+
+
+def test_a_fault_with_handles_needs_an_end_that_rebuilds_them() -> None:
+    """A server decodes a client's fault with no proxy builder, so a
+    handle there is a protocol error, not a part dropped in silence."""
+    from huggorm_bindings import NativeError
+    from huggorm_bindings.errors import NixError
+
+    sent = NixError("boom", native=NativeError("boom", []))
+    raw = Faults().encode(sent, lambda _: "h1")
+    assert raw[6] == ["h1"]
+    with pytest.raises(ProtocolError, match="holds none"):
+        Faults().decode(raw)
+    built: list[tuple[str, str]] = []
+    proxy = NativeError("the proxy", [])
+
+    def rebuild(cls: str, hid: str) -> NativeError:
+        built.append((cls, hid))
+        return proxy
+
+    rebuilt = Faults(proxy=rebuild).decode(raw)
+    assert built == [("NativeError", "h1")]
+    assert isinstance(rebuilt, NixError)
+    assert rebuilt.native is proxy
+    assert Faults().encode(sent)[6] is None, "an end with no lease sends no handle"

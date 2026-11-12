@@ -894,7 +894,10 @@ class Dispatcher:
                 raise _swept(token)
             return [Op.RESULT, cid, await run()]
         except Exception as e:
-            return [Op.FAULT, cid, self.faults.encode(self._failure(e, label))]
+            # A handle part leases with no parent: Nix's error is a copy,
+            # and holds no state (nixidae/nixidae#1300).
+            lease = (lambda obj: self.put(obj, token)) if token in self.table.connections else None
+            return [Op.FAULT, cid, self.faults.encode(self._failure(e, label), lease)]
 
 
 def _swept(token: str) -> Refused:
