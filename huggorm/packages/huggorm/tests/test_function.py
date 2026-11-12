@@ -329,6 +329,23 @@ def test_an_attribute_is_documented_where_the_set_defines_it(state: Any, tmp_pat
     assert attrs.attr_doc("missing") is None
 
 
+def test_an_attribute_is_positioned_where_the_set_defines_it(state: Any, tmp_path: Any) -> None:
+    """The line and column `nix flake check` prints, at the attribute name."""
+    src = tmp_path / "set.nix"
+    src.write_text("{\n  foo = 1;\n    bar.baz = 2;\n}\n")
+    attrs = state.eval_file(str(src))
+
+    foo = attrs.attr_pos("foo")
+    assert foo is not None and (foo.file(), foo.line(), foo.column()) == (str(src), 2, 3)
+    bar = attrs.attr_pos("bar")
+    assert bar is not None and (bar.line(), bar.column()) == (3, 5)
+    assert attrs.attr_pos("missing") is None
+
+
+def test_a_builtin_attribute_has_no_position(state: Any) -> None:
+    assert state.eval_expr("builtins").attr_pos("map") is None
+
+
 def test_an_attribute_from_a_string_is_in_nixs_string(state: Any) -> None:
     """Named as Nix names it, which the REPL's `:doc` prints."""
     doc = state.eval_expr("{ foo = 1; }").attr_doc("foo")

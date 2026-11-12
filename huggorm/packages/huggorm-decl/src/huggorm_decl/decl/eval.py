@@ -32,7 +32,7 @@ from huggorm_decl.decl.log import (  # noqa: F401 -- named by `@spells` on LogRe
     ResultType,
     Verbosity,
 )
-from huggorm_decl.decl.path import ErrorInfo, StorePath
+from huggorm_decl.decl.path import ErrorInfo, Position, StorePath
 from huggorm_decl.decl.source_accessor import SourceAccessor
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
@@ -948,6 +948,23 @@ std::optional<std::string> comment;
 if (auto found = state.getDocCommentForPos(attr->pos))
     comment = found.getInnerText(state.positions);
 return huggorm::AttrDoc{huggorm::position_file(pos), pos.line, comment};
+        """)
+
+    @blocks
+    def attr_pos(self, name: Str) -> Opt[Position]:
+        """Where this set defines `name`: the `attr.pos` that
+        `nix flake check` names in its errors.
+
+        None when the set has no such attribute, or holds one with no
+        position, such as one `builtins` made. Forces the set."""
+        Cxx("""
+huggorm::gc_register_thread();
+auto & state = self.state();
+state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
+const auto * attr = self.get()->attrs()->get(self.intern(name));
+if (attr == nullptr)
+    return std::nullopt;
+return huggorm::position_of<huggorm::Position>(std::make_shared<const nix::Pos>(state.positions[attr->pos]));
         """)
 
     @blocks
