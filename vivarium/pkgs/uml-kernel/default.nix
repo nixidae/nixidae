@@ -389,6 +389,19 @@ let
     TASK_IO_ACCOUNTING = yes;
   };
 
+  # The router guest (docs/design/router-lab.md): vsock to the host over
+  # vhost-user, and nftables' tproxy and queue for the relay.
+  routerConfig = with lib.kernel; {
+    VIRTIO_UML = yes;
+    VSOCKETS = yes;
+    VIRTIO_VSOCKETS = yes;
+    NF_TPROXY_IPV4 = yes;
+    NF_TPROXY_IPV6 = yes;
+    NFT_TPROXY = yes;
+    NFT_SOCKET = yes;
+    NFT_QUEUE = yes;
+  };
+
   smpConfig = lib.optionalAttrs smp (
     with lib.kernel;
     {
@@ -428,7 +441,8 @@ in
     "SUBARCH=x86_64"
     "CC=${lib.getExe stdenv.cc}"
   ];
-  structuredExtraConfig = baseConfig // containerConfig // ipsecConfig // vyosConfig // smpConfig;
+  structuredExtraConfig =
+    baseConfig // containerConfig // ipsecConfig // vyosConfig // routerConfig // smpConfig;
   extraMeta.platforms = lib.platforms.linux;
 }).overrideAttrs
   (

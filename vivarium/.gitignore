@@ -13,6 +13,7 @@
 !/flake.lock
 !/flake.nix
 !/images.nix
+!/lab/
 !/lib.nix
 !/modules/
 !/nix/
