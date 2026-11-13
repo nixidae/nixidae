@@ -263,7 +263,7 @@ Run from `nixkube/`.
 Run from `pynixd/`.
 
 ```sh
-nix build --file . checks.format checks.lint checks.types --no-link
+nix build --file . checks.format checks.lint checks.types checks.docs --no-link
 nix run --file . internal.tests.guest.driver -- --out ./out
 ```
 
