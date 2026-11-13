@@ -40,6 +40,7 @@ def test_the_next_free_port_when_the_guests_is_taken() -> None:
         [rule], notes = forward.resolve(
             [Rule(ports=(PortMap(4325, 4325), PortMap(None, guest)))], taken=set(), start=1024
         )
+    assert not isinstance(rule.ports, str)
     picked = rule.ports[1]
     assert picked.guest == guest
     assert picked.host is not None
@@ -51,6 +52,7 @@ def test_the_next_free_port_when_the_guests_is_taken() -> None:
 def test_never_an_ephemeral_port() -> None:
     low, high = forward.ephemeral_range()
     [rule], _ = forward.resolve([Rule(ports=(PortMap(None, low),))], taken=set(), start=1024)
+    assert not isinstance(rule.ports, str)
     [picked] = rule.ports
     assert picked.host is not None
     assert not low <= picked.host <= high

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 
 import anyio
 import pytest
@@ -31,7 +31,13 @@ class Polled(Machine):
         self.asked += 1
         return answer
 
-    async def execute(self, command: str, timeout: float | None = None, env: object = None) -> tuple[int, str]:
+    async def execute(
+        self,
+        command: str,
+        timeout: float | None = None,
+        label: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> tuple[int, str]:
         rc = await self.state()
         if not isinstance(rc, int):
             raise TypeError(rc)
