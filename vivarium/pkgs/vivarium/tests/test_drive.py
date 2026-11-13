@@ -408,11 +408,14 @@ class TestHold:
             await until_state(socket, "ready")
             assert session.ran == ["one"]
             assert not session.torn_down, "the environment went down at ready"
+            (tmp_path / "access").mkdir(exist_ok=True)
+            (tmp_path / "access" / "kubeconfig").write_text("an admin key")
             group.start_soon(follow)
             assert (await request(socket, Op.STOP)).ok
         assert session.torn_down
         assert session.stopped is None, "a stop at ready is the end of the run, not an interruption"
         assert seen == ["ready", "live", "resumed", "finished"]
+        assert list((tmp_path / "access").iterdir()) == [], "a key outlived the guests it opens"
         assert "note:ready; the guests stay up until the run is stopped" in session.said
 
     async def test_continue_at_ready_runs_what_reload_added_and_holds_again(self, tmp_path: Path) -> None:

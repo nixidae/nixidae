@@ -87,6 +87,11 @@ def write(guests: Mapping[str, Guest], out: Path) -> Path:
     over the last run's kubeconfig, whose address may be another run's now."""
     (out / FILE).write_text(document(guests, out))
     (out / SSH_CONFIG).write_text(ssh_config(guests))
+    return empty(out)
+
+
+def empty(out: Path) -> Path:
+    """`access/`, made empty."""
     directory = out / DIRECTORY
     if directory.exists():
         shutil.rmtree(directory)

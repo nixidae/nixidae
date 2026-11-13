@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine import Cpus
 
-from . import monitor, namespace, registry, repl, runroot
+from . import access, monitor, namespace, registry, repl, runroot
 from .control import (
     ORIGIN,
     READY,
@@ -607,6 +607,9 @@ async def _sequence(
             await session.drain()
             session.write_output()
             await session.teardown()
+            # A kubeconfig names guests that are gone, and in a sandboxed
+            # check it would carry an admin key into the world-readable store.
+            access.empty(session.out)
 
 
 async def _schedule(
