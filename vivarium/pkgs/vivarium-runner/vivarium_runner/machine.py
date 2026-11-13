@@ -34,7 +34,7 @@ import time
 # pump a readline that anyio's process stdout has no equivalent for. It runs
 # under anyio's asyncio backend unchanged.
 from asyncio import subprocess
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict, cast
@@ -1736,6 +1736,69 @@ class Machine:
             except TimeoutError:
                 raise MachineError(f"[{self.name}] `{command}` did not succeed within {timeout:.0f}s:\n{out}") from None
 
+    async def wait_until_fails(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
+        """Run *command* in the guest until it exits non-zero; return its output.
+
+        A withdrawal: a route that goes, a peer that stops answering.
+        """
+
+        async def failed() -> str | None:
+            rc, out = await self.execute(command)
+            return out if rc != 0 else None
+
+        return await self.until(f"`{command}` to fail", failed, timeout, poll)
+
+    async def until[T](
+        self,
+        what: str,
+        check: Callable[[], Awaitable[T | None]],
+        timeout: float = 120,
+        poll: float = 1.0,
+        evidence: Callable[[], Awaitable[str]] | None = None,
+    ) -> T:
+        """Call *check* until it returns something other than ``None``; return that.
+
+        The settle for a parsed result, where `wait_until_succeeds` reads
+        an exit code: *check* parses a guest's state and returns ``None``
+        while it is not there yet. ``False`` and ``{}`` are results.
+        After *timeout* seconds it raises, with what *evidence* returns.
+        """
+        with self.waiting(what):
+            try:
+                # Bounds *check* itself: a deadline tested between calls lets
+                # a slow check overshoot it by its own timeouts.
+                with anyio.fail_after(timeout):
+                    while True:
+                        value = await check()
+                        if value is not None:
+                            return value
+                        await anyio.sleep(poll)
+            except TimeoutError:
+                seen = f":\n{await evidence()}" if evidence is not None else ""
+                raise MachineError(f"[{self.name}] {what}: not reached within {timeout:.0f}s{seen}") from None
+
+    async def never(
+        self,
+        what: str,
+        check: Callable[[], Awaitable[object | None]],
+        timeout: float,
+        poll: float = 1.0,
+    ) -> None:
+        """Call *check* for *timeout* seconds; raise if it ever returns something other than ``None``.
+
+        A pass always takes the whole *timeout*: hold a negative only as
+        long as the thing it guards against needs to show up.
+        """
+        started = time.monotonic()
+        with self.waiting(f"never {what}"), anyio.move_on_after(timeout):
+            while True:
+                value = await check()
+                if value is not None:
+                    raise MachineError(
+                        f"[{self.name}] {what}: happened after {time.monotonic() - started:.0f}s:\n{value}"
+                    )
+                await anyio.sleep(poll)
+
 
 class Machines(dict[str, Machine]):
     """The run's machines by name, also reachable as attributes.
@@ -1784,6 +1847,45 @@ class Machines(dict[str, Machine]):
     pytest_args: list[str]
     """What followed ``--`` on the run's command line. Every pytest phase
     gets them; a script that runs pytest inside a guest passes them on."""
+
+    async def until[T](
+        self,
+        what: str,
+        check: Callable[[Machine], Awaitable[T | None]],
+        timeout: float = 120,
+        poll: float = 1.0,
+        machines: Iterable[str] | None = None,
+        evidence: Callable[[Machine], Awaitable[str]] | None = None,
+    ) -> dict[str, T]:
+        """`Machine.until` on every guest at once, or on *machines*; each guest's result by name.
+
+        A guest that comes good stops polling. One error names every
+        guest that did not.
+        """
+        results: dict[str, T] = {}
+        failed: dict[str, MachineError] = {}
+
+        async def one(vm: Machine) -> None:
+            async def asked() -> T | None:
+                return await check(vm)
+
+            async def seen() -> str:
+                return await evidence(vm) if evidence is not None else ""
+
+            try:
+                results[vm.name] = await vm.until(what, asked, timeout, poll, seen if evidence is not None else None)
+            except MachineError as error:
+                failed[vm.name] = error
+
+        async with anyio.create_task_group() as tg:
+            for name in self if machines is None else machines:
+                tg.start_soon(one, self[name])
+        if failed:
+            raise MachineError(
+                f"{what}: failed on {', '.join(sorted(failed))}\n"
+                + "\n".join(str(failed[name]) for name in sorted(failed))
+            )
+        return results
 
     def __getattr__(self, name: str) -> Machine:
         try:

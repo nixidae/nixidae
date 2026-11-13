@@ -278,6 +278,34 @@ OCR misreads. Wait for lowercase words where you can: tesseract read
 `VIVARIUM` in the console font as `UIUARIUM`. When a wait times out, the
 error holds what OCR read and the path of a screenshot.
 
+## Wait for a guest's state
+
+Do not write a retry loop in a phase. Each `Machine` has these:
+
+```python
+await vm.wait_until_succeeds("ping -c 1 10.0.0.1", 90)  # until it exits 0
+await vm.wait_until_fails("ping -c 1 10.0.0.1", 90)  # until it exits non-zero
+
+
+async def up() -> dict[str, Any] | None:  # None: not yet
+    peers = json.loads(await vm.succeed("vtysh -c 'show bgp summary json'"))
+    return peers if all(p["state"] == "Established" for p in peers["peers"].values()) else None
+
+
+peers = await vm.until("BGP up", up, 90)  # the first answer that is not None
+await vm.never("a route back", route_back, 10)  # fails if it is not None within 10 s
+await vms.until("BGP up", lambda vm: up_on(vm), 90)  # every guest at once
+```
+
+- `until` returns the first answer that is not `None`. `False` and `{}`
+  are answers.
+- At the timeout, `until` raises `MachineError`. Pass `evidence=` (an
+  async function that returns text), and the error holds what it says.
+- `never` always takes its whole timeout when it passes.
+- `vms.until` takes a check that gets the guest. `machines=` limits it to
+  some guests. Its error names each guest that did not come good.
+- Each wait is one step in `report.json`.
+
 ## Find out what went wrong
 
 ```console

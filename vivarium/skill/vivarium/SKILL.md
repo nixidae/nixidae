@@ -88,7 +88,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 - `ctl stop` ends the run, paused or running: guests down, exit 5, verdict `stopped`. It returns once the run has exited. Never kill the driver by pid or pattern.
 - `ctl state` prints `paused before <phase>` (or `running`), then `phase\tstate`, with the first line of the error on a failed phase. `ctl --json <op>` prints the whole reply as one JSON object: `pause`, `state`, `errors` (full text).
 - Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.
-- Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
+- Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `wait_until_succeeds`/`wait_until_fails(cmd, timeout)`, `until(what, check, timeout, evidence=)` (async check returns a value, or `None` for not yet), `never(what, check, timeout)`, `vms.until(what, check(vm), timeout, machines=)`: no hand-written retry loops. `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
 
 ## MCP
 
