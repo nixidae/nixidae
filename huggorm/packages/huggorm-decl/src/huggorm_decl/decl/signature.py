@@ -17,6 +17,7 @@ there Python holds a key through a `shared_ptr`, and a factory opens one.
 The surface is the same, plus the `KeyType` that `generate` takes.
 """
 
+from huggorm_decl.decl.words import KeyType
 from huggorm_dsl.declare import (
     DETERMINATE,
     Bint,
@@ -35,9 +36,6 @@ from huggorm_dsl.declare import (
     threading,
     wire_value,
 )
-
-if DETERMINATE:
-    from huggorm_decl.decl.words import KeyType
 
 
 @header(Local("nix/util/signature/local-keys.hh"))
@@ -222,6 +220,9 @@ else:
 
     @needs(Local("nix/util/signature/local-keys.hh"))
     @threading("pool")
-    def generate_secret_key(name: Str) -> SecretKey:
+    def generate_secret_key(name: Str, key_type: KeyType = KeyType.ED25519) -> SecretKey:
         """A new random key called `name`, as `nix key generate-secret` makes one."""
-        Cxx("return nix::SecretKey::generate(name);")
+        Cxx("""
+(void) key_type;
+return nix::SecretKey::generate(name);
+        """)

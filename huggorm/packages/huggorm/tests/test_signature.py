@@ -16,6 +16,7 @@ from nixversion import EXPERIMENTAL_FEATURE
 from huggorm_bindings import (
     ContentAddressMethod,
     HashAlgorithm,
+    KeyType,
     PublicKey,
     SecretKey,
     Signature,
@@ -27,8 +28,8 @@ from huggorm_bindings import (
 from huggorm_bindings.errors import NixError
 from huggorm_dsl.declare import DETERMINATE
 
-if DETERMINATE:
-    from huggorm_bindings import KeyType
+#: Every key type Determinate Nix 3.24 names (`getKeyTypes()`).
+_DETERMINATE_KEY_TYPES = ("ed25519", "ml-dsa-44", "ml-dsa-65", "ml-dsa-87", "ecdsa-p384")
 
 
 @pytest.fixture(params=["local", "daemon"])
@@ -85,6 +86,20 @@ def test_a_copied_key_still_signs_and_verifies() -> None:
     key = copy.copy(generate_secret_key("cache-1"))
     sig = copy.deepcopy(key).sign_detached("data")
     assert copy.copy(key.to_public_key()).verify_detached("data", sig)
+
+
+def test_every_nix_has_ed25519_and_makes_it_by_default() -> None:
+    """`list(KeyType)` is how a caller asks a Nix which key types it has."""
+    assert KeyType.ED25519 in list(KeyType)
+    assert generate_secret_key("cache-1", KeyType.ED25519).to_public_key().name() == "cache-1"
+
+
+@pytest.mark.parametrize("word", ["no-such-type", *(w for w in _DETERMINATE_KEY_TYPES if w not in set(KeyType))])
+def test_a_key_type_this_nix_lacks_is_refused(word: str) -> None:
+    """NixOS/nix has no parser for a key type. Without the emitted check a
+    body that ignores the word made an ed25519 key from `ml-dsa-44`."""
+    with pytest.raises(NixError, match=word):
+        generate_secret_key("cache-1", word)  # type: ignore[arg-type]  # a word KeyType lacks is the case under test
 
 
 if DETERMINATE:

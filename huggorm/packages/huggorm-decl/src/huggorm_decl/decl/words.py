@@ -542,3 +542,16 @@ if DETERMINATE:
         ML_DSA_65 = "ml-dsa-65"
         ML_DSA_87 = "ml-dsa-87"
         ECDSA_P384 = "ecdsa-p384"
+
+else:
+    # No `parsed_by` and no `enumerated`: NixOS/nix has one key type, and
+    # neither a `KeyType` enum nor a parser for it. The class exists so a
+    # caller asks every Nix the same question, `list(KeyType)`
+    # (nixidae/nixidae#1297).
+    @words()
+    class KeyType(StrEnum):
+        """The algorithm of a signing key, as `nix key generate-secret
+        --key-type` names it. Determinate Nix alone has more than one."""
+
+        ED25519 = "ed25519"
+        """What every Nix signs with, and the default."""
