@@ -157,6 +157,21 @@ class TestRunArgv:
         assert argv[1:5] == ["run", "pytest-phase", "--file", "/src"]
         assert argv[-7:] == ["--break", "cases", "--break-on-failure", "--offline", "--", "-k", "x"]
 
+    def test_hold_runs_an_environment(self, tmp_path: Path) -> None:
+        argv = run_argv(
+            out=tmp_path,
+            attr="k8s",
+            spec=None,
+            file="/src",
+            breaks=[],
+            break_on_failure=True,
+            only=[],
+            offline=False,
+            pytest_args=[],
+            hold=True,
+        )
+        assert argv[-2:] == ["--break-on-failure", "--hold"]
+
     def test_by_spec_straight_to_uml(self, tmp_path: Path) -> None:
         argv = run_argv(
             out=tmp_path,

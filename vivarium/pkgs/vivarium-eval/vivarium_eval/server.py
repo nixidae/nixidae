@@ -75,13 +75,15 @@ for a failing test is: edit it, send it again, against the same guests.
 `events` queries the run's event stream: filter by kind (journal, case,
 phase_finished, rpc, output, error), machine, unit, phase or case.
 
-Events arrive as <channel source="vivarium" run="..." event="progress|paused|resumed|failed|finished|exited" ...>.
+Events arrive as <channel source="vivarium" run="..." event="progress|paused|ready|resumed|failed|finished|exited" ...>.
+`ready` is a run started with `hold`: its phases passed and its guests
+stay up until `stop`.
 A `progress` or `resumed` event marks the run moving on; say one line
 about it so the person watching sees the run move, and do nothing else.
 Without channels, run the `monitor` command that `start` returns in a
 Monitor or in the background: it prints pauses, failures and the verdict,
 one line each, and exits with the verdict (0 passed, 1 failed, 2 exited
-without one) or with 4 at a pause. Run it again after each `resume`.
+without one), with 4 at a pause or 6 at `ready`. Run it again after each `resume`.
 `monitor_all` prints every event, progress included, through pauses to
 the verdict.
 On `paused`, look with `events` and `exec` before you `resume` -- the
@@ -176,6 +178,7 @@ def run_argv(
     kernel: str | None = None,
     cpus: int | dict[str, int] | None = None,
     cpu_scale: float | dict[str, float] | None = None,
+    hold: bool = False,
 ) -> list[str]:
     """The child's command line. By attribute through the `vivarium` CLI, which
     evaluates first; by spec straight to the `vivarium` the spec names."""
@@ -199,6 +202,8 @@ def run_argv(
         argv.append("--break-on-failure")
     if offline:
         argv.append("--offline")
+    if hold:
+        argv.append("--hold")
     if kernel is not None:
         argv += ["--kernel", kernel]
     argv += cpu_flags(cpus, cpu_scale)
@@ -437,6 +442,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         kernel: str | None = None,
         cpus: int | dict[str, int] | None = None,
         cpu_scale: float | dict[str, float] | None = None,
+        hold: bool = False,
     ) -> dict[str, str]:
         """Start a run in the background; returns its id at once.
 
@@ -451,6 +457,9 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `cpus` is a processor count, `cpu_scale` a share of the host's
         cores (0.5 is half); a number is every guest, `{"db": 8}` one
         guest. Either replaces `vivarium.cpus` for this run.
+        `hold` runs it as an environment: once every phase passed it is
+        `ready`, its guests stay up, and `stop` ends it with its verdict;
+        `<out>/access.json` and `<out>/ssh_config` are the way in.
         Events arrive on the vivarium channel. `monitor` in the reply is a
         command that prints the pauses, failures and verdict, one line
         each, and exits 4 at a pause; `monitor_all` prints every event
@@ -473,6 +482,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             kernel=os.path.abspath(kernel) if kernel else None,
             cpus=cpus,
             cpu_scale=cpu_scale,
+            hold=hold,
         )
         source = Source(attr=attr, file=os.path.abspath(file), env=env or {}) if attr is not None else None
         run = await runs().start(argv, out, env or {}, source)
