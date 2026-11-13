@@ -66,6 +66,7 @@ import os
 import pathlib
 import re
 import sys
+import textwrap
 import types
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -1097,7 +1098,9 @@ def _cxx_call(node: ast.FunctionDef, stmt: ast.stmt) -> Body | None:
             f"(nixidae/nixidae#870).",
         )
     literal = value.args[0]
-    text = str(literal.value)
+    # Dedented, so a body may be indented as the Python around it is. The
+    # emitter indents each line again to the depth it writes the body at.
+    text = textwrap.dedent(str(literal.value))
     # The literal starts on its own line; the C++ starts after the
     # newlines that `.strip()` drops.
     skipped = text[: len(text) - len(text.lstrip())].count("\n")
@@ -1729,7 +1732,7 @@ def _node_of(obj: Callable[..., object]) -> DefinitionNode:
     `__firstlineno__` itself, so that dependency is CPython's contract.
 
     A member's text is indented, so it parses as the body of an `if`.
-    Not `textwrap.dedent`: a `Cxx` literal has lines at column 0."""
+    Not `textwrap.dedent`: a `Cxx` literal may have lines at column 0."""
     name = getattr(obj, "__name__", "")
     try:
         lines, start = inspect.getsourcelines(obj)
