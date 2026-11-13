@@ -21,7 +21,18 @@ lib.types.submodule {
         Pass every frame through the runner, even with two members. Two
         members are otherwise one socketpair, and the runner never sees
         their frames. The hub copies each frame in the runner's event
-        loop, which costs throughput.
+        loop, which costs throughput. Only a hub can be cut or captured
+        while the run goes on.
+      '';
+    };
+
+    capture = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Write every frame on this segment to `<out>/pcap/<name>.pcap`,
+        from boot to the end of the run. It makes the segment a hub. The
+        file has no size limit.
       '';
     };
   };

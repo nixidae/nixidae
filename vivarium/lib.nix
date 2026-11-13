@@ -504,7 +504,11 @@ rec {
         builtins.toJSON {
           inherit (checkedConfig) name settings;
           # The runner's half of a segment; its MTU is on each interface.
-          segments = lib.mapAttrs (_: segment: { inherit (segment) hub; }) checkedConfig.segments;
+          # A capture needs the frames, so it forces the hub.
+          segments = lib.mapAttrs (_: segment: {
+            inherit (segment) capture;
+            hub = segment.hub || segment.capture;
+          }) checkedConfig.segments;
           unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
           # The runner that knows every field below. No cycle: the
           # package does not depend on any spec.

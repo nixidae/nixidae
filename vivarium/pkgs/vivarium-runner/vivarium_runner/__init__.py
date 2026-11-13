@@ -8,15 +8,18 @@ talks to. A phase script is a coroutine over :class:`Machines`.
 from .display import Button
 from .forward import ForwardError
 from .machine import Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Systems
+from .net import Lan, SegmentError
 
 __all__ = [
     "Button",
     "ForwardError",
     "Interface",
+    "Lan",
     "LaunchSpec",
     "Machine",
     "MachineError",
     "MachineSpec",
     "Machines",
+    "SegmentError",
     "Systems",
 ]

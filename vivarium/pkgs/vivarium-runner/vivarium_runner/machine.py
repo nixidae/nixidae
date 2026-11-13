@@ -37,6 +37,7 @@ from asyncio import subprocess
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 import anyio
@@ -45,6 +46,7 @@ from anyio.abc import UNIXSocketStream
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview
 from .agent import AGENT_READY, ProcessInfo, UnitInfo
 from .arpyc import AsyncConnection, connect
+from .net import Lan
 from .control import (
     AGENT,
     NONE,
@@ -1851,6 +1853,17 @@ class Machines(dict[str, Machine]):
     pytest_args: list[str]
     """What followed ``--`` on the run's command line. Every pytest phase
     gets them; a script that runs pytest inside a guest passes them on."""
+
+    segments: Mapping[str, Lan] = MappingProxyType({})
+    """The run's Ethernet segments by name. A class default, because
+    an unset attribute falls through to ``__getattr__`` as a guest."""
+
+    def segment(self, name: str) -> Lan:
+        """One segment, to ``cut``, ``restore`` or ``capture``."""
+        try:
+            return self.segments[name]
+        except KeyError:
+            raise MachineError(f"no segment {name!r} in this test; have {', '.join(self.segments) or 'none'}") from None
 
     async def until[T](
         self,

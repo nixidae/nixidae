@@ -118,6 +118,10 @@ class SegmentSpec(Strict):
     hub: bool = False
     """Frames pass through the runner's hub even with two members."""
 
+    capture: bool = False
+    """The hub writes the segment's frames to `<out>/pcap/<name>.pcap`
+    from boot. `mkTest` sets `hub` with it."""
+
 
 class Spec(Strict):
     """A whole run, as evaluating the module system produced it."""

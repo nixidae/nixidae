@@ -31,6 +31,7 @@ import importlib.util
 import io
 import json
 import math
+import shutil
 import sys
 import time
 import traceback
@@ -449,7 +450,16 @@ class Session:
                     ),
                     machine=one.name,
                 )
-        self._lans = build_lans(segments, hubs={name for name, one in self.spec.segments.items() if one.hub})
+        # A second run into the same `--out` would otherwise keep the last
+        # run's captures beside its own.
+        shutil.rmtree(self.out / "pcap", ignore_errors=True)
+        self._lans = build_lans(
+            segments,
+            hubs={name for name, one in self.spec.segments.items() if one.hub},
+            pcap_dir=self.out / "pcap",
+            # The phase that cut or captured, so `jq` finds it by phase.
+            on_change=lambda text: self.emit(Kind.NOTE, text, phase=_PRINTING.get()),
+        )
         lan_fds: dict[str, dict[str, int]] = defaultdict(dict)
         for lan in self._lans:
             for member, fd in lan.fds.items():
@@ -491,6 +501,7 @@ class Session:
         # One phase's findings for a later one -- a process census taken
         # before the suites, read by the phase that looks for leaks.
         vms.shared = {}
+        vms.segments = {lan.name: lan for lan in self._lans}
         vms.phase = None
         vms.pytest_args = self.pytest_args
 
@@ -510,6 +521,8 @@ class Session:
 
         for lan in self._lans:
             lan.start()
+            if lan.name in self.spec.segments and self.spec.segments[lan.name].capture:
+                await lan.capture()
         self.vms = vms
 
     async def ensure(self, names: Collection[str]) -> None:
@@ -788,6 +801,7 @@ class Session:
         vms.access = self.vms.access
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
+        vms.segments = self.vms.segments
         vms.pytest_args = self.pytest_args
         # One script may serve several phases, told apart by this.
         vms.phase = phase.name
