@@ -28,6 +28,8 @@ environment the same way here as there.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import os
 import re
 import subprocess
@@ -43,7 +45,8 @@ import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
-from vivarium import cli as runner_cli, control, monitor
+from vivarium import access, cli as runner_cli, control, monitor, registry
+from vivarium.phases import STOPPED
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
@@ -82,7 +85,7 @@ def entry(file: Path) -> Path:
     return file / "default.nix" if file.is_dir() else file
 
 
-EVALUATE: Final = frozenset({"run", "phases"})
+EVALUATE: Final = frozenset({"run", "phases", "up"})
 """The commands that evaluate an attribute and exec what it builds."""
 
 
@@ -95,7 +98,11 @@ def parser() -> argparse.ArgumentParser:
         epilog="run and phases hand anything else to the runner: `vivarium run x --out o -v -- -k name`.",
     )
     sub = top.add_subparsers(dest="command", required=True)
-    for command, what in (("run", "evaluate, build and run a session"), ("phases", "list a session's phases")):
+    for command, what in (
+        ("run", "evaluate, build and run a session"),
+        ("phases", "list a session's phases"),
+        ("up", "bring a session up as an environment: run its phases, return once it is ready, keep the guests up"),
+    ):
         evaluate = sub.add_parser(command, help=what)
         evaluate.add_argument("attr", help="the attribute to run, such as `lan` or `lan.qemu`")
         evaluate.add_argument(
@@ -115,6 +122,10 @@ def parser() -> argparse.ArgumentParser:
                     " 2 no run, 4 paused, 5 stopped). The run goes on after a pause"
                 ),
             )
+    down = sub.add_parser("down", help="stop an environment `up` started; exit 0 if its phases passed")
+    down.add_argument("--out", type=Path, required=True, help="the environment's --out")
+    listing = sub.add_parser("ls", help="the runs up on this host: their state, test and --out")
+    listing.add_argument("--json", action="store_true", help="one JSON object per run")
     add_switch(sub)
     add_reload(sub)
     runner_cli.add_ctl(sub)
@@ -151,7 +162,7 @@ def parse(argv: list[str]) -> Request:
         attr,
         [*rest, *tail],
         None if out is None else out.absolute(),
-        until_pause=args.command == "run" and args.until_pause,
+        until_pause=args.command == "up" or (args.command == "run" and args.until_pause),
     )
 
 
@@ -410,6 +421,10 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(runner_cli.watch(args))
         if args.command == "reload":
             raise SystemExit(reload(args))
+        if args.command == "down":
+            raise SystemExit(anyio.run(down, args.out.absolute()))
+        if args.command == "ls":
+            raise SystemExit(anyio.run(listing, args.json))
         raise SystemExit(switch(args))
     request = parse(argv)
     if request.until_pause:
@@ -452,10 +467,10 @@ def until_pause(argv: list[str], request: Request) -> int:
     becomes the runner as any `vivarium run` does. It outlives this
     process: the point is to return at a pause with the guests up."""
     if request.out is None:
-        say("--until-pause needs --out")
+        say(f"{'up' if request.command == 'up' else '--until-pause'} needs --out")
         return 2
     request.out.mkdir(parents=True, exist_ok=True)
-    child_argv = [str(this_cli()), *(arg for arg in argv if arg != "--until-pause")]
+    child_argv = [str(this_cli()), *child_args(argv)]
     with (request.out / LOG).open("wb") as log:
         child = subprocess.Popen(  # noqa: S603 -- this program, with the caller's own arguments
             child_argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
@@ -469,7 +484,63 @@ def until_pause(argv: list[str], request: Request) -> int:
     args = argparse.Namespace(
         target=str(request.out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT
     )
-    return runner_cli.watch(args)
+    if request.command != "up":
+        return runner_cli.watch(args)
+    # stdout is `up`'s result, access.json; the progress is not.
+    with contextlib.redirect_stdout(sys.stderr):
+        code = runner_cli.watch(args)
+    if code != monitor.READY:
+        say(f"the environment is not ready (monitor exit {code}); `vivarium ctl --out {request.out} state` says why")
+        return code
+    print((request.out / access.FILE).read_text(), end="")
+    say(f"ready: ssh -F {request.out / access.SSH_CONFIG} <guest>; files in {request.out / access.DIRECTORY}")
+    say(f"stop it: {this_cli()} down --out {request.out}")
+    return 0
+
+
+def child_args(argv: list[str]) -> list[str]:
+    """The `run` that `run --until-pause` or `up` starts in the background:
+    `up` is `run --hold`, with the flag before any `--`."""
+    head, tail = split_dashdash([arg for arg in argv if arg != "--until-pause"])
+    if head and head[0] == "up":
+        head = ["run", *head[1:], "--hold"]
+    return [*head, *tail]
+
+
+async def down(out: Path) -> int:
+    """`ctl stop`, then the run's exit: 0 if its phases passed, 5 if it was
+    stopped before it was ready, 1 if a phase failed."""
+    socket = out / control.SOCKET
+    try:
+        reply = await control.request(socket, control.Op.STOP)
+    except OSError as error:
+        say(f"no run is listening at {socket}: {error}")
+        return 1
+    if not reply.ok:
+        say(reply.error or "the run refused stop")
+        return 1
+    if not await runner_cli.wait_for_exit(out):
+        say(f"the run did not exit within {runner_cli.STOP_WAIT:g}s of stop")
+        return 1
+    try:
+        verdict = json.loads(await anyio.Path(out / "phases.json").read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        say(f"the run left no verdict in {out / 'phases.json'}: {error}")
+        return 2
+    if verdict.get("stopped"):
+        say(f"down; stopped before it was ready ({verdict['stopped']})")
+        return STOPPED
+    say("down" if verdict.get("passed") else "down; a phase failed")
+    return 0 if verdict.get("passed") else 1
+
+
+async def listing(as_json: bool) -> int:
+    for up in await registry.runs():
+        if as_json:
+            print(json.dumps({"out": str(up.out), "state": up.state, "name": up.name, "pause": up.pause}))
+        else:
+            print("\t".join([up.state, up.name or "-", str(up.out)]))
+    return 0
 
 
 def announce(out: Path, origin: control.Origin) -> None:

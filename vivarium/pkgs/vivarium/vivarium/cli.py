@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine import Cpus
 
-from . import monitor, namespace, repl, runroot
+from . import monitor, namespace, registry, repl, runroot
 from .control import (
     ORIGIN,
     READY,
@@ -531,8 +531,9 @@ async def drive(
         out = anyio.Path(session.out)
         await out.mkdir(parents=True, exist_ok=True)
         await (out / RUN_FILE).write_text(about.to_json())
+        listed = registry.registered(session.out.resolve()) if controller is not None else contextlib.nullcontext()
         try:
-            with sequence:
+            with listed, sequence:
                 await _sequence(
                     session,
                     controller,
@@ -731,7 +732,7 @@ async def ctl(args: argparse.Namespace) -> int:
                 print(f"[vivarium] cannot wait on {socket}: {error}", file=sys.stderr)
                 return 3
     if args.op == Op.STOP and reply.ok:
-        if await _wait_for_exit(args.out):
+        if await wait_for_exit(args.out):
             reply.result = "stopped"
         else:
             reply.ok = False
@@ -775,7 +776,7 @@ async def _resumed(socket: Path) -> None:
             await anyio.sleep(0.05)
 
 
-async def _wait_for_exit(out: Path) -> bool:
+async def wait_for_exit(out: Path) -> bool:
     """Whether the run in `out` exited within `STOP_WAIT`: its pid from
     `run.json`, through a pidfd, so the exit wakes this and nothing polls."""
     about = RunFile.from_json(await anyio.Path(out / RUN_FILE).read_text())

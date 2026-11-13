@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from vivarium.control import RUN_FILE, Op, Origin, run_file
-from vivarium_eval.cli import entry, main, origin_of, parse, parser, split_attr
+from vivarium_eval.cli import child_args, entry, main, origin_of, parse, parser, split_attr
 
 
 class TestParse:
@@ -29,6 +29,25 @@ class TestParse:
 
     def test_phases_takes_no_until_pause(self) -> None:
         assert not parse(["phases", "x"]).until_pause
+
+    def test_up_waits_like_until_pause(self) -> None:
+        request = parse(["up", "k8s", "--out", "/o"])
+        assert (request.command, request.until_pause, request.out) == ("up", True, Path("/o"))
+
+    def test_up_starts_a_held_run_with_hold_before_dashdash(self) -> None:
+        assert child_args(["up", "k8s", "--out", "/o", "--", "-k", "x"]) == [
+            "run",
+            "k8s",
+            "--out",
+            "/o",
+            "--hold",
+            "--",
+            "-k",
+            "x",
+        ]
+
+    def test_until_pause_starts_the_run_without_the_flag(self) -> None:
+        assert child_args(["run", "x", "--until-pause", "--out", "/o"]) == ["run", "x", "--out", "/o"]
 
     def test_an_option_after_dashdash_is_pytests_not_ours(self) -> None:
         request = parse(["run", "x", "--", "--file", "t.py"])
