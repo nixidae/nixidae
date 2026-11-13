@@ -310,7 +310,7 @@ Where to say what:
 A segment's own settings are on the test, not on a guest:
 
 ```nix
-segments.wan = { mtu = 1500; hub = true; };
+segments.wan = { mtu = 1500; hub = true; capture = true; };
 ```
 
 - `mtu` is the MTU of every interface on the segment. A segment with no
@@ -318,12 +318,39 @@ segments.wan = { mtu = 1500; hub = true; };
   a guest's uplink joins takes no `mtu`.
 - `hub` passes the frames of a two-member segment through the runner, as
   three members always do. The runner then sees every frame, at a cost
-  in throughput.
+  per frame. `checks.iperf` on UML: at MTU 1500 a hub carries 3.6
+  Gbit/s against 7.0 direct; at 65000, about 25 either way.
+- `capture` writes every frame on the segment to `<out>/pcap/<name>.pcap`
+  from boot, and makes the segment a hub. The file has no size limit:
+  `checks.iperf` at MTU 65000 with a capture wrote 17 GB in 10 s, at 14
+  Gbit/s.
 - A name in `segments` that no interface joins is an evaluation error.
 - `vivarium reload` refuses a changed `segments`: a segment is wired when
   the guests boot.
 
-`nix build --file . checks.segment-mtu` checks the MTU and the hub.
+A phase cuts or captures a hub segment through `vms.segment(name)`, on
+every backend:
+
+```python
+core = vms.segment("core")
+await core.cut("leaf1")  # every interface of leaf1 on core; "leaf1/eth1" is one
+await core.restore("leaf1")  # no argument: every member
+path = await core.capture()  # <out>/pcap/core.pcap, from now on
+await core.end_capture()
+```
+
+- A cut drops every frame to and from the member. The interface keeps
+  its carrier, so a routing protocol finds the failure from its hold
+  timer.
+- A capture holds every frame a member sends, a cut member's too. The
+  run's events hold each cut and restore, with the phase that made it.
+- A two-member segment without `hub` refuses both: the runner does not
+  see its frames.
+- `vivarium ctl --out O segment core cut leaf1` and the MCP tool
+  `segment` do the same, paused or running. `segment core` shows it.
+
+`nix build --file . checks.segment-mtu` checks the MTU and the hub;
+`checks.segment-cut` checks a cut, a restore and a capture.
 
 `nix build --file . checks.segments` checks all three backends, by hand.
 `examples/frr-clos` builds a CLOS fabric of FRR switches on this: BGP

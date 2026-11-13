@@ -89,10 +89,11 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 - `ctl state` prints `paused before <phase>` (or `running`), then `phase\tstate`, with the first line of the error on a failed phase. `ctl --json <op>` prints the whole reply as one JSON object: `pause`, `state`, `errors` (full text).
 - Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.
 - Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `wait_until_succeeds`/`wait_until_fails(cmd, timeout)`, `until(what, check, timeout, evidence=)` (async check returns a value, or `None` for not yet), `never(what, check, timeout)`, `vms.until(what, check(vm), timeout, machines=)`: no hand-written retry loops. `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
+- Links: `await vms.segment("core").cut("leaf1")` / `.restore(...)` drops a member's frames on the host, carrier up; `.capture()` writes `<out>/pcap/core.pcap` (`segments.core.capture = true`: from boot). Only a hub segment (`segments.core.hub = true`, or three members); no `nft` or `tcpdump` in the guest. By hand: `vivarium ctl --out "$OUT" segment core cut leaf1`.
 
 ## MCP
 
-The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only, hold)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
+The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only, hold)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `segment`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
 
 - `start` takes `attr` (with `file`, the directory or file to evaluate) or `spec`, never `file` alone. It runs with `--break-on-failure`.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.

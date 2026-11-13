@@ -54,6 +54,11 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    segment-cut = {
+      description = "the runner's hub cuts, restores and captures a segment";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     memory = {
       # One guest, one closure read, and four numbers. Its own job
       # because it is the only check that measures the host rather than

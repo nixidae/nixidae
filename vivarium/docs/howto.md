@@ -306,6 +306,22 @@ await vms.until("BGP up", lambda vm: up_on(vm), 90)  # every guest at once
   some guests. Its error names each guest that did not come good.
 - Each wait is one step in `report.json`.
 
+## Cut a link or capture its frames
+
+Do it on the host, not in the guest: it then works the same on a guest
+with no `nft` or `tcpdump`. The segment must be a hub
+(`segments.core.hub = true`, or three members or more).
+
+```python
+await vms.segment("core").cut("leaf1")  # leaf1's frames on core are dropped; its carrier stays up
+await vms.segment("core").restore("leaf1")
+```
+
+`segments.core.capture = true` writes `<out>/pcap/core.pcap` from boot.
+A phase starts and stops one with `await vms.segment("core").capture()`
+and `end_capture()`. By hand: `vivarium ctl --out O segment core cut leaf1`.
+`docs/reference.md` has the rest.
+
 ## Find out what went wrong
 
 ```console
