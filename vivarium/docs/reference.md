@@ -12,7 +12,13 @@ check, `--out` by hand:
 ```
 run.json        how to reach the run: CLI, socket, commands, pid, the test
                 (name, guests, phases, spec), the origin (written first)
-run.log         `vivarium run --until-pause` only: the run's own output
+run.log         `vivarium run --until-pause` and `vivarium up` only: the
+                run's own output
+access.json     each guest's ssh address and forwards, as the runner
+                settled them (written before the first guest boots)
+ssh_config      `ssh -F <out>/ssh_config <guest>`
+access/         what phases wrote for the host (`vms.access`), such as a
+                kubeconfig; emptied when the guests go down
 build.jsonl     `vivarium run` only: each Nix log record of the evaluation
                 and the build, build log lines included; `failed` last
                 when there is no run

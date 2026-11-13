@@ -223,11 +223,19 @@ The way in is in `--out`, written before any guest boots:
   `vivarium_k8s.bring_up` writes `access/kubeconfig` there when the
   control plane forwards 6443, which `modules/k8s.nix` does by default.
   The kubeconfig checks the name `kubernetes` in the server's
-  certificate, not the forward address.
+  certificate, not the forward address. The run empties `access/` when
+  the guests go down.
 
 A host port reaches only what `vivarium.forward` names, and forwards are
-fixed when a guest boots. `ctl`, `switch` and `reload` work on a ready
-environment as on a paused run.
+fixed when a guest boots. A port map with no `host`, such as
+`{ guest = 6443; }`, gets the guest's port on the host, or the first
+free port above it; `access.json` says which. `ctl`, `switch` and
+`reload` work on a ready environment as on a paused run. `continue` at
+ready runs the phases a `reload` added, then holds again. Only `stop`
+ends the environment.
+
+Without the `vivarium` CLI, `nix run --file . checks.k8s-host.up -- --out
+./k8s` runs the same environment in the foreground.
 
 `down` stops it, waits for the run to exit and exits 0 if every phase
 passed. `vivarium ctl --out ./k8s stop` does the same. A stop before

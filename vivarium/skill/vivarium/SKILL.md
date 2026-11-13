@@ -59,7 +59,8 @@ vivarium down --out "$OUT"          # 0 if every phase passed
 
 - `up` is `run --hold` detached; the runner's `--hold` (MCP `start(hold=True)`) pauses at `ready` after the last phase passes. `ctl stop` at ready ends the run with its verdict (exit 0), not `stopped`.
 - Way in, written before boot: `$OUT/access.json` (each guest's ssh and forwards), `ssh -F $OUT/ssh_config <guest>` (root, `vivarium.rootPassword`), `$OUT/access/` (what phases write via `vms.access`; `bring_up` writes `access/kubeconfig` when the control plane forwards 6443, the `modules/k8s.nix` default).
-- A host port reaches only `vivarium.forward`, fixed at boot. `ctl`, `switch`, `reload` work at ready as at a pause.
+- A host port reaches only `vivarium.forward`, fixed at boot; `{ guest = N; }` (no `host`) gets N or the next free port, named in `access.json`. `ctl`, `switch`, `reload` work at ready as at a pause; `continue` at ready runs what a reload added and holds again; only `stop` ends it.
+- Plain Nix: `nix run --file . <test>.up -- --out DIR`, in the foreground.
 - `checks.k8s-host`: a one-node cluster, ready to `up`.
 
 ## At a pause
