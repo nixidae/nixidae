@@ -39,13 +39,28 @@ vivarium monitor "$OUT" --quiet                                          # backg
 ```
 
 - The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`. For a run `vivarium run` started, it prints each derivation as it starts building (not with `--quiet`), and exits 2 with the error if evaluating or building fails; `$OUT/build.jsonl` holds every Nix log record, build log lines included.
-- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped. Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
+- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped, 6 ready (an environment). Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
 - With a `nix run` driver, the driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
 - Run the monitor bare. `vivarium monitor ... | tail` or `...; echo rc=$?` makes the task exit 0 at a pause; a paused run then reads as "completed (exit code 0)".
 - Name what you wait on when you stop: "waiting on the monitor for <test> (task X); then <next step>".
 - Never wait on GitHub Actions. A local pass is the verdict.
+
+## Environments
+
+Guests that stay up after the phases, for work from the host (a cluster to `kubectl` against):
+
+```sh
+vivarium up <test> --out "$OUT"     # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused)
+vivarium ls                         # runs up on this host: state, test, --out
+vivarium down --out "$OUT"          # 0 if every phase passed
+```
+
+- `up` is `run --hold` detached; the runner's `--hold` (MCP `start(hold=True)`) pauses at `ready` after the last phase passes. `ctl stop` at ready ends the run with its verdict (exit 0), not `stopped`.
+- Way in, written before boot: `$OUT/access.json` (each guest's ssh and forwards), `ssh -F $OUT/ssh_config <guest>` (root, `vivarium.rootPassword`), `$OUT/access/` (what phases write via `vms.access`; `bring_up` writes `access/kubeconfig` when the control plane forwards 6443, the `modules/k8s.nix` default).
+- A host port reaches only `vivarium.forward`, fixed at boot. `ctl`, `switch`, `reload` work at ready as at a pause.
+- `checks.k8s-host`: a one-node cluster, ready to `up`.
 
 ## At a pause
 
@@ -76,7 +91,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 
 ## MCP
 
-The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
+The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only, hold)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
 
 - `start` takes `attr` (with `file`, the directory or file to evaluate) or `spec`, never `file` alone. It runs with `--break-on-failure`.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.

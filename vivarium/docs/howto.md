@@ -117,7 +117,8 @@ $ vivarium ctl --out ./out continue
 
 `continue` returns when the run is no longer paused. With `--wait`, it
 returns at the next pause or at the verdict instead, and exits as
-`vivarium monitor` does: 0 passed, 1 failed, 4 paused, 5 stopped.
+`vivarium monitor` does: 0 passed, 1 failed, 4 paused, 5 stopped, 6
+ready (an environment, below).
 
 `vivarium ctl --out ./out watch` prints the run's progress, pauses,
 failures and verdict, one line each, until the run ends. Every run with
@@ -189,6 +190,55 @@ unit you remove from the file is stopped.
 
 The evaluation reads the working tree as it is now. An edit to the
 session's own files reaches the guest too.
+
+## Keep guests up as an environment
+
+Any test can be an environment: its phases set it up, and then the
+guests stay up until you stop them. A Kubernetes cluster to work
+against:
+
+```console
+$ vivarium up checks.k8s-host --out ./k8s
+$ kubectl --kubeconfig ./k8s/access/kubeconfig get pods -A
+$ ssh -F ./k8s/ssh_config cp
+$ vivarium ls
+ready	k8s-host	/home/me/k8s
+$ vivarium down --out ./k8s
+```
+
+`up` starts `vivarium run <attr> --hold` in the background, with its
+output in `<out>/run.log`. It returns when every phase passed and the
+run says `ready`. It exits 0 and prints `<out>/access.json` on stdout. A
+phase that fails pauses the run with the guests up, as
+`--break-on-failure` does, and `up` exits 4.
+
+The way in is in `--out`, written before any guest boots:
+
+- `access.json`: each guest's ssh address and forwards. The runner picks
+  each guest's forward address when the run starts (`127.0.0.2`
+  upwards), so read it from here.
+- `ssh_config`: `ssh -F <out>/ssh_config <guest>`. The root password is
+  `vivarium.rootPassword` (`uml` by default).
+- `access/`: what a phase writes for the host, through `vms.access`.
+  `vivarium_k8s.bring_up` writes `access/kubeconfig` there when the
+  control plane forwards 6443, which `modules/k8s.nix` does by default.
+  The kubeconfig checks the name `kubernetes` in the server's
+  certificate, not the forward address.
+
+A host port reaches only what `vivarium.forward` names, and forwards are
+fixed when a guest boots. `ctl`, `switch` and `reload` work on a ready
+environment as on a paused run.
+
+`down` stops it, waits for the run to exit and exits 0 if every phase
+passed. `vivarium ctl --out ./k8s stop` does the same. A stop before
+`ready` is an ordinary stop: exit 5. `ls` lists every run on this host
+that has a control socket, with its state: `ready`, `paused` or
+`running`. `vivarium monitor` exits 6 at `ready`. The MCP server's
+`start` takes `hold=True`.
+
+A sandboxed `nix build` of the same attribute never holds: it runs the
+phases and gives the verdict, so the check proves the environment comes
+up.
 
 ## Look at a guest's screen and use it
 
