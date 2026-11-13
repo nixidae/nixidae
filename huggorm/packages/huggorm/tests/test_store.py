@@ -31,8 +31,6 @@ from nixversion import (
     drv_output,
     drv_output_parts,
     needs_collector,
-    paths_of,
-    some_paths,
 )
 
 from huggorm_bindings import (
@@ -57,6 +55,8 @@ from huggorm_bindings import (
     GCOptions,
     GCResults,
     GcRoot,
+    GCSpecificPaths,
+    GCWholeStore,
     Generation,
     Hash,
     HashAlgorithm,
@@ -100,7 +100,7 @@ from huggorm_bindings.errors import (
 from huggorm_dsl.declare import DETERMINATE, NIX_2_35, NIX_2_36
 
 if NIX_2_35:
-    from huggorm_bindings import GCSpecificPaths, GCWholeStore, LazyAttr, UnkeyedRealisation
+    from huggorm_bindings import LazyAttr, UnkeyedRealisation
 
 HELLO = "7rjjfrn5w3z1kb2v9v0ilxmvmb2n5k1y-hello-2.12.1"
 
@@ -1775,9 +1775,11 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
         # leave upstream's default alone, and what the member then
         # holds is what has to survive.
         "GCOptions": (
-            GCOptions(GCAction.DELETE_SPECIFIC, True, some_paths(sorted([held, other])), 1 << 30),
-            [(GCAction.RETURN_LIVE, False, some_paths([held]), 4096)],
+            GCOptions(GCAction.DELETE_SPECIFIC, True, GCSpecificPaths(sorted([held, other])), 1 << 30),
+            [(GCAction.RETURN_LIVE, False, GCWholeStore(), 4096)],
         ),
+        "GCWholeStore": (GCWholeStore(), []),
+        "GCSpecificPaths": (GCSpecificPaths([held]), [([held, other], True)]),
         # Strings, not store paths - the field is a `StringSet`
         # upstream, because a root can be a path outside the store.
         # Sorted, because the set's order is what comes back.
@@ -1940,13 +1942,11 @@ def wire_samples(chroot: Store) -> dict[str, tuple[Any, list[tuple[Any, ...]]]]:
 
     if NIX_2_35:
         # What 2.35 declares and 2.34 does not: the key-less realisation
-        # a build answers with, the two places a collection looks, and
-        # a fetcher attribute computed when it is read.
+        # a build answers with, and a fetcher attribute computed when it
+        # is read.
         samples.update(
             {
                 "UnkeyedRealisation": (_rebuild(UnkeyedRealisation, held, []), [(other, [Signature("k", bytes(64))])]),
-                "GCWholeStore": (GCWholeStore(), []),
-                "GCSpecificPaths": (GCSpecificPaths([held]), [([held, other], True)]),
                 "LazyAttr": (_rebuild(LazyAttr, 7), [(8,), ("7",), (True,)]),
             }
         )
@@ -2160,10 +2160,7 @@ def test_gc_options_take_every_default_from_upstream() -> None:
     options = GCOptions()
     assert options.action() == GCAction.DELETE_DEAD
     assert options.ignore_liveness() is False
-    if NIX_2_35:
-        assert isinstance(options.paths_to_delete(), GCWholeStore)
-    else:
-        assert options.paths_to_delete() == []
+    assert isinstance(options.paths_to_delete(), GCWholeStore)
     assert options.max_freed() is None
 
 
@@ -2174,12 +2171,45 @@ def test_gc_options_read_back_what_was_asked_for() -> None:
     sorted, because libstore holds them in a `nix::StorePathSet`."""
     path = StorePath("00000000000000000000000000000000-a")
     options = GCOptions(
-        action=GCAction.DELETE_SPECIFIC, ignore_liveness=True, paths_to_delete=some_paths([path]), max_freed=1 << 30
+        action=GCAction.DELETE_SPECIFIC,
+        ignore_liveness=True,
+        paths_to_delete=GCSpecificPaths([path]),
+        max_freed=1 << 30,
     )
     assert options.action() == GCAction.DELETE_SPECIFIC
     assert options.ignore_liveness() is True
-    assert [p.to_string() for p in paths_of(options)] == [path.to_string()]
+    where = options.paths_to_delete()
+    assert isinstance(where, GCSpecificPaths)
+    assert [p.to_string() for p in where.paths()] == [path.to_string()]
     assert options.max_freed() == 1 << 30
+
+
+@pytest.mark.parametrize("action", [GCAction.DELETE_DEAD, GCAction.RETURN_DEAD, GCAction.RETURN_LIVE])
+def test_a_collection_within_paths_is_refused_where_nix_would_act_on_the_whole_store(action: GCAction) -> None:
+    """Nix 2.34 reads the paths for `DELETE_SPECIFIC` only (`gc.cc:636`,
+    `:698`). With `DELETE_DEAD` it deletes every dead path in the store,
+    so a request for the dead paths among a few must not reach it.
+    Nix 2.35 reads them for every action."""
+    path = StorePath("00000000000000000000000000000000-a")
+    if NIX_2_35:
+        where = GCOptions(action, paths_to_delete=GCSpecificPaths([path])).paths_to_delete()
+        assert isinstance(where, GCSpecificPaths)
+    else:
+        with pytest.raises(UsageError, match="only to delete them"):
+            GCOptions(action, paths_to_delete=GCSpecificPaths([path]))
+
+
+def test_deleting_the_referrers_of_paths_is_refused_where_nix_cannot() -> None:
+    """`SpecificPaths::deleteReferrers` is new in Nix 2.35."""
+    path = StorePath("00000000000000000000000000000000-a")
+    asked = GCSpecificPaths([path], delete_referrers=True)
+    if NIX_2_35:
+        where = GCOptions(GCAction.DELETE_SPECIFIC, paths_to_delete=asked).paths_to_delete()
+        assert isinstance(where, GCSpecificPaths)
+        assert where.delete_referrers() is True
+    else:
+        with pytest.raises(UsageError, match="referrers"):
+            GCOptions(GCAction.DELETE_SPECIFIC, paths_to_delete=asked)
 
 
 def test_a_store_with_no_collector_refuses_to_collect() -> None:
@@ -2359,7 +2389,7 @@ def test_deleting_a_path_this_process_holds_is_refused(chroot: Store) -> None:
 
     with pytest.raises(NixError, match=STILL_ALIVE):
         chroot.collect_garbage(
-            GCOptions(action=GCAction.DELETE_SPECIFIC, ignore_liveness=True, paths_to_delete=some_paths([path]))
+            GCOptions(action=GCAction.DELETE_SPECIFIC, ignore_liveness=True, paths_to_delete=GCSpecificPaths([path]))
         )
     assert chroot.is_valid_path(path)
 

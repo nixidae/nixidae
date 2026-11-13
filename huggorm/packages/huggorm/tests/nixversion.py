@@ -1,9 +1,9 @@
 """The facts a test states that each Nix spells its own way (nixidae/nixidae#592).
 
-A test builds a derivation-output key or asks a collection to look at some
-paths, and 2.34 and 2.35 take different types for both. Each helper takes the
-fact once and answers in this build's shape. A type checker holds `NIX_2_35`
-constant for each build, so every branch is checked against its own stubs.
+A test builds a derivation-output key, and 2.34 and 2.35 take different
+types for it. Each helper takes the fact once and answers in this build's
+shape. A type checker holds `NIX_2_35` constant for each build, so every
+branch is checked against its own stubs.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from typing import Any, cast
 
 import pytest
 
-from huggorm_bindings import DrvOutput, GCOptions, Hash, HashAlgorithm, StorePath
+from huggorm_bindings import DrvOutput, Hash, HashAlgorithm, StorePath
 from huggorm_bindings.errors import NixError, SysError
 from huggorm_dsl.declare import DETERMINATE, NIX_2_35
 
 if NIX_2_35:
-    from huggorm_bindings import GCSpecificPaths, GCWholeStore, UnkeyedRealisation
+    from huggorm_bindings import UnkeyedRealisation
 else:
     from huggorm_bindings import Realisation
 
@@ -38,29 +38,12 @@ if NIX_2_35:
         derivation's store path."""
         return (StorePath(f"{_HASH_PARTS[seed]}-sample.drv"), output)
 
-    def some_paths(paths: list[StorePath]) -> GCSpecificPaths:
-        """Where a collection looks when it looks at `paths` only."""
-        return GCSpecificPaths(paths)
-
-    def paths_of(options: GCOptions) -> list[StorePath]:
-        """The paths a collection looks at, or [] for the whole store."""
-        where = options.paths_to_delete()
-        return [] if isinstance(where, GCWholeStore) else where.paths()
-
 else:
 
     def drv_output_parts(seed: int, output: str) -> tuple[Hash, str]:
         """The parts of `drv_output(seed, output)`: 2.34 keys on the
         derivation's hash modulo."""
         return (Hash(HashAlgorithm.SHA256, bytes([seed]) * 32), output)
-
-    def some_paths(paths: list[StorePath]) -> list[StorePath]:
-        """Where a collection looks when it looks at `paths` only."""
-        return paths
-
-    def paths_of(options: GCOptions) -> list[StorePath]:
-        """The paths a collection looks at."""
-        return options.paths_to_delete()
 
 
 if NIX_2_35:
