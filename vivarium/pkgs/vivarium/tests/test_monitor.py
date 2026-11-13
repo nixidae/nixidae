@@ -18,6 +18,7 @@ from vivarium.monitor import (
     LIVE,
     PAUSED,
     PLANNED,
+    READY,
     SUBSTITUTE,
     Arrival,
     BuildTally,
@@ -77,12 +78,24 @@ class TestStatus:
 PAUSE = {"run": "r", "event": "paused", "text": "paused after boot failed"}
 RESUMED = {"run": "r", "event": "resumed", "text": "resumed, paused after boot failed"}
 FAILED = {"run": "r", "event": "finished", "passed": "false", "text": "run failed"}
+PASSED = {"run": "r", "event": "finished", "passed": "true", "text": "run passed"}
+READY_EVENT = {"run": "r", "event": "ready", "text": "ready; the guests are up until the run is stopped"}
+
+
+def test_a_ready_note_is_the_ready_event() -> None:
+    note = {"kind": "note", "data": {"reason": "ready", "ready": True}}
+    assert channel_event(note, "r") == (
+        "ready; the guests are up until the run is stopped",
+        {"run": "r", "event": "ready"},
+    )
 
 
 @pytest.mark.parametrize(
     ("events", "paused"),
     [
         ([], False),
+        ([READY_EVENT], True),
+        ([READY_EVENT, RESUMED, PASSED], False),
         ([PAUSE], True),
         ([PAUSE, RESUMED], False),
         ([PAUSE, RESUMED, PAUSE], True),
@@ -268,6 +281,10 @@ async def _follow(tmp_path: Path, events: list[dict[str, Any]], **options: Any) 
         ([PAUSE, RESUMED, LIVE, FAILED], True, 1),
         # The replay alone decides nothing until it ends.
         ([PAUSE, RESUMED], True, 3),
+        # An environment that is ready is not a pause and not a verdict.
+        ([LIVE, READY_EVENT], True, READY),
+        ([READY_EVENT, LIVE], True, READY),
+        ([LIVE, READY_EVENT, RESUMED, PASSED], False, 0),
     ],
 )
 async def test_until_pause_exits_at_an_open_pause(

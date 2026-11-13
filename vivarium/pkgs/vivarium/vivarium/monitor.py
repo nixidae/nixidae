@@ -63,6 +63,14 @@ is not printed."""
 PAUSED: Final = 4
 """The exit status at a pause, unless `--through-pauses`."""
 
+READY: Final = 6
+"""The exit status when an environment (`--hold`) is ready, unless
+`--through-pauses`. Not 0: a watcher must not read the guests still up as
+a verdict."""
+
+HOLDS: Final = frozenset({"paused", "ready"})
+"""The events after which the run waits for someone to act."""
+
 WAIT: Final = 1800.0
 """Seconds a monitor waits for a run that has not started. A driver's
 evaluation and build come first; a failed build is the driver's own exit,
@@ -90,6 +98,9 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
     if kind == "note" and "resumed" in data:
         meta |= {"event": "resumed", "reason": str(data["resumed"])}
         return f"resumed, paused {data['resumed']}", meta
+    if kind == "note" and data.get("ready"):
+        meta |= {"event": "ready"}
+        return "ready; the guests are up until the run is stopped", meta
     if kind == "note" and "reason" in data:
         meta |= {"event": "paused", "reason": str(data["reason"])}
         return f"paused {data['reason']}; the guests are up until the run is resumed or stopped", meta
@@ -143,15 +154,21 @@ def status(event: dict[str, Any]) -> int | None:
     return None
 
 
-def paused_now(events: list[dict[str, Any]]) -> bool:
-    """Whether the run is paused after these events: a pause with no
-    `resumed` or verdict after it."""
+def held(events: list[dict[str, Any]]) -> str | None:
+    """The open hold after these events, `paused` or `ready`: one with no
+    `resumed` or verdict after it. `None` while the run runs."""
     for event in reversed(events):
-        if event.get("event") == "paused":
-            return True
+        if event.get("event") in HOLDS:
+            return str(event["event"])
         if event.get("event") in {"resumed", *TERMINAL}:
-            return False
-    return False
+            return None
+    return None
+
+
+def paused_now(events: list[dict[str, Any]]) -> bool:
+    """Whether the run waits for someone after these events: paused, or an
+    environment that is ready."""
+    return held(events) is not None
 
 
 def line(event: dict[str, Any], *, as_json: bool = False) -> str:
@@ -327,8 +344,8 @@ class Watch:
             code = status(event)
             if code is not None:
                 return code
-        if self.until_pause and self.live and paused_now(self.seen):
-            return PAUSED
+        if self.until_pause and self.live and (hold := held(self.seen)) is not None:
+            return READY if hold == "ready" else PAUSED
         return None
 
 

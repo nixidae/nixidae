@@ -383,6 +383,67 @@ class TestBreakpoints:
         assert not (tmp_path / SOCKET).exists()
 
 
+async def until_state(socket: Path, result: str) -> None:
+    with anyio.fail_after(5):
+        while True:
+            with contextlib.suppress(ConnectionRefusedError, FileNotFoundError):
+                if (await request(socket, Op.STATE)).result == result:
+                    return
+            await anyio.sleep(0.01)
+
+
+@pytest.mark.anyio
+class TestHold:
+    async def test_ready_holds_the_guests_until_stop_and_then_passes(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        socket = tmp_path / SOCKET
+        seen: list[str] = []
+
+        async def follow() -> None:
+            async for item in watch(socket):
+                seen.append(item["event"])
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, hold=True, break_on_failure=True))
+            await until_state(socket, "ready")
+            assert session.ran == ["one"]
+            assert not session.torn_down, "the environment went down at ready"
+            group.start_soon(follow)
+            assert (await request(socket, Op.STOP)).ok
+        assert session.torn_down
+        assert session.stopped is None, "a stop at ready is the end of the run, not an interruption"
+        assert seen == ["ready", "live", "resumed", "finished"]
+        assert "note:ready; the guests stay up until the run is stopped" in session.said
+
+    async def test_a_failure_pauses_and_never_reads_ready(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = FakeSession(out=tmp_path)
+
+        async def fail(phase: PhaseSpec) -> PhaseState:
+            session.state[phase.name] = PhaseState.FAILED
+            return PhaseState.FAILED
+
+        monkeypatch.setattr(session, "run", fail)
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, hold=True, break_on_failure=True))
+            await until_state(socket, "paused")
+            assert (await request(socket, Op.CONTINUE)).ok
+        assert session.torn_down
+        assert not any(said.startswith("note:ready") for said in session.said)
+
+    async def test_a_stop_before_ready_is_still_a_stop(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"], hold=True))
+            await until_state(socket, "paused")
+            assert (await request(socket, Op.STOP)).ok
+        assert session.stopped is not None
+        assert session.ran == []
+
+
 def parallel_session(**phases: list[str]) -> FakeSession:
     """Phases on guests `a` and `b`, each on the guests named, all after `boot`."""
     session = FakeSession()

@@ -63,6 +63,10 @@ if TYPE_CHECKING:
 SOCKET: Final = "control.sock"
 RUN_FILE: Final = "run.json"
 
+READY: Final = "ready"
+"""The pause of an environment (`--hold`): every phase passed, and the
+guests stay up until `stop`, which then ends the run with its verdict."""
+
 
 class Op(StrEnum):
     STATE = "state"
@@ -567,6 +571,10 @@ class Controller:
     def paused(self) -> bool:
         return self._resume is not None
 
+    @property
+    def ready(self) -> bool:
+        return self._pause == READY
+
     async def serve(self, *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
         """Listen until cancelled. Run beside the drive, like `follow`.
 
@@ -592,13 +600,23 @@ class Controller:
         self._resume = anyio.Event()
         self._pause = reason
         self._bind_guests()
-        self.session.emit(
-            Kind.NOTE,
-            f"paused {reason}; the guests stay up until the run is resumed",
-            level=Level.ERROR,
-            reason=reason,
-            socket=str(self.path),
-        )
+        if reason == READY:
+            self.session.emit(
+                Kind.NOTE,
+                "ready; the guests stay up until the run is stopped",
+                level=Level.ERROR,
+                reason=reason,
+                ready=True,
+                socket=str(self.path),
+            )
+        else:
+            self.session.emit(
+                Kind.NOTE,
+                f"paused {reason}; the guests stay up until the run is resumed",
+                level=Level.ERROR,
+                reason=reason,
+                socket=str(self.path),
+            )
         # At the pause's level, so `--quiet` shows them when they matter.
         self.announce(Level.ERROR)
         try:
@@ -640,7 +658,12 @@ class Controller:
         if self._continuing and self._resume is not None:
             self._continuing = False
             self._resume.set()
-        if self._stopping and self._stop is not None:
+        if self._stopping and self.ready and self._resume is not None:
+            # Every phase passed: the hold ends as the run would have, verdict and all.
+            self._stopping = False
+            self.session.emit(Kind.NOTE, "ctl stop: the environment goes down")
+            self._resume.set()
+        elif self._stopping and self._stop is not None:
             self._stopping = False
             self.session.stopped = Stop.by_request()
             self.session.emit(Kind.NOTE, "ctl stop: tearing the guests down")
@@ -686,7 +709,7 @@ class Controller:
             return Reply(
                 ok=True,
                 state=self._state(),
-                result="paused" if self.paused else "running",
+                result=READY if self.ready else "paused" if self.paused else "running",
                 pause=self._pause,
                 errors=dict(self.session.errors) or None,
             )

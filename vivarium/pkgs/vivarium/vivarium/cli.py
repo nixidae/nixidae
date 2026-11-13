@@ -34,6 +34,7 @@ from vivarium_runner.machine import Cpus
 from . import monitor, namespace, repl, runroot
 from .control import (
     ORIGIN,
+    READY,
     RUN_FILE,
     SOCKET,
     Controller,
@@ -200,6 +201,15 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         help="pause when a phase fails, with the guests up and the state intact",
     )
     run.add_argument(
+        "--hold",
+        action="store_true",
+        help=(
+            "run as an environment: once every phase passed, say `ready` and keep the"
+            " guests up until `vivarium ctl stop`, which ends the run with its verdict."
+            " A failure pauses, as --break-on-failure does"
+        ),
+    )
+    run.add_argument(
         "--no-control",
         dest="control",
         action="store_false",
@@ -262,7 +272,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         action="store_true",
         help=(
             "continue: then wait for the next pause or the verdict, as `monitor --quiet` does,"
-            " and exit with its status (0 passed, 1 failed, 4 paused, 5 stopped)"
+            " and exit with its status (0 passed, 1 failed, 4 paused, 5 stopped, 6 ready)"
         ),
     )
     ctl.add_argument(
@@ -297,7 +307,8 @@ def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> Non
         description=(
             "Follow a run that vivarium-mcp started. Exit 0 if it passed, 1 if it"
             " failed, 2 if it exited without a verdict, 3 if the stream ended early"
-            " or no run started within --wait, 4 if it paused, 5 if it was stopped."
+            " or no run started within --wait, 4 if it paused, 5 if it was stopped,"
+            " 6 if an environment (`--hold`) is ready."
             " The exit status is the verdict: run it bare, with no pipe and no"
             " `; echo` after it, or a pause reads as success."
         ),
@@ -416,6 +427,10 @@ async def run(args: argparse.Namespace) -> int:
                     state=str(PhaseState.DESELECTED),
                 )
 
+    if args.hold and not args.control:
+        # A sandboxed check would wait for a stop nobody can send.
+        raise SessionError("--hold needs the control socket; it cannot go with --no-control")
+
     try:
         before, points = breakpoints(args.breaks, session.spec.phases)
         origin = None if ORIGIN not in os.environ else Origin.from_json(os.environ[ORIGIN])
@@ -428,9 +443,10 @@ async def run(args: argparse.Namespace) -> int:
             await drive(
                 session,
                 breaks=before,
-                break_on_failure=args.break_on_failure or args.interactive or FAILURE in points,
+                break_on_failure=args.break_on_failure or args.interactive or args.hold or FAILURE in points,
                 break_on_start=args.break_on_start or args.interactive or START in points,
                 break_at_end=args.interactive or END in points,
+                hold=args.hold,
                 interactive=args.interactive,
                 serial=args.serial,
                 control=args.control,
@@ -467,6 +483,7 @@ async def drive(
     break_on_failure: bool = False,
     break_on_start: bool = False,
     break_at_end: bool = False,
+    hold: bool = False,
     interactive: bool = False,
     serial: bool = False,
     control: bool = True,
@@ -485,7 +502,7 @@ async def drive(
     whole drive unless `control` is false, so `exec` reaches a run that
     never pauses.
     """
-    wanted = control or breaks or break_on_failure or break_on_start or break_at_end or interactive
+    wanted = control or breaks or break_on_failure or break_on_start or break_at_end or hold or interactive
     # `ctl stop` cancels the sequence and nothing else: its shielded
     # `finally` writes the evidence and puts the guests down, and the
     # socket stays up until each watcher has the verdict.
@@ -524,6 +541,7 @@ async def drive(
                     serial,
                     start=break_on_start,
                     end=break_at_end or interactive,
+                    hold=hold,
                 )
         finally:
             if feed is not None:
@@ -543,6 +561,7 @@ async def _sequence(
     *,
     start: bool = False,
     end: bool = False,
+    hold: bool = False,
 ) -> None:
     try:
         # Inside the `try`, not before it. `_start_all` lets every guest
@@ -564,6 +583,8 @@ async def _sequence(
         await _schedule(session, control, breaks, break_on_failure, serial)
         if end and control is not None:
             await control.pause("after the last phase")
+        if hold and control is not None and session.passed:
+            await control.pause(READY)
     except MachineError as error:
         # A guest that would not boot. Every phase stays pending, so the
         # run fails on its own account below; this only keeps a traceback
