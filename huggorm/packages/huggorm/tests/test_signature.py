@@ -130,6 +130,22 @@ if DETERMINATE:
         assert public.verify_detached("data", sig)
         assert SecretKey(key.to_string()).sign_detached("other").key_name() == "cache-1"
 
+    @pytest.mark.parametrize("key_type", [t for t in KeyType if t is not KeyType.ED25519])
+    def test_an_openssl_key_has_a_pem_form(key_type: KeyType, cnsa: None) -> None:
+        key = generate_secret_key("cache-1", key_type)
+        assert key.to_pem().startswith("-----BEGIN PRIVATE KEY-----\n")
+        assert key.to_public_key().to_pem().startswith("-----BEGIN PUBLIC KEY-----\n")
+
+
+def test_an_ed25519_key_has_no_pem_form_on_any_nix() -> None:
+    """Determinate Nix converts only its OpenSSL keys, and NixOS/nix has
+    ed25519 keys alone, so both refuse with Determinate Nix's words."""
+    key = generate_secret_key("cache-1")
+    with pytest.raises(NixError, match="conversion to PEM is not implemented for this key type"):
+        key.to_pem()
+    with pytest.raises(NixError, match="conversion to PEM is not implemented for this key type"):
+        key.to_public_key().to_pem()
+
 
 def test_a_signed_path_keeps_the_signature(signing_store: Store) -> None:
     """The same Store answers the new signature: `addSignatures` drops its

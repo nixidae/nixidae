@@ -137,6 +137,29 @@ class PublicKey:
         of another key name is false."""
         Cxx("return self.verifyDetached(data, sig);")
 
+    if DETERMINATE:
+
+        @local
+        @instant
+        def to_pem(self) -> Str:
+            """PEM SubjectPublicKeyInfo, without the key name, as `nix key
+            convert-public-to-pem` prints it. Only an ML-DSA or ECDSA P-384
+            key has one: an ed25519 key raises."""
+            Cxx("return self.toPEM();")
+
+    else:
+        # nixidae/nixidae#1330: the same surface on every Nix.
+        @local
+        @instant
+        def to_pem(self) -> Str:
+            """PEM SubjectPublicKeyInfo, without the key name. NixOS/nix has
+            ed25519 keys only, so this raises, as Determinate Nix does for
+            one."""
+            Cxx("""
+                (void) self;
+                throw nix::Error("conversion to PEM is not implemented for this key type");
+            """)
+
 
 @header(Local("nix/util/signature/local-keys.hh"))
 @binding(
@@ -191,6 +214,29 @@ class SecretKey:
         For a store path, `data` is `Store.fingerprint` of its path info,
         as `ValidPathInfo::sign` signs it."""
         Cxx("return self.signDetached(data);")
+
+    if DETERMINATE:
+
+        @local
+        @instant
+        def to_pem(self) -> Str:
+            """The key as a PEM private key, without the key name, as `nix
+            key convert-secret-to-pem` prints it. Only an ML-DSA or ECDSA
+            P-384 key has one: an ed25519 key raises."""
+            Cxx("return self.toPEM();")
+
+    else:
+        # nixidae/nixidae#1330: the same surface on every Nix.
+        @local
+        @instant
+        def to_pem(self) -> Str:
+            """The key as a PEM private key, without the key name. NixOS/nix
+            has ed25519 keys only, so this raises, as Determinate Nix does
+            for one."""
+            Cxx("""
+                (void) self;
+                throw nix::Error("conversion to PEM is not implemented for this key type");
+            """)
 
 
 if DETERMINATE:
