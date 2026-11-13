@@ -324,6 +324,7 @@ class Use(StrEnum):
     INJECT = "inject"
     STATE = "state"
     CONTINUE = "continue"
+    STOP = "stop"
     SWITCH = "switch"
     RELOAD = "reload"
 
@@ -406,6 +407,7 @@ def commands(vivarium: Path, out: Path, origin: Origin | None = None, node: str 
         Command(Use.INJECT, "run a file's `async def test(vms)`", (*ctl, "inject", "./check.py")),
         Command(Use.STATE, "each phase's state", (*ctl, "state")),
         Command(Use.CONTINUE, "resume a paused run", (*ctl, "continue")),
+        Command(Use.STOP, "end the run; at ready, with its verdict", (*ctl, "stop")),
         *again,
     ]
 
@@ -563,6 +565,8 @@ class Controller:
         self._resume: anyio.Event | None = None
         self._pause: str | None = None
         self._continuing = False
+        self.ended = False
+        """`stop` came at ready: the environment ends with its verdict."""
 
     def _namespace(self) -> dict[str, Any]:
         return {"session": self.session, "anyio": anyio}
@@ -661,6 +665,7 @@ class Controller:
         if self._stopping and self.ready and self._resume is not None:
             # Every phase passed: the hold ends as the run would have, verdict and all.
             self._stopping = False
+            self.ended = True
             self.session.emit(Kind.NOTE, "ctl stop: the environment goes down")
             self._resume.set()
         elif self._stopping and self._stop is not None:

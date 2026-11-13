@@ -415,6 +415,30 @@ class TestHold:
         assert seen == ["ready", "live", "resumed", "finished"]
         assert "note:ready; the guests stay up until the run is stopped" in session.said
 
+    async def test_continue_at_ready_runs_what_reload_added_and_holds_again(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        new = Spec(
+            machines=[],
+            phases=[PhaseSpec(name="one", script=Path("x")), PhaseSpec(name="two", script=Path("t"), after=["one"])],
+        )
+        spec = tmp_path / "spec.json"
+        spec.write_text(new.model_dump_json())
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, hold=True, break_on_failure=True))
+            await until_state(socket, "ready")
+            assert (await request(socket, Op.RELOAD, str(spec))).ok
+            assert (await request(socket, Op.CONTINUE)).ok
+            # The reply comes before the resume: wait for the new phase, then for ready.
+            with anyio.fail_after(5):
+                while session.ran != ["one", "two"]:
+                    await anyio.sleep(0.01)
+            await until_state(socket, "ready")
+            assert not session.torn_down, "continue at ready ended the environment"
+            assert (await request(socket, Op.STOP)).ok
+        assert session.torn_down
+        assert session.stopped is None
+
     async def test_a_failure_pauses_and_never_reads_ready(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

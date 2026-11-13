@@ -586,8 +586,12 @@ async def _sequence(
         await _schedule(session, control, breaks, break_on_failure, serial)
         if end and control is not None:
             await control.pause("after the last phase")
-        if hold and control is not None and session.passed:
+        # `continue` at ready runs what a `reload` added, then holds again;
+        # only `stop` ends the hold.
+        while hold and control is not None and session.passed and not control.ended:
             await control.pause(READY)
+            if not control.ended:
+                await _schedule(session, control, breaks, break_on_failure, serial)
     except MachineError as error:
         # A guest that would not boot. Every phase stays pending, so the
         # run fails on its own account below; this only keeps a traceback
