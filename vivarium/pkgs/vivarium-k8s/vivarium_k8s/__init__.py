@@ -22,6 +22,7 @@ writes the nodes to the run's settings, where `bring_up` reads them.
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import anyio
@@ -704,10 +705,42 @@ async def bring_up(
     if schedulable:
         await untaint(cp)
 
+    await host_kubeconfig(cp, vms)
     return cp
 
 
+APISERVER_PORT = 6443
+
+APISERVER_NAME = "kubernetes"
+"""A name kubeadm puts in every API server certificate. The host reaches
+the server on a forward address, `127.0.0.N`, which the certificate does
+not hold, so the kubeconfig checks this name instead."""
+
+
+async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
+    """`<out>/access/kubeconfig`: *cp*'s admin kubeconfig, aimed at the
+    host's forward of the API server. `None`, with a note, when nothing
+    forwards it: `modules/k8s.nix` forwards 6443 on a control plane unless
+    the test sets its own `vivarium.forward`."""
+    reachable = cp.reachable(APISERVER_PORT)
+    if not reachable:
+        print(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host", flush=True)
+        return None
+    config = json.loads(await cp.succeed("kubectl config view --raw --flatten --output json"))
+    for cluster in config["clusters"]:
+        cluster["cluster"]["server"] = f"https://{reachable[0]}"
+        cluster["cluster"]["tls-server-name"] = APISERVER_NAME
+    path = vms.access / "kubeconfig"
+    # Owner only: it holds the cluster admin's key.
+    await anyio.Path(path).touch(mode=0o600)
+    await anyio.Path(path).write_text(json.dumps(config, indent=2) + "\n")
+    print(f"[k8s] host kubeconfig: {path} (server https://{reachable[0]})", flush=True)
+    return path
+
+
 __all__ = [
+    "APISERVER_NAME",
+    "APISERVER_PORT",
     "CONTROL_PLANE_TAINT",
     "DEFAULT_ADDONS",
     "INIT_TIMEOUT",
@@ -723,6 +756,7 @@ __all__ = [
     "bring_up",
     "diagnose",
     "get_json",
+    "host_kubeconfig",
     "init_control_plane",
     "join",
     "kubectl",

@@ -230,6 +230,11 @@ let
       # start at all.
       after = [ "test-containerd" ];
     };
+    k8s-host = {
+      description = "the host's kubectl reaches a one-node cluster";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
 
     # krun is for dense NixOS guests: its virtio-fs DAX window maps the
     # host's page cache of the store, where QEMU copies it into each guest
