@@ -205,6 +205,47 @@ substitutes no path for `hello`; an unseeded one substituted 60 and took
 44 s. Snapshot size on disk: `ram.bin` 3.4–5.6 GB of 8 GiB, overlay 2.5–3.9
 GB over the 26–30 GB tart image, all shared by every start.
 
+### Disk and RAM size (2026-11-13)
+
+`darwin_builder.py compact IMG_DIR ROOT` converts tart's `disk.raw` to a
+zstd-compressed `disk.qcow2`, checks it with `qemu-img compare`, and rebases
+every overlay under ROOT onto it with `rebase -u`. The content is identical,
+so a saved RAM still matches its disk and no snapshot needs a new save.
+
+| image | raw on disk | zstd qcow2 | convert and compare |
+| --- | --- | --- | --- |
+| Sonoma | 27 GB | 19 GB | 82 s |
+| Sequoia | 30 GB | 22 GB | 97 s |
+| Tahoe | 30 GB | 23 GB | 96 s |
+| Golden Gate | 36 GB | 28 GB | 119 s |
+
+The guest TRIMs its free space at boot (the Sonoma overlay held 14.7 GiB of
+zero clusters), but the APFS container really holds 29.7 GB: System 10.3,
+Preboot 6.1, Data 8.9 (Homebrew 1.8, CommandLineTools 2.4), Nix 3.4.
+Compression, not free space, is the gain. zstd costs nothing measurable:
+`hello` took 26.7–27.6 s on zstd, 27.3–28.3 s on plain qcow2 and 26.4–27.5 s
+on raw.
+
+`ram.bin` must stay a file QEMU maps, so a start stays lazy. APFS
+transparent compression refuses a file over 2 GiB (`afsctool`,
+`CMP_MAX_SUPPORTED_SIZE`). zstd takes the 5.1 GB of nonzero pages to 1.3–1.5
+GB, but a start must then decompress before it maps. Instead `save` puts less
+in RAM: `guest/zero-free.nix` builds `guest/zerofree.c` in the guest and
+touches the free pages (4.9 GiB of 8), which the kernel zero-fills; migration
+skips a zero page, so `ram.bin` has holes there.
+
+`WARMUP` builds a Nix file in the guest before the save. A `hello` warm-up
+leaves stdenv's `.drv` closure in the guest store: a later `hello` copies 1
+`.drv` instead of 553.
+
+| Sonoma snapshot | `ram.bin` on disk | `hello`, start to output on host |
+| --- | --- | --- |
+| seeded with stdenv | 5.2 GB | 33–35 s |
+| seeded, `hello` warm-up, free pages zeroed | 3.4 GB | 28 s |
+
+Both rows were measured while a conversion ran. The same `hello` built on the
+host itself took 35 s, so what remains is the compile.
+
 `host/vsock_stress.py` against a running builder: 64 concurrent `nix
 path-info --all` clients get one answer; a 590 MB closure goes in at
 97–122 MB/s with matching NAR hashes; a guest reset with 16 connections open

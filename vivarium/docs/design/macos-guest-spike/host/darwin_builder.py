@@ -3,6 +3,7 @@
 
     darwin_builder.py prepare IMG_DIR GUEST_DIR   make a builder guest from a tart image
     darwin_builder.py save GUEST_DIR SNAP_DIR     boot GUEST_DIR, wait for its daemon, save
+    darwin_builder.py compact IMG_DIR ROOT        IMG_DIR/disk.raw to qcow2, ROOT/*/overlay.qcow2 onto it
     darwin_builder.py serve SNAP_DIR RUN_DIR      start from SNAP_DIR; RUN_DIR/daemon.sock until ^C
     darwin_builder.py build SNAP_DIR RUN_DIR -- PYNIX_BUILD_ARGS...
 
@@ -23,7 +24,9 @@ With AGENT (vivarium-runner built for aarch64-darwin), `prepare` also installs
 vivarium's guest agent, serving arpyc on /dev/cu.vivarium-agent.
 
 `save` copies the closures of the store paths in SEED (space-separated) from
-the host store into the guest first.
+the host store into the guest first, then builds each Nix file in WARMUP in
+the guest. Last, unless ZEROFREE=0, it builds guest/zero-free.nix, which
+zeroes the guest's free pages so ram.bin has holes there (ZEROFREE_MIB).
 
 `build` runs `pynix build` against the guest's daemon and copies the outputs
 into the host store, then stops the guest. Timings go to stderr as JSON.
@@ -219,6 +222,12 @@ def ecid(img: Path) -> int:
     return int(plistlib.loads(base64.b64decode(config["ecid"]))["ECID"])
 
 
+def base_disk(img: Path) -> tuple[Path, str]:
+    """IMG_DIR's disk and its format: disk.qcow2 once `compact` made it, else tart's disk.raw."""
+    qcow2 = img / "disk.qcow2"
+    return (qcow2, "qcow2") if qcow2.exists() else (img / "disk.raw", "raw")
+
+
 def qemu_args(
     img: Path, run: str, ram: str, *, ssh_port: int | None = None
 ) -> list[str]:
@@ -229,6 +238,7 @@ def qemu_args(
     netdev = "user,id=net0" + (
         f",hostfwd=tcp:127.0.0.1:{ssh_port}-:22" if ssh_port else ""
     )
+    disk, disk_format = base_disk(img)
     return [
         "-M", f"vmapple,uuid={ecid(img)},gfx=off,memory-backend=ram0",
         "-accel", "hvf",
@@ -236,7 +246,7 @@ def qemu_args(
         "-object", f"{ram},id=ram0,size={RAM}",
         "-bios", str(ROM),
         "-drive", f"file={run}/aux.img,if=pflash,format=raw",
-        "-drive", f"file={img}/disk.raw,if=pflash,format=raw,readonly=on",
+        "-drive", f"file={disk},if=pflash,format={disk_format},readonly=on",
         "-drive", f"file={run}/aux.img,if=none,id=aux,format=raw",
         "-device", "vmapple-virtio-blk-pci,variant=aux,drive=aux,share-rw=on",
         "-drive", f"file={run}/overlay.qcow2,if=none,id=root,format=qcow2,cache=writeback,discard=unmap",
@@ -331,23 +341,43 @@ async def save(guest: Path, snap: Path) -> None:
                     sys.exit(f"QEMU exited with {vm.returncode}; see {snap}/stdout.log")
                 await anyio.sleep(0.5)
         log(event="daemon", seconds=round(time.monotonic() - start, 1))
-        if seed := os.environ.get("SEED", "").split():
-            # Each start would otherwise substitute these again.
-            async with anyio.create_task_group() as tg:
-                await tg.start(forward, snap / "vsock.sock", snap / "daemon.sock")
+        store = f"unix://{snap / 'daemon.sock'}?local-fs=false"
+        async with anyio.create_task_group() as tg:
+            await tg.start(forward, snap / "vsock.sock", snap / "daemon.sock")
+            if seed := os.environ.get("SEED", "").split():
+                # Each start would otherwise substitute these again.
                 await anyio.run_process(
-                    ["pynix", "copy", "--no-check-sigs", "--to", f"unix://{snap / 'daemon.sock'}?local-fs=false",
-                     *seed],
+                    ["pynix", "copy", "--no-check-sigs", "--to", store, *seed],
                     stdout=None, stderr=None,
                 )  # fmt: skip
-                tg.cancel_scope.cancel()
-            log(
-                event="seeded",
-                paths=len(seed),
-                seconds=round(time.monotonic() - start, 1),
-            )
-        # Let launchd settle, so the snapshot is of an idle guest.
-        await anyio.sleep(float(os.environ.get("SETTLE", "30")))
+                log(
+                    event="seeded",
+                    paths=len(seed),
+                    seconds=round(time.monotonic() - start, 1),
+                )
+            # A build before the save leaves its .drv closure in the guest store
+            # and its tools in the guest's file cache, so a start skips both.
+            for expr in os.environ.get("WARMUP", "").split():
+                await anyio.run_process(
+                    ["pynix", "build", "--store", store, "--eval-store", "auto", "--file", expr],
+                    stdout=subprocess.DEVNULL, stderr=None,
+                )  # fmt: skip
+                log(
+                    event="warmed",
+                    file=expr,
+                    seconds=round(time.monotonic() - start, 1),
+                )
+            # Let launchd settle, so the snapshot is of an idle guest.
+            await anyio.sleep(float(os.environ.get("SETTLE", "30")))
+            if os.environ.get("ZEROFREE", "1") != "0":
+                built = await anyio.run_process(
+                    ["pynix", "build", "--store", store, "--eval-store", "auto", "--copy", "auto",
+                     "--file", str(HERE.parent / "guest/zero-free.nix")],
+                    stderr=None,
+                )  # fmt: skip
+                out = json.loads(built.stdout)["outputs"]["out"]
+                log(event="zeroed", report=(await anyio.Path(out).read_text()).strip())
+            tg.cancel_scope.cancel()
         # A macOS 15 guest was once saved with no address on en0: every start
         # of that snapshot had no network. The clock port renews the lease.
         address = await set_clock(snap / "vsock.sock")
@@ -472,8 +502,9 @@ async def prepare(img: Path, guest: Path) -> None:
                              str(HERE.parent / "guest/vsockcat.c")])  # fmt: skip
     port = free_port()
     if not await anyio.Path(guest / "overlay.qcow2").exists():
-        await anyio.run_process([str(QEMU_IMG), "create", "-q", "-f", "qcow2", "-F", "raw", "-b",
-                                 str(img / "disk.raw"), str(guest / "overlay.qcow2")])  # fmt: skip
+        disk, disk_format = base_disk(img)
+        await anyio.run_process([str(QEMU_IMG), "create", "-q", "-f", "qcow2", "-F", disk_format, "-b",
+                                 str(disk), str(guest / "overlay.qcow2")])  # fmt: skip
         await anyio.run_process(
             ["cp", "-c", str(img / "aux.img"), str(guest / "aux.img")]
         )
@@ -533,6 +564,82 @@ async def prepare(img: Path, guest: Path) -> None:
         log(event="prepared", seconds=round(time.monotonic() - start, 1))
     finally:
         await stop(vm, qmp)
+
+
+async def compact(img: Path, root: Path) -> None:
+    """IMG_DIR/disk.raw to disk.qcow2, and every overlay under *root* onto it.
+
+    COMPRESS: zstd (default), zlib or none. `qemu-img compare` proves the
+    content identical, so `rebase -u` is safe and a saved RAM still matches
+    its disk. disk.raw stays until the caller removes it.
+    """
+    raw, qcow2 = img / "disk.raw", img / "disk.qcow2"
+    compression = os.environ.get("COMPRESS", "zstd")
+    t0 = time.monotonic()
+    if not await anyio.Path(qcow2).exists():
+        partial = img / "disk.qcow2.partial"
+        options = (
+            ["-c", "-o", f"compression_type={compression}"]
+            if compression != "none"
+            else []
+        )
+        await anyio.run_process(
+            [str(QEMU_IMG), "convert", "-O", "qcow2", *options, str(raw), str(partial)]
+        )
+        await anyio.run_process(
+            [
+                str(QEMU_IMG),
+                "compare",
+                "-q",
+                "-f",
+                "raw",
+                "-F",
+                "qcow2",
+                str(raw),
+                str(partial),
+            ]
+        )
+        await anyio.Path(partial).chmod(0o444)
+        await anyio.Path(partial).rename(qcow2)
+        log(event="converted", seconds=round(time.monotonic() - t0, 1))
+    async for overlay in anyio.Path(root).glob("*/overlay.qcow2"):
+        info = json.loads(
+            (
+                await anyio.run_process(
+                    [str(QEMU_IMG), "info", "--output=json", "-U", str(overlay)]
+                )
+            ).stdout
+        )
+        if info.get("backing-filename") != str(raw):
+            continue
+        mode = (await overlay.stat()).st_mode
+        await overlay.chmod(mode | 0o200)
+        try:
+            await anyio.run_process(
+                [
+                    str(QEMU_IMG),
+                    "rebase",
+                    "-u",
+                    "-F",
+                    "qcow2",
+                    "-b",
+                    str(qcow2),
+                    str(overlay),
+                ]
+            )
+        finally:
+            await overlay.chmod(mode)
+        manifest = anyio.Path(overlay.parent / "snapshot.json")
+        if await manifest.exists():
+            text = await manifest.read_text()
+            await manifest.write_text(
+                text.replace(
+                    f"file={raw},if=pflash,format=raw",
+                    f"file={qcow2},if=pflash,format=qcow2",
+                )
+            )
+        log(event="rebased", overlay=str(overlay))
+    log(event="compacted", seconds=round(time.monotonic() - t0, 1))
 
 
 @dataclass(frozen=True)
@@ -621,6 +728,8 @@ def main() -> None:
         anyio.run(prepare, a, b)
     elif mode == "save":
         anyio.run(save, a, b)
+    elif mode == "compact":
+        anyio.run(compact, a, b)
     elif mode == "serve":
         anyio.run(serve, a, b)
     elif mode == "build" and sys.argv[4:5] == ["--"]:
