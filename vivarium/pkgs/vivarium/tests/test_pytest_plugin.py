@@ -65,6 +65,7 @@ def fake_vms(*names: str) -> Machines:
     vms = Machines((name, FakeMachine(name)) for name in names)
     vms.settings = {}
     vms.artifacts = Path("/nonexistent")
+    vms.access = Path("/nonexistent")
     vms.knobs = {}
     vms.shared = {}
     vms.phase = None

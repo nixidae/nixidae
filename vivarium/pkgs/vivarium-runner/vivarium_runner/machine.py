@@ -1755,6 +1755,11 @@ class Machines(dict[str, Machine]):
     subdirectory as ``/artifacts``, so a test collects a file by writing
     it in the guest and nothing is copied afterwards."""
 
+    access: Path
+    """Where a phase puts what the host needs to reach the guests: a
+    kubeconfig, a token. ``<out>/access/``, emptied as the run starts;
+    ``<out>/access.json`` and ``<out>/ssh_config`` sit beside it."""
+
     knobs: dict[str, str]
     """What this run was told from outside, by name.
 

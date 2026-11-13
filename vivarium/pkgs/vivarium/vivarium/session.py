@@ -47,7 +47,7 @@ from vivarium_runner import Machine, MachineError, Machines, MachineSpec
 from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
-from . import journal, junit_in
+from . import access, journal, junit_in
 from .events import Event, Kind, Level
 from .phases import (
     PhaseState,
@@ -503,6 +503,10 @@ class Session:
         taken: set[str] = set()
         for vm in self._all.values():
             vm.resolve_forward(taken)
+        vms.access = access.write(
+            {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in self._all.items()},
+            self.out,
+        )
 
         for lan in self._lans:
             lan.start()
@@ -781,6 +785,7 @@ class Session:
         vms = Machines((name, self.vms[name]) for name in wanted)
         vms.settings = self.vms.settings
         vms.artifacts = self.vms.artifacts
+        vms.access = self.vms.access
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
         vms.pytest_args = self.pytest_args
