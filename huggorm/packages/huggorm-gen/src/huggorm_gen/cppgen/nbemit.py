@@ -214,7 +214,6 @@ def words_from_word(cls: ir.EnumModel) -> list[str]:
     the word came from."""
     enum = cls.cxx
     assert enum is not None
-    listed = ", ".join(f"'{w.value}'" for w in cls.members)
     out = [
         f"/** A word, as the {cls.name} libstore holds. */",
         "template <typename T> T from_word(std::string_view word);",
@@ -224,7 +223,34 @@ def words_from_word(cls: ir.EnumModel) -> list[str]:
     ]
     for word in cls.members:
         out += [f'{INDENT}if (word == "{word.value}")', f"{INDENT * 2}return {word.enumerator};"]
-    out += [
+    return out + _refuse_word(cls)
+
+
+def words_checked(cls: ir.EnumModel) -> list[str]:
+    """A word going to C++ that has no enum and no parser for it.
+
+    `KeyType` on NixOS/nix: Determinate Nix has five key types and
+    upstream has one, so the vocabulary exists on every Nix and a
+    caller asks each the same question. With nothing upstream to hand
+    the word to, a body that ignores it would turn an unknown word
+    into the one key type silently. So the word comes through here,
+    and the refusal is `from_word`'s."""
+    if cls.cxx is not None or cls.parsed_by:
+        raise TypeError(f"{cls.name}: a checked word is for a vocabulary with no C++ enum and no parser")
+    out = [
+        f"/** A word {cls.name} holds, with no C++ type behind it. */",
+        f"inline std::string {ir.checked_word(cls.name)}(std::string_view word)",
+        "{",
+    ]
+    for word in cls.members:
+        out += [f'{INDENT}if (word == "{word.value}")', f"{INDENT * 2}return std::string(word);"]
+    return out + _refuse_word(cls)
+
+
+def _refuse_word(cls: ir.EnumModel) -> list[str]:
+    """The end of a word check: the refusal, and the closing brace."""
+    listed = ", ".join(f"'{w.value}'" for w in cls.members)
+    return [
         f"{INDENT}huggorm::refuse_word(",
         f"{INDENT * 2}\"unknown {cls.name} '%1%', expect {listed}\","
         if listed
@@ -233,7 +259,6 @@ def words_from_word(cls: ir.EnumModel) -> list[str]:
         "}",
         "",
     ]
-    return out
 
 
 def _wrong_arm(owner: str, hold: str, expected: str) -> str:
@@ -1602,6 +1627,24 @@ class Emitter:
         out.update((name, self.model.enums[name]) for name in spelled)
         return [out[name] for name in sorted(out)]
 
+    def _checked_vocabularies_used(
+        self,
+        classes: Sequence[ir.ClassModel],
+        functions: Sequence[ir.FunctionModel],
+    ) -> list[ir.EnumModel]:
+        """Every vocabulary with no C++ enum and no parser that this unit
+        names, sorted by name: each gets `words_checked`."""
+        out = {
+            node.name: held
+            for _, t in _sites(classes, functions)
+            for node in _nodes(t)
+            if isinstance(held := self.model.declared(node), ir.EnumModel)
+            and held.cxx is None
+            and not held.parsed_by
+            and not held.numeric
+        }
+        return [out[name] for name in sorted(out)]
+
     def conversions(self, cls: ir.UnionModel) -> list[str]:
         """One union, in both directions, from what its alias declares.
 
@@ -2231,12 +2274,15 @@ class Emitter:
             ]
         unions = self._unions_used(classes, functions)
         vocabularies = self._vocabularies_used(classes, functions)
-        if unions or vocabularies:
+        checked = self._checked_vocabularies_used(classes, functions)
+        if unions or vocabularies or checked:
             head += [f"namespace {NAMESPACE} {{", ""]
             for v in vocabularies:
                 head += words_conversion(v)
                 if not v.parsed_by and not v.numeric:
                     head += words_from_word(v)
+            for v in checked:
+                head += words_checked(v)
             for u in unions:
                 head += self.bare_check(u) if _is_bare(u) else self.conversions(u)
             head += [f"}}  // namespace {NAMESPACE}", ""]

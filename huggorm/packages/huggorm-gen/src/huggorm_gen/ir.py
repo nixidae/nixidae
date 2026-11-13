@@ -198,12 +198,18 @@ class TypeRef:
         """The C++ that turns this vocabulary's string into its type.
 
         `@words(parsed_by=...)` names it. Empty for anything that is
-        not a vocabulary, and for a vocabulary that declares no parser
-        - which crosses as its string and is parsed by whatever it is
-        handed to."""
+        not a vocabulary. A vocabulary with neither a parser nor a C++
+        enum still crosses as its string, through a check the emitter
+        writes."""
         other = self.required.declared
         if other is None or not other.is_words:
             return ""
+        if not other.decl.parsed_by and not other.decl.enumerated:
+            # Nothing upstream takes the word, so nothing would refuse
+            # one the vocabulary does not hold: `KeyType` on NixOS/nix,
+            # where a body that ignores the word turns `ml-dsa-44` into
+            # an ed25519 key silently.
+            return f"{cxx.NAMESPACE}::{checked_word(other.name)}"
         if not other.decl.parsed_by and other.decl.enumerated:
             # Upstream has no parser for this enum, so the emitter wrote
             # one. `from_word` is a template because a return type does
@@ -379,6 +385,12 @@ def wire_blocker(t: TypeRef, served: frozenset[str]) -> str | None:
             return None
         case _:
             assert_never(t.kind)
+
+
+def checked_word(name: str) -> str:
+    """The emitted function that refuses a word the vocabulary `name`
+    does not hold, for a vocabulary with no C++ enum and no parser."""
+    return f"checked_word_{name}"
 
 
 def enumerated(cls: Class | None) -> bool:
