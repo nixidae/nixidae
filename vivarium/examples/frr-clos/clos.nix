@@ -29,7 +29,6 @@ let
     {
       vivarium.memory = "256M";
       vivarium.mtu = 9000;
-      environment.systemPackages = [ pkgs.nftables ];
       boot.kernel.sysctl = {
         "net.ipv4.ip_forward" = 1;
         "net.ipv6.conf.all.forwarding" = 1;

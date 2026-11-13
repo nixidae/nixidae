@@ -71,6 +71,11 @@ mkTest {
   name = "frr-clos";
   pythonPath = [ ./lib ];
   settings.clos = clos.settings topology;
+  # The failover phase cuts leaf01's uplinks on the host, which needs
+  # their frames: a two-guest link is otherwise a direct socketpair.
+  segments = lib.mapAttrs' (
+    spine: _: lib.nameValuePair "leaf01-${spine}" { hub = true; }
+  ) topology.spines;
   nodes = clos.nodes topology;
   phases = {
     underlay = {
