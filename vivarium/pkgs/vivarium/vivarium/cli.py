@@ -515,10 +515,10 @@ async def drive(
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
-            controller.announce()
             if interactive:
                 group.start_soon(repl.serve, controller)
-        # Before any guest boots, and after the socket it names exists.
+        # Before any guest boots, after the socket it names exists, and
+        # before the printed commands: a reader of those reads this next.
         about = run_file(
             vivarium_command(session),
             session.out.resolve(),
@@ -531,6 +531,8 @@ async def drive(
         out = anyio.Path(session.out)
         await out.mkdir(parents=True, exist_ok=True)
         await (out / RUN_FILE).write_text(about.to_json())
+        if controller is not None:
+            controller.announce()
         listed = registry.registered(session.out.resolve()) if controller is not None else contextlib.nullcontext()
         try:
             with listed, sequence:
