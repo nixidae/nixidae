@@ -430,6 +430,13 @@ async def run(args: argparse.Namespace) -> int:
     if args.hold and not args.control:
         # A sandboxed check would wait for a stop nobody can send.
         raise SessionError("--hold needs the control socket; it cannot go with --no-control")
+    if args.hold and args.offline:
+        session.emit(
+            Kind.NOTE,
+            "--offline: the forwards are in the run's own network namespace;"
+            " the host cannot reach the addresses in access.json",
+            level=Level.ERROR,
+        )
 
     try:
         before, points = breakpoints(args.breaks, session.spec.phases)
