@@ -111,6 +111,14 @@ class Knob(Strict):
     env: str
 
 
+class SegmentSpec(Strict):
+    """`segments.<name>`, as far as the runner acts on it. Its `mtu` is on
+    each interface, where every backend reads it."""
+
+    hub: bool = False
+    """Frames pass through the runner's hub even with two members."""
+
+
 class Spec(Strict):
     """A whole run, as evaluating the module system produced it."""
 
@@ -130,6 +138,7 @@ class Spec(Strict):
     it twice would be two places to change when a backend gains a flag. The
     runner's `MachineSpecJson` is the shape; pydantic does not check it here."""
 
+    segments: dict[str, SegmentSpec] = Field(default_factory=dict)
     phases: list[PhaseSpec] = Field(default_factory=list)
     settings: dict[str, Any] = Field(default_factory=dict)
     """A test's own values, as the runner's `Machines.settings` holds them."""

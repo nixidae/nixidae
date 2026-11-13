@@ -50,7 +50,9 @@ class Lan:
     stay open in this process until the child has been spawned.
     """
 
-    def __init__(self, name: str, members: list[str]) -> None:
+    def __init__(self, name: str, members: list[str], hub: bool = False) -> None:
+        """*hub* passes two members' frames through the runner too, where
+        it sees them; otherwise two are one socketpair."""
         if not members:
             raise ValueError(f"lan {name!r} has no machines on it")
         self.name = name
@@ -67,7 +69,7 @@ class Lan:
             guest_end, host_end = self._pair()
             self._guest_ends = {members[0]: guest_end}
             self._ports = [host_end]
-        elif len(members) == 2:
+        elif len(members) == 2 and not hub:
             # Point to point: no host involvement, no copying.
             self._guest_ends = dict(zip(members, self._pair(), strict=True))
         else:
@@ -149,6 +151,6 @@ class Lan:
         self._ports.clear()
 
 
-def build_lans(networks: dict[str, list[str]]) -> list[Lan]:
-    """Create a :class:`Lan` per segment in ``{segment: [machine, ...]}``."""
-    return [Lan(name, members) for name, members in sorted(networks.items())]
+def build_lans(networks: dict[str, list[str]], hubs: set[str] | frozenset[str] = frozenset()) -> list[Lan]:
+    """Create a :class:`Lan` per segment in ``{segment: [machine, ...]}``; one in *hubs* is always a hub."""
+    return [Lan(name, members, hub=name in hubs) for name, members in sorted(networks.items())]

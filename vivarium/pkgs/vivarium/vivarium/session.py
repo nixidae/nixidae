@@ -449,7 +449,7 @@ class Session:
                     ),
                     machine=one.name,
                 )
-        self._lans = build_lans(segments)
+        self._lans = build_lans(segments, hubs={name for name, one in self.spec.segments.items() if one.hub})
         lan_fds: dict[str, dict[str, int]] = defaultdict(dict)
         for lan in self._lans:
             for member, fd in lan.fds.items():
@@ -965,6 +965,8 @@ class Session:
         and a changed one needs a new run, or `vivarium switch`."""
         if spec.machines != self.spec.machines:
             raise ReloadRefused("the guests changed; a reload takes phases only: start a new run, or switch a guest")
+        if spec.segments != self.spec.segments:
+            raise ReloadRefused("the segments changed; a segment is wired at boot: start a new run")
         result = reloaded(self.spec.phases, spec.phases, self.state)
         self.spec = spec
         self.state = result.state

@@ -80,6 +80,21 @@ in
       '';
     };
 
+    segments = mkOption {
+      type = types.attrsOf (import ./segment.nix lib);
+      default = { };
+      example = {
+        wan.mtu = 1500;
+        core.hub = true;
+      };
+      description = ''
+        The Ethernet segments' own settings, by the name an interface
+        gives in `vivarium.interfaces.<name>.segment`. A segment not
+        named here has the defaults. A name here that no interface
+        joins is an error, so a typo does not pass silently.
+      '';
+    };
+
     defaults = mkOption {
       type = types.deferredModule;
       default = { };

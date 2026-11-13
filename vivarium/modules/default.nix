@@ -152,16 +152,28 @@ let
   # had; the rest by name. UML names NIC n `vecN` before the guest renames
   # it, which is why no other `vecN` may be a name.
   nicsOf =
-    interfaces: index: mtu:
+    interfaces: index: mtu: segments:
     let
       names = lib.attrNames interfaces;
       ordered = lib.optional (interfaces ? vec1) "vec1" ++ lib.filter (name: name != "vec1") names;
     in
-    lib.imap1 (nic: name: {
-      inherit name nic mtu;
-      inherit (interfaces.${name}) segment addresses;
-      mac = "52:54:00:12:${hex nic}:${hex index}";
-    }) ordered;
+    lib.imap1 (
+      nic: name:
+      let
+        inherit (interfaces.${name}) segment addresses;
+        own = segments.${segment}.mtu or null;
+      in
+      {
+        inherit
+          name
+          nic
+          segment
+          addresses
+          ;
+        mtu = if own != null then own else mtu;
+        mac = "52:54:00:12:${hex nic}:${hex index}";
+      }
+    ) ordered;
 in
 {
   # The guest kinds (appliance, image, routeros, sonic, vyos) are not here:
@@ -822,6 +834,13 @@ in
       '';
     };
 
+    segments = lib.mkOption {
+      internal = true;
+      type = lib.types.attrsOf (import ./segment.nix lib);
+      default = { };
+      description = "The run's `segments`, which `mkTest` gives every guest.";
+    };
+
     nics = lib.mkOption {
       internal = true;
       readOnly = true;
@@ -872,7 +891,9 @@ in
       segment = config.vivarium.lan.network;
       addresses = lib.optional (config.vivarium.lan.address != null) config.vivarium.lan.address;
     };
-    vivarium.nics = nicsOf config.vivarium.interfaces config.vivarium.index config.vivarium.mtu;
+    vivarium.nics =
+      nicsOf config.vivarium.interfaces config.vivarium.index config.vivarium.mtu
+        config.vivarium.segments;
     vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
 
     # Under mkIf, so a guest on another backend never names the kernel:
@@ -900,6 +921,12 @@ in
         # uplink is pasta's, which has no such fd to redirect.
         assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend != "container";
         message = "vivarium.uplink.segment needs the QEMU or UML backend; this guest is ${config.vivarium.backend}.";
+      }
+      {
+        assertion =
+          config.vivarium.uplink.segment != null
+          -> (config.vivarium.segments.${config.vivarium.uplink.segment}.mtu or null) == null;
+        message = "segments.${toString config.vivarium.uplink.segment}.mtu: this guest's uplink joins the segment, and an uplink takes vivarium.mtu; leave the segment's mtu null.";
       }
       {
         assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";

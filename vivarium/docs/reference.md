@@ -307,6 +307,24 @@ Where to say what:
   segment: its `name`, `addresses` and `mac`;
 - the run prints each guest's interfaces once, at boot.
 
+A segment's own settings are on the test, not on a guest:
+
+```nix
+segments.wan = { mtu = 1500; hub = true; };
+```
+
+- `mtu` is the MTU of every interface on the segment. A segment with no
+  `mtu` gives each interface its guest's `vivarium.mtu`. A segment that
+  a guest's uplink joins takes no `mtu`.
+- `hub` passes the frames of a two-member segment through the runner, as
+  three members always do. The runner then sees every frame, at a cost
+  in throughput.
+- A name in `segments` that no interface joins is an evaluation error.
+- `vivarium reload` refuses a changed `segments`: a segment is wired when
+  the guests boot.
+
+`nix build --file . checks.segment-mtu` checks the MTU and the hub.
+
 `nix build --file . checks.segments` checks all three backends, by hand.
 `examples/frr-clos` builds a CLOS fabric of FRR switches on this: BGP
 unnumbered, EVPN L2 and symmetric L3 (`nix build --file . checks.frr-clos`).

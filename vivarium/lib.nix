@@ -406,7 +406,23 @@ rec {
 
       cfg = run.config;
 
-      failed = lib.filter (each: !each.assertion) cfg.assertions;
+      # Every segment some guest joins, by an interface or its uplink.
+      joined = lib.concatMap (
+        node:
+        map (nic: nic.segment) node.vivarium.nics
+        ++ lib.optional (node.vivarium.uplink.segment != null) node.vivarium.uplink.segment
+      ) (lib.attrValues nodes);
+      unjoined = lib.filter (segment: !lib.elem segment joined) (lib.attrNames cfg.segments);
+
+      failed = lib.filter (each: !each.assertion) (
+        cfg.assertions
+        ++ [
+          {
+            assertion = unjoined == [ ];
+            message = "segments: no guest joins ${lib.concatStringsSep ", " unjoined}; an interface names its segment in vivarium.interfaces.<name>.segment.";
+          }
+        ]
+      );
       checkedConfig =
         if failed == [ ] then cfg else throw (lib.concatMapStringsSep "\n" (each: each.message) failed);
 
@@ -442,6 +458,7 @@ rec {
             vivarium.sshPort = lib.mkDefault (4325 + index);
             vivarium.backend = lib.mkDefault cfg.backend;
             vivarium.index = index;
+            vivarium.segments = cfg.segments;
           })
         ) (lib.attrNames cfg.nodes)
       );
@@ -486,6 +503,8 @@ rec {
       spec = pkgs.writeText "vivarium-${name}-spec.json" (
         builtins.toJSON {
           inherit (checkedConfig) name settings;
+          # The runner's half of a segment; its MTU is on each interface.
+          segments = lib.mapAttrs (_: segment: { inherit (segment) hub; }) checkedConfig.segments;
           unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
           # The runner that knows every field below. No cycle: the
           # package does not depend on any spec.

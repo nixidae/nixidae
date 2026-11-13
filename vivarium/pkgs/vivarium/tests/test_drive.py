@@ -23,7 +23,7 @@ from vivarium.events import Event, Kind, Level
 from vivarium.monitor import LIVE
 from vivarium.phases import PhaseState, Stop
 from vivarium.session import Session
-from vivarium.spec import PhaseSpec, Spec
+from vivarium.spec import PhaseSpec, SegmentSpec, Spec
 from vivarium_runner import MachineError, Machines
 
 if TYPE_CHECKING:
@@ -330,6 +330,21 @@ class TestBreakpoints:
             assert session.spec.machines == []
             assert (await request(socket, Op.CONTINUE)).ok
         assert session.ran == ["one"]
+
+    async def test_reload_refuses_changed_segments(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        spec = tmp_path / "spec.json"
+        changed = Spec(machines=[], segments={"core": SegmentSpec(hub=True)}, phases=session.spec.phases)
+        spec.write_text(changed.model_dump_json())
+        socket = tmp_path / SOCKET
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            reply = await request(socket, Op.RELOAD, str(spec))
+            assert not reply.ok
+            assert "the segments changed" in (reply.error or "")
+            assert session.spec.segments == {}
+            assert (await request(socket, Op.CONTINUE)).ok
 
     async def _watched(self, session: FakeSession, socket: Path, op: Op) -> list[str]:
         """The `event` of each item `watch` streams across a pause that `op` ends."""

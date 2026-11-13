@@ -49,6 +49,11 @@ let
       # has to fail here rather than somewhere else.
       backend = "uml";
     };
+    segment-mtu = {
+      description = "a segment's MTU and hub reach each interface on it";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     memory = {
       # One guest, one closure read, and four numbers. Its own job
       # because it is the only check that measures the host rather than
