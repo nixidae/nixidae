@@ -18,6 +18,8 @@ from vivarium.control import (
     Reply,
     Request,
     RunFile,
+    SegmentAction,
+    SegmentRequest,
     Subject,
     Use,
     commands,
@@ -25,10 +27,12 @@ from vivarium.control import (
     parse_request,
     provided,
     run_file,
+    segment_request,
     split_last_expression,
 )
 from vivarium.phases import PhaseState
 from vivarium.session import Session
+from vivarium_runner import Lan, Machines
 
 
 class TestSplitLastExpression:
@@ -250,3 +254,45 @@ def test_a_run_file_from_an_older_runner_has_no_test() -> None:
 def test_a_bad_origin_is_refused(text: str) -> None:
     with pytest.raises(ValueError):
         Origin.from_json(text)
+
+
+class TestSegmentRequest:
+    def test_a_name_alone_is_show(self) -> None:
+        assert segment_request("tri") == SegmentRequest("tri", SegmentAction.SHOW)
+
+    def test_a_cut_names_its_member(self) -> None:
+        assert segment_request("tri cut a/eth1") == SegmentRequest("tri", SegmentAction.CUT, "a/eth1")
+
+    @pytest.mark.parametrize(
+        ("arg", "message"),
+        [
+            ("tri snip", "no segment action 'snip'"),
+            ("tri capture a", "capture takes no member"),
+            ("tri cut a b", r"NAME \[ACTION \[MEMBER\]\]"),
+        ],
+    )
+    def test_a_bad_arg_is_named(self, arg: str, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            segment_request(arg)
+
+
+@pytest.mark.anyio
+async def test_segment_cuts_and_shows_through_the_socket(tmp_path: Path) -> None:
+    def emit(*_: Any, **__: Any) -> None:
+        return None
+
+    lan = Lan("tri", ["a/eth1", "b/eth1", "c/eth1"], pcap=tmp_path / "tri.pcap")
+    vms = Machines()
+    vms.segments = {"tri": lan}
+    session = SimpleNamespace(out=tmp_path, state={}, errors={}, emit=emit, vms=vms)
+    controller = Controller(cast("Session", session))
+    try:
+        reply = await controller.handle(Request(Op.SEGMENT, "tri cut a").encode())
+        assert reply.ok, reply.error
+        assert reply.result == "tri: hub of a/eth1, b/eth1, c/eth1; cut: a/eth1; not capturing"
+        missing = await controller.handle(Request(Op.SEGMENT, "core").encode())
+        assert missing.error == "no segment 'core' in this test; have tri"
+    finally:
+        lan.detach()
+        for port in lan._ports:
+            port.sock.close()

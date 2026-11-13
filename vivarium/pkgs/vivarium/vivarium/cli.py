@@ -294,7 +294,17 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         help=(
             "exec: Python, or - for stdin. inject: a file with `test(vms)`."
             " pytest: a test file or directory, pytest's arguments after --."
-            " run: a phase. reload: a spec file (`vivarium reload` builds one)"
+            " run: a phase. reload: a spec file (`vivarium reload` builds one)."
+            " segment: a segment's name"
+        ),
+    )
+    ctl.add_argument(
+        "segment_args",
+        nargs="*",
+        metavar="ACTION [MEMBER]",
+        help=(
+            "segment: show (the default), cut or restore (every member, a guest's, or `guest/interface`),"
+            " capture or end-capture"
         ),
     )
 
@@ -714,6 +724,11 @@ async def ctl(args: argparse.Namespace) -> int:
     if args.op == Op.PYTEST:
         # `vivarium ctl --out o pytest ./tests -- -k x`, as `vivarium run` takes them.
         arg = shlex.join([arg, *args.pytest_args])
+    if args.segment_args and args.op != Op.SEGMENT:
+        print(f"[vivarium] {args.op} takes one argument", file=sys.stderr)
+        return 2
+    if args.op == Op.SEGMENT:
+        arg = shlex.join([arg, *args.segment_args])
     socket = args.out / SOCKET
     if args.wait and args.op != Op.CONTINUE:
         print("[vivarium] --wait is for continue", file=sys.stderr)

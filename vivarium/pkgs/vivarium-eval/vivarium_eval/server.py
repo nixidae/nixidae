@@ -540,6 +540,19 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         return _reply(await request(runs().get(run).socket, Op.RUN, phase))
 
     @server.tool()
+    async def segment(run: str, name: str, action: str = "show", member: str | None = None) -> dict[str, Any]:
+        """Cut, restore or capture an Ethernet segment, paused or running.
+
+        `action` is `show`, `cut`, `restore`, `capture` or `end-capture`.
+        `cut` and `restore` take a `member`: a guest (`a`), or one
+        interface (`a/eth1`); none is every member. A cut keeps the
+        carrier up. `capture` writes `<out>/pcap/<name>.pcap`. Only a hub
+        segment (`segments.<name>.hub`, or three members or more) can do
+        either."""
+        arg = shlex.join([name, action, *([member] if member is not None else [])])
+        return _reply(await request(runs().get(run).socket, Op.SEGMENT, arg))
+
+    @server.tool()
     async def resume(run: str) -> dict[str, Any]:
         """Continue a paused run."""
         found = runs().get(run)

@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 import anyio
 from pydantic import ValidationError
+from vivarium_runner import MachineError
 
 from .events import Kind, Level
 from .phases import PhaseState, ReloadRefused, Stop
@@ -82,6 +83,39 @@ class Op(StrEnum):
     WATCH = "watch"
     """Not one reply: the run's channel events, one JSON object a line,
     until the run ends. `vivarium monitor` reads it."""
+    SEGMENT = "segment"
+    """`NAME [ACTION [MEMBER]]`: cut, restore or capture one segment, or
+    show it. `segment_request` reads the arg."""
+
+
+class SegmentAction(StrEnum):
+    SHOW = "show"
+    CUT = "cut"
+    RESTORE = "restore"
+    CAPTURE = "capture"
+    END_CAPTURE = "end-capture"
+
+
+@dataclass(frozen=True, slots=True)
+class SegmentRequest:
+    name: str
+    action: SegmentAction
+    member: str | None = None
+
+
+def segment_request(arg: str) -> SegmentRequest:
+    """`NAME [ACTION [MEMBER]]`, the arg of `segment`. Raises ValueError."""
+    words = shlex.split(arg)
+    if not 1 <= len(words) <= 3:
+        raise ValueError(f"segment takes NAME [ACTION [MEMBER]], not {arg!r}")
+    try:
+        action = SegmentAction(words[1]) if len(words) > 1 else SegmentAction.SHOW
+    except ValueError:
+        raise ValueError(f"no segment action {words[1]!r}; have {', '.join(SegmentAction)}") from None
+    member = words[2] if len(words) > 2 else None
+    if member is not None and action not in (SegmentAction.CUT, SegmentAction.RESTORE):
+        raise ValueError(f"{action} takes no member")
+    return SegmentRequest(words[0], action, member)
 
 
 @dataclass
@@ -170,7 +204,7 @@ def parse_request(line: bytes) -> Request:
     arg = raw.get("arg", "")
     if not isinstance(arg, str):
         raise ValueError("arg is a string")
-    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST, Op.RELOAD) and not arg:
+    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST, Op.RELOAD, Op.SEGMENT) and not arg:
         raise ValueError(f"{op} needs an arg")
     reload = raw.get("reload", [])
     if not isinstance(reload, list) or not all(isinstance(path, str) and Path(path).is_absolute() for path in reload):
@@ -543,7 +577,7 @@ class Controller:
     reentrant.
     """
 
-    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH})
+    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH, Op.SEGMENT})
 
     def __init__(
         self,
@@ -728,8 +762,10 @@ class Controller:
             return Reply(ok=True, result="stopping")
         if op not in self.ANY_TIME and not self.paused:
             return Reply(ok=False, error=f"{op} only while paused; the run is running")
-        if op is Op.INJECT and self.session.vms is None:
+        if op in (Op.INJECT, Op.SEGMENT) and self.session.vms is None:
             return Reply(ok=False, error="no guests are up yet")
+        if op is Op.SEGMENT:
+            return await self._segment(arg)
         self._bind_guests()
         if op is Op.CONTINUE:
             self._continuing = True
@@ -745,6 +781,32 @@ class Controller:
         if op is Op.RELOAD:
             return await self._reload_spec(Path(arg))
         return await self._run(arg)
+
+    async def _segment(self, arg: str) -> Reply:
+        """Cut, restore or capture a segment, then show it."""
+        vms = self.session.vms
+        if vms is None:
+            return Reply(ok=False, error="no guests are up yet")
+        try:
+            asked = segment_request(arg)
+            lan = vms.segment(asked.name)
+            match asked.action:
+                case SegmentAction.CUT:
+                    await lan.cut(asked.member)
+                case SegmentAction.RESTORE:
+                    await lan.restore(asked.member)
+                case SegmentAction.CAPTURE:
+                    await lan.capture()
+                case SegmentAction.END_CAPTURE:
+                    await lan.end_capture()
+                case SegmentAction.SHOW:
+                    pass
+        except (ValueError, MachineError) as error:
+            return Reply(ok=False, error=str(error))
+        cut = ", ".join(lan.cut_members) or "nothing"
+        capture = f"capturing to {lan.capturing}" if lan.capturing else "not capturing"
+        kind = "hub" if lan.is_hub else "direct pair"
+        return Reply(ok=True, result=f"{lan.name}: {kind} of {', '.join(lan.members)}; cut: {cut}; {capture}")
 
     def _record(self, source: str, reply: Reply) -> Reply:
         """What injected code raised, into the event stream as well as
