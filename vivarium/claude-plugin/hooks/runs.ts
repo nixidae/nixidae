@@ -116,6 +116,9 @@ export const apply = (run: Run, item: Item): Run => {
       }
     case 'paused':
       return { ...next, status: 'paused', reason: item.reason ?? text }
+    // An environment (`--hold`): every phase passed, the guests stay up until Stop.
+    case 'ready':
+      return { ...next, status: 'paused', reason: 'ready' }
     case 'resumed':
       return { ...next, status: moving, reason: undefined }
     case 'finished': {

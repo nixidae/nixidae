@@ -94,6 +94,13 @@ test('a failed phase marks the phase and keeps its error until the pause', () =>
   expect(summary(run)).toBe('paused after check failed')
 })
 
+test('an environment that is ready holds like a pause, with Stop to end it', () => {
+  let run = fresh('/o', ['vivarium'], ['boot'])
+  run = apply(run, { event: 'ready', text: 'ready; the guests are up until the run is stopped' })
+  expect(run.status).toBe('paused')
+  expect(summary(run)).toBe('paused ready')
+})
+
 test('build counts from the plan to the run', () => {
   const tally = (built: string, running: string, downloaded: string) => ({
     built,
