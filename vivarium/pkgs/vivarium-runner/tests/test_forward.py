@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 
 import pytest
-from vivarium_runner import forward
+from vivarium_runner import Machine, MachineError, forward
 from vivarium_runner.forward import ForwardError, PortMap, Rule
 
 
@@ -61,3 +61,27 @@ def test_never_an_ephemeral_port() -> None:
 def test_passt_never_gets_an_unpicked_port() -> None:
     with pytest.raises(ForwardError):
         forward.to_args([Rule(address="127.0.0.2", ports=(PortMap(None, 6443),))], start=1024)
+
+
+class Forwarding(Machine):
+    """A machine with forwards and nothing else."""
+
+    def __init__(self, rules: list[Rule]) -> None:
+        self.forward = rules
+        self.on_console = None
+
+    @property
+    def name(self) -> str:
+        return "web"
+
+
+def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
+    """`Session.prepare` reports a `MachineError` as a failed boot; a bare
+    `ForwardError` ended the run as a traceback (nixidae/nixidae#1335)."""
+    port = free_port_above("127.0.0.2", 22000)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.2", port))
+        holder.listen()
+        vm = Forwarding([Rule(address="127.0.0.2", ports=(PortMap(port, port),))])
+        with pytest.raises(MachineError, match=rf"^\[web\] forward: cannot forward .*127\.0\.0\.2:{port} is already bound"):
+            vm.resolve_forward(set())

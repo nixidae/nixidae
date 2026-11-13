@@ -46,7 +46,6 @@ from anyio.abc import UNIXSocketStream
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview
 from .agent import AGENT_READY, ProcessInfo, UnitInfo
 from .arpyc import AsyncConnection, connect
-from .net import Lan
 from .control import (
     AGENT,
     NONE,
@@ -60,6 +59,7 @@ from .control import (
     NoneConfig,
 )
 from .control import dialect as find_dialect, validate as validate_control
+from .net import Lan
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _CONSOLE_HISTORY = 2000
@@ -574,11 +574,17 @@ class Machine:
         bind that is released again immediately, so it only means
         anything while nothing else is racing it.  *taken* carries what
         earlier guests were given and is added to here.
+
+        A forward that cannot be set up is a `MachineError` naming the
+        guest: the run reports it as a failed boot, not as a traceback.
         """
-        self.forward, notes = forward.resolve(self.forward, taken=taken)
-        for note in notes:
-            self._log(f"warning: {note}")
-        forward.probe(self.forward)
+        try:
+            self.forward, notes = forward.resolve(self.forward, taken=taken)
+            for note in notes:
+                self._log(f"warning: {note}")
+            forward.probe(self.forward)
+        except forward.ForwardError as error:
+            raise MachineError(f"[{self.name}] forward: {error}") from error
         for rule in self.forward:
             what = "all ports" if rule.wide else ", ".join(str(port) for port in rule.ports)
             self._log(f"forwarding {what} on {rule.address}")
