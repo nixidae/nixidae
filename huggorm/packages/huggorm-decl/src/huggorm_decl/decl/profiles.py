@@ -65,8 +65,8 @@ def find_generations(profile: Path) -> Vec[Generation]:
     """Every generation of `profile`, oldest first. Empty for a profile
     that does not exist."""
     Cxx("""
-auto gens = nix::findGenerations(profile).first;
-return std::vector<nix::Generation>(gens.begin(), gens.end());
+        auto gens = nix::findGenerations(profile).first;
+        return std::vector<nix::Generation>(gens.begin(), gens.end());
     """)
 
 
@@ -93,13 +93,13 @@ def set_profile(store: Store, profile: Path, path: StorePath) -> Path:
     `store` must be a local store, as Nix requires: the generation is a
     root, and only a local store keeps roots on this file system."""
     Cxx("""
-auto * local = dynamic_cast<nix::LocalFSStore *>(&*store);
-if (local == nullptr)
-    throw nix::Error("a profile needs a local store");
-auto absolute = std::filesystem::absolute(std::filesystem::path(profile));
-auto generation = nix::createGeneration(*local, absolute, path);
-nix::switchLink(absolute, generation);
-return generation.string();
+        auto * local = dynamic_cast<nix::LocalFSStore *>(&*store);
+        if (local == nullptr)
+            throw nix::Error("a profile needs a local store");
+        auto absolute = std::filesystem::absolute(std::filesystem::path(profile));
+        auto generation = nix::createGeneration(*local, absolute, path);
+        nix::switchLink(absolute, generation);
+        return generation.string();
     """)
 
 
@@ -131,5 +131,5 @@ def delete_generations_older_than(profile: Path, older_than: Str, dry_run: Bint 
     never the current one, nor the newest one older than the cutoff.
     `nix-env --delete-generations 30d`."""
     Cxx("""
-nix::deleteGenerationsOlderThan(profile, nix::parseOlderThanTimeSpec(older_than), dry_run);
+        nix::deleteGenerationsOlderThan(profile, nix::parseOlderThanTimeSpec(older_than), dry_run);
     """)

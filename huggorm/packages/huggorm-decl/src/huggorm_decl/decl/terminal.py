@@ -30,7 +30,7 @@ def filter_ansi_escapes(text: Str, filter_all: Bint = False, width: Opt[U64] = N
     `width` cuts the result to that many printable characters, a wide
     character counting two. None does not cut."""
     Cxx("""
-auto limit = width ? static_cast<unsigned int>(*width)
-                   : std::numeric_limits<unsigned int>::max();
-return nix::filterANSIEscapes(text, filter_all, limit);
+        auto limit = width ? static_cast<unsigned int>(*width)
+                           : std::numeric_limits<unsigned int>::max();
+        return nix::filterANSIEscapes(text, filter_all, limit);
     """)

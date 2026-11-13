@@ -37,12 +37,12 @@ def download_file(url: Str, path: Path, executable: Bint = False) -> None:
     `path` names a file on the filesystem of the process that runs
     the binding. Over RPC that is the server's."""
     Cxx("""
-auto fd = nix::openNewFileForWrite(path, executable ? 0700 : 0600, {.truncateExisting = false});
-if (!fd)
-    throw nix::SysError("creating temporary file %s", nix::PathFmt(path));
-nix::FdSink sink(fd.get());
-nix::FileTransferRequest request(nix::VerbatimURL{url});
-request.decompress = false;
-nix::getFileTransfer()->download(std::move(request), sink);
-sink.flush();
+        auto fd = nix::openNewFileForWrite(path, executable ? 0700 : 0600, {.truncateExisting = false});
+        if (!fd)
+            throw nix::SysError("creating temporary file %s", nix::PathFmt(path));
+        nix::FdSink sink(fd.get());
+        nix::FileTransferRequest request(nix::VerbatimURL{url});
+        request.decompress = false;
+        nix::getFileTransfer()->download(std::move(request), sink);
+        sink.flush();
     """)

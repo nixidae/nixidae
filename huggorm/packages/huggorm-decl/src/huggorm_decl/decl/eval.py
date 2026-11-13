@@ -191,8 +191,8 @@ class Value:
         Private, for the tree walk. A throw leaves the value failed
         (`tFailed`), so a later read raises the same error again."""
         Cxx("""
-huggorm::gc_register_thread();
-self.state().forceValue(*self.get(), nix::noPos);
+            huggorm::gc_register_thread();
+            self.state().forceValue(*self.get(), nix::noPos);
         """)
 
     @guard("attrs")
@@ -202,8 +202,8 @@ self.state().forceValue(*self.get(), nix::noPos);
 
         Private, for the tree walk."""
         Cxx("""
-huggorm::gc_register_thread();
-return self.state().isDerivation(*self.get());
+            huggorm::gc_register_thread();
+            return self.state().isDerivation(*self.get());
         """)
 
     def is_gc_managed(self) -> Bint:
@@ -274,13 +274,13 @@ return self.state().isDerivation(*self.get());
         No `@guard`: it takes ONE arm and this accepts two. Anything
         else raises the `TypeError` a guard raises, naming both."""
         Cxx("""
-if (huggorm::value_type(*self.get()) == nix::nList)
-    return static_cast<std::int64_t>(self.get()->listSize());
-if (huggorm::value_type(*self.get()) == nix::nAttrs)
-    return static_cast<std::int64_t>(self.get()->attrs()->size());
-throw nix::TypeError(self.state(), "expected %s or %s but found %s",
-                     nix::showType(nix::nList), nix::showType(nix::nAttrs),
-                     nix::showType(*self.get()));
+            if (huggorm::value_type(*self.get()) == nix::nList)
+                return static_cast<std::int64_t>(self.get()->listSize());
+            if (huggorm::value_type(*self.get()) == nix::nAttrs)
+                return static_cast<std::int64_t>(self.get()->attrs()->size());
+            throw nix::TypeError(self.state(), "expected %s or %s but found %s",
+                                 nix::showType(nix::nList), nix::showType(nix::nAttrs),
+                                 nix::showType(*self.get()));
         """)
 
     @guard("list")
@@ -294,10 +294,10 @@ throw nix::TypeError(self.state(), "expected %s or %s but found %s",
         """Every attribute name, in alphabetical order. `name_at` for
         each index, in one call."""
         Cxx("""
-std::vector<std::string> names;
-for (const auto * attr : self.sorted())
-    names.push_back(self.symbol(attr->name));
-return names;
+            std::vector<std::string> names;
+            for (const auto * attr : self.sorted())
+                names.push_back(self.symbol(attr->name));
+            return names;
         """)
 
     @guard("attrs")
@@ -308,10 +308,10 @@ return names;
         before, and two evaluators agree on it only when they read the
         same things first."""
         Cxx("""
-std::vector<std::string> names;
-for (const auto & attr : *self.get()->attrs())
-    names.push_back(self.symbol(attr.name));
-return names;
+            std::vector<std::string> names;
+            for (const auto & attr : *self.get()->attrs())
+                names.push_back(self.symbol(attr.name));
+            return names;
         """)
 
     @guard("list")
@@ -324,32 +324,32 @@ return names;
         which names the index and the size, as `builtins.elemAt`
         does."""
         Cxx("""
-auto items = self.get()->listView();
-if (index < 0 || static_cast<std::size_t>(index) >= items.size())
-    throw huggorm::ListIndex(
-        self.state(), "list index %d is out of bounds for a list of size %d",
-        index, items.size());
-return self.wrap(items[static_cast<std::size_t>(index)]);
+            auto items = self.get()->listView();
+            if (index < 0 || static_cast<std::size_t>(index) >= items.size())
+                throw huggorm::ListIndex(
+                    self.state(), "list index %d is out of bounds for a list of size %d",
+                    index, items.size());
+            return self.wrap(items[static_cast<std::size_t>(index)]);
         """)
 
     @guard("attrs")
     def name_at(self, index: I64) -> Str:
         """One attribute name, in alphabetical order."""
         Cxx("""
-const auto & by_name = self.sorted();
-if (index < 0 || static_cast<std::size_t>(index) >= by_name.size())
-    throw std::runtime_error("attribute index out of range");
-return self.symbol(by_name[static_cast<std::size_t>(index)]->name);
+            const auto & by_name = self.sorted();
+            if (index < 0 || static_cast<std::size_t>(index) >= by_name.size())
+                throw std::runtime_error("attribute index out of range");
+            return self.symbol(by_name[static_cast<std::size_t>(index)]->name);
         """)
 
     @guard("attrs")
     def value_at(self, index: I64) -> Value:
         """One attribute value, in alphabetical order of name."""
         Cxx("""
-const auto & by_name = self.sorted();
-if (index < 0 || static_cast<std::size_t>(index) >= by_name.size())
-    throw std::runtime_error("attribute index out of range");
-return self.wrap(by_name[static_cast<std::size_t>(index)]->value);
+            const auto & by_name = self.sorted();
+            if (index < 0 || static_cast<std::size_t>(index) >= by_name.size())
+                throw std::runtime_error("attribute index out of range");
+            return self.wrap(by_name[static_cast<std::size_t>(index)]->value);
         """)
 
     @guard("attrs")
@@ -366,17 +366,17 @@ return self.wrap(by_name[static_cast<std::size_t>(index)]->value);
         the words and the suggestions `{ ... }.name` gives."""
         # eval.cc:1438
         Cxx("""
-const auto * attr = self.get()->attrs()->get(self.intern(name));
-if (attr == nullptr) {
-    nix::StringSet names;
-    for (const auto & each : *self.get()->attrs())
-        names.insert(self.symbol(each.name));
-    huggorm::MissingAttribute missing(
-        self.state(), "attribute '%s' missing", name);
-    missing.with_suggestions(nix::Suggestions::bestMatches(names, name));
-    throw missing;
-}
-return self.wrap(attr->value);
+            const auto * attr = self.get()->attrs()->get(self.intern(name));
+            if (attr == nullptr) {
+                nix::StringSet names;
+                for (const auto & each : *self.get()->attrs())
+                    names.insert(self.symbol(each.name));
+                huggorm::MissingAttribute missing(
+                    self.state(), "attribute '%s' missing", name);
+                missing.with_suggestions(nix::Suggestions::bestMatches(names, name));
+                throw missing;
+            }
+            return self.wrap(attr->value);
         """)
 
     @blocks
@@ -392,10 +392,10 @@ return self.wrap(attr->value);
         BLOCKS: it forces every value it reaches. Raises for a
         function, which JSON cannot hold."""
         Cxx("""
-huggorm::gc_register_thread();
-nix::NixStringContext context;
-return nix::printValueAsJSON(
-    self.state(), true, *self.get(), nix::noPos, context, copy_to_store).dump();
+            huggorm::gc_register_thread();
+            nix::NixStringContext context;
+            return nix::printValueAsJSON(
+                self.state(), true, *self.get(), nix::noPos, context, copy_to_store).dump();
         """)
 
     @blocks
@@ -410,12 +410,12 @@ return nix::printValueAsJSON(
 
         BLOCKS: it forces every value it reaches, and it may build."""
         Cxx("""
-huggorm::gc_register_thread();
-nix::NixStringContext context;
-auto text = nix::printValueAsJSON(
-    self.state(), true, *self.get(), nix::noPos, context, copy_to_store).dump();
-auto rewrites = self.state().realiseContext(context, nullptr, false);
-return nix::rewriteStrings(text, rewrites);
+            huggorm::gc_register_thread();
+            nix::NixStringContext context;
+            auto text = nix::printValueAsJSON(
+                self.state(), true, *self.get(), nix::noPos, context, copy_to_store).dump();
+            auto rewrites = self.state().realiseContext(context, nullptr, false);
+            return nix::rewriteStrings(text, rewrites);
         """)
 
     @blocks
@@ -430,31 +430,31 @@ return nix::rewriteStrings(text, rewrites);
 
         BLOCKS: it forces every value it reaches."""
         Cxx("""
-huggorm::gc_register_thread();
-nix::NixStringContext context;
-std::function<void(nix::Value &)> walk = [&](nix::Value & value) {
-    self.state().forceValue(value, nix::noPos);
-    switch (value.type()) {
-    case nix::nString:
-        nix::copyContext(value, context);
-        break;
-    case nix::nList:
-        for (auto * element : value.listView())
-            walk(*element);
-        break;
-    case nix::nAttrs:
-        for (auto & attr : *value.attrs())
-            walk(*attr.value);
-        break;
-    default:
-        break;
-    }
-};
-walk(*self.get());
-std::vector<std::string> out;
-for (auto & element : context)
-    out.push_back(element.to_string());
-return out;
+            huggorm::gc_register_thread();
+            nix::NixStringContext context;
+            std::function<void(nix::Value &)> walk = [&](nix::Value & value) {
+                self.state().forceValue(value, nix::noPos);
+                switch (value.type()) {
+                case nix::nString:
+                    nix::copyContext(value, context);
+                    break;
+                case nix::nList:
+                    for (auto * element : value.listView())
+                        walk(*element);
+                    break;
+                case nix::nAttrs:
+                    for (auto & attr : *value.attrs())
+                        walk(*attr.value);
+                    break;
+                default:
+                    break;
+                }
+            };
+            walk(*self.get());
+            std::vector<std::string> out;
+            for (auto & element : context)
+                out.push_back(element.to_string());
+            return out;
         """)
 
     @blocks
@@ -473,8 +473,8 @@ return out;
 
         BLOCKS: it may build."""
         Cxx("""
-huggorm::gc_register_thread();
-return self.state().realiseString(*self.get(), nullptr, false, nix::noPos);
+            huggorm::gc_register_thread();
+            return self.state().realiseString(*self.get(), nullptr, false, nix::noPos);
         """)
 
     @blocks
@@ -489,11 +489,11 @@ return self.state().realiseString(*self.get(), nullptr, false, nix::noPos);
         BLOCKS: it forces the value. Raises for an integer, a list
         and every other type that `"${v}"` refuses."""
         Cxx("""
-huggorm::gc_register_thread();
-nix::NixStringContext context;
-return self.state().coerceToString(
-    nix::noPos, *self.get(), context,
-    "while generating the eval command output").toOwned();
+            huggorm::gc_register_thread();
+            nix::NixStringContext context;
+            return self.state().coerceToString(
+                nix::noPos, *self.get(), context,
+                "while generating the eval command output").toOwned();
         """)
 
     @guard("list")
@@ -505,18 +505,18 @@ return self.state().coerceToString(
         whole list, so an argument vector costs one round of building
         rather than one per argument."""
         Cxx("""
-huggorm::gc_register_thread();
-nix::NixStringContext context;
-std::vector<std::string> argv;
-for (auto * element : self.get()->listView())
-    argv.emplace_back(self.state().coerceToString(
-        nix::noPos, *element, context,
-        "while evaluating an element of an argument vector",
-        false, false).toOwned());
-auto rewrites = self.state().realiseContext(context, nullptr, false);
-for (auto & argument : argv)
-    argument = nix::rewriteStrings(argument, rewrites);
-return argv;
+            huggorm::gc_register_thread();
+            nix::NixStringContext context;
+            std::vector<std::string> argv;
+            for (auto * element : self.get()->listView())
+                argv.emplace_back(self.state().coerceToString(
+                    nix::noPos, *element, context,
+                    "while evaluating an element of an argument vector",
+                    false, false).toOwned());
+            auto rewrites = self.state().realiseContext(context, nullptr, false);
+            for (auto & argument : argv)
+                argument = nix::rewriteStrings(argument, rewrites);
+            return argv;
         """)
 
     # -- functions -------------------------------------------------------
@@ -590,10 +590,10 @@ return argv;
         # WHNF: eval.cc:1600. Measured: a docstring that said "thunk"
         # failed its gate with `assert 'int' == 'thunk'`.
         Cxx("""
-huggorm::gc_register_thread();
-auto * out = self.state().allocValue();
-self.state().callFunction(*self.get(), *arg.get(), *out, nix::noPos);
-return self.wrap(out);
+            huggorm::gc_register_thread();
+            auto * out = self.state().allocValue();
+            self.state().callFunction(*self.get(), *arg.get(), *out, nix::noPos);
+            return self.wrap(out);
         """)
 
     @guard("function")
@@ -633,19 +633,19 @@ return self.wrap(out);
         # autoCallFunction in 2.34: forces at eval.cc:1783, follows the
         # functor at 1786-1792, answers `fun` unapplied at 1795-1798.
         Cxx("""
-if (!self.get()->isLambda()
-    || !self.get()->lambda().fun->getFormals().has_value())
-    throw std::invalid_argument(
-        "apply_auto needs a lambda that declares formals; nix's "
-        "autoCallFunction answers the function UNAPPLIED for anything "
-        "else, which is indistinguishable from a call that did nothing");
-if (huggorm::value_type(*args.get()) != nix::nAttrs)
-    throw std::invalid_argument(
-        "apply_auto needs an attribute set of arguments");
-huggorm::gc_register_thread();
-auto * out = self.state().allocValue();
-self.state().autoCallFunction(*args.get()->attrs(), *self.get(), *out);
-return self.wrap(out);
+            if (!self.get()->isLambda()
+                || !self.get()->lambda().fun->getFormals().has_value())
+                throw std::invalid_argument(
+                    "apply_auto needs a lambda that declares formals; nix's "
+                    "autoCallFunction answers the function UNAPPLIED for anything "
+                    "else, which is indistinguishable from a call that did nothing");
+            if (huggorm::value_type(*args.get()) != nix::nAttrs)
+                throw std::invalid_argument(
+                    "apply_auto needs an attribute set of arguments");
+            huggorm::gc_register_thread();
+            auto * out = self.state().allocValue();
+            self.state().autoCallFunction(*args.get()->attrs(), *self.get(), *out);
+            return self.wrap(out);
         """)
 
     @guard("attrs")
@@ -665,14 +665,14 @@ return self.wrap(out);
         Raises for an attribute set that is not a derivation, and for
         a derivation with no `drvPath`."""
         Cxx("""
-huggorm::gc_register_thread();
-auto info = nix::getDerivation(self.state(), *self.get(), false);
-if (!info)
-    throw nix::EvalError(self.state(), "selected value is not a derivation");
-auto path = info->queryDrvPath();
-if (!path)
-    throw nix::EvalError(self.state(), "the derivation has no drvPath");
-return *path;
+            huggorm::gc_register_thread();
+            auto info = nix::getDerivation(self.state(), *self.get(), false);
+            if (!info)
+                throw nix::EvalError(self.state(), "selected value is not a derivation");
+            auto path = info->queryDrvPath();
+            if (!path)
+                throw nix::EvalError(self.state(), "the derivation has no drvPath");
+            return *path;
         """)
 
     @guard("attrs")
@@ -690,14 +690,14 @@ return *path;
         BLOCKS for the reason `drv_path` does. Raises for an attribute
         set that is not a derivation."""
         Cxx("""
-huggorm::gc_register_thread();
-auto info = nix::getDerivation(self.state(), *self.get(), false);
-if (!info)
-    throw nix::EvalError(self.state(), "selected value is not a derivation");
-std::map<std::string, std::optional<nix::StorePath>> out;
-for (auto & [name, path] : info->queryOutputs(true, false))
-    out.emplace(name, path);
-return out;
+            huggorm::gc_register_thread();
+            auto info = nix::getDerivation(self.state(), *self.get(), false);
+            if (!info)
+                throw nix::EvalError(self.state(), "selected value is not a derivation");
+            std::map<std::string, std::optional<nix::StorePath>> out;
+            for (auto & [name, path] : info->queryOutputs(true, false))
+                out.emplace(name, path);
+            return out;
         """)
 
     @guard("function")
@@ -711,10 +711,10 @@ return out;
         reports whichever name the expression carried."""
         # nixexpr.hh:517
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-const auto & name = self.get()->lambda().fun->name;
-return name ? self.symbol(name) : std::string();
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            const auto & name = self.get()->lambda().fun->name;
+            return name ? self.symbol(name) : std::string();
         """)
 
     @guard("function")
@@ -730,10 +730,10 @@ return name ? self.symbol(name) : std::string();
         "" means the lambda takes formals and named no binding for the
         set itself."""
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-const auto & arg = self.get()->lambda().fun->arg;
-return arg ? self.symbol(arg) : std::string();
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            const auto & arg = self.get()->lambda().fun->arg;
+            return arg ? self.symbol(arg) : std::string();
         """)
 
     @guard("function")
@@ -743,9 +743,9 @@ return arg ? self.symbol(arg) : std::string();
         The one thing that separates the two calling conventions:
         `apply_auto` needs it and `apply` does not care."""
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-return self.get()->lambda().fun->getFormals().has_value();
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            return self.get()->lambda().fun->getFormals().has_value();
         """)
 
     @guard("function")
@@ -758,10 +758,10 @@ return self.get()->lambda().fun->getFormals().has_value();
         formals."""
         # eval.cc:1803-1813
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-auto formals = self.get()->lambda().fun->getFormals();
-return formals.has_value() && formals->ellipsis;
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            auto formals = self.get()->lambda().fun->getFormals();
+            return formals.has_value() && formals->ellipsis;
         """)
 
     # ALPHABETICAL, and the sort is OURS. Both accessors below sort
@@ -796,15 +796,15 @@ return formals.has_value() && formals->ellipsis;
         RPC an indexed accessor would be one round trip per
         parameter."""
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-std::vector<std::string> names;
-auto formals = self.get()->lambda().fun->getFormals();
-if (formals.has_value())
-    for (const auto & formal : formals->formals)
-        names.push_back(self.symbol(formal.name));
-std::sort(names.begin(), names.end());
-return names;
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            std::vector<std::string> names;
+            auto formals = self.get()->lambda().fun->getFormals();
+            if (formals.has_value())
+                for (const auto & formal : formals->formals)
+                    names.push_back(self.symbol(formal.name));
+            std::sort(names.begin(), names.end());
+            return names;
         """)
 
     @guard("function")
@@ -820,16 +820,16 @@ return names;
         `Formal::def` non-null is the fact."""
         # nixexpr.hh:467
         Cxx("""
-if (!self.get()->isLambda())
-    throw std::invalid_argument("value is not a lambda");
-std::vector<std::string> names;
-auto formals = self.get()->lambda().fun->getFormals();
-if (formals.has_value())
-    for (const auto & formal : formals->formals)
-        if (formal.def != nullptr)
-            names.push_back(self.symbol(formal.name));
-std::sort(names.begin(), names.end());
-return names;
+            if (!self.get()->isLambda())
+                throw std::invalid_argument("value is not a lambda");
+            std::vector<std::string> names;
+            auto formals = self.get()->lambda().fun->getFormals();
+            if (formals.has_value())
+                for (const auto & formal : formals->formals)
+                    if (formal.def != nullptr)
+                        names.push_back(self.symbol(formal.name));
+            std::sort(names.begin(), names.end());
+            return names;
         """)
 
     @guard("function")
@@ -843,9 +843,9 @@ return names;
         that `getDoc` will not tell you."""
         # eval.cc:578
         Cxx("""
-if (!self.get()->isPrimOp())
-    throw std::invalid_argument("value is not a builtin");
-return self.get()->primOp()->name;
+            if (!self.get()->isPrimOp())
+                throw std::invalid_argument("value is not a builtin");
+            return self.get()->primOp()->name;
         """)
 
     @guard("function")
@@ -857,9 +857,9 @@ return self.get()->primOp()->name;
         cannot. It is the FULL arity - a primop that already holds
         arguments is `is_primop_app`, which this refuses."""
         Cxx("""
-if (!self.get()->isPrimOp())
-    throw std::invalid_argument("value is not a builtin");
-return static_cast<std::int64_t>(self.get()->primOp()->arity);
+            if (!self.get()->isPrimOp())
+                throw std::invalid_argument("value is not a builtin");
+            return static_cast<std::int64_t>(self.get()->primOp()->arity);
         """)
 
     @guard("function")
@@ -869,9 +869,9 @@ return static_cast<std::int64_t>(self.get()->primOp()->arity);
         Real order, unlike `formal_names`: these are a vector the
         primop declared rather than a set something searches."""
         Cxx("""
-if (!self.get()->isPrimOp())
-    throw std::invalid_argument("value is not a builtin");
-return self.get()->primOp()->args;
+            if (!self.get()->isPrimOp())
+                throw std::invalid_argument("value is not a builtin");
+            return self.get()->primOp()->args;
         """)
 
     @blocks
@@ -920,26 +920,26 @@ return self.get()->primOp()->args;
         # with `basic_string::substr: __pos (which is 3) > this->size()`.
         # A cheap-looking accessor that does I/O is nixidae/nixidae#604's surprise.
         Cxx("""
-huggorm::gc_register_thread();
-self.state().forceValue(*self.get(), nix::noPos);
-try {
-    auto doc = self.state().getDoc(*self.get());
-    if (!doc.has_value())
-        return std::nullopt;
-    return huggorm::Doc{doc->name, static_cast<std::int64_t>(doc->arity), doc->args,
-                        doc->doc,
-                        doc->pos ? std::optional(huggorm::position_file(doc->pos)) : std::nullopt,
-                        doc->pos.line};
-} catch (const std::out_of_range &) {
-    // Upstream's own bug, surfaced with its cause rather than
-    // reported as an empty answer. Narrow on purpose: this is the
-    // exact exception measured, and anything else is a real failure
-    // that belongs to the caller.
-    throw std::runtime_error(
-        "cannot read this function's documentation: its source file is "
-        "no longer readable, and nix's own doc-comment reader does not "
-        "handle that");
-}
+            huggorm::gc_register_thread();
+            self.state().forceValue(*self.get(), nix::noPos);
+            try {
+                auto doc = self.state().getDoc(*self.get());
+                if (!doc.has_value())
+                    return std::nullopt;
+                return huggorm::Doc{doc->name, static_cast<std::int64_t>(doc->arity), doc->args,
+                                    doc->doc,
+                                    doc->pos ? std::optional(huggorm::position_file(doc->pos)) : std::nullopt,
+                                    doc->pos.line};
+            } catch (const std::out_of_range &) {
+                // Upstream's own bug, surfaced with its cause rather than
+                // reported as an empty answer. Narrow on purpose: this is the
+                // exact exception measured, and anything else is a real failure
+                // that belongs to the caller.
+                throw std::runtime_error(
+                    "cannot read this function's documentation: its source file is "
+                    "no longer readable, and nix's own doc-comment reader does not "
+                    "handle that");
+            }
         """)
 
     @blocks
@@ -951,17 +951,17 @@ try {
         such as one `builtins` made. Forces the set, and reads the
         source file for the comment, as `doc` does."""
         Cxx("""
-huggorm::gc_register_thread();
-auto & state = self.state();
-state.forceAttrs(*self.get(), nix::noPos, "while looking for documentation of a Nix attribute");
-const auto * attr = self.get()->attrs()->get(self.intern(name));
-if (attr == nullptr || !attr->pos)
-    return std::nullopt;
-auto pos = state.positions[attr->pos];
-std::optional<std::string> comment;
-if (auto found = state.getDocCommentForPos(attr->pos))
-    comment = found.getInnerText(state.positions);
-return huggorm::AttrDoc{huggorm::position_file(pos), pos.line, comment};
+            huggorm::gc_register_thread();
+            auto & state = self.state();
+            state.forceAttrs(*self.get(), nix::noPos, "while looking for documentation of a Nix attribute");
+            const auto * attr = self.get()->attrs()->get(self.intern(name));
+            if (attr == nullptr || !attr->pos)
+                return std::nullopt;
+            auto pos = state.positions[attr->pos];
+            std::optional<std::string> comment;
+            if (auto found = state.getDocCommentForPos(attr->pos))
+                comment = found.getInnerText(state.positions);
+            return huggorm::AttrDoc{huggorm::position_file(pos), pos.line, comment};
         """)
 
     @blocks
@@ -972,13 +972,13 @@ return huggorm::AttrDoc{huggorm::position_file(pos), pos.line, comment};
         None when the set has no such attribute, or holds one with no
         position, such as one `builtins` made. Forces the set."""
         Cxx("""
-huggorm::gc_register_thread();
-auto & state = self.state();
-state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
-const auto * attr = self.get()->attrs()->get(self.intern(name));
-if (attr == nullptr)
-    return std::nullopt;
-return huggorm::position_of<huggorm::Position>(std::make_shared<const nix::Pos>(state.positions[attr->pos]));
+            huggorm::gc_register_thread();
+            auto & state = self.state();
+            state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
+            const auto * attr = self.get()->attrs()->get(self.intern(name));
+            if (attr == nullptr)
+                return std::nullopt;
+            return huggorm::position_of<huggorm::Position>(std::make_shared<const nix::Pos>(state.positions[attr->pos]));
         """)
 
     @blocks
@@ -988,13 +988,13 @@ return huggorm::position_of<huggorm::Position>(std::make_shared<const nix::Pos>(
 
         None when the set has no such attribute. Forces the set."""
         Cxx("""
-huggorm::gc_register_thread();
-auto & state = self.state();
-state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
-const auto * attr = self.get()->attrs()->get(self.intern(name));
-if (attr == nullptr)
-    return std::nullopt;
-return huggorm::SourcePos{std::make_shared<const nix::Pos>(state.positions[attr->pos])};
+            huggorm::gc_register_thread();
+            auto & state = self.state();
+            state.forceAttrs(*self.get(), nix::noPos, "while looking for the position of a Nix attribute");
+            const auto * attr = self.get()->attrs()->get(self.intern(name));
+            if (attr == nullptr)
+                return std::nullopt;
+            return huggorm::SourcePos{std::make_shared<const nix::Pos>(state.positions[attr->pos])};
         """)
 
     @blocks
@@ -1007,33 +1007,33 @@ return huggorm::SourcePos{std::make_shared<const nix::Pos>(state.positions[attr-
         derivation, and its `meta.position` answers. A location with
         no file on disk raises: no editor can open it."""
         Cxx("""
-huggorm::gc_register_thread();
-auto & state = self.state();
-auto & value = *self.get();
-state.forceValue(value, nix::noPos);
-std::optional<nix::SourcePath> source;
-std::uint32_t line = 0;
-if (value.type() == nix::nPath || value.type() == nix::nString) {
-    nix::NixStringContext context;
-    source = state.coerceToPath(
-        nix::noPos, value, context, "while evaluating the filename to edit");
-} else if (value.isLambda()) {
-    auto pos = state.positions[value.lambda().fun->pos];
-    auto path = std::get_if<nix::SourcePath>(&pos.origin);
-    if (path == nullptr)
-        throw nix::EvalError(state, "'%s' cannot be shown in an editor", pos);
-    source = *path;
-    line = pos.line;
-} else {
-    auto [path, found] = nix::findPackageFilename(state, value, "selected value");
-    source = std::move(path);
-    line = found;
-}
-auto physical = source->getPhysicalPath();
-if (!physical)
-    throw nix::EvalError(
-        state, "cannot open '%s' in an editor because it has no physical path", *source);
-return huggorm::SourceLocation{physical->string(), line};
+            huggorm::gc_register_thread();
+            auto & state = self.state();
+            auto & value = *self.get();
+            state.forceValue(value, nix::noPos);
+            std::optional<nix::SourcePath> source;
+            std::uint32_t line = 0;
+            if (value.type() == nix::nPath || value.type() == nix::nString) {
+                nix::NixStringContext context;
+                source = state.coerceToPath(
+                    nix::noPos, value, context, "while evaluating the filename to edit");
+            } else if (value.isLambda()) {
+                auto pos = state.positions[value.lambda().fun->pos];
+                auto path = std::get_if<nix::SourcePath>(&pos.origin);
+                if (path == nullptr)
+                    throw nix::EvalError(state, "'%s' cannot be shown in an editor", pos);
+                source = *path;
+                line = pos.line;
+            } else {
+                auto [path, found] = nix::findPackageFilename(state, value, "selected value");
+                source = std::move(path);
+                line = found;
+            }
+            auto physical = source->getPhysicalPath();
+            if (!physical)
+                throw nix::EvalError(
+                    state, "cannot open '%s' in an editor because it has no physical path", *source);
+            return huggorm::SourceLocation{physical->string(), line};
         """)
 
 
@@ -1377,11 +1377,11 @@ class LockedFlake:
         None when the path names nothing, and for the root, which
         records no locked reference."""
         Cxx("""
-auto node = std::dynamic_pointer_cast<const nix::flake::LockedNode>(
-    self.locked.lockFile.findInput(nix::flake::InputAttrPath(path.begin(), path.end())));
-if (!node)
-    return std::nullopt;
-return huggorm::LockedInput{node->lockedRef, node->originalRef, node->isFlake};
+            auto node = std::dynamic_pointer_cast<const nix::flake::LockedNode>(
+                self.locked.lockFile.findInput(nix::flake::InputAttrPath(path.begin(), path.end())));
+            if (!node)
+                return std::nullopt;
+            return huggorm::LockedInput{node->lockedRef, node->originalRef, node->isFlake};
         """)
 
     @blocks
@@ -1390,12 +1390,12 @@ return huggorm::LockedInput{node->lockedRef, node->originalRef, node->isFlake};
         """Write `flake.lock` beside `flake.nix`, as `nix flake
         lock` does, whatever `lock_flake` was told."""
         Cxx("""
-auto & flake = self.locked.flake;
-auto [text, keys] = self.locked.lockFile.to_string();
-auto & subdir = flake.originalRef.subdir;
-auto relative = (subdir.empty() ? "" : subdir + "/") + "flake.lock";
-flake.originalRef.input.putFile(nix::CanonPath(relative), text + "\\n", std::nullopt);
-huggorm::invalidate_cache(flake.lockFilePath());
+            auto & flake = self.locked.flake;
+            auto [text, keys] = self.locked.lockFile.to_string();
+            auto & subdir = flake.originalRef.subdir;
+            auto relative = (subdir.empty() ? "" : subdir + "/") + "flake.lock";
+            flake.originalRef.input.putFile(nix::CanonPath(relative), text + "\\n", std::nullopt);
+            huggorm::invalidate_cache(flake.lockFilePath());
         """)
 
 
@@ -1444,50 +1444,50 @@ class Repl:
         and answer None. Any other line is an expression, and answers
         its value, forced. `base` is as `eval_expr` takes it."""
         Cxx("""
-auto & state = self.state();
-auto base_path = state.rootPath(std::string_view(base ? *base : "."));
-nix::ExprAttrs * bindings = nullptr;
-try {
-    bindings = state.parseReplBindings(line, base_path, self.static_env);
-} catch (nix::ParseError &) {
-    try {
-        bindings = state.parseReplBindings(line + ";", line, base_path, self.static_env);
-    } catch (nix::ParseError &) {
-    }
-}
-nix::Env * env = *self.env;
-if (!bindings) {
-    auto * made = state.allocValue();
-    state.parseExprFromString(line, base_path, self.static_env)->eval(state, *env, *made);
-    state.forceValue(*made, made->determinePos(nix::noPos));
-    return self.wrap(made);
-}
-nix::Env * inherit_env = bindings->inheritFromExprs
-    ? bindings->buildInheritFromEnv(state, *env) : nullptr;
-for (auto & [symbol, def] : *bindings->attrs) {
-    if (self.displ >= huggorm::Repl::env_size)
-        throw nix::Error("environment full; cannot add more variables");
-    auto * made = state.allocValue();
-    made->mkThunk(def.chooseByKind(env, env, inherit_env), def.e);
-    if (auto old = self.static_env->find(symbol); old != self.static_env->vars.end())
-        self.static_env->vars.erase(old);
-    self.static_env->vars.emplace_back(symbol, self.displ);
-    self.static_env->sort();
-    env->values[self.displ++] = made;
-}
-return std::nullopt;
+            auto & state = self.state();
+            auto base_path = state.rootPath(std::string_view(base ? *base : "."));
+            nix::ExprAttrs * bindings = nullptr;
+            try {
+                bindings = state.parseReplBindings(line, base_path, self.static_env);
+            } catch (nix::ParseError &) {
+                try {
+                    bindings = state.parseReplBindings(line + ";", line, base_path, self.static_env);
+                } catch (nix::ParseError &) {
+                }
+            }
+            nix::Env * env = *self.env;
+            if (!bindings) {
+                auto * made = state.allocValue();
+                state.parseExprFromString(line, base_path, self.static_env)->eval(state, *env, *made);
+                state.forceValue(*made, made->determinePos(nix::noPos));
+                return self.wrap(made);
+            }
+            nix::Env * inherit_env = bindings->inheritFromExprs
+                ? bindings->buildInheritFromEnv(state, *env) : nullptr;
+            for (auto & [symbol, def] : *bindings->attrs) {
+                if (self.displ >= huggorm::Repl::env_size)
+                    throw nix::Error("environment full; cannot add more variables");
+                auto * made = state.allocValue();
+                made->mkThunk(def.chooseByKind(env, env, inherit_env), def.e);
+                if (auto old = self.static_env->find(symbol); old != self.static_env->vars.end())
+                    self.static_env->vars.erase(old);
+                self.static_env->vars.emplace_back(symbol, self.displ);
+                self.static_env->sort();
+                env->values[self.displ++] = made;
+            }
+            return std::nullopt;
         """)
 
     def eval_expr(self, expr: Str, base: Opt[Str] = None) -> Value:
         """`EvalState.eval_expr`, in this scope."""
         Cxx("""
-auto & state = self.state();
-auto * made = state.allocValue();
-state.parseExprFromString(
-    expr, state.rootPath(std::string_view(base ? *base : ".")), self.static_env)
-    ->eval(state, **self.env, *made);
-state.forceValue(*made, made->determinePos(nix::noPos));
-return self.wrap(made);
+            auto & state = self.state();
+            auto * made = state.allocValue();
+            state.parseExprFromString(
+                expr, state.rootPath(std::string_view(base ? *base : ".")), self.static_env)
+                ->eval(state, **self.env, *made);
+            state.forceValue(*made, made->determinePos(nix::noPos));
+            return self.wrap(made);
         """)
 
     @needs(Local("nix/cmd/common-eval-args.hh"))
@@ -1496,12 +1496,12 @@ return self.wrap(made);
         bindings, as an expression does. Not cached, because the
         answer depends on the scope."""
         Cxx("""
-auto & state = self.state();
-auto * made = state.allocValue();
-state.parseExprFromFile(nix::resolveExprPath(nix::lookupFileArg(state, path)), self.static_env)
-    ->eval(state, **self.env, *made);
-state.forceValue(*made, made->determinePos(nix::noPos));
-return self.wrap(made);
+            auto & state = self.state();
+            auto * made = state.allocValue();
+            state.parseExprFromFile(nix::resolveExprPath(nix::lookupFileArg(state, path)), self.static_env)
+                ->eval(state, **self.env, *made);
+            state.forceValue(*made, made->determinePos(nix::noPos));
+            return self.wrap(made);
         """)
 
     @needs(Local("nix/cmd/common-eval-args.hh"))
@@ -1514,64 +1514,64 @@ return self.wrap(made);
         `args` is an attribute set; anything else raises before the
         file is read."""
         Cxx("""
-if (huggorm::value_type(*args.get()) != nix::nAttrs)
-    throw std::invalid_argument("load_file needs an attribute set of arguments");
-auto & state = self.state();
-nix::Value loaded;
-state.evalFile(nix::lookupFileArg(state, path), loaded);
-auto * made = state.allocValue();
-state.autoCallFunction(*args.get()->attrs(), loaded, *made);
-return self.wrap(made);
+            if (huggorm::value_type(*args.get()) != nix::nAttrs)
+                throw std::invalid_argument("load_file needs an attribute set of arguments");
+            auto & state = self.state();
+            nix::Value loaded;
+            state.evalFile(nix::lookupFileArg(state, path), loaded);
+            auto * made = state.allocValue();
+            state.autoCallFunction(*args.get()->attrs(), loaded, *made);
+            return self.wrap(made);
         """)
 
     def add_attrs(self, attrs: Value) -> Vec[Str]:
         """Bind every attribute of a set, as `:load` does, and answer
         the names added."""
         Cxx("""
-auto & state = self.state();
-auto & value = *attrs.get();
-state.forceAttrs(value, [&]() { return value.determinePos(nix::noPos); },
-                 "while evaluating an attribute set to be merged in the global scope");
-if (self.displ + value.attrs()->size() > huggorm::Repl::env_size)
-    throw nix::Error("environment full; cannot add more variables");
-std::vector<std::string> names;
-names.reserve(value.attrs()->size());
-nix::Env * env = *self.env;
-for (auto & attr : *value.attrs()) {
-    self.static_env->vars.emplace_back(attr.name, self.displ);
-    env->values[self.displ++] = attr.value;
-    names.emplace_back(state.symbols[attr.name]);
-}
-self.static_env->sort();
-self.static_env->deduplicate();
-return names;
+            auto & state = self.state();
+            auto & value = *attrs.get();
+            state.forceAttrs(value, [&]() { return value.determinePos(nix::noPos); },
+                             "while evaluating an attribute set to be merged in the global scope");
+            if (self.displ + value.attrs()->size() > huggorm::Repl::env_size)
+                throw nix::Error("environment full; cannot add more variables");
+            std::vector<std::string> names;
+            names.reserve(value.attrs()->size());
+            nix::Env * env = *self.env;
+            for (auto & attr : *value.attrs()) {
+                self.static_env->vars.emplace_back(attr.name, self.displ);
+                env->values[self.displ++] = attr.value;
+                names.emplace_back(state.symbols[attr.name]);
+            }
+            self.static_env->sort();
+            self.static_env->deduplicate();
+            return names;
         """)
 
     def names(self) -> Vec[Str]:
         """Every name an expression here can see, sorted: the bindings
         and the base scope, `builtins` and `true` among them."""
         Cxx("""
-auto & state = self.state();
-std::set<std::string> seen;
-for (std::shared_ptr<const nix::StaticEnv> scope = self.static_env; scope; scope = scope->up)
-    for (auto & [symbol, displ] : scope->vars)
-        seen.emplace(state.symbols[symbol]);
-return std::vector<std::string>(seen.begin(), seen.end());
+            auto & state = self.state();
+            std::set<std::string> seen;
+            for (std::shared_ptr<const nix::StaticEnv> scope = self.static_env; scope; scope = scope->up)
+                for (auto & [symbol, displ] : scope->vars)
+                    seen.emplace(state.symbols[symbol]);
+            return std::vector<std::string>(seen.begin(), seen.end());
         """)
 
     def select(self, expr: Str, base: Opt[Str] = None) -> Opt[ReplSelection]:
         """`a.b.c` split before its last select, or None when `expr`
         is not a select."""
         Cxx("""
-auto & state = self.state();
-auto * parsed = state.parseExprFromString(
-    expr, state.rootPath(std::string_view(base ? *base : ".")), self.static_env);
-auto * select = dynamic_cast<nix::ExprSelect *>(parsed);
-if (!select)
-    return std::nullopt;
-auto * attrs = state.allocValue();
-auto name = select->evalExceptFinalSelect(state, **self.env, *attrs);
-return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)};
+            auto & state = self.state();
+            auto * parsed = state.parseExprFromString(
+                expr, state.rootPath(std::string_view(base ? *base : ".")), self.static_env);
+            auto * select = dynamic_cast<nix::ExprSelect *>(parsed);
+            if (!select)
+                return std::nullopt;
+            auto * attrs = state.allocValue();
+            auto name = select->evalExceptFinalSelect(state, **self.env, *attrs);
+            return huggorm::ReplSelection{std::string(state.symbols[name]), self.wrap(attrs)};
         """)
 
 
@@ -1676,8 +1676,8 @@ class EvalState:
         constructor, such as `pure-eval`: this changes the object and
         not the state, so pass those to the constructor."""
         Cxx("""
-if (!self.eval_settings().set(name, value) && !self.fetch_settings().set(name, value))
-    throw nix::UsageError("'%s' is not an evaluator or fetcher setting", name);
+            if (!self.eval_settings().set(name, value) && !self.fetch_settings().set(name, value))
+                throw nix::UsageError("'%s' is not an evaluator or fetcher setting", name);
         """)
 
     @inert
@@ -1697,13 +1697,13 @@ if (!self.eval_settings().set(name, value) && !self.fetch_settings().set(name, v
         over the state's base environment. Stretching the marker to
         cover it would make it a description of structure."""
         Cxx("""
-if (expr.empty())
-    throw std::invalid_argument("empty expression");
-auto * e = self.state().parseExprFromString(
-    expr, self.state().rootPath(std::string_view(base ? *base : ".")));
-auto * made = self.alloc();
-made->mkThunk(&self.state().baseEnv, e);
-return self.wrap(made);
+            if (expr.empty())
+                throw std::invalid_argument("empty expression");
+            auto * e = self.state().parseExprFromString(
+                expr, self.state().rootPath(std::string_view(base ? *base : ".")));
+            auto * made = self.alloc();
+            made->mkThunk(&self.state().baseEnv, e);
+            return self.wrap(made);
         """)
 
     def eval_expr(self, expr: Str, base: Opt[Str] = None) -> Value:
@@ -1714,14 +1714,14 @@ return self.wrap(made);
         `nix eval --expr` has it. A remote caller wants its own: the
         server's working directory is not the client's."""
         Cxx("""
-if (expr.empty())
-    throw std::invalid_argument("empty expression");
-auto * e = self.state().parseExprFromString(
-    expr, self.state().rootPath(std::string_view(base ? *base : ".")));
-auto * made = self.alloc();
-self.state().eval(e, *made);
-self.state().forceValue(*made, nix::noPos);
-return self.wrap(made);
+            if (expr.empty())
+                throw std::invalid_argument("empty expression");
+            auto * e = self.state().parseExprFromString(
+                expr, self.state().rootPath(std::string_view(base ? *base : ".")));
+            auto * made = self.alloc();
+            self.state().eval(e, *made);
+            self.state().forceValue(*made, nix::noPos);
+            return self.wrap(made);
         """)
 
     @needs(Local("nix/cmd/common-eval-args.hh"))
@@ -1755,11 +1755,11 @@ return self.wrap(made);
         is what makes the call cheap enough to be worth caching."""
         # The cache hit: eval.cc:1118.
         Cxx("""
-if (path.empty())
-    throw std::invalid_argument("empty path");
-auto * made = self.alloc();
-self.state().evalFile(nix::lookupFileArg(self.state(), path), *made);
-return self.wrap(made);
+            if (path.empty())
+                throw std::invalid_argument("empty path");
+            auto * made = self.alloc();
+            self.state().evalFile(nix::lookupFileArg(self.state(), path), *made);
+            return self.wrap(made);
         """)
 
     @needs(Local("nix/fetchers/fetch-to-store.hh"), Local("nix/util/mounted-source-accessor.hh"))
@@ -1785,14 +1785,14 @@ return self.wrap(made);
         mounted, so a caller cannot replace a real store object, and
         the evaluator reads the store's own copy."""
         Cxx("""
-auto & state = self.state();
-nix::ref<nix::SourceAccessor> tree{accessor};
-auto at = path ? *path : nix::fetchToStore2(
-    state.fetchSettings, *state.store, nix::SourcePath{tree}, nix::FetchMode::DryRun, name).first;
-state.allowPath(at);
-if (!path || !state.store->isValidPath(at))
-    state.storeFS->mount(nix::CanonPath(state.store->printStorePath(at)), tree);
-return at;
+            auto & state = self.state();
+            nix::ref<nix::SourceAccessor> tree{accessor};
+            auto at = path ? *path : nix::fetchToStore2(
+                state.fetchSettings, *state.store, nix::SourcePath{tree}, nix::FetchMode::DryRun, name).first;
+            state.allowPath(at);
+            if (!path || !state.store->isValidPath(at))
+                state.storeFS->mount(nix::CanonPath(state.store->printStorePath(at)), tree);
+            return at;
         """)
 
     @blocks
@@ -1805,9 +1805,9 @@ return at;
         the evaluator's thread. `show_trace` prints every frame, as
         `--show-trace` does."""
         Cxx("""
-std::ostringstream out;
-nix::showErrorInfo(out, error.error.held(), show_trace);
-return out.str();
+            std::ostringstream out;
+            nix::showErrorInfo(out, error.error.held(), show_trace);
+            return out.str();
         """)
 
     def cached_files(self) -> Vec[Str]:
@@ -1889,11 +1889,11 @@ return out.str();
         # The closure: nixidae/nixidae#553. The diff: nixidae/nixidae#620.
         # The lstat cache: nixidae/nixidae#903.
         Cxx("""
-if (path.empty())
-    throw std::invalid_argument("empty path");
-auto root = self.state().rootPath(path);
-huggorm::forget_file(self.state(), root);
-huggorm::invalidate_cache(root);
+            if (path.empty())
+                throw std::invalid_argument("empty path");
+            auto root = self.state().rootPath(path);
+            huggorm::forget_file(self.state(), root);
+            huggorm::invalidate_cache(root);
         """)
 
     @instant
@@ -1963,11 +1963,11 @@ huggorm::invalidate_cache(root);
         # two instances at shutdown, and the C++ side's weak reference
         # broke the wrong arm (nixidae/nixidae#630). A gate holds zero.
         Cxx("""
-if (name.empty())
-    throw std::invalid_argument("empty name");
-if (arity < 0)
-    throw std::invalid_argument("arity must not be negative");
-self.register_primop(name, static_cast<std::size_t>(arity), fn);
+            if (name.empty())
+                throw std::invalid_argument("empty name");
+            if (arity < 0)
+                throw std::invalid_argument("arity must not be negative");
+            self.register_primop(name, static_cast<std::size_t>(arity), fn);
         """)
 
     @instant
@@ -1988,9 +1988,9 @@ self.register_primop(name, static_cast<std::size_t>(arity), fn);
         does. So each call keeps one more callable, and a primop that
         makes a function on every call grows the state."""
         Cxx("""
-if (arity < 1)
-    throw std::invalid_argument("arity must be at least 1");
-return self.make_primop(name, static_cast<std::size_t>(arity), fn);
+            if (arity < 1)
+                throw std::invalid_argument("arity must be at least 1");
+            return self.make_primop(name, static_cast<std::size_t>(arity), fn);
         """)
 
     @subscription(Subscription.OPEN)
@@ -2036,13 +2036,13 @@ return self.make_primop(name, static_cast<std::size_t>(arity), fn);
         # `eval-cores` in the 2.35 or the git lane. The ceiling: nixidae/nixidae#639. Lowering
         # again: nixidae/nixidae#632. No pin since nixidae/nixidae#626 step 4.
         Cxx("""
-if (capacity < 1)
-    throw std::invalid_argument("capacity must be at least 1");
-if (level < 0)
-    throw std::invalid_argument("level must not be negative");
-(void) self;
-return huggorm::subscribe_logs(static_cast<std::size_t>(capacity),
-                               static_cast<std::uint64_t>(level));
+            if (capacity < 1)
+                throw std::invalid_argument("capacity must be at least 1");
+            if (level < 0)
+                throw std::invalid_argument("level must not be negative");
+            (void) self;
+            return huggorm::subscribe_logs(static_cast<std::size_t>(capacity),
+                                           static_cast<std::uint64_t>(level));
         """)
 
     @subscription(Subscription.CLOSE)
@@ -2069,8 +2069,8 @@ return huggorm::subscribe_logs(static_cast<std::size_t>(capacity),
         leave that stream connected and silent."""
         # Thread exit: nixidae/nixidae#633. The fan-out: nixidae/nixidae#622.
         Cxx("""
-(void) self;
-huggorm::unsubscribe_logs();
+            (void) self;
+            huggorm::unsubscribe_logs();
         """)
 
     def force(self, v: Value) -> None:
@@ -2114,12 +2114,12 @@ huggorm::unsubscribe_logs();
         second argument, so the call is not "the initialiser with the
         declared arguments"."""
         Cxx("""
-nix::NixStringContext parsed;
-for (auto & element : context)
-    parsed.insert(nix::NixStringContextElem::parse(element));
-auto * made = self.alloc();
-made->mkString(value, parsed, self.state().mem);
-return self.wrap(made);
+            nix::NixStringContext parsed;
+            for (auto & element : context)
+                parsed.insert(nix::NixStringContextElem::parse(element));
+            auto * made = self.alloc();
+            made->mkString(value, parsed, self.state().mem);
+            return self.wrap(made);
         """)
 
     @produces("mkBool")
@@ -2136,9 +2136,9 @@ return self.wrap(made);
     def make_list(self) -> Value:
         """An empty list. Fill it with `list_append`."""
         Cxx("""
-auto * made = self.alloc();
-made->mkList(self.state().buildList(0));
-return self.wrap_builder(made);
+            auto * made = self.alloc();
+            made->mkList(self.state().buildList(0));
+            return self.wrap_builder(made);
         """)
 
     @fills("make_list", "list")
@@ -2151,10 +2151,10 @@ return self.wrap_builder(made);
     def make_attrs(self) -> Value:
         """An empty attribute set. Fill it with `attrs_set`."""
         Cxx("""
-auto * made = self.alloc();
-auto builder = self.state().buildBindings(0);
-made->mkAttrs(builder);
-return self.wrap_builder(made);
+            auto * made = self.alloc();
+            auto builder = self.state().buildBindings(0);
+            made->mkAttrs(builder);
+            return self.wrap_builder(made);
         """)
 
     @fills("make_attrs", "attrs")
@@ -2206,27 +2206,27 @@ return self.wrap_builder(made);
 
         THIS FETCHES what is not locked yet, into this state's store."""
         Cxx("""
-self.state().inputCache->clear();
-auto flake_settings = huggorm::call_settings<nix::flake::Settings>(settings);
-nix::flake::LockFlags flags;
-flags.recreateLockFile = recreate;
-flags.writeLockFile = write_lock_file;
-flags.failOnUnlocked = fail_on_unlocked;
-for (auto & input : update) {
-    auto path = nix::flake::NonEmptyInputAttrPath::parse(input);
-    if (!path)
-        throw nix::UsageError("an input path must not be empty: '%s'", input);
-    flags.inputUpdates.insert(*path);
-}
-if (apply_nix_config) {
-    // `lockFlake`'s own first step, so its `getFlake` comes from the input cache.
-    auto flake = nix::flake::getFlake(
-        self.state(), ref,
-        flake_settings->useRegistries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
-    huggorm::apply_flake_config(flake.config, *flake_settings, self.eval_settings(), self.fetch_settings());
-    self.state().store->setOptions();
-}
-return self.keep(nix::flake::lockFlake(*flake_settings, self.state(), ref, flags));
+            self.state().inputCache->clear();
+            auto flake_settings = huggorm::call_settings<nix::flake::Settings>(settings);
+            nix::flake::LockFlags flags;
+            flags.recreateLockFile = recreate;
+            flags.writeLockFile = write_lock_file;
+            flags.failOnUnlocked = fail_on_unlocked;
+            for (auto & input : update) {
+                auto path = nix::flake::NonEmptyInputAttrPath::parse(input);
+                if (!path)
+                    throw nix::UsageError("an input path must not be empty: '%s'", input);
+                flags.inputUpdates.insert(*path);
+            }
+            if (apply_nix_config) {
+                // `lockFlake`'s own first step, so its `getFlake` comes from the input cache.
+                auto flake = nix::flake::getFlake(
+                    self.state(), ref,
+                    flake_settings->useRegistries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
+                huggorm::apply_flake_config(flake.config, *flake_settings, self.eval_settings(), self.fetch_settings());
+                self.state().store->setOptions();
+            }
+            return self.keep(nix::flake::lockFlake(*flake_settings, self.state(), ref, flags));
         """)
 
     def repl(self) -> Repl:
@@ -2237,9 +2237,9 @@ return self.keep(nix::flake::lockFlake(*flake_settings, self.state(), ref, flags
         """The flake's outputs, as `builtins.getFlake` gives them:
         unforced, so no output is evaluated until it is read."""
         Cxx("""
-auto * made = self.alloc();
-nix::flake::callFlake(self.state(), locked.locked, *made);
-return self.wrap(made);
+            auto * made = self.alloc();
+            nix::flake::callFlake(self.state(), locked.locked, *made);
+            return self.wrap(made);
         """)
 
     @needs(Local("nix/fetchers/input-cache.hh"))
@@ -2250,11 +2250,11 @@ return self.wrap(made);
 
         THIS FETCHES the flake, into this state's store."""
         Cxx("""
-self.state().inputCache->clear();
-auto flake = nix::flake::getFlake(
-    self.state(), ref,
-    use_registries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
-return flake.resolvedRef;
+            self.state().inputCache->clear();
+            auto flake = nix::flake::getFlake(
+                self.state(), ref,
+                use_registries ? nix::fetchers::UseRegistries::All : nix::fetchers::UseRegistries::No);
+            return flake.resolvedRef;
         """)
 
     @needs(Local("nlohmann/json.hpp"), Local("nix/fetchers/attrs.hh"))
@@ -2264,31 +2264,31 @@ return flake.resolvedRef;
         `CmdFlakeMetadata::run`, line for line. The store is the build
         store, as Nix uses the store of the command."""
         Cxx("""
-auto & lockedFlake = locked.locked;
-auto & flake = lockedFlake.flake;
-auto & store = *self.state().buildStore;
-nlohmann::json j;
-if (flake.description)
-    j["description"] = *flake.description;
-j["originalUrl"] = flake.originalRef.to_string();
-j["original"] = nix::fetchers::attrsToJSON(flake.originalRef.toAttrs());
-j["resolvedUrl"] = flake.resolvedRef.to_string();
-j["resolved"] = nix::fetchers::attrsToJSON(flake.resolvedRef.toAttrs());
-j["url"] = flake.lockedRef.to_string();
-j["locked"] = nix::fetchers::attrsToJSON(flake.lockedRef.toAttrs());
-if (auto rev = flake.lockedRef.input.getRev())
-    j["revision"] = rev->to_string(nix::HashFormat::Base16, false);
-if (auto dirty = nix::fetchers::maybeGetStrAttr(flake.lockedRef.toAttrs(), "dirtyRev"))
-    j["dirtyRevision"] = *dirty;
-if (auto count = flake.lockedRef.input.getRevCount())
-    j["revCount"] = *count;
-if (auto modified = flake.lockedRef.input.getLastModified())
-    j["lastModified"] = *modified;
-j["path"] = store.printStorePath(store.toStorePath(flake.path.path.abs()).first);
-j["locks"] = lockedFlake.lockFile.toJSON().first;
-if (auto fingerprint = lockedFlake.getFingerprint(store, self.state().fetchSettings))
-    j["fingerprint"] = fingerprint->to_string(nix::HashFormat::Base16, false);
-return j.dump();
+            auto & lockedFlake = locked.locked;
+            auto & flake = lockedFlake.flake;
+            auto & store = *self.state().buildStore;
+            nlohmann::json j;
+            if (flake.description)
+                j["description"] = *flake.description;
+            j["originalUrl"] = flake.originalRef.to_string();
+            j["original"] = nix::fetchers::attrsToJSON(flake.originalRef.toAttrs());
+            j["resolvedUrl"] = flake.resolvedRef.to_string();
+            j["resolved"] = nix::fetchers::attrsToJSON(flake.resolvedRef.toAttrs());
+            j["url"] = flake.lockedRef.to_string();
+            j["locked"] = nix::fetchers::attrsToJSON(flake.lockedRef.toAttrs());
+            if (auto rev = flake.lockedRef.input.getRev())
+                j["revision"] = rev->to_string(nix::HashFormat::Base16, false);
+            if (auto dirty = nix::fetchers::maybeGetStrAttr(flake.lockedRef.toAttrs(), "dirtyRev"))
+                j["dirtyRevision"] = *dirty;
+            if (auto count = flake.lockedRef.input.getRevCount())
+                j["revCount"] = *count;
+            if (auto modified = flake.lockedRef.input.getLastModified())
+                j["lastModified"] = *modified;
+            j["path"] = store.printStorePath(store.toStorePath(flake.path.path.abs()).first);
+            j["locks"] = lockedFlake.lockFile.toJSON().first;
+            if (auto fingerprint = lockedFlake.getFingerprint(store, self.state().fetchSettings))
+                j["fingerprint"] = fingerprint->to_string(nix::HashFormat::Base16, false);
+            return j.dump();
         """)
 
     @inert
@@ -2301,7 +2301,7 @@ return j.dump();
         fields read zero until `set_eval_counters_enabled(True)`, and
         the call tables stay empty unless `count-calls` is set."""
         Cxx("""
-return self.state().statisticsJSON();
+            return self.state().statisticsJSON();
         """)
 
 
@@ -2318,28 +2318,28 @@ def gc_stats() -> Map[I64]:
     `UnimplementedError`, because a map of zeros would read as a
     measurement."""
     Cxx("""
-#if !NIX_USE_BOEHMGC
-huggorm::no_collector("read the collector's counters");
-#else
-return {
-    {"heap_size", static_cast<std::int64_t>(GC_get_heap_size())},
-    {"total_bytes", static_cast<std::int64_t>(GC_get_total_bytes())},
-    {"bytes_since_gc", static_cast<std::int64_t>(GC_get_bytes_since_gc())},
-    {"collections", static_cast<std::int64_t>(GC_get_gc_no())},
-    {"used_bytes",
-     static_cast<std::int64_t>(GC_get_heap_size() - GC_get_free_bytes())},
-    // Uncollectable blocks, and every root is one: the number moves with
-    // the live roots, in bytes rather than in count.
-    {"non_gc_bytes", static_cast<std::int64_t>(GC_get_non_gc_bytes())},
-    // OURS, not the collector's: how many roots this process holds. A
-    // root that is never dropped keeps its value alive forever, and no
-    // heap counter can tell that from a heap that simply grew.
-    {"live_roots", huggorm::live_roots().load()},
-    // OURS too: REPL environments freed. A held scope must never
-    // count here, and nothing else can tell.
-    {"scopes_collected", huggorm::scopes_collected().load()},
-};
-#endif
+        #if !NIX_USE_BOEHMGC
+        huggorm::no_collector("read the collector's counters");
+        #else
+        return {
+            {"heap_size", static_cast<std::int64_t>(GC_get_heap_size())},
+            {"total_bytes", static_cast<std::int64_t>(GC_get_total_bytes())},
+            {"bytes_since_gc", static_cast<std::int64_t>(GC_get_bytes_since_gc())},
+            {"collections", static_cast<std::int64_t>(GC_get_gc_no())},
+            {"used_bytes",
+             static_cast<std::int64_t>(GC_get_heap_size() - GC_get_free_bytes())},
+            // Uncollectable blocks, and every root is one: the number moves with
+            // the live roots, in bytes rather than in count.
+            {"non_gc_bytes", static_cast<std::int64_t>(GC_get_non_gc_bytes())},
+            // OURS, not the collector's: how many roots this process holds. A
+            // root that is never dropped keeps its value alive forever, and no
+            // heap counter can tell that from a heap that simply grew.
+            {"live_roots", huggorm::live_roots().load()},
+            // OURS too: REPL environments freed. A held scope must never
+            // count here, and nothing else can tell.
+            {"scopes_collected", huggorm::scopes_collected().load()},
+        };
+        #endif
     """)
 
 
@@ -2368,7 +2368,7 @@ def collector_owner_thread() -> I64:
     for as long as the process lives, so it must not exit. It is the
     thread that imported huggorm."""
     Cxx("""
-return huggorm::gc_owner().load(std::memory_order_acquire);
+        return huggorm::gc_owner().load(std::memory_order_acquire);
     """)
 
 
@@ -2410,7 +2410,7 @@ def process_verbosity() -> I64:
     write races. Not what any subscriber KEEPS - that is per thread
     and `subscribe_logs` sets it."""
     Cxx("""
-return static_cast<std::int64_t>(nix::verbosity);
+        return static_cast<std::int64_t>(nix::verbosity);
     """)
 
 
@@ -2422,7 +2422,7 @@ def daemon_verbosity() -> I64:
 
     A connection already open keeps what its handshake sent."""
     Cxx("""
-return static_cast<std::int64_t>(nix::remoteVerbosity.load(std::memory_order_relaxed));
+        return static_cast<std::int64_t>(nix::remoteVerbosity.load(std::memory_order_relaxed));
     """)
 
 
@@ -2438,7 +2438,7 @@ def thread_verbosity() -> I64:
     about the calling thread, and a hop to the pool would read a pool
     thread."""
     Cxx("""
-return static_cast<std::int64_t>(huggorm::effective_verbosity());
+        return static_cast<std::int64_t>(huggorm::effective_verbosity());
     """)
 
 
@@ -2454,9 +2454,9 @@ def set_thread_verbosity(level: I64) -> None:
     `subscribe_logs` replaces this level, and `unsubscribe_logs`
     clears it: one thread holds one level."""
     Cxx("""
-if (level < 0 || level > std::to_underlying(nix::lvlVomit))
-    throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
-huggorm::thread_level().set(static_cast<nix::Verbosity>(level));
+        if (level < 0 || level > std::to_underlying(nix::lvlVomit))
+            throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
+        huggorm::thread_level().set(static_cast<nix::Verbosity>(level));
     """)
 
 
@@ -2464,7 +2464,7 @@ huggorm::thread_level().set(static_cast<nix::Verbosity>(level));
 def clear_thread_verbosity() -> None:
     """Take this thread's own level away, so it follows the default."""
     Cxx("""
-huggorm::thread_level().clear();
+        huggorm::thread_level().clear();
     """)
 
 
@@ -2475,8 +2475,8 @@ def default_verbosity() -> I64:
     Nix starts threads this binding never sees - a file transfer, a
     substituter - and each of them keeps records at this level."""
     Cxx("""
-return static_cast<std::int64_t>(
-    huggorm::default_verbosity().load(std::memory_order_relaxed));
+        return static_cast<std::int64_t>(
+            huggorm::default_verbosity().load(std::memory_order_relaxed));
     """)
 
 
@@ -2488,9 +2488,9 @@ def set_default_verbosity(level: I64) -> None:
     subscription does. `subscribe_process_logs` sets this too, and
     `unsubscribe_process_logs` puts nix's own `lvlInfo` back."""
     Cxx("""
-if (level < 0 || level > std::to_underlying(nix::lvlVomit))
-    throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
-huggorm::set_default_verbosity(static_cast<nix::Verbosity>(level));
+        if (level < 0 || level > std::to_underlying(nix::lvlVomit))
+            throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
+        huggorm::set_default_verbosity(static_cast<nix::Verbosity>(level));
     """)
 
 
@@ -2501,9 +2501,9 @@ def log_message(level: I64, message: Str) -> None:
     The same call a Nix builtin makes, so a subscriber receives it as
     a `msg` record, and the level filters it as it filters Nix's own."""
     Cxx("""
-if (level < 0 || level > std::to_underlying(nix::lvlVomit))
-    throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
-nix::logger->log(static_cast<nix::Verbosity>(level), message);
+        if (level < 0 || level > std::to_underlying(nix::lvlVomit))
+            throw std::invalid_argument("level must be from 0 (error) to 7 (vomit)");
+        nix::logger->log(static_cast<nix::Verbosity>(level), message);
     """)
 
 
@@ -2513,7 +2513,7 @@ def current_request() -> I64:
 
     No `@threading`, for `begin_request`'s reason."""
     Cxx("""
-return static_cast<std::int64_t>(huggorm::thread_request());
+        return static_cast<std::int64_t>(huggorm::thread_request());
     """)
 
 
@@ -2537,13 +2537,13 @@ def begin_request(request: I64) -> I64:
     hops through an executor and arrives on a thread of its own. One
     word of state removes the question anyway."""
     Cxx("""
-if (request < 0)
-    throw std::invalid_argument("request id must not be negative");
-huggorm::install_interrupt_check();
-auto & slot = huggorm::thread_request();
-auto previous = slot;
-slot = static_cast<std::uint64_t>(request);
-return static_cast<std::int64_t>(previous);
+        if (request < 0)
+            throw std::invalid_argument("request id must not be negative");
+        huggorm::install_interrupt_check();
+        auto & slot = huggorm::thread_request();
+        auto previous = slot;
+        slot = static_cast<std::uint64_t>(request);
+        return static_cast<std::int64_t>(previous);
     """)
 
 
@@ -2566,12 +2566,12 @@ def end_request(previous: I64) -> None:
     `SimpleLogger` and a marker has no text to print, so an
     unsubscribed caller simply never sees one."""
     Cxx("""
-if (previous < 0)
-    throw std::invalid_argument("request id must not be negative");
-auto & slot = huggorm::thread_request();
-if (slot != 0)
-    huggorm::route({.action = "finalized", .request = slot});
-slot = static_cast<std::uint64_t>(previous);
+        if (previous < 0)
+            throw std::invalid_argument("request id must not be negative");
+        auto & slot = huggorm::thread_request();
+        if (slot != 0)
+            huggorm::route({.action = "finalized", .request = slot});
+        slot = static_cast<std::uint64_t>(previous);
     """)
 
 
@@ -2589,9 +2589,9 @@ def cancel_request(request: I64) -> None:
     until `forget_request`, so an id is never reused while one is
     pending."""
     Cxx("""
-if (request <= 0)
-    throw std::invalid_argument("request id must be positive");
-huggorm::cancellations().cancel(static_cast<std::uint64_t>(request));
+        if (request <= 0)
+            throw std::invalid_argument("request id must be positive");
+        huggorm::cancellations().cancel(static_cast<std::uint64_t>(request));
     """)
 
 
@@ -2603,9 +2603,9 @@ def forget_request(request: I64) -> None:
     call ended, and only the canceller knows when it has stopped
     waiting."""
     Cxx("""
-if (request <= 0)
-    throw std::invalid_argument("request id must be positive");
-huggorm::cancellations().forget(static_cast<std::uint64_t>(request));
+        if (request <= 0)
+            throw std::invalid_argument("request id must be positive");
+        huggorm::cancellations().forget(static_cast<std::uint64_t>(request));
     """)
 
 
@@ -2620,13 +2620,13 @@ def begin_interrupt_scope(scope: I64) -> I64:
 
     No `@threading`, for `begin_request`'s reason."""
     Cxx("""
-if (scope < 0)
-    throw std::invalid_argument("scope id must not be negative");
-huggorm::install_interrupt_check();
-auto & slot = huggorm::thread_interrupt_scope();
-auto previous = slot;
-slot = static_cast<std::uint64_t>(scope);
-return static_cast<std::int64_t>(previous);
+        if (scope < 0)
+            throw std::invalid_argument("scope id must not be negative");
+        huggorm::install_interrupt_check();
+        auto & slot = huggorm::thread_interrupt_scope();
+        auto previous = slot;
+        slot = static_cast<std::uint64_t>(scope);
+        return static_cast<std::int64_t>(previous);
     """)
 
 
@@ -2634,9 +2634,9 @@ return static_cast<std::int64_t>(previous);
 def end_interrupt_scope(previous: I64) -> None:
     """Disarm this thread's scope, and restore the one before."""
     Cxx("""
-if (previous < 0)
-    throw std::invalid_argument("scope id must not be negative");
-huggorm::thread_interrupt_scope() = static_cast<std::uint64_t>(previous);
+        if (previous < 0)
+            throw std::invalid_argument("scope id must not be negative");
+        huggorm::thread_interrupt_scope() = static_cast<std::uint64_t>(previous);
     """)
 
 
@@ -2648,9 +2648,9 @@ def cancel_interrupt_scope(scope: I64) -> None:
     `checkInterrupt`, and the scope stays cancelled until
     `forget_interrupt_scope`."""
     Cxx("""
-if (scope <= 0)
-    throw std::invalid_argument("scope id must be positive");
-huggorm::scope_cancellations().cancel(static_cast<std::uint64_t>(scope));
+        if (scope <= 0)
+            throw std::invalid_argument("scope id must be positive");
+        huggorm::scope_cancellations().cancel(static_cast<std::uint64_t>(scope));
     """)
 
 
@@ -2658,9 +2658,9 @@ huggorm::scope_cancellations().cancel(static_cast<std::uint64_t>(scope));
 def forget_interrupt_scope(scope: I64) -> None:
     """Drop a scope's cancellation once nothing runs inside it."""
     Cxx("""
-if (scope <= 0)
-    throw std::invalid_argument("scope id must be positive");
-huggorm::scope_cancellations().forget(static_cast<std::uint64_t>(scope));
+        if (scope <= 0)
+            throw std::invalid_argument("scope id must be positive");
+        huggorm::scope_cancellations().forget(static_cast<std::uint64_t>(scope));
     """)
 
 
@@ -2683,11 +2683,11 @@ def get_setting(name: Str) -> Opt[Str]:
     fetchers'. The value is Nix's own rendering, so a list comes back
     space-separated, the way nix.conf spells it."""
     Cxx("""
-std::map<std::string, nix::Config::SettingInfo> all;
-nix::globalConfig.getSettings(all);
-if (auto i = all.find(name); i != all.end())
-    return i->second.value;
-return std::nullopt;
+        std::map<std::string, nix::Config::SettingInfo> all;
+        nix::globalConfig.getSettings(all);
+        if (auto i = all.find(name); i != all.end())
+            return i->second.value;
+        return std::nullopt;
     """)
 
 
@@ -2699,7 +2699,7 @@ def load_config() -> None:
     configuration reaches a process only when the caller asks. A
     state built before the call keeps what it read."""
     Cxx("""
-nix::loadConfFile(nix::globalConfig);
+        nix::loadConfFile(nix::globalConfig);
     """)
 
 
@@ -2719,11 +2719,11 @@ def init_plugins() -> Bint:
     huggorm's `nix-tcp-store` does. Another build of Nix loads a second
     copy of each library into the process."""
     Cxx("""
-static std::atomic<bool> loaded{false};
-if (loaded.exchange(true))
-    return false;
-nix::initPlugins();
-return true;
+        static std::atomic<bool> loaded{false};
+        if (loaded.exchange(true))
+            return false;
+        nix::initPlugins();
+        return true;
     """)
 
 
@@ -2739,8 +2739,8 @@ def set_setting(name: Str, value: Str) -> None:
     `GlobalConfig::set` answers false there and says nothing, which
     is how a misspelt name would otherwise vanish."""
     Cxx("""
-if (!nix::globalConfig.set(name, value))
-    throw nix::UsageError("unknown setting '%s'", name);
+        if (!nix::globalConfig.set(name, value))
+            throw nix::UsageError("unknown setting '%s'", name);
     """)
 
 
@@ -2776,12 +2776,12 @@ def list_settings(overridden_only: Bint = False) -> Map[Str]:
     `overridden_only` keeps the ones something set: nix.conf,
     NIX_CONFIG or `set_setting`. Nix tracks that per setting."""
     Cxx("""
-std::map<std::string, nix::Config::SettingInfo> all;
-nix::globalConfig.getSettings(all, overridden_only);
-std::map<std::string, std::string> out;
-for (auto & [key, info] : all)
-    out.emplace(key, info.value);
-return out;
+        std::map<std::string, nix::Config::SettingInfo> all;
+        nix::globalConfig.getSettings(all, overridden_only);
+        std::map<std::string, std::string> out;
+        for (auto & [key, info] : all)
+            out.emplace(key, info.value);
+        return out;
     """)
 
 
@@ -2793,7 +2793,7 @@ def reset_overridden() -> None:
     a caller that applies its own settings resets first, and then
     reads back exactly what it applied."""
     Cxx("""
-nix::globalConfig.resetOverridden();
+        nix::globalConfig.resetOverridden();
     """)
 
 
@@ -2817,12 +2817,12 @@ def enable_experimental_feature(name: Str) -> None:
     what the configuration and the caller set. Raises `UsageError` for
     a name this Nix does not know, where the setting only warns."""
     Cxx("""
-auto feature = nix::parseExperimentalFeature(name);
-if (!feature)
-    throw nix::UsageError("unknown experimental feature '%s'", name);
-auto features = nix::experimentalFeatureSettings.experimentalFeatures.get();
-features.insert(*feature);
-nix::experimentalFeatureSettings.experimentalFeatures = features;
+        auto feature = nix::parseExperimentalFeature(name);
+        if (!feature)
+            throw nix::UsageError("unknown experimental feature '%s'", name);
+        auto features = nix::experimentalFeatureSettings.experimentalFeatures.get();
+        features.insert(*feature);
+        nix::experimentalFeatureSettings.experimentalFeatures = features;
     """)
 
 
@@ -2834,7 +2834,7 @@ def settings_json() -> Str:
     experimental feature a setting needs. What `nix config show
     --json` prints, less the settings of libraries not linked here."""
     Cxx("""
-return nix::globalConfig.toJSON().dump();
+        return nix::globalConfig.toJSON().dump();
     """)
 
 
@@ -2845,7 +2845,7 @@ def eval_settings_json() -> Str:
     libcmd's `nix::evalSettings`, which nix.conf fills and each state
     copies. A state's own settings are not in it."""
     Cxx("""
-return nix::evalSettings.toJSON().dump();
+        return nix::evalSettings.toJSON().dump();
     """)
 
 
@@ -2856,7 +2856,7 @@ def fetch_settings_json() -> Str:
     libcmd's `nix::fetchSettings`, as `eval_settings_json` reads
     `nix::evalSettings`."""
     Cxx("""
-return nix::fetchSettings.toJSON().dump();
+        return nix::fetchSettings.toJSON().dump();
     """)
 
 
@@ -2867,7 +2867,7 @@ def flake_settings_json() -> Str:
     libcmd's `nix::flakeSettings`, as `eval_settings_json` reads
     `nix::evalSettings`."""
     Cxx("""
-return nix::flakeSettings.toJSON().dump();
+        return nix::flakeSettings.toJSON().dump();
     """)
 
 
@@ -2879,8 +2879,8 @@ def parse_nix_path(value: Str) -> Vec[Str]:
     stays one entry. The environment is not read here; the caller
     passes the value it means."""
     Cxx("""
-auto entries = nix::EvalSettings::parseNixPath(value);
-return std::vector<std::string>(entries.begin(), entries.end());
+        auto entries = nix::EvalSettings::parseNixPath(value);
+        return std::vector<std::string>(entries.begin(), entries.end());
     """)
 
 
@@ -2888,7 +2888,7 @@ return std::vector<std::string>(entries.begin(), entries.end());
 def is_pseudo_url(value: Str) -> Bint:
     """Whether a search path entry is a URL Nix fetches, not a path."""
     Cxx("""
-return nix::EvalSettings::isPseudoUrl(value);
+        return nix::EvalSettings::isPseudoUrl(value);
     """)
 
 
@@ -2899,7 +2899,7 @@ def current_system() -> Str:
     `eval-system`, or the machine's `system` when that is empty. An
     `EvalState` built with its own `eval-system` answers its own."""
     Cxx("""
-return nix::evalSettings.getCurrentSystem();
+        return nix::evalSettings.getCurrentSystem();
     """)
 
 
@@ -2908,7 +2908,7 @@ def nix_version() -> Str:
     """The version of the Nix these bindings link, as `nix --version`
     prints it."""
     Cxx("""
-return nix::nixVersion;
+        return nix::nixVersion;
     """)
 
 
@@ -2921,7 +2921,7 @@ if DETERMINATE:
 
         Only a build that links Determinate Nix has it."""
         Cxx("""
-return nix::determinateNixVersion;
+            return nix::determinateNixVersion;
         """)
 
 
@@ -2934,7 +2934,7 @@ def eval_counters_enabled() -> Bint:
     so Nix keeps one static rather than a field per evaluator, and the
     switch belongs to every evaluator at once."""
     Cxx("""
-return nix::Counter::enabled;
+        return nix::Counter::enabled;
     """)
 
 
@@ -2947,7 +2947,7 @@ def set_eval_counters_enabled(enabled: Bint) -> None:
     `NIX_SHOW_STATS` is set, because each increment is an atomic
     write."""
     Cxx("""
-nix::Counter::enabled = enabled;
+        nix::Counter::enabled = enabled;
     """)
 
 
@@ -2958,7 +2958,7 @@ def boehm_gc() -> Bint:
     A build without it never frees a value, which is tolerable only
     in a process that ends soon."""
     Cxx("""
-return static_cast<bool>(NIX_USE_BOEHMGC);
+        return static_cast<bool>(NIX_USE_BOEHMGC);
     """)
 
 
@@ -3017,12 +3017,12 @@ def subscribe_process_logs(capacity: I64 = 1024, level: I64 = 3) -> LogStream:
     # nixidae/nixidae#622: the build log, and the third gap. nixidae/nixidae#633: the
     # open daemon connection.
     Cxx("""
-if (capacity < 1)
-    throw std::invalid_argument("capacity must be at least 1");
-if (level < 0)
-    throw std::invalid_argument("level must not be negative");
-return huggorm::subscribe_process_logs(static_cast<std::size_t>(capacity),
-                                       static_cast<std::uint64_t>(level));
+        if (capacity < 1)
+            throw std::invalid_argument("capacity must be at least 1");
+        if (level < 0)
+            throw std::invalid_argument("level must not be negative");
+        return huggorm::subscribe_process_logs(static_cast<std::size_t>(capacity),
+                                               static_cast<std::uint64_t>(level));
     """)
 
 

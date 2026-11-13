@@ -67,16 +67,16 @@ class Hash:
         """Raises when the digest is the wrong length for the
         algorithm. A sha256 is 32 bytes and nothing else is."""
         Cxx("""
-new (self) nix::Hash(algorithm);
-if (digest.size() != self->hashSize)
-    throw nix::BadHash(
-        "a %s digest is %d bytes, not %d",
-        nix::printHashAlgo(algorithm), self->hashSize, digest.size());
-// `c_str`, not `digest[i]`: indexing an nb::bytes hands back an
-// accessor for Python's sake, and this wants the bytes.
-const char * given = digest.c_str();
-for (std::size_t i = 0; i < self->hashSize; ++i)
-    self->hash[i] = static_cast<std::uint8_t>(given[i]);
+            new (self) nix::Hash(algorithm);
+            if (digest.size() != self->hashSize)
+                throw nix::BadHash(
+                    "a %s digest is %d bytes, not %d",
+                    nix::printHashAlgo(algorithm), self->hashSize, digest.size());
+            // `c_str`, not `digest[i]`: indexing an nb::bytes hands back an
+            // accessor for Python's sake, and this wants the bytes.
+            const char * given = digest.c_str();
+            for (std::size_t i = 0; i < self->hashSize; ++i)
+                self->hash[i] = static_cast<std::uint8_t>(given[i]);
         """)
 
     # WIRE ORDER: the two facts, in the order a caller says them.
@@ -93,8 +93,8 @@ for (std::size_t i = 0; i < self->hashSize; ++i)
         some alphabet, and a caller who wants one asks for it by
         name."""
         Cxx("""
-return nb::bytes(
-    reinterpret_cast<const char *>(self.hash), self.hashSize);
+            return nb::bytes(
+                reinterpret_cast<const char *>(self.hash), self.hashSize);
         """)
 
     # --- renderings: a way to print one, not a way to hold one -------
@@ -115,7 +115,7 @@ return nb::bytes(
         The algorithm travels with the digest, so a reader is never
         told separately which one it is."""
         Cxx("""
-return self.to_string(nix::HashFormat::Nix32, /*includeAlgo=*/true);
+            return self.to_string(nix::HashFormat::Nix32, /*includeAlgo=*/true);
         """)
 
     @local
@@ -128,7 +128,7 @@ return self.to_string(nix::HashFormat::Nix32, /*includeAlgo=*/true);
         message and repeating it inside a rendering is the coupling
         this type exists to undo."""
         Cxx("""
-return self.to_string(nix::HashFormat::Base16, /*includeAlgo=*/false);
+            return self.to_string(nix::HashFormat::Base16, /*includeAlgo=*/false);
         """)
 
     @local
@@ -138,7 +138,7 @@ return self.to_string(nix::HashFormat::Base16, /*includeAlgo=*/false);
 
         What a flake lock file and a fetcher argument use."""
         Cxx("""
-return self.to_string(nix::HashFormat::SRI, /*includeAlgo=*/true);
+            return self.to_string(nix::HashFormat::SRI, /*includeAlgo=*/true);
         """)
 
     @local
@@ -147,7 +147,7 @@ return self.to_string(nix::HashFormat::SRI, /*includeAlgo=*/true);
         """The digest in `format`, as `nix hash` prints it: the
         algorithm in front for SRI only."""
         Cxx("""
-return self.to_string(format, format == nix::HashFormat::SRI);
+            return self.to_string(format, format == nix::HashFormat::SRI);
         """)
 
 
@@ -169,8 +169,8 @@ def parse_hash_format(text: Str, algorithm: Opt[HashAlgorithm] = None) -> HashFo
     """The format `text` is written in. `parse_hash` reads it, and
     raises the same errors. `nix hash convert --from` compares it."""
     Cxx("""
-return std::string{
-    nix::printHashFormat(nix::Hash::parseAnyReturningFormat(text, algorithm).second)};
+        return std::string{
+            nix::printHashFormat(nix::Hash::parseAnyReturningFormat(text, algorithm).second)};
     """)
 
 
@@ -190,12 +190,12 @@ def hash_path(path: Path, method: FileIngestionMethod, algorithm: HashAlgorithm)
     `nix hash file` does. `nar` and `git` serialise the object without
     following a symlink."""
     Cxx("""
-if (method == nix::FileIngestionMethod::Flat) {
-    nix::HashSink sink{algorithm};
-    nix::readFile(path, sink);
-    return sink.finish().hash;
-}
-return nix::hashPath(
-    nix::SourcePath{nix::makeFSSourceAccessor(std::filesystem::absolute(path))},
-    method, algorithm).first;
+        if (method == nix::FileIngestionMethod::Flat) {
+            nix::HashSink sink{algorithm};
+            nix::readFile(path, sink);
+            return sink.finish().hash;
+        }
+        return nix::hashPath(
+            nix::SourcePath{nix::makeFSSourceAccessor(std::filesystem::absolute(path))},
+            method, algorithm).first;
     """)

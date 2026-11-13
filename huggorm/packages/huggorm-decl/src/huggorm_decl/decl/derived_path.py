@@ -82,18 +82,18 @@ class OutputsSpec:
         non-empty; this refuses the same two states in libstore's own
         error type."""
         Cxx("""
-if (all) {
-    if (!names.empty())
-        throw nix::UsageError(
-            "outputs: 'all' names nothing, so pass no names");
-    new (self) nix::OutputsSpec{nix::OutputsSpec::All{}};
-} else {
-    if (names.empty())
-        throw nix::UsageError(
-            "outputs: name at least one output, or ask for all");
-    new (self) nix::OutputsSpec{nix::OutputsSpec::Names{
-        std::set<std::string, std::less<>>(names.begin(), names.end())}};
-}
+            if (all) {
+                if (!names.empty())
+                    throw nix::UsageError(
+                        "outputs: 'all' names nothing, so pass no names");
+                new (self) nix::OutputsSpec{nix::OutputsSpec::All{}};
+            } else {
+                if (names.empty())
+                    throw nix::UsageError(
+                        "outputs: name at least one output, or ask for all");
+                new (self) nix::OutputsSpec{nix::OutputsSpec::Names{
+                    std::set<std::string, std::less<>>(names.begin(), names.end())}};
+            }
         """)
 
     # WIRE ORDER: the tag, then what it names.
@@ -108,9 +108,9 @@ if (all) {
         Sorted, because upstream keeps them in a set and the order is
         that set's."""
         Cxx("""
-if (auto * named = std::get_if<nix::OutputsSpec::Names>(&self.raw))
-    return {named->begin(), named->end()};
-return {};
+            if (auto * named = std::get_if<nix::OutputsSpec::Names>(&self.raw))
+                return {named->begin(), named->end()};
+            return {};
         """)
 
 
@@ -133,8 +133,8 @@ class SingleDerivedPathBuilt:
     def __init__(self, drv_path: SingleDerivedPath, output: Str) -> None:
         """Name one output of one derivation."""
         Cxx("""
-new (self) nix::SingleDerivedPathBuilt{
-    nix::make_ref<nix::SingleDerivedPath>(drv_path), output};
+            new (self) nix::SingleDerivedPathBuilt{
+                nix::make_ref<nix::SingleDerivedPath>(drv_path), output};
         """)
 
     def drv_path(self) -> SingleDerivedPath:
@@ -194,8 +194,8 @@ class DerivedPathBuilt:
     def __init__(self, drv_path: SingleDerivedPath, outputs: OutputsSpec) -> None:
         """Ask for some outputs of one derivation."""
         Cxx("""
-new (self) nix::DerivedPathBuilt{
-    nix::make_ref<nix::SingleDerivedPath>(drv_path), outputs};
+            new (self) nix::DerivedPathBuilt{
+                nix::make_ref<nix::SingleDerivedPath>(drv_path), outputs};
         """)
 
     def drv_path(self) -> SingleDerivedPath:

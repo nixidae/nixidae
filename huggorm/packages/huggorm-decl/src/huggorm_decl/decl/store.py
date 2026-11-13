@@ -235,8 +235,8 @@ class Store:
         until then, and a caller that is done with it releases them
         here. Any other store has nothing to close."""
         Cxx("""
-if (auto * remote = dynamic_cast<nix::RemoteStore *>(&self))
-    remote->shutdownConnections();
+            if (auto * remote = dynamic_cast<nix::RemoteStore *>(&self))
+                remote->shutdownConnections();
         """)
 
     @cxx_name("isValidPath")
@@ -290,17 +290,17 @@ if (auto * remote = dynamic_cast<nix::RemoteStore *>(&self))
         same thing, which is what lets the wire carry absence as a
         repeated field with nothing in it."""
         Cxx("""
-std::string contents(data.c_str(), data.size());
-// An lvalue, so the string_view inside cannot dangle - which is
-// the case StringSource deletes its rvalue constructor to stop.
-nix::StringSource dump{contents};
-return self.addToStoreFromDump(
-    dump,
-    name,
-    nix::FileSerialisationMethod::Flat,
-    method,
-    hash_algo,
-    as_set<nix::StorePathSet>(references));
+            std::string contents(data.c_str(), data.size());
+            // An lvalue, so the string_view inside cannot dangle - which is
+            // the case StringSource deletes its rvalue constructor to stop.
+            nix::StringSource dump{contents};
+            return self.addToStoreFromDump(
+                dump,
+                name,
+                nix::FileSerialisationMethod::Flat,
+                method,
+                hash_algo,
+                as_set<nix::StorePathSet>(references));
         """)
 
     @needs(Local("nix/util/source-accessor.hh"))
@@ -343,17 +343,17 @@ return self.addToStoreFromDump(
         same thing, which is what lets the wire carry absence as a
         repeated field with nothing in it."""
         Cxx("""
-// The root filesystem's accessor, which every Nix from 2.34 has;
-// 2.35 removed `PosixSourceAccessor::createAtRoot`.
-nix::SourcePath source{
-    nix::getFSSourceAccessor(),
-    nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
-return self.addToStore(
-    name,
-    source,
-    method,
-    hash_algo,
-    as_set<nix::StorePathSet>(references));
+            // The root filesystem's accessor, which every Nix from 2.34 has;
+            // 2.35 removed `PosixSourceAccessor::createAtRoot`.
+            nix::SourcePath source{
+                nix::getFSSourceAccessor(),
+                nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
+            return self.addToStore(
+                name,
+                source,
+                method,
+                hash_algo,
+                as_set<nix::StorePathSet>(references));
         """)
 
     @needs(Local("nix/util/source-accessor.hh"))
@@ -371,17 +371,17 @@ return self.addToStore(
         file is hashed where the store is, and the store is not
         written. What `nix store add --dry-run` answers."""
         Cxx("""
-// The root filesystem's accessor, which every Nix from 2.34 has;
-// 2.35 removed `PosixSourceAccessor::createAtRoot`.
-nix::SourcePath source{
-    nix::getFSSourceAccessor(),
-    nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
-return self.computeStorePath(
-    name,
-    source,
-    method,
-    hash_algo,
-    as_set<nix::StorePathSet>(references)).first;
+            // The root filesystem's accessor, which every Nix from 2.34 has;
+            // 2.35 removed `PosixSourceAccessor::createAtRoot`.
+            nix::SourcePath source{
+                nix::getFSSourceAccessor(),
+                nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
+            return self.computeStorePath(
+                name,
+                source,
+                method,
+                hash_algo,
+                as_set<nix::StorePathSet>(references)).first;
         """)
 
     @needs(Local("nix/util/source-accessor.hh"))
@@ -404,10 +404,10 @@ return self.computeStorePath(
         `path` is on the filesystem of the process that runs the
         binding. The added path has no references."""
         Cxx("""
-nix::SourcePath source{
-    nix::getFSSourceAccessor(),
-    nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
-return self.addToStoreSlow(name, source, method, hash_algo, {}, expected_hash);
+            nix::SourcePath source{
+                nix::getFSSourceAccessor(),
+                nix::CanonPath{std::filesystem::weakly_canonical(std::filesystem::path{path}).string()}};
+            return self.addToStoreSlow(name, source, method, hash_algo, {}, expected_hash);
         """)
 
     @needs(Local("nix/store/content-address.hh"))
@@ -420,7 +420,7 @@ return self.addToStoreSlow(name, source, method, hash_algo, {}, expected_hash);
         which is how `nix store prefetch-file --expected-hash` finds a
         file it already holds without a download."""
         Cxx("""
-return self.makeFixedOutputPathFromCA(name, nix::ContentAddressWithReferences::withoutRefs(ca));
+            return self.makeFixedOutputPathFromCA(name, nix::ContentAddressWithReferences::withoutRefs(ca));
         """)
 
     def add_accessor_to_store(
@@ -437,12 +437,12 @@ return self.makeFixedOutputPathFromCA(name, nix::ContentAddressWithReferences::w
         `add_path_to_store`, with the tree read through `accessor`
         instead of the filesystem."""
         Cxx("""
-return self.addToStore(
-    name,
-    nix::SourcePath{nix::ref<nix::SourceAccessor>{accessor}, nix::CanonPath{path}},
-    method,
-    hash_algo,
-    as_set<nix::StorePathSet>(references));
+            return self.addToStore(
+                name,
+                nix::SourcePath{nix::ref<nix::SourceAccessor>{accessor}, nix::CanonPath{path}},
+                method,
+                hash_algo,
+                as_set<nix::StorePathSet>(references));
         """)
 
     @cxx_name("queryAllValidPaths")
@@ -522,11 +522,11 @@ return self.addToStore(
         NOT topological. A caller who needs build order has to ask for
         it another way."""
         Cxx("""
-nix::StorePathSet out;
-self.computeFSClosure(
-    as_set<nix::StorePathSet>(paths), out, flip_direction,
-    include_outputs, include_derivers);
-return as_list(out);
+            nix::StorePathSet out;
+            self.computeFSClosure(
+                as_set<nix::StorePathSet>(paths), out, flip_direction,
+                include_outputs, include_derivers);
+            return as_list(out);
         """)
 
     def query_referrers(
@@ -544,9 +544,9 @@ return as_list(out);
         `query_all_valid_paths` does, because a substituter has no such
         index."""
         Cxx("""
-nix::StorePathSet referrers;
-self.queryReferrers(path, referrers);
-return as_list(referrers);
+            nix::StorePathSet referrers;
+            self.queryReferrers(path, referrers);
+            return as_list(referrers);
         """)
 
     def make_validity_registration(
@@ -564,8 +564,8 @@ return as_list(referrers);
         each reference. In store-path order, because Nix takes a
         set."""
         Cxx("""
-return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
-                                     show_derivers, show_hash);
+            return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
+                                                 show_derivers, show_hash);
         """)
 
     # A pathlib.Path, not a str, and the alias says so. The boundary
@@ -591,12 +591,12 @@ return self.makeValidityRegistration(as_set<nix::StorePathSet>(paths),
         that is here; over RPC it is the server's."""
         # nixidae/nixidae#577
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr)
-    throw nix::Unsupported(
-        "operation 'real_path' is not supported by store '%s'",
-        self.config.getHumanReadableURI());
-return fs->toRealPath(path);
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr)
+                throw nix::Unsupported(
+                    "operation 'real_path' is not supported by store '%s'",
+                    self.config.getHumanReadableURI());
+            return fs->toRealPath(path);
         """)
 
     # The directories below answer None, not `real_path`'s refusal:
@@ -609,10 +609,10 @@ return fs->toRealPath(path);
         """The directory a chroot store is rooted at, or None for a
         store at its logical location or with no filesystem."""
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr || !fs->config.rootDir.get())
-    return std::nullopt;
-return std::filesystem::path(*fs->config.rootDir.get()).string();
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr || !fs->config.rootDir.get())
+                return std::nullopt;
+            return std::filesystem::path(*fs->config.rootDir.get()).string();
         """)
 
     @instant
@@ -621,10 +621,10 @@ return std::filesystem::path(*fs->config.rootDir.get()).string();
         """Where the store keeps its database, roots and profiles, or
         None for a store with no filesystem."""
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr)
-    return std::nullopt;
-return std::filesystem::path(fs->config.stateDir.get()).string();
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr)
+                return std::nullopt;
+            return std::filesystem::path(fs->config.stateDir.get()).string();
         """)
 
     @instant
@@ -633,10 +633,10 @@ return std::filesystem::path(fs->config.stateDir.get()).string();
         """Where the store keeps build logs, or None for a store with
         no filesystem."""
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr)
-    return std::nullopt;
-return std::filesystem::path(fs->config.logDir.get()).string();
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr)
+                return std::nullopt;
+            return std::filesystem::path(fs->config.logDir.get()).string();
         """)
 
     @instant
@@ -645,10 +645,10 @@ return std::filesystem::path(fs->config.logDir.get()).string();
         """Where the store's files really are, or None for a store with
         no filesystem. Differs from `store_dir` for a chroot store."""
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr)
-    return std::nullopt;
-return std::filesystem::path(fs->config.realStoreDir.get()).string();
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr)
+                return std::nullopt;
+            return std::filesystem::path(fs->config.realStoreDir.get()).string();
         """)
 
     @instant
@@ -657,10 +657,10 @@ return std::filesystem::path(fs->config.realStoreDir.get()).string();
         """Where a local store runs its builds, or None for any other
         kind of store: a daemon's builds run where the daemon says."""
         Cxx("""
-auto * local = dynamic_cast<nix::LocalStore *>(&self);
-if (local == nullptr)
-    return std::nullopt;
-return local->config->getBuildDir().string();
+            auto * local = dynamic_cast<nix::LocalStore *>(&self);
+            if (local == nullptr)
+                return std::nullopt;
+            return local->config->getBuildDir().string();
         """)
 
     # Nothing about PathInfo is here any more, and that is the whole
@@ -722,9 +722,9 @@ return local->config->getBuildDir().string();
 
         Raises InvalidPath when the store does not hold it."""
         Cxx("""
-nix::HashSink sink{algorithm};
-self.narFromPath(path, sink);
-return sink.finish().hash;
+            nix::HashSink sink{algorithm};
+            self.narFromPath(path, sink);
+            return sink.finish().hash;
         """)
 
     @needs(Local("nix/util/signature/local-keys.hh"))
@@ -741,9 +741,9 @@ return sink.finish().hash;
 
         Raises InvalidPath when the store does not hold it."""
         Cxx("""
-huggorm::SinkBuffer buffered{sink};
-self.narFromPath(path, buffered);
-buffered.flush();
+            huggorm::SinkBuffer buffered{sink};
+            self.narFromPath(path, buffered);
+            buffered.flush();
         """)
 
     def get_fs_accessor(self, path: StorePath, require_valid_path: Bint = True) -> Opt[SourceAccessor]:
@@ -751,10 +751,10 @@ buffered.flush();
         there. With `require_valid_path` off, a path the store holds but
         has not registered is read too."""
         Cxx("""
-auto found = self.getFSAccessor(path, require_valid_path);
-if (!found)
-    return std::nullopt;
-return std::make_shared<huggorm::SourceAccessor>(std::move(found));
+            auto found = self.getFSAccessor(path, require_valid_path);
+            if (!found)
+                return std::nullopt;
+            return std::make_shared<huggorm::SourceAccessor>(std::move(found));
         """)
 
     # `add_to_store` is this with the bytes in memory and a flat dump.
@@ -774,10 +774,10 @@ return std::make_shared<huggorm::SourceAccessor>(std::move(found));
         `dump_method` says how the bytes arrive, `hash_method` how the
         name is hashed. The defaults are Nix's own."""
         Cxx("""
-return self.addToStoreFromDump(
-    dump, name, dump_method, hash_method, hash_algo,
-    as_set<nix::StorePathSet>(references),
-    repair ? nix::Repair : nix::NoRepair);
+            return self.addToStoreFromDump(
+                dump, name, dump_method, hash_method, hash_algo,
+                as_set<nix::StorePathSet>(references),
+                repair ? nix::Repair : nix::NoRepair);
         """)
 
     # Named after the daemon's `AddToStoreNar`: `add_to_store` is
@@ -791,10 +791,10 @@ return self.addToStoreFromDump(
         `check_sigs` refuses a path no trusted key signed, as Nix
         does by default."""
         Cxx("""
-huggorm::SourceBuffer buffered{source, info.narSize};
-self.addToStore(
-    info, buffered, repair ? nix::Repair : nix::NoRepair,
-    check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
+            huggorm::SourceBuffer buffered{source, info.narSize};
+            self.addToStore(
+                info, buffered, repair ? nix::Repair : nix::NoRepair,
+                check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
         """)
 
     # Pure string work: no daemon, no lock, no file. Releasing
@@ -838,8 +838,8 @@ self.addToStore(
         the narrow type around both calls must catch the wide one
         here."""
         Cxx("""
-auto [store_path, sub] = self.config.toStorePath(path);
-return huggorm::StoreLocation{store_path, sub.absOrEmpty()};
+            auto [store_path, sub] = self.config.toStorePath(path);
+            return huggorm::StoreLocation{store_path, sub.absOrEmpty()};
         """)
 
     # UPSTREAM answers an `UnkeyedRealisation` here, because the key
@@ -862,10 +862,10 @@ return huggorm::StoreLocation{store_path, sub.absOrEmpty()};
         not exist. Nothing here can tell the two apart, and pretending
         otherwise would need a second question."""
         Cxx("""
-auto found = self.queryRealisation(id);
-if (!found)
-    return std::nullopt;
-return nix::Realisation{*found, id};
+            auto found = self.queryRealisation(id);
+            if (!found)
+                return std::nullopt;
+            return nix::Realisation{*found, id};
         """)
 
     # The first method taking a UNION, and the reason the union
@@ -990,7 +990,7 @@ return nix::Realisation{*found, id};
 
         `eval_store` is `build_paths`' own."""
         Cxx("""
-return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_or(nullptr));
+            return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_or(nullptr));
         """)
 
     @needs(Local("huggorm_decl/cpp/build.hpp"))
@@ -1075,8 +1075,8 @@ return huggorm::build_paths_with_results(self, targets, mode, eval_store.value_o
         take `Derivation.to_json()`, change it, and write the result
         without computing a hash itself."""
         Cxx("""
-auto drv = huggorm::derivation_from_json(self, nlohmann::json::parse(json));
-return self.writeDerivation(drv);
+            auto drv = huggorm::derivation_from_json(self, nlohmann::json::parse(json));
+            return self.writeDerivation(drv);
         """)
 
     @needs(Local("nix/store/derivations.hh"))
@@ -1100,8 +1100,8 @@ return self.writeDerivation(drv);
             whole graph. The build cannot realise it; its consumer
             does, through `builtins.outputOf`."""
             Cxx("""
-nix::require<nix::SubmitStore>(self).submitOutput(
-    nix::SingleDerivedPath::Opaque{path}, output);
+                nix::require<nix::SubmitStore>(self).submitOutput(
+                    nix::SingleDerivedPath::Opaque{path}, output);
             """)
 
     @needs(Local("nix/store/log-store.hh"), Local("nix/store/store-cast.hh"))
@@ -1138,11 +1138,11 @@ nix::require<nix::SubmitStore>(self).submitOutput(
         `substitute` lets the destination fetch from its own
         substituters instead of receiving the bytes."""
         Cxx("""
-nix::copyClosure(
-    self, *destination, as_set<nix::StorePathSet>(paths),
-    repair ? nix::Repair : nix::NoRepair,
-    check_sigs ? nix::CheckSigs : nix::NoCheckSigs,
-    substitute ? nix::Substitute : nix::NoSubstitute);
+            nix::copyClosure(
+                self, *destination, as_set<nix::StorePathSet>(paths),
+                repair ? nix::Repair : nix::NoRepair,
+                check_sigs ? nix::CheckSigs : nix::NoCheckSigs,
+                substitute ? nix::Substitute : nix::NoSubstitute);
         """)
 
     @cxx_name("queryPathFromHashPart")
@@ -1180,10 +1180,10 @@ nix::copyClosure(
         local store trusts everyone, and a daemon decides from the
         connecting user."""
         Cxx("""
-auto flag = self.isTrustedClient();
-if (!flag)
-    return std::nullopt;
-return huggorm::as_word(*flag);
+            auto flag = self.isTrustedClient();
+            if (!flag)
+                return std::nullopt;
+            return huggorm::as_word(*flag);
         """)
 
     @needs(Local("nix/store/gc-store.hh"))
@@ -1215,14 +1215,14 @@ return huggorm::as_word(*flag);
         the caller never sees the empty one going in.
         """
         Cxx("""
-auto * gc = dynamic_cast<nix::GcStore *>(&self);
-if (gc == nullptr)
-    throw nix::Unsupported(
-        "operation 'collect_garbage' is not supported by store '%s'",
-        self.config.getHumanReadableURI());
-nix::GCResults results;
-gc->collectGarbage(options, results);
-return results;
+            auto * gc = dynamic_cast<nix::GcStore *>(&self);
+            if (gc == nullptr)
+                throw nix::Unsupported(
+                    "operation 'collect_garbage' is not supported by store '%s'",
+                    self.config.getHumanReadableURI());
+            nix::GCResults results;
+            gc->collectGarbage(options, results);
+            return results;
         """)
 
     @needs(Local("nix/store/local-fs-store.hh"))
@@ -1242,14 +1242,14 @@ return results;
         Only a store with a filesystem can hold one. Another store
         raises "not supported by store", as `collect_garbage` does."""
         Cxx("""
-auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
-if (fs == nullptr)
-    throw nix::Unsupported(
-        "operation 'add_perm_root' is not supported by store '%s'",
-        self.config.getHumanReadableURI());
-if (gc_root.empty())
-    throw nix::Error("a garbage collector root must not be empty");
-return fs->addPermRoot(path, gc_root).string();
+            auto * fs = dynamic_cast<nix::LocalFSStore *>(&self);
+            if (fs == nullptr)
+                throw nix::Unsupported(
+                    "operation 'add_perm_root' is not supported by store '%s'",
+                    self.config.getHumanReadableURI());
+            if (gc_root.empty())
+                throw nix::Error("a garbage collector root must not be empty");
+            return fs->addPermRoot(path, gc_root).string();
         """)
 
     @cxx_name("optimiseStore")
@@ -1275,12 +1275,12 @@ return fs->addPermRoot(path, gc_root).string();
         Only a local or daemon store holds one. Another store raises
         "not supported by store", as `collect_garbage` does."""
         Cxx("""
-auto * indirect = dynamic_cast<nix::IndirectRootStore *>(&self);
-if (indirect == nullptr)
-    throw nix::Unsupported(
-        "operation 'add_indirect_root' is not supported by store '%s'",
-        self.config.getHumanReadableURI());
-indirect->addIndirectRoot(path);
+            auto * indirect = dynamic_cast<nix::IndirectRootStore *>(&self);
+            if (indirect == nullptr)
+                throw nix::Unsupported(
+                    "operation 'add_indirect_root' is not supported by store '%s'",
+                    self.config.getHumanReadableURI());
+            indirect->addIndirectRoot(path);
         """)
 
     @needs(Std("algorithm"))
@@ -1296,17 +1296,17 @@ indirect->addIndirectRoot(path);
         Only a store that collects can answer. Another store raises
         "not supported by store", as `collect_garbage` does."""
         Cxx("""
-auto * gc = dynamic_cast<nix::GcStore *>(&self);
-if (gc == nullptr)
-    throw nix::Unsupported(
-        "operation 'find_roots' is not supported by store '%s'",
-        self.config.getHumanReadableURI());
-std::vector<huggorm::GcRoot> roots;
-for (auto & [path, links] : gc->findRoots(censor))
-    for (auto & link : links)
-        roots.push_back(huggorm::GcRoot{link, path});
-std::ranges::sort(roots, {}, &huggorm::GcRoot::link);
-return roots;
+            auto * gc = dynamic_cast<nix::GcStore *>(&self);
+            if (gc == nullptr)
+                throw nix::Unsupported(
+                    "operation 'find_roots' is not supported by store '%s'",
+                    self.config.getHumanReadableURI());
+            std::vector<huggorm::GcRoot> roots;
+            for (auto & [path, links] : gc->findRoots(censor))
+                for (auto & link : links)
+                    roots.push_back(huggorm::GcRoot{link, path});
+            std::ranges::sort(roots, {}, &huggorm::GcRoot::link);
+            return roots;
         """)
 
     def verify_store(self, check_contents: Bint, repair: Bint = False) -> Bint:
@@ -1318,8 +1318,8 @@ return roots;
         not count. A store that cannot verify answers False: that is
         `nix::Store`'s own default."""
         Cxx("""
-return self.verifyStore(check_contents,
-                        repair ? nix::Repair : nix::NoRepair);
+            return self.verifyStore(check_contents,
+                                    repair ? nix::Repair : nix::NoRepair);
         """)
 
     def follow_links_to_store(self, path: Str) -> Str:
@@ -1415,9 +1415,9 @@ return self.verifyStore(check_contents,
         The empty string raises `BadStorePath` here, for the reason
         `parse_store_path` gives."""
         Cxx("""
-if (target.empty())
-    throw nix::BadStorePath("a derived path must not be empty");
-return nix::DerivedPath::parse(self.config, target);
+            if (target.empty())
+                throw nix::BadStorePath("a derived path must not be empty");
+            return nix::DerivedPath::parse(self.config, target);
         """)
 
     @instant
@@ -1440,9 +1440,9 @@ return nix::DerivedPath::parse(self.config, target);
         process."""
         # file-system.cc:99
         Cxx("""
-if (path.empty())
-    throw nix::BadStorePath("a store path must not be empty");
-return self.parseStorePath(path);
+            if (path.empty())
+                throw nix::BadStorePath("a store path must not be empty");
+            return self.parseStorePath(path);
         """)
 
 
@@ -1498,7 +1498,7 @@ def render_store_reference(uri: Str, with_params: Bint = True) -> Str:
     parameters. It never collapses to `daemon` the way an opened
     store's own URI can."""
     Cxx("""
-return nix::StoreReference::parse(uri).render(with_params);
+        return nix::StoreReference::parse(uri).render(with_params);
     """)
 
 
@@ -1519,15 +1519,15 @@ def store_types_json() -> Str:
     when a caller registers a store of its own."""
     # main.cc:204
     Cxx("""
-auto out = nlohmann::json::object();
-for (auto & [name, implementation] : nix::Implementations::registered()) {
-    auto & entry = out[name];
-    entry["doc"] = implementation.doc;
-    entry["uri-schemes"] = implementation.uriSchemes;
-    entry["settings"] = implementation.getConfig()->toJSON();
-    entry["experimentalFeature"] = implementation.experimentalFeature;
-}
-return out.dump();
+        auto out = nlohmann::json::object();
+        for (auto & [name, implementation] : nix::Implementations::registered()) {
+            auto & entry = out[name];
+            entry["doc"] = implementation.doc;
+            entry["uri-schemes"] = implementation.uriSchemes;
+            entry["settings"] = implementation.getConfig()->toJSON();
+            entry["experimentalFeature"] = implementation.experimentalFeature;
+        }
+        return out.dump();
     """)
 
 

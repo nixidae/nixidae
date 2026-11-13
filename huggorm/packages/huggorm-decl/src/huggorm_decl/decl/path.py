@@ -249,9 +249,9 @@ class NativeError:
         adds one while an error passes up through it. The hint is
         formatted as the constructor formats a message."""
         Cxx("""
-auto traced = self;
-traced.error.addTrace(pos ? std::shared_ptr<const nix::Pos>(pos->pos) : nullptr, huggorm::hint(format_string, args));
-return traced;
+            auto traced = self;
+            traced.error.addTrace(pos ? std::shared_ptr<const nix::Pos>(pos->pos) : nullptr, huggorm::hint(format_string, args));
+            return traced;
         """)
 
 

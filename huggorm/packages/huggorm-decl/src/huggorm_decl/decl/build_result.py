@@ -96,9 +96,9 @@ class BuildSuccess:
         WORD, which is what crossed, so it goes back through the same
         switch that made it."""
         Cxx("""
-return nix::BuildResult::Success{
-    huggorm::from_word<nix::BuildResultSuccessStatus>(status),
-    built_outputs};
+            return nix::BuildResult::Success{
+                huggorm::from_word<nix::BuildResultSuccessStatus>(status),
+                built_outputs};
         """)
 
 
@@ -144,9 +144,9 @@ class KeyedBuildResult:
         `error` is the other half and exactly one of the two is
         present, because upstream's `inner` is a variant of two."""
         Cxx("""
-if (auto * arm = self.tryGetSuccess())
-    return *arm;
-return std::nullopt;
+            if (auto * arm = self.tryGetSuccess())
+                return *arm;
+            return std::nullopt;
         """)
 
     @needs(Local("huggorm_decl/cpp/errors.hpp"))
@@ -162,11 +162,11 @@ return std::nullopt;
         result.error()`, and that is the point of answering with an
         exception rather than with a record that looks like one."""
         Cxx("""
-auto * arm = self.tryGetFailure();
-if (arm == nullptr)
-    return nb::none();
-return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
-    huggorm::as_word(arm->status), arm->isNonDeterministic);
+            auto * arm = self.tryGetFailure();
+            if (arm == nullptr)
+                return nb::none();
+            return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
+                huggorm::as_word(arm->status), arm->isNonDeterministic);
         """)
 
     @reads("timesBuilt")
@@ -238,24 +238,24 @@ return huggorm::as_error(huggorm::errors_module, "BuildError", *arm,
         ...", and once more for every hop. Measured by the round-trip
         gate, which is what that gate is for."""
         Cxx("""
-constexpr std::string_view ERROR_PREFIX = "error: ";
-nix::BuildResult result;
-if (success)
-    result.inner = *success;
-else if (!error.is_none()) {
-    auto text = nb::cast<std::string>(error.attr("message"));
-    if (text.starts_with(ERROR_PREFIX))
-        text.erase(0, ERROR_PREFIX.size());
-    result.inner = nix::BuildError{nix::BuildError::Args{
-        huggorm::from_word<nix::BuildResultFailureStatus>(
-            nb::cast<std::string>(error.attr("status"))),
-        nix::HintFmt(text),
-        nb::cast<bool>(error.attr("is_non_deterministic"))}};
-}
-result.timesBuilt = times_built;
-result.startTime = start_time;
-result.stopTime = stop_time;
-result.cpuUser = cpu_user;
-result.cpuSystem = cpu_system;
-return nix::KeyedBuildResult{result, path};
+            constexpr std::string_view ERROR_PREFIX = "error: ";
+            nix::BuildResult result;
+            if (success)
+                result.inner = *success;
+            else if (!error.is_none()) {
+                auto text = nb::cast<std::string>(error.attr("message"));
+                if (text.starts_with(ERROR_PREFIX))
+                    text.erase(0, ERROR_PREFIX.size());
+                result.inner = nix::BuildError{nix::BuildError::Args{
+                    huggorm::from_word<nix::BuildResultFailureStatus>(
+                        nb::cast<std::string>(error.attr("status"))),
+                    nix::HintFmt(text),
+                    nb::cast<bool>(error.attr("is_non_deterministic"))}};
+            }
+            result.timesBuilt = times_built;
+            result.startTime = start_time;
+            result.stopTime = stop_time;
+            result.cpuUser = cpu_user;
+            result.cpuSystem = cpu_system;
+            return nix::KeyedBuildResult{result, path};
         """)

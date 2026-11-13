@@ -199,6 +199,6 @@ if NIX_2_35:
         def _from_parts() -> UnkeyedRealisation:
             """Rebuild one from the parts that crossed."""
             Cxx("""
-return nix::UnkeyedRealisation{
-    out_path, as_set<std::set<nix::Signature>>(signatures)};
+                return nix::UnkeyedRealisation{
+                    out_path, as_set<std::set<nix::Signature>>(signatures)};
             """)

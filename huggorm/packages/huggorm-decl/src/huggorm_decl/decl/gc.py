@@ -73,8 +73,8 @@ class GCSpecificPaths:
     def __init__(self, paths: Vec[StorePath], delete_referrers: Bint = False) -> None:
         """The paths, and whether their dead referrers may go too."""
         Cxx("""
-new (self) huggorm::GCSpecificPaths{
-    as_set<nix::StorePathSet>(paths), delete_referrers};
+            new (self) huggorm::GCSpecificPaths{
+                as_set<nix::StorePathSet>(paths), delete_referrers};
         """)
 
     @reads("paths")
@@ -133,13 +133,13 @@ class GCOptions:
         has a Python literal a declaration could carry.
         """
         Cxx("""
-new (self) nix::GCOptions{};
-self->action = action;
-self->ignoreLiveness = ignore_liveness;
-if (paths_to_delete)
-    huggorm::set_gc_paths(*self, *paths_to_delete);
-if (max_freed)
-    self->maxFreed = *max_freed;
+            new (self) nix::GCOptions{};
+            self->action = action;
+            self->ignoreLiveness = ignore_liveness;
+            if (paths_to_delete)
+                huggorm::set_gc_paths(*self, *paths_to_delete);
+            if (max_freed)
+                self->maxFreed = *max_freed;
         """)
 
     @reads("action")
@@ -171,9 +171,9 @@ if (max_freed)
         # cross a signed wire field: `ValueError: Value out of range:
         # 18446744073709551615`. nixidae/nixidae#616 holds the width question.
         Cxx("""
-if (self.maxFreed == std::numeric_limits<std::uint64_t>::max())
-    return std::nullopt;
-return self.maxFreed;
+            if (self.maxFreed == std::numeric_limits<std::uint64_t>::max())
+                return std::nullopt;
+            return self.maxFreed;
         """)
 
 

@@ -118,9 +118,9 @@ class PathInfo:
         Upstream spells "unknown" as 0, which is also a real Unix
         time. None is the honest reading, and it is what crosses."""
         Cxx("""
-if (!self.registrationTime)
-    return std::nullopt;
-return static_cast<std::int64_t>(self.registrationTime);
+            if (!self.registrationTime)
+                return std::nullopt;
+            return static_cast<std::int64_t>(self.registrationTime);
         """)
 
     @reads("ultimate")
@@ -199,13 +199,13 @@ return static_cast<std::int64_t>(self.registrationTime);
         gone - a rendering that could not be re-read was a bug this
         body could have; assigning a value it was handed is not."""
         Cxx("""
-nix::UnkeyedValidPathInfo u{store_dir, nar_hash};
-u.deriver = deriver;
-u.references = as_set<nix::StorePathSet>(references);
-u.registrationTime = registration_time.value_or(0);
-u.narSize = nar_size;
-u.ultimate = ultimate;
-u.sigs = as_set<std::set<nix::Signature>>(sigs);
-u.ca = ca;
-return nix::ValidPathInfo{path, std::move(u)};
+            nix::UnkeyedValidPathInfo u{store_dir, nar_hash};
+            u.deriver = deriver;
+            u.references = as_set<nix::StorePathSet>(references);
+            u.registrationTime = registration_time.value_or(0);
+            u.narSize = nar_size;
+            u.ultimate = ultimate;
+            u.sigs = as_set<std::set<nix::Signature>>(sigs);
+            u.ca = ca;
+            return nix::ValidPathInfo{path, std::move(u)};
         """)

@@ -226,10 +226,10 @@ class Derivation:
         Keyed by base name because a map is keyed by str on the
         wire."""
         Cxx("""
-std::map<std::string, nix::DerivedPathMap<std::set<nix::OutputName, std::less<>>>::ChildNode> out;
-for (auto & [path, node] : huggorm::input_drvs(self).map)
-    out.emplace(std::string(path.to_string()), node);
-return out;
+            std::map<std::string, nix::DerivedPathMap<std::set<nix::OutputName, std::less<>>>::ChildNode> out;
+            for (auto & [path, node] : huggorm::input_drvs(self).map)
+                out.emplace(std::string(path.to_string()), node);
+            return out;
         """)
 
     @reads("outputs")
@@ -241,9 +241,9 @@ return out;
         """The structured attributes as JSON text, or None when the
         derivation passes its attributes as environment variables."""
         Cxx("""
-if (!self.structuredAttrs)
-    return std::nullopt;
-return nlohmann::json(self.structuredAttrs->structuredAttrs).dump();
+            if (!self.structuredAttrs)
+                return std::nullopt;
+            return nlohmann::json(self.structuredAttrs->structuredAttrs).dump();
         """)
 
     @needs(Local("nlohmann/json.hpp"))

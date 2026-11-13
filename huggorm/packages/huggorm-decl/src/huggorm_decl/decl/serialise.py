@@ -79,7 +79,7 @@ def dump_path(path: Path, sink: Sink) -> None:
     """Write the file system object at `path` as a NAR into `sink`, as
     `nix nar pack` does. A symlink is not followed."""
     Cxx("""
-huggorm::SinkBuffer buffered{sink};
-nix::dumpPath(path, buffered);
-buffered.flush();
+        huggorm::SinkBuffer buffered{sink};
+        nix::dumpPath(path, buffered);
+        buffered.flush();
     """)

@@ -82,10 +82,10 @@ class FlakeRef:
 
         `lockFlake`'s own two lines, from the top reference."""
         Cxx("""
-auto source = self.input.getSourcePath();
-if (!source)
-    return std::nullopt;
-return *source / ((self.subdir == "" ? "" : self.subdir + "/") + "flake.lock");
+            auto source = self.input.getSourcePath();
+            if (!source)
+                return std::nullopt;
+            return *source / ((self.subdir == "" ? "" : self.subdir + "/") + "flake.lock");
         """)
 
     @staticmethod
@@ -99,8 +99,8 @@ return *source / ((self.subdir == "" ? "" : self.subdir + "/") + "flake.lock");
         settings: the attributes already say everything a setting would
         decide at parse time."""
         Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
-return huggorm::flake_ref_from_attrs(*fetch, to_attrs);
+            auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
+            return huggorm::flake_ref_from_attrs(*fetch, to_attrs);
         """)
 
 
@@ -124,7 +124,7 @@ def parse_flake_ref(url: Str, base: Opt[Str] = None) -> FlakeRef:
     takes settings gets the process's. Nix requires the `flakes`
     feature, and so does this."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
-auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
-return huggorm::flake_ref_of(*fetch, url, dir);
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
+        auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
+        return huggorm::flake_ref_of(*fetch, url, dir);
     """)

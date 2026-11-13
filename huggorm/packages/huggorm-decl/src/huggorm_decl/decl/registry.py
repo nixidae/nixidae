@@ -88,8 +88,8 @@ if NIX_2_35:
         def _from_parts() -> LazyAttr:
             """One that answers the value that crossed."""
             Cxx("""
-return std::make_shared<nix::fetchers::LazyAttrComputation>(
-    nix::fetchers::LazyAttrComputation{[force] { return force; }});
+                return std::make_shared<nix::fetchers::LazyAttrComputation>(
+                    nix::fetchers::LazyAttrComputation{[force] { return force; }});
             """)
 
     Attr = Annotated[
@@ -190,14 +190,14 @@ def registry_entries(
     every later one. A write through this module does not reach a
     later listing; read the file."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
-std::vector<huggorm::RegistryEntry> out;
-for (auto & registry : nix::fetchers::getRegistries(*fetch, *store))
-    for (auto & entry : registry->entries)
-        out.push_back(huggorm::RegistryEntry{
-            huggorm::as_word(registry->type), entry.from.to_string(), entry.to.to_string(),
-            entry.extraAttrs, entry.exact});
-return out;
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
+        std::vector<huggorm::RegistryEntry> out;
+        for (auto & registry : nix::fetchers::getRegistries(*fetch, *store))
+            for (auto & entry : registry->entries)
+                out.push_back(huggorm::RegistryEntry{
+                    huggorm::as_word(registry->type), entry.from.to_string(), entry.to.to_string(),
+                    entry.extraAttrs, entry.exact});
+        return out;
     """)
 
 
@@ -205,7 +205,7 @@ return out;
 def user_registry_path() -> Str:
     """The user's registry file, which a write with no path changes."""
     Cxx("""
-return nix::fetchers::getUserRegistryPath().string();
+        return nix::fetchers::getUserRegistryPath().string();
     """)
 
 
@@ -229,24 +229,24 @@ def registry_add(
     subdirectory, and Nix keeps that as the `dir` extra attribute. An
     entry replaces every earlier one for the same source."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
-auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
-auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
-auto from = huggorm::flake_ref_of(*fetch, source, dir);
-auto to = huggorm::flake_ref_of(*fetch, target, dir);
-auto registry = nix::fetchers::Registry::read(
-    *fetch,
-    nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
-    nix::fetchers::Registry::User);
-nix::fetchers::Attrs extra;
-if (!to.subdir.empty())
-    extra["dir"] = to.subdir;
-auto before = registry->entries.size();
-registry->remove(from.input);
-auto removed = before - registry->entries.size();
-registry->add(from.input, to.input, extra);
-registry->write(file);
-return huggorm::RegistryWrite{file.string(), removed, to.input.to_string(), std::nullopt};
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
+        auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
+        auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
+        auto from = huggorm::flake_ref_of(*fetch, source, dir);
+        auto to = huggorm::flake_ref_of(*fetch, target, dir);
+        auto registry = nix::fetchers::Registry::read(
+            *fetch,
+            nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
+            nix::fetchers::Registry::User);
+        nix::fetchers::Attrs extra;
+        if (!to.subdir.empty())
+            extra["dir"] = to.subdir;
+        auto before = registry->entries.size();
+        registry->remove(from.input);
+        auto removed = before - registry->entries.size();
+        registry->add(from.input, to.input, extra);
+        registry->write(file);
+        return huggorm::RegistryWrite{file.string(), removed, to.input.to_string(), std::nullopt};
     """)
 
 
@@ -268,19 +268,19 @@ def registry_remove(
     Whole references compare, so `nixpkgs` does not remove an entry
     written for `nixpkgs/nixos-unstable`."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
-auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
-auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
-auto from = huggorm::flake_ref_of(*fetch, source, dir);
-auto registry = nix::fetchers::Registry::read(
-    *fetch,
-    nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
-    nix::fetchers::Registry::User);
-auto before = registry->entries.size();
-registry->remove(from.input);
-auto removed = before - registry->entries.size();
-registry->write(file);
-return huggorm::RegistryWrite{file.string(), removed, std::nullopt, std::nullopt};
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
+        auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
+        auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
+        auto from = huggorm::flake_ref_of(*fetch, source, dir);
+        auto registry = nix::fetchers::Registry::read(
+            *fetch,
+            nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
+            nix::fetchers::Registry::User);
+        auto before = registry->entries.size();
+        registry->remove(from.input);
+        auto removed = before - registry->entries.size();
+        registry->write(file);
+        return huggorm::RegistryWrite{file.string(), removed, std::nullopt, std::nullopt};
     """)
 
 
@@ -308,24 +308,24 @@ def registry_pin(
     through the registry names a branch, and only the fetch turns it
     into a revision."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
-auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
-auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
-auto from = huggorm::flake_ref_of(*fetch, source, dir);
-auto to = huggorm::flake_ref_of(*fetch, target ? *target : source, dir);
-auto resolved = to.resolve(*fetch, *store).input.getAccessor(*fetch, *store).second;
-auto registry = nix::fetchers::Registry::read(
-    *fetch,
-    nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
-    nix::fetchers::Registry::User);
-nix::fetchers::Attrs extra;
-if (!from.subdir.empty())
-    extra["dir"] = from.subdir;
-auto before = registry->entries.size();
-registry->remove(from.input);
-auto removed = before - registry->entries.size();
-registry->add(from.input, resolved, extra);
-registry->write(file);
-return huggorm::RegistryWrite{
-    file.string(), removed, resolved.to_string(), resolved.isLocked(*fetch)};
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>(settings);
+        auto dir = base ? std::filesystem::path(*base) : std::filesystem::current_path();
+        auto file = path ? std::filesystem::path(*path) : nix::fetchers::getUserRegistryPath();
+        auto from = huggorm::flake_ref_of(*fetch, source, dir);
+        auto to = huggorm::flake_ref_of(*fetch, target ? *target : source, dir);
+        auto resolved = to.resolve(*fetch, *store).input.getAccessor(*fetch, *store).second;
+        auto registry = nix::fetchers::Registry::read(
+            *fetch,
+            nix::SourcePath{nix::getFSSourceAccessor(), nix::CanonPath{file.string()}}.resolveSymlinks(),
+            nix::fetchers::Registry::User);
+        nix::fetchers::Attrs extra;
+        if (!from.subdir.empty())
+            extra["dir"] = from.subdir;
+        auto before = registry->entries.size();
+        registry->remove(from.input);
+        auto removed = before - registry->entries.size();
+        registry->add(from.input, resolved, extra);
+        registry->write(file);
+        return huggorm::RegistryWrite{
+            file.string(), removed, resolved.to_string(), resolved.isLocked(*fetch)};
     """)

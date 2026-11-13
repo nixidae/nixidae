@@ -65,8 +65,8 @@ class Stat:
         """Describe an object. Only a regular file has a size or an
         executable bit."""
         Cxx("""
-new (self) nix::SourceAccessor::Stat{
-    .type = type, .fileSize = file_size, .isExecutable = is_executable};
+            new (self) nix::SourceAccessor::Stat{
+                .type = type, .fileSize = file_size, .isExecutable = is_executable};
         """)
 
     @reads("type")
@@ -122,10 +122,10 @@ class SourceAccessor:
         prints it: `listNarShallow`, or `listNarDeep` when
         `recursive`. A regular file in a NAR carries its `narOffset`."""
         Cxx("""
-nix::CanonPath at{path};
-nlohmann::json j = recursive ? nlohmann::json(nix::listNarDeep(self, at))
-                             : nlohmann::json(nix::listNarShallow(self, at));
-return j.dump();
+            nix::CanonPath at{path};
+            nlohmann::json j = recursive ? nlohmann::json(nix::listNarDeep(self, at))
+                                         : nlohmann::json(nix::listNarShallow(self, at));
+            return j.dump();
         """)
 
 
@@ -140,8 +140,8 @@ def filesystem_accessor(root: Path) -> SourceAccessor:
     files on a server."""
     # nixidae/nixidae#738
     Cxx("""
-return std::make_shared<huggorm::SourceAccessor>(
-    nix::makeFSSourceAccessor(std::filesystem::absolute(root)).get_ptr());
+        return std::make_shared<huggorm::SourceAccessor>(
+            nix::makeFSSourceAccessor(std::filesystem::absolute(root)).get_ptr());
     """)
 
 
@@ -155,6 +155,6 @@ def nar_accessor(nar: Path) -> SourceAccessor:
     reads one. The whole NAR is read into memory and parsed once, so a
     file that is not a NAR raises here."""
     Cxx("""
-return std::make_shared<huggorm::SourceAccessor>(
-    std::shared_ptr<nix::SourceAccessor>(nix::makeNarAccessor(nix::readFile(nar)).get_ptr()));
+        return std::make_shared<huggorm::SourceAccessor>(
+            std::shared_ptr<nix::SourceAccessor>(nix::makeNarAccessor(nix::readFile(nar)).get_ptr()));
     """)

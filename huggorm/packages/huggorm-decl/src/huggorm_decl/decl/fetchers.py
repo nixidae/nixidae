@@ -84,8 +84,8 @@ class Input:
         """Rebuild one from its attributes, with the process's fetcher
         settings, as `FlakeRef` does."""
         Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
-return huggorm::input_of_attrs(*fetch, std::move(to_attrs));
+            auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
+            return huggorm::input_of_attrs(*fetch, std::move(to_attrs));
         """)
 
 
@@ -102,8 +102,8 @@ def input_from_url(url: Str) -> Input:
     No fetcher setting a caller passes takes part: a Nix whose parser
     takes settings gets the process's."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
-return huggorm::input_of(*fetch, url);
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
+        return huggorm::input_of(*fetch, url);
     """)
 
 
@@ -120,6 +120,6 @@ def input_from_attrs(attrs: Map[Attr]) -> Input:
     does not take. No fetcher setting takes part, as in
     `input_from_url`."""
     Cxx("""
-auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
-return huggorm::input_of_attrs(*fetch, nix::fetchers::Attrs(attrs));
+        auto fetch = huggorm::call_settings<nix::fetchers::Settings>({});
+        return huggorm::input_of_attrs(*fetch, nix::fetchers::Attrs(attrs));
     """)

@@ -223,6 +223,6 @@ else:
     def generate_secret_key(name: Str, key_type: KeyType = KeyType.ED25519) -> SecretKey:
         """A new random key called `name`, as `nix key generate-secret` makes one."""
         Cxx("""
-(void) key_type;
-return nix::SecretKey::generate(name);
+            (void) key_type;
+            return nix::SecretKey::generate(name);
         """)
