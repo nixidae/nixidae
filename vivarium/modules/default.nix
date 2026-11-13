@@ -20,8 +20,13 @@ let
   portPair = lib.types.submodule {
     options = {
       host = lib.mkOption {
-        type = lib.types.port;
-        description = "Port to listen on, on the host.";
+        type = lib.types.nullOr lib.types.port;
+        default = null;
+        description = ''
+          Port to listen on, on the host. `null`: the runner picks the
+          guest's port, or the first free port above it, when the run
+          starts. `<out>/access.json` and `Machine.reachable` name it.
+        '';
       };
       guest = lib.mkOption {
         type = lib.types.port;

@@ -63,7 +63,7 @@ class ForwardError(Exception):
 
 
 class PortMapJson(TypedDict):
-    host: int
+    host: int | None
     guest: int
 
 
@@ -81,7 +81,9 @@ class RuleJson(TypedDict, total=False):
 class PortMap:
     """One host port and the guest port it reaches."""
 
-    host: int
+    host: int | None
+    """`None` until :func:`resolve` picks a free one: the guest's own
+    port, or the first free one above it."""
     guest: int
 
     @classmethod
@@ -132,7 +134,7 @@ class Rule:
         """
         if isinstance(self.ports, str):
             return [_SENTINEL_PORT]
-        return [port.host for port in self.ports]
+        return [port.host for port in self.ports if port.host is not None]
 
 
 # ── the host's own limits ──────────────────────────────────────────
@@ -186,7 +188,7 @@ def _remap(rule: Rule, start: int) -> tuple[Rule, list[str]]:
     kept: list[PortMap] = []
     notes: list[str] = []
     for port in rule.ports:
-        if port.host >= start:
+        if port.host is None or port.host >= start:
             kept.append(port)
         elif rule.remap_privileged:
             moved = replace(port, host=port.host + offset)
@@ -271,10 +273,45 @@ def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> 
     resolved: list[Rule] = []
     notes: list[str] = []
     for rule, (_, said) in zip(rules, remapped, strict=False):
+        notes.extend(f"{rule.address}: {note}" for note in said)
+        rule, picked = _pick_ports(rule, start)  # noqa: PLW2901 -- the same rule, with its ports settled
+        notes.extend(f"{rule.address}: {note}" for note in picked)
         if rule.wide or rule.ports:
             resolved.append(rule)
-        notes.extend(f"{rule.address}: {note}" for note in said)
     return resolved, notes
+
+
+def _pick_ports(rule: Rule, start: int) -> tuple[Rule, list[str]]:
+    """A free host port for each port map that names none: the guest's port,
+    else the first free one above it, never in the ephemeral range."""
+    if isinstance(rule.ports, str) or all(port.host is not None for port in rule.ports):
+        return rule, []
+    if rule.address is None:
+        raise ForwardError("ports are picked after the address")
+    low, high = ephemeral_range()
+    used = set(rule.host_ports())
+    ports: list[PortMap] = []
+    notes: list[str] = []
+    for port in rule.ports:
+        if port.host is not None:
+            ports.append(port)
+            continue
+        first = port.guest if port.guest >= start else port.guest + rule.privileged_offset
+        host = next(
+            (
+                candidate
+                for candidate in range(first, 65536)
+                if not low <= candidate <= high and candidate not in used and _probe(rule.address, [candidate]) is None
+            ),
+            None,
+        )
+        if host is None:
+            raise ForwardError(f"no free host port on {rule.address} from {first} for guest port {port.guest}")
+        used.add(host)
+        ports.append(replace(port, host=host))
+        if host != first:
+            notes.append(f"guest port {port.guest} on host port {host}: {first} is taken")
+    return replace(rule, ports=tuple(ports)), notes
 
 
 def probe(rules: list[Rule]) -> None:
@@ -297,7 +334,9 @@ def probe(rules: list[Rule]) -> None:
 def _specs(rule: Rule, start: int) -> list[str]:
     """The one or two passt port specs a rule turns into."""
     if not isinstance(rule.ports, str):
-        return [f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host))]
+        if any(port.host is None for port in rule.ports):
+            raise ForwardError("passt gets a host port for every guest port; resolve() picks them")
+        return [f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host or 0))]
 
     low, high = ephemeral_range()
     # An exclusion-only spec is what puts passt in weak mode, where a
