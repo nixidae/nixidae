@@ -121,6 +121,7 @@ class InterfaceJson(TypedDict, total=False):
     segment: str
     addresses: list[str]
     mac: str
+    mtu: int
 
 
 class CpuScale(TypedDict):
@@ -270,6 +271,8 @@ class Interface:
     segment: str
     addresses: tuple[str, ...]
     mac: str
+    mtu: int = 65000
+    """Its segment's `mtu`, else the guest's `vivarium.mtu`."""
 
     @classmethod
     def from_json(cls, data: InterfaceJson) -> Interface:
@@ -279,6 +282,7 @@ class Interface:
             segment=data["segment"],
             addresses=tuple(data.get("addresses", [])),
             mac=data["mac"],
+            mtu=data.get("mtu", 65000),
         )
 
 

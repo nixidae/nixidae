@@ -412,7 +412,7 @@ lib.mkIf
     # driver allows up to 65535.
     // lib.optionalAttrs krun (
       lib.listToAttrs (
-        map (nic: lib.nameValuePair "10-${nic.name}" { linkConfig.MTUBytes = toString cfg.mtu; }) cfg.nics
+        map (nic: lib.nameValuePair "10-${nic.name}" { linkConfig.MTUBytes = toString nic.mtu; }) cfg.nics
       )
     );
 

@@ -940,9 +940,8 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         "--lan",
         action="append",
         default=[],
-        help="FD,NAME,MAC: one segment interface; repeat for each",
+        help="FD,NAME,MAC,MTU: one segment interface; repeat for each",
     )
-    run.add_argument("--mtu", type=int, default=1500)
     run.add_argument("--pasta-log")
     run.add_argument("pasta", nargs=argparse.REMAINDER)
     check = sub.add_parser("probe", help="say what this host lacks, and exit 1 if anything")
@@ -1033,8 +1032,8 @@ def main(argv: list[str] | None = None) -> int:
                 if uplink:
                     helpers.append(_uplink(pid, Path(uplink[0]), uplink[1:]))
                 for lan in args.lan:
-                    fd, nic, mac = lan.split(",")
-                    helpers.append(_lan(pid, int(fd), nic, args.mtu, mac))
+                    fd, nic, mac, mtu = lan.split(",")
+                    helpers.append(_lan(pid, int(fd), nic, int(mtu), mac))
             except (RuntimeError, subprocess.CalledProcessError) as error:
                 # On the console, which is where Machine looks for why a
                 # guest did not come up.

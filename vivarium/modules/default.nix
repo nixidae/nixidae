@@ -152,13 +152,13 @@ let
   # had; the rest by name. UML names NIC n `vecN` before the guest renames
   # it, which is why no other `vecN` may be a name.
   nicsOf =
-    interfaces: index:
+    interfaces: index: mtu:
     let
       names = lib.attrNames interfaces;
       ordered = lib.optional (interfaces ? vec1) "vec1" ++ lib.filter (name: name != "vec1") names;
     in
     lib.imap1 (nic: name: {
-      inherit name nic;
+      inherit name nic mtu;
       inherit (interfaces.${name}) segment addresses;
       mac = "52:54:00:12:${hex nic}:${hex index}";
     }) ordered;
@@ -825,7 +825,7 @@ in
     nics = lib.mkOption {
       internal = true;
       readOnly = true;
-      description = "`interfaces` in NIC order, each with its NIC number and MAC.";
+      description = "`interfaces` in NIC order, each with its NIC number, MAC and MTU.";
     };
 
     uplinkMac = lib.mkOption {
@@ -872,7 +872,7 @@ in
       segment = config.vivarium.lan.network;
       addresses = lib.optional (config.vivarium.lan.address != null) config.vivarium.lan.address;
     };
-    vivarium.nics = nicsOf config.vivarium.interfaces config.vivarium.index;
+    vivarium.nics = nicsOf config.vivarium.interfaces config.vivarium.index config.vivarium.mtu;
     vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
 
     # Under mkIf, so a guest on another backend never names the kernel:

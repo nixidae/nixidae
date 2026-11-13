@@ -613,7 +613,7 @@ class Uml:
             # kernel, and the guest leases its management address there.
             argv = [*kernel, self._vec(0, lan_fds["vec0"], spec.mtu, spec.mac(0))]
         for nic in spec.interfaces:
-            argv.append(self._vec(nic.nic, lan_fds[nic.name], spec.mtu, nic.mac))
+            argv.append(self._vec(nic.nic, lan_fds[nic.name], nic.mtu, nic.mac))
 
         pass_fds = (agent_fd, *lan_fds.values())
         # The bridge finds passt on PATH.
@@ -952,7 +952,7 @@ class Qemu:
                 "-netdev",
                 f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
                 "-device",
-                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
+                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
             ]
 
         pass_fds = tuple(
@@ -1041,7 +1041,7 @@ class Qemu:
                 "-netdev",
                 f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
                 "-device",
-                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={spec.mtu}",
+                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
             ]
         pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None)
         return Launch(
@@ -1541,9 +1541,9 @@ class Container:
         )
         state = rundir / "crun"
         state.mkdir()
-        lan = ["--mtu", str(spec.mtu)]
+        lan: list[str] = []
         for nic in spec.interfaces:
-            lan += ["--lan", f"{lan_fds[nic.name]},{nic.name},{nic.mac}"]
+            lan += ["--lan", f"{lan_fds[nic.name]},{nic.name},{nic.mac},{nic.mtu}"]
         # A delegated scope of its own where the user's systemd makes one:
         # a cgroup the guest's systemd writes in, its memory counted apart
         # from every other guest's, and `vivarium.memory` as its limit.
