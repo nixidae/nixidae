@@ -358,6 +358,8 @@ rec {
         .driverDebug        the same, paused on the first failure
         .driverInteractive  a REPL, paused before the first phase, with
                             `interactive` merged in
+        .up                 an environment: the phases, then `ready` with
+                            the guests up until `ctl stop`
         .phases             what would run, in order, without booting
         .nodes, .config     the evaluated guests and run
         .systems            each guest's NixOS evaluation, for `extendModules`
@@ -597,6 +599,8 @@ rec {
       # `.driverInteractive` is this, from the run with `interactive`
       # merged in.
       driverInteractiveHere = wrap "vivarium-driver-interactive-${name}" "run" "--interactive";
+      # An environment: ready after the last phase, guests up until `ctl stop`.
+      up = wrap "vivarium-up-${name}" "run" "--hold";
       lister = wrap "vivarium-phases-${name}" "phases" "";
 
       extend =
@@ -654,6 +658,7 @@ rec {
             driverDebug
             extend
             driverInteractiveHere
+            up
             ;
           driverInteractive = (extend { modules = [ checkedConfig.interactive ]; }).driverInteractiveHere;
           uml = onBackend "uml";
