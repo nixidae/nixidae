@@ -5,7 +5,7 @@ first leaf learns the far server's MAC from BGP, not from flooding. With
 the far leaf's VXLAN device down, the stretch is gone.
 """
 
-from fabric import eventually, never, ping, vtysh
+from fabric import CONVERGE, ping, vtysh
 from vivarium_runner import Machines
 
 
@@ -16,7 +16,7 @@ async def test(vms: Machines) -> None:
     near_leaf, far_leaf = servers[near]["leaf"], servers[far]["leaf"]
     vni = servers[far]["vni"]
 
-    await eventually(vms[near], ping(servers[far]["address"]))
+    await vms[near].wait_until_succeeds(ping(servers[far]["address"]), CONVERGE)
     print(f"[test] {near} on {near_leaf} reaches {far} on {far_leaf} in one subnet")
 
     mac = vms[far].interface(f"{far_leaf}-{far}").mac
@@ -26,8 +26,8 @@ async def test(vms: Machines) -> None:
     print(f"[test] {near_leaf} learned {far}'s MAC {mac} over EVPN, as remote")
 
     await vms[far_leaf].succeed(f"ip link set vni{vni} down")
-    await never(vms[near], ping(servers[far]["address"]))
+    await vms[near].wait_until_fails(ping(servers[far]["address"]), CONVERGE)
     print(f"[test] with vni{vni} down on {far_leaf}, {near} no longer reaches {far}")
     await vms[far_leaf].succeed(f"ip link set vni{vni} up")
-    await eventually(vms[near], ping(servers[far]["address"]))
+    await vms[near].wait_until_succeeds(ping(servers[far]["address"]), CONVERGE)
     print("[test] and again once it is up")

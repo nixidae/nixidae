@@ -11,7 +11,7 @@
 """
 
 import anyio
-from lab import eventually, lab, route_mtu
+from lab import lab, route_mtu
 from vivarium_runner import Machine, Machines
 
 PORT = 5002
@@ -42,7 +42,7 @@ async def test(vms: Machines) -> None:
         rc, out = await send(carol, address, 1600)
         if rc != 0:
             raise AssertionError(f"sending 1600 bytes without DF failed:\n{out}")
-        await eventually(dave, f"test $(stat -c %s {SINK}) -eq 1600", 10)
+        await dave.wait_until_succeeds(f"test $(stat -c %s {SINK}) -eq 1600", 10)
         print("[test] no DF: a 1600-byte datagram is fragmented, and dave reassembles all 1600 bytes")
 
         await carol.succeed("ip route flush cache")

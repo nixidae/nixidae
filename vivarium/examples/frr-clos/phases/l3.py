@@ -7,7 +7,7 @@ route is in the tenant's VRF only: the underlay's own table never
 carries a tenant prefix.
 """
 
-from fabric import eventually, ping
+from fabric import CONVERGE, ping
 from vivarium_runner import Machines
 
 
@@ -23,13 +23,13 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"{leaf} routes {target} before it said anything: {silent}")
     for name, server in servers.items():
         gateway = vms.settings["clos"]["gateways"][server["vlan"]]
-        await eventually(vms[name], ping(gateway))
+        await vms[name].wait_until_succeeds(ping(gateway), CONVERGE)
     print(f"[test] {leaf} had no route to {target} until each server greeted its gateway")
 
-    await eventually(vms[source], ping(address))
+    await vms[source].wait_until_succeeds(ping(address), CONVERGE)
     print(f"[test] {source} on VLAN 10 reaches {target} on VLAN 20, routed")
 
-    tenant = await eventually(vms[leaf], f"ip route show vrf RED {address} | grep .")
+    tenant = await vms[leaf].wait_until_succeeds(f"ip route show vrf RED {address} | grep .", CONVERGE)
     underlay = await vms[leaf].succeed(f"ip route show table main {address}; ip route show table main 10.1.20.0/24")
     if underlay.strip():
         raise AssertionError(f"{leaf}'s main table carries a tenant route: {underlay}")

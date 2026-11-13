@@ -9,7 +9,7 @@ link once down never comes up again: the vector driver closes the
 segment fd on down (measured: "Network is unreachable" on up).
 """
 
-from fabric import established, eventually, loopbacks, never, nexthops, ping
+from fabric import CONVERGE, established, loopbacks, nexthops, ping
 from vivarium_runner import Machine, Machines
 
 
@@ -41,22 +41,22 @@ async def test(vms: Machines) -> None:
     remote = next(server["address"] for server in servers.values() if server["leaf"] == other)
 
     await cut(leaf, spines[0])
-    await eventually(leaf, f"test $(ip route show {target} | grep -c nexthop) = 0")
+    await leaf.wait_until_succeeds(f"test $(ip route show {target} | grep -c nexthop) = 0", CONVERGE)
     route = await leaf.succeed(f"ip route show {target}")
     if nexthops(route) != 1:
         raise AssertionError(f"{leaf.name} without {spines[0]}: {route}")
-    await eventually(leaf, ping(target, source))
-    await eventually(vms[tenant], ping(remote))
+    await leaf.wait_until_succeeds(ping(target, source), CONVERGE)
+    await vms[tenant].wait_until_succeeds(ping(remote), CONVERGE)
     print(f"[test] without {spines[0]}, {leaf.name} reaches {other} over {spines[1]}, and so does {tenant}")
 
     for spine in spines[1:]:
         await cut(leaf, spine)
-    await never(leaf, ping(target, source))
-    await never(vms[tenant], ping(remote))
+    await leaf.wait_until_fails(ping(target, source), CONVERGE)
+    await vms[tenant].wait_until_fails(ping(remote), CONVERGE)
     print(f"[test] with every uplink down, {leaf.name} and {tenant} reach nothing")
 
     await mend(leaf)
     await established(leaf)
-    await eventually(leaf, f"test $(ip route show {target} | grep -c nexthop) = {len(spines)}")
-    await eventually(vms[tenant], ping(remote))
+    await leaf.wait_until_succeeds(f"test $(ip route show {target} | grep -c nexthop) = {len(spines)}", CONVERGE)
+    await vms[tenant].wait_until_succeeds(ping(remote), CONVERGE)
     print(f"[test] with the uplinks back, {leaf.name} spreads over {len(spines)} spines again")

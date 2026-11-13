@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any
 
 import anyio
 from vivarium_runner import Machine, Machines
 
-T = TypeVar("T")
-
 CONVERGE = 60.0
 """Seconds for IKE, BGP or DPD to settle after boot or a change."""
+
+POLL = 0.5
+"""Seconds between checks: `failover` measures how fast a route moves."""
 
 
 def esp_inner_mtu(outer: int) -> int:
@@ -38,30 +38,6 @@ def lab(vms: Machines) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AssertionError(f"settings.lab is {type(value).__name__}, not an object")
     return value
-
-
-async def eventually(vm: Machine, command: str, timeout: float = CONVERGE) -> str:
-    deadline = time.monotonic() + timeout
-    while True:
-        rc, out = await vm.execute(command)
-        if rc == 0:
-            return out
-        if time.monotonic() > deadline:
-            raise AssertionError(f"{vm.name}: still failing after {timeout:.0f}s: {command}\n{out}")
-        await anyio.sleep(1)
-
-
-async def until[T](vm: Machine, what: str, check: Callable[[], Awaitable[T | None]], timeout: float = CONVERGE) -> T:
-    """Poll the async *check* until it returns something truthy."""
-    deadline = time.monotonic() + timeout
-    with vm.waiting(what):
-        while True:
-            last = await check()
-            if last:
-                return last
-            if time.monotonic() > deadline:
-                raise AssertionError(f"{vm.name}: {what} not reached in {timeout:.0f}s")
-            await anyio.sleep(0.5)
 
 
 def ping(address: str, count: int = 3, extra: str = "") -> str:
@@ -126,7 +102,7 @@ async def established(vm: Machine, connection: str, child_name: str | None = Non
             return None
         return sa
 
-    return await until(vm, f"IKE_SA {connection} up", check)
+    return await vm.until(f"IKE_SA {connection} up", check, CONVERGE, POLL)
 
 
 async def vtysh(vm: Machine, command: str) -> dict[str, Any]:
@@ -151,7 +127,7 @@ async def bgp_up(vm: Machine, peers: list[str], timeout: float = CONVERGE) -> di
             return state
         return None
 
-    return await until(vm, f"BGP with {', '.join(peers)}", check, timeout)
+    return await vm.until(f"BGP with {', '.join(peers)}", check, timeout, POLL)
 
 
 def nexthops(route: str) -> list[str]:

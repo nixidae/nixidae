@@ -5,7 +5,6 @@ does."""
 import json
 from typing import TypedDict
 
-import anyio
 from vivarium_runner import Machine, Machines
 
 CONVERGE = 120
@@ -25,14 +24,31 @@ class RouteEntry(TypedDict, total=False):
     protocol: str
 
 
-async def established(vm: Machine, peer: str) -> bool:
-    summary: BgpSummary = json.loads(await vm.succeed("vtysh -c 'show bgp ipv4 unicast summary json'"))
-    neighbour = summary.get("peers", {}).get(peer, {})
-    return neighbour.get("state") == "Established"
+PEERS = {"f1": "10.0.0.1", "r1": "10.0.0.2"}
+"""Each router's BGP neighbour."""
+
+LANS = {"r1": "10.2.0.0/24", "f1": "10.1.0.0/24"}
+"""The LAN each router learns only over BGP."""
+
+
+async def established(vm: Machine) -> bool | None:
+    # vtysh exits 1 until VyOS has started FRR.
+    rc, out = await vm.execute("vtysh -c 'show bgp ipv4 unicast summary json'")
+    if rc != 0:
+        return None
+    summary: BgpSummary = json.loads(out)
+    neighbour = summary.get("peers", {}).get(PEERS[vm.name], {})
+    return True if neighbour.get("state") == "Established" else None
+
+
+async def learned(vm: Machine) -> bool | None:
+    prefix = LANS[vm.name]
+    routes: dict[str, list[RouteEntry]] = json.loads(await vm.succeed(f"vtysh -c 'show ip route {prefix} json'"))
+    return True if routes.get(prefix, [{}])[0].get("protocol") == "bgp" else None
 
 
 async def test(vms: Machines) -> None:
-    r1, f1, a, b = vms.r1, vms.f1, vms.a, vms.b
+    r1, a, b = vms.r1, vms.a, vms.b
 
     links = await r1.succeed("ip -br link show eth1; ip -br link show eth2")
     for name, mac in (("eth1", r1.spec.interfaces[0].mac), ("eth2", r1.spec.interfaces[1].mac)):
@@ -40,20 +56,10 @@ async def test(vms: Machines) -> None:
             raise AssertionError(f"VyOS has no {name} with MAC {mac}:\n{links}")
     print("[test] VyOS's interfaces carry their vivarium names")
 
-    with anyio.fail_after(CONVERGE):
-        while not (await established(f1, "10.0.0.1") and await established(r1, "10.0.0.2")):
-            await anyio.sleep(1)
+    await vms.until("the BGP session", established, CONVERGE, machines=PEERS)
     print("[test] the session is up on both ends")
 
-    for vm, prefix in ((r1, "10.2.0.0/24"), (f1, "10.1.0.0/24")):
-        with anyio.fail_after(CONVERGE):
-            while True:
-                routes: dict[str, list[RouteEntry]] = json.loads(
-                    await vm.succeed(f"vtysh -c 'show ip route {prefix} json'")
-                )
-                if routes.get(prefix, [{}])[0].get("protocol") == "bgp":
-                    break
-                await anyio.sleep(1)
+    await vms.until("the other LAN over BGP", learned, CONVERGE, machines=LANS)
     print("[test] each router learned the other's LAN over BGP")
 
     for src, dst in ((a, "10.2.0.2"), (b, "10.1.0.2")):

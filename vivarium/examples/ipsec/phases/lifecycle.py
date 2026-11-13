@@ -23,7 +23,7 @@ import re
 from typing import Any
 
 import anyio
-from lab import epoch, established, eventually, journal_since, lab, loss, ping, until
+from lab import POLL, epoch, established, journal_since, lab, loss, ping
 from vivarium_runner import Machine, Machines
 
 SPARE = "/etc/ipsec-lab"
@@ -49,7 +49,7 @@ async def refused(east: Machine, since: float, needle: str) -> str:
         log = await journal_since(east, UNIT, since)
         return log if needle in log and "N(AUTH_FAILED)" in log else None
 
-    log = await until(east, f"east to refuse with {needle!r}", logged, 15)
+    log = await east.until(f"east to refuse with {needle!r}", logged, 15, POLL)
     return next(line.strip() for line in log.splitlines() if needle in line)
 
 
@@ -101,13 +101,13 @@ async def test(vms: Machines) -> None:
     reason = await delayed_outage(west, east, alice, bob, "subject certificate invalid (valid from")
     print(f"[test] expired: east refuses ({reason}); the old IKE_SA carries traffic until it is terminated")
     await swap(west, {"x509/west.pem": f"{SPARE}/renewed.pem", "private/west.key": f"{SPARE}/renewed.key"})
-    await eventually(alice, ping(bob, count=1), 15)
+    await alice.wait_until_succeeds(ping(bob, count=1), 15)
     print("[test] expired: the renewed certificate back, the trap policy brings the tunnel up on the next packet")
 
     await swap(east, {"x509crl/ca.crl": f"{SPARE}/stale.crl"})
     reason = await delayed_outage(west, east, alice, bob, "RULE_CRL_VALIDATION is STALE")
     print(f"[test] stale CRL: east refuses a good certificate ({reason}); the outage again waits for a terminate")
     await swap(east, {"x509crl/ca.crl": "/root/orig/ca.crl"})
-    await eventually(alice, ping(bob, count=1), 15)
+    await alice.wait_until_succeeds(ping(bob, count=1), 15)
     await established(west, "policy")
     print("[test] stale CRL: a current CRL back on east, the tunnel up again")

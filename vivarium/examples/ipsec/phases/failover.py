@@ -13,7 +13,7 @@ Not `ip link set down`: under UML a link once down never comes back
 """
 
 import anyio
-from lab import bgp_peers, bgp_up, established, lab, loss, nexthops, ping, sas, until
+from lab import CONVERGE, POLL, bgp_peers, bgp_up, established, lab, loss, nexthops, ping, sas
 from vivarium_runner import Machine, Machines
 
 
@@ -57,7 +57,7 @@ async def test(vms: Machines) -> None:
                 return route
             return None
 
-        await until(west, "the route to fall back to ipsec2", withdrawn, 15)
+        await west.until("the route to fall back to ipsec2", withdrawn, 15, POLL)
         print(
             f"[test] tunnel 1 cut: BGP to {first} down, {prefix} only via ipsec2 after {anyio.current_time() - cut_at:.1f}s"
         )
@@ -74,7 +74,7 @@ async def test(vms: Machines) -> None:
         sa = (await sas(west)).get("tunnel1")
         return True if not sa or sa.get("state") != "ESTABLISHED" else None
 
-    await until(west, "DPD to declare tunnel1 dead", dead, 30)
+    await west.until("DPD to declare tunnel1 dead", dead, 30, POLL)
     if (await bgp_peers(west)).get(second, {}).get("state") != "Established":
         raise AssertionError("BGP over tunnel 2 went down with tunnel 1")
     print("[test] DPD took tunnel1's IKE_SA down; tunnel 2 and its BGP session untouched")
@@ -87,6 +87,6 @@ async def test(vms: Machines) -> None:
         route = await west.succeed(f"ip route show {prefix}")
         return route if sorted(nexthops(route)) == ["ipsec1", "ipsec2"] else None
 
-    await until(west, "ECMP over both tunnels again", ecmp)
+    await west.until("ECMP over both tunnels again", ecmp, CONVERGE, POLL)
     await carol.succeed(ping(dave))
     print("[test] path back: tunnel1 re-established by west, BGP up, ECMP over both tunnels again")

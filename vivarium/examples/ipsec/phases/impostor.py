@@ -16,8 +16,9 @@ end, and alice still reaches bob.
 """
 
 import anyio
-from lab import capture, epoch, established, journal_since, lab, ping, until, xfrm_stats
+from lab import POLL, capture, epoch, established, journal_since, lab, ping, xfrm_stats
 from vivarium_runner import Machines
+from vivarium_runner.machine import MachineError
 
 # What east logs as the reason, and the notify it answers with.
 ATTEMPTS = {
@@ -42,8 +43,8 @@ async def test(vms: Machines) -> None:
             return log if needle in log and notify in log else None
 
         try:
-            log = await until(east, f"east to log the {name} refusal", logged, 15)
-        except AssertionError:
+            log = await east.until(f"east to log the {name} refusal", logged, 15, POLL)
+        except MachineError:
             log = await journal_since(east, "strongswan-swanctl.service", since)
             raise AssertionError(
                 f"{name}: east did not refuse with {needle!r} and {notify}.\nmallory:\n{out}\neast:\n{log}"
