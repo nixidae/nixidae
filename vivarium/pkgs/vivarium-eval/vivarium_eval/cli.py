@@ -490,12 +490,20 @@ def until_pause(argv: list[str], request: Request) -> int:
     with contextlib.redirect_stdout(sys.stderr):
         code = runner_cli.watch(args)
     if code != monitor.READY:
-        say(f"the environment is not ready (monitor exit {code}); `vivarium ctl --out {request.out} state` says why")
+        say(not_ready(code, request.out))
         return code
     print((request.out / access.FILE).read_text(), end="")
     say(f"ready: ssh -F {request.out / access.SSH_CONFIG} <guest>; files in {request.out / access.DIRECTORY}")
     say(f"stop it: {this_cli()} down --out {request.out}")
     return 0
+
+
+def not_ready(code: int, out: Path) -> str:
+    """Where to look when `up` ends short of ready. Only a paused run
+    still has its socket to answer `ctl state`; an ended one left files."""
+    if code == monitor.PAUSED:
+        return f"the environment is not ready, it paused; `vivarium ctl --out {out} state` says why"
+    return f"the environment is not ready (monitor exit {code}); see {out / LOG} and {out / 'phases.json'}"
 
 
 def child_args(argv: list[str]) -> list[str]:

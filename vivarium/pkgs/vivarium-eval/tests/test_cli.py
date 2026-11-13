@@ -4,7 +4,20 @@ from pathlib import Path
 
 import pytest
 from vivarium.control import RUN_FILE, Op, Origin, run_file
-from vivarium_eval.cli import child_args, entry, main, origin_of, parse, parser, split_attr
+from vivarium_eval.cli import child_args, entry, main, not_ready, origin_of, parse, parser, split_attr
+
+
+def test_a_paused_environment_points_at_ctl_state() -> None:
+    assert "vivarium ctl --out /o state" in not_ready(4, Path("/o"))
+
+
+@pytest.mark.parametrize("code", [1, 2, 3, 5])
+def test_an_ended_environment_points_at_its_files(code: int) -> None:
+    """Its socket is gone, so `ctl state` would fail (nixidae/nixidae#1336)."""
+    said = not_ready(code, Path("/o"))
+    assert "ctl" not in said
+    assert "/o/run.log" in said
+    assert "/o/phases.json" in said
 
 
 class TestParse:
