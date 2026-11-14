@@ -445,7 +445,12 @@ async def ssh(
     else:
         argv = ["ssh", "-p", str(port), *options, "admin@127.0.0.1", *command]
     result = await anyio.run_process(
-        argv, env=env, check=False, stdout=None if check else subprocess.DEVNULL
+        argv,
+        env=env,
+        check=False,
+        stdout=None if check else subprocess.DEVNULL,
+        # The guest's errors belong in this log; a probe's are noise.
+        stderr=None if check else subprocess.DEVNULL,
     )
     if check and result.returncode != 0:
         msg = f"{argv[0]} {' '.join(command)}: exit {result.returncode}"
