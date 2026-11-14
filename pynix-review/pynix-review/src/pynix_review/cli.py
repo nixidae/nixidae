@@ -83,7 +83,7 @@ def _parser() -> argparse.ArgumentParser:
         help="seconds assumed for a derivation with no time, for the order",
     )
     cmd.add_argument("--store", default=DAEMON, help="the store that builds; the daemon picks the machines")
-    cmd.add_argument("--out", type=Path, help="write built.json, built.dot and built.url into this directory")
+    cmd.add_argument("--out", type=Path, help="write built.json, its schema, built.dot and built.url here")
     cmd.add_argument("--print-build-logs", action="store_true", help="each builder's output and Nix's info on stderr")
     cmd.add_argument("--gist", action="store_true", help=GIST_HELP)
     return parser

@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import json
 from typing import Final
 
 import anyio
 from shapes import base
 from test_bundle import CAIRO, FONTCONFIG, FREETYPE, LIBPNG, font_bundle, node
 
-from pynix_review.build import Outcome, Report, build_message, failure_status, held_back, report, schedule, tail
+from pynix_review.build import (
+    DOT_FILE,
+    REPORT_FILE,
+    SCHEMA_FILE,
+    URL_FILE,
+    Outcome,
+    Report,
+    build_message,
+    failure_status,
+    held_back,
+    report,
+    schedule,
+    tail,
+    write,
+)
 from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, Bundle, to_dot
 from pynix_review.plan import order
 
@@ -97,6 +112,16 @@ def test_held_back_by_a_base_failure_is_a_base_failure_too() -> None:
 
 def test_report_round_trips() -> None:
     assert Report.model_validate_json(made().model_dump_json()) == made()
+
+
+async def test_write_puts_the_schema_beside_the_report(tmp_path: anyio.Path) -> None:
+    out = anyio.Path(tmp_path) / "out"
+    written = await write(made(), font_bundle(), out, "https://example.invalid/view")
+    assert sorted(p.name for p in written) == sorted([REPORT_FILE, SCHEMA_FILE, DOT_FILE, URL_FILE])
+    schema = json.loads(await (out / SCHEMA_FILE).read_text())
+    assert schema["title"] == "Report"
+    assert {"log_tail", "outputs"} <= set(schema["$defs"]["Built"]["properties"])
+    assert await (out / URL_FILE).read_text() == "https://example.invalid/view\n"
 
 
 def test_held_back_by_a_failed_input_before_one_out_of_budget() -> None:

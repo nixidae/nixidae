@@ -13,6 +13,7 @@ pynixd keeps building after its client goes.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time
@@ -37,6 +38,7 @@ DAEMON: Final = "daemon"
 WALL_SECONDS: Final = 3600
 JOBS: Final = 8
 REPORT_FILE: Final = "built.json"
+SCHEMA_FILE: Final = "built.schema.json"
 DOT_FILE: Final = "built.dot"
 URL_FILE: Final = "built.url"
 LOG_LINES: Final = 60
@@ -200,12 +202,13 @@ def report(
 
 
 async def write(made: Report, source: Bundle, directory: anyio.Path, view: str | None = None) -> list[anyio.Path]:
-    """`built.json`, and the changed graph coloured by what the build did.
+    """`built.json`, its schema, and the changed graph coloured by what the build did.
     `view` replaces the link that carries the DOT itself."""
     await directory.mkdir(parents=True, exist_ok=True)
     dot = to_dot(source, made)
     files = {
         REPORT_FILE: made.model_dump_json(indent=2) + "\n",
+        SCHEMA_FILE: json.dumps(Report.model_json_schema(), indent=2) + "\n",
         DOT_FILE: dot,
         URL_FILE: (view or view_url(dot)) + "\n",
     }
