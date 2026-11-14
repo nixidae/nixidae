@@ -397,8 +397,10 @@ async def save(guest: Path, snap: Path) -> None:
         # state.bin holds the RAM too; nothing to split.
         await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
         args = [*qemu_args(img, "{run}", "memory-backend-shm"), *vfs_args("{run}")]
-        await write_manifest(img, snap, args, mappedRam=MULTIFD_CHANNELS,
-                             virtiofs={"tag": VFS_TAG, "storeVsockPort": STORE_PORT})  # fmt: skip
+        server = shutil.which(VFSD) or VFSD
+        virtiofs = {"tag": VFS_TAG, "storeVsockPort": STORE_PORT,
+                    "server": str(await anyio.Path(server).resolve())}  # fmt: skip
+        await write_manifest(img, snap, args, mappedRam=MULTIFD_CHANNELS, virtiofs=virtiofs)
         return
     await split_ram(img, snap)
     await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
