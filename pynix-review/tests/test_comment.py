@@ -51,6 +51,14 @@ def test_base_failures_and_timeouts_are_not_the_change_s() -> None:
     assert "- `cairo` (unchanged-input-failed): error: Cannot build" in text
 
 
+def test_an_unchanged_input_that_timed_out_does_not_break_the_merge_base() -> None:
+    found = [*outcomes()[:2], Outcome(CAIRO, UNCHANGED_INPUT_FAILED, False, 0, 0, "error: Cannot build")]
+    stopped = made(found).model_copy(update={"unchanged_timeouts": 1, "build_timeout": 5})
+    text = comment(stopped, font_bundle(), VIEW)
+    assert "merge base is broken" not in text
+    assert "The build timeout (5 s) stopped 1 build(s) of inputs the change does not touch" in text
+
+
 def test_the_unchanged_derivation_that_failed_is_named_with_its_log() -> None:
     found = [*outcomes()[:2], Outcome(CAIRO, UNCHANGED_INPUT_FAILED, False, 0, 0, "error: Cannot build")]
     culprit = UnchangedFailure(drv="ilw9-django.drv", message="error: builder failed", log_tail="FAILED test_x")

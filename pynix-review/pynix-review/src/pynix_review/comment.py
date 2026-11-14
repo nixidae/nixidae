@@ -108,18 +108,22 @@ def _comment(made: Report, source: Bundle, view: str, tails: int) -> str:
     ]
     if unevaluated:
         lines += ["", "#### Did not evaluate", ""]
-        lines += [f"- `{attr}`: {why}" for attr, why in sorted(unevaluated.items())]
+        listed = sorted(unevaluated.items())
+        lines += [f"- `{attr}`: {why}" for attr, why in listed[:LISTED]]
+        if len(listed) > LISTED:
+            lines.append(f"- and {len(listed) - LISTED} more")
     if own:
         lines += ["", "#### Failed", "", *_listed(own, tails=tails)]
     if base:
-        lines += [
-            "",
-            "#### Failed on an unchanged input",
-            "",
-            "An input the change does not touch failed: the merge base is broken there, not the change.",
-            "",
-            *_listed(base),
-        ]
+        lines += ["", "#### Failed on an unchanged input", ""]
+        if made.unchanged_failures:
+            lines.append("An input the change does not touch failed: the merge base is broken there, not the change.")
+        if made.unchanged_timeouts:
+            lines.append(
+                f"The build timeout ({_minutes(made.build_timeout)}) stopped {made.unchanged_timeouts} build(s) of "
+                "inputs the change does not touch: they ran out of time, they did not fail."
+            )
+        lines += ["", *_listed(base)]
     if made.unchanged_failures:
         lines += ["", "Unchanged derivations whose builder failed:", ""]
         for n, f in enumerate(made.unchanged_failures[:LISTED]):

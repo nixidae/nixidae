@@ -59,6 +59,7 @@ LOG_LINES: Final = 60
 LOG_QUOTE: Final = re.compile(r"\s*Last \d+ log lines:")
 FAILED_BUILDER: Final = re.compile(r"Cannot build '/nix/store/(?P<drv>[^'/]+\.drv)'\.\s+Reason: (?P<reason>[^\n]*)")
 HELD_BACK: Final = re.compile(r"\d+ dependenc(y|ies) failed")
+TIMEOUT_MESSAGE: Final = re.compile(r"^error: timed out after \d+ seconds")
 BUILD_LOG_RESULTS: Final = frozenset({huggorm.ResultType.BUILD_LOG_LINE, huggorm.ResultType.POST_BUILD_LOG_LINE})
 """Unforwarded, huggorm's fallback logger prints these at chatty: 8694
 lines on stderr for the libpng plan."""
@@ -137,6 +138,13 @@ class Report(_Model):
     unchanged_failures: list[UnchangedFailure] = Field(default_factory=list[UnchangedFailure])
     """Found in Nix's error messages during the run: the derivations behind
     `unchanged_input_failed`, which can be several inputs deep."""
+    unchanged_timeouts: int = 0
+    """Builds outside the bundle that `build_timeout` or `max-silent-time`
+    stopped: their dependents are `unchanged-input-failed` too, though
+    nothing failed. Nix's message names no derivation ("timed out after 5
+    seconds", upstream's `goal.cc` as pynixd's), so they are counted, not
+    named. A bundle build that times out answers in its result and logs no
+    such message (measured)."""
 
 
 def unchanged_failure(text: str, changed: Container[str]) -> tuple[str, str] | None:
@@ -213,6 +221,7 @@ def report(
     untimed_seconds: int = UNTIMED_SECONDS,
     build_timeout: int = 0,
     unchanged_failures: Sequence[UnchangedFailure] = (),
+    unchanged_timeouts: int = 0,
 ) -> Report:
     by_drv = {d.drv: d for d in bundle.derivations}
     results = [
@@ -244,6 +253,7 @@ def report(
         out_of_budget=sum(1 for r in results if r.status in OVER_BUDGET),
         timed_out=sum(1 for r in results if r.status == TIMED_OUT),
         unchanged_failures=list(unchanged_failures),
+        unchanged_timeouts=unchanged_timeouts,
     )
 
 
@@ -344,13 +354,18 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     changed = {d.drv for d in bundle.derivations}
     unchanged: dict[str, str] = {}
     """Nix names a failed builder once per derivation waiting on it: one entry each."""
+    timeouts: list[str] = []
 
     def write_log(record: huggorm.LogRecord) -> None:
         if (line := log_line(record, build_logs=build_logs)) is not None:
             text = huggorm.filter_ansi_escapes(line, filter_all=True)
             sys.stderr.write(text + "\n")
-            if record.action() == "msg" and (found := unchanged_failure(text, changed)) is not None:
+            if record.action() != "msg":
+                return
+            if (found := unchanged_failure(text, changed)) is not None:
                 unchanged.setdefault(*found)
+            elif TIMEOUT_MESSAGE.match(text):
+                timeouts.append(text)
 
     for name, seconds in ((TIMEOUT_SETTING, build_timeout), (SILENT_SETTING, max_silent_time)):
         if seconds:
@@ -372,4 +387,5 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
         untimed_seconds=untimed_seconds,
         build_timeout=build_timeout,
         unchanged_failures=culprits,
+        unchanged_timeouts=len(timeouts),
     )
