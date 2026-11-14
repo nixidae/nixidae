@@ -73,6 +73,10 @@ let
   # that lives on answers the old signatures (nixidae/nixidae#115,
   # Lillecarl/nix#425).
   addSignatures = patch "nix-add-signatures-invalidates-path-info";
+  # A build in another store copies the derivations from the eval store with
+  # NoCheckSigs, as the build hook does; the daemon still checks an untrusted
+  # client. Determinate's `RemoteStore` only: master's is `RemoteBuilder`.
+  evalStoreCopy = patch "nix-eval-store-copy-no-check-sigs";
   # `nix develop`'s erase of `outputChecks` reaches the dev-env derivation:
   # 2.36 serialises `__json` from the parsed text.
   developOutputChecks = patch "nix-2.36-develop-drops-output-checks";
@@ -185,6 +189,7 @@ in
       forgetSrcToStore
       udsLocalFS
       addSignatures
+      evalStoreCopy
     ];
     # The fork's collector is newer bdwgc: the same three changes as
     # `boehmgcPatches` below, where its code moved.

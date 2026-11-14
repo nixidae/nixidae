@@ -1,0 +1,32 @@
+A build in another store copies the derivations from the eval store
+without asking for a signature check.
+
+`copyDrvsFromEvalStore` copied each derivation's closure into the build
+store with `copyClosure`'s default, `CheckSigs`. The build store then
+refused any input the eval store held unsigned, or under a key the build
+store does not trust: "cannot add path ... because it lacks a signature
+by a trusted key". `nix build --eval-store auto --store ssh-ng://...`
+failed so on a store-path source that had come from a binary cache the
+build store does not trust (measured with pynixd on sg1, 2026-11-14).
+
+The build hook copies the same inputs to a remote builder with
+`NoCheckSigs` (`build-remote.cc`). The daemon on the other end still
+checks an untrusted client: `daemon.cc` drops `dontCheckSigs` unless the
+client is trusted. So the request changes nothing for an untrusted
+client, and a trusted one gets what the build hook gives it.
+
+It is meant for upstream.
+
+--- a/src/libstore/remote-store.cc
++++ b/src/libstore/remote-store.cc
+@@ -654,7 +654,9 @@
+                 },
+                 i.raw());
+         }
+-        copyClosure(*evalStore, *this, drvPaths2);
++        /* As the build hook copies inputs (`build-remote.cc`): the daemon
++           still checks the signatures of an untrusted client. */
++        copyClosure(*evalStore, *this, drvPaths2, NoRepair, NoCheckSigs);
+     }
+ }
+

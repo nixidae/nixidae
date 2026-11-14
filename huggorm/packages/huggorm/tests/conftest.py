@@ -82,6 +82,16 @@ def parallel_state() -> Any:
 
 @pytest.fixture
 def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
+    yield from _daemon(tmp_path, "")
+
+
+@pytest.fixture
+def trusted_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
+    """`private_daemon`, trusting every client, as a store its admins build in does."""
+    yield from _daemon(tmp_path, "trusted-users = *\n")
+
+
+def _daemon(tmp_path: pathlib.Path, conf_text: str) -> Iterator[str]:
     """A nix-daemon of this lane's Nix, on its own socket and store.
 
     Not the machine's daemon. That one may be a proxy that drops the
@@ -93,6 +103,7 @@ def private_daemon(tmp_path: pathlib.Path) -> Iterator[str]:
     assert nix, "HUGGORM_ORACLE_NIX names the Nix to run as the daemon"
     conf = tmp_path / "conf"
     conf.mkdir()
+    (conf / "nix.conf").write_text(conf_text)
     sock = tmp_path / "sock"
     log = tmp_path / "daemon.log"
     env = {**os.environ, "NIX_CONF_DIR": str(conf), "NIX_USER_CONF_FILES": "", "NIX_DAEMON_SOCKET_PATH": str(sock)}
