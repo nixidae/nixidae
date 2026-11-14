@@ -67,6 +67,36 @@ rec {
       ) settings
     );
 
+  # The nix.conf lines a job's install options name, for `installNix` and
+  # `installPynixd` alike.
+  installedConf =
+    {
+      experimentalFeatures,
+      settings,
+      uidRange,
+      devNet,
+    }:
+    nixConf (
+      {
+        experimental-features =
+          experimentalFeatures
+          ++ lib.optionals uidRange [
+            "auto-allocate-uids"
+            "cgroups"
+          ];
+        access-tokens = "github.com=\${{ github.token }}";
+      }
+      // lib.optionalAttrs uidRange {
+        auto-allocate-uids = true;
+        use-cgroups = true;
+        extra-system-features = [ "uid-range" ];
+      }
+      // lib.optionalAttrs devNet {
+        extra-sandbox-paths = [ "/dev/net" ];
+      }
+      // settings
+    );
+
   # Each constructor below carries a default cap, because each one wraps a
   # known action whose work does not change with the project that calls it: a
   # checkout, an install of Nix, a read or a write of one artifact. Each
@@ -144,26 +174,14 @@ rec {
         uses = "cachix/install-nix-action@master";
         timeout-minutes = timeoutMinutes;
         "with" = {
-          extra_nix_config = nixConf (
-            {
-              experimental-features =
-                experimentalFeatures
-                ++ lib.optionals uidRange [
-                  "auto-allocate-uids"
-                  "cgroups"
-                ];
-              access-tokens = "github.com=\${{ github.token }}";
-            }
-            // lib.optionalAttrs uidRange {
-              auto-allocate-uids = true;
-              use-cgroups = true;
-              extra-system-features = [ "uid-range" ];
-            }
-            // lib.optionalAttrs devNet {
-              extra-sandbox-paths = [ "/dev/net" ];
-            }
-            // settings
-          );
+          extra_nix_config = installedConf {
+            inherit
+              experimentalFeatures
+              settings
+              uidRange
+              devNet
+              ;
+          };
         }
         // lib.optionalAttrs (version != null) {
           # The action takes an installer URL and not a version, and this is
@@ -172,6 +190,55 @@ rec {
           # `nix.install.version` says what that cost when it was not named.
           install_url = "https://releases.nixos.org/nix/nix-${version}/install";
         };
+      };
+
+    /*
+      Install pynixd as the machine's only Nix daemon: nixidae/nixidae#1365.
+
+      `tarball` is the directory that holds `pynixd-<system>.tar.zst`, a URL
+      that curl reads (`file://` too). The tarball unpacks into /nix, and
+      its installer starts pynixd under systemd with no nix-daemon. The
+      runner user is a trusted user, and the profile's `bin` goes on PATH
+      for every later step.
+
+      The other arguments mean what they mean to `installNix`, and become
+      the same nix.conf lines. The installer writes its own build-user
+      lines after them, so `experimentalFeatures` cannot turn those off.
+    */
+    installPynixd =
+      {
+        tarball,
+        timeoutMinutes ? 10,
+        experimentalFeatures ? [
+          "nix-command"
+          "flakes"
+        ],
+        settings ? { },
+        uidRange ? false,
+        devNet ? false,
+      }:
+      {
+        name = "Install pynixd as the Nix daemon";
+        timeout-minutes = timeoutMinutes;
+        # `bash` and not the default `bash -e`: GitHub then adds `pipefail`, and
+        # a failed download fails the step instead of feeding tar nothing.
+        shell = "bash";
+        env = {
+          PYNIXD_TARBALL = tarball;
+          PYNIXD_NIX_CONF = installedConf {
+            inherit
+              experimentalFeatures
+              settings
+              uidRange
+              devNet
+              ;
+          };
+        };
+        run = lib.concatStringsSep " && " [
+          ''curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$(uname -m)-linux.tar.zst" | sudo tar --zstd -x -C /''
+          ''printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin''
+          ''echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"''
+        ];
       };
 
     cachix =

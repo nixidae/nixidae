@@ -210,6 +210,31 @@ let
             default = 15;
             description = "Cap on the install step.";
           };
+          daemon = mkOption {
+            type = types.enum [
+              "nix"
+              "pynixd"
+            ];
+            default = "nix";
+            description = ''
+              The daemon of the runner's store.
+
+              `nix`: Nix from `cachix/install-nix-action`, with nix-daemon.
+              `pynixd`: the pynixd tarball from `pynixdTarball`, with pynixd
+              as the only daemon (nixidae/nixidae#1365). The other options
+              here mean the same for both, except `version`, which only
+              `nix` takes: the tarball carries the Nix it was built with.
+            '';
+          };
+          pynixdTarball = mkOption {
+            type = types.str;
+            default = "https://github.com/nixidae/nixidae/releases/download/pynixd-installer";
+            description = ''
+              The directory that holds `pynixd-<system>.tar.zst`, for
+              `daemon = "pynixd"`. Any URL curl reads, `file://` too: a job
+              can install a tarball an earlier job built.
+            '';
+          };
         };
 
         cachix = {
@@ -617,16 +642,30 @@ let
           ))
           (lib.mkOrder orders.installNix (
             lib.optional cfg.nix.install.enable (
-              steps.installNix {
-                inherit (cfg.nix.install)
-                  devNet
-                  experimentalFeatures
-                  settings
-                  timeoutMinutes
-                  uidRange
-                  version
-                  ;
-              }
+              if cfg.nix.install.daemon == "nix" then
+                steps.installNix {
+                  inherit (cfg.nix.install)
+                    devNet
+                    experimentalFeatures
+                    settings
+                    timeoutMinutes
+                    uidRange
+                    version
+                    ;
+                }
+              else if cfg.nix.install.version != null then
+                throw "ghanix: nix.install.version names a Nix release, and daemon = \"pynixd\" installs the Nix in pynixd's tarball"
+              else
+                steps.installPynixd {
+                  tarball = cfg.nix.install.pynixdTarball;
+                  inherit (cfg.nix.install)
+                    devNet
+                    experimentalFeatures
+                    settings
+                    timeoutMinutes
+                    uidRange
+                    ;
+                }
             )
           ))
           (lib.mkOrder orders.remoteBuilder (
