@@ -396,6 +396,47 @@ Warm runs are faster than cold ones (a compile: 0.87 s cold, 0.20 s warm),
 so the guest caches what it reads over virtiofs. A listing of the store root
 still did not finish in 120 s.
 
+### virtiofs under QEMU: darwin-virtiofsd (2026-11-14)
+
+`vivarium/pkgs/darwin-virtiofsd` is a vhost-user virtio-fs server for macOS
+hosts: its own vhost-user side, libkrun's FUSE server and macOS passthrough,
+read-only, `CachePolicy::Always` with 24 h entry and attribute timeouts. QEMU
+needs `--enable-vhost-user --disable-vhost-net` and the fork's 52d6c471, and
+guest RAM on `memory-backend-shm`:
+
+```
+darwin-virtiofsd --socket-path vfs.sock --shared-dir /nix/store &
+qemu-system-aarch64 ... -object memory-backend-shm,id=ram0,size=8G \
+  -chardev socket,id=vfs,path=vfs.sock -device vhost-user-fs-pci,chardev=vfs,tag=hoststore
+# guest
+mount_virtiofs hoststore /nix/store
+```
+
+Found on the way:
+
+- vmapple's `virtio-pci.disable-legacy` global refused the modern-only
+  `vhost-user-fs-pci`; the fork makes it optional.
+- vhost-user writes its start kick to the kick fd, which on a host without
+  eventfd is the read end of a pipe (`EBADF`); the fork sends it through
+  `event_notifier_set`.
+- The guest's driver puts every request in an indirect descriptor table.
+  QEMU passes `VIRTIO_RING_F_INDIRECT_DESC` to the guest whatever the
+  back-end offers, and libkrun's queue had no indirect support.
+- The guest uses one queue, the first.
+
+The same benchmark in the QEMU guest (macOS 14, 4 CPUs, 8 GiB), warm runs;
+the Apple column is the tart run above:
+
+| | darwin-virtiofsd | Apple's server (VZ) | 9p | guest-local |
+| --- | --- | --- | --- | --- |
+| `cc -c`, 10 times | 1.81 s | 2.04 s | 14.4 s | 0.47 s |
+| link | 0.28 s | 0.36 s | 1.96 s | 0.09 s |
+| `find` over the SDK | 5.82 s | 4.68 s | 89 s | 0.15 s |
+| `cat` every SDK file | 10.1 s | 7.92 s | 122 s | 0.38 s |
+| `cat` libLLVM.dylib | 0.03 s | 0.05 s | 0.16 s | 0.02 s |
+| copy the closure out | 31.4 s | 20.6 s | 93 s | |
+| list the store root (170 510) | 32.6 s | over 120 s | over 120 s | |
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
