@@ -974,14 +974,13 @@ class Store:
         The same work `build_paths` does, and the other shape of the
         answer. Upstream's own comment says the difference: this does
         not throw on a build error, it returns a result carrying the
-        message. So a caller building twenty targets gets twenty
-        results and finds out what happened to each, where
-        `build_paths` raises on the first failure and says nothing
-        about the rest.
+        message, where `build_paths` raises on the first failure.
 
-        One result per target, in the order the targets were given.
-        Each holds the target it is about, so a caller can match them
-        up without relying on that order.
+        With `keep-going` on, one result per target. Without it, Nix
+        stops at the first failure, and a target that never started
+        gets no result: two failing targets gave one result. Each
+        result holds the target it is about, so match by that, not
+        by position.
 
         It still raises for the things that are not a build failure -
         an invalid path, a store that cannot do this. The value shape

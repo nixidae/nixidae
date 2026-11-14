@@ -10,7 +10,9 @@ and upstream's own comment says why it exists:
     won't throw an exception, but return a BuildResult containing an
     error message.
 
-So a caller building twenty targets gets twenty results (nixidae/nixidae#608).
+So a caller building twenty targets with `keep-going` on gets twenty
+results (nixidae/nixidae#608). Without it, Nix stops at the first failure
+and a target that never started gets none (nixidae/nixidae#1361).
 
 A SUM, and one arm of it is an exception class. `using Failure =
 BuildError;` is one line of upstream and it is the whole reason this
