@@ -368,9 +368,33 @@ stream of it, 105 s. Traced with `-trace v9fs_*` (`-msg timestamp=on`):
   costs about the square of its size.
 - The guest sends about 2 `readlink` requests for each entry it looks up.
 
-Not tried: virtiofs. Its protocol carries cache lifetimes, but a host server
-needs shared guest RAM (vhost-user), which conflicts with a private `ram.bin`
-mapping.
+### virtiofs: Apple's server, measured through tart (2026-11-14)
+
+QEMU can serve virtiofs only through vhost-user. meson turns vhost-user off
+on hosts other than Linux (`meson.build:223`; `-Dvhost_user=enabled` allows
+it, and `memory-backend-shm` exists for it). The server is the blocker:
+virtiofsd keeps every inode as an `O_PATH` descriptor reopened through
+`/proc/self/fd`, and uses `statx`, `name_to_handle_at`, namespaces, seccomp
+and capng. Its `vhost-user-backend` 0.22 runs on `epoll`. A vhost-user
+server also needs the guest RAM shared, where a start maps `ram.bin` private.
+
+Virtualization.framework has its own virtiofs server. The same benchmark in a
+clone of `sonoma-vz` (tart 2.37.0, `--dir=/nix/store:ro,tag=hoststore`,
+`mount_virtiofs`, 4 CPUs, 8 GiB), warm runs. Guest-local here is the VZ
+guest's own disk, which is slower than the QEMU guest's:
+
+| | virtiofs | guest-local (VZ) | 9p (QEMU) |
+| --- | --- | --- | --- |
+| `cc -c`, 10 times | 2.04 s | 1.33 s | 14.4 s |
+| link | 0.36 s | 0.29 s | 1.96 s |
+| `find` over the SDK | 4.68 s | 0.38 s | 89 s |
+| `cat` every SDK file | 7.92 s | 0.74 s | 122 s |
+| `cat` libLLVM.dylib | 0.05 s | 0.04 s | 0.16 s |
+| copy the closure out | 20.6 s | | 93 s |
+
+Warm runs are faster than cold ones (a compile: 0.87 s cold, 0.20 s warm),
+so the guest caches what it reads over virtiofs. A listing of the store root
+still did not finish in 120 s.
 
 ## The reset loop (solved)
 
