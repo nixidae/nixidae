@@ -552,6 +552,15 @@ huggorm's `compute_fs_closure(include_outputs=True)` and
 `make_validity_registration`. 934 paths took 0.30 s that way, against
 1.4 s through `nix-store`; `hello` took 25.4 s from command to output path.
 
+With the device node of Nix Upper looked up once a boot (`diskutil info`
+took 0.1 s a call; `host`'s three mounts take 0.07 s together), three
+`pynix build --darwin-builder` runs of `hello` took 23.1-23.4 s, registering
+in 0.27-0.50 s. Ready, the host store mounted, in 0.52 s with `state.bin` in
+the host's cache and 1.44-1.47 s without. The cache did not hold from one run
+to the next: on this 24 GiB host each run adds 8 GiB of shared guest RAM.
+Read just before, a start was ready in 0.79 s. The guest uses about 2 GB;
+less guest RAM is the next thing to try.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
