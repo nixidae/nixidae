@@ -437,6 +437,36 @@ the Apple column is the tart run above:
 | copy the closure out | 31.4 s | 20.6 s | 93 s | |
 | list the store root (170 510) | 32.6 s | over 120 s | over 120 s | |
 
+### Snapshots with virtiofs (2026-11-14)
+
+vhost-user needs guest RAM the server can map: shared memory, where a start
+maps `ram.bin` private. QEMU saves a `vhost-user-fs-pci` guest only when the
+server offers two features, which darwin-virtiofsd now has:
+
+- `LOG_SHMFD` and `VHOST_F_LOG_ALL`: without them QEMU blocks migration. The
+  server marks each finished chain's writable buffers and the used ring in
+  QEMU's bitmap. A stopped VM's device is stopped, so a save logs nothing;
+  QEMU allocates the bitmap with memfd, which macOS lacks, so live
+  migration is still untested.
+- `DEVICE_STATE` (`SET_DEVICE_STATE_FD`, `CHECK_DEVICE_STATE`): the state is
+  that no FUSE session is open. Between FUSE_INIT and FUSE_DESTROY the guest
+  holds inodes only that process knows, so the server refuses the save: save
+  with the share unmounted, mount it after each start.
+
+`host/snap_vfs.py`: Sonoma, 8 GiB, saved with the share unmounted 20 s after
+the daemon answered. `full.bin` 3.4 GB; the split to `ram.bin` + `state.bin`
+8.5 s. Each start mounts the share, then compiles `host/bench.c` 10 times,
+three rounds:
+
+| start | daemon answers | compile x10, rounds 1 / 2 / 3 |
+| --- | --- | --- |
+| lazy: a clone of `ram.bin`, `memory-backend-file,share=on` | 0.36-0.44 s | 16-18 / 29 / 30-31 s |
+| eager: `full.bin` into `memory-backend-shm` | 1.60-1.74 s | 2.3 / 2.0-2.1 / 2.0-2.1 s |
+
+A shared file mapping stalls the guest while macOS writes its dirty pages
+back, as on the first builders (Traps). The eager start pays the whole RAM,
+1.5 s of loading for 3.4 GB, and then builds as fast as a booted guest.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
