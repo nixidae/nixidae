@@ -2579,11 +2579,12 @@ def begin_request(request: I64) -> I64:
         auto & slot = huggorm::thread_request();
         auto previous = slot;
         slot = static_cast<std::uint64_t>(request);
+        huggorm::cancellations().enter(slot);
         return static_cast<std::int64_t>(previous);
     """)
 
 
-@needs(Local("huggorm_decl/cpp/logging.hpp"))
+@needs(Local("huggorm_decl/cpp/logging.hpp"), Local("huggorm_decl/cpp/interrupt.hpp"))
 def end_request(previous: I64) -> None:
     """Mark this thread's call finished, and restore what ran before.
 
@@ -2605,6 +2606,7 @@ def end_request(previous: I64) -> None:
         if (previous < 0)
             throw std::invalid_argument("request id must not be negative");
         auto & slot = huggorm::thread_request();
+        huggorm::cancellations().leave(slot);
         if (slot != 0)
             huggorm::route({.action = "finalized", .request = slot});
         slot = static_cast<std::uint64_t>(previous);
@@ -2617,8 +2619,11 @@ def cancel_request(request: I64) -> None:
 
     The call raises `Interrupted` at Nix's next `checkInterrupt`. A
     call still queued stops at its first one, and a call that never
-    reaches one finishes as if nothing happened. A blocking system
-    call runs to its end first.
+    reaches one finishes as if nothing happened. The thread inside it
+    gets `wake_signal()`, so a blocking read on the daemon socket fails
+    with EINTR and Nix checks again (`interrupt.hpp`). A signal lost
+    between that check and the read is the caller's to send again: call
+    this once more.
 
     Runtime plumbing, like `begin_request`: the async runtime calls it
     when the awaiting task is cancelled. The request stays cancelled
@@ -2662,6 +2667,7 @@ def begin_interrupt_scope(scope: I64) -> I64:
         auto & slot = huggorm::thread_interrupt_scope();
         auto previous = slot;
         slot = static_cast<std::uint64_t>(scope);
+        huggorm::scope_cancellations().enter(slot);
         return static_cast<std::int64_t>(previous);
     """)
 
@@ -2672,6 +2678,7 @@ def end_interrupt_scope(previous: I64) -> None:
     Cxx("""
         if (previous < 0)
             throw std::invalid_argument("scope id must not be negative");
+        huggorm::scope_cancellations().leave(huggorm::thread_interrupt_scope());
         huggorm::thread_interrupt_scope() = static_cast<std::uint64_t>(previous);
     """)
 

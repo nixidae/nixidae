@@ -14,6 +14,7 @@ A pure evaluation stops too: `nix-call-function-checks-interrupt.patch`
 calls `checkInterrupt` once per function call (nixidae/nixidae#744).
 """
 
+import contextlib
 import threading
 import time
 from collections.abc import Iterator
@@ -265,6 +266,53 @@ async def test_a_cancelled_await_stops_the_thread() -> None:
     assert await got.integer() == 2
     assert time.monotonic() - started < STOPPED_WITHIN
     await state.aclose()
+
+
+SILENT_FOR = 20.0
+"""How long the silent daemon holds a connection: the bound on a test
+that would otherwise hang until the cancel wakes the read."""
+
+
+@pytest.fixture
+def silent_daemon(tmp_path: Any) -> Iterator[str]:
+    """A unix socket that accepts and never answers: a store's handshake
+    blocks in `read` on it, as a remote build's call does on pynixd."""
+    import socket
+
+    path = str(tmp_path / "silent.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen()
+    done = threading.Event()
+    held: list[socket.socket] = []
+
+    def serve() -> None:
+        server.settimeout(SILENT_FOR)
+        with contextlib.suppress(OSError):
+            held.append(server.accept()[0])
+        done.wait(SILENT_FOR)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield f"unix://{path}"
+    done.set()
+    thread.join()
+    for conn in held:
+        conn.close()
+    server.close()
+
+
+async def test_a_cancelled_call_blocked_in_a_read_returns(silent_daemon: str) -> None:
+    """nixidae/nixidae#1219. A cancel only marks the request, and a thread
+    blocked in `read` never reaches `checkInterrupt`: before the wake
+    signal, this call returned when the daemon gave up, `SILENT_FOR` on."""
+    store = AsyncStore(silent_daemon)
+    path = await store.parse_store_path("/nix/store/00000000000000000000000000000000-x")
+    started = time.monotonic()
+    with anyio.move_on_after(CANCEL_AFTER) as scope:
+        await store.is_valid_path(path)
+    assert scope.cancelled_caught, "the daemon answered"
+    assert time.monotonic() - started < STOPPED_WITHIN
 
 
 # Interruptible with no primop, which has no rpc: `toJSON` calls

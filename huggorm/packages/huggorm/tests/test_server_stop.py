@@ -25,15 +25,15 @@ PURE = (
 @pytest.mark.parametrize("busy", ["idle", "pure", "blocked"])
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
 async def test_a_signal_stops_the_server(signum: signal.Signals, busy: str, tmp_path: pathlib.Path) -> None:
-    """The server closes the state it holds and exits 0, and a pure
-    evaluation in flight stops. A call blocked in a system call holds
-    the stop open, and a second signal ends the process at once."""
+    """The server closes the state it holds and exits 0, and an
+    evaluation in flight stops: a pure one at its next `checkInterrupt`,
+    a blocked one when the wake signal fails its system call with EINTR
+    (nixidae/nixidae#1219)."""
     fifo = tmp_path / "fifo"
     os.mkfifo(fifo)
     expression = {
         "pure": PURE,
-        # `open` waits for a writer, and no `checkInterrupt`
-        # reaches it.
+        # `open` waits for a writer that never comes.
         "blocked": f"builtins.readFile {fifo}",
     }.get(busy)
     path = socket_path()
@@ -56,13 +56,9 @@ async def test_a_signal_stops_the_server(signum: signal.Signals, busy: str, tmp_
                         tg.start_soon(spins, expression)
                         await anyio.sleep(0.5)
                     process.send_signal(signum)
-                    if busy == "blocked":
-                        await anyio.sleep(2)
-                        assert process.returncode is None
-                        process.send_signal(signum)
                     with anyio.fail_after(10):
                         code = await process.wait()
-                    assert (code != 0) if busy == "blocked" else (code == 0)
+                    assert code == 0
                     tg.cancel_scope.cancel()
         finally:
             if process.returncode is None:

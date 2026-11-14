@@ -396,6 +396,10 @@ _CALLING = threading.local()
 # one larger write Nix makes whole. An accessor with no chunked
 # `readFile` (dummy://, an in-memory tree) writes each file whole.
 _POSTED_WINDOW = 16
+WAKE_AGAIN_SECONDS = 1.0
+"""How long a cancelled call may stay quiet before the cancel is sent
+again: the wake signal is lost when it lands between Nix's interrupt
+check and the read that then blocks (`interrupt.hpp`)."""
 
 
 class _Hooks:
@@ -626,7 +630,9 @@ async def _until_done(future: asyncio.Future[Any], request: int, hooks: _Hooks) 
     already running, and cancelling `future` would only detach it. So
     this never cancels the future. It waits on an event the future
     sets, and on cancellation it marks the request cancelled, which
-    Nix sees at its next `checkInterrupt` on that thread.
+    Nix sees at its next `checkInterrupt` on that thread; the thread
+    is woken from a blocking read, and woken again each
+    `WAKE_AGAIN_SECONDS` it stays quiet.
 
     Then it waits again, shielded, until the thread has stopped. A
     caller whose cancellation returned while the evaluator still ran
@@ -651,7 +657,12 @@ async def _until_done(future: asyncio.Future[Any], request: int, hooks: _Hooks) 
         try:
             with anyio.CancelScope(shield=True):
                 while not future.done():
-                    await hooks.wake.wait()
+                    with anyio.move_on_after(WAKE_AGAIN_SECONDS) as quiet:
+                        await hooks.wake.wait()
+                    if quiet.cancelled_caught:
+                        # The wake signal can land before the thread blocks: send it again.
+                        huggorm_bindings.cancel_request(request)
+                        continue
                     hooks.wake = anyio.Event()
             # Discarded, so read: asyncio logs a failure nothing read.
             if not future.cancelled():
