@@ -31,11 +31,13 @@ from .bundle import (
     DEPENDENCY_FAILED,
     OUT_OF_BUDGET,
     OVER_BUDGET,
+    RAN,
     TIMED_OUT,
     UNCHANGED_INPUT_FAILED,
     to_dot,
     view_url,
 )
+from .comment import COMMENT_FILE, URL_FILE, comment
 from .evaluate import error_line
 from .plan import STORE_DIR, UNTIMED_SECONDS, cost, order
 
@@ -50,14 +52,11 @@ JOBS: Final = 8
 REPORT_FILE: Final = "built.json"
 SCHEMA_FILE: Final = "built.schema.json"
 DOT_FILE: Final = "built.dot"
-URL_FILE: Final = "built.url"
 TIMEOUT_SETTING: Final = "timeout"
 """Not `build-timeout`: an untrusted client may set only the primary name (`daemon.cc:297`)."""
 SILENT_SETTING: Final = "max-silent-time"
 LOG_LINES: Final = 60
 LOG_QUOTE: Final = re.compile(r"\s*Last \d+ log lines:")
-RAN: Final = "built"
-"""The success word for a builder that ran; the other success words ran none."""
 BUILD_LOG_RESULTS: Final = frozenset({huggorm.ResultType.BUILD_LOG_LINE, huggorm.ResultType.POST_BUILD_LOG_LINE})
 """Unforwarded, huggorm's fallback logger prints these at chatty: 8694
 lines on stderr for the libpng plan."""
@@ -223,7 +222,7 @@ def report(
 
 
 async def write(made: Report, source: Bundle, directory: anyio.Path, view: str | None = None) -> list[anyio.Path]:
-    """`built.json`, its schema, and the changed graph coloured by what the build did.
+    """`built.json`, its schema, the changed graph coloured by what the build did, and `built.md`.
     `view` replaces the link that carries the DOT itself."""
     await directory.mkdir(parents=True, exist_ok=True)
     dot = to_dot(source, made)
@@ -231,7 +230,8 @@ async def write(made: Report, source: Bundle, directory: anyio.Path, view: str |
         REPORT_FILE: made.model_dump_json(indent=2) + "\n",
         SCHEMA_FILE: json.dumps(Report.model_json_schema(), indent=2) + "\n",
         DOT_FILE: dot,
-        URL_FILE: (view or view_url(dot)) + "\n",
+        URL_FILE: (link := view or view_url(dot)) + "\n",
+        COMMENT_FILE: comment(made, source, link),
     }
     written = []
     for name, text in files.items():

@@ -49,6 +49,8 @@ UNCHANGED_INPUT_FAILED: Final = "unchanged-input-failed"
 inputs built, so the input that failed is one the change does not touch:
 the merge base is broken there, not the change."""
 OUT_OF_BUDGET: Final = "out-of-budget"
+RAN: Final = "built"
+"""The success word for a builder that ran; the other success words ran none."""
 TIMED_OUT: Final = "timed-out"
 """Nix's word for a build its `timeout` or `max-silent-time` stopped."""
 OVER_BUDGET: Final = frozenset({OUT_OF_BUDGET, TIMED_OUT})

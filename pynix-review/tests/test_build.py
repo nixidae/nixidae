@@ -11,7 +11,6 @@ from pynix_review.build import (
     DOT_FILE,
     REPORT_FILE,
     SCHEMA_FILE,
-    URL_FILE,
     Outcome,
     Report,
     build_message,
@@ -23,6 +22,7 @@ from pynix_review.build import (
     write,
 )
 from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, TIMED_OUT, UNCHANGED_INPUT_FAILED, Bundle, to_dot
+from pynix_review.comment import COMMENT_FILE, URL_FILE
 from pynix_review.plan import order
 
 
@@ -130,7 +130,8 @@ def test_report_round_trips() -> None:
 async def test_write_puts_the_schema_beside_the_report(tmp_path: anyio.Path) -> None:
     out = anyio.Path(tmp_path) / "out"
     written = await write(made(), font_bundle(), out, "https://example.invalid/view")
-    assert sorted(p.name for p in written) == sorted([REPORT_FILE, SCHEMA_FILE, DOT_FILE, URL_FILE])
+    assert sorted(p.name for p in written) == sorted([REPORT_FILE, SCHEMA_FILE, DOT_FILE, URL_FILE, COMMENT_FILE])
+    assert "[Graph](https://example.invalid/view)" in await (out / COMMENT_FILE).read_text()
     schema = json.loads(await (out / SCHEMA_FILE).read_text())
     assert schema["title"] == "Report"
     assert {"log_tail", "outputs"} <= set(schema["$defs"]["Built"]["properties"])
