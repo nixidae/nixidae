@@ -39,6 +39,7 @@ import contextlib
 import json
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import struct
@@ -77,6 +78,13 @@ IMG = Path(os.environ.get("IMG", Path.home() / "Dynamist/orchard-images/sonoma")
 DAEMON_PORT = 3030
 HANDSHAKE_TIMEOUT = 2.0
 CLOCK_PORT = 3031
+STORE_PORT = 3032
+VFS_TAG = "hoststore"
+VFSD = os.environ.get("VFSD", "darwin-virtiofsd")
+VIRTIOFS = os.environ.get("VIRTIOFS") == "1"
+# Measured: 8 channels load a 2 GB mapped-ram file in 0.3 s, 4 in 0.26 s but
+# the daemon answered 0.25 s later.
+MULTIFD_CHANNELS = 8
 WORD = struct.Struct("<Q")
 WORKER_MAGIC_1 = 0x6E697863
 WORKER_MAGIC_2 = 0x6478696F
@@ -264,6 +272,61 @@ def qemu_args(
     ]  # fmt: skip
 
 
+def vfs_args(run: str) -> list[str]:
+    """The vhost-user-fs device; guest RAM must then be memory-backend-shm."""
+    return [
+        "-chardev", f"socket,id=vfs,path={run}/vfs.sock",
+        "-device", f"vhost-user-fs-pci,chardev=vfs,tag={VFS_TAG}",
+    ]  # fmt: skip
+
+
+@contextlib.asynccontextmanager
+async def vfs_server(run: Path) -> AsyncIterator[None]:
+    """darwin-virtiofsd serving the host store at RUN/vfs.sock, for one QEMU."""
+    sock = run / "vfs.sock"
+    await anyio.Path(sock).unlink(missing_ok=True)
+    out = await anyio.open_file(run / "vfsd.log", "ab")
+    async with await anyio.open_process(
+        [VFSD, "--socket-path", str(sock), "--shared-dir", "/nix/store"],
+        stdout=out.wrapped, stderr=out.wrapped,
+    ) as proc:  # fmt: skip
+        with anyio.fail_after(5):
+            while not await anyio.Path(sock).exists():
+                await anyio.sleep(0.005)
+        try:
+            yield
+        finally:
+            with anyio.CancelScope(shield=True):
+                if proc.returncode is None:
+                    proc.terminate()
+                await proc.wait()
+
+
+async def mapped_ram(qmp: Qmp, channels: int) -> None:
+    """RAM at fixed offsets, zero pages left out, moved by CHANNELS threads."""
+    await qmp.call("migrate-set-capabilities", capabilities=[
+        {"capability": "mapped-ram", "state": True},
+        {"capability": "multifd", "state": True},
+    ])  # fmt: skip
+    await qmp.call("migrate-set-parameters", **{"multifd-channels": channels})
+
+
+async def store_command(vsock: Path, command: str, data: bytes = b"") -> str:
+    """One command to guest/builder-store.sh; returns its output."""
+    async with await connect_guest(vsock, STORE_PORT) as stream:
+        await stream.send(f"{command}\n".encode() + data)
+        await stream.send_eof()
+        reply = b""
+        with contextlib.suppress(anyio.EndOfStream):
+            while True:
+                reply += await stream.receive()
+    text = reply.decode(errors="replace").strip()
+    if not text.endswith("ok"):
+        msg = f"builder-store {command}: {text}"
+        raise RuntimeError(msg)
+    return text
+
+
 async def launch(run: Path, args: list[str], qemu: Path = QEMU) -> Process:
     out = await anyio.open_file(run / "stdout.log", "ab")
     return await anyio.open_process(
@@ -328,9 +391,64 @@ async def save(guest: Path, snap: Path) -> None:
     await anyio.Path(snap).mkdir(parents=True)
     for name in ("overlay.qcow2", "aux.img"):
         await anyio.run_process(["cp", "-c", str(guest / name), str(snap / name)])
-    # Anonymous RAM: a guest running on a shared file mapping stalls for
-    # seconds at a time while the host pager writes its pages back.
-    vm = await launch(snap, qemu_args(img, str(snap), "memory-backend-ram"))
+    async with vfs_server(snap) if VIRTIOFS else contextlib.nullcontext():
+        await save_running(img, snap)
+    if VIRTIOFS:
+        # state.bin holds the RAM too; nothing to split.
+        await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
+        args = [*qemu_args(img, "{run}", "memory-backend-shm"), *vfs_args("{run}")]
+        await write_manifest(img, snap, args, mappedRam=MULTIFD_CHANNELS,
+                             virtiofs={"tag": VFS_TAG, "storeVsockPort": STORE_PORT})  # fmt: skip
+        return
+    await split_ram(img, snap)
+    await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
+    # Private: with a MAP_SHARED mapping the host pager writes dirty guest pages
+    # back to the file, and the guest stalled for 5-25 s at a time. The state
+    # carries no RAM, so the destination keeps the file's pages.
+    ram = (
+        "memory-backend-file,mem-path={snapshot}/ram.bin,share=off,readonly=on,rom=off"
+    )
+    await write_manifest(img, snap, qemu_args(img, "{run}", ram))
+
+
+async def write_manifest(
+    img: Path, snap: Path, args: list[str], **extra: object
+) -> None:
+    # Paths inside the snapshot are relative, and {snapshot} in the arguments,
+    # so the directory can move.
+    manifest = {
+        "qemu": str(await anyio.Path(QEMU).resolve()),
+        "qemuImg": str(await anyio.Path(QEMU_IMG).resolve()),
+        "args": [*args, "-incoming", "defer"],
+        "overlay": "overlay.qcow2",
+        "aux": "aux.img",
+        "state": "state.bin",
+        "daemonVsockPort": DAEMON_PORT,
+        "clockVsockPort": CLOCK_PORT,
+        **extra,
+    }
+    await anyio.Path(snap / "snapshot.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+    print(
+        json.dumps(
+            {
+                "snapshot": str(snap),
+                "state_bytes": (await anyio.Path(snap / "state.bin").stat()).st_size,
+            }
+        )
+    )
+
+
+async def save_running(img: Path, snap: Path) -> None:
+    """Boot the guest, prepare it and migrate it to SNAP/full.bin (state.bin with VIRTIOFS)."""
+    if VIRTIOFS:
+        args = [*qemu_args(img, str(snap), "memory-backend-shm"), *vfs_args(str(snap))]
+    else:
+        # Anonymous RAM: a guest running on a shared file mapping stalls for
+        # seconds at a time while the host pager writes its pages back.
+        args = qemu_args(img, str(snap), "memory-backend-ram")
+    vm = await launch(snap, args)
     qmp = None
     try:
         qmp = await Qmp.connect(snap / "qmp.sock")
@@ -369,7 +487,15 @@ async def save(guest: Path, snap: Path) -> None:
                 )
             # Let launchd settle, so the snapshot is of an idle guest.
             await anyio.sleep(float(os.environ.get("SETTLE", "30")))
-            if os.environ.get("ZEROFREE", "1") != "0":
+            if VIRTIOFS:
+                # A start puts the host store under the guest's store volume,
+                # so that volume must be up, and the share unmounted.
+                status = await store_command(snap / "vsock.sock", "status")
+                if " union" not in status or "virtio-fs" in status:
+                    sys.exit(f"the guest's store is not one union volume: {status}")
+                await store_command(snap / "vsock.sock", "zerofree")
+                log(event="zeroed")
+            elif os.environ.get("ZEROFREE", "1") != "0":
                 built = await anyio.run_process(
                     ["pynix", "build", "--store", store, "--eval-store", "auto", "--copy", "auto",
                      "--file", str(HERE.parent / "guest/zero-free.nix")],
@@ -387,41 +513,16 @@ async def save(guest: Path, snap: Path) -> None:
             )
         log(event="network", address=address)
         await qmp.call("stop")
-        await migrate(qmp, snap / "full.bin")
+        if VIRTIOFS:
+            # Guest RAM is shared memory, which x-ignore-shared would leave out:
+            # the whole RAM goes into state.bin, as mapped-ram.
+            await mapped_ram(qmp, MULTIFD_CHANNELS)
+            await migrate(qmp, snap / "state.bin")
+        else:
+            await migrate(qmp, snap / "full.bin")
         log(event="saved", seconds=round(time.monotonic() - start, 1))
     finally:
         await stop(vm, qmp)
-    await split_ram(img, snap)
-    await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
-    # Private: with a MAP_SHARED mapping the host pager writes dirty guest pages
-    # back to the file, and the guest stalled for 5-25 s at a time. The state
-    # carries no RAM, so the destination keeps the file's pages.
-    # Paths inside the snapshot are relative, and {snapshot} in the arguments,
-    # so the directory can move.
-    ram = (
-        "memory-backend-file,mem-path={snapshot}/ram.bin,share=off,readonly=on,rom=off"
-    )
-    manifest = {
-        "qemu": str(await anyio.Path(QEMU).resolve()),
-        "qemuImg": str(await anyio.Path(QEMU_IMG).resolve()),
-        "args": [*qemu_args(img, "{run}", ram), "-incoming", "defer"],
-        "overlay": "overlay.qcow2",
-        "aux": "aux.img",
-        "state": "state.bin",
-        "daemonVsockPort": DAEMON_PORT,
-        "clockVsockPort": CLOCK_PORT,
-    }
-    await anyio.Path(snap / "snapshot.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
-    print(
-        json.dumps(
-            {
-                "snapshot": str(snap),
-                "state_bytes": (await anyio.Path(snap / "state.bin").stat()).st_size,
-            }
-        )
-    )
 
 
 async def ssh(
@@ -499,6 +600,53 @@ async def install_agent(guest: Path, port: int, agent: str) -> None:
     log(event="agent", path=agent)
 
 
+async def install_store(guest: Path, port: int) -> None:
+    """The guest's store onto its own volume, union-mounted, and guest/builder-store.sh.
+
+    A union mount reaches below only at its root, so the store paths must be
+    the volume's root. The installer's nix-daemon would hold that volume busy;
+    the builder's daemon is vsock's `nix-daemon --stdio`, so it goes.
+    """
+    zerofree = guest / "zerofree"
+    await anyio.run_process(["/usr/bin/clang", "-O2", "-mmacosx-version-min=14.0", "-o", str(zerofree),
+                             str(HERE.parent / "guest/zerofree.c")])  # fmt: skip
+    files = [zerofree, *(HERE.parent / "guest" / name for name in
+             ("builder-store.sh", "builder-store.plist", "builder-store-boot.plist"))]  # fmt: skip
+    await ssh(guest, port, "--", *map(str, files), "/tmp/")
+    script = (
+        "set -ex; "
+        "install -m 755 /tmp/zerofree /usr/local/bin/zerofree; "
+        "install -m 755 /tmp/builder-store.sh /usr/local/bin/builder-store; "
+        "launchctl bootout system/org.nixos.nix-daemon 2>/dev/null || true; "
+        "launchctl disable system/org.nixos.nix-daemon; "
+        "if ! diskutil info 'Nix Upper' >/dev/null 2>&1; then "
+        "  c=$(diskutil info 'Nix Store' | awk '/APFS Container:/ {print $3}'); "
+        "  diskutil apfs addVolume \"$c\" APFS 'Nix Upper' -nomount >/dev/null; "
+        "fi; "
+        "dev=$(diskutil info 'Nix Upper' | awk '/Device Node:/ {print $3}'); "
+        # Else diskarbitration mounts it under /Volumes at boot, as the Nix
+        # installer's fstab line stops it doing to the Nix Store volume.
+        "uuid=$(diskutil info 'Nix Upper' | awk '/Volume UUID:/ {print $3}'); "
+        'grep -q "^UUID=$uuid " /etc/fstab 2>/dev/null || '
+        'echo "UUID=$uuid /nix/store apfs rw,noauto,nobrowse" >> /etc/fstab; '
+        'if ! mount | grep -q "^$dev on /nix/store "; then '
+        '  mkdir -p /tmp/upper; mount -t apfs -o nobrowse "$dev" /tmp/upper; '
+        "  touch /tmp/upper/.metadata_never_index; "
+        "  chown root:nixbld /tmp/upper; chmod 1775 /tmp/upper; "
+        "  find /nix/store -mindepth 1 -maxdepth 1 -exec mv {} /tmp/upper/ \\; ; "
+        '  echo "moved $(ls -A /tmp/upper | wc -l) entries, $(ls -A /nix/store | wc -l) left"; '
+        "  umount /tmp/upper; /usr/local/bin/builder-store boot; "
+        "fi; "
+        "install -m 644 /tmp/builder-store.plist /tmp/builder-store-boot.plist /Library/LaunchDaemons/; "
+        # reload_daemon's bootout fails on a job that is not loaded yet.
+        "set +e; "
+        f"for d in store store-boot; do {reload_daemon('builder-$d', 'builder-$d')} || exit 1; done; "
+        "mount | grep ' on /nix/store '"
+    )
+    await ssh(guest, port, f"sudo -n sh -c {shlex.quote(script)}")
+    log(event="store", volume="Nix Upper")
+
+
 async def prepare(img: Path, guest: Path) -> None:
     # Again on a prepared guest: Nix stays, vsockcat and the daemons are replaced.
     await anyio.Path(guest).mkdir(parents=True, exist_ok=True)
@@ -561,6 +709,7 @@ async def prepare(img: Path, guest: Path) -> None:
             sys.exit(
                 f"the guest daemon did not answer over vsock within 60 s; see {guest}/stdout.log"
             )
+        await install_store(guest, port)
         if agent := os.environ.get("AGENT"):
             await install_agent(guest, port, agent)
         await ssh(guest, port, "sudo -n shutdown -h now", check=False)
@@ -652,6 +801,9 @@ class Started:
     socket: Path
     #: QEMU takes one QMP client at a time, and this is it.
     qmp: Qmp
+    vsock: Path
+    #: The guest's store lies over the host's: a path the host has needs only registering.
+    host_store: bool
 
 
 @contextlib.asynccontextmanager
@@ -675,11 +827,19 @@ async def started(snap: Path, run: Path) -> AsyncIterator[Started]:
         arg.replace("{run}", str(run)).replace("{snapshot}", str(snap))
         for arg in manifest["args"]
     ]
-    vm = await launch(run, args, Path(os.environ.get("QEMU", manifest["qemu"])))
-    qmp = None
-    try:
+    host_store = "virtiofs" in manifest
+    async with contextlib.AsyncExitStack() as stack:
+        if host_store:
+            await stack.enter_async_context(vfs_server(run))
+        vm = await launch(run, args, Path(os.environ.get("QEMU", manifest["qemu"])))
+        qmp: Qmp | None = None
+        # Runs before the server stops: QEMU goes first, then its back-end.
+        stack.push_async_callback(lambda: stop(vm, qmp))
         qmp = await Qmp.connect(run / "qmp.sock")
-        await qmp.call("migrate-set-capabilities", capabilities=X_IGNORE_SHARED)
+        if channels := manifest.get("mappedRam"):
+            await mapped_ram(qmp, channels)
+        else:
+            await qmp.call("migrate-set-capabilities", capabilities=X_IGNORE_SHARED)
         await qmp.call("migrate-incoming", uri=f"file:{at(manifest['state'])}")
         while await qmp.status() == "inmigrate":
             await anyio.sleep(0.01)
@@ -693,14 +853,15 @@ async def started(snap: Path, run: Path) -> AsyncIterator[Started]:
                 await anyio.sleep(0.05)
         ready = time.monotonic() - t0
         await set_clock(vsock)
+        clocked = time.monotonic() - t0
+        if host_store:
+            await store_command(vsock, "host")
         log(event="ready", loaded_s=round(loaded, 3), daemon_s=round(ready, 3),
-            clock_s=round(time.monotonic() - t0, 3))  # fmt: skip
+            clock_s=round(clocked, 3), store_s=round(time.monotonic() - t0, 3))  # fmt: skip
         async with anyio.create_task_group() as tg:
             await tg.start(forward, vsock, run / "daemon.sock")
-            yield Started(run / "daemon.sock", qmp)
+            yield Started(run / "daemon.sock", qmp, vsock, host_store)
             tg.cancel_scope.cancel()
-    finally:
-        await stop(vm, qmp)
 
 
 async def serve(snap: Path, run: Path) -> None:
@@ -709,9 +870,55 @@ async def serve(snap: Path, run: Path) -> None:
         await anyio.sleep_forever()
 
 
+async def drv_path(args: list[str]) -> str | None:
+    """The derivation `pynix build ARGS` builds, for --file F [--attr A]; else None."""
+    file = attr = None
+    it = iter(args)
+    for arg in it:
+        if arg in ("--file", "-f"):
+            file = next(it, None)
+        elif arg in ("--attr", "-A"):
+            attr = next(it, None)
+        elif arg.startswith("-"):
+            return None
+    if file is None:
+        return None
+    evaluated = await anyio.run_process(
+        [
+            "pynix",
+            "eval",
+            "--file",
+            file,
+            "--attr",
+            f"{attr}.drvPath" if attr else "drvPath",
+        ]
+    )
+    return str(json.loads(evaluated.stdout))
+
+
+async def register_closure(vsock: Path, drv: str) -> int:
+    """Register DRV's closure, with the outputs the host has, in the guest's store.
+
+    The guest reads the paths over virtiofs, so it needs their database rows
+    and nothing else. pynix has no --include-outputs query or --dump-db.
+    """
+    closure = await anyio.run_process(
+        ["nix-store", "--query", "--requisites", "--include-outputs", drv]
+    )
+    paths = closure.stdout.decode().split()
+    rows = await anyio.run_process(["nix-store", "--dump-db", *paths])
+    await store_command(vsock, "load-db", rows.stdout)
+    return len(paths)
+
+
 async def build(snap: Path, run: Path, args: list[str]) -> int:
     t0 = time.monotonic()
     async with started(snap, run) as guest:
+        if guest.host_store and (drv := await drv_path(args)):
+            count = await register_closure(guest.vsock, drv)
+            log(
+                event="registered", paths=count, seconds=round(time.monotonic() - t0, 3)
+            )
         command = ["pynix", "build", "--store", f"unix://{guest.socket}?local-fs=false", "--eval-store", "auto",
                    "--copy", "auto", *args]  # fmt: skip
         result = await anyio.run_process(command, stdout=None, stderr=None, check=False)

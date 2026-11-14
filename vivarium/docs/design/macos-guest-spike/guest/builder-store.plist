@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.nixidae.builder-store</string>
+    <!-- Root commands for the store layers: builder-store.sh serve. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/vsockcat</string>
+        <string>serve</string>
+        <string>3032</string>
+        <string>/usr/local/bin/builder-store</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/var/log/builder-store.log</string>
+</dict>
+</plist>

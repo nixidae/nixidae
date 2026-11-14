@@ -492,6 +492,44 @@ completes in 21.7 s, and a start from it builds at full speed, but its
 daemon answered only after 21.3 s, both times. Open; builders save a stopped
 guest.
 
+### A builder whose store lies over the host's (2026-11-14)
+
+`VIRTIOFS=1` makes `save` and every start use the host store:
+
+- `prepare` moves the guest's store paths onto a new APFS volume, "Nix
+  Upper", union-mounted on `/nix/store`, with an fstab `noauto` line (else
+  diskarbitration mounts it under /Volumes at boot and the union mount gets
+  `EBUSY`). It turns off the installer's nix-daemon, which would hold the
+  volume; the builder's daemon is vsock's `nix-daemon --stdio`.
+- `guest/builder-store.sh` serves vsock port 3032 as root: `host` unmounts
+  the volume, mounts the share with `mount_virtiofs`, and mounts the volume
+  over it again; `load-db` runs `nix-store --load-db`; `zerofree`; `status`.
+- `save` boots with the share unmounted, checks the union, zeroes free pages
+  and saves mapped-ram with 8 channels: `state.bin` is the whole snapshot RAM.
+- A start runs darwin-virtiofsd on the host store and calls `host`. `build`
+  evaluates the derivation, then registers its closure with the outputs the
+  host has (`nix-store --query --requisites --include-outputs`,
+  `--dump-db`; pynix has neither) through `load-db`. The guest copies none
+  of those paths; it reads them over virtiofs.
+
+Sonoma, prepared from `sonoma-nix` with no stdenv in the guest:
+
+| | |
+| --- | --- |
+| prepare (971 store entries moved) | 72 s |
+| save | 67 s, `state.bin` 1.7 GB |
+| RAM loaded, `state.bin` in the host's cache | 0.26 s |
+| RAM loaded, not in the host's cache | 1.1 s |
+| daemon answers | 0.61 s (1.44 s uncached) |
+| host store mounted under the guest's | 0.6 s more |
+| registering `hello`'s closure, 934 paths | 1.4-1.7 s |
+| `hello`, start to output on the host | 43.3-44.1 s |
+
+The `hello` build copied 0 paths to the guest and substituted none: the
+unseeded snapshot of 2026-11-08 substituted 60 and took 44 s, the seeded,
+warmed one 28 s. The toolchain is read cold over virtiofs: a save unmounts
+the share, so the guest's cache of it never reaches a snapshot.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
