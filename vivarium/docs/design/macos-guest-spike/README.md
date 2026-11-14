@@ -314,6 +314,34 @@ Official installer (`--daemon`): Nix 2.35.4, sandbox off (installer default).
 check, not a build failure. `hello` runs. A guest `shutdown -h` powers QEMU
 off (PSCI SYSTEM_OFF).
 
+## The host store in the guest (2026-11-14)
+
+The aim: a guest that reads the host's store in place, as the Linux builder's
+local overlay store does, with no copy. macOS has no overlayfs, but a store is
+flat and its paths never change, so an overlay of one directory level is
+enough. BSD union mounts give that.
+
+- A filesystem mounted with `-o union` resolves a name its root lacks in the
+  directory it covers. Whole trees under that name come from below. Writes go
+  to the top. `readdir` lists the top only; `rm` of a lower name acts on the
+  lower filesystem. Measured on macOS 14.8.7 and 26.6.2, with tmpfs and APFS
+  on top.
+- The guest has drivers for virtio-9p (`AppleVirtIO9P`) and virtiofs
+  (`AppleVirtIOFS`). QEMU's `virtio-9p-pci` runs in QEMU, on a Linux or macOS
+  host, with no helper process and no shared guest RAM. virtiofs needs both.
+- `mount_9p` mounts only at `/Volumes/<tag>` and refuses a symlink there.
+  `guest/mount9p.c` makes its `mount(2)` call at any directory: type
+  `AppleVirtIO9P`, 48 bytes of data (magic `P9VA`, the device's
+  `AppleVirtIO9PFSUUID` from the IORegistry, a read-only word at 0x2c).
+
+Measured on macOS 14 with `-fsdev local,path=/nix/store,readonly=on,security_model=none`
+and `-device virtio-9p-pci`: the host store at the guest's `/nix/store`, then an
+APFS volume union-mounted over it. A host-built `hello` runs from there and
+finds its `libiconv` under `/nix/store` (10 runs in 0.29 s). A new path lands
+on the APFS volume. A write to the 9p layer fails with `EINVAL`. A 110 MB
+file reads in 0.16-0.20 s; walking a whole `llvm` lib output takes 0.55 s.
+A listing of the host store root (170 000 entries) did not finish in minutes.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
