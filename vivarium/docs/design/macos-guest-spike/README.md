@@ -342,6 +342,36 @@ on the APFS volume. A write to the 9p layer fails with `EINVAL`. A 110 MB
 file reads in 0.16-0.20 s; walking a whole `llvm` lib output takes 0.55 s.
 A listing of the host store root (170 000 entries) did not finish in minutes.
 
+### 9p is too slow for a toolchain (2026-11-14)
+
+clang-wrapper 21.1.8's closure (42 paths, 1.2 GB, 18 442 files) in a macOS 14
+guest (8 GiB, 4 CPUs) on this M5 Pro host. Guest-local is the same paths
+copied to the guest's APFS store. Warm runs:
+
+| | 9p | guest-local | host |
+| --- | --- | --- | --- |
+| `cc -c` of a file that includes CoreFoundation, 10 times | 14.4 s | 0.52 s | 0.74 s |
+| link it | 1.96 s | 0.10 s | 0.15 s |
+| `find` over apple-sdk-14.4 (12 734 files) | 89 s | 0.16 s | 0.08 s |
+| `cat` every file of it | 122 s | 0.41 s | 0.35 s |
+| `cat` libLLVM.dylib (148 MB) | 0.16 s | 0.02 s | 0.02 s |
+
+Cold runs (`purge` first) are the same as warm ones over 9p: the guest caches
+nothing it reads there. Copying the closure out of 9p took 93 s; one `tar`
+stream of it, 105 s. Traced with `-trace v9fs_*` (`-msg timestamp=on`):
+
+- QEMU answers `getattr` in a median 133 us, `readdir` in 3.6 ms.
+- Between a reply and the next request, the median gap is 149 us, but one in
+  ten is 7.6 ms or more: the wait is in the guest.
+- The guest reads about 11 entries of each 9 KB `readdir` reply and asks again
+  from the next offset. A Darwin host resumes with `seekdir`, so a listing
+  costs about the square of its size.
+- The guest sends about 2 `readlink` requests for each entry it looks up.
+
+Not tried: virtiofs. Its protocol carries cache lifetimes, but a host server
+needs shared guest RAM (vhost-user), which conflicts with a private `ram.bin`
+mapping.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
