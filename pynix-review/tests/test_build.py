@@ -22,7 +22,7 @@ from pynix_review.build import (
     tail,
     write,
 )
-from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, Bundle, to_dot
+from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, TIMED_OUT, UNCHANGED_INPUT_FAILED, Bundle, to_dot
 from pynix_review.plan import order
 
 
@@ -108,6 +108,19 @@ def test_held_back_by_a_base_failure_is_a_base_failure_too() -> None:
     mixed = held_back(CAIRO, [base, pr])
     assert mixed is not None
     assert mixed.status == DEPENDENCY_FAILED
+
+
+def test_a_timed_out_build_is_out_of_budget_not_a_failure() -> None:
+    stopped = Outcome(FONTCONFIG, TIMED_OUT, False, 0, 0, "error: timed out after 5 seconds")
+    held = held_back(CAIRO, [stopped])
+    assert held is not None
+    assert held.status == OUT_OF_BUDGET
+    counted = made([*outcomes()[:2], stopped, held])
+    assert (counted.failed, counted.out_of_budget, counted.timed_out) == (0, 2, 1)
+    dot = to_dot(font_bundle(), counted)
+    assert "out of budget 2 (1 timed out)" in dot
+    assert "timed out" in node(dot, FONTCONFIG)
+    assert 'fillcolor="gold"' in node(dot, FONTCONFIG)
 
 
 def test_report_round_trips() -> None:

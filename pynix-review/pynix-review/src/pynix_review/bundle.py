@@ -49,6 +49,10 @@ UNCHANGED_INPUT_FAILED: Final = "unchanged-input-failed"
 inputs built, so the input that failed is one the change does not touch:
 the merge base is broken there, not the change."""
 OUT_OF_BUDGET: Final = "out-of-budget"
+TIMED_OUT: Final = "timed-out"
+"""Nix's word for a build its `timeout` or `max-silent-time` stopped."""
+OVER_BUDGET: Final = frozenset({OUT_OF_BUDGET, TIMED_OUT})
+"""No verdict on the change: the run's time ran out, not the build."""
 ROW_WIDTH: Final = 12
 """Nodes per row. The fzf PR puts 51 derivations at depth 4, and one row of
 them is a strip no browser shows readably; a wider depth stacks its rows."""
@@ -250,6 +254,8 @@ def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
         return [r.status], _filled(FILL_CACHED)
     if r.status == OUT_OF_BUDGET:
         return ["out of budget"], _filled(FILL_OUT_OF_BUDGET)
+    if r.status == TIMED_OUT:
+        return ["timed out"], _filled(FILL_OUT_OF_BUDGET)
     after = f" after {r.seconds} s" if r.seconds is not None else ""
     return [f"{r.status}{after}"], _filled(FILL_FAILED)
 
@@ -259,7 +265,8 @@ def _built_line(made: Report, total: int) -> str:
         f"built {made.built} of {total}: took {made.built_seconds} s, est {made.built_estimate} s"
         f" | failed {made.failed} ({made.unchanged_input_failed} on an unchanged input)"
         f" | out of budget {made.out_of_budget}"
-        f" | wall {made.wall_seconds:.0f} s of {made.budget} s"
+        + (f" ({made.timed_out} timed out)" if made.timed_out else "")
+        + f" | wall {made.wall_seconds:.0f} s of {made.budget} s"
     )
 
 

@@ -77,6 +77,17 @@ def _parser() -> argparse.ArgumentParser:
     cmd.add_argument("--wall", type=int, default=WALL_SECONDS, help="seconds to start builds in; running ones finish")
     cmd.add_argument("--jobs", type=int, default=JOBS, help="builds at once")
     cmd.add_argument(
+        "--build-timeout",
+        type=int,
+        help="seconds one build may run before Nix stops it (default: --wall; 0: the daemon's own)",
+    )
+    cmd.add_argument(
+        "--max-silent-time",
+        type=int,
+        default=0,
+        help="seconds a build may print nothing before Nix stops it (0: the daemon's own)",
+    )
+    cmd.add_argument(
         "--untimed-seconds",
         type=int,
         default=UNTIMED_SECONDS,
@@ -98,6 +109,8 @@ async def _build(args: argparse.Namespace) -> str:
         untimed_seconds=args.untimed_seconds,
         store_url=args.store,
         build_logs=args.print_build_logs,
+        build_timeout=args.wall if args.build_timeout is None else args.build_timeout,
+        max_silent_time=args.max_silent_time,
     )
     if args.out is None:
         return result.model_dump_json(indent=2)

@@ -8,7 +8,9 @@ including what it finished.
 
 The deadline is soft. Past it no build starts, and a running one finishes:
 a cancelled call waits for its build anyway (nixidae/nixidae#1219), and
-pynixd keeps building after its client goes.
+pynixd keeps building after its client goes. What bounds a running build is
+Nix's own `timeout`, which the client sends the daemon and pynixd enforces
+(measured: a 30 s build at timeout 5 ended `timed-out` after 6.0 s).
 """
 
 from __future__ import annotations
@@ -25,7 +27,15 @@ import anyio
 import huggorm
 from pydantic import BaseModel, ConfigDict
 
-from .bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, UNCHANGED_INPUT_FAILED, to_dot, view_url
+from .bundle import (
+    DEPENDENCY_FAILED,
+    OUT_OF_BUDGET,
+    OVER_BUDGET,
+    TIMED_OUT,
+    UNCHANGED_INPUT_FAILED,
+    to_dot,
+    view_url,
+)
 from .evaluate import error_line
 from .plan import STORE_DIR, UNTIMED_SECONDS, cost, order
 
@@ -41,6 +51,9 @@ REPORT_FILE: Final = "built.json"
 SCHEMA_FILE: Final = "built.schema.json"
 DOT_FILE: Final = "built.dot"
 URL_FILE: Final = "built.url"
+TIMEOUT_SETTING: Final = "timeout"
+"""Not `build-timeout`: an untrusted client may set only the primary name (`daemon.cc:297`)."""
+SILENT_SETTING: Final = "max-silent-time"
 LOG_LINES: Final = 60
 LOG_QUOTE: Final = re.compile(r"\s*Last \d+ log lines:")
 RAN: Final = "built"
@@ -91,6 +104,8 @@ class Built(_Model):
 class Report(_Model):
     budget: int
     """Wall seconds allowed to start builds in."""
+    build_timeout: int
+    """Seconds one build may run, Nix's `timeout`; 0: the daemon's own."""
     estimate: int
     """Every changed derivation, untimed ones at the planner's guess."""
     results: list[Built]
@@ -106,6 +121,9 @@ class Report(_Model):
     unchanged_input_failed: int
     """Of `failed`, those an input the change does not touch failed."""
     out_of_budget: int
+    """Not started in time, held back by such an input, or `timed_out`."""
+    timed_out: int
+    """Of `out_of_budget`, builds `build_timeout` or `max-silent-time` stopped."""
 
 
 def failure_status(nix_status: str) -> str:
@@ -116,12 +134,12 @@ def failure_status(nix_status: str) -> str:
 def held_back(drv: str, inputs: Sequence[Outcome]) -> Outcome | None:
     """`drv`'s outcome with no build, from its changed inputs' outcomes;
     None when they all succeeded."""
-    failed = [o for o in inputs if not o.ok and o.status != OUT_OF_BUDGET]
+    failed = [o for o in inputs if not o.ok and o.status not in OVER_BUDGET]
     if failed and all(o.status == UNCHANGED_INPUT_FAILED for o in failed):
         return Outcome(drv, UNCHANGED_INPUT_FAILED, False, 0, 0, "a changed input failed on an unchanged input")
     if failed:
         return Outcome(drv, DEPENDENCY_FAILED, False, 0, 0, "a changed input failed")
-    if any(o.status == OUT_OF_BUDGET for o in inputs):
+    if any(o.status in OVER_BUDGET for o in inputs):
         return Outcome(drv, OUT_OF_BUDGET, False, 0, 0, "a changed input ran out of budget")
     return None
 
@@ -170,6 +188,7 @@ def report(
     budget: int,
     wall_seconds: float,
     untimed_seconds: int = UNTIMED_SECONDS,
+    build_timeout: int = 0,
 ) -> Report:
     by_drv = {d.drv: d for d in bundle.derivations}
     results = [
@@ -189,15 +208,17 @@ def report(
     timed = [r for r in results if r.ok and r.seconds is not None]
     return Report(
         budget=budget,
+        build_timeout=build_timeout,
         estimate=sum(cost(d, untimed_seconds) for d in bundle.derivations),
         results=results,
         built=sum(1 for r in results if r.ok and r.status == RAN),
         built_seconds=sum(r.seconds or 0 for r in timed),
         built_estimate=sum(r.estimate or 0 for r in timed),
         wall_seconds=round(wall_seconds, 3),
-        failed=sum(1 for r in results if not r.ok and r.status != OUT_OF_BUDGET),
+        failed=sum(1 for r in results if not r.ok and r.status not in OVER_BUDGET),
         unchanged_input_failed=sum(1 for r in results if r.status == UNCHANGED_INPUT_FAILED),
-        out_of_budget=sum(1 for r in results if r.status == OUT_OF_BUDGET),
+        out_of_budget=sum(1 for r in results if r.status in OVER_BUDGET),
+        timed_out=sum(1 for r in results if r.status == TIMED_OUT),
     )
 
 
@@ -278,19 +299,34 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     untimed_seconds: int = UNTIMED_SECONDS,
     store_url: str = DAEMON,
     build_logs: bool = False,
+    build_timeout: int = 0,
+    max_silent_time: int = 0,
 ) -> Report:
     """Build `bundle`'s changed derivations. Each call holds one of
     huggorm's pool threads, so the pool needs `jobs` of them. stderr gets
     Nix's warnings and errors; with `build_logs` also its messages at
-    info and each builder's output."""
+    info and each builder's output.
+
+    `build_timeout` and `max_silent_time` (0: the daemon's own) set Nix's
+    settings for the process: the session sends them at connect."""
 
     def write_log(record: huggorm.LogRecord) -> None:
         if (line := log_line(record, build_logs=build_logs)) is not None:
             sys.stderr.write(huggorm.filter_ansi_escapes(line, filter_all=True) + "\n")
 
+    for name, seconds in ((TIMEOUT_SETTING, build_timeout), (SILENT_SETTING, max_silent_time)):
+        if seconds:
+            huggorm.set_setting(name, str(seconds))
     start = time.monotonic()
     level = huggorm.Verbosity.INFO if build_logs else huggorm.Verbosity.WARN
     async with huggorm.AsyncSession(store_url) as session, session.forward_process(write_log, level=int(level)):
         store = session.store()
         outcomes = await schedule(order(bundle, untimed_seconds), partial(_build_one, store), wall=wall, jobs=jobs)
-    return report(bundle, outcomes, budget=wall, wall_seconds=time.monotonic() - start, untimed_seconds=untimed_seconds)
+    return report(
+        bundle,
+        outcomes,
+        budget=wall,
+        wall_seconds=time.monotonic() - start,
+        untimed_seconds=untimed_seconds,
+        build_timeout=build_timeout,
+    )
