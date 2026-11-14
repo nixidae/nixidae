@@ -16,8 +16,16 @@ set -u
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 NIX=/nix/var/nix/profiles/default/bin
 
+CACHE=/var/run/builder-store.dev
+
+# diskutil takes 0.1 s a call, longer than the three mounts of `host`
+# together, so the device node is looked up once and kept.
 upper() {
-    diskutil info "Nix Upper" 2>/dev/null | awk '/Device Node:/ {print $3}'
+    if [ -s "$CACHE" ]; then
+        cat "$CACHE"
+        return
+    fi
+    diskutil info "Nix Upper" 2>/dev/null | awk '/Device Node:/ {print $3}' | tee "$CACHE"
 }
 
 mount_upper() {
@@ -36,6 +44,8 @@ upper_mounted() {
 
 case "${1:-}" in
 boot)
+    # A device node holds for one boot; a snapshot is of one boot.
+    rm -f "$CACHE"
     # The Nix Store volume mounts up to 30 s after boot.
     for _ in $(seq 120); do [ -d /nix/store ] && break; sleep 0.5; done
     upper_mounted || mount_upper
