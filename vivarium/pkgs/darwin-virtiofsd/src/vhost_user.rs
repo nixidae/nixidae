@@ -9,7 +9,7 @@ use std::io::{self, IoSliceMut, Read, Write};
 use std::num::Wrapping;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -21,15 +21,26 @@ use vm_memory::{
 };
 
 use crate::fs::PassthroughFsRo;
+use crate::fs::fuse::{InHeader, Opcode};
 use crate::fs::server::Server;
 use crate::virtio::descriptor_utils::{Reader, Writer};
-use crate::virtio::queue::Queue;
+use crate::virtio::queue::{DescriptorChain, Queue};
 
 const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 const VIRTIO_RING_F_INDIRECT_DESC: u64 = 1 << 28;
+/// Dirty logging; QEMU blocks migration without it and LOG_SHMFD.
+const VHOST_F_LOG_ALL: u64 = 1 << 26;
+const PROTOCOL_F_LOG_SHMFD: u64 = 1 << 1;
+const LOG_PAGE: u64 = 0x1000;
 const VHOST_USER_F_PROTOCOL_FEATURES: u64 = 1 << 30;
 const PROTOCOL_F_MQ: u64 = 1 << 0;
 const PROTOCOL_F_REPLY_ACK: u64 = 1 << 3;
+/// QEMU's vhost-user-fs saves only with this (`vuf_check_migration_support`).
+const PROTOCOL_F_DEVICE_STATE: u64 = 1 << 19;
+
+/// What `SET_DEVICE_STATE_FD` streams: no FUSE session, nothing else.
+const DEVICE_STATE: &[u8; 8] = b"dvfsd\0\0\x01";
+const TRANSFER_SAVE: u32 = 0;
 
 const FLAG_VERSION: u32 = 0x1;
 const FLAG_REPLY: u32 = 0x4;
@@ -49,6 +60,8 @@ enum Request {
     SetOwner = 3,
     ResetOwner = 4,
     SetMemTable = 5,
+    SetLogBase = 6,
+    SetLogFd = 7,
     SetVringNum = 8,
     SetVringAddr = 9,
     SetVringBase = 10,
@@ -60,6 +73,8 @@ enum Request {
     SetProtocolFeatures = 16,
     GetQueueNum = 17,
     SetVringEnable = 18,
+    SetDeviceStateFd = 42,
+    CheckDeviceState = 43,
 }
 
 impl Request {
@@ -71,6 +86,8 @@ impl Request {
             3 => SetOwner,
             4 => ResetOwner,
             5 => SetMemTable,
+            6 => SetLogBase,
+            7 => SetLogFd,
             8 => SetVringNum,
             9 => SetVringAddr,
             10 => SetVringBase,
@@ -82,8 +99,63 @@ impl Request {
             16 => SetProtocolFeatures,
             17 => GetQueueNum,
             18 => SetVringEnable,
+            42 => SetDeviceStateFd,
+            43 => CheckDeviceState,
             _ => return None,
         })
+    }
+}
+
+/// QEMU's dirty log: one bit for each 4 KiB page of guest physical memory.
+struct DirtyLog {
+    base: *mut u8,
+    len: usize,
+}
+
+// The bitmap is shared memory that every writer updates with atomic ORs.
+unsafe impl Send for DirtyLog {}
+unsafe impl Sync for DirtyLog {}
+
+impl DirtyLog {
+    fn map(fd: OwnedFd, size: u64, offset: u64) -> io::Result<Self> {
+        let len = usize::try_from(size).map_err(io::Error::other)?;
+        // A fresh shared mapping of the descriptor QEMU sent; nothing else aliases it here.
+        let base = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd.as_raw_fd(),
+                offset as libc::off_t,
+            )
+        };
+        if base == libc::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(DirtyLog { base: base.cast(), len })
+    }
+
+    fn mark(&self, gpa: u64, len: u64) {
+        if len == 0 {
+            return;
+        }
+        for page in gpa / LOG_PAGE..=(gpa + len - 1) / LOG_PAGE {
+            let byte = (page / 8) as usize;
+            if byte >= self.len {
+                break;
+            }
+            // In bounds, and QEMU reads the bitmap with atomics too.
+            let cell = unsafe { std::sync::atomic::AtomicU8::from_ptr(self.base.add(byte)) };
+            cell.fetch_or(1 << (page % 8), Ordering::Relaxed);
+        }
+    }
+}
+
+impl Drop for DirtyLog {
+    fn drop(&mut self) {
+        // The mapping `map` made, unmapped once.
+        unsafe { libc::munmap(self.base.cast(), self.len) };
     }
 }
 
@@ -128,25 +200,69 @@ impl Vring {
 
 pub struct Backend {
     server: Arc<Server<PassthroughFsRo>>,
-    features: u64,
+    /// Shared with the workers: SET_FEATURES turns VHOST_F_LOG_ALL on and off.
+    features: Arc<AtomicU64>,
+    log: Arc<Mutex<Option<Arc<DirtyLog>>>>,
     protocol_features: u64,
     regions: Vec<MemRegion>,
     mem: Option<Arc<GuestMemoryMmap>>,
     vrings: Vec<Vring>,
     exit_code: Arc<AtomicI32>,
+    /// Between FUSE_INIT and FUSE_DESTROY: the guest holds inodes and handles
+    /// that only this process knows, so its state cannot move.
+    session: Arc<AtomicBool>,
+    transfer: Option<JoinHandle<io::Result<()>>>,
 }
 
 impl Backend {
     pub fn new(server: Server<PassthroughFsRo>) -> Self {
         Backend {
             server: Arc::new(server),
-            features: 0,
+            features: Arc::new(AtomicU64::new(0)),
+            log: Arc::new(Mutex::new(None)),
             protocol_features: 0,
             regions: Vec::new(),
             mem: None,
             vrings: (0..NUM_QUEUES).map(|_| Vring::new()).collect(),
             exit_code: Arc::new(AtomicI32::new(0)),
+            session: Arc::new(AtomicBool::new(false)),
+            transfer: None,
         }
+    }
+
+    /// Saves or loads the device state through `pipe`, on a thread: QEMU
+    /// writes or reads its end only after the reply.
+    fn set_device_state_fd(&mut self, payload: &[u8], pipe: OwnedFd) -> io::Result<()> {
+        let direction = u32_at(payload, 0)?;
+        if direction == TRANSFER_SAVE && self.session.load(Ordering::Acquire) {
+            return Err(io::Error::other(
+                "the guest has the share mounted; unmount it before a save",
+            ));
+        }
+        let mut pipe = File::from(pipe);
+        self.transfer = Some(std::thread::spawn(move || {
+            if direction == TRANSFER_SAVE {
+                pipe.write_all(DEVICE_STATE)
+            } else {
+                let mut state = Vec::new();
+                pipe.read_to_end(&mut state)?;
+                if state != DEVICE_STATE {
+                    return Err(io::Error::other(format!("unknown device state {state:?}")));
+                }
+                Ok(())
+            }
+        }));
+        Ok(())
+    }
+
+    fn check_device_state(&mut self) -> io::Result<()> {
+        let transfer = self
+            .transfer
+            .take()
+            .ok_or_else(|| io::Error::other("no device state transfer"))?;
+        transfer
+            .join()
+            .map_err(|_| io::Error::other("the device state transfer panicked"))?
     }
 
     /// Serves one frontend until it disconnects.
@@ -223,17 +339,61 @@ impl Backend {
         use Request::*;
         match request {
             GetFeatures => Ok(Some(
-                (VIRTIO_F_VERSION_1 | VIRTIO_RING_F_INDIRECT_DESC | VHOST_USER_F_PROTOCOL_FEATURES)
+                (VIRTIO_F_VERSION_1
+                    | VIRTIO_RING_F_INDIRECT_DESC
+                    | VHOST_F_LOG_ALL
+                    | VHOST_USER_F_PROTOCOL_FEATURES)
                     .to_le_bytes()
                     .to_vec(),
             )),
             SetFeatures => {
-                self.features = u64_at(payload, 0)?;
+                self.features.store(u64_at(payload, 0)?, Ordering::Release);
                 Ok(None)
             }
             GetProtocolFeatures => Ok(Some(
-                (PROTOCOL_F_MQ | PROTOCOL_F_REPLY_ACK).to_le_bytes().to_vec(),
+                (PROTOCOL_F_MQ
+                    | PROTOCOL_F_LOG_SHMFD
+                    | PROTOCOL_F_REPLY_ACK
+                    | PROTOCOL_F_DEVICE_STATE)
+                    .to_le_bytes()
+                    .to_vec(),
             )),
+            // QEMU waits for this reply when LOG_SHMFD is negotiated.
+            SetLogBase => {
+                let fd = fds
+                    .pop()
+                    .ok_or_else(|| io::Error::other("SET_LOG_BASE without a descriptor"))?;
+                let log = DirtyLog::map(fd, u64_at(payload, 0)?, u64_at(payload, 8)?)?;
+                *self.log.lock().unwrap() = Some(Arc::new(log));
+                Ok(Some(0u64.to_le_bytes().to_vec()))
+            }
+            // An eventfd for logging errors; this server reports none.
+            SetLogFd => Ok(None),
+            // Always answered: 0 in the low byte accepts, NOFD keeps QEMU's pipe.
+            SetDeviceStateFd => {
+                let accepted = match fds.pop() {
+                    Some(pipe) => self.set_device_state_fd(payload, pipe),
+                    None => Err(io::Error::other("SET_DEVICE_STATE_FD without a pipe")),
+                };
+                let status = match accepted {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        error!("SET_DEVICE_STATE_FD: {e}");
+                        1
+                    }
+                };
+                Ok(Some((VRING_NOFD | status).to_le_bytes().to_vec()))
+            }
+            CheckDeviceState => {
+                let status: u64 = match self.check_device_state() {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        error!("CHECK_DEVICE_STATE: {e}");
+                        1
+                    }
+                };
+                Ok(Some(status.to_le_bytes().to_vec()))
+            }
             SetProtocolFeatures => {
                 self.protocol_features = u64_at(payload, 0)?;
                 Ok(None)
@@ -383,7 +543,7 @@ impl Backend {
             }
         }
         // Without PROTOCOL_FEATURES a ring starts enabled; with them, at SET_VRING_ENABLE.
-        if self.features & VHOST_USER_F_PROTOCOL_FEATURES == 0 {
+        if self.features.load(Ordering::Acquire) & VHOST_USER_F_PROTOCOL_FEATURES == 0 {
             self.vrings[index as usize].enabled.store(true, Ordering::Release);
         }
         let vring = &mut self.vrings[index as usize];
@@ -396,6 +556,9 @@ impl Backend {
             mem,
             server,
             exit_code,
+            session: self.session.clone(),
+            features: self.features.clone(),
+            log: self.log.clone(),
         };
         let handle = std::thread::Builder::new()
             .name(format!("queue-{index}"))
@@ -414,9 +577,19 @@ struct Worker {
     mem: Arc<GuestMemoryMmap>,
     server: Arc<Server<PassthroughFsRo>>,
     exit_code: Arc<AtomicI32>,
+    session: Arc<AtomicBool>,
+    features: Arc<AtomicU64>,
+    log: Arc<Mutex<Option<Arc<DirtyLog>>>>,
 }
 
 impl Worker {
+    /// The log while VHOST_F_LOG_ALL is on.
+    fn dirty_log(&self) -> Option<Arc<DirtyLog>> {
+        if self.features.load(Ordering::Acquire) & VHOST_F_LOG_ALL == 0 {
+            return None;
+        }
+        self.log.lock().unwrap().clone()
+    }
     /// Runs until the write end of `stop` closes.
     fn run(self, mut kick: File, stop: OwnedFd) {
         if let Err(e) = set_nonblocking(&kick) {
@@ -484,6 +657,19 @@ impl Worker {
                         desc = d.next_descriptor();
                     }
                 }
+                self.track_session(&head);
+                let log = self.dirty_log();
+                // Every writable buffer, written or not: a page marked clean
+                // that changed would be lost, one marked dirty only resent.
+                let written: Vec<(u64, u64)> = match &log {
+                    Some(_) => head
+                        .clone()
+                        .into_iter()
+                        .writable()
+                        .map(|d| (d.addr.0, u64::from(d.len)))
+                        .collect(),
+                    None => Vec::new(),
+                };
                 let len = match (Reader::new(mem, head.clone()), Writer::new(mem, head)) {
                     (Ok(reader), Ok(writer)) => {
                         debug!(
@@ -507,6 +693,14 @@ impl Worker {
                 if let Err(e) = queue.add_used(mem, head_index, len as u32) {
                     error!("queue {}: add_used: {e:?}", self.index);
                 }
+                if let Some(log) = &log {
+                    for (gpa, len) in written {
+                        log.mark(gpa, len);
+                    }
+                    // flags, idx, the ring and avail_event.
+                    let used_len = 6 + 8 * u64::from(queue.actual_size());
+                    log.mark(queue.used_ring.0, used_len);
+                }
                 if queue.needs_notification(mem).unwrap_or(true) {
                     self.signal();
                 }
@@ -519,6 +713,17 @@ impl Worker {
                     break;
                 }
             }
+        }
+    }
+
+    fn track_session(&self, head: &DescriptorChain) {
+        let Ok(mut peek) = Reader::new(&self.mem, head.clone()) else {
+            return;
+        };
+        match peek.read_obj::<InHeader>().map(|h| h.opcode) {
+            Ok(op) if op == Opcode::Init as u32 => self.session.store(true, Ordering::Release),
+            Ok(op) if op == Opcode::Destroy as u32 => self.session.store(false, Ordering::Release),
+            _ => {}
         }
     }
 
