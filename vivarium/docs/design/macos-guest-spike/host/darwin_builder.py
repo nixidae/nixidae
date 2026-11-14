@@ -687,8 +687,14 @@ async def prepare(img: Path, guest: Path) -> None:
         # over an unmounted volume fails, and its cleanup removed
         # /etc/synthetic.conf, which breaks /nix for good.
         await ssh(guest, port, "if diskutil info 'Nix Store' >/dev/null 2>&1; then "
-                  "for i in $(seq 90); do test -d /nix/store && exit 0; sleep 1; done; "
-                  "echo 'the Nix Store volume exists and never mounted at /nix'; exit 1; fi")  # fmt: skip
+                  "for i in $(seq 90); do test -d /nix/store && break; sleep 1; done; "
+                  "test -d /nix/store || { echo 'the Nix Store volume exists and never mounted at /nix'; exit 1; }; fi")  # fmt: skip
+        # On a guest install_store prepared, the store paths are on Nix Upper,
+        # which builder-store boot mounts after /nix: until then the profile
+        # links dangle, and the check below would reinstall Nix over them.
+        await ssh(guest, port, "if diskutil info 'Nix Upper' >/dev/null 2>&1; then "
+                  "for i in $(seq 60); do mount | grep -q ' on /nix/store (apfs.*union' && exit 0; sleep 1; done; "
+                  "echo 'the Nix Upper volume exists and never mounted on /nix/store'; exit 1; fi")  # fmt: skip
         await ssh(guest, port, "test -e /nix/var/nix/profiles/default/bin/nix-daemon || "
                   "{ curl -sSfL https://nixos.org/nix/install -o /tmp/install-nix && "
                   "sh /tmp/install-nix --daemon --yes > /tmp/install-nix.log 2>&1 || "
