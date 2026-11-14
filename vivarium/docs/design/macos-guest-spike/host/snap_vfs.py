@@ -5,6 +5,11 @@ save   boot sonoma-nix on memory-backend-shm with vhost-user-fs, wait for the
        daemon, save everything to SNAP/full.bin, split it into ram.bin + state.bin
 lazy   start from a clone of ram.bin mapped shared (x-ignore-shared state.bin)
 eager  start by loading full.bin into memory-backend-shm
+
+ZEROFREE=1 zeroes the guest's free pages before the save. LIVE=1 saves the
+guest while it runs, so dirty logging is on. MULTIFD_CHANNELS=N
+saves in the mapped-ram format, which an eager start loads with N threads;
+such a snapshot has no ram.bin.
 """
 
 from __future__ import annotations
@@ -26,6 +31,8 @@ IMG = Path(os.environ.get("IMG", Path.home() / "Dynamist/orchard-images/sonoma")
 GUEST = Path(os.environ.get("GUEST", Path.home() / "Dynamist/orchard-images/sonoma-nix"))
 VFSD = Path(os.environ.get("VFSD", "darwin-virtiofsd"))
 SSH_PORT = 22299
+# 0: QEMU's stream format. N: mapped-ram, loaded by N multifd channels.
+MULTIFD_CHANNELS = int(os.environ.get("MULTIFD_CHANNELS", "0"))
 BENCH = """
 for i in $(seq 30); do test -d /nix/store && break; sleep 1; done
 mount_virtiofs hoststore /nix/store || exit 1
@@ -95,9 +102,17 @@ async def save(snap: Path) -> None:
                     await anyio.sleep(0.5)
             log(event="daemon", seconds=round(time.monotonic() - t0, 1))
             await anyio.sleep(20)
+            if os.environ.get("ZEROFREE") == "1":
+                await zero_free(boot)
             await db.set_clock(boot / "vsock.sock")
-            await qmp.call("stop")
+            # LIVE=1 saves a running guest: QEMU and the server then log dirty pages.
+            if os.environ.get("LIVE") != "1":
+                await qmp.call("stop")
             t0 = time.monotonic()
+            if MULTIFD_CHANNELS:
+                await mapped_ram(qmp, MULTIFD_CHANNELS)
+                # A load must use the save's channel count.
+                await anyio.Path(snap / "mapped").write_text(f"{MULTIFD_CHANNELS}\n")
             await db.migrate(qmp, snap / "full.bin")
             log(event="saved", seconds=round(time.monotonic() - t0, 1))
         finally:
@@ -105,7 +120,29 @@ async def save(snap: Path) -> None:
     # The disk the saved RAM matches is the boot overlay; it becomes the base.
     await anyio.Path(boot / "overlay.qcow2").rename(snap / "overlay.qcow2")
     await anyio.Path(boot / "aux.img").rename(snap / "aux.img")
-    await split(snap)
+    if not MULTIFD_CHANNELS:
+        await split(snap)
+
+
+async def zero_free(boot: Path) -> None:
+    """guest/zerofree.c, built here and run in the guest over SSH."""
+    binary = boot / "zerofree"
+    await anyio.run_process(["/usr/bin/clang", "-O2", "-mmacosx-version-min=14.0", "-o", str(binary),
+                             str(HERE.parent / "guest/zerofree.c")])  # fmt: skip
+    with anyio.fail_after(120):
+        while not await db.ssh(boot, SSH_PORT, "true", check=False, connect_timeout=5):
+            await anyio.sleep(1)
+    await db.ssh(boot, SSH_PORT, "--", str(binary), "/tmp/")
+    await db.ssh(boot, SSH_PORT, "sudo -n /tmp/zerofree")
+
+
+async def mapped_ram(qmp: db.Qmp, channels: int) -> None:
+    """RAM at fixed offsets in the file, zero pages left out, loaded by several threads."""
+    await qmp.call("migrate-set-capabilities", capabilities=[
+        {"capability": "mapped-ram", "state": True},
+        {"capability": "multifd", "state": True},
+    ])  # fmt: skip
+    await qmp.call("migrate-set-parameters", **{"multifd-channels": channels})
 
 
 async def split(snap: Path) -> None:
@@ -152,6 +189,8 @@ async def start(snap: Path, mode: str) -> None:
             qmp = await db.Qmp.connect(run / "qmp.sock")
             if caps:
                 await qmp.call("migrate-set-capabilities", capabilities=caps)
+            if mode == "eager" and await anyio.Path(snap / "mapped").exists():
+                await mapped_ram(qmp, int(await anyio.Path(snap / "mapped").read_text()))
             await qmp.call("migrate-incoming", uri=f"file:{state}")
             while await qmp.status() == "inmigrate":
                 await anyio.sleep(0.01)

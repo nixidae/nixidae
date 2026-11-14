@@ -467,6 +467,31 @@ A shared file mapping stalls the guest while macOS writes its dirty pages
 back, as on the first builders (Traps). The eager start pays the whole RAM,
 1.5 s of loading for 3.4 GB, and then builds as fast as a booted guest.
 
+Two things shorten the eager load (`ZEROFREE=1`, `MULTIFD_CHANNELS=N`):
+`guest/zerofree.c` before the save, and QEMU's `mapped-ram` format, which
+leaves zero pages out of the file and loads with N multifd threads. The load
+must use the save's channel count, so the snapshot records it. Each row is
+one save and two starts; compiles stay at 1.7-2.4 s for ten:
+
+| eager start | `full.bin` | RAM loaded | daemon answers |
+| --- | --- | --- | --- |
+| stream | 3.4 GB | 1.5-1.6 s | 1.60-1.74 s |
+| zero-free, stream | 1.5 GB | 1.0-1.2 s | 1.21-1.47 s |
+| mapped-ram, 4 channels | 3.9 GB | 1.1-1.5 s | 1.14-1.50 s |
+| zero-free, mapped-ram, 4 channels | 1.9 GB | 0.26 s | 0.57-0.61 s |
+| zero-free, mapped-ram, 8 channels | 2.0 GB | 0.29-0.30 s | 0.34-0.35 s |
+
+The last row starts as fast as the builders without virtiofs (0.17-0.38 s).
+After a mapped-ram start without zero-free, the guest clock stepped back
+during the first compile round: those two rounds read negative.
+
+QEMU allocated the shared dirty log with memfd, so on macOS a running guest
+with vhost-user could not migrate; the fork's 887da5a9 falls back to
+`qemu_shm_alloc`. A live save (`LIVE=1`, zero-free, 8 channels) then
+completes in 21.7 s, and a start from it builds at full speed, but its
+daemon answered only after 21.3 s, both times. Open; builders save a stopped
+guest.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
