@@ -530,6 +530,21 @@ unseeded snapshot of 2026-11-08 substituted 60 and took 44 s, the seeded,
 warmed one 28 s. The toolchain is read cold over virtiofs: a save unmounts
 the share, so the guest's cache of it never reaches a snapshot.
 
+Both together: `SEED` (stdenv) and `WARMUP` (a `hello`) put the toolchain on
+the Nix Upper volume and its pages in the saved RAM; everything else comes
+from the host store. `state.bin` 1.9 GB, save 102 s. Two starts:
+
+| | run 1 | run 2 |
+| --- | --- | --- |
+| RAM loaded | 0.29 s | 1.21 s (not in the host's cache) |
+| daemon answers | 0.36 s | 1.28 s |
+| host store mounted | 0.73 s | 1.65 s |
+| 934 paths registered | 2.14 s | 2.72 s |
+| `hello`, start to output | 23.4 s | 23.7 s |
+
+0 paths copied, 0 substituted: faster than the warmed snapshot without
+virtiofs (28 s) and than the host building `hello` itself (35 s).
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
