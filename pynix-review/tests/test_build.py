@@ -22,7 +22,15 @@ from pynix_review.build import (
     unchanged_failure,
     write,
 )
-from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, TIMED_OUT, UNCHANGED_INPUT_FAILED, Bundle, to_dot
+from pynix_review.bundle import (
+    DEPENDENCY_FAILED,
+    OUT_OF_BUDGET,
+    STOPPED,
+    TIMED_OUT,
+    UNCHANGED_INPUT_FAILED,
+    Bundle,
+    to_dot,
+)
 from pynix_review.comment import COMMENT_FILE, URL_FILE
 from pynix_review.plan import order
 
@@ -199,6 +207,25 @@ async def test_schedule_starts_nothing_past_the_deadline_and_lets_a_running_buil
     assert found[3].message == "a changed input ran out of budget"
 
 
+async def test_schedule_stops_what_still_runs_at_the_hard_deadline() -> None:
+    async def build_one(drv: str) -> Outcome:
+        await anyio.sleep(0.05 if drv == LIBPNG else 10)
+        return Outcome(drv, "built", True, 1, 2, None)
+
+    started = anyio.current_time()
+    found = await schedule(order(font_bundle()), build_one, wall=0.1, jobs=4, kill_after=0.3)
+    assert anyio.current_time() - started < 1
+    by_drv = {o.drv: o for o in found}
+    assert by_drv[LIBPNG].status == "built"
+    stopped = [o for o in found if o.status == STOPPED]
+    assert stopped
+    assert stopped[0].message == "still running at 0.3 s"
+    assert all(o.status in {"built", STOPPED, OUT_OF_BUDGET} for o in found)
+    counted = made(found)
+    assert (counted.failed, counted.stopped) == (0, len(stopped))
+    assert f"out of budget {counted.out_of_budget} ({len(stopped)} stopped)" in to_dot(font_bundle(), counted)
+
+
 def wide(n: int) -> Bundle:
     source = font_bundle()
     [libpng] = [d for d in source.derivations if d.drv == LIBPNG]
@@ -229,7 +256,8 @@ def test_built_dot_fills_by_outcome_and_shows_both_times() -> None:
     )
     assert dot.startswith("digraph built {")
     summary = (
-        "built 1 of 4: took 40 s, est 38 s | failed 1 (0 on an unchanged input) | out of budget 1 | wall 61 s of 3600 s"
+        "built 1 of 4: took 40 s, est 38 s | failed 1 (0 on an unchanged input) | out of budget 1"
+        " | wall 61 s, starts within 3600 s, stop at 5400 s"
     )
     assert f'label="{summary}"' in dot
     assert 'fillcolor="palegreen"' in node(dot, LIBPNG)

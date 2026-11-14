@@ -53,7 +53,9 @@ RAN: Final = "built"
 """The success word for a builder that ran; the other success words ran none."""
 TIMED_OUT: Final = "timed-out"
 """Nix's word for a build its `timeout` or `max-silent-time` stopped."""
-OVER_BUDGET: Final = frozenset({OUT_OF_BUDGET, TIMED_OUT})
+STOPPED: Final = "stopped"
+"""Running at the hard deadline, and cancelled."""
+OVER_BUDGET: Final = frozenset({OUT_OF_BUDGET, TIMED_OUT, STOPPED})
 """No verdict on the change: the run's time ran out, not the build."""
 ROW_WIDTH: Final = 12
 """Nodes per row. The fzf PR puts 51 derivations at depth 4, and one row of
@@ -256,10 +258,16 @@ def _outcome(r: Built | None) -> tuple[list[str], list[str]]:
         return [r.status], _filled(FILL_CACHED)
     if r.status == OUT_OF_BUDGET:
         return ["out of budget"], _filled(FILL_OUT_OF_BUDGET)
-    if r.status == TIMED_OUT:
-        return ["timed out"], _filled(FILL_OUT_OF_BUDGET)
+    if r.status in {TIMED_OUT, STOPPED}:
+        return [r.status.replace("-", " ")], _filled(FILL_OUT_OF_BUDGET)
     after = f" after {r.seconds} s" if r.seconds is not None else ""
     return [f"{r.status}{after}"], _filled(FILL_FAILED)
+
+
+def over_budget_detail(made: Report) -> str:
+    """` (N stopped, M timed out)`, naming only what happened."""
+    parts = [f"{n} {word}" for n, word in ((made.stopped, "stopped"), (made.timed_out, "timed out")) if n]
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _built_line(made: Report, total: int) -> str:
@@ -267,8 +275,8 @@ def _built_line(made: Report, total: int) -> str:
         f"built {made.built} of {total}: took {made.built_seconds} s, est {made.built_estimate} s"
         f" | failed {made.failed} ({made.unchanged_input_failed} on an unchanged input)"
         f" | out of budget {made.out_of_budget}"
-        + (f" ({made.timed_out} timed out)" if made.timed_out else "")
-        + f" | wall {made.wall_seconds:.0f} s of {made.budget} s"
+        + over_budget_detail(made)
+        + f" | wall {made.wall_seconds:.0f} s, starts within {made.budget} s, stop at {made.kill_after} s"
     )
 
 

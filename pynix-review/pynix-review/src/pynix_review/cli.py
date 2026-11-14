@@ -20,7 +20,15 @@ import anyio
 import huggorm
 
 from . import bundle
-from .build import DAEMON, DOT_FILE as BUILT_DOT, JOBS, WALL_SECONDS, build, write as write_built
+from .build import (
+    DAEMON,
+    DOT_FILE as BUILT_DOT,
+    JOBS,
+    KILL_AFTER_SECONDS,
+    WALL_SECONDS,
+    build,
+    write as write_built,
+)
 from .buildtimes import UNREPORTED_PHASE_SECONDS
 from .evaluate import SCRATCH_STORE
 from .plan import BUDGET_SECONDS, UNTIMED_SECONDS, plan
@@ -74,12 +82,19 @@ def _parser() -> argparse.ArgumentParser:
 
     cmd = commands.add_parser("build", help="build what fits in a wall-clock budget, and report on each derivation")
     cmd.add_argument("bundle", type=Path, help=f"a {bundle.BUNDLE_FILE}")
-    cmd.add_argument("--wall", type=int, default=WALL_SECONDS, help="seconds to start builds in; running ones finish")
+    cmd.add_argument("--wall", type=int, default=WALL_SECONDS, help="seconds to start builds in")
+    cmd.add_argument(
+        "--kill-after",
+        type=int,
+        default=KILL_AFTER_SECONDS,
+        help="seconds after which running builds are stopped (at least --wall)",
+    )
     cmd.add_argument("--jobs", type=int, default=JOBS, help="builds at once")
     cmd.add_argument(
         "--build-timeout",
         type=int,
-        help="seconds one build may run before Nix stops it (default: --wall; 0: the daemon's own)",
+        default=0,
+        help="seconds one build may run before Nix stops it (0: the daemon's own)",
     )
     cmd.add_argument(
         "--max-silent-time",
@@ -109,7 +124,8 @@ async def _build(args: argparse.Namespace) -> str:
         untimed_seconds=args.untimed_seconds,
         store_url=args.store,
         build_logs=args.print_build_logs,
-        build_timeout=args.wall if args.build_timeout is None else args.build_timeout,
+        kill_after=args.kill_after,
+        build_timeout=args.build_timeout,
         max_silent_time=args.max_silent_time,
     )
     if args.out is None:
@@ -169,6 +185,8 @@ def main() -> None:
         sys.stdout.write(anyio.run(_plan, args) + "\n")
         return
     if args.command == "build":
+        if args.kill_after < args.wall:
+            parser.error("--kill-after must be at least --wall")
         # Each build holds a pool thread for its whole run; two more for parse_derived_path.
         huggorm.set_pool_size(args.jobs + 2)
         sys.stdout.write(anyio.run(_build, args) + "\n")

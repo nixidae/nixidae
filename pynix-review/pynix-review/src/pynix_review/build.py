@@ -6,11 +6,12 @@ store the daemon decides where each build runs. One call per derivation,
 not one for the whole set: a batch call cut short answers for nothing,
 including what it finished.
 
-The deadline is soft. Past it no build starts, and a running one finishes:
-a cancelled call waits for its build anyway (nixidae/nixidae#1219), and
-pynixd keeps building after its client goes. What bounds a running build is
-Nix's own `timeout`, which the client sends the daemon and pynixd enforces
-(measured: a 30 s build at timeout 5 ended `timed-out` after 6.0 s).
+Two deadlines. Past `wall` no build starts. At `kill_after` a running
+build's call is cancelled: huggorm wakes the thread blocked on the daemon
+socket, and pynixd stops a build no client waits for (nixidae/nixidae#1219;
+measured: a 60 s build cut at 5 s returned at 5.0 s, and the rerun built
+it again). Nix's own `timeout` and `max-silent-time` can bound one build
+besides; pynixd enforces them.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .bundle import (
     OUT_OF_BUDGET,
     OVER_BUDGET,
     RAN,
+    STOPPED,
     TIMED_OUT,
     UNCHANGED_INPUT_FAILED,
     to_dot,
@@ -48,6 +50,7 @@ if TYPE_CHECKING:
 
 DAEMON: Final = "daemon"
 WALL_SECONDS: Final = 3600
+KILL_AFTER_SECONDS: Final = 5400
 JOBS: Final = 8
 REPORT_FILE: Final = "built.json"
 SCHEMA_FILE: Final = "built.schema.json"
@@ -115,6 +118,8 @@ class UnchangedFailure(_Model):
 class Report(_Model):
     budget: int
     """Wall seconds allowed to start builds in."""
+    kill_after: int
+    """Wall seconds after which running builds are stopped."""
     build_timeout: int
     """Seconds one build may run, Nix's `timeout`; 0: the daemon's own."""
     estimate: int
@@ -132,7 +137,9 @@ class Report(_Model):
     unchanged_input_failed: int
     """Of `failed`, those an input the change does not touch failed."""
     out_of_budget: int
-    """Not started in time, held back by such an input, or `timed_out`."""
+    """Not started in time, held back by such an input, `stopped` or `timed_out`."""
+    stopped: int
+    """Of `out_of_budget`, builds still running at `kill_after`."""
     timed_out: int
     """Of `out_of_budget`, builds `build_timeout` or `max-silent-time` stopped."""
     unchanged_failures: list[UnchangedFailure] = Field(default_factory=list[UnchangedFailure])
@@ -181,11 +188,15 @@ async def schedule(
     *,
     wall: float,
     jobs: int,
+    kill_after: float | None = None,
 ) -> list[Outcome]:
     """Run `build_one` for each of `planned` after its changed inputs, at
-    most `jobs` at once, starting none after `wall` seconds. Answers in
-    the order of `planned`."""
-    deadline = anyio.current_time() + wall
+    most `jobs` at once, starting none after `wall` seconds and cancelling
+    any still running at `kill_after` (None: none). Answers in the order
+    of `planned`."""
+    begun = anyio.current_time()
+    deadline = begun + wall
+    kill = None if kill_after is None else begun + kill_after
     limiter = anyio.CapacityLimiter(jobs)
     finished = {d.drv: anyio.Event() for d in planned}
     outcomes: dict[str, Outcome] = {}
@@ -196,13 +207,18 @@ async def schedule(
                 if i in finished:
                     await finished[i].wait()
             outcome = held_back(d.drv, [outcomes[i] for i in d.changed_inputs if i in outcomes])
+            started = 0
             if outcome is None:
                 async with limiter:
                     if anyio.current_time() >= deadline:
                         outcome = Outcome(d.drv, OUT_OF_BUDGET, False, 0, 0, f"not started within {wall:g} s")
                     else:
-                        outcome = await build_one(d.drv)
-            outcomes[d.drv] = outcome
+                        started = int(time.time())
+                        with anyio.move_on_after(None if kill is None else kill - anyio.current_time()):
+                            outcome = await build_one(d.drv)
+            outcomes[d.drv] = outcome or Outcome(
+                d.drv, STOPPED, False, started, int(time.time()), f"still running at {kill_after:g} s"
+            )
         finally:
             finished[d.drv].set()
 
@@ -219,6 +235,7 @@ def report(
     budget: int,
     wall_seconds: float,
     untimed_seconds: int = UNTIMED_SECONDS,
+    kill_after: int = KILL_AFTER_SECONDS,
     build_timeout: int = 0,
     unchanged_failures: Sequence[UnchangedFailure] = (),
     unchanged_timeouts: int = 0,
@@ -241,6 +258,7 @@ def report(
     timed = [r for r in results if r.ok and r.seconds is not None]
     return Report(
         budget=budget,
+        kill_after=kill_after,
         build_timeout=build_timeout,
         estimate=sum(cost(d, untimed_seconds) for d in bundle.derivations),
         results=results,
@@ -251,6 +269,7 @@ def report(
         failed=sum(1 for r in results if not r.ok and r.status not in OVER_BUDGET),
         unchanged_input_failed=sum(1 for r in results if r.status == UNCHANGED_INPUT_FAILED),
         out_of_budget=sum(1 for r in results if r.status in OVER_BUDGET),
+        stopped=sum(1 for r in results if r.status == STOPPED),
         timed_out=sum(1 for r in results if r.status == TIMED_OUT),
         unchanged_failures=list(unchanged_failures),
         unchanged_timeouts=unchanged_timeouts,
@@ -336,6 +355,7 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     bundle: Bundle,
     *,
     wall: int = WALL_SECONDS,
+    kill_after: int = KILL_AFTER_SECONDS,
     jobs: int = JOBS,
     untimed_seconds: int = UNTIMED_SECONDS,
     store_url: str = DAEMON,
@@ -374,7 +394,9 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     level = huggorm.Verbosity.INFO if build_logs else huggorm.Verbosity.WARN
     async with huggorm.AsyncSession(store_url) as session, session.forward_process(write_log, level=int(level)):
         store = session.store()
-        outcomes = await schedule(order(bundle, untimed_seconds), partial(_build_one, store), wall=wall, jobs=jobs)
+        outcomes = await schedule(
+            order(bundle, untimed_seconds), partial(_build_one, store), wall=wall, jobs=jobs, kill_after=kill_after
+        )
         culprits = [
             UnchangedFailure(drv=drv, message=message, log_tail=await _log_tail(store, drv))
             for drv, message in unchanged.items()
@@ -385,6 +407,7 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
         budget=wall,
         wall_seconds=time.monotonic() - start,
         untimed_seconds=untimed_seconds,
+        kill_after=kill_after,
         build_timeout=build_timeout,
         unchanged_failures=culprits,
         unchanged_timeouts=len(timeouts),

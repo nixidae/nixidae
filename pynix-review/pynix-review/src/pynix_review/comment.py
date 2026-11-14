@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Final
 
-from .bundle import OVER_BUDGET, RAN, UNCHANGED_INPUT_FAILED
+from .bundle import OVER_BUDGET, RAN, UNCHANGED_INPUT_FAILED, over_budget_detail
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -88,7 +88,7 @@ def _comment(made: Report, source: Bundle, view: str, tails: int) -> str:
     base = [r for r in made.results if r.status == UNCHANGED_INPUT_FAILED]
     late = [r for r in made.results if r.status in OVER_BUDGET]
     unevaluated = source.failed.get(AFTER, {})
-    timed_out = f" ({made.timed_out} timed out)" if made.timed_out else ""
+    timed_out = over_budget_detail(made)
     took = f": builders took {_minutes(made.built_seconds)}, estimated {_minutes(made.built_estimate)}" if ran else ""
     graph = f"[Graph]({view})" if len(view) <= LINK_LIMIT else f"The graph's link is in `{URL_FILE}`."
     lines = [
@@ -104,7 +104,8 @@ def _comment(made: Report, source: Bundle, view: str, tails: int) -> str:
         f"| failed on an unchanged input | {len(base)} |",
         f"| out of budget | {len(late)}{timed_out} |",
         "",
-        f"Wall time {_minutes(made.wall_seconds)} of a {_minutes(made.budget)} budget.",
+        f"Wall time {_minutes(made.wall_seconds)}: builds start within {_minutes(made.budget)}, "
+        f"and stop at {_minutes(made.kill_after)}.",
     ]
     if unevaluated:
         lines += ["", "#### Did not evaluate", ""]
