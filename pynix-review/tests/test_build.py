@@ -19,6 +19,7 @@ from pynix_review.build import (
     report,
     schedule,
     tail,
+    unchanged_failure,
     write,
 )
 from pynix_review.bundle import DEPENDENCY_FAILED, OUT_OF_BUDGET, TIMED_OUT, UNCHANGED_INPUT_FAILED, Bundle, to_dot
@@ -77,6 +78,30 @@ def test_a_logged_failure_message_leaves_the_quoted_log_lines_out() -> None:
         "Output paths: /nix/store/fgrl-hello-2.12.3"
     )
     assert "probe-failure" in build_message(ERROR, logged=False)
+
+
+CULPRIT: Final = (
+    "error: Cannot build '/nix/store/ilw9-python3.14-django-oauth-toolkit-3.3.0.drv'.\n"
+    "       Reason: builder failed with exit code 1.\n"
+    "       Output paths:\n         /nix/store/m8c9-python3.14-django-oauth-toolkit-3.3.0\n"
+    "       Last 25 log lines:\n       > Finished executing pypaInstallPhase"
+)
+WAITER: Final = (
+    "error: Cannot build '/nix/store/md8w-python3.14-drf-spectacular-0.30.0.drv'.\n"
+    "       Reason: 1 dependency failed.\n"
+    "       Output paths:\n         /nix/store/z9dd-python3.14-drf-spectacular-0.30.0"
+)
+
+
+def test_an_unchanged_failure_is_the_builder_that_failed_outside_the_change() -> None:
+    drv, message = unchanged_failure(CULPRIT, set()) or ("", "")
+    assert drv == "ilw9-python3.14-django-oauth-toolkit-3.3.0.drv"
+    assert message.endswith(
+        "Reason: builder failed with exit code 1. Output paths: /nix/store/m8c9-python3.14-django-oauth-toolkit-3.3.0"
+    )
+    assert unchanged_failure(WAITER, set()) is None
+    assert unchanged_failure(CULPRIT, {"ilw9-python3.14-django-oauth-toolkit-3.3.0.drv"}) is None
+    assert unchanged_failure("warning: something else", set()) is None
 
 
 def test_a_build_with_no_reported_times_has_no_seconds() -> None:

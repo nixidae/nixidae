@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Final
 
 import anyio
 import huggorm
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .bundle import (
     DEPENDENCY_FAILED,
@@ -42,7 +42,7 @@ from .evaluate import error_line
 from .plan import STORE_DIR, UNTIMED_SECONDS, cost, order
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Container, Sequence
 
     from .bundle import Bundle, Derivation
 
@@ -57,6 +57,8 @@ TIMEOUT_SETTING: Final = "timeout"
 SILENT_SETTING: Final = "max-silent-time"
 LOG_LINES: Final = 60
 LOG_QUOTE: Final = re.compile(r"\s*Last \d+ log lines:")
+FAILED_BUILDER: Final = re.compile(r"Cannot build '/nix/store/(?P<drv>[^'/]+\.drv)'\.\s+Reason: (?P<reason>[^\n]*)")
+HELD_BACK: Final = re.compile(r"\d+ dependenc(y|ies) failed")
 BUILD_LOG_RESULTS: Final = frozenset({huggorm.ResultType.BUILD_LOG_LINE, huggorm.ResultType.POST_BUILD_LOG_LINE})
 """Unforwarded, huggorm's fallback logger prints these at chatty: 8694
 lines on stderr for the libpng plan."""
@@ -100,6 +102,15 @@ class Built(_Model):
     an `already-valid` or `substituted` one was there, or in a cache, before."""
 
 
+class UnchangedFailure(_Model):
+    """A derivation the change does not touch whose own builder failed: why
+    `unchanged-input-failed` results failed."""
+
+    drv: str
+    message: str
+    log_tail: str | None
+
+
 class Report(_Model):
     budget: int
     """Wall seconds allowed to start builds in."""
@@ -123,6 +134,19 @@ class Report(_Model):
     """Not started in time, held back by such an input, or `timed_out`."""
     timed_out: int
     """Of `out_of_budget`, builds `build_timeout` or `max-silent-time` stopped."""
+    unchanged_failures: list[UnchangedFailure] = Field(default_factory=list[UnchangedFailure])
+    """Found in Nix's error messages during the run: the derivations behind
+    `unchanged_input_failed`, which can be several inputs deep."""
+
+
+def unchanged_failure(text: str, changed: Container[str]) -> tuple[str, str] | None:
+    """`(drv, message)` when `text` is Nix's error for a builder that failed
+    in a derivation outside `changed`; not for one that a failed dependency
+    held back, which names no cause."""
+    found = FAILED_BUILDER.search(text)
+    if found is None or found["drv"] in changed or HELD_BACK.match(found["reason"]):
+        return None
+    return found["drv"], build_message(text, logged=True)
 
 
 def failure_status(nix_status: str) -> str:
@@ -188,6 +212,7 @@ def report(
     wall_seconds: float,
     untimed_seconds: int = UNTIMED_SECONDS,
     build_timeout: int = 0,
+    unchanged_failures: Sequence[UnchangedFailure] = (),
 ) -> Report:
     by_drv = {d.drv: d for d in bundle.derivations}
     results = [
@@ -218,6 +243,7 @@ def report(
         unchanged_input_failed=sum(1 for r in results if r.status == UNCHANGED_INPUT_FAILED),
         out_of_budget=sum(1 for r in results if r.status in OVER_BUDGET),
         timed_out=sum(1 for r in results if r.status == TIMED_OUT),
+        unchanged_failures=list(unchanged_failures),
     )
 
 
@@ -265,6 +291,11 @@ def build_message(error: str, *, logged: bool) -> str:
     return error_line(LOG_QUOTE.split(error, maxsplit=1)[0] if logged else error)
 
 
+async def _log_tail(store: huggorm.AsyncStore, drv: str) -> str | None:
+    log = await store.get_build_log(await store.parse_store_path(f"{STORE_DIR}/{drv}"))
+    return None if log is None else tail(log)
+
+
 async def _build_one(store: huggorm.AsyncStore, drv: str) -> Outcome:
     target = await store.parse_derived_path(f"{STORE_DIR}/{drv}^*")
     [result] = await store.build_paths_with_results([target])
@@ -277,8 +308,8 @@ async def _build_one(store: huggorm.AsyncStore, drv: str) -> Outcome:
         outputs = {
             name: await store.print_store_path(p) for name, p in (await store.query_derivation_output_map(path)).items()
         }
-    elif status != UNCHANGED_INPUT_FAILED and (log := await store.get_build_log(path)) is not None:
-        log_tail = tail(log)
+    elif status != UNCHANGED_INPUT_FAILED:
+        log_tail = await _log_tail(store, drv)
     return Outcome(
         drv=drv,
         status=status,
@@ -310,9 +341,16 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     `build_timeout` and `max_silent_time` (0: the daemon's own) set Nix's
     settings for the process: the session sends them at connect."""
 
+    changed = {d.drv for d in bundle.derivations}
+    unchanged: dict[str, str] = {}
+    """Nix names a failed builder once per derivation waiting on it: one entry each."""
+
     def write_log(record: huggorm.LogRecord) -> None:
         if (line := log_line(record, build_logs=build_logs)) is not None:
-            sys.stderr.write(huggorm.filter_ansi_escapes(line, filter_all=True) + "\n")
+            text = huggorm.filter_ansi_escapes(line, filter_all=True)
+            sys.stderr.write(text + "\n")
+            if record.action() == "msg" and (found := unchanged_failure(text, changed)) is not None:
+                unchanged.setdefault(*found)
 
     for name, seconds in ((TIMEOUT_SETTING, build_timeout), (SILENT_SETTING, max_silent_time)):
         if seconds:
@@ -322,6 +360,10 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
     async with huggorm.AsyncSession(store_url) as session, session.forward_process(write_log, level=int(level)):
         store = session.store()
         outcomes = await schedule(order(bundle, untimed_seconds), partial(_build_one, store), wall=wall, jobs=jobs)
+        culprits = [
+            UnchangedFailure(drv=drv, message=message, log_tail=await _log_tail(store, drv))
+            for drv, message in unchanged.items()
+        ]
     return report(
         bundle,
         outcomes,
@@ -329,4 +371,5 @@ async def build(  # noqa: PLR0913 -- keyword-only, one per CLI option
         wall_seconds=time.monotonic() - start,
         untimed_seconds=untimed_seconds,
         build_timeout=build_timeout,
+        unchanged_failures=culprits,
     )

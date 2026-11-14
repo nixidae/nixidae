@@ -40,6 +40,20 @@ def _fence(text: str) -> str:
     return "`" * max([3, *(len(run) + 1 for run in re.findall("`+", text))])
 
 
+def _details(drv: str, log_tail: str) -> list[str]:
+    fence = _fence(log_tail)
+    return [
+        "",
+        f"  <details><summary>log tail of <code>{drv}</code></summary>",
+        "",
+        f"  {fence}",
+        *(f"  {ln}" for ln in log_tail.splitlines()),
+        f"  {fence}",
+        "",
+        "  </details>",
+    ]
+
+
 def _line(r: Built) -> str:
     after = f" after {r.seconds} s" if r.seconds is not None else ""
     said = f": {r.message}" if r.message else ""
@@ -51,17 +65,7 @@ def _listed(rows: Sequence[Built], *, tails: int = 0) -> list[str]:
     for n, r in enumerate(rows[:LISTED]):
         lines.append(_line(r))
         if n < tails and r.log_tail:
-            fence = _fence(r.log_tail)
-            lines += [
-                "",
-                f"  <details><summary>log tail of <code>{r.drv}</code></summary>",
-                "",
-                f"  {fence}",
-                *(f"  {ln}" for ln in r.log_tail.splitlines()),
-                f"  {fence}",
-                "",
-                "  </details>",
-            ]
+            lines += _details(r.drv, r.log_tail)
     if len(rows) > LISTED:
         lines.append(f"- and {len(rows) - LISTED} more")
     return lines
@@ -116,4 +120,12 @@ def _comment(made: Report, source: Bundle, view: str, tails: int) -> str:
             "",
             *_listed(base),
         ]
+    if made.unchanged_failures:
+        lines += ["", "Unchanged derivations whose builder failed:", ""]
+        for n, f in enumerate(made.unchanged_failures[:LISTED]):
+            lines.append(f"- `{f.drv}`: {f.message}")
+            if n < tails and f.log_tail:
+                lines += _details(f.drv, f.log_tail)
+        if len(made.unchanged_failures) > LISTED:
+            lines.append(f"- and {len(made.unchanged_failures) - LISTED} more")
     return "\n".join(lines) + "\n"

@@ -3,7 +3,7 @@ from __future__ import annotations
 from test_build import made, outcomes
 from test_bundle import CAIRO, FONTCONFIG, font_bundle
 
-from pynix_review.build import Outcome
+from pynix_review.build import Outcome, UnchangedFailure
 from pynix_review.bundle import TIMED_OUT, UNCHANGED_INPUT_FAILED
 from pynix_review.comment import LIMIT, LINK_LIMIT, LISTED, comment
 
@@ -49,6 +49,14 @@ def test_base_failures_and_timeouts_are_not_the_change_s() -> None:
     assert "| out of budget | 1 (1 timed out) |" in text
     assert "#### Failed on an unchanged input" in text
     assert "- `cairo` (unchanged-input-failed): error: Cannot build" in text
+
+
+def test_the_unchanged_derivation_that_failed_is_named_with_its_log() -> None:
+    found = [*outcomes()[:2], Outcome(CAIRO, UNCHANGED_INPUT_FAILED, False, 0, 0, "error: Cannot build")]
+    culprit = UnchangedFailure(drv="ilw9-django.drv", message="error: builder failed", log_tail="FAILED test_x")
+    text = comment(made(found).model_copy(update={"unchanged_failures": [culprit]}), font_bundle(), VIEW)
+    assert "Unchanged derivations whose builder failed:\n\n- `ilw9-django.drv`: error: builder failed" in text
+    assert "  FAILED test_x" in text
 
 
 def test_a_long_list_is_counted_and_a_huge_comment_fits() -> None:
