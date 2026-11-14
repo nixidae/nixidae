@@ -19,7 +19,7 @@
   src ? fetchFromGitHub {
     owner = "nixidae";
     repo = "qemu";
-    rev = "24f1c3b06948d37bdcc2880a65a4d2ecef3b3f86";
+    rev = "52d6c4714c8670b04b564d4edd3ed365b44f617b";
     hash = lib.fakeHash;
   },
 }:
@@ -50,6 +50,15 @@ in
     pname = "qemu-vmapple";
     version = "11.1.50-unstable-2026-11-08";
     inherit src;
+
+    # meson turns vhost-user off on hosts other than Linux. QEMU's macOS
+    # support for it is there (memory-backend-shm, pipe notifiers);
+    # vhost-user-fs-pci needs it to reach darwin-virtiofsd. vhost-net
+    # includes Linux's <linux/vhost.h> unconditionally (hw/net/vhost_net.c).
+    configureFlags = old.configureFlags ++ [
+      "--enable-vhost-user"
+      "--disable-vhost-net"
+    ];
 
     # Upstream master has it.
     patches = lib.filter (
