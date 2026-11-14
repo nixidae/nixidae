@@ -545,6 +545,13 @@ from the host store. `state.bin` 1.9 GB, save 102 s. Two starts:
 0 paths copied, 0 substituted: faster than the warmed snapshot without
 virtiofs (28 s) and than the host building `hello` itself (35 s).
 
+`pynix build --darwin-builder` takes such a snapshot as it is: it starts the
+server `snapshot.json` names (`virtiofs.server`), loads mapped-ram, calls
+`host`, and registers the closure between evaluation and build with
+huggorm's `compute_fs_closure(include_outputs=True)` and
+`make_validity_registration`. 934 paths took 0.30 s that way, against
+1.4 s through `nix-store`; `hello` took 25.4 s from command to output path.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
