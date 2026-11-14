@@ -19,7 +19,7 @@
   src ? fetchFromGitHub {
     owner = "nixidae";
     repo = "qemu";
-    rev = "52d6c4714c8670b04b564d4edd3ed365b44f617b";
+    rev = "887da5a976af636ee7e65f1be4da4918ee891db7";
     hash = lib.fakeHash;
   },
 }:
