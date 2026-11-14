@@ -10,20 +10,24 @@
   subprojects. A git tree has only their wrap files, and the sandbox has no
   network for meson to fetch them, so the git subprojects are fetched here
   at the wraps' revisions.
+
+  A local checkout replaces the source through overrideAttrs, not an
+  argument: callPackage fills an argument named `src` with nixpkgs' `src`
+  alias, which throws.
 */
 {
   lib,
   qemu,
   fetchFromGitHub,
   fetchgit,
-  src ? fetchFromGitHub {
+}:
+let
+  src = fetchFromGitHub {
     owner = "nixidae";
     repo = "qemu";
     rev = "887da5a976af636ee7e65f1be4da4918ee891db7";
-    hash = lib.fakeHash;
-  },
-}:
-let
+    hash = "sha256-YuToHNl8kRuV9kjqnKKZy3XeFhO/WoXrvP7rIFP3cAs=";
+  };
   gitlab =
     name: rev: hash:
     fetchgit {

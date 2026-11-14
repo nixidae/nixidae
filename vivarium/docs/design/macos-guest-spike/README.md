@@ -39,11 +39,13 @@ github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
 | a8a6e107 | Mohamed Mediouni (qemu-devel v8 10) | virtio-blk: FileVault off |
 | 2a4a3122 | vivarium | hide the paravirtualized GPU when `gfx=off` |
 | 24f1c3b0 | vivarium | virtio-vsock-unix migrates; transport reset on load |
+| fdba6923 | vivarium | vmapple's `disable-legacy` global is optional |
+| 52d6c471 | vivarium | vhost-user's start kick goes through the host notifier |
+| 887da5a9 | vivarium | vhost's shared dirty log without memfd |
 
-24f1c3b0 is local: the `nixidae` bookmark on github.com/nixidae/qemu is at
-2a4a3122 until it is pushed. `vivarium/pkgs/qemu-vmapple/package.nix` builds
-the fork with Nix; its default source names 24f1c3b0 with a fake hash, so for
-now pass `src = builtins.fetchGit { url = ~/Dynamist/qemu; rev = ...; }`.
+`vivarium/pkgs/qemu-vmapple/package.nix` builds the `nixidae` branch of
+github.com/nixidae/qemu (887da5a9). For a local checkout:
+`.overrideAttrs { src = builtins.fetchGit { url = ~/Dynamist/qemu; rev = ...; }; }`.
 
 `host/find_qemu_base.py` found the base by content hashes: orchard's import
 differs from f8aef8a9 only in files orchard changed or added.
@@ -581,9 +583,8 @@ of starting, so it needs more work before it is useful.
 
 ## Next steps
 
-1. Push github.com/nixidae/qemu `nixidae` (24f1c3b0), then set the real hash
-   in `vivarium/pkgs/qemu-vmapple/package.nix`. Until then the package needs a
-   local `src`.
+1. Builders with less guest RAM: the guest uses about 2 GB, and each 8 GiB
+   start pushes `state.bin` out of this 24 GiB host's file cache.
 2. Make the snapshot a thing pynix can find, as `withGuest` does for the Linux
    builder: a default snapshot path, and `darwin_builder.py` moved into
    nanopynix (`pynix darwin-builder prepare|save`). The tart image and the
