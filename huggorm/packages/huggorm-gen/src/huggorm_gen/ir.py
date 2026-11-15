@@ -1382,11 +1382,14 @@ class Alternative:
     `arm` is the arm's own C++, as the arms' `std::variant` holds it.
     `cxx` is the type the union's variant holds, and `member` the
     member inside it - both `arm` and "" for every arm no `wraps`
-    names, which the variant holds as itself."""
+    names, which the variant holds as itself. `read` and `write` are
+    a `Wrap`'s lambda bodies, when it gives them."""
 
     arm: str
     cxx: str
     member: str = ""
+    read: str = ""
+    write: str = ""
 
 
 @dataclass(frozen=True)
@@ -1438,7 +1441,7 @@ class UnionModel:
                 v.header,
                 v.bare,
                 tuple(
-                    Alternative(a.cxx, w.cxx, w.holds)
+                    Alternative(a.cxx, w.cxx, w.holds, w.read, w.write)
                     if (w := v.wraps.get(a.name)) is not None
                     else Alternative(a.cxx, a.cxx)
                     for a in arms

@@ -492,6 +492,24 @@ def _arms_type(cls: ir.UnionModel) -> str:
     return f"std::variant<{', '.join(a.cxx for a in cls.arms)}>"
 
 
+def _read(alt: ir.Alternative, held: str) -> str:
+    """The arm Python has, from `held`: the alternative the union holds."""
+    if alt.read:
+        return f"[](const auto & v) {{ {alt.read} }}({held})"
+    if alt.member:
+        return f"arm->{alt.member}" if held == "*arm" else f"{held}.{alt.member}"
+    return held
+
+
+def _write(alt: ir.Alternative, arm: str) -> str:
+    """The alternative the union holds, from `arm`: the arm Python has."""
+    if alt.write:
+        return f"[](const auto & v) {{ {alt.write} }}({arm})"
+    if alt.member:
+        return f"{alt.cxx}{{{arm}}}"
+    return arm
+
+
 # What `_from_parts` is for, in one sentence a caller can read.
 FROM_PARTS_DOC = "Wire-deserialization helper (private, never surfaced)."
 
@@ -1686,10 +1704,9 @@ class Emitter:
         for alt in alts:
             out += [
                 f"{INDENT}if (auto * arm = std::get_if<{alt.cxx}>(&{reach}))",
-                f"{INDENT * 2}return {'arm->' + alt.member if alt.member else '*arm'};",
+                f"{INDENT * 2}return {_read(alt, '*arm')};",
             ]
-        got = f"std::get<{last.cxx}>({reach})"
-        out += [f"{INDENT}return {got + '.' + last.member if last.member else got};", "}", ""]
+        out += [f"{INDENT}return {_read(last, f'std::get<{last.cxx}>({reach})')};", "}", ""]
 
         out += [
             f"/** A {cls.name}'s arms, as the C++ union holds them. */",
@@ -1699,10 +1716,9 @@ class Emitter:
         for alt in alts:
             out += [
                 f"{INDENT}if (auto * arm = std::get_if<{alt.arm}>(&a))",
-                f"{INDENT * 2}return {alt.cxx + '{*arm}' if alt.member else '*arm'};",
+                f"{INDENT * 2}return {_write(alt, '*arm')};",
             ]
-        got = f"std::get<{last.arm}>(a)"
-        out += [f"{INDENT}return {last.cxx + '{' + got + '}' if last.member else got};", "}", ""]
+        out += [f"{INDENT}return {_write(last, f'std::get<{last.arm}>(a)')};", "}", ""]
 
         return out
 

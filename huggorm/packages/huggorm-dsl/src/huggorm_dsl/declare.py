@@ -374,10 +374,19 @@ class Wrap:
 
     `cxx` is the holder's own type, and `holds` is the member inside
     it. Together they are both directions: reading takes the member,
-    writing builds the struct round it."""
+    writing builds the struct round it.
+
+    `read` and `write` replace those two directions where a member
+    access and a brace are not enough. Each is the body of a generic
+    lambda over `const auto & v`, so `if constexpr (requires ...)`
+    works in it: Nix 2.35.6 made `fetchers::LazyAttr` a class with
+    only `compute()`, where 2.35.3 has a `ref`, and a patch release
+    has no version flag."""
 
     cxx: str
-    holds: str
+    holds: str = ""
+    read: str = ""
+    write: str = ""
 
 
 @dataclass(frozen=True)

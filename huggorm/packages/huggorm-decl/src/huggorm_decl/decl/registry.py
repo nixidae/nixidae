@@ -99,7 +99,23 @@ if NIX_2_35:
             header=Local("nix/fetchers/attrs.hh"),
             wraps={
                 "bool": Wrap("nix::Explicit<bool>", holds="t"),
-                "LazyAttr": Wrap("nix::fetchers::LazyAttr", holds="get_ptr()"),
+                # 2.35.3 has `LazyAttr = ref<LazyAttrComputation>`. 2.35.6
+                # and later make it a class that keeps the `ref` private
+                # and answers only `compute()`, so a read there shares a
+                # new computation that forces the old one.
+                "LazyAttr": Wrap(
+                    "nix::fetchers::LazyAttr",
+                    read="""
+                        if constexpr (requires { v.get_ptr(); })
+                            return v.get_ptr();
+                        else
+                            return std::make_shared<nix::fetchers::LazyAttrComputation>(
+                                nix::fetchers::LazyAttrComputation{[v] { return v.compute(); }});
+                    """,
+                    write="""
+                        return nix::fetchers::LazyAttr(nix::ref<nix::fetchers::LazyAttrComputation>(v));
+                    """,
+                ),
             },
         ),
     ]
