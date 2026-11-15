@@ -27,4 +27,5 @@ guest-options
 design/runner
 design/rewrite
 design/console-guests
+design/macos-guest-spike/README
 ```
