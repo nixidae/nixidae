@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.nixidae.vivarium-agent</string>
+    <!-- vivarium's agent, from the profile `prepare` sets; serves arpyc on the virtio-serial port. -->
+    <!-- Early in boot neither the port nor the Nix Store volume exists. launchd
+         ran a failed first start once, then left the job "spawn scheduled"
+         for over a minute, so the job waits instead of exiting. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>while [ ! -e "$VIVARIUM_AGENT_DEVICE" ] || [ ! -x /nix/var/nix/profiles/vivarium-agent/bin/vivarium-agent ]; do sleep 0.2; done; exec /nix/var/nix/profiles/vivarium-agent/bin/vivarium-agent</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VIVARIUM_AGENT_DEVICE</key>
+        <string>/dev/cu.vivarium-agent</string>
+        <key>VIVARIUM_GUEST_PATH</key>
+        <string>/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/var/root</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/vivarium-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/vivarium-agent.log</string>
+</dict>
+</plist>
