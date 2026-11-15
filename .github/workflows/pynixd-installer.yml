@@ -22,6 +22,7 @@ jobs:
         path: ${{ runner.temp }}/release
         pattern: pynixd-tarball-*
     - env:
+        GH_REPO: ${{ github.repository }}
         GH_TOKEN: ${{ github.token }}
         TAG: pynixd-installer
       name: Replace the release
