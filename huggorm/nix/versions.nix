@@ -80,6 +80,12 @@ let
   # `nix develop`'s erase of `outputChecks` reaches the dev-env derivation:
   # 2.36 serialises `__json` from the parsed text.
   developOutputChecks = patch "nix-2.36-develop-drops-output-checks";
+  # `setRecordDerivations`: a state records each derivation it coerces to
+  # its outPath, so an SBOM reads `meta` from the value (nixidae/nixidae#1373).
+  # 2.36 peels in one place; the fork's `toJSON` recurses through a lambda.
+  recordDerivations = patch "nix-record-derivations";
+  recordDerivations236 = patch "nix-2.36-record-derivations";
+  recordDerivationsDeterminate = patch "nix-determinate-record-derivations";
 
   determinate = import ./determinate.nix { inherit pkgs sources; };
 in
@@ -105,6 +111,7 @@ in
       workdirInfo234
       udsLocalFS
       addSignatures
+      recordDerivations
     ];
   };
   nix_2_35 = {
@@ -125,6 +132,7 @@ in
       forgetSrcToStore
       udsLocalFS
       addSignatures
+      recordDerivations
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -149,6 +157,7 @@ in
       udsLocalFS
       addSignatures
       developOutputChecks
+      recordDerivations236
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).
@@ -190,6 +199,7 @@ in
       udsLocalFS
       addSignatures
       evalStoreCopy
+      recordDerivationsDeterminate
     ];
     # The fork's collector is newer bdwgc: the same three changes as
     # `boehmgcPatches` below, where its code moved.

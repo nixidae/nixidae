@@ -1,0 +1,181 @@
+Record each derivation a state turns into its outPath.
+
+A store path in an evaluated string names a derivation output, but not
+the value it came from. Module code writes `"${pkg}"`, and the string
+keeps only `pkg.outPath` and its context. `meta` (licenses, CPEs,
+homepage) lives on the value, so an SBOM of what an evaluation ships
+had to find the value again by guessing attribute names. On a
+Kubernetes environment that matched 403 of 1007 store paths
+(nixidae/nixidae#1373).
+
+The evaluator holds the value at the moment it coerces it.
+`setRecordDerivations(true)` makes every later coercion of a
+derivation to its outPath record outPath -> value in the state: string
+coercion (`"${drv}"`, `toString`, a derivation's environment) and
+`toJSON` (structured attributes). The record is a root, so the values
+live as long as the state or until `clearRecordedDerivations`.
+
+Off by default: a state that does not record pays one relaxed atomic
+load per coercion. Recording changes no result and throws nothing new:
+an error while it checks the value is left to the caller's own force.
+
+diff --git a/src/libexpr/eval.cc b/src/libexpr/eval.cc
+index fa09105..c7b1077 100644
+--- a/src/libexpr/eval.cc
++++ b/src/libexpr/eval.cc
+@@ -2501,6 +2501,63 @@ bool EvalState::isDerivation(Value & v)
+     return i->value->string_view().compare("derivation") == 0;
+ }
+ 
++void EvalState::setRecordDerivations(bool record)
++{
++    recordingDerivations.store(record, std::memory_order_relaxed);
++}
++
++void EvalState::clearRecordedDerivations()
++{
++    std::lock_guard lock(recordedDerivationsMutex);
++    recordedDerivations.clear();
++}
++
++void EvalState::noteDerivationOutPath(Value & drv, Value & outPath, const PosIdx pos)
++{
++    if (!recordingDerivations.load(std::memory_order_relaxed))
++        return;
++    /* Recording must not change what evaluation does. `isDerivation`
++       forces `type`, which a coercion does not. An error is left to the
++       caller's own force of `outPath`, which throws it with its trace. */
++    try {
++        forceValue(outPath, pos);
++        if (outPath.type() != nString || !isDerivation(drv))
++            return;
++    } catch (Error &) {
++        return;
++    }
++    auto path = outPath.string_view();
++    {
++        std::lock_guard lock(recordedDerivationsMutex);
++        if (recordedDerivations.contains(path))
++            return;
++    }
++    /* `drv` may be a copy on the caller's stack. The attribute set it
++       points at is in collector memory, so a copy of the value holds the
++       same derivation. */
++    auto copy = allocValue();
++    *copy = drv;
++    std::lock_guard lock(recordedDerivationsMutex);
++    recordedDerivations.try_emplace(std::string(path), copy);
++}
++
++Value * EvalState::recordedDerivation(std::string_view outPath)
++{
++    std::lock_guard lock(recordedDerivationsMutex);
++    auto i = recordedDerivations.find(outPath);
++    return i == recordedDerivations.end() ? nullptr : i->second;
++}
++
++std::vector<std::string> EvalState::recordedOutPaths()
++{
++    std::lock_guard lock(recordedDerivationsMutex);
++    std::vector<std::string> paths;
++    paths.reserve(recordedDerivations.size());
++    for (auto & [path, _] : recordedDerivations)
++        paths.push_back(path);
++    return paths;
++}
++
+ std::optional<std::string>
+ EvalState::tryAttrsToString(const PosIdx pos, Value & v, NixStringContext & context, bool coerceMore, bool copyToStore)
+ {
+@@ -2562,6 +2619,7 @@ BackedStringView EvalState::coerceToString(
+                 .withTrace(pos, errorCtx)
+                 .debugThrow();
+         }
++        noteDerivationOutPath(v, *i->value, i->pos);
+         return coerceToString(pos, *i->value, context, errorCtx, coerceMore, copyToStore, canonicalizePath);
+     }
+ 
+diff --git a/src/libexpr/include/nix/expr/eval.hh b/src/libexpr/include/nix/expr/eval.hh
+index e4302fd..5b713c8 100644
+--- a/src/libexpr/include/nix/expr/eval.hh
++++ b/src/libexpr/include/nix/expr/eval.hh
+@@ -24,6 +24,7 @@
+ #include <boost/unordered/unordered_flat_map.hpp>
+ #include <boost/unordered/concurrent_flat_map_fwd.hpp>
+ 
++#include <atomic>
+ #include <list>
+ #include <map>
+ #include <mutex>
+@@ -732,6 +733,54 @@ public:
+      */
+     bool isDerivation(Value & v);
+ 
++    /**
++     * Start or stop recording each derivation this state turns into its
++     * `outPath`: by string coercion, as `"${drv}"` and `toString` do, or
++     * by `toJSON`. Off by default, so a state that does not ask pays one
++     * relaxed atomic load per coercion. Stopping keeps what is recorded.
++     *
++     * Only coercions after the start are recorded. A string that a
++     * coercion before it already made is not coerced again. Reading
++     * `drv.outPath` directly is no coercion, and is not recorded.
++     */
++    void setRecordDerivations(bool record);
++
++    /**
++     * Drop every recorded derivation, so the collector may free them.
++     */
++    void clearRecordedDerivations();
++
++    /**
++     * Called where a derivation `drv` is turned into `outPath`, its
++     * `outPath` attribute, at `pos`. Records the pair if recording is on
++     * and `outPath` is not recorded yet. It throws nothing that the
++     * caller's own force of `outPath` would not.
++     */
++    void noteDerivationOutPath(Value & drv, Value & outPath, const PosIdx pos);
++
++    /**
++     * The derivation recorded for `outPath`, or nullptr.
++     */
++    Value * recordedDerivation(std::string_view outPath);
++
++    /**
++     * Every `outPath` recorded, sorted.
++     */
++    std::vector<std::string> recordedOutPaths();
++
++private:
++
++    std::atomic<bool> recordingDerivations{false};
++    std::mutex recordedDerivationsMutex;
++    /**
++     * The values live in collector memory. The allocator makes the map's
++     * nodes a root, so a recorded derivation stays alive with the state.
++     */
++    std::map<std::string, Value *, std::less<>, traceable_allocator<std::pair<const std::string, Value *>>>
++        recordedDerivations;
++
++public:
++
+     std::optional<std::string> tryAttrsToString(
+         const PosIdx pos, Value & v, NixStringContext & context, bool coerceMore = false, bool copyToStore = true);
+ 
+diff --git a/src/libexpr/value-to-json.cc b/src/libexpr/value-to-json.cc
+index c844cd1..ea2816c 100644
+--- a/src/libexpr/value-to-json.cc
++++ b/src/libexpr/value-to-json.cc
+@@ -54,9 +54,10 @@ json printValueAsJSON(
+             out = *maybeString;
+             break;
+         }
+-        if (auto i = v.attrs()->get(state.s.outPath))
++        if (auto i = v.attrs()->get(state.s.outPath)) {
++            state.noteDerivationOutPath(v, *i->value, i->pos);
+             return printValueAsJSON(state, strict, *i->value, i->pos, context, copyToStore);
+-        else {
++        } else {
+             out = json::object();
+             for (auto & a : v.attrs()->lexicographicOrder(state.symbols)) {
+                 try {

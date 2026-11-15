@@ -2304,6 +2304,42 @@ class EvalState:
             return self.state().statisticsJSON();
         """)
 
+    @inert
+    def set_record_derivations(self, record: Bint) -> None:
+        """Start or stop recording each derivation this state turns into
+        its outPath, through huggorm's record-derivations patch.
+
+        A coercion records: `"${drv}"`, `toString`, a derivation's
+        environment, and `toJSON`. Reading `drv.outPath` is no coercion.
+        Only coercions after the start count, and a value that holds a
+        string made before it is not coerced again, so start before the
+        evaluation to record. Stopping keeps the record."""
+        Cxx("self.state().setRecordDerivations(record);")
+
+    @inert
+    def clear_recorded_derivations(self) -> None:
+        """Drop the record, so the collector may free its values."""
+        Cxx("self.state().clearRecordedDerivations();")
+
+    @inert
+    def recorded_out_paths(self) -> Vec[Str]:
+        """Every outPath recorded since `set_record_derivations(True)`,
+        sorted."""
+        Cxx("return self.state().recordedOutPaths();")
+
+    @inert
+    def recorded_derivation(self, out_path: Str) -> Opt[Value]:
+        """The derivation this state coerced to `out_path`, or None.
+
+        The value itself, `meta` and `drvPath` included: the record
+        holds what the evaluation held, not a copy of its data."""
+        Cxx("""
+            auto * found = self.state().recordedDerivation(out_path);
+            if (!found)
+                return std::nullopt;
+            return self.wrap(found);
+        """)
+
 
 # --- free functions ------------------------------------------------
 
