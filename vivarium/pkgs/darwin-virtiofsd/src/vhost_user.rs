@@ -20,7 +20,7 @@ use vm_memory::{
     FileOffset, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap, MmapRegion,
 };
 
-use crate::fs::PassthroughFsRo;
+use crate::fs::FileSystem;
 use crate::fs::fuse::{InHeader, Opcode};
 use crate::fs::server::Server;
 use crate::virtio::descriptor_utils::{Reader, Writer};
@@ -198,8 +198,8 @@ impl Vring {
     }
 }
 
-pub struct Backend {
-    server: Arc<Server<PassthroughFsRo>>,
+pub struct Backend<F: FileSystem + Sync + Send + 'static> {
+    server: Arc<Server<F>>,
     /// Shared with the workers: SET_FEATURES turns VHOST_F_LOG_ALL on and off.
     features: Arc<AtomicU64>,
     log: Arc<Mutex<Option<Arc<DirtyLog>>>>,
@@ -214,8 +214,8 @@ pub struct Backend {
     transfer: Option<JoinHandle<io::Result<()>>>,
 }
 
-impl Backend {
-    pub fn new(server: Server<PassthroughFsRo>) -> Self {
+impl<F: FileSystem + Sync + Send + 'static> Backend<F> {
+    pub fn new(server: Server<F>) -> Self {
         Backend {
             server: Arc::new(server),
             features: Arc::new(AtomicU64::new(0)),
@@ -569,20 +569,20 @@ impl Backend {
     }
 }
 
-struct Worker {
+struct Worker<F: FileSystem + Sync + Send + 'static> {
     index: u32,
     queue: Arc<Mutex<Queue>>,
     call: Arc<Mutex<Option<File>>>,
     enabled: Arc<AtomicBool>,
     mem: Arc<GuestMemoryMmap>,
-    server: Arc<Server<PassthroughFsRo>>,
+    server: Arc<Server<F>>,
     exit_code: Arc<AtomicI32>,
     session: Arc<AtomicBool>,
     features: Arc<AtomicU64>,
     log: Arc<Mutex<Option<Arc<DirtyLog>>>>,
 }
 
-impl Worker {
+impl<F: FileSystem + Sync + Send + 'static> Worker<F> {
     /// The log while VHOST_F_LOG_ALL is on.
     fn dirty_log(&self) -> Option<Arc<DirtyLog>> {
         if self.features.load(Ordering::Acquire) & VHOST_F_LOG_ALL == 0 {

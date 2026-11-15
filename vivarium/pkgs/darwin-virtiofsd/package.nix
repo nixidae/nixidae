@@ -1,11 +1,12 @@
 /*
-  A read-only vhost-user virtio-fs server for macOS hosts, for QEMU's
+  A vhost-user virtio-fs server for macOS hosts, for QEMU's
   vhost-user-fs-pci. virtiofsd is Linux-only (O_PATH, /proc/self/fd, epoll).
 
   The FUSE side is libkrun's macOS passthrough (containers/libkrun
   a0375321bb1e, Apache-2.0; crosvm's files keep their BSD headers), plus
   indirect descriptors, which a macOS guest's driver uses for every request.
-  nixidae/nixidae#1168.
+  The allowlist (`--allowlist`) is github.com/nixidae/libkrun's, which pynixd's
+  Linux build VM uses. nixidae/nixidae#1168.
 */
 {
   lib,

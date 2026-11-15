@@ -2,8 +2,10 @@
 // vhost-user server on a macOS host needs.
 #![allow(dead_code, non_camel_case_types, unexpected_cfgs)]
 
+pub mod allowlist;
 #[allow(dead_code)]
 mod filesystem;
+mod filtered;
 pub mod fuse;
 mod inode_alloc;
 pub mod macos;
@@ -15,6 +17,8 @@ pub mod server;
 pub use inode_alloc::InodeAllocator;
 pub use macos::fs_utils;
 pub use macos::passthrough;
+pub use filesystem::FileSystem;
+pub use filtered::PassthroughFsFiltered;
 pub use read_only::PassthroughFsRo;
 
 use super::virtio::bindings;
