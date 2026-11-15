@@ -25,7 +25,12 @@
   rustc,
   pkg-config,
   zstd,
+  fixDarwinDylibNames,
 }:
+let
+  lib' = "libkrun${stdenv.hostPlatform.extensions.sharedLibrary}";
+  versioned = if stdenv.hostPlatform.isDarwin then "libkrun.2.dylib" else "libkrun.so.2";
+in
 stdenv.mkDerivation (finalAttrs: {
   pname = "libkrun";
   version = "2.0.0-unstable-2026-11-03";
@@ -47,7 +52,8 @@ stdenv.mkDerivation (finalAttrs: {
     cargo
     rustc
     pkg-config
-  ];
+  ]
+  ++ lib.optional stdenv.hostPlatform.isDarwin fixDarwinDylibNames;
 
   # zstd-sys links the system libzstd, which it finds through pkg-config.
   buildInputs = [ zstd ];
@@ -60,8 +66,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   installPhase = ''
     runHook preInstall
-    install -D target/release/libkrun.so $out/lib/libkrun.so.2
-    ln -s libkrun.so.2 $out/lib/libkrun.so
+    install -D target/release/${lib'} $out/lib/${versioned}
+    ln -s ${versioned} $out/lib/${lib'}
     install -D -m 444 include/libkrun.h $out/include/libkrun.h
     runHook postInstall
   '';
@@ -70,6 +76,6 @@ stdenv.mkDerivation (finalAttrs: {
     description = "libkrun 2.0, for vivarium's krun backend";
     homepage = "https://github.com/nixidae/libkrun";
     license = lib.licenses.asl20;
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.linux ++ [ "aarch64-darwin" ];
   };
 })
