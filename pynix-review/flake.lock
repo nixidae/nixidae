@@ -1,0 +1,27 @@
+{
+  "nodes": {
+    "nixidae": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794742913,
+        "narHash": "sha256-YdUoUJcZFOh87lJG3ANEvqEhUSDWHeh+H+IuHAsf82M=",
+        "owner": "nixidae",
+        "repo": "nixidae",
+        "rev": "bf3ac4d6ecb159091df508f1e7e61c6a1b210989",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixidae",
+        "repo": "nixidae",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixidae": "nixidae"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
