@@ -226,6 +226,17 @@ let
               `nix` takes: the tarball carries the Nix it was built with.
             '';
           };
+          pynixdArtifact = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            example = "pynixd-tarball-\${{ matrix.system }}";
+            description = ''
+              An artifact of this run that holds `pynixd-<system>.tar.zst`,
+              for `daemon = "pynixd"`. Set, the job installs that tarball and
+              not `pynixdTarball`'s: a job tests a new tarball before the
+              release carries it.
+            '';
+          };
           pynixdTarball = mkOption {
             type = types.str;
             default = "https://github.com/nixidae/nixidae/releases/download/pynixd-installer";
@@ -641,31 +652,46 @@ let
             )
           ))
           (lib.mkOrder orders.installNix (
-            lib.optional cfg.nix.install.enable (
+            lib.optionals cfg.nix.install.enable (
               if cfg.nix.install.daemon == "nix" then
-                steps.installNix {
-                  inherit (cfg.nix.install)
-                    devNet
-                    experimentalFeatures
-                    settings
-                    timeoutMinutes
-                    uidRange
-                    version
-                    ;
-                }
+                [
+                  (steps.installNix {
+                    inherit (cfg.nix.install)
+                      devNet
+                      experimentalFeatures
+                      settings
+                      timeoutMinutes
+                      uidRange
+                      version
+                      ;
+                  })
+                ]
               else if cfg.nix.install.version != null then
                 throw "ghanix: nix.install.version names a Nix release, and daemon = \"pynixd\" installs the Nix in pynixd's tarball"
               else
-                steps.installPynixd {
-                  tarball = cfg.nix.install.pynixdTarball;
-                  inherit (cfg.nix.install)
-                    devNet
-                    experimentalFeatures
-                    settings
-                    timeoutMinutes
-                    uidRange
-                    ;
-                }
+                let
+                  artifact = cfg.nix.install.pynixdArtifact;
+                  # Outside the checkout, so no step's working directory sees it.
+                  directory = "\${{ runner.temp }}/pynixd-tarball";
+                in
+                lib.optional (artifact != null) (
+                  steps.downloadArtifact {
+                    artifactName = artifact;
+                    path = directory;
+                  }
+                )
+                ++ [
+                  (steps.installPynixd {
+                    tarball = if artifact != null then "file://${directory}" else cfg.nix.install.pynixdTarball;
+                    inherit (cfg.nix.install)
+                      devNet
+                      experimentalFeatures
+                      settings
+                      timeoutMinutes
+                      uidRange
+                      ;
+                  })
+                ]
             )
           ))
           (lib.mkOrder orders.remoteBuilder (

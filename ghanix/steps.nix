@@ -525,6 +525,7 @@ rec {
     downloadArtifact =
       {
         artifactName,
+        path ? null,
         timeoutMinutes ? 10,
       }:
       {
@@ -532,7 +533,8 @@ rec {
         timeout-minutes = timeoutMinutes;
         "with" = {
           name = artifactName;
-        };
+        }
+        // lib.optionalAttrs (path != null) { inherit path; };
       };
   };
 }
