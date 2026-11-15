@@ -153,7 +153,12 @@ in
       images
       k8sImages
       ;
-    inherit (vivarium) cacheFacts kinds pathsIn;
+    inherit (vivarium)
+      cacheFacts
+      kinds
+      pathsIn
+      settingsClosure
+      ;
     # The pyproject project of `runner`, for a caller that resolves it in a
     # Python set of its own.
     runnerSource = ./pkgs/vivarium-runner;

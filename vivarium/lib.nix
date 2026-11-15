@@ -81,12 +81,6 @@ rec {
     Every store path a value names, for `vivarium.lateClosure`: each
     string with context, and each derivation, in nested attribute sets
     and lists.
-
-    # Example
-
-    ```nix
-    defaults = { settings, ... }: { vivarium.lateClosure = vivarium.pathsIn settings; };
-    ```
   */
   pathsIn =
     value:
@@ -100,6 +94,23 @@ rec {
       [ value ]
     else
       [ ];
+
+  /**
+    A guest module that puts every store path in the test's `settings` in
+    `vivarium.lateClosure`, so the guest's Nix database holds them as valid
+    paths. Not a default: a guest kind with no store refuses a late closure.
+
+    # Example
+
+    ```nix
+    defaults = vivarium.settingsClosure;
+    ```
+  */
+  settingsClosure =
+    { settings, ... }:
+    {
+      vivarium.lateClosure = pathsIn settings;
+    };
 
   /*
     zuban over a caller's test scripts, against this library.
