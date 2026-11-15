@@ -23,6 +23,11 @@ puts a fresh qcow2 overlay over the saved one. Every start is the saved guest.
 With AGENT (vivarium-runner built for aarch64-darwin), `prepare` also installs
 vivarium's guest agent, serving arpyc on /dev/cu.vivarium-agent.
 
+With PYNIXD=1, `prepare` also installs guest/pynixd-agent.sh on vsock port
+3040, and `save` makes a snapshot for pynixd's darwin build VM: three virtiofs
+devices, tagged store, host and top, unmounted at the save. Each start serves
+them from the build's own directories (pynixd_store.builder.darwin_vm).
+
 `save` copies the closures of the store paths in SEED (space-separated) from
 the host store into the guest first, then builds each Nix file in WARMUP in
 the guest. Last, unless ZEROFREE=0, it builds guest/zero-free.nix, which
@@ -82,6 +87,9 @@ STORE_PORT = 3032
 VFS_TAG = "hoststore"
 VFSD = os.environ.get("VFSD", "darwin-virtiofsd")
 VIRTIOFS = os.environ.get("VIRTIOFS") == "1"
+PYNIXD = os.environ.get("PYNIXD") == "1"
+PYNIXD_AGENT_PORT = 3040
+PYNIXD_TAGS = ("store", "host", "top")
 # Measured: 8 channels load a 2 GB mapped-ram file in 0.3 s, 4 in 0.26 s but
 # the daemon answered 0.25 s later.
 MULTIFD_CHANNELS = 8
@@ -171,6 +179,20 @@ async def daemon_answers(vsock: Path) -> bool:
     except OSError, anyio.EndOfStream, anyio.BrokenResourceError:
         return False
     return len(reply) == WORD.size and WORD.unpack(reply)[0] == WORKER_MAGIC_2
+
+
+async def agent_answers(vsock: Path) -> bool:
+    """pynixd's agent (guest/pynixd-agent.sh) answers a ping."""
+    try:
+        async with await connect_guest(vsock, PYNIXD_AGENT_PORT) as stream:
+            await stream.send(b"ping\n")
+            reply = b""
+            with anyio.move_on_after(2), contextlib.suppress(anyio.EndOfStream):
+                while not reply.endswith(b"\n"):
+                    reply += await stream.receive()
+    except OSError, anyio.EndOfStream, anyio.BrokenResourceError:
+        return False
+    return reply == b"ok\n"
 
 
 async def set_clock(vsock: Path) -> str:
@@ -273,7 +295,14 @@ def qemu_args(
 
 
 def vfs_args(run: str) -> list[str]:
-    """The vhost-user-fs device; guest RAM must then be memory-backend-shm."""
+    """The vhost-user-fs devices; guest RAM must then be memory-backend-shm."""
+    if PYNIXD:
+        return [
+            arg
+            for tag in PYNIXD_TAGS
+            for arg in ("-chardev", f"socket,id={tag},path={run}/{tag}.sock",
+                        "-device", f"vhost-user-fs-pci,chardev={tag},tag={tag}")
+        ]  # fmt: skip
     return [
         "-chardev", f"socket,id=vfs,path={run}/vfs.sock",
         "-device", f"vhost-user-fs-pci,chardev=vfs,tag={VFS_TAG}",
@@ -282,24 +311,38 @@ def vfs_args(run: str) -> list[str]:
 
 @contextlib.asynccontextmanager
 async def vfs_server(run: Path) -> AsyncIterator[None]:
-    """darwin-virtiofsd serving the host store at RUN/vfs.sock, for one QEMU."""
-    sock = run / "vfs.sock"
-    await anyio.Path(sock).unlink(missing_ok=True)
-    out = await anyio.open_file(run / "vfsd.log", "ab")
-    async with await anyio.open_process(
-        [VFSD, "--socket-path", str(sock), "--shared-dir", "/nix/store"],
-        stdout=out.wrapped, stderr=out.wrapped,
-    ) as proc:  # fmt: skip
-        with anyio.fail_after(5):
-            while not await anyio.Path(sock).exists():
-                await anyio.sleep(0.005)
-        try:
-            yield
-        finally:
-            with anyio.CancelScope(shield=True):
-                if proc.returncode is None:
-                    proc.terminate()
-                await proc.wait()
+    """darwin-virtiofsd serving the host store at RUN/vfs.sock, for one QEMU.
+
+    With PYNIXD, one server for each of PYNIXD_TAGS, on an empty directory: the
+    snapshot is saved with nothing mounted, and each start names its own.
+    """
+    async with contextlib.AsyncExitStack() as stack:
+        if PYNIXD:
+            shares = [(run / f"{tag}.sock", run / f"empty-{tag}") for tag in PYNIXD_TAGS]
+        else:
+            shares = [(run / "vfs.sock", Path("/nix/store"))]
+        for sock, shared in shares:
+            await anyio.Path(shared).mkdir(exist_ok=True)
+            await anyio.Path(sock).unlink(missing_ok=True)
+            out = await anyio.open_file(run / f"{sock.stem}d.log", "ab")
+            proc = await stack.enter_async_context(
+                await anyio.open_process(
+                    [VFSD, "--socket-path", str(sock), "--shared-dir", str(shared)],
+                    stdout=out.wrapped, stderr=out.wrapped,
+                )
+            )  # fmt: skip
+            stack.push_async_callback(_terminate, proc)
+            with anyio.fail_after(5):
+                while not await anyio.Path(sock).exists():
+                    await anyio.sleep(0.005)
+        yield
+
+
+async def _terminate(proc: Process) -> None:
+    with anyio.CancelScope(shield=True):
+        if proc.returncode is None:
+            proc.terminate()
+        await proc.wait()
 
 
 async def mapped_ram(qmp: Qmp, channels: int) -> None:
@@ -391,15 +434,18 @@ async def save(guest: Path, snap: Path) -> None:
     await anyio.Path(snap).mkdir(parents=True)
     for name in ("overlay.qcow2", "aux.img"):
         await anyio.run_process(["cp", "-c", str(guest / name), str(snap / name)])
-    async with vfs_server(snap) if VIRTIOFS else contextlib.nullcontext():
+    async with vfs_server(snap) if VIRTIOFS or PYNIXD else contextlib.nullcontext():
         await save_running(img, snap)
-    if VIRTIOFS:
+    if VIRTIOFS or PYNIXD:
         # state.bin holds the RAM too; nothing to split.
         await anyio.Path(snap / "overlay.qcow2").chmod(0o444)
         args = [*qemu_args(img, "{run}", "memory-backend-shm"), *vfs_args("{run}")]
-        server = shutil.which(VFSD) or VFSD
-        virtiofs = {"tag": VFS_TAG, "storeVsockPort": STORE_PORT,
-                    "server": str(await anyio.Path(server).resolve())}  # fmt: skip
+        server = str(await anyio.Path(shutil.which(VFSD) or VFSD).resolve())
+        if PYNIXD:
+            pynixd = {"agentVsockPort": PYNIXD_AGENT_PORT, "tags": list(PYNIXD_TAGS), "server": server}
+            await write_manifest(img, snap, args, mappedRam=MULTIFD_CHANNELS, pynixd=pynixd)
+            return
+        virtiofs = {"tag": VFS_TAG, "storeVsockPort": STORE_PORT, "server": server}
         await write_manifest(img, snap, args, mappedRam=MULTIFD_CHANNELS, virtiofs=virtiofs)
         return
     await split_ram(img, snap)
@@ -444,7 +490,7 @@ async def write_manifest(
 
 async def save_running(img: Path, snap: Path) -> None:
     """Boot the guest, prepare it and migrate it to SNAP/full.bin (state.bin with VIRTIOFS)."""
-    if VIRTIOFS:
+    if VIRTIOFS or PYNIXD:
         args = [*qemu_args(img, str(snap), "memory-backend-shm"), *vfs_args(str(snap))]
     else:
         # Anonymous RAM: a guest running on a shared file mapping stalls for
@@ -489,7 +535,12 @@ async def save_running(img: Path, snap: Path) -> None:
                 )
             # Let launchd settle, so the snapshot is of an idle guest.
             await anyio.sleep(float(os.environ.get("SETTLE", "30")))
-            if VIRTIOFS:
+            if PYNIXD:
+                if not await agent_answers(snap / "vsock.sock"):
+                    sys.exit("pynixd's agent does not answer on vsock; run prepare with PYNIXD=1")
+                await store_command(snap / "vsock.sock", "zerofree")
+                log(event="zeroed")
+            elif VIRTIOFS:
                 # A start puts the host store under the guest's store volume,
                 # so that volume must be up, and the share unmounted.
                 status = await store_command(snap / "vsock.sock", "status")
@@ -515,7 +566,7 @@ async def save_running(img: Path, snap: Path) -> None:
             )
         log(event="network", address=address)
         await qmp.call("stop")
-        if VIRTIOFS:
+        if VIRTIOFS or PYNIXD:
             # Guest RAM is shared memory, which x-ignore-shared would leave out:
             # the whole RAM goes into state.bin, as mapped-ram.
             await mapped_ram(qmp, MULTIFD_CHANNELS)
@@ -600,6 +651,19 @@ async def install_agent(guest: Path, port: int, agent: str) -> None:
               "install -m 644 /tmp/vivarium-agent.plist /Library/LaunchDaemons/ && "
               f"{reload_daemon('vivarium-agent', 'vivarium-agent')}'")  # fmt: skip
     log(event="agent", path=agent)
+
+
+async def install_pynixd(guest: Path, port: int) -> None:
+    """guest/pynixd-agent.sh as a LaunchDaemon on vsock port 3040."""
+    files = [HERE.parent / "guest" / name for name in ("pynixd-agent.sh", "pynixd-agent.plist")]
+    await ssh(guest, port, "--", *map(str, files), "/tmp/")
+    await ssh(guest, port, "sudo -n sh -c 'install -m 755 /tmp/pynixd-agent.sh /usr/local/bin/pynixd-agent && "
+              "install -m 644 /tmp/pynixd-agent.plist /Library/LaunchDaemons/ && "
+              f"{reload_daemon('pynixd-agent', 'pynixd-agent')}'")  # fmt: skip
+    with anyio.fail_after(30):
+        while not await agent_answers(guest / "vsock.sock"):
+            await anyio.sleep(0.5)
+    log(event="pynixd-agent")
 
 
 async def install_store(guest: Path, port: int) -> None:
@@ -720,6 +784,8 @@ async def prepare(img: Path, guest: Path) -> None:
         await install_store(guest, port)
         if agent := os.environ.get("AGENT"):
             await install_agent(guest, port, agent)
+        if PYNIXD:
+            await install_pynixd(guest, port)
         await ssh(guest, port, "sudo -n shutdown -h now", check=False)
         with anyio.fail_after(60):
             await vm.wait()

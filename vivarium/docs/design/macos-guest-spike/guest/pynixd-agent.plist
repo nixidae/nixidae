@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.nixidae.pynixd-agent</string>
+    <!-- pynixd's darwin build VM: pynixd-agent.sh, one build a connection. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/vsockcat</string>
+        <string>serve</string>
+        <string>3040</string>
+        <string>/usr/local/bin/pynixd-agent</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/var/log/pynixd-agent.log</string>
+</dict>
+</plist>
