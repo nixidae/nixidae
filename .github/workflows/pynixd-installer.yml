@@ -4,6 +4,31 @@ defaults:
   run:
     working-directory: pynixd
 jobs:
+  publish:
+    concurrency:
+      cancel-in-progress: false
+      group: pynixd-installer-publish
+    if: github.ref == 'refs/heads/main'
+    needs: runner
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download both tarballs
+      timeout-minutes: 10
+      uses: actions/download-artifact@main
+      with:
+        merge-multiple: true
+        path: ${{ runner.temp }}/release
+        pattern: pynixd-tarball-*
+    - env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: pynixd-installer
+      name: Replace the release
+      run: 'cd "$RUNNER_TEMP/release" && (gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "pynixd installer" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365") && gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null && gh release upload "$TAG" pynixd-*.tar.zst --clobber && gh release edit "$TAG" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365. Built from $GITHUB_SHA."'
+      shell: bash
+      timeout-minutes: 10
+    timeout-minutes: 15
   runner:
     needs: tarball
     runs-on: ${{ matrix.runner }}
@@ -19,6 +44,7 @@ jobs:
       uses: actions/download-artifact@main
       with:
         name: pynixd-tarball-${{ matrix.system }}
+        path: ${{ runner.temp }}/pynixd-tarball
     - env:
         PYNIXD_NIX_CONF: |
           access-tokens = github.com=${{ github.token }}
@@ -26,15 +52,15 @@ jobs:
           substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
           trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
           trusted-users = root runner
-        PYNIXD_TARBALL: file://${{ github.workspace }}
+        PYNIXD_TARBALL: file://${{ runner.temp }}/pynixd-tarball
       name: Install pynixd as the Nix daemon
       run: curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$(uname -m)-linux.tar.zst" | sudo tar --zstd -x -C / && printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin && echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
       shell: bash
-      timeout-minutes: 10
+      timeout-minutes: 15
     - name: pynixd is the only daemon
       run: systemctl is-active pynixd.service && ! pidof nix-daemon && nix store info
     - name: Build the tarball through pynixd
-      run: nix build --file . internal.installer --print-out-paths --no-link > rebuilt && diff "$GITHUB_WORKSPACE/out-path" rebuilt
+      run: nix build --file . internal.installer --print-out-paths --no-link > rebuilt && diff "$RUNNER_TEMP/pynixd-tarball/out-path" rebuilt
     - if: ${{ !cancelled() }}
       name: pynixd's journal
       run: sudo journalctl -u pynixd.service --no-pager
