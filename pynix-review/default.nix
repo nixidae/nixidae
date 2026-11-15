@@ -56,8 +56,10 @@ let
 in
 {
   packages = {
+    # The bare module, for a consumer's own set; it runs nothing alone, as its
+    # dependencies are not on its path.
     inherit (pythonSet) pynix-review;
-    default = pythonSet.pynix-review;
+    default = pythonSet.mkVirtualEnv "pynix-review-env" { pynix-review = [ ]; };
   };
   # For a consumer's own pyproject set:
   #   pythonSetWith { projectRoots = [ pynix-review.lib.projectRoot ]; overlay = pynix-review.lib.overlay; }
