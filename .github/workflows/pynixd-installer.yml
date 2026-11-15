@@ -28,6 +28,7 @@ jobs:
       run: 'cd "$RUNNER_TEMP/release" && (gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "pynixd installer" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365") && gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null && gh release upload "$TAG" pynixd-*.tar.zst --clobber && gh release edit "$TAG" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365. Built from $GITHUB_SHA."'
       shell: bash
       timeout-minutes: 10
+      working-directory: /
     timeout-minutes: 15
   runner:
     needs: tarball
