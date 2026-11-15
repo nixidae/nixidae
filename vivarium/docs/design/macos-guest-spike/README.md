@@ -563,6 +563,30 @@ to the next: on this 24 GiB host each run adds 8 GiB of shared guest RAM.
 Read just before, a start was ready in 0.79 s. The guest uses about 2 GB;
 less guest RAM is the next thing to try.
 
+### A build's store in the guest (2026-11-15)
+
+pynixd's darwin build VM needs what its Linux one has: the store filtered to
+the build's inputs, read-only, and a place where the outputs land on the host.
+darwin-virtiofsd takes the libkrun fork's allowlist (`--allowlist FILE`) and a
+writable mode (`--writable`, `PermissionSemantics::LinuxSimplified`).
+`host/probe_union.py` boots a prepared guest with two shares and checks each
+step, on macOS 14:
+
+- The filtered store share shows an allowed path and hides the others, in a
+  lookup and in a listing.
+- **A virtiofs share as the upper layer of a union hides the lower layer**:
+  after `mount -t virtiofs -o union`, the allowed path was gone. So the
+  outputs cannot land on the host through a union.
+- `mount_tmpfs -o union` over the filtered share works: the inputs show
+  through, a write into one or a removal of one fails with `EROFS`, and a new
+  output lands on the tmpfs. After the build the guest copies each output into
+  a writable share.
+- On the writable share, a create, a `chmod` and a `mkdir` keep the guest's
+  modes on the host. With the default `LinuxComplete` the host file was 0600
+  or 0700 and the guest's mode went into an xattr.
+- **macOS `cp -Rp` (copyfile) turned a 0644 file into 0755** on the share; a
+  plain create and `chmod` did not. The guest copies outputs without it.
+
 ## The reset loop (solved)
 
 The guest called `reboot()` about every 22 s: QMP showed PSCI SYSTEM_RESET,
