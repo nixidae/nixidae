@@ -24,6 +24,7 @@
   cargo,
   rustc,
   pkg-config,
+  zstd,
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "libkrun";
@@ -47,6 +48,9 @@ stdenv.mkDerivation (finalAttrs: {
     rustc
     pkg-config
   ];
+
+  # zstd-sys links the system libzstd, which it finds through pkg-config.
+  buildInputs = [ zstd ];
 
   buildPhase = ''
     runHook preBuild
