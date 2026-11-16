@@ -7,6 +7,7 @@ an evaluator and so already runs the collector's markers.
 import subprocess
 import sys
 
+import pytest
 from nixversion import needs_collector
 
 from huggorm_dsl.declare import DETERMINATE
@@ -25,7 +26,11 @@ state = h.EvalState(store)
 print(threads())
 """
 
+#: The probes count `/proc/self/task`, and the reason they exist, `unshare`, is Linux's too.
+LINUX = pytest.mark.skipif(sys.platform != "linux", reason="counts threads in /proc/self/task")
 
+
+@LINUX
 @needs_collector
 def test_nothing_runs_until_there_is_an_evaluator() -> None:
     """Import and a store start no thread; the evaluator starts the
@@ -48,6 +53,7 @@ print(len(os.listdir("/proc/self/task")))
 """
 
 
+@LINUX
 @needs_collector
 def test_a_caller_can_start_the_collector_before_an_evaluator() -> None:
     """For a caller that reads `nix-path` first: `start_collector` is

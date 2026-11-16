@@ -15,6 +15,7 @@ import sys
 from typing import Any, cast
 
 import pytest
+from conftest import open_files
 from nixversion import (
     BUILD_LOG_STORAGE,
     EXPERIMENTAL_FEATURE,
@@ -2548,14 +2549,7 @@ def test_two_stores_on_one_directory_keep_their_own_temp_roots(tmp_path: pathlib
     second.add_to_store("second", b"2\n", CA.TEXT, HashAlgorithm.SHA256)
 
     temp_roots = tmp_path / "nix" / "var" / "nix" / "temproots"
-    held = []
-    for fd in os.listdir("/proc/self/fd"):
-        try:
-            target = os.readlink(f"/proc/self/fd/{fd}")
-        except OSError:
-            continue
-        if target.startswith(str(temp_roots)):
-            held.append(target)
+    held = [path for path in open_files() if path.startswith(os.path.realpath(temp_roots))]
     assert len(held) == 2, held
     assert not [h for h in held if h.endswith(" (deleted)")], held
     assert sorted(p.name for p in temp_roots.iterdir()) == sorted(os.path.basename(h) for h in held)

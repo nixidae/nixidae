@@ -16,6 +16,7 @@ expensive or slow to set up:
   would be minutes of sleeping for no reason.
 """
 
+import fcntl
 import os
 import pathlib
 import subprocess
@@ -34,6 +35,25 @@ from huggorm_generated._runtime import BaseRunner
 
 if TYPE_CHECKING:
     from huggorm_gen import ir
+
+
+def open_files() -> list[str]:
+    """The path of each file this process holds open.
+
+    `/proc/self/fd` on Linux. darwin has no `/proc`: its `/dev/fd`
+    lists the descriptors and `F_GETPATH` names each file.
+    """
+    darwin = sys.platform == "darwin"
+    paths = []
+    for fd in os.listdir("/dev/fd" if darwin else "/proc/self/fd"):
+        try:
+            if darwin:
+                paths.append(os.fsdecode(fcntl.fcntl(int(fd), fcntl.F_GETPATH, bytes(1024))).rstrip("\0"))
+            else:
+                paths.append(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:
+            continue
+    return paths
 
 
 def runner_of(obj: Any) -> BaseRunner:

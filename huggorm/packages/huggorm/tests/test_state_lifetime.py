@@ -11,6 +11,7 @@ allocate into it.
 import subprocess
 import sys
 
+import pytest
 from nixversion import needs_collector
 
 CHILD = """
@@ -43,6 +44,7 @@ print((libc.mallinfo2().uordblks - before) // 50)
 """
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="the measure is glibc's mallinfo2")
 @needs_collector
 def test_a_dropped_state_frees_its_primops() -> None:
     done = subprocess.run([sys.executable, "-c", CHILD], capture_output=True, text=True, timeout=120)

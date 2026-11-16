@@ -17,20 +17,15 @@ import os
 import pathlib
 
 import pytest
+from conftest import open_files
 from nixversion import needs_collector
 
 from huggorm import AsyncSession
 
 
 def _open_under(root: pathlib.Path) -> int:
-    count = 0
-    for fd in os.listdir("/proc/self/fd"):
-        try:
-            if os.readlink(f"/proc/self/fd/{fd}").startswith(str(root)):
-                count += 1
-        except OSError:
-            pass
-    return count
+    prefix = os.path.realpath(root)
+    return sum(1 for path in open_files() if path.startswith(prefix))
 
 
 @pytest.mark.parametrize(
