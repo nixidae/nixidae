@@ -259,9 +259,20 @@ guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
 
   The router path is about 70% of passt out of the guest and half of
   passt into it. Into the guest, libkrun's vsock muxer is the limit (E2).
+- Eight flows at once (`streams=8`, iperf3 `-P 8`), MTU 65000, host
+  load 7-10:
+
+  | router, client | guest to host | host to guest |
+  | --- | --- | --- |
+  | krun, krun | 14-16 Gbit/s (per-second sums) | 8.9 Gbit/s |
+  | UML, UML | 12.3 Gbit/s | 3.8 Gbit/s |
+
+  More flows lift the UML router out of the guest (12.3 against 5 with
+  one flow); into the guest it stays at one uniprocessor's limit. Nothing
+  stalls.
 - The passt baseline's guest-to-host leg failed in 3 of 6 runs here:
   iperf3 got "Transport endpoint is not connected" when it connected
-  right after the first leg. Cause not found.
+  right after the first leg (nixidae/nixidae#1405).
 - `e1.py` and `e4.py` left 13 vhost-device-vsock and 3 UML processes
   behind after stalled runs: `timeout` stops the script before its
   `finally` kills them.
@@ -273,7 +284,14 @@ guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
   unreachable host, gives the guest nothing.
 - A datagram that reaches the UDP listener while its flow's own socket
   is being set up is lost.
-- E5 and E6 on the UML router.
+- E5 and E6 on the UML router: only TCP is measured there.
+- A guest's ping to its gateway 10.0.2.1 gets no reply: the router
+  ignores every echo (`icmp_echo_ignore_all`), and the host has no such
+  address.
+- Not tried: macOS, several guests on one router.
+- The UML router's numbers need `vsock-linear-tx.patch` and an unreleased
+  vhost-device-vsock (E1). Shipping it needs our own Rust vhost-user
+  vsock backend, or carrying that kernel patch.
 - The no-KVM case: without `/dev/kvm` the router is UML, at MTU 65000
   3-12 times slower than passt (E4). The vhost-user vsock backend of E1
   is the lever there.

@@ -60,7 +60,8 @@ case "$lab" in
     ip link set vec0 up
     ip route add default via 10.0.2.1
     sleep 1
-    iperf3 -c 10.0.2.2 -t 10 -l "$block" $(arg reverse | sed 's/1/-R/')
+    streams=$(arg streams)
+    iperf3 -c 10.0.2.2 -t 10 -l "$block" -P "${streams:-1}" $(arg reverse | sed 's/1/-R/')
     echo "lab: client done"
     ;;
   server)
