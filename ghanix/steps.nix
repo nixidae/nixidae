@@ -216,6 +216,7 @@ rec {
         settings ? { },
         uidRange ? false,
         devNet ? false,
+        ghaCache ? false,
       }:
       {
         name = "Install pynixd as the Nix daemon";
@@ -234,12 +235,50 @@ rec {
               ;
           };
         };
-        run = lib.concatStringsSep " && " [
-          ''curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$(uname -m)-linux.tar.zst" | sudo tar --zstd -x -C /''
-          ''printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin''
-          ''echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"''
-        ];
+        run = lib.concatStringsSep " && " (
+          [
+            ''curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$(uname -m)-linux.tar.zst" | sudo tar --zstd -x -C /''
+            (
+              ''printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin''
+              + lib.optionalString ghaCache " --gha-cache \"$RUNNER_TEMP/pynixd-gha-cache.json\""
+            )
+            ''echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"''
+          ]
+          ++ lib.optional ghaCache ''rm "$RUNNER_TEMP/pynixd-gha-cache.json"''
+        );
       };
+
+    /*
+      Hand the job's GitHub Actions cache token to pynixd: nixidae/nixidae#1377.
+
+      The runner gives `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL` to
+      an action's process and to no `run:` step, so a script action writes
+      them to a 0600 file that `installPynixd` moves to root's. Not
+      `core.exportVariable`: that puts the token in every later step's
+      environment.
+    */
+    ghaCacheCredentials = {
+      name = "Hand the GitHub Actions cache token to pynixd";
+      uses = "actions/github-script@main";
+      "with".script = lib.concatStringsSep "\n" [
+        "const names = ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2', 'ACTIONS_CACHE_MODE'];"
+        "const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));"
+        "require('fs').writeFileSync(`\${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });"
+      ];
+    };
+
+    /*
+      Wait until pynixd has uploaded every output the job built to the
+      GitHub Actions cache. The runner goes away with the job, and the
+      queue with it. Runs after a failed step too: what did build is worth
+      keeping. Prints what each cache did as JSON.
+    */
+    ghaCacheWait = {
+      name = "Wait for pynixd's GitHub Actions cache uploads";
+      "if" = "always()";
+      timeout-minutes = 30;
+      run = "pynixd gha-cache wait --socket /nix/var/nix/daemon-socket/socket";
+    };
 
     cachix =
       {

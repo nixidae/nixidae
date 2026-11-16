@@ -43,6 +43,8 @@ let
     cachix = 400;
     userNamespaces = 500;
     openKvm = 600;
+    # After the job's own steps, at the default order 1000: it waits for what they built.
+    ghaCacheWait = 2000;
   };
 
   /*
@@ -244,6 +246,17 @@ let
               The directory that holds `pynixd-<system>.tar.zst`, for
               `daemon = "pynixd"`. Any URL curl reads, `file://` too: a job
               can install a tarball an earlier job built.
+            '';
+          };
+          pynixdGhaCache = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              With `daemon = "pynixd"`: pynixd substitutes from the
+              repository's GitHub Actions cache, and uploads each output it
+              builds there, as magic-nix-cache does (nixidae/nixidae#1377).
+              A step before the install hands pynixd the job's cache token,
+              and a step after the job's own steps waits for the uploads.
             '';
           };
         };
@@ -680,9 +693,11 @@ let
                     path = directory;
                   }
                 )
+                ++ lib.optional cfg.nix.install.pynixdGhaCache steps.ghaCacheCredentials
                 ++ [
                   (steps.installPynixd {
                     tarball = if artifact != null then "file://${directory}" else cfg.nix.install.pynixdTarball;
+                    ghaCache = cfg.nix.install.pynixdGhaCache;
                     inherit (cfg.nix.install)
                       devNet
                       experimentalFeatures
@@ -732,6 +747,11 @@ let
           ))
           (lib.mkOrder orders.openKvm (
             lib.optional cfg.openKvm.enable (steps.openKvm { inherit (cfg.openKvm) timeoutMinutes; })
+          ))
+          (lib.mkOrder orders.ghaCacheWait (
+            lib.optional (
+              cfg.nix.install.enable && cfg.nix.install.daemon == "pynixd" && cfg.nix.install.pynixdGhaCache
+            ) steps.ghaCacheWait
           ))
         ];
     };
