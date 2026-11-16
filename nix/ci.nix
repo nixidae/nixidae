@@ -121,7 +121,10 @@ in
       rm -f "$source"-*.yml
     done
     ${lib.concatStrings (
-      lib.mapAttrsToList (name: file: "cp --no-preserve=mode ${file} ${name}.yml\n") files
+      # coreutils' cp: `--no-preserve` is GNU's, and macOS's cp refuses it.
+      lib.mapAttrsToList (
+        name: file: "${pkgs.coreutils}/bin/cp --no-preserve=mode ${file} ${name}.yml\n"
+      ) files
     )}
   '';
 
