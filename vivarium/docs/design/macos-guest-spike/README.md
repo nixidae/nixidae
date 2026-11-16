@@ -43,9 +43,10 @@ github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
 | 52d6c471 | vivarium | vhost-user's start kick goes through the host notifier |
 | 887da5a9 | vivarium | vhost's shared dirty log without memfd |
 | 8de4c384 | vivarium | HVF keeps Apple's `ASPSR_EL1` and `AFPCR_EL0` |
+| 61560043 | vivarium | vmapple `pci-caps-ascending`: PCI capabilities in ascending order |
 
 `vivarium/pkgs/qemu-vmapple/package.nix` builds the `nixidae` branch of
-github.com/nixidae/qemu (8de4c384). For a local checkout:
+github.com/nixidae/qemu (61560043). For a local checkout:
 `.overrideAttrs { src = builtins.fetchGit { url = ~/Dynamist/qemu; rev = ...; }; }`.
 
 `host/find_qemu_base.py` found the base by content hashes: orchard's import
@@ -137,7 +138,7 @@ tart daemon, counts resets); `GFX=on` uses apple-gfx-mmio.
 | --- | --- | --- | --- |
 | 15 | panic in AppleParavirtGPUIOGPUFamily on the gfx stub (NULL, far 0x10) | SSH after 41 s; then panic | **SSH after 48 s, 0 resets in 180 s** |
 | 26 | panic `unencrypted data volume is not allowed` (apfs_vfsops.c:2372) | SSH reached; then panic | **SSH after 25 s, 0 resets in 180 s** |
-| 27 | iBootStage1 (mBoot-20457.41.3) panic `4962211b03d706d:203` | not run | not run (fails in iBoot) |
+| 27 | iBootStage1 (mBoot-20457.41.3) panic `4962211b03d706d:203` | not run | fails in iBoot; with the three fixes below (fork 61560043), 27.2 reaches SSH after about 2 min |
 
 Headless is the working configuration. With `gfx=off` the fork hides the
 GPU and IOSurface-mapper nodes in the device tree (one letter of their
@@ -190,9 +191,30 @@ GDB-protocol client):
    never enables memory or bus mastering on one (`-trace pci_cfg_write`;
    26 writes 0x100007 and MSI-X enable). `AppleVirtIO.kext` and
    `AppleVirtIOStorage.kext` load (`kextlog=0xfff`), and their personalities
-   match as in 26 (`IOPCIPrimaryMatch 0x00001af4&0x0000FFFF`), so
-   `AppleVirtIOPCITransport` is refused in probe or start. Open: what it
-   checks, from 27's kernelcache.
+   match as in 26 (`IOPCIPrimaryMatch 0x00001af4&0x0000FFFF`).
+   `-trace pci_cfg_read` shows the cause: the guest reads each virtio
+   device's config space about 34000 times a second. Its
+   `AppleVirtIOPCITransport::start` loops over the vendor capabilities and
+   alternates between 0x84 and 0x70. Its code equals 26's (the kernelcache
+   from Preboot, IMG4 with an lzfse payload; `ipsw kernel extract` and
+   `ipsw macho disass`). 27's IOPCIFamily is new:
+   `IOPCIDevice::extendedFindPCICapability` asks a capability cache first
+   (`IOPCIDevice::lookupCapability`). The cache gives the first entry of the
+   ID with an offset above the current one, and on a miss the old walk of
+   the chain answers. QEMU links each new capability at the head of the
+   chain, so the chain runs down (0x98, 0x84, 0x70, 0x60, 0x50, 0x40): from
+   0x84 the cache misses and the walk gives 0x70; from 0x70 the cache gives
+   0x84. Fork 61560043 adds `-M vmapple,pci-caps-ascending=on`, which
+   relinks each device's chain in ascending order at machine init. With it
+   every virtio device starts, the kernel mounts `disk3s1`, and 27.2 (build
+   26B123) answers SSH with DHCP on `en0`. `PCI_CAPS_ASCENDING=on
+   IMG=…/goldengate-raw host/installer_test.py` passes on the package
+   build (case-insensitive volume: installed in 27.5 s, checked in 58 s).
+   26 also boots with it on. It is
+   off by default, because a snapshot saved with the old chain does not load
+   with the new one: QEMU compares the next pointers. `PCI_CAPS_ASCENDING=on`
+   sets it in `host/darwin_builder.py`; `MACHINE=vmapple,pci-caps-ascending=on`
+   in `host/run-hvf.sh`.
 
 `host/nvram_bootargs.py AUX_IN AUX_OUT ARGS` sets boot-args in an aux.img:
 both NVRAM banks (0xA00000, 0xA80000; the higher generation is live), each
@@ -664,7 +686,8 @@ of starting, so it needs more work before it is useful.
    `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
    vmapple arguments from `qemu_args`, and an agent without the systemd and
    `/proc` calls. The agent already runs (above).
-4. macOS 27: find what `AppleVirtIOPCITransport` refuses (above).
+4. macOS 27: a builder snapshot (`PCI_CAPS_ASCENDING=on`). The image's
+   ASIF disk needs a raw conversion first (above).
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
 6. A macOS 26 `save` right after `prepare` timed out before the daemon
    answered, three times in about ten runs, and passed when run again. The

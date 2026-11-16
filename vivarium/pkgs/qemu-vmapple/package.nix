@@ -25,8 +25,8 @@ let
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "qemu";
-    rev = "8de4c3847ffac3789b605753e3f8dc41ed932244";
-    hash = "sha256-rmgIKEkBR1rUvlZDqBerktLl/6+urh8udRmt3VYbayg=";
+    rev = "615600437bbf97bafcd6278b0e714f4baa497ad7";
+    hash = "sha256-Y15B62RHDHjIhMsxTAEjZA1XJVqvmm0+ESctThgFaJ4=";
   };
   gitlab =
     name: rev: hash:
