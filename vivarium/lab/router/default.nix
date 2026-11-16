@@ -29,8 +29,28 @@ let
   # The router's relay and the client's iperf3, static: the initrd has
   # no store.
   relay = egressPackage static.rustPlatform;
+
+  libkrun = pkgs.callPackage ../../pkgs/libkrun/package.nix { };
+  krunKernel = pkgs.linuxPackages.kernel;
+  moduleClosure = pkgs.makeModulesClosure {
+    kernel = krunKernel.modules;
+    firmware = pkgs.emptyDirectory;
+    rootModules = [
+      "virtio_mmio"
+      "virtio_net"
+      "vmw_vsock_virtio_transport"
+      "nf_tables"
+      "nft_redir"
+      "nft_chain_nat"
+      "nft_nat"
+      "nft_tproxy"
+      "nft_socket"
+      "nft_queue"
+      "nf_conntrack"
+    ];
+  };
 in
-{
+rec {
   inherit relay;
   egress = egressPackage pkgs.rustPlatform;
 
@@ -74,11 +94,48 @@ in
         cp ${static.nftables}/bin/nft root/bin/
         cp ${static.iperf3}/bin/iperf3 root/bin/
         cp ${relay}/bin/relay root/bin/
-        for tool in sh mount cat echo dd sed sleep poweroff ip ls date ping; do
+        for tool in sh mount cat echo dd sed sleep poweroff reboot modprobe ip ls date ping; do
           ln -s busybox root/bin/$tool
         done
         install -m 0755 ${./init.sh} root/init
         install -m 0644 ${./router.nft} root/etc/router.nft
         (cd root && find . | cpio -o -H newc --owner 0:0) > $out
       '';
+
+  # E2: the stock NixOS kernel under libkrun. libkrun loads an ELF, so
+  # the dev output's vmlinux, stripped.
+  krunVmlinux = pkgs.runCommand "vmlinux-${krunKernel.version}" {
+    nativeBuildInputs = [ pkgs.binutils ];
+  } "objcopy --strip-all ${krunKernel.dev}/vmlinux $out";
+
+  # The modules the router needs, uncompressed: busybox modprobe reads
+  # no xz. The kernel unpacks a second cpio over the first.
+  krunModules =
+    pkgs.runCommand "router-modules.cpio"
+      {
+        nativeBuildInputs = [
+          pkgs.cpio
+          pkgs.xz
+          pkgs.kmod
+        ];
+      }
+      ''
+        mkdir -p root/lib
+        cp -r ${moduleClosure}/lib/modules root/lib/
+        chmod -R u+w root
+        find root -name '*.ko.xz' -exec xz -d {} +
+        depmod -b root -a ${krunKernel.modDirVersion}
+        (cd root && find . | cpio -o -H newc --owner 0:0) > $out
+      '';
+
+  krunInitrd = pkgs.runCommand "router-krun-initrd.cpio" { } "cat ${initrd} ${krunModules} > $out";
+
+  krun-router = pkgs.stdenv.mkDerivation {
+    name = "krun-router";
+    src = ./krun-router.c;
+    dontUnpack = true;
+    buildInputs = [ libkrun ];
+    buildPhase = "$CC -std=gnu11 -O2 -Wall -Wextra -Werror -o krun-router $src -lkrun";
+    installPhase = "install -D krun-router $out/bin/krun-router";
+  };
 }

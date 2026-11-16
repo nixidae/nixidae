@@ -10,6 +10,15 @@ block=$(arg block)
 block=${block:-8192}
 echo "lab: up, lab=$lab block=$block"
 ip link set lo up
+krun=$(arg krun)
+if [ -n "$krun" ]; then
+  # E2: the stock kernel has the devices and nftables as modules, and
+  # names the NIC eth0. The labs below say vec0, as on UML.
+  for module in virtio_mmio virtio_net vmw_vsock_virtio_transport nft_chain_nat nft_redir nft_nat nf_tables nft_tproxy nft_socket nft_queue; do
+    modprobe "$module"
+  done
+  ip link set eth0 name vec0
+fi
 mtu=$(arg mtu)
 [ -n "$mtu" ] && ip link set vec0 mtu "$mtu"
 case "$lab" in
@@ -51,4 +60,6 @@ case "$lab" in
     echo "lab: no lab"
     ;;
 esac
+# libkrun ends on a reset (reboot=k); UML would boot again on one.
+[ -n "$krun" ] && sleep 1 && reboot -f
 poweroff -f
