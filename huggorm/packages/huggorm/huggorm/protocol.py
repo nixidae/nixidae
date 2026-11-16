@@ -50,6 +50,7 @@ import itertools
 import pathlib
 import socket
 import struct
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import ModuleType
@@ -161,6 +162,10 @@ def peer_uid(stream: ByteStream) -> int:
     """The uid of the process on the other end of a Unix socket, as
     the kernel recorded it at connect time."""
     sock: socket.socket = stream.extra(SocketAttribute.raw_socket)
+    if sys.platform == "darwin":
+        # `struct xucred` at SOL_LOCAL (0): cr_version, cr_uid, cr_ngroups, cr_groups[16].
+        raw = sock.getsockopt(0, socket.LOCAL_PEERCRED, struct.calcsize("IIh16I"))
+        return int(struct.unpack("IIh16I", raw)[1])
     creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
     _pid, uid, _gid = struct.unpack("3i", creds)
     return int(uid)
