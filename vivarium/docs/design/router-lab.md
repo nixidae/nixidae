@@ -466,8 +466,25 @@ guest's forward; "outbound" is the guest's client to 10.0.2.2.
 | outbound | host to guest | 21.3, 16.2 Gbit/s | 17.8, 17.4 Gbit/s |
 
 - Out of the guest the router is within 5% of passt; into the guest,
-  about 83%. This is above E7's one flow (13.2-15.3 and 10.9-12.7
+  about 83% (UML guests). This is above E7's one flow (13.2-15.3 and 10.9-12.7
   Gbit/s). The cause is not known; the host load differed.
+
+krun guests behind the UML router: `vivarium-krun --uplink-segment`
+puts vec0 on the router's segment, and `checks.router.krun` passes.
+The same lab with `LAB_BACKEND=krun` (both guests krun, the router UML,
+host load 18-38):
+
+| path | direction | passt | router |
+| --- | --- | --- | --- |
+| forward | host to guest | 14.3, 23.0 Gbit/s | 14.6, 13.3 Gbit/s |
+| forward | guest to host | 3.4, 8.6 Gbit/s | 16.9, 16.5 Gbit/s |
+| outbound | guest to host | 8.8, 5.5 Gbit/s | 17.1, 10.2 Gbit/s |
+| outbound | host to guest | 20.4, 20.9 Gbit/s | 13.3, 14.3 Gbit/s |
+
+- Out of a krun guest the router is about twice passt; into it, about
+  65%, as on UML.
+- Before nixidae/nixidae#1179 was fixed, a krun guest's vec0 stayed at
+  MTU 1500, and the router path out of it gave 1.3-1.9 Gbit/s.
 
 ## Also measured
 
