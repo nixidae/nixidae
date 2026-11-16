@@ -73,6 +73,17 @@ case "$lab" in
     iperf3 -s -1
     echo "lab: client done"
     ;;
+  verify)
+    # E7: content, not only byte counts. seq output is not uniform, so
+    # reordered or repeated data changes the sum.
+    ip addr add 10.0.2.15/24 dev vec0
+    ip link set vec0 up
+    ip route add default via 10.0.2.1
+    sleep 1
+    seq 1 "$(arg count)" | socat -b 131072 -u - TCP:10.0.2.2:7000 && echo "lab: verify sent"
+    echo "lab: verify got $(socat -b 131072 -u TCP:10.0.2.2:7001 - | md5sum)"
+    echo "lab: client done"
+    ;;
   e5)
     # E5: ICMP echo and UDP behind the router. 192.0.2.1 is TEST-NET-1:
     # nothing answers it, so a reply there would be one the router made up.
