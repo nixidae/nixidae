@@ -540,12 +540,11 @@ jobs:
     timeout-minutes: 30
 name: 'nixkube: tests'
 'on':
-  pull_request: null
   push:
-    branches:
-    - '*'
     tags:
     - nixkube/v*
+  schedule:
+  - cron: 54 4 * * *
   workflow_dispatch: null
 permissions:
   actions: write

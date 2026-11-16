@@ -1524,9 +1524,8 @@ jobs:
     timeout-minutes: 180
 name: 'nanopynix: On commit'
 'on':
-  push:
-    branches-ignore:
-    - ci-develop
+  schedule:
+  - cron: 55 4 * * *
   workflow_dispatch:
     inputs:
       jobs:

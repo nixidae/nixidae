@@ -38,5 +38,6 @@ jobs:
       run: nix build --file .. nixvenv.checks --no-link --print-build-logs
 name: 'nixvenv: tests'
 'on':
-  pull_request: null
-  push: null
+  schedule:
+  - cron: 58 4 * * *
+  workflow_dispatch: null

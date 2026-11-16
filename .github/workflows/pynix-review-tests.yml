@@ -46,5 +46,6 @@ jobs:
       run: nix-shell --run 'zuban mypy'
 name: 'pynix-review: tests'
 'on':
-  pull_request: null
-  push: null
+  schedule:
+  - cron: 10 5 * * *
+  workflow_dispatch: null

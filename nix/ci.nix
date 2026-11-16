@@ -58,11 +58,43 @@ let
       ++ lib.optional (lib.hasPrefix "cachix/install-nix-action@" (step.uses or "")) remoteBuilder
     ) steps;
 
+  # A push or a pull request starts no source's tests: main moves about 27
+  # times a day, and every source ran on each push. A workflow that asked for
+  # one runs once a day instead, and every workflow runs by hand
+  # (`gh workflow run`). A pushed tag still starts its workflow: nixkube
+  # releases on one. The root's `checks` and `josh export` stay on push.
+  daily =
+    name:
+    let
+      minute = lib.mod (lib.fromHexString (
+        builtins.substring 0 4 (builtins.hashString "sha256" name)
+      )) 120;
+    in
+    "${toString (lib.mod minute 60)} ${toString (4 + minute / 60)} * * *";
+
+  triggers =
+    name: on:
+    let
+      tags = on.push.tags or null;
+    in
+    removeAttrs on [
+      "push"
+      "pull_request"
+    ]
+    // lib.optionalAttrs (tags != null) { push.tags = tags; }
+    // lib.optionalAttrs ((on ? push || on ? pull_request) && !(on ? schedule)) {
+      schedule = [ { cron = daily name; } ];
+    }
+    // {
+      workflow_dispatch = on.workflow_dispatch or null;
+    };
+
   place =
     source: workflow:
     workflow
     // {
       name = "${source}: ${workflow.name or "CI"}";
+      on = triggers "${source}: ${workflow.name or "CI"}" workflow.on;
       defaults = lib.recursiveUpdate (workflow.defaults or { }) { run.working-directory = source; };
       jobs = lib.mapAttrs (
         _: job:

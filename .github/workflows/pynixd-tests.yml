@@ -139,7 +139,6 @@ jobs:
     timeout-minutes: 45
 name: 'pynixd: tests'
 'on':
-  pull_request: null
-  push:
-    branches:
-    - '**'
+  schedule:
+  - cron: 49 5 * * *
+  workflow_dispatch: null

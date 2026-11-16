@@ -231,7 +231,6 @@ jobs:
     timeout-minutes: 60
 name: 'pynixd: installer'
 'on':
-  push:
-    branches:
-    - '**'
+  schedule:
+  - cron: 41 5 * * *
   workflow_dispatch: null

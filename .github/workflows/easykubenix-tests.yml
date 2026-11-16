@@ -50,5 +50,6 @@ jobs:
       run: nix-shell --run 'zuban mypy'
 name: 'easykubenix: tests'
 'on':
-  pull_request: null
-  push: null
+  schedule:
+  - cron: 32 5 * * *
+  workflow_dispatch: null

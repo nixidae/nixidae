@@ -2303,8 +2303,8 @@ jobs:
     timeout-minutes: 30
 name: 'vivarium: CI'
 'on':
-  pull_request: {}
-  push: {}
+  schedule:
+  - cron: 18 5 * * *
   workflow_dispatch:
     inputs:
       jobs:

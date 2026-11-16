@@ -46,5 +46,6 @@ jobs:
       run: nix-shell --run 'zuban mypy'
 name: 'kappy: tests'
 'on':
-  pull_request: null
-  push: null
+  schedule:
+  - cron: 32 4 * * *
+  workflow_dispatch: null

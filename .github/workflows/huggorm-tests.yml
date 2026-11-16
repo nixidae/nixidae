@@ -153,5 +153,6 @@ jobs:
     timeout-minutes: 120
 name: 'huggorm: tests'
 'on':
-  pull_request: null
-  push: null
+  schedule:
+  - cron: 11 4 * * *
+  workflow_dispatch: null
