@@ -1451,6 +1451,7 @@ class Krun:
         opened: list[int] = []
         helpers: list[subprocess.Popen[bytes]] = []
         disk_ro: int | None = None
+        passt_fds: tuple[int, ...] = ()
         try:
             # A reboot keeps the disk the guest wrote. libkrun opens it by
             # path and takes no lock, so the runner's fd serves again.
@@ -1459,12 +1460,19 @@ class Krun:
             else:
                 disk_rw, disk_ro = Qemu._scratch_disk(config.qemu_img, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
-            if spec.uplink_proxy == "gvproxy":
-                passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
+            # As Qemu._uplink: an uplink segment (a router's, nixidae/nixidae#1404)
+            # replaces passt, and its fd is the run's.
+            if spec.uplink is not None:
+                uplink = f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"
             else:
-                passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
-            helpers.append(passt_proc)
-            opened.append(passt_fd)
+                if spec.uplink_proxy == "gvproxy":
+                    passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
+                else:
+                    passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
+                helpers.append(passt_proc)
+                opened.append(passt_fd)
+                passt_fds = (passt_fd,)
+                uplink = f"--uplink={passt_fd},{spec.mac(0)}"
         except BaseException:
             for helper in helpers:
                 helper.kill()
@@ -1488,7 +1496,7 @@ class Krun:
             f"--store={spec.store}",
             f"--dax-window={DAX_WINDOW}",
             f"--agent-fd={agent_fd}",
-            f"--uplink={passt_fd},{spec.mac(0)}",
+            uplink,
             *(f"--lan={lan_fds[nic.name]},{nic.mac}" for nic in spec.interfaces),
         ]
         if machine.store_allowlist is not None:
@@ -1501,7 +1509,7 @@ class Krun:
             argv.append("--acpi")
         return Launch(
             argv=argv,
-            pass_fds=(agent_fd, passt_fd, disk_rw, *lan_fds.values()),
+            pass_fds=(agent_fd, *passt_fds, disk_rw, *lan_fds.values()),
             helpers=helpers,
             disk_fds=(disk_rw,),
         )

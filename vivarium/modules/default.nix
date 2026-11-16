@@ -964,8 +964,13 @@ in
         message = "segments.${toString config.vivarium.uplink.segment}.mtu: this guest's uplink joins the segment, and an uplink takes vivarium.mtu; leave the segment's mtu null.";
       }
       {
-        assertion = config.vivarium.uplink.proxy == "router" -> config.vivarium.backend == "uml";
-        message = "vivarium.uplink.proxy = \"router\" needs the UML backend for now; this guest is ${config.vivarium.backend}.";
+        assertion =
+          config.vivarium.uplink.proxy == "router"
+          -> lib.elem config.vivarium.backend [
+            "uml"
+            "krun"
+          ];
+        message = "vivarium.uplink.proxy = \"router\" needs the UML or krun backend for now; this guest is ${config.vivarium.backend}.";
       }
       {
         assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";

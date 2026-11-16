@@ -3,8 +3,11 @@
  *
  *   vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB
  *                 --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD
- *                 --uplink FD,MAC [--lan FD,MAC]... [--store-allowlist FILE] [--artifacts DIR]
- *                 [--nested] [--acpi]
+ *                 (--uplink FD,MAC | --uplink-segment FD,MAC) [--lan FD,MAC]...
+ *                 [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]
+ *
+ * --uplink is passt's stream; --uplink-segment is a segment's datagram
+ * socket, as --lan is, for an uplink a router guest serves.
  *
  * --store-allowlist names the store paths the guest may see, one per line, and
  * the share shows it nothing else. The runner appends to it for a path added
@@ -111,13 +114,13 @@ static void usage(void)
     fprintf(stderr,
             "usage: vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB\n"
             "                     --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD\n"
-            "                     --uplink FD,MAC [--lan FD,MAC]... [--store-allowlist FILE]\n"
-            "                     [--artifacts DIR] [--nested] [--acpi]\n");
+            "                     (--uplink FD,MAC | --uplink-segment FD,MAC) [--lan FD,MAC]...\n"
+            "                     [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]\n");
 }
 
 int main(int argc, char *argv[])
 {
-    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, LAN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
+    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, UPLINK_SEGMENT, LAN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
     static const struct option options[] = {
         {"vmlinux", required_argument, NULL, VMLINUX},
         {"initrd", required_argument, NULL, INITRD},
@@ -129,6 +132,7 @@ int main(int argc, char *argv[])
         {"dax-window", required_argument, NULL, DAX},
         {"agent-fd", required_argument, NULL, AGENT},
         {"uplink", required_argument, NULL, UPLINK},
+        {"uplink-segment", required_argument, NULL, UPLINK_SEGMENT},
         {"lan", required_argument, NULL, LAN},
         {"artifacts", required_argument, NULL, ARTIFACTS},
         {"store-allowlist", required_argument, NULL, ALLOWLIST},
@@ -139,7 +143,7 @@ int main(int argc, char *argv[])
     const char *vmlinux = NULL, *initrd = NULL, *cmdline = NULL, *disk = NULL, *store = NULL, *artifacts = NULL,
                *allowlist = NULL;
     long cpus = 0, memory = 0, dax_window = -1, agent_fd = -1;
-    bool nested = false, acpi = false, have_uplink = false;
+    bool nested = false, acpi = false, have_uplink = false, uplink_segment = false;
     struct nic uplink = {0};
     struct nic lan[MAX_LAN] = {0};
     int nlan = 0, c;
@@ -158,7 +162,8 @@ int main(int argc, char *argv[])
         case MEMORY: ok = parse_long(optarg, 1, UINT32_MAX, &memory); break;
         case DAX: ok = parse_long(optarg, 0, INT64_MAX, &dax_window); break;
         case AGENT: ok = parse_long(optarg, 0, INT32_MAX, &agent_fd); break;
-        case UPLINK: ok = have_uplink = parse_nic(optarg, &uplink); break;
+        case UPLINK: ok = !have_uplink && (have_uplink = parse_nic(optarg, &uplink)); break;
+        case UPLINK_SEGMENT: ok = !have_uplink && (have_uplink = uplink_segment = parse_nic(optarg, &uplink)); break;
         case LAN: ok = nlan < MAX_LAN && parse_nic(optarg, &lan[nlan++]); break;
         case NESTED: nested = true; break;
         case ACPI: acpi = true; break;
@@ -217,8 +222,14 @@ int main(int argc, char *argv[])
     CHECK(KrunBlockDevice blk = krun_block_device_new(KRUN_STR("root"), KRUN_STR(disk), KRUN_DISK_FORMAT_QCOW2, &err));
     krun_mmio_device_manager_add(devices, blk);
 
-    CHECK(KrunNetDevice up = krun_net_device_new_unixstream_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac),
-                                                               NET_FEATURES, 0, &err));
+    KrunNetDevice up;
+    if (uplink_segment) {
+        CHECK(up = krun_net_device_new_unixgram_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac), NET_FEATURES,
+                                                   0, &err));
+    } else {
+        CHECK(up = krun_net_device_new_unixstream_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac),
+                                                     NET_FEATURES, 0, &err));
+    }
     krun_mmio_device_manager_add(devices, up);
     for (int i = 0; i < nlan; i++) {
         char id[16];

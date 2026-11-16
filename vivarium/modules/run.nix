@@ -490,6 +490,9 @@ in
     nodes = lib.mkIf config.router.enable {
       ${config.router.name} = {
         vivarium.router.enable = true;
+        # The router runs on UML only. Above `.krun`'s mkForce on
+        # `defaults`, so a run's guests may take another backend.
+        vivarium.backend = lib.mkOverride 40 "uml";
       };
     };
     defaults =
