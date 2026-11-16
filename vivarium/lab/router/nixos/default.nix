@@ -18,6 +18,10 @@ in
     };
     nodes.plain = {
       vivarium.memory = "256M";
+      vivarium.interfaces.seg = {
+        segment = "seg";
+        addresses = [ "10.9.0.1/24" ];
+      };
     };
     nodes.slim =
       { lib, ... }:
@@ -47,19 +51,15 @@ in
         services.nscd.enable = false;
         system.nssModules = lib.mkForce [ ];
         systemd.suppressedSystemUnits = [
-          "systemd-udevd.service"
-          "systemd-udevd-control.socket"
-          "systemd-udevd-kernel.socket"
-          "systemd-udev-trigger.service"
-          "systemd-udev-settle.service"
           "systemd-journal-catalog-update.service"
           "systemd-update-done.service"
           "lastlog2-import.service"
         ];
         security.enableWrappers = false;
-        # No udev, so no device unit for the agent's tty.
-        systemd.services.vivarium-agent.after = lib.mkForce [ ];
-        systemd.services.vivarium-agent.bindsTo = lib.mkForce [ ];
+        vivarium.interfaces.seg = {
+          segment = "seg";
+          addresses = [ "10.9.0.2/24" ];
+        };
       };
   };
 }

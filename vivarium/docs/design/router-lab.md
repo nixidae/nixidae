@@ -40,7 +40,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out; on UML (E7) 12.3 and 15.3. Below |
 | E7 | our own vhost-user vsock device in the egress, UML router on the stock kernel | works; one flow 13.2-15.3/10.9-12.7 Gbit/s at MTU 65000. Below |
 | E8 | what limits the leg into the guest | the guest's 256 KiB vsock window, not libkrun's muxer; on UML, wakeup preemption, which the relay's yield fixes. Below |
-| E10 | the router as a NixOS guest | UML: 6.0 s and 115 MiB slimmed, against 1.0 s and 36 MiB for busybox. Below |
+| E10 | the router as a NixOS guest | UML: 6.4 s and 129 MiB slimmed, against 1.0 s and 36 MiB for busybox. Below |
 
 ## E1, 2026-11-16
 
@@ -383,24 +383,28 @@ relay under `SCHED_BATCH` does not preempt the thread that woke it
 Can the router be a NixOS guest, a vivarium machine like any other?
 `lab/router/nixos`: three UML guests at 256 MiB boot together. `plain`
 is a default vivarium guest. `slim` drops the Nix database, Nix, oomd,
-timesyncd and audit. `slimmer` also drops sshd, resolved, nscd, udev
-and the setuid wrappers, and starts the agent without a device unit.
-Boot is to the agent's "ready"; host memory is `host_memory_kib()`
-after `drop_caches`. Host load 4-6.
+timesyncd and audit. `slimmer` also drops sshd, resolved, nscd and the
+setuid wrappers. `plain` and `slimmer` share a segment and ping each
+other. Boot is to the agent's "ready"; host memory is
+`host_memory_kib()` after `drop_caches`. Host load 3-6.
 
 | guest | boot | host memory | guest used | running units |
 | --- | --- | --- | --- | --- |
-| `plain` | 7.7 s | 154 MiB | 76 MiB | 27 |
-| `slim` | 7.3 s | 145 MiB | 67 MiB | 24 |
-| `slimmer` | 6.0 s | 115 MiB | 51 MiB | 15 |
+| `plain` | 7.6 s | 155 MiB | 81 MiB | 27 |
+| `slim` | 7.1 s | 145 MiB | 68 MiB | 24 |
+| `slimmer` | 6.4 s | 129 MiB | 64 MiB | |
 | busybox router (E1, E3) | 1.0 s | 36 MiB | | |
+
+- udev stays. Without it `slimmer` boots in 6.0 s at 115 MiB, but
+  networkd leaves every link "pending": it waits for udev, which also
+  renames the segment interfaces. The agent's device unit needs it too.
 
 - The kernel takes 1.5 s of each NixOS boot; systemd reaches `-.mount`
   at 1.9 s.
 - In `slimmer` the agent is the largest process: 35 MiB RSS (Python).
   systemd is 14 MiB, networkd 9 MiB.
-- `slimmer`'s critical chain is the normal NixOS sysinit: tmpfiles,
-  mounts, dbus, `network-local-commands` (0.9 s).
+- Each guest's `vec0` today has the host's IPv6 prefix from passt
+  (`2a01:...`), besides 10.0.2.15. A router replaces that.
 - krun: two runs failed in the guests at host load 35 ("decompression
   failed with status 3", resolved and networkd failed to start). Not
   followed up.

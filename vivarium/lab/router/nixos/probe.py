@@ -2,6 +2,8 @@
 
 from vivarium_runner import Machines
 
+PEERS = {"plain": "10.9.0.2", "slimmer": "10.9.0.1"}
+
 
 async def test(vms: Machines) -> None:
     for vm in vms.values():
@@ -13,4 +15,8 @@ async def test(vms: Machines) -> None:
         print(f"[test] {vm.name} used: {await vm.succeed('free -m | sed -n 2p')}")
         print(f"[test] {vm.name} blame:\n{await vm.succeed('systemd-analyze blame 2>&1 | head -12')}")
         print(f"[test] {vm.name} chain:\n{await vm.succeed('systemd-analyze critical-chain 2>&1 | head -25')}")
+        if vm.name in PEERS:
+            rc, out = await vm.execute(f"ping -c2 -W2 {PEERS[vm.name]}")
+            print(f"[test] {vm.name} ping {PEERS[vm.name]}: rc={rc}")
+        print(f"[test] {vm.name} links:\n{await vm.succeed('ip -br addr; networkctl --no-pager 2>&1 | head')}")
         print(f"[test] {vm.name} rss:\n{await vm.succeed('ps -eo rss,comm --sort=-rss | head -12')}")
