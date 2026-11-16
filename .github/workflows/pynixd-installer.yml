@@ -43,7 +43,7 @@ jobs:
       name: Install pynixd as the Nix daemon
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
-          system=aarch64-darwin
+          tarball=pynixd-aarch64-darwin.tar.xz unpack="tar -x"
           case "$PYNIXD_MACOS_VOLUME" in
             case-insensitive) format=APFS ;;
             case-sensitive) format="Case-sensitive APFS" ;;
@@ -56,9 +56,10 @@ jobs:
             sudo diskutil enableOwnership /nix
           fi
         else
-          system=$(uname -m)-linux
+          tarball=pynixd-$(uname -m)-linux.tar.zst unpack="tar --zstd -x"
         fi
-        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$system.tar.zst" | zstd -dc | sudo tar -x -C /
+        # bsdtar finds the compression in a pipe; GNU tar finds it only in a regular file.
+        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/$tarball" | sudo $unpack -C /
         printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin --gha-cache "$RUNNER_TEMP/pynixd-gha-cache.json"
         echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
         rm "$RUNNER_TEMP/pynixd-gha-cache.json"
@@ -111,7 +112,7 @@ jobs:
       name: Install pynixd as the Nix daemon
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
-          system=aarch64-darwin
+          tarball=pynixd-aarch64-darwin.tar.xz unpack="tar -x"
           case "$PYNIXD_MACOS_VOLUME" in
             case-insensitive) format=APFS ;;
             case-sensitive) format="Case-sensitive APFS" ;;
@@ -124,9 +125,10 @@ jobs:
             sudo diskutil enableOwnership /nix
           fi
         else
-          system=$(uname -m)-linux
+          tarball=pynixd-$(uname -m)-linux.tar.zst unpack="tar --zstd -x"
         fi
-        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$system.tar.zst" | zstd -dc | sudo tar -x -C /
+        # bsdtar finds the compression in a pipe; GNU tar finds it only in a regular file.
+        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/$tarball" | sudo $unpack -C /
         printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin --gha-cache "$RUNNER_TEMP/pynixd-gha-cache.json"
         echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
         rm "$RUNNER_TEMP/pynixd-gha-cache.json"
@@ -164,7 +166,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         TAG: pynixd-installer
       name: Replace the release
-      run: 'cd "$RUNNER_TEMP/release" && (gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "pynixd installer" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365") && gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null && gh release upload "$TAG" pynixd-*.tar.zst --clobber && gh release edit "$TAG" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365. Built from $GITHUB_SHA."'
+      run: 'cd "$RUNNER_TEMP/release" && (gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "pynixd installer" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365") && gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null && gh release upload "$TAG" pynixd-*.tar.* --clobber && gh release edit "$TAG" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365. Built from $GITHUB_SHA."'
       shell: bash
       timeout-minutes: 10
       working-directory: /
@@ -197,7 +199,7 @@ jobs:
       name: Install pynixd as the Nix daemon
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
-          system=aarch64-darwin
+          tarball=pynixd-aarch64-darwin.tar.xz unpack="tar -x"
           case "$PYNIXD_MACOS_VOLUME" in
             case-insensitive) format=APFS ;;
             case-sensitive) format="Case-sensitive APFS" ;;
@@ -210,9 +212,10 @@ jobs:
             sudo diskutil enableOwnership /nix
           fi
         else
-          system=$(uname -m)-linux
+          tarball=pynixd-$(uname -m)-linux.tar.zst unpack="tar --zstd -x"
         fi
-        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$system.tar.zst" | zstd -dc | sudo tar -x -C /
+        # bsdtar finds the compression in a pipe; GNU tar finds it only in a regular file.
+        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/$tarball" | sudo $unpack -C /
         printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin
         echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
       shell: bash
@@ -287,7 +290,7 @@ jobs:
     - name: Build the tarball
       run: nix build --file . internal.installer --print-out-paths --out-link tarball > out-path
     - name: Collect the tarball
-      run: mkdir -p upload && cp -L tarball/*.tar.zst out-path upload/
+      run: mkdir -p upload && cp -L tarball/pynixd-*.tar.* out-path upload/
     - timeout-minutes: 15
       uses: actions/upload-artifact@main
       with:

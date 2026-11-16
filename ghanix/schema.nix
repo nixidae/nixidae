@@ -233,8 +233,8 @@ let
             default = null;
             example = "pynixd-tarball-\${{ matrix.system }}";
             description = ''
-              An artifact of this run that holds `pynixd-<system>.tar.zst`,
-              for `daemon = "pynixd"`. Set, the job installs that tarball and
+              An artifact of this run that holds `pynixd-<system>.tar.zst`
+              (`.tar.xz` on darwin), for `daemon = "pynixd"`. Set, the job installs that tarball and
               not `pynixdTarball`'s: a job tests a new tarball before the
               release carries it.
             '';
@@ -243,8 +243,8 @@ let
             type = types.str;
             default = "https://github.com/nixidae/nixidae/releases/download/pynixd-installer";
             description = ''
-              The directory that holds `pynixd-<system>.tar.zst`, for
-              `daemon = "pynixd"`. Any URL curl reads, `file://` too: a job
+              The directory that holds `pynixd-<system>.tar.zst`
+              (`.tar.xz` on darwin), for `daemon = "pynixd"`. Any URL curl reads, `file://` too: a job
               can install a tarball an earlier job built.
             '';
           };
