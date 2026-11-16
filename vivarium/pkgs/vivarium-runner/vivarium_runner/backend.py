@@ -1580,8 +1580,10 @@ class Container:
         # sandbox has only with /dev/net in `extra-sandbox-paths`. With no
         # tun the guest has no uplink; the sandbox has no network anyway.
         # The uplink is taken where a tap can be made and left out where it
-        # cannot; the LAN is required, and probe() checked it above.
-        tun = bool(lan_fds) or container.tap_fails() is None
+        # cannot; the LAN is required, and probe() checked it above. An
+        # uplink segment (a router's, nixidae/nixidae#1404) is a tap like
+        # vec1, and replaces pasta.
+        pasta = spec.uplink is None and (bool(lan_fds) or container.tap_fails() is None)
 
         uid, gid = os.getuid(), os.getgid()
         subuid: container.Range | None = None
@@ -1617,6 +1619,8 @@ class Container:
         state = rundir / "crun"
         state.mkdir()
         lan: list[str] = []
+        if spec.uplink is not None:
+            lan += ["--lan", f"{lan_fds['vec0']},vec0,{spec.mac(0)},{spec.mtu}"]
         for nic in spec.interfaces:
             lan += ["--lan", f"{lan_fds[nic.name]},{nic.name},{nic.mac},{nic.mtu}"]
         # A delegated scope of its own where the user's systemd makes one:
@@ -1654,7 +1658,7 @@ class Container:
                         *forward.uplink_args(machine.offline),
                         *self._pasta_forwards(forward.to_args(machine.forward)),
                     ]
-                    if tun
+                    if pasta
                     else []
                 ),
             ],

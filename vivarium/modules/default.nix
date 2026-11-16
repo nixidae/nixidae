@@ -952,25 +952,10 @@ in
         message = "vivarium.lan.address is set but vivarium.lan.network is not, so nothing would be wired to vec1.";
       }
       {
-        # vec0 joins a segment fd on QEMU and UML (#958). A container's
-        # uplink is pasta's, which has no such fd to redirect.
-        assertion = config.vivarium.uplink.segment != null -> config.vivarium.backend != "container";
-        message = "vivarium.uplink.segment needs the QEMU or UML backend; this guest is ${config.vivarium.backend}.";
-      }
-      {
         assertion =
           config.vivarium.uplink.segment != null
           -> (config.vivarium.segments.${config.vivarium.uplink.segment}.mtu or null) == null;
         message = "segments.${toString config.vivarium.uplink.segment}.mtu: this guest's uplink joins the segment, and an uplink takes vivarium.mtu; leave the segment's mtu null.";
-      }
-      {
-        assertion =
-          config.vivarium.uplink.proxy == "router"
-          -> lib.elem config.vivarium.backend [
-            "uml"
-            "krun"
-          ];
-        message = "vivarium.uplink.proxy = \"router\" needs the UML or krun backend for now; this guest is ${config.vivarium.backend}.";
       }
       {
         assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";

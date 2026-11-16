@@ -128,7 +128,8 @@ in
           guest's uplink (`vec0`) behind it instead of a passt of its own
           (nixidae/nixidae#1404). Each guest then has an address of its
           own, `10.0.2.(15 + vivarium.index)`, and the guests reach each
-          other on `vec0`. UML only for now.
+          other on `vec0`. The router itself runs on UML; the guests
+          behind it may take any backend.
         '';
       };
       name = mkOption {
