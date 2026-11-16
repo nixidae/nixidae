@@ -23,7 +23,9 @@ print(plistlib.loads(base64.b64decode(json.load(open(sys.argv[1]))["ecid"]))["EC
 
 # The tart disk stays pristine: guest writes land in the overlay. The aux is a
 # working copy, because iBoot writes NVRAM.
-[ -e "$RUN/overlay.qcow2" ] || "$QEMU_IMG" create -q -f qcow2 -F raw -b "$IMG/disk.raw" "$RUN/overlay.qcow2"
+# `darwin_builder.py compact` replaces tart's disk.raw with disk.qcow2.
+if [ -e "$IMG/disk.qcow2" ]; then DISK=$IMG/disk.qcow2 DISK_FORMAT=qcow2; else DISK=$IMG/disk.raw DISK_FORMAT=raw; fi
+[ -e "$RUN/overlay.qcow2" ] || "$QEMU_IMG" create -q -f qcow2 -F "$DISK_FORMAT" -b "$DISK" "$RUN/overlay.qcow2"
 [ -e "$RUN/aux.img" ] || cp "$IMG/aux.img" "$RUN/aux.img"
 
 exec "$QEMU" \
@@ -33,7 +35,7 @@ exec "$QEMU" \
   -m "$RAM" -smp "$CPUS" \
   -bios "$ROM" \
   -drive file="$RUN/aux.img",if=pflash,format=raw \
-  -drive file="$IMG/disk.raw",if=pflash,format=raw,readonly=on \
+  -drive file="$DISK",if=pflash,format="$DISK_FORMAT",readonly=on \
   -drive file="$RUN/aux.img",if=none,id=aux,format=raw \
   -device vmapple-virtio-blk-pci,variant=aux,drive=aux,share-rw=on \
   -drive file="$RUN/overlay.qcow2",if=none,id=root,format=qcow2,cache=writeback,discard=unmap \

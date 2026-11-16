@@ -146,9 +146,14 @@ GPU and IOSurface-mapper nodes in the device tree (one letter of their
 With the GPU on, 15 and 26 panic: `Undefined kernel instruction
 instr=d51ef860` = `msr S3_6_C15_C8_3, x0`, an Apple implementation-defined
 register. Public HVF hands the write to QEMU, and QEMU without fork 8de4c384
-raises UNDEF (below). Headless avoids it at boot. GPU mode with 8de4c384 is not
-tried yet. Panic records are in the run directory's `aux.img` (NVRAM),
-readable as strings.
+raises UNDEF (below). Headless avoids it at boot. Panic records are in the run
+directory's `aux.img` (NVRAM), readable as strings.
+
+With fork 8de4c384 the GPU works on 15 and 26 (2026-11-16): `GFX=on
+host/installer_test.py` passes on both, case-insensitive volume, and
+`AppleParavirtGPU` attaches in the 15 guest (`ioreg`). `GFX=on try_image.sh`
+on 26: SSH after 26 s, 0 resets in 180 s. `GFX` in
+`host/darwin_builder.py` sets the machine's `gfx`; the default stays `off`.
 
 Headless needs two Apple registers (2026-11-16). Under `host/installer_test.py`
 the kernel of 14 and 15 reads and writes `ASPSR_EL1` (`S3_6_C15_C8_3`) and
@@ -633,8 +638,7 @@ of starting, so it needs more work before it is useful.
    `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
    vmapple arguments from `qemu_args`, and an agent without the systemd and
    `/proc` calls. The agent already runs (above).
-4. GPU mode: try it with fork 8de4c384, which handles `msr S3_6_C15_C8_3`
-   (d51ef860). macOS 27: find what LLB's
+4. macOS 27: find what LLB's
    log buffer address comes from.
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
 6. A macOS 26 `save` right after `prepare` timed out before the daemon

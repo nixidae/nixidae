@@ -78,6 +78,8 @@ ROM = Path(
 )
 RAM = os.environ.get("RAM", "8G")
 CPUS = os.environ.get("CPUS", "4")
+# `on` gives the guest the paravirtualized GPU (apple-gfx-mmio); see the README.
+GFX = os.environ.get("GFX", "off")
 # The image of a guest that `prepare` did not make: its overlay names this disk.raw.
 IMG = Path(os.environ.get("IMG", Path.home() / "Dynamist/orchard-images/sonoma"))
 DAEMON_PORT = 3030
@@ -270,7 +272,7 @@ def qemu_args(
     )
     disk, disk_format = base_disk(img)
     return [
-        "-M", f"vmapple,uuid={ecid(img)},gfx=off,memory-backend=ram0",
+        "-M", f"vmapple,uuid={ecid(img)},gfx={GFX},memory-backend=ram0",
         "-accel", "hvf",
         "-m", RAM, "-smp", CPUS,
         "-object", f"{ram},id=ram0,size={RAM}",
