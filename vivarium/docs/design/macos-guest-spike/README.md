@@ -167,11 +167,37 @@ and 15, both volume kinds. The values are not in the migration stream.
 `RUN_DIR/qemu-trace.log`, so the next unknown register is named there;
 `TRACE_SYSREGS=1` adds every access HVF hands to QEMU.
 
-The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
-`0xfffffc01100bc058` in its memcpy (ELR 0x700adf34) while formatting a log
-line; the address does not change with RAM size (4, 8, 16 GiB). No unknown
-hypercall and no unimplemented MMIO before it (traced under TCG with
-`-d trace:arm_psci_call,int`; lldb on QEMU's gdbstub caught the copy).
+### macOS 27 (2026-11-16)
+
+Three layers, each found under a breakpoint (TCG, QEMU's gdbstub, a small
+GDB-protocol client):
+
+1. The iBoot panic `4962211b03d706d:203` is iBootStage1's synchronous-exception
+   handler. The fault is an EL0 task's memcpy into an unmapped error-log
+   buffer while it reports error `0x40200003`: the bdif USB device (register
+   4 must read `0x1a01`) is absent, and iBoot wants it for its recovery
+   prompt. With `-chardev ...,id=vusb -global vmapple-bdif.usbdev=vusb` the
+   panic is gone and LLB prints `Entering iBootStage1 recovery mode`.
+2. Recovery, because LLB finds no `69646961-6700-11AA-...` (iBoot System
+   Container) partition on `root`: the tart image's `config.json` says
+   `"diskFormat":"asif"`, and the disk starts with ASIF's `shdw`. QEMU hands
+   the ASIF container to the guest as the disk. `diskutil image create from
+   --format RAW disk.asif disk.raw` converts it (14, 15 and 26 are raw).
+   With the raw disk, iBootStage1 and iBootStage2 run and boot the kernel.
+3. The kernel never finds its root volume: `Waiting on ... boot-uuid-media`,
+   then `boot-picker-bringup-reason` in NVRAM. No virtio device reaches
+   ACKNOWLEDGE (`-trace virtio_set_status`: resets only), and the guest
+   never enables memory or bus mastering on one (`-trace pci_cfg_write`;
+   26 writes 0x100007 and MSI-X enable). `AppleVirtIO.kext` and
+   `AppleVirtIOStorage.kext` load (`kextlog=0xfff`), and their personalities
+   match as in 26 (`IOPCIPrimaryMatch 0x00001af4&0x0000FFFF`), so
+   `AppleVirtIOPCITransport` is refused in probe or start. Open: what it
+   checks, from 27's kernelcache.
+
+`host/nvram_bootargs.py AUX_IN AUX_OUT ARGS` sets boot-args in an aux.img:
+both NVRAM banks (0xA00000, 0xA80000; the higher generation is live), each
+with its Adler-32 over +0x14 to the bank's end. `-v serial=3` puts the kernel
+log on the serial port.
 
 ## On-demand builders from a snapshot (2026-11-08)
 
@@ -638,8 +664,7 @@ of starting, so it needs more work before it is useful.
    `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
    vmapple arguments from `qemu_args`, and an agent without the systemd and
    `/proc` calls. The agent already runs (above).
-4. macOS 27: find what LLB's
-   log buffer address comes from.
+4. macOS 27: find what `AppleVirtIOPCITransport` refuses (above).
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
 6. A macOS 26 `save` right after `prepare` timed out before the daemon
    answered, three times in about ten runs, and passed when run again. The
