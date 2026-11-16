@@ -3,11 +3,13 @@
  *
  *   vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB
  *                 --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD
- *                 (--uplink FD,MAC | --uplink-segment FD,MAC) [--lan FD,MAC]...
+ *                 [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...
+ *                 [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...
  *                 [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]
  *
  * --uplink is passt's stream; --uplink-segment is a segment's datagram
- * socket, as --lan is, for an uplink a router guest serves.
+ * socket, as --lan is, for an uplink a router guest serves. The router
+ * itself has no uplink: it reaches the host's egress over --vsock.
  *
  * --store-allowlist names the store paths the guest may see, one per line, and
  * the share shows it nothing else. The runner appends to it for a path added
@@ -51,6 +53,7 @@
 #define NET_FEATURES ((1u << VIRTIO_NET_F_GUEST_CSUM) | (1u << VIRTIO_NET_F_GUEST_TSO4) | (1u << VIRTIO_NET_F_GUEST_TSO6))
 #define AGENT_PORT "vivarium-agent"
 #define MAX_LAN 16
+#define MAX_VSOCK 4
 
 static bool push_to_stderr(void *userdata, KrunStr s)
 {
@@ -88,6 +91,26 @@ static bool parse_long(const char *text, long min, long max, long *out)
     return true;
 }
 
+struct vsock_port {
+    uint32_t port;
+    const char *path;
+    bool listen;
+};
+
+/* PORT,PATH */
+static bool parse_vsock(char *arg, bool listen, struct vsock_port *out)
+{
+    char *comma = strchr(arg, ',');
+    long port;
+    if (comma == NULL || comma[1] == '\0')
+        return false;
+    *comma = '\0';
+    if (!parse_long(arg, 0, UINT32_MAX, &port))
+        return false;
+    *out = (struct vsock_port){.port = (uint32_t)port, .path = comma + 1, .listen = listen};
+    return true;
+}
+
 /* FD,MAC with MAC as six hex octets separated by colons. */
 static bool parse_nic(char *arg, struct nic *nic)
 {
@@ -114,13 +137,14 @@ static void usage(void)
     fprintf(stderr,
             "usage: vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB\n"
             "                     --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD\n"
-            "                     (--uplink FD,MAC | --uplink-segment FD,MAC) [--lan FD,MAC]...\n"
+            "                     [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...\n"
+            "                     [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...\n"
             "                     [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]\n");
 }
 
 int main(int argc, char *argv[])
 {
-    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, UPLINK_SEGMENT, LAN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
+    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, UPLINK_SEGMENT, LAN, VSOCK, VSOCK_LISTEN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
     static const struct option options[] = {
         {"vmlinux", required_argument, NULL, VMLINUX},
         {"initrd", required_argument, NULL, INITRD},
@@ -134,6 +158,8 @@ int main(int argc, char *argv[])
         {"uplink", required_argument, NULL, UPLINK},
         {"uplink-segment", required_argument, NULL, UPLINK_SEGMENT},
         {"lan", required_argument, NULL, LAN},
+        {"vsock", required_argument, NULL, VSOCK},
+        {"vsock-listen", required_argument, NULL, VSOCK_LISTEN},
         {"artifacts", required_argument, NULL, ARTIFACTS},
         {"store-allowlist", required_argument, NULL, ALLOWLIST},
         {"nested", no_argument, NULL, NESTED},
@@ -146,7 +172,8 @@ int main(int argc, char *argv[])
     bool nested = false, acpi = false, have_uplink = false, uplink_segment = false;
     struct nic uplink = {0};
     struct nic lan[MAX_LAN] = {0};
-    int nlan = 0, c;
+    struct vsock_port vsock[MAX_VSOCK] = {0};
+    int nlan = 0, nvsock = 0, c;
 
     while ((c = getopt_long(argc, argv, "", options, NULL)) != -1) {
         bool ok = true;
@@ -165,6 +192,8 @@ int main(int argc, char *argv[])
         case UPLINK: ok = !have_uplink && (have_uplink = parse_nic(optarg, &uplink)); break;
         case UPLINK_SEGMENT: ok = !have_uplink && (have_uplink = uplink_segment = parse_nic(optarg, &uplink)); break;
         case LAN: ok = nlan < MAX_LAN && parse_nic(optarg, &lan[nlan++]); break;
+        case VSOCK: ok = nvsock < MAX_VSOCK && parse_vsock(optarg, false, &vsock[nvsock++]); break;
+        case VSOCK_LISTEN: ok = nvsock < MAX_VSOCK && parse_vsock(optarg, true, &vsock[nvsock++]); break;
         case NESTED: nested = true; break;
         case ACPI: acpi = true; break;
         default: ok = false; break;
@@ -175,7 +204,7 @@ int main(int argc, char *argv[])
         }
     }
     if (optind != argc || !vmlinux || !initrd || !cmdline || !disk || !store || !cpus || !memory || dax_window < 0 ||
-        agent_fd < 0 || !have_uplink) {
+        agent_fd < 0) {
         usage();
         return 2;
     }
@@ -222,15 +251,25 @@ int main(int argc, char *argv[])
     CHECK(KrunBlockDevice blk = krun_block_device_new(KRUN_STR("root"), KRUN_STR(disk), KRUN_DISK_FORMAT_QCOW2, &err));
     krun_mmio_device_manager_add(devices, blk);
 
-    KrunNetDevice up;
-    if (uplink_segment) {
-        CHECK(up = krun_net_device_new_unixgram_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac), NET_FEATURES,
-                                                   0, &err));
-    } else {
-        CHECK(up = krun_net_device_new_unixstream_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac),
-                                                     NET_FEATURES, 0, &err));
+    if (have_uplink) {
+        KrunNetDevice up;
+        if (uplink_segment) {
+            CHECK(up = krun_net_device_new_unixgram_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac),
+                                                       NET_FEATURES, 0, &err));
+        } else {
+            CHECK(up = krun_net_device_new_unixstream_fd(KRUN_STR("uplink"), uplink.fd, KRUN_BYTES(uplink.mac),
+                                                         NET_FEATURES, 0, &err));
+        }
+        krun_mmio_device_manager_add(devices, up);
     }
-    krun_mmio_device_manager_add(devices, up);
+    /* A guest connection to CID 2, PORT reaches the host's PATH; with
+     * --vsock-listen, libkrun listens on PATH for the host. */
+    if (nvsock > 0) {
+        CHECK(KrunVsockDevice vs = krun_vsock_device_new(3, 0, &err));
+        for (int i = 0; i < nvsock; i++)
+            krun_vsock_device_add_unix_port(vs, vsock[i].port, KRUN_STR(vsock[i].path), vsock[i].listen);
+        krun_mmio_device_manager_add(devices, vs);
+    }
     for (int i = 0; i < nlan; i++) {
         char id[16];
         snprintf(id, sizeof id, "lan%d", i);
