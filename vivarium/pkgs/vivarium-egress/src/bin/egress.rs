@@ -4,13 +4,14 @@
 //! vhost-device-vsock and libkrun both hand a guest's vsock stream to a
 //! unix socket, so this serves either.
 //!
-//!     egress LISTEN_PATH [GATEWAY [FORWARD...]] [--map=FROM=TO...] [--outbound=ADDR]
+//!     egress LISTEN_PATH [GATEWAY [FORWARD...]] [--loopback=ADDR...] [--map=FROM=TO...] [--outbound=ADDR...]
 //!
-//! A flow to GATEWAY goes to the host's 127.0.0.1, as passt's
-//! `--map-host-loopback`. `--map` sends a flow to the ADDR:PORT FROM to TO
-//! instead: the guests' resolver to the upstream one, as `--dns-forward`.
-//! `--outbound` binds every outside socket to ADDR, as passt's: 127.0.0.1
-//! reaches nothing off this host.
+//! A flow to GATEWAY, or to a `--loopback` ADDR, goes to the host's
+//! loopback of its family, as passt's `--map-host-loopback`. `--map` sends
+//! a flow to the ADDR:PORT FROM to TO instead: the guests' resolver to the
+//! upstream one, as `--dns-forward`. `--outbound` binds every outside
+//! socket of ADDR's family to ADDR, as passt's: 127.0.0.1 and ::1 reach
+//! nothing off this host.
 //!
 //! FORWARD is `[~][tcp/|udp/]HOST=GUEST_ADDR:PORT@ROUTER`. HOST is
 //! `ADDR:FIRST[-LAST]`, each host port reaching the guest port at the same
@@ -22,8 +23,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::os::fd::{AsRawFd, RawFd};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -32,15 +33,16 @@ use std::thread;
 use vivarium_egress::vsock;
 
 use vivarium_egress::{
-    ICMP, REQUEST_LEN, Stream, TCP, UDP, decode, encode, owned, pump, splice_both,
+    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, owned, pump,
+    splice_both,
 };
 
 /// Where a flow from the router goes on the host's side.
 #[derive(Default)]
 struct Outside {
-    gateway: Option<IpAddr>,
+    loopback: Vec<IpAddr>,
     maps: Vec<(SocketAddr, SocketAddr)>,
-    outbound: Option<IpAddr>,
+    outbound: Vec<IpAddr>,
 }
 
 impl Outside {
@@ -48,40 +50,28 @@ impl Outside {
         if let Some((_, to)) = self.maps.iter().find(|(from, _)| *from == dst) {
             return *to;
         }
-        if Some(dst.ip()) == self.gateway {
-            dst.set_ip(IpAddr::from([127, 0, 0, 1]));
+        if self.loopback.contains(&dst.ip()) {
+            dst.set_ip(match dst {
+                SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+                SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+            });
         }
         dst
     }
 
-    /// A socket of `kind` and `proto`, bound to `--outbound` if one is set.
-    fn socket(&self, kind: i32, proto: i32) -> io::Result<std::os::fd::OwnedFd> {
-        let fd = unsafe { owned(libc::socket(libc::AF_INET, kind | libc::SOCK_CLOEXEC, proto))? };
-        if let Some(IpAddr::V4(ip)) = self.outbound {
-            let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-            addr.sin_family = libc::AF_INET as libc::sa_family_t;
-            addr.sin_addr.s_addr = u32::from_ne_bytes(ip.octets());
-            let len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-            if unsafe { libc::bind(fd.as_raw_fd(), (&raw const addr).cast(), len) } != 0 {
-                return Err(io::Error::last_os_error());
-            }
+    /// A socket of `kind` and `proto` connected to `dst`, bound first to
+    /// the `--outbound` address of `dst`'s family if there is one.
+    fn connect(&self, dst: SocketAddr, kind: i32, proto: i32) -> io::Result<OwnedFd> {
+        let fd = unsafe { owned(libc::socket(family(dst), kind | libc::SOCK_CLOEXEC, proto))? };
+        if let Some(ip) = self
+            .outbound
+            .iter()
+            .find(|ip| ip.is_ipv4() == dst.is_ipv4())
+        {
+            bind(&fd, SocketAddr::new(*ip, 0))?;
         }
+        connect(&fd, dst)?;
         Ok(fd)
-    }
-
-    fn connect(&self, fd: &std::os::fd::OwnedFd, dst: SocketAddr) -> io::Result<()> {
-        let SocketAddr::V4(dst) = dst else {
-            return Err(io::Error::other(format!("{dst}: IPv6 is not served")));
-        };
-        let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-        addr.sin_family = libc::AF_INET as libc::sa_family_t;
-        addr.sin_port = dst.port().to_be();
-        addr.sin_addr.s_addr = u32::from_ne_bytes(dst.ip().octets());
-        let len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-        if unsafe { libc::connect(fd.as_raw_fd(), (&raw const addr).cast(), len) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
     }
 }
 
@@ -93,15 +83,18 @@ fn flow(mut relay: UnixStream, outside: &Outside) -> io::Result<()> {
     match proto {
         TCP => {}
         UDP => {
-            let fd = outside.socket(libc::SOCK_DGRAM, 0)?;
-            outside.connect(&fd, dst)?;
+            let fd = outside.connect(dst, libc::SOCK_DGRAM, 0)?;
             return pump(Stream::from(relay), UdpSocket::from(fd));
         }
         ICMP => {
             // A ping socket: no privilege needed where ping_group_range
             // allows it, and on macOS. The kernel picks the echo id.
-            let fd = outside.socket(libc::SOCK_DGRAM, libc::IPPROTO_ICMP)?;
-            outside.connect(&fd, dst)?;
+            let proto = if dst.is_ipv4() {
+                libc::IPPROTO_ICMP
+            } else {
+                libc::IPPROTO_ICMPV6
+            };
+            let fd = outside.connect(dst, libc::SOCK_DGRAM, proto)?;
             return pump(Stream::from(relay), UdpSocket::from(fd));
         }
         _ => {
@@ -110,8 +103,8 @@ fn flow(mut relay: UnixStream, outside: &Outside) -> io::Result<()> {
         }
     }
     let connected = outside
-        .socket(libc::SOCK_STREAM, 0)
-        .and_then(|fd| outside.connect(&fd, dst).map(|()| TcpStream::from(fd)));
+        .connect(dst, libc::SOCK_STREAM, 0)
+        .map(TcpStream::from);
     let outside = match connected {
         Ok(stream) => stream,
         Err(err) => {
@@ -218,7 +211,9 @@ fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
     let router = match router.strip_prefix("vsock:") {
         #[cfg(all(target_os = "linux", feature = "vhost-user"))]
         Some(port) => Router::Vsock(
-            device.ok_or_else(|| bad("vsock: needs vhost-user:"))?.clone(),
+            device
+                .ok_or_else(|| bad("vsock: needs vhost-user:"))?
+                .clone(),
             port.parse().map_err(|_| bad("not a vsock port"))?,
         ),
         #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
@@ -373,9 +368,8 @@ impl Poller {
         #[cfg(target_os = "linux")]
         {
             let mut events = [libc::epoll_event { events: 0, u64: 0 }; 256];
-            let n = unsafe {
-                libc::epoll_wait(self.epoll.as_raw_fd(), events.as_mut_ptr(), 256, -1)
-            };
+            let n =
+                unsafe { libc::epoll_wait(self.epoll.as_raw_fd(), events.as_mut_ptr(), 256, -1) };
             if n < 0 {
                 let err = io::Error::last_os_error();
                 return if err.kind() == io::ErrorKind::Interrupted {
@@ -415,7 +409,14 @@ type Flows = Arc<Mutex<HashMap<FlowKey, (u64, Stream)>>>;
 
 /// Datagrams from the guest, back to the client, until the relay ends
 /// the flow (idle, as the relay's `pump` decides).
-fn udp_back(mut relay: Stream, socket: Arc<UdpSocket>, client: SocketAddr, key: FlowKey, id: u64, flows: Flows) {
+fn udp_back(
+    mut relay: Stream,
+    socket: Arc<UdpSocket>,
+    client: SocketAddr,
+    key: FlowKey,
+    id: u64,
+    flows: Flows,
+) {
     let mut buf = vec![0u8; 65536];
     while let Ok(n) = relay.read_frame(&mut buf) {
         // A full socket drops the datagram, as a congested link would.
@@ -521,19 +522,25 @@ fn main() -> io::Result<()> {
             };
             outside.maps.push((parse(from)?, parse(to)?));
         } else if let Some(addr) = arg.strip_prefix("--outbound=") {
-            outside.outbound = Some(addr.parse().map_err(io::Error::other)?);
+            outside
+                .outbound
+                .push(addr.parse().map_err(io::Error::other)?);
+        } else if let Some(addr) = arg.strip_prefix("--loopback=") {
+            outside
+                .loopback
+                .push(addr.parse().map_err(io::Error::other)?);
         } else {
             args.push(arg);
         }
     }
     let path = args.get(1).ok_or_else(|| {
-        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--map=FROM=TO] [--outbound=ADDR]")
+        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--loopback=ADDR] [--map=FROM=TO] [--outbound=ADDR]")
     })?;
-    outside.gateway = args
-        .get(2)
-        .map(|a| a.parse())
-        .transpose()
-        .map_err(io::Error::other)?;
+    if let Some(gateway) = args.get(2) {
+        outside
+            .loopback
+            .push(gateway.parse().map_err(io::Error::other)?);
+    }
     let outside = Arc::new(outside);
     // vhost-user:SOCKET serves the router's vsock device on SOCKET.
     #[cfg(all(target_os = "linux", feature = "vhost-user"))]

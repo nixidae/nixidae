@@ -2,6 +2,10 @@
 //! becomes one vsock stream to the host's egress, which opens the real
 //! socket.
 //!
+//! Each of TCP, UDP and ICMP echo has an IPv4 and an IPv6 socket. The
+//! IPv6 ones are `IPV6_V6ONLY`: `SO_ORIGINAL_DST` at `SOL_IP` fails on an
+//! IPv6 socket, so a v4-mapped one would lose the destination.
+//!
 //! - TCP: nftables `redirect`s it to the TCP port. conntrack keeps the
 //!   original destination, which `SO_ORIGINAL_DST` reads back.
 //! - UDP: nftables `tproxy`s it to the UDP port, with no NAT, so no
@@ -13,7 +17,9 @@
 //! - ICMP echo: a fwmark and a `local` route deliver it to the router,
 //!   which does not answer it (`icmp_echo_ignore_all`). A raw socket reads
 //!   it; the host's ping socket picks its own echo id, so the reply gets
-//!   the guest's id back before it goes out on a raw socket.
+//!   the guest's id back before it goes out on a raw socket. ICMPv6 has
+//!   no header on a raw socket: `IPV6_PKTINFO` names the destination, and
+//!   sets the reply's source.
 //!
 //! - Forwards: the host connects in on vsock IN_PORT and names a guest
 //!   address; the relay connects to it.
@@ -25,19 +31,26 @@ use std::collections::HashSet;
 use std::env;
 use std::io::{self, Read, Write};
 use std::mem;
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, UdpSocket};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use vivarium_egress::{
-    Activity, ICMP, REQUEST_LEN, Stream, TCP, TICK, UDP, checksum, decode, encode, owned, pump,
-    setsockopt, splice_both, timed_out,
+    Activity, ICMP, REQUEST_LEN, Stream, TCP, TICK, UDP, bind, checksum, decode, encode, family,
+    from_sockaddr, owned, pump, setsockopt, sockaddr, splice_both, timed_out,
 };
 
+/// `SO_ORIGINAL_DST` at `SOL_IP`, and `IP6T_SO_ORIGINAL_DST` at `SOL_IPV6`.
 const SO_ORIGINAL_DST: libc::c_int = 80;
 /// `IP_ORIGDSTADDR`, the control message `IP_RECVORIGDSTADDR` asks for.
 const IP_ORIGDSTADDR: libc::c_int = 20;
+const IPV6_ORIGDSTADDR: libc::c_int = 74;
+const IPV6_RECVORIGDSTADDR: libc::c_int = 74;
+const IPV6_TRANSPARENT: libc::c_int = 75;
+/// `ICMP6_FILTER` at `SOL_ICMPV6`: a bit set blocks that type.
+const ICMP6_FILTER: libc::c_int = 1;
+const ICMP6_ECHO_REQUEST: u8 = 128;
 const HOST_CID: u32 = 2;
 /// `SO_VM_SOCKETS_BUFFER_SIZE` and `_MAX_SIZE`, level `AF_VSOCK`, a u64.
 const SO_VM_SOCKETS_BUFFER_SIZE: libc::c_int = 0;
@@ -74,30 +87,14 @@ fn vsock_socket() -> io::Result<OwnedFd> {
     Ok(fd)
 }
 
-fn sockaddr(addr: SocketAddrV4) -> libc::sockaddr_in {
-    let mut out: libc::sockaddr_in = unsafe { mem::zeroed() };
-    out.sin_family = libc::AF_INET as libc::sa_family_t;
-    out.sin_port = addr.port().to_be();
-    out.sin_addr.s_addr = u32::from(*addr.ip()).to_be();
-    out
-}
-
-fn from_sockaddr(addr: &libc::sockaddr_in) -> SocketAddrV4 {
-    SocketAddrV4::new(
-        Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr)),
-        u16::from_be(addr.sin_port),
-    )
-}
-
-const SOCKADDR_LEN: libc::socklen_t = mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-
-fn original_dst(fd: i32) -> io::Result<SocketAddr> {
-    let mut addr: libc::sockaddr_in = unsafe { mem::zeroed() };
-    let mut len = SOCKADDR_LEN;
+fn original_dst(fd: i32, v6: bool) -> io::Result<SocketAddr> {
+    let mut addr: libc::sockaddr_storage = unsafe { mem::zeroed() };
+    let mut len = mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+    let level = if v6 { libc::SOL_IPV6 } else { libc::SOL_IP };
     let rc = unsafe {
         libc::getsockopt(
             fd,
-            libc::SOL_IP,
+            level,
             SO_ORIGINAL_DST,
             (&raw mut addr).cast(),
             &raw mut len,
@@ -106,7 +103,16 @@ fn original_dst(fd: i32) -> io::Result<SocketAddr> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(SocketAddr::V4(from_sockaddr(&addr)))
+    unsafe { from_sockaddr((&raw const addr).cast()) }
+}
+
+/// A socket of `addr`'s family, IPv6 only if it is IPv6.
+fn socket(addr: SocketAddr, kind: libc::c_int, proto: libc::c_int) -> io::Result<OwnedFd> {
+    let fd = unsafe { owned(libc::socket(family(addr), kind | libc::SOCK_CLOEXEC, proto))? };
+    if addr.is_ipv6() {
+        setsockopt(fd.as_raw_fd(), libc::SOL_IPV6, libc::IPV6_V6ONLY, &1i32)?;
+    }
+    Ok(fd)
 }
 
 fn vsock_connect(port: u32) -> io::Result<Stream> {
@@ -162,7 +168,11 @@ fn inbound(port: u32) -> io::Result<()> {
                 let (proto, dst) = decode(&raw)?;
                 if proto == UDP {
                     // No status byte: the first datagram follows at once.
-                    let socket = UdpSocket::bind("0.0.0.0:0")?;
+                    let unspecified = match dst {
+                        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                    };
+                    let socket = UdpSocket::bind((unspecified, 0))?;
                     socket.connect(dst)?;
                     return pump(host, socket);
                 }
@@ -185,7 +195,7 @@ fn inbound(port: u32) -> io::Result<()> {
 }
 
 fn tcp_flow(guest: std::net::TcpStream, vsock_port: u32) -> io::Result<()> {
-    let dst = original_dst(guest.as_raw_fd())?;
+    let dst = original_dst(guest.as_raw_fd(), guest.local_addr()?.is_ipv6())?;
     let mut host = vsock_connect(vsock_port)?;
     host.write_all(&encode(TCP, dst))?;
     let mut status = [0u8; 1];
@@ -208,29 +218,24 @@ fn tcp_flow(guest: std::net::TcpStream, vsock_port: u32) -> io::Result<()> {
     splice_both(Stream::from(guest), host)
 }
 
-fn udp_socket() -> io::Result<OwnedFd> {
-    let fd = unsafe {
-        owned(libc::socket(
-            libc::AF_INET,
-            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
-            0,
-        ))?
+/// A transparent datagram socket of `addr`'s family, bound to `addr`.
+fn udp_socket(addr: SocketAddr, reuse: bool) -> io::Result<OwnedFd> {
+    let fd = socket(addr, libc::SOCK_DGRAM, 0)?;
+    let (level, transparent) = match addr {
+        SocketAddr::V4(_) => (libc::SOL_IP, libc::IP_TRANSPARENT),
+        SocketAddr::V6(_) => (libc::SOL_IPV6, IPV6_TRANSPARENT),
     };
-    setsockopt(fd.as_raw_fd(), libc::SOL_IP, libc::IP_TRANSPARENT, &1i32)?;
+    setsockopt(fd.as_raw_fd(), level, transparent, &1i32)?;
+    if reuse {
+        setsockopt(fd.as_raw_fd(), libc::SOL_SOCKET, libc::SO_REUSEADDR, &1i32)?;
+    }
+    bind(&fd, addr)?;
     Ok(fd)
 }
 
-fn bind(fd: &OwnedFd, addr: SocketAddrV4) -> io::Result<()> {
-    let sa = sockaddr(addr);
-    if unsafe { libc::bind(fd.as_raw_fd(), (&raw const sa).cast(), SOCKADDR_LEN) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
 /// One datagram, its sender, and the destination it was sent to.
-fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddrV4, SocketAddrV4)> {
-    let mut src: libc::sockaddr_in = unsafe { mem::zeroed() };
+fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddr, SocketAddr)> {
+    let mut src: libc::sockaddr_storage = unsafe { mem::zeroed() };
     let mut control = [0u64; 8];
     let mut iov = libc::iovec {
         iov_base: buf.as_mut_ptr().cast(),
@@ -238,7 +243,7 @@ fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddrV
     };
     let mut msg: libc::msghdr = unsafe { mem::zeroed() };
     msg.msg_name = (&raw mut src).cast();
-    msg.msg_namelen = SOCKADDR_LEN;
+    msg.msg_namelen = mem::size_of_val(&src) as libc::socklen_t;
     msg.msg_iov = &raw mut iov;
     msg.msg_iovlen = 1;
     msg.msg_control = control.as_mut_ptr().cast();
@@ -250,10 +255,12 @@ fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddrV
     let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
     while !cmsg.is_null() {
         let header = unsafe { &*cmsg };
-        if header.cmsg_level == libc::SOL_IP && header.cmsg_type == IP_ORIGDSTADDR {
-            let dst =
-                unsafe { (libc::CMSG_DATA(cmsg) as *const libc::sockaddr_in).read_unaligned() };
-            return Ok((n as usize, from_sockaddr(&src), from_sockaddr(&dst)));
+        if (header.cmsg_level, header.cmsg_type) == (libc::SOL_IP, IP_ORIGDSTADDR)
+            || (header.cmsg_level, header.cmsg_type) == (libc::SOL_IPV6, IPV6_ORIGDSTADDR)
+        {
+            let src = unsafe { from_sockaddr((&raw const src).cast())? };
+            let dst = unsafe { from_sockaddr(libc::CMSG_DATA(cmsg).cast())? };
+            return Ok((n as usize, src, dst));
         }
         cmsg = unsafe { libc::CMSG_NXTHDR(&raw const msg, cmsg) };
     }
@@ -262,39 +269,24 @@ fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddrV
 
 type Flows<K> = Arc<Mutex<HashSet<K>>>;
 
-fn udp_flow(
-    client: SocketAddrV4,
-    dst: SocketAddrV4,
-    first: &[u8],
-    vsock_port: u32,
-) -> io::Result<()> {
-    let reply = udp_socket()?;
+fn udp_flow(client: SocketAddr, dst: SocketAddr, first: &[u8], vsock_port: u32) -> io::Result<()> {
     // Two guests may talk to one destination: each flow binds it.
-    setsockopt(
-        reply.as_raw_fd(),
-        libc::SOL_SOCKET,
-        libc::SO_REUSEADDR,
-        &1i32,
-    )?;
-    bind(&reply, dst)?;
-    let reply = UdpSocket::from(reply);
+    let reply = UdpSocket::from(udp_socket(dst, true)?);
     reply.connect(client)?;
     let mut host = vsock_connect(vsock_port)?;
-    host.write_all(&encode(UDP, SocketAddr::V4(dst)))?;
+    host.write_all(&encode(UDP, dst))?;
     host.write_frame_or_drop(first)?;
     pump(host, reply)
 }
 
-fn udp_listener(port: u16, vsock_port: u32) -> io::Result<()> {
-    let listener = udp_socket()?;
-    setsockopt(
-        listener.as_raw_fd(),
-        libc::SOL_IP,
-        libc::IP_RECVORIGDSTADDR,
-        &1i32,
-    )?;
-    bind(&listener, SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port))?;
-    let flows: Flows<(SocketAddrV4, SocketAddrV4)> = Arc::default();
+fn udp_listener(addr: SocketAddr, vsock_port: u32) -> io::Result<()> {
+    let listener = udp_socket(addr, false)?;
+    let (level, option) = match addr {
+        SocketAddr::V4(_) => (libc::SOL_IP, libc::IP_RECVORIGDSTADDR),
+        SocketAddr::V6(_) => (libc::SOL_IPV6, IPV6_RECVORIGDSTADDR),
+    };
+    setsockopt(listener.as_raw_fd(), level, option, &1i32)?;
+    let flows: Flows<(SocketAddr, SocketAddr)> = Arc::default();
     let mut buf = vec![0u8; 65536];
     loop {
         let (n, client, dst) = recv_original(&listener, &mut buf)?;
@@ -313,11 +305,76 @@ fn udp_listener(port: u16, vsock_port: u32) -> io::Result<()> {
     }
 }
 
-type EchoKey = (Ipv4Addr, Ipv4Addr, u16);
+/// The guest, the destination it pinged, and its echo id.
+type EchoKey = (IpAddr, IpAddr, u16);
 
 struct Echo {
     host: Stream,
     activity: Arc<Activity>,
+}
+
+type Echoes = Arc<Mutex<HashMap<EchoKey, Echo>>>;
+
+/// Sends `icmp`, an ICMP message, from `from` to `to` on `raw`: an
+/// `IPPROTO_RAW` socket for IPv4, with `buf[..20]` free for the header;
+/// a transparent ICMPv6 socket for IPv6, which sums the message itself.
+fn send_echo(raw: &OwnedFd, buf: &mut [u8], n: usize, from: IpAddr, to: IpAddr) {
+    let (packet, ancillary) = match (from, to) {
+        (IpAddr::V4(from), IpAddr::V4(to)) => {
+            let packet = &mut buf[..20 + n];
+            let icmp = &mut packet[20..];
+            icmp[2..4].fill(0);
+            let sum = checksum(icmp);
+            icmp[2..4].copy_from_slice(&sum.to_be_bytes());
+            let ip = &mut packet[..20];
+            ip.fill(0);
+            ip[0] = 0x45;
+            ip[2..4].copy_from_slice(&((20 + n) as u16).to_be_bytes());
+            ip[8] = 64;
+            ip[9] = ICMP;
+            ip[12..16].copy_from_slice(&from.octets());
+            ip[16..20].copy_from_slice(&to.octets());
+            let sum = checksum(ip);
+            ip[10..12].copy_from_slice(&sum.to_be_bytes());
+            (&buf[..20 + n], None)
+        }
+        (IpAddr::V6(from), IpAddr::V6(_)) => (
+            &buf[20..20 + n],
+            Some(libc::in6_pktinfo {
+                ipi6_addr: libc::in6_addr {
+                    s6_addr: from.octets(),
+                },
+                ipi6_ifindex: 0,
+            }),
+        ),
+        _ => return,
+    };
+    let (mut name, name_len) = sockaddr(SocketAddr::new(to, 0));
+    let mut iov = libc::iovec {
+        iov_base: packet.as_ptr().cast_mut().cast(),
+        iov_len: packet.len(),
+    };
+    let mut control = [0u64; 8];
+    let mut msg: libc::msghdr = unsafe { mem::zeroed() };
+    msg.msg_name = (&raw mut name).cast();
+    msg.msg_namelen = name_len;
+    msg.msg_iov = &raw mut iov;
+    msg.msg_iovlen = 1;
+    if let Some(info) = ancillary {
+        let space = unsafe { libc::CMSG_SPACE(mem::size_of::<libc::in6_pktinfo>() as u32) };
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = space as _;
+        unsafe {
+            let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
+            (*cmsg).cmsg_level = libc::SOL_IPV6;
+            (*cmsg).cmsg_type = libc::IPV6_PKTINFO;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(mem::size_of::<libc::in6_pktinfo>() as u32) as _;
+            libc::CMSG_DATA(cmsg)
+                .cast::<libc::in6_pktinfo>()
+                .write_unaligned(info);
+        }
+    }
+    unsafe { libc::sendmsg(raw.as_raw_fd(), &raw const msg, 0) };
 }
 
 /// Echo replies from the host, given the guest's echo id and sent to it
@@ -338,37 +395,61 @@ fn echo_replies(
             Err(_) => return Ok(()),
         };
         activity.touch();
-        let packet = &mut buf[..20 + n];
-        let icmp = &mut packet[20..];
-        icmp[4..6].copy_from_slice(&id.to_be_bytes());
-        icmp[2..4].fill(0);
-        let sum = checksum(icmp);
-        icmp[2..4].copy_from_slice(&sum.to_be_bytes());
-        let ip = &mut packet[..20];
-        ip.fill(0);
-        ip[0] = 0x45;
-        ip[2..4].copy_from_slice(&((20 + n) as u16).to_be_bytes());
-        ip[8] = 64;
-        ip[9] = ICMP;
-        ip[12..16].copy_from_slice(&dst.octets());
-        ip[16..20].copy_from_slice(&client.octets());
-        let sum = checksum(ip);
-        ip[10..12].copy_from_slice(&sum.to_be_bytes());
-        let to = sockaddr(SocketAddrV4::new(client, 0));
-        unsafe {
-            libc::sendto(
-                raw.as_raw_fd(),
-                packet.as_ptr().cast(),
-                packet.len(),
-                0,
-                (&raw const to).cast(),
-                SOCKADDR_LEN,
-            )
-        };
+        buf[24..26].copy_from_slice(&id.to_be_bytes());
+        send_echo(&raw, &mut buf, n, dst, client);
     }
 }
 
-fn icmp_echo(vsock_port: u32) -> io::Result<()> {
+/// One echo request from a guest: onto its flow's stream, or a new flow.
+fn echo_request(
+    echoes: &Echoes,
+    key: EchoKey,
+    message: &[u8],
+    vsock_port: u32,
+    raw: &Arc<OwnedFd>,
+) {
+    let (client, dst, _) = key;
+    let mut table = echoes.lock().unwrap();
+    if let Some(echo) = table.get_mut(&key) {
+        echo.activity.touch();
+        if echo.host.write_frame_or_drop(message).is_ok() {
+            return;
+        }
+        table.remove(&key);
+    }
+    let opened = vsock_connect(vsock_port).and_then(|mut host| {
+        host.write_all(&encode(ICMP, SocketAddr::new(dst, 0)))?;
+        host.write_frame_or_drop(message)?;
+        Ok(host)
+    });
+    let opened = opened.and_then(|host| Ok((host.try_clone()?, host)));
+    let (host, back) = match opened {
+        Ok(pair) => pair,
+        Err(err) => {
+            eprintln!("relay: icmp {client} -> {dst}: {err}");
+            return;
+        }
+    };
+    let activity = Arc::new(Activity::default());
+    activity.touch();
+    table.insert(
+        key,
+        Echo {
+            host,
+            activity: activity.clone(),
+        },
+    );
+    drop(table);
+    let (echoes, raw) = (echoes.clone(), raw.clone());
+    thread::spawn(move || {
+        let _ = echo_replies(back, key, activity, raw);
+        if let Some(echo) = echoes.lock().unwrap().remove(&key) {
+            echo.host.shutdown(Shutdown::Both);
+        }
+    });
+}
+
+fn icmp_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
     let requests = unsafe {
         owned(libc::socket(
             libc::AF_INET,
@@ -383,7 +464,6 @@ fn icmp_echo(vsock_port: u32) -> io::Result<()> {
             libc::IPPROTO_RAW,
         ))?
     });
-    let flows: Arc<Mutex<HashMap<EchoKey, Echo>>> = Arc::default();
     let mut buf = vec![0u8; 65536];
     loop {
         let n = unsafe { libc::recv(requests.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
@@ -398,47 +478,114 @@ fn icmp_echo(vsock_port: u32) -> io::Result<()> {
         let client = Ipv4Addr::new(packet[12], packet[13], packet[14], packet[15]);
         let dst = Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
         let id = u16::from_be_bytes([packet[ihl + 4], packet[ihl + 5]]);
-        let key = (client, dst, id);
-        let message = &packet[ihl..];
-        let mut table = flows.lock().unwrap();
-        if let Some(echo) = table.get_mut(&key) {
-            echo.activity.touch();
-            if echo.host.write_frame_or_drop(message).is_ok() {
-                continue;
-            }
-            table.remove(&key);
-        }
-        let opened = vsock_connect(vsock_port).and_then(|mut host| {
-            host.write_all(&encode(ICMP, SocketAddr::V4(SocketAddrV4::new(dst, 0))))?;
-            host.write_frame_or_drop(message)?;
-            Ok(host)
-        });
-        let host = match opened {
-            Ok(host) => host,
-            Err(err) => {
-                eprintln!("relay: icmp {client} -> {dst}: {err}");
-                continue;
-            }
+        let key = (IpAddr::V4(client), IpAddr::V4(dst), id);
+        echo_request(&echoes, key, &packet[ihl..], vsock_port, &raw);
+    }
+}
+
+fn icmp6_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
+    let fd = unsafe {
+        owned(libc::socket(
+            libc::AF_INET6,
+            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+            libc::IPPROTO_ICMPV6,
+        ))?
+    };
+    let mut filter = [u32::MAX; 8];
+    filter[usize::from(ICMP6_ECHO_REQUEST) >> 5] &= !(1 << (ICMP6_ECHO_REQUEST & 31));
+    setsockopt(fd.as_raw_fd(), libc::SOL_ICMPV6, ICMP6_FILTER, &filter)?;
+    setsockopt(
+        fd.as_raw_fd(),
+        libc::SOL_IPV6,
+        libc::IPV6_RECVPKTINFO,
+        &1i32,
+    )?;
+    // The reply's source is the address the guest pinged, not the router's.
+    setsockopt(fd.as_raw_fd(), libc::SOL_IPV6, IPV6_TRANSPARENT, &1i32)?;
+    let raw = Arc::new(fd);
+    let mut buf = vec![0u8; 65536];
+    loop {
+        let mut src: libc::sockaddr_in6 = unsafe { mem::zeroed() };
+        let mut control = [0u64; 8];
+        let mut iov = libc::iovec {
+            iov_base: buf.as_mut_ptr().cast(),
+            iov_len: buf.len(),
         };
-        let activity = Arc::new(Activity::default());
-        activity.touch();
-        let back = host.try_clone()?;
-        table.insert(
-            key,
-            Echo {
-                host,
-                activity: activity.clone(),
-            },
-        );
-        drop(table);
-        let (flows, raw) = (flows.clone(), raw.clone());
+        let mut msg: libc::msghdr = unsafe { mem::zeroed() };
+        msg.msg_name = (&raw mut src).cast();
+        msg.msg_namelen = mem::size_of_val(&src) as libc::socklen_t;
+        msg.msg_iov = &raw mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = mem::size_of_val(&control) as _;
+        let n = unsafe { libc::recvmsg(raw.as_raw_fd(), &raw mut msg, 0) };
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut dst = None;
+        let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
+        while !cmsg.is_null() {
+            let header = unsafe { &*cmsg };
+            if (header.cmsg_level, header.cmsg_type) == (libc::SOL_IPV6, libc::IPV6_PKTINFO) {
+                let info = unsafe {
+                    libc::CMSG_DATA(cmsg)
+                        .cast::<libc::in6_pktinfo>()
+                        .read_unaligned()
+                };
+                dst = Some(Ipv6Addr::from(info.ipi6_addr.s6_addr));
+            }
+            cmsg = unsafe { libc::CMSG_NXTHDR(&raw const msg, cmsg) };
+        }
+        let message = &buf[..n as usize];
+        let Some(dst) = dst else { continue };
+        // Only what the guest sent through the router: the link's own
+        // addresses have no host behind them.
+        if message.len() < 8
+            || message[0] != ICMP6_ECHO_REQUEST
+            || dst.is_multicast()
+            || dst.is_unicast_link_local()
+        {
+            continue;
+        }
+        let client = Ipv6Addr::from(src.sin6_addr.s6_addr);
+        let id = u16::from_be_bytes([message[4], message[5]]);
+        let key = (IpAddr::V6(client), IpAddr::V6(dst), id);
+        echo_request(&echoes, key, message, vsock_port, &raw);
+    }
+}
+
+/// A TCP listener on `addr`, IPv6 only if it is IPv6.
+fn tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
+    let fd = socket(addr, libc::SOCK_STREAM, 0)?;
+    setsockopt(fd.as_raw_fd(), libc::SOL_SOCKET, libc::SO_REUSEADDR, &1i32)?;
+    bind(&fd, addr)?;
+    if unsafe { libc::listen(fd.as_raw_fd(), 1024) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(TcpListener::from(fd))
+}
+
+fn tcp_accept(listener: TcpListener, vsock_port: u32) -> io::Result<()> {
+    for guest in listener.incoming() {
+        let guest = guest?;
         thread::spawn(move || {
-            let _ = echo_replies(back, key, activity, raw);
-            if let Some(echo) = flows.lock().unwrap().remove(&key) {
-                echo.host.shutdown(Shutdown::Both);
+            if let Err(err) = tcp_flow(guest, vsock_port) {
+                eprintln!("relay: {err}");
             }
         });
     }
+    Ok(())
+}
+
+/// Runs `body` on a thread of its own; its error ends the relay, so the
+/// unit restarts it whole.
+fn spawn(what: &'static str, body: impl FnOnce() -> io::Result<()> + Send + 'static) {
+    thread::spawn(move || {
+        if let Err(err) = body() {
+            eprintln!("relay: {what}: {err}");
+            std::process::exit(1);
+        }
+    });
 }
 
 fn main() -> io::Result<()> {
@@ -462,30 +609,19 @@ fn main() -> io::Result<()> {
     if env::var("RELAY_YIELD").is_ok_and(|value| !value.is_empty() && value != "0") {
         vivarium_egress::YIELD_BEFORE_READ.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    thread::spawn(move || {
-        if let Err(err) = inbound(in_port) {
-            eprintln!("relay: inbound: {err}");
-        }
-    });
-    thread::spawn(move || {
-        if let Err(err) = udp_listener(udp, vsock_port) {
-            eprintln!("relay: udp listener: {err}");
-        }
-    });
-    thread::spawn(move || {
-        if let Err(err) = icmp_echo(vsock_port) {
-            eprintln!("relay: icmp: {err}");
-        }
-    });
-    let listener = TcpListener::bind(("0.0.0.0", tcp))?;
-    eprintln!("relay: tcp {tcp}, udp {udp}, icmp echo, to vsock {HOST_CID}:{vsock_port}");
-    for guest in listener.incoming() {
-        let guest = guest?;
-        thread::spawn(move || {
-            if let Err(err) = tcp_flow(guest, vsock_port) {
-                eprintln!("relay: {err}");
-            }
-        });
-    }
-    Ok(())
+    let any4 = |port| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
+    let any6 = |port| SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
+    let echoes = Echoes::default();
+    let (tcp4, tcp6) = (tcp_listener(any4(tcp))?, tcp_listener(any6(tcp))?);
+    spawn("inbound", move || inbound(in_port));
+    spawn("udp", move || udp_listener(any4(udp), vsock_port));
+    spawn("udp6", move || udp_listener(any6(udp), vsock_port));
+    let echoes6 = echoes.clone();
+    spawn("icmp", move || icmp_echo(vsock_port, echoes));
+    spawn("icmp6", move || icmp6_echo(vsock_port, echoes6));
+    spawn("tcp6", move || tcp_accept(tcp6, vsock_port));
+    eprintln!(
+        "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to vsock {HOST_CID}:{vsock_port}"
+    );
+    tcp_accept(tcp4, vsock_port)
 }

@@ -306,6 +306,76 @@ pub fn checksum(data: &[u8]) -> u16 {
     !(sum as u16)
 }
 
+pub fn family(addr: SocketAddr) -> libc::c_int {
+    match addr {
+        SocketAddr::V4(_) => libc::AF_INET,
+        SocketAddr::V6(_) => libc::AF_INET6,
+    }
+}
+
+/// `addr` as the kernel takes it, and its length.
+pub fn sockaddr(addr: SocketAddr) -> (libc::sockaddr_storage, libc::socklen_t) {
+    let mut out: libc::sockaddr_storage = unsafe { mem::zeroed() };
+    let len = match addr {
+        SocketAddr::V4(addr) => {
+            let sin = unsafe { &mut *(&raw mut out).cast::<libc::sockaddr_in>() };
+            sin.sin_family = libc::AF_INET as libc::sa_family_t;
+            sin.sin_port = addr.port().to_be();
+            sin.sin_addr.s_addr = u32::from_ne_bytes(addr.ip().octets());
+            mem::size_of::<libc::sockaddr_in>()
+        }
+        SocketAddr::V6(addr) => {
+            let sin6 = unsafe { &mut *(&raw mut out).cast::<libc::sockaddr_in6>() };
+            sin6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+            sin6.sin6_port = addr.port().to_be();
+            sin6.sin6_addr.s6_addr = addr.ip().octets();
+            sin6.sin6_scope_id = addr.scope_id();
+            mem::size_of::<libc::sockaddr_in6>()
+        }
+    };
+    (out, len as libc::socklen_t)
+}
+
+/// # Safety
+/// `raw` must point at a `sockaddr_in` or a `sockaddr_in6`, as its family says.
+pub unsafe fn from_sockaddr(raw: *const libc::sockaddr) -> io::Result<SocketAddr> {
+    match libc::c_int::from(unsafe { (*raw).sa_family }) {
+        libc::AF_INET => {
+            let sin = unsafe { raw.cast::<libc::sockaddr_in>().read_unaligned() };
+            Ok(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::from(sin.sin_addr.s_addr.to_ne_bytes())),
+                u16::from_be(sin.sin_port),
+            ))
+        }
+        libc::AF_INET6 => {
+            let sin6 = unsafe { raw.cast::<libc::sockaddr_in6>().read_unaligned() };
+            Ok(SocketAddr::V6(std::net::SocketAddrV6::new(
+                Ipv6Addr::from(sin6.sin6_addr.s6_addr),
+                u16::from_be(sin6.sin6_port),
+                0,
+                sin6.sin6_scope_id,
+            )))
+        }
+        family => Err(io::Error::other(format!("address family {family}"))),
+    }
+}
+
+pub fn bind(fd: &OwnedFd, addr: SocketAddr) -> io::Result<()> {
+    let (sa, len) = sockaddr(addr);
+    if unsafe { libc::bind(fd.as_raw_fd(), (&raw const sa).cast(), len) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub fn connect(fd: &OwnedFd, addr: SocketAddr) -> io::Result<()> {
+    let (sa, len) = sockaddr(addr);
+    if unsafe { libc::connect(fd.as_raw_fd(), (&raw const sa).cast(), len) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// # Safety
 /// `fd` must be a socket this process owns and nothing else closes.
 pub unsafe fn owned(fd: i32) -> io::Result<OwnedFd> {
