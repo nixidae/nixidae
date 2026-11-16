@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+pub mod vsock;
+
 pub const ICMP: u8 = 1;
 pub const TCP: u8 = 6;
 pub const UDP: u8 = 17;

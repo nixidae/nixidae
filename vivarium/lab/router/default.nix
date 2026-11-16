@@ -11,8 +11,9 @@ let
   vivarium = import ../.. { inherit sources pkgs; };
 
   egressPackage =
-    rustPlatform:
+    rustPlatform: buildFeatures:
     rustPlatform.buildRustPackage {
+      inherit buildFeatures;
       pname = "vivarium-egress";
       version = "0.0.0";
       src = lib.fileset.toSource {
@@ -28,7 +29,7 @@ let
 
   # The router's relay and the client's iperf3, static: the initrd has
   # no store.
-  relay = egressPackage static.rustPlatform;
+  relay = egressPackage static.rustPlatform [ ];
 
   libkrun = pkgs.callPackage ../../pkgs/libkrun/package.nix { };
   krunKernel = pkgs.linuxPackages.kernel;
@@ -52,18 +53,25 @@ let
 in
 rec {
   inherit relay;
-  egress = egressPackage pkgs.rustPlatform;
+  # On Linux it also serves a UML router's vsock device itself
+  # (`vhost-user:SOCKET`), so the stock kernel works.
+  egress = egressPackage pkgs.rustPlatform (
+    lib.optional pkgs.stdenv.hostPlatform.isLinux "vhost-user"
+  );
 
-  # The router options in pkgs/uml-kernel, plus ./vsock-linear-tx.patch.
-  # Build it with the ccache flags in docs/howto.md.
+  # The router options in pkgs/uml-kernel. Build it with the ccache flags
+  # in docs/howto.md.
+  kernelStock = vivarium.internal.umlKernelCcache;
+
+  # kernelStock plus ./vsock-linear-tx.patch, for vhost-device-vsock.
   kernel = vivarium.internal.umlKernelCcache.overrideAttrs (old: {
     patches = old.patches ++ [ ./vsock-linear-tx.patch ];
   });
 
-  # rust-vmm's main: 0.3.0 reads a TX packet's data from one descriptor
-  # (virtio-vsock 0.10), and Linux 7.2 sends a large write as several,
-  # so a 64 KiB write stalls with `DescriptorLengthTooSmall`. Main reads
-  # any chain (virtio-vsock 0.12).
+  # rust-vmm's main. Its virtio-vsock 0.12, like 0.10 in 0.3.0, reads a
+  # TX packet's data from one descriptor (`from_tx_virtq_chain`), and
+  # Linux 7.2 sends a large write as several, so a 64 KiB write stalls
+  # with `DescriptorLengthTooSmall` unless the guest runs `kernel`.
   vhost-device-vsock = pkgs.vhost-device-vsock.overrideAttrs (old: rec {
     version = "0.3.0-unstable-2026-10-29";
     src = pkgs.fetchFromGitHub {

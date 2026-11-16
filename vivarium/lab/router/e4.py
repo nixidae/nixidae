@@ -5,6 +5,8 @@ client (UML) --vec0 socketpair--> router (UML): nft redirect, relay
   --vsock (virtio_uml, vhost-device-vsock)--> egress (host) --> iperf3 -s
 
     lab/router/e4.py KERNEL INITRD VHOST_DEVICE_VSOCK EGRESS IPERF3 [client kernel args...]
+
+VHOST_DEVICE_VSOCK `-` makes the egress serve the vsock device itself.
 """
 
 from __future__ import annotations
@@ -65,10 +67,16 @@ def main() -> None:
     device = run / "vsock.sock"
     uds = run / "uds"
     procs: list[subprocess.Popen[bytes]] = []
+    names = ["iperf3", "egress"]
     try:
         procs.append(subprocess.Popen([str(iperf3), "-s", "-B", "127.0.0.1", "-1"], stdout=subprocess.DEVNULL))
-        procs.append(subprocess.Popen([str(egress), f"{uds}_{VSOCK_PORT}", "10.0.2.2"]))
-        procs.append(subprocess.Popen([str(vhost), "--vm", f"guest-cid=3,socket={device},uds-path={uds}"]))
+        if str(vhost) == "-":
+            procs.append(subprocess.Popen([str(egress), f"vhost-user:{device}", "10.0.2.2"]))
+        else:
+            procs.append(subprocess.Popen([str(egress), f"{uds}_{VSOCK_PORT}", "10.0.2.2"]))
+            procs.append(subprocess.Popen([str(vhost), "--vm", f"guest-cid=3,socket={device},uds-path={uds}"]))
+            names.append("vhost")
+        names.append("router")
         wait_for(device)
         router_end, client_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
         router = subprocess.Popen(
@@ -100,13 +108,15 @@ def main() -> None:
                 print(f"[client] {line}")
         client_cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
         print(f"CPU s: client {client_cpu.ru_utime + client_cpu.ru_stime:.1f}", end="")
-        for name, proc in zip(("iperf3", "egress", "vhost", "router"), procs, strict=True):
+        for name, proc in zip(names, procs, strict=True):
             print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
         print()
     finally:
         for proc in reversed(procs):
             proc.kill()
             proc.wait()
+            # The egress prints its device counters when the router goes.
+            time.sleep(0.2)
 
 
 if __name__ == "__main__":

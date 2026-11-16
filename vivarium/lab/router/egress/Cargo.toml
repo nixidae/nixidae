@@ -8,6 +8,26 @@ description = "The router lab: a relay in the router guest and the egress on the
 [dependencies]
 libc = "0.2"
 
+# The vhost-user vsock device for a UML router. The static relay and a
+# macOS egress build without it.
+[target.'cfg(target_os = "linux")'.dependencies]
+vhost = { version = "0.18", features = ["vhost-user-backend"], optional = true }
+vhost-user-backend = { version = "0.24", optional = true }
+virtio-bindings = { version = "0.2.5", optional = true }
+virtio-queue = { version = "0.18", optional = true }
+vm-memory = { version = "0.18.0", features = ["backend-mmap", "backend-atomic"], optional = true }
+vmm-sys-util = { version = "0.15", optional = true }
+
+[features]
+vhost-user = [
+  "dep:vhost",
+  "dep:vhost-user-backend",
+  "dep:virtio-bindings",
+  "dep:virtio-queue",
+  "dep:vm-memory",
+  "dep:vmm-sys-util",
+]
+
 [[bin]]
 name = "relay"
 path = "src/bin/relay.rs"

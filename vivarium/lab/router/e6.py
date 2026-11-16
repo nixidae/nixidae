@@ -4,6 +4,10 @@ the router: host port, egress, vsock (libkrun listens on a unix socket),
 relay, guest.
 
     lab/router/e6.py LAUNCHER VMLINUX KRUN_INITRD EGRESS IPERF3 [iperf3 client args...]
+
+LAUNCHER `uml` runs both guests under UML instead: VMLINUX is the UML
+kernel, KRUN_INITRD the UML initrd, and the egress serves the router's
+vsock device and opens the forward's connection through it.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import tempfile
 from pathlib import Path
 
 from e2 import VSOCK_PORT, krun
-from e4 import wait_for
+from e4 import uml, wait_for
 
 IN_PORT = 5001
 HOST_PORT = 5202
@@ -39,13 +43,24 @@ def main() -> None:
     run = Path(tempfile.mkdtemp(prefix="e6-"))
     uds = run / f"uds_{VSOCK_PORT}"
     inbound = run / f"in_{IN_PORT}"
+    device = run / "vsock.sock"
+    on_uml = str(launcher) == "uml"
     procs: list[subprocess.Popen[bytes]] = []
     try:
-        procs.append(subprocess.Popen([str(egress), str(uds), "10.0.2.2", f"{HOST_PORT}=10.0.2.15:5201@{inbound}"]))
-        wait_for(uds)
+        if on_uml:
+            listen, forward = f"vhost-user:{device}", f"vsock:{IN_PORT}"
+        else:
+            listen, forward = str(uds), str(inbound)
+        procs.append(subprocess.Popen([str(egress), listen, "10.0.2.2", f"{HOST_PORT}=10.0.2.15:5201@{forward}"]))
+        wait_for(device if on_uml else uds)
         router_end, guest_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
-        router = subprocess.Popen(
-            krun(
+        if on_uml:
+            router_argv = uml(
+                vmlinux, initrd, run, "router", router_end.fileno(), "lab=router", f"virtio_uml.device={device}:19"
+            )
+            guest_argv = uml(vmlinux, initrd, run, "guest", guest_end.fileno(), "lab=server")
+        else:
+            router_argv = krun(
                 launcher,
                 vmlinux,
                 initrd,
@@ -56,7 +71,10 @@ def main() -> None:
                 str(uds),
                 str(IN_PORT),
                 str(inbound),
-            ),
+            )
+            guest_argv = krun(launcher, vmlinux, initrd, 2, guest_end.fileno(), "lab=server")
+        router = subprocess.Popen(
+            router_argv,
             pass_fds=(router_end.fileno(),),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -65,7 +83,7 @@ def main() -> None:
         procs.append(router)
         wait_line(router, "router ready", "router")
         guest = subprocess.Popen(
-            krun(launcher, vmlinux, initrd, 2, guest_end.fileno(), "lab=server"),
+            guest_argv,
             pass_fds=(guest_end.fileno(),),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

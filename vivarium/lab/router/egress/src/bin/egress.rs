@@ -13,7 +13,12 @@ use std::env;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+use std::sync::Arc;
 use std::thread;
+
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+use vivarium_egress::vsock;
 
 use vivarium_egress::{
     ICMP, REQUEST_LEN, Stream, TCP, UDP, decode, encode, owned, pump, splice_both,
@@ -63,8 +68,27 @@ fn flow(mut relay: UnixStream, gateway: Option<IpAddr>) -> io::Result<()> {
     splice_both(Stream::from(relay), Stream::from(outside))
 }
 
-fn forward(client: TcpStream, guest: std::net::SocketAddr, router: &str) -> io::Result<()> {
-    let mut relay = UnixStream::connect(router)?;
+/// How the egress reaches the router's relay for a forward.
+#[derive(Clone)]
+enum Router {
+    /// libkrun listens on this path for connections into the guest.
+    Path(String),
+    #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+    Vsock(Arc<vsock::Device>, u32),
+}
+
+impl Router {
+    fn connect(&self) -> io::Result<UnixStream> {
+        match self {
+            Router::Path(path) => UnixStream::connect(path),
+            #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+            Router::Vsock(device, port) => device.connect(*port),
+        }
+    }
+}
+
+fn forward(client: TcpStream, guest: std::net::SocketAddr, router: &Router) -> io::Result<()> {
+    let mut relay = router.connect()?;
     relay.write_all(&encode(TCP, guest))?;
     let mut status = [0u8; 1];
     relay.read_exact(&mut status)?;
@@ -74,18 +98,38 @@ fn forward(client: TcpStream, guest: std::net::SocketAddr, router: &str) -> io::
     splice_both(Stream::from(client), Stream::from(relay))
 }
 
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+fn device(gateway: Option<IpAddr>) -> io::Result<Arc<vsock::Device>> {
+    // Every host port serves egress flows; the relay picks one.
+    let service: vsock::Service = Arc::new(move |relay| {
+        if let Err(err) = flow(relay, gateway) {
+            eprintln!("egress: {err}");
+        }
+    });
+    vsock::Device::new(GUEST_CID, Default::default(), Some(service))
+}
+
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+const GUEST_CID: u64 = 3;
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    let path = args
-        .get(1)
-        .ok_or_else(|| io::Error::other("usage: egress LISTEN_PATH [GATEWAY]"))?;
+    let path = args.get(1).ok_or_else(|| {
+        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]]")
+    })?;
     let gateway: Option<IpAddr> = args
         .get(2)
         .map(|a| a.parse())
         .transpose()
         .map_err(io::Error::other)?;
-    // FORWARD: HOST_PORT=GUEST_ADDR:PORT@ROUTER_PATH, where the router
-    // listens on ROUTER_PATH for connections to its relay.
+    // vhost-user:SOCKET serves the router's vsock device on SOCKET.
+    #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+    let device = match path.strip_prefix("vhost-user:") {
+        Some(socket) => Some((device(gateway)?, socket.to_owned())),
+        None => None,
+    };
+    // FORWARD: HOST_PORT=GUEST_ADDR:PORT@ROUTER, where ROUTER is the
+    // path libkrun listens on for the relay, or vsock:PORT on the device.
     for spec in &args[3.min(args.len())..] {
         let (port, rest) = spec
             .split_once('=')
@@ -96,7 +140,18 @@ fn main() -> io::Result<()> {
         let guest: std::net::SocketAddr = guest.parse().map_err(io::Error::other)?;
         let outside =
             TcpListener::bind(("127.0.0.1", port.parse::<u16>().map_err(io::Error::other)?))?;
-        let router = router.to_owned();
+        let router = match router.strip_prefix("vsock:") {
+            #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+            Some(port) => {
+                let (device, _) = device
+                    .as_ref()
+                    .ok_or_else(|| io::Error::other("forward: vsock: needs vhost-user:"))?;
+                Router::Vsock(device.clone(), port.parse().map_err(io::Error::other)?)
+            }
+            #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
+            Some(_) => return Err(io::Error::other("forward: built without vhost-user")),
+            None => Router::Path(router.to_owned()),
+        };
         thread::spawn(move || {
             for client in outside.incoming().flatten() {
                 let router = router.clone();
@@ -107,6 +162,10 @@ fn main() -> io::Result<()> {
                 });
             }
         });
+    }
+    #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+    if let Some((device, socket)) = device {
+        return device.run(std::path::Path::new(&socket));
     }
     let listener = UnixListener::bind(path)?;
     for relay in listener.incoming() {
