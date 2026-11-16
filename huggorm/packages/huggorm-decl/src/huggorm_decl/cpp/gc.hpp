@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <mutex>
 
+#include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -82,6 +83,11 @@ inline void gc_boot()
     // The syscall, not `::gettid`: glibc wraps it from 2.30, and the
     // manylinux wheel builds against 2.28.
     gc_owner().store(::syscall(SYS_gettid), std::memory_order_release);
+#elif defined(__APPLE__)
+    // What Python's `threading.get_native_id` reads on darwin.
+    std::uint64_t tid = 0;
+    pthread_threadid_np(nullptr, &tid);
+    gc_owner().store(static_cast<std::int64_t>(tid), std::memory_order_release);
 #endif
 }
 
