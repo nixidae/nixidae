@@ -26,6 +26,9 @@ use vm_memory::{
     GuestAddressSpace, GuestMemory, GuestMemoryAtomic, GuestMemoryBackend, GuestMemoryMmap,
 };
 use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+use vmm_sys_util::event::{
+    EventConsumer, EventFlag, EventNotifier, new_event_consumer_and_notifier,
+};
 use vmm_sys_util::eventfd::{EFD_NONBLOCK, EventFd};
 
 type Mem = GuestMemoryAtomic<GuestMemoryMmap>;
@@ -162,6 +165,7 @@ struct Stats {
     from_guest: [u64; 8],
     to_guest: [u64; 8],
     rx_bytes: u64,
+    spilled: u64,
 }
 
 struct State {
@@ -251,12 +255,13 @@ impl Device {
             let mut st = self.lock();
             eprintln!(
                 "egress: vsock: frontend gone ({result:?}); tx chains {}, with more than two descriptors {}; \
-                 ops from the guest {:?}, to the guest {:?} (by op 0-7); rx data bytes {}",
+                 ops from the guest {:?}, to the guest {:?} (by op 0-7); rx data bytes {}; spilled bytes {}",
                 st.stats.tx_chains,
                 st.stats.tx_multi,
                 st.stats.from_guest,
                 st.stats.to_guest,
-                st.stats.rx_bytes
+                st.stats.rx_bytes,
+                st.stats.spilled
             );
             st.reset();
         }
@@ -431,7 +436,11 @@ impl State {
                 let err = io::Error::last_os_error();
                 match err.kind() {
                     io::ErrorKind::Interrupted => continue,
-                    io::ErrorKind::WouldBlock => return,
+                    io::ErrorKind::WouldBlock => {
+                        conn.spill.drain(..conn.spill_at);
+                        conn.spill_at = 0;
+                        return self.queue_credit(id);
+                    }
                     _ => return self.rst(id),
                 }
             }
@@ -475,6 +484,7 @@ impl State {
             }
         }
         if written < total {
+            self.stats.spilled += (total - written) as u64;
             let mut rest = payload.to_vec();
             advance(&mut rest, written);
             for v in &rest {
@@ -797,6 +807,12 @@ impl VhostUserBackend for Device {
     fn update_memory(&self, mem: Mem) -> io::Result<()> {
         self.lock().mem = Some(mem);
         Ok(())
+    }
+
+    /// A fresh pair for each frontend: `serve` signals it when the
+    /// frontend goes, and the worker thread and its vrings end with it.
+    fn exit_event(&self, _thread_index: usize) -> Option<(EventConsumer, EventNotifier)> {
+        new_event_consumer_and_notifier(EventFlag::NONBLOCK).ok()
     }
 
     fn get_config(&self, offset: u32, size: u32) -> Vec<u8> {
