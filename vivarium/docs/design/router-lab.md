@@ -39,6 +39,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E5 | UDP and ICMP echo through the path | works on krun: ping, UDP echo, iperf3 `-u` both ways; negative control holds. Below |
 | E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out; on UML (E7) 12.3 and 15.3. Below |
 | E7 | our own vhost-user vsock device in the egress, UML router on the stock kernel | works; one flow 13.2-15.3/10.9-12.7 Gbit/s at MTU 65000. Below |
+| E8 | what limits the leg into the guest | the guest's 256 KiB vsock window, not libkrun's muxer; on UML, wakeup preemption. Below |
 
 ## E1, 2026-11-16
 
@@ -292,7 +293,58 @@ back:
   - The device's refill: a flow that joins the send queue only with
     half the guest's window free gives the same ratio and rate.
 
-  So the guest's relay reads per packet. Why is not explained yet.
+  So the guest's relay reads per packet. E8 explains why.
+
+## E8, 2026-11-16
+
+The leg into the guest. The router's `/init` prints each CPU's
+`/proc/stat` row, its virtio interrupt rows and every busy thread;
+`e2.py` splits each libkrun vCPU thread into guest time, userspace exits
+and KVM. MTU 65000, iperf3 `-l 128K`, one flow unless noted.
+
+libkrun's vsock muxer is not the limit on the krun router:
+
+- The muxer thread uses 4.0 s of a 10 s run at 9.8 Gbit/s.
+- Four router vCPUs give 8.8-9.0 Gbit/s, two give 9.9-10.2.
+- libkrun handles exits in userspace for 0.4-0.7 s per vCPU.
+- The guest's CPU1 is about 90% busy: the relay (4.6 s), the
+  `virtio_vsock` kworkers (about 2 s) and hard IRQ (2.6 s).
+
+The guest's vsock receive window is a limit. Linux gives a vsock socket
+256 KiB, and that is the credit the guest gives the host. The relay now
+sets 4 MiB (`vsockbuf=` on the router's kernel line). Pairs back to
+back, host load about 10:
+
+| path | 256 KiB | 4 MiB |
+| --- | --- | --- |
+| krun, host to guest | 7.7-9.6 Gbit/s | 10.9-12.1 Gbit/s |
+| krun, guest to host | 13.8-14.3 Gbit/s | 18.1-18.6 Gbit/s |
+| krun, eight flows into the guest | 11.6 Gbit/s | 13.3 Gbit/s |
+| UML, host to guest | 9.7 Gbit/s | 13.1 Gbit/s |
+
+16 MiB gives no more than 4 MiB. The krun router does not collapse with
+eight flows; with them its muxer thread uses 9.5 s of 10.
+
+The collapse into a UML router's guest (E7) is the guest's scheduler.
+UML is uniprocessor. Each packet the `virtio_vsock` kworker queues wakes
+a relay thread, and the relay thread preempts the kworker. It reads the
+one packet, empties the socket, and Linux then sends a credit update. A
+relay under `SCHED_BATCH` does not preempt the thread that woke it
+(`batch=1` on the router's kernel line):
+
+| UML router, 4 MiB window | default | `SCHED_BATCH` |
+| --- | --- | --- |
+| eight flows into the guest | 1.23-1.33 Gbit/s | 10.1-10.7 Gbit/s |
+| credit updates per packet, eight flows | 0.80-0.87 | 0.03 |
+| one flow into the guest | 13.1 Gbit/s | 13.9 Gbit/s |
+| one flow out of the guest | 14.3-15.7 Gbit/s | 12.6-13.8 Gbit/s |
+| eight flows out of the guest | 10.3 Gbit/s | 12.0 Gbit/s |
+
+- The cost: about 12% on one flow out of the guest.
+- One run into the guest with `SCHED_BATCH` gave 3.2 Gbit/s, against
+  7.4 for its partner at host load 13. It is not explained.
+- Not measured: latency. A batch thread waits for the running thread to
+  sleep or for the tick (10 ms at HZ 100) before it runs.
 
 ## Also measured
 
@@ -307,7 +359,8 @@ back:
   | UML guest, own passt | 20.3 Gbit/s | 20.4-20.6 Gbit/s |
 
   The router path is about 70% of passt out of the guest and half of
-  passt into it. Into the guest, libkrun's vsock muxer is the limit (E2).
+  passt into it. Into the guest, the guest's 256 KiB vsock window is a
+  limit (E8).
 - Eight flows at once (`streams=8`, iperf3 `-P 8`), MTU 65000, host
   load 7-10:
 
@@ -334,7 +387,9 @@ back:
 - A datagram that reaches the UDP listener while its flow's own socket
   is being set up is lost.
 - E5 on the UML router: only TCP and the forward are measured there.
-- Several flows into a UML router's guest collapse (E7).
+- Several flows into a UML router's guest collapse (E7). `SCHED_BATCH`
+  lifts them, but costs about 12% out of the guest, and its latency is
+  not measured (E8).
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
