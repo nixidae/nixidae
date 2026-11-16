@@ -409,12 +409,15 @@ lib.mkIf
             lib.concatMapStringsSep " " (index: "52:54:00:12:00:${hex index}") (lib.range 0 255)
           else
             "52:54:00:12:00:${hex cfg.index}";
-        linkConfig.Name = "vec0";
+        linkConfig = {
+          Name = "vec0";
+        }
+        // lib.optionalAttrs krun { MTUBytes = toString cfg.mtu; };
       };
     }
     # QEMU hands each segment interface its MTU as `host_mtu`. libkrun has
-    # no such field, so the guest sets it; with no `VIRTIO_NET_F_MTU` the
-    # driver allows up to 65535.
+    # no such field, so the guest sets it, vec0's above too; with no
+    # `VIRTIO_NET_F_MTU` the driver allows up to 65535.
     // lib.optionalAttrs krun (
       lib.listToAttrs (
         map (nic: lib.nameValuePair "10-${nic.name}" { linkConfig.MTUBytes = toString nic.mtu; }) cfg.nics
