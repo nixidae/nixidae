@@ -127,22 +127,41 @@ guest's uplink stays at MTU 1500 whatever `vivarium.mtu` says
   path connects out of the guest. Same bytes, other direction of setup.
 - The router boots to "router ready" in 1.2-1.5 s.
 
-Router vCPUs at MTU 65000 (`E2_CPUS`):
+A UML client (vivarium's default backend) behind the krun router, same
+runs:
 
-| vCPUs | guest to host | host to guest |
+| MTU | guest to host | host to guest |
 | --- | --- | --- |
-| 1 | 11.9 Gbit/s | 7.0 Gbit/s |
-| 2 | 16.7 Gbit/s | 10.1 Gbit/s |
-| 4 | 19.4 Gbit/s | 9.1 Gbit/s |
+| 65000 | 14.7 Gbit/s | 10.4 Gbit/s |
+| 1500 | 6.29 Gbit/s | 3.94 Gbit/s |
 
-- Every vCPU thread reads near 100% under load, also with 4. KVM's
-  `halt_poll_ns` is 200000 here, so a vCPU that waits polls, and its
-  CPU time says little. Idle, the router uses 0.02 s per 10 s.
-- Guest to host scales with vCPUs. Host to guest does not: libkrun's
-  `vsock muxer` thread (4-6 s per run) and the `virtio-net work` thread
-  are each one thread.
+Against UML with its own passt (E4): 18.3/16.6 at 65000, 1.7/2.7 at 1500.
 
-So the shape holds on krun: some Gbit/s are reached with room to spare,
-and one vCPU already beats the UML router.
+Router vCPUs at MTU 65000 (`E2_CPUS`). "Busy" is the router's own
+`/proc/stat` (`e2.py` prints it), over about 12 s of samples that hold
+the 10 s run:
+
+| vCPUs | guest to host | host to guest | router busy |
+| --- | --- | --- | --- |
+| 1 | 11.4-12.0 Gbit/s | 7.0-7.1 Gbit/s | 79-82% of 1 |
+| 2 | 16.1-16.7 Gbit/s | 9.8-10.1 Gbit/s | 60% of 2 |
+| 4 | 18.3-19.4 Gbit/s | 8.9-9.1 Gbit/s | 41% of 4 |
+
+- On the host every vCPU thread reads near 100% under load, also with
+  4. That is KVM's halt polling (`halt_poll_ns` 200000 here): the guest
+  is idle for part of that time. Idle, the router uses 0.02 s per 10 s.
+- With 1 vCPU the router is the limit. With 2 or more it is not.
+- Host to guest stays near 10 Gbit/s while the guest has idle CPU. The
+  limit is in libkrun: its `vsock muxer` thread (4-6 s per run) and its
+  `virtio-net work` thread are one thread each.
+
+So the shape holds on krun: some Gbit/s with room to spare, and one
+vCPU already beats the UML router.
+
+Without `/dev/kvm` (a Nix sandbox without KVM, CI runners without it)
+the router is UML, and E4 holds: at MTU 65000 it is 3-12 times slower
+than passt. A router design that replaces passt everywhere must either
+accept that, keep passt for runs without KVM, or make the UML path
+faster (our own vhost-user vsock backend, E1).
 
 Next: E5, UDP and ICMP through the same router.

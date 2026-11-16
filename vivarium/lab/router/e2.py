@@ -18,8 +18,10 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
+from typing import IO
 
 from e4 import tree_cpu, uml, wait_for
 
@@ -49,6 +51,26 @@ def thread_cpu(pid: int) -> list[str]:
         seconds = (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
         lines.append(f"{(task / 'comm').read_text().strip()} {seconds:.1f}")
     return lines
+
+
+def collect_stats(stream: IO[bytes], stats: list[list[int]]) -> None:
+    """The router's `lab: stat cpu ...` lines: /proc/stat jiffies."""
+    for line in stream:
+        text = line.decode(errors="replace")
+        if "lab: stat cpu " in text:
+            stats.append([int(field) for field in text.split("lab: stat cpu ", 1)[1].split()])
+
+
+def guest_busy(stats: list[list[int]]) -> str:
+    """Busy CPU seconds inside the router over the run: halt polling not counted."""
+    if len(stats) < 2:
+        return "no samples"
+    first, last = stats[0], stats[-1]
+    delta = [b - a for a, b in zip(first, last, strict=False)]
+    idle = delta[3] + delta[4]
+    busy = sum(delta[:8]) - idle
+    # USER_HZ is 100 in every Linux build.
+    return f"{busy / 100:.1f} s busy, {idle / 100:.1f} s idle, over {len(stats) - 1} samples 2 s apart"
 
 
 def main() -> None:
@@ -91,6 +113,8 @@ def main() -> None:
                 break
         else:
             raise RuntimeError("router exited before it was ready")
+        stats: list[list[int]] = []
+        threading.Thread(target=collect_stats, args=(router.stdout, stats), daemon=True).start()
         client_spec = os.environ.get("E2_CLIENT", "")
         if client_spec.startswith("uml:"):
             _, kernel, uml_initrd = client_spec.split(":")
@@ -116,6 +140,7 @@ def main() -> None:
             print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
         print()
         print("router threads:", ", ".join(thread_cpu(router.pid)))
+        print(f"router guest busy: {guest_busy(stats)}")
     finally:
         for proc in reversed(procs):
             proc.kill()

@@ -44,8 +44,9 @@ case "$lab" in
     nft -f /etc/router.nft
     relay 9000 5000 &
     echo "lab: router ready"
-    # Runs until the host kills it.
-    while true; do sleep 3600; done
+    # Runs until the host kills it. The guest's own CPU counters: on KVM
+    # the host's per-thread time includes halt polling.
+    while true; do read -r stat < /proc/stat; echo "lab: stat $stat"; sleep 2; done
     ;;
   client)
     # E4: a guest behind the router. 10.0.2.2 is the host's loopback.
