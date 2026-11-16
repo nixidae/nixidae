@@ -1,0 +1,88 @@
+# GENERATED FILE -- do not edit by hand.
+# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update
+defaults:
+  run:
+    working-directory: pynixd
+jobs:
+  orphan:
+    env:
+      TAG: ${{ inputs.recheck || github.run_id }}
+    if: ${{ inputs.recheck == '' }}
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - name: Hand the GitHub Actions cache token to pynixd
+      uses: actions/github-script@main
+      with:
+        script: |-
+          const names = ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2', 'ACTIONS_CACHE_MODE'];
+          const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));
+          require('fs').writeFileSync(`${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });
+    - name: Probe
+      run: python3 ci/gha_cache_probe.py orphan "$TAG"
+    timeout-minutes: 15
+  orphan-later:
+    env:
+      TAG: ${{ inputs.recheck || github.run_id }}
+    if: ${{ !cancelled() }}
+    needs:
+    - orphan
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - name: Hand the GitHub Actions cache token to pynixd
+      uses: actions/github-script@main
+      with:
+        script: |-
+          const names = ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2', 'ACTIONS_CACHE_MODE'];
+          const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));
+          require('fs').writeFileSync(`${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });
+    - name: Probe
+      run: python3 ci/gha_cache_probe.py orphan-check "$TAG"
+    timeout-minutes: 15
+  reads:
+    env:
+      TAG: ${{ inputs.recheck || github.run_id }}
+    if: ${{ inputs.recheck == '' }}
+    needs:
+    - orphan-later
+    runs-on: ubuntu-latest
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - name: Hand the GitHub Actions cache token to pynixd
+      uses: actions/github-script@main
+      with:
+        script: |-
+          const names = ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2', 'ACTIONS_CACHE_MODE'];
+          const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));
+          require('fs').writeFileSync(`${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });
+    - name: Probe
+      run: python3 ci/gha_cache_probe.py reads "$TAG"
+    timeout-minutes: 15
+name: 'pynixd: gha-cache-probe'
+'on':
+  workflow_dispatch:
+    inputs:
+      recheck:
+        default: ''
+        description: 'An earlier run''s tag: only ask about its unfinalized entries'
+        required: false
