@@ -39,7 +39,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E5 | UDP and ICMP echo through the path | works on krun: ping, UDP echo, iperf3 `-u` both ways; negative control holds. Below |
 | E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out; on UML (E7) 12.3 and 15.3. Below |
 | E7 | our own vhost-user vsock device in the egress, UML router on the stock kernel | works; one flow 13.2-15.3/10.9-12.7 Gbit/s at MTU 65000. Below |
-| E8 | what limits the leg into the guest | the guest's 256 KiB vsock window, not libkrun's muxer; on UML, wakeup preemption. Below |
+| E8 | what limits the leg into the guest | the guest's 256 KiB vsock window, not libkrun's muxer; on UML, wakeup preemption, which the relay's yield fixes. Below |
 
 ## E1, 2026-11-16
 
@@ -354,8 +354,28 @@ relay under `SCHED_BATCH` does not preempt the thread that woke it
 
   Idle pings average 1.1-2.5 ms in all runs. Under this load
   `SCHED_BATCH` collapsed once anyway, with worse latency than the
-  default. So it is not a fix. A relay that serves every flow from
-  one thread, or a guest scheduler setting, are the next things to try.
+  default. So it is not a fix.
+- Nice 19 for the relay lifts eight flows only from 1.0 to 1.4-1.5
+  Gbit/s. UML has no lazy preemption (`ARCH_HAS_PREEMPT_LAZY`).
+- The fix: the relay calls `sched_yield()` before a read when its last
+  read was under 64 KiB. The kworker then queues the rest of its batch
+  first, and the read takes many packets. A yield before every read
+  cost one flow into the guest 15-30%. `yield=0` turns it off. Pairs
+  back to back, host load 7-12, two rounds:
+
+  | UML router | no yield | yield after a short read |
+  | --- | --- | --- |
+  | one flow into the guest | 13.0, 14.8 Gbit/s | 13.4, 14.8 Gbit/s |
+  | eight flows into the guest | 1.30, 1.15 Gbit/s | 7.6, 9.1 Gbit/s |
+  | one flow out of the guest | 16.6, 15.0 Gbit/s | 15.5, 16.4 Gbit/s |
+  | eight flows out of the guest | 12.6, 7.5 Gbit/s | 12.6, 8.1 Gbit/s |
+  | busy ping avg, eight flows in | 4.6, 6.7 ms | 2.2, 1.5 ms |
+
+  On the krun router at host load 14-18 it costs nothing: one flow in
+  8.9-9.9 Gbit/s against 5.9-7.8, out 16.9-18.2 against 14.4-17.3,
+  eight flows in 8.4-14.1 per second against 10.7-13.1.
+- The lab's per-thread listing (`tasks=1`) is opt-in: on UML the walk
+  of `/proc` costs `init` 1.7-3.1 s of CPU in a 10 s run.
 
 ## Also measured
 
@@ -398,9 +418,8 @@ relay under `SCHED_BATCH` does not preempt the thread that woke it
 - A datagram that reaches the UDP listener while its flow's own socket
   is being set up is lost.
 - E5 on the UML router: only TCP and the forward are measured there.
-- Several flows into a UML router's guest collapse (E7). `SCHED_BATCH`
-  lifts them in most runs, but not reliably under host load, and costs
-  about 12% out of the guest (E8).
+- Several flows into a UML router's guest: 7.6-9.1 Gbit/s with the
+  relay's yield (E8), against 13-15 for one flow.
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
