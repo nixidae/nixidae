@@ -416,8 +416,9 @@ def mappings(rule: Rule, start: int) -> list[Mapping]:
         # Below `start` nothing binds: passt tries and skips, this skips.
         runs += [(low, high, low, True) for low, high in _subtract(max(start, 1), 65535, holes)]
         if remap:
-            # A base range in passt's spec, so a port that will not bind is fatal.
-            runs.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1, 1, False))
+            # Weak, unlike passt's base range here: a host with a kubelet
+            # on *:10250 would otherwise refuse every wide rule.
+            runs.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1, 1, True))
     return [
         Mapping(protocol, rule.address, first, last, guest, weak)
         for protocol in rule.protocols

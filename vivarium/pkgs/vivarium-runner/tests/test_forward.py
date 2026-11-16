@@ -109,7 +109,7 @@ def test_the_egress_binds_where_reachable_points(monkeypatch: pytest.MonkeyPatch
     assert all(a[1] < b[0] for a, b in zip(spans, spans[1:], strict=False)), "no host port is bound twice"
 
 
-def test_a_wide_rule_is_weak_and_the_remap_strict(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_wide_rule_is_weak_remap_included(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(forward, "ephemeral_range", lambda: (32768, 60999))
     rule = Rule(address="127.0.0.2", protocols=("tcp", "udp"))
     args = forward.egress_args([rule], "10.0.2.15", "vsock:5001", start=1024)
@@ -120,7 +120,7 @@ def test_a_wide_rule_is_weak_and_the_remap_strict(monkeypatch: pytest.MonkeyPatc
             f"~{proto}/127.0.0.2:1024-10000=10.0.2.15:1024@vsock:5001",
             f"~{proto}/127.0.0.2:11024-32767=10.0.2.15:11024@vsock:5001",
             f"~{proto}/127.0.0.2:61000-65535=10.0.2.15:61000@vsock:5001",
-            f"{proto}/127.0.0.2:10001-11023=10.0.2.15:1@vsock:5001",
+            f"~{proto}/127.0.0.2:10001-11023=10.0.2.15:1@vsock:5001",
         )
     ]
 
