@@ -195,7 +195,8 @@ rec {
     /*
       Install pynixd as the machine's only Nix daemon: nixidae/nixidae#1365.
 
-      `tarball` is the directory that holds `pynixd-<system>.tar.zst`, a URL
+      `tarball` is the directory that holds `pynixd-<system>.tar.zst`
+      (`.tar.xz` on darwin), a URL
       that curl reads (`file://` too). The tarball unpacks into /nix, and
       its installer starts pynixd under systemd, or launchd on macOS, with
       no nix-daemon. The
@@ -246,13 +247,13 @@ rec {
           (and can exit non-zero when it did), and `enableOwnership` makes the
           volume keep the owners that build users need. The installer is in
           the tarball, so this step makes the volume before the unpack.
-          `zstd -dc`, not `tar --zstd`: macOS's bsdtar may lack it.
-          `macosVolume` names the format, `diskutil`'s personality: `APFS`
+          The darwin tarball is xz, which macOS's own tar reads; the Linux one
+          is zstd. `macosVolume` names the format, `diskutil`'s personality: `APFS`
           or `Case-sensitive APFS`. A /nix that exists stays as it is.
         */
         run = ''
           if [ "$RUNNER_OS" = macOS ]; then
-            system=aarch64-darwin
+            tarball=pynixd-aarch64-darwin.tar.xz unpack="tar -x"
             case "$PYNIXD_MACOS_VOLUME" in
               case-insensitive) format=APFS ;;
               case-sensitive) format="Case-sensitive APFS" ;;
@@ -265,9 +266,10 @@ rec {
               sudo diskutil enableOwnership /nix
             fi
           else
-            system=$(uname -m)-linux
+            tarball=pynixd-$(uname -m)-linux.tar.zst unpack="tar --zstd -x"
           fi
-          curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$system.tar.zst" | zstd -dc | sudo tar -x -C /
+          # bsdtar finds the compression in a pipe; GNU tar finds it only in a regular file.
+          curl --fail --silent --show-error --location "$PYNIXD_TARBALL/$tarball" | sudo $unpack -C /
           printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin${lib.optionalString ghaCache " --gha-cache \"$RUNNER_TEMP/pynixd-gha-cache.json\""}
           echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
         ''
