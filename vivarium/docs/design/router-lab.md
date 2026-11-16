@@ -20,7 +20,8 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
   `IP_ORIGDSTADDR`. ICMP echo: a fwmark and a `local` route to a raw
   socket (E5).
 - Relay to host: vsock. libkrun has vsock natively. UML gets it from
-  `virtio_uml` and a vhost-user vsock backend.
+  `virtio_uml` and a vhost-user vsock device that the host process
+  serves itself (E7).
 - Host: one process per run opens the real TCP, UDP and ping sockets,
   and listens for forwards (E6).
 - Rust for the relay and the host process. The lab's libkrun launcher
@@ -36,7 +37,8 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E3 | smallest router: kernel plus initramfs, host RSS and boot time | UML: 36 MiB, 1.0 s (E1). krun: 119 MiB at 256 MiB guest RAM, no balloon in the lab launcher; 1.2-1.5 s (E2) |
 | E4 | TCP through the whole path: guest, router NAT, relay, vsock, host | works; 3.4/5.1 Gbit/s at MTU 1500 (passt 1.7/2.7), 5.1/1.4 at MTU 65000 (passt 18.3/16.6). Below |
 | E5 | UDP and ICMP echo through the path | works on krun: ping, UDP echo, iperf3 `-u` both ways; negative control holds. Below |
-| E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out. Below |
+| E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out; on UML (E7) 12.3 and 15.3. Below |
+| E7 | our own vhost-user vsock device in the egress, UML router on the stock kernel | works; one flow 13.2-15.3/10.9-12.7 Gbit/s at MTU 65000. Below |
 
 ## E1, 2026-11-16
 
@@ -241,9 +243,45 @@ guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
   the guest and 4.8-8.3 out of it, under lower load.
 - The guest sees the connection come from the router's 10.0.2.1, not
   from the host's address.
-- On UML, vhost-device-vsock takes a host connection on its unix socket
-  and needs a `CONNECT <port>` line first. The egress does not speak
-  that yet.
+- On UML, the egress's own vsock device opens the forward's connection
+  (E7): `HOST_PORT=GUEST:PORT@vsock:5001`.
+
+## E7, 2026-11-16
+
+`egress/src/vsock.rs`: the egress serves the UML router's vhost-user
+vsock device itself (`egress vhost-user:SOCKET`), with rust-vmm's
+vhost-user-backend and virtio-queue for the transport. It reads a packet
+from any descriptor chain, so the router runs `kernelStock`, without
+`vsock-linear-tx.patch`, and no vhost-device-vsock runs. Each guest
+connection is one end of a socketpair; the egress's flow thread holds
+the other end. `e4.py ... -` and `e6.py uml ...`.
+
+E4 again, MTU 65000, iperf3 `-l 128K`, host load 4-10, runs back to
+back:
+
+| path | guest to host | host to guest |
+| --- | --- | --- |
+| UML router, own device, stock kernel | 13.2-15.3 Gbit/s | 10.9-12.7 Gbit/s |
+| UML router, vhost-device-vsock, patched kernel (E4) | 5.0 Gbit/s | 4.8 Gbit/s |
+| krun router (E2) | 16.2-16.7 Gbit/s | 9.8-10.3 Gbit/s |
+
+- The proof that the stock kernel's chains arrive: 80% of TX chains had
+  more than two descriptors (289k of 362k), and every byte arrived.
+- Negative control: the same stock kernel with vhost-device-vsock
+  delivers 0 bytes in 10 s.
+- CPU seconds per 10 s run, guest to host: client 6.5, router 9.0,
+  egress 7.0, iperf3 1.8. The router is near one full CPU, and UML is
+  uniprocessor.
+- E6 on this router: 12.3 Gbit/s into the guest, 15.3 out.
+- The egress in unix-socket mode on krun (E2): 16.3 and 9.76, as before.
+- Eight flows: 16.0 Gbit/s out of the guest, but 1.2-1.6 into it. 2
+  flows: 3.4; 4 flows: 5.5. vhost-device-vsock gave 3.8 here (E4). The
+  router uses a full CPU for 1.6 Gbit/s. The guest sends a credit
+  update for almost every packet it gets (330k for 415k 4 KiB
+  packets), against one per 44 with one flow. Not the cause:
+  `net.unix.max_dgram_qlen` 512 or 8192 (same result), dropped frames
+  (26 retransmits), interleaving of flows (bursts of 128 KiB per flow:
+  same result). Not explained yet.
 
 ## Also measured
 
@@ -284,14 +322,12 @@ guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
   unreachable host, gives the guest nothing.
 - A datagram that reaches the UDP listener while its flow's own socket
   is being set up is lost.
-- E5 and E6 on the UML router: only TCP is measured there.
+- E5 on the UML router: only TCP and the forward are measured there.
+- Several flows into a UML router's guest collapse (E7).
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
 - Not tried: macOS, several guests on one router.
-- The UML router's numbers need `vsock-linear-tx.patch` and an unreleased
-  vhost-device-vsock (E1). Shipping it needs our own Rust vhost-user
-  vsock backend, or carrying that kernel patch.
-- The no-KVM case: without `/dev/kvm` the router is UML, at MTU 65000
-  3-12 times slower than passt (E4). The vhost-user vsock backend of E1
-  is the lever there.
+- The no-KVM case: without `/dev/kvm` the router is UML. With the own
+  device (E7) one flow is about 70% of passt out of the guest and 60%
+  into it; several flows into the guest are far below passt.
