@@ -15,7 +15,10 @@
 //!   it; the host's ping socket picks its own echo id, so the reply gets
 //!   the guest's id back before it goes out on a raw socket.
 //!
-//!     relay TCP_PORT VSOCK_PORT UDP_PORT
+//! - Forwards: the host connects in on vsock IN_PORT and names a guest
+//!   address; the relay connects to it.
+//!
+//!     relay TCP_PORT VSOCK_PORT UDP_PORT IN_PORT
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -28,8 +31,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use vivarium_egress::{
-    Activity, ICMP, Stream, TCP, TICK, UDP, checksum, encode, owned, pump, setsockopt, splice_both,
-    timed_out,
+    Activity, ICMP, REQUEST_LEN, Stream, TCP, TICK, UDP, checksum, decode, encode, owned, pump,
+    setsockopt, splice_both, timed_out,
 };
 
 const SO_ORIGINAL_DST: libc::c_int = 80;
@@ -95,6 +98,58 @@ fn vsock_connect(port: u32) -> io::Result<Stream> {
         return Err(io::Error::last_os_error());
     }
     Ok(Stream::new(fd))
+}
+
+/// A forward: the host connects in over vsock, names a guest address,
+/// and the relay connects there. The guest sees the router's address.
+fn inbound(port: u32) -> io::Result<()> {
+    let listener = unsafe {
+        owned(libc::socket(
+            libc::AF_VSOCK,
+            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
+            0,
+        ))?
+    };
+    let mut addr: libc::sockaddr_vm = unsafe { mem::zeroed() };
+    addr.svm_family = libc::AF_VSOCK as libc::sa_family_t;
+    addr.svm_cid = libc::VMADDR_CID_ANY;
+    addr.svm_port = port;
+    let len = mem::size_of::<libc::sockaddr_vm>() as libc::socklen_t;
+    if unsafe { libc::bind(listener.as_raw_fd(), (&raw const addr).cast(), len) } != 0
+        || unsafe { libc::listen(listener.as_raw_fd(), 128) } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    loop {
+        let fd = unsafe {
+            owned(libc::accept4(
+                listener.as_raw_fd(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                libc::SOCK_CLOEXEC,
+            ))?
+        };
+        thread::spawn(move || {
+            let mut host = Stream::new(fd);
+            let mut raw = [0u8; REQUEST_LEN];
+            let result = host.read_exact(&mut raw).and_then(|()| {
+                let (_, dst) = decode(&raw)?;
+                match std::net::TcpStream::connect(dst) {
+                    Ok(guest) => {
+                        host.write_all(&[0])?;
+                        splice_both(host, Stream::from(guest))
+                    }
+                    Err(err) => {
+                        host.write_all(&[1])?;
+                        Err(io::Error::other(format!("forward to {dst}: {err}")))
+                    }
+                }
+            });
+            if let Err(err) = result {
+                eprintln!("relay: {err}");
+            }
+        });
+    }
 }
 
 fn tcp_flow(guest: std::net::TcpStream, vsock_port: u32) -> io::Result<()> {
@@ -368,6 +423,15 @@ fn main() -> io::Result<()> {
         .get(3)
         .map_or(Ok(9001), |a| a.parse())
         .map_err(io::Error::other)?;
+    let in_port: u32 = args
+        .get(4)
+        .map_or(Ok(5001), |a| a.parse())
+        .map_err(io::Error::other)?;
+    thread::spawn(move || {
+        if let Err(err) = inbound(in_port) {
+            eprintln!("relay: inbound: {err}");
+        }
+    });
     thread::spawn(move || {
         if let Err(err) = udp_listener(udp, vsock_port) {
             eprintln!("relay: udp listener: {err}");

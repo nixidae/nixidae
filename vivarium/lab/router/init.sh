@@ -48,7 +48,7 @@ case "$lab" in
     nft -f /etc/router.nft
     # E5's negative control: no mark, so ICMP echo is routed, not relayed.
     [ -n "$(arg noicmp)" ] && nft flush chain ip router mangle
-    relay 9000 5000 9001 &
+    relay 9000 5000 9001 5001 &
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.
@@ -61,6 +61,15 @@ case "$lab" in
     ip route add default via 10.0.2.1
     sleep 1
     iperf3 -c 10.0.2.2 -t 10 -l "$block" $(arg reverse | sed 's/1/-R/')
+    echo "lab: client done"
+    ;;
+  server)
+    # E6: a guest that serves; the host reaches it through a forward.
+    ip addr add 10.0.2.15/24 dev vec0
+    ip link set vec0 up
+    ip route add default via 10.0.2.1
+    echo "lab: server ready"
+    iperf3 -s -1
     echo "lab: client done"
     ;;
   e5)

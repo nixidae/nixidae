@@ -14,14 +14,18 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 ## Shape under test
 
 - Guests to router: a direct segment per guest (socketpair).
-- In the router: nftables NAT. `redirect` for TCP and `tproxy` for UDP
-  send each flow to a local socket of the relay. conntrack tracks the
-  ports; the relay reads the original destination
-  (`SO_ORIGINAL_DST`, `IP_ORIGDSTADDR`).
+- In the router: nftables. TCP: `redirect` (NAT), so conntrack tracks
+  the ports, and the relay reads `SO_ORIGINAL_DST`. UDP: `tproxy`, which
+  is not NAT, so the relay keeps its own flow table and reads
+  `IP_ORIGDSTADDR`. ICMP echo: a fwmark and a `local` route to a raw
+  socket (E5).
 - Relay to host: vsock. libkrun has vsock natively. UML gets it from
   `virtio_uml` and a vhost-user vsock backend.
-- Host: one process per run opens the real TCP, UDP and ping sockets.
-- Rust for the relay and the host process. C only inside the kernel.
+- Host: one process per run opens the real TCP, UDP and ping sockets,
+  and listens for forwards (E6).
+- Rust for the relay and the host process. The lab's libkrun launcher
+  (`krun-router.c`) is C, like `pkgs/krun-launch`: libkrun's C API. A
+  Rust launcher would link libkrun's crates directly.
 
 ## Questions, cheapest and most decisive first
 
@@ -29,9 +33,10 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | --- | --- | --- |
 | E1 | vsock throughput, UML guest to host, through `virtio_uml` and `vhost-device-vsock` | 1.9-3.8 Gbit/s at 64-256 KiB writes, with `vsock-linear-tx.patch`. Below |
 | E2 | E4's path with a libkrun router (KVM) | works; at MTU 65000 16.2-16.7/10.0-10.3 Gbit/s, passt on krun 4.8-8.3/13.2-18.1. Below |
-| E3 | smallest UML router: kernel plus initramfs, host RSS and boot time | |
+| E3 | smallest router: kernel plus initramfs, host RSS and boot time | UML: 36 MiB, 1.0 s (E1). krun: 119 MiB at 256 MiB guest RAM, no balloon in the lab launcher; 1.2-1.5 s (E2) |
 | E4 | TCP through the whole path: guest, router NAT, relay, vsock, host | works; 3.4/5.1 Gbit/s at MTU 1500 (passt 1.7/2.7), 5.1/1.4 at MTU 65000 (passt 18.3/16.6). Below |
 | E5 | UDP and ICMP echo through the path | works on krun: ping, UDP echo, iperf3 `-u` both ways; negative control holds. Below |
+| E6 | a forward: host port to a guest's server through the router | works on krun: 9.2 Gbit/s into the guest, 14.7 out. Below |
 
 ## E1, 2026-11-16
 
@@ -217,5 +222,42 @@ iperf3 `-u`, 5 s, host load 6-7:
 - Not measured yet: where the loss happens (the relay's drop on a full
   stream, or a socket buffer), and E5 on the UML router.
 
-Next: decide on #1404 whether the no-KVM case (UML router) is acceptable.
-If it is not, the next step is the vhost-user vsock backend of E1.
+## E6, 2026-11-16
+
+`lab/router/e6.py`: a forward, as `vivarium.forward` does with passt.
+The egress listens on the host's 127.0.0.1:5202. Per connection it
+connects to a unix socket that libkrun listens on (`krun-router` with
+`IN_PORT IN_PATH`, `add_unix_port(..., listen = true)`), names the guest
+address, and the relay in the router connects to 10.0.2.15:5201. The
+guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
+8-10.
+
+| direction | rate |
+| --- | --- |
+| host to guest | 9.23 Gbit/s |
+| guest to host (`-R`) | 14.7 Gbit/s |
+
+- passt's forward on a krun guest (E2's baseline) was 13.2-18.1 into
+  the guest and 4.8-8.3 out of it, under lower load.
+- The guest sees the connection come from the router's 10.0.2.1, not
+  from the host's address.
+- On UML, vhost-device-vsock takes a host connection on its unix socket
+  and needs a `CONNECT <port>` line first. The egress does not speak
+  that yet.
+
+## Also measured
+
+- E4 again, with the E5 and E6 initrd and relay: the UML router gives
+  5.02 and 4.78 Gbit/s at MTU 65000. E4 holds.
+
+## Open
+
+- IPv6: the nftables table is `ip` only.
+- ICMP errors back to the guest: UDP to a closed port, or an
+  unreachable host, gives the guest nothing.
+- A datagram that reaches the UDP listener while its flow's own socket
+  is being set up is lost.
+- E5 and E6 on the UML router.
+- The no-KVM case: without `/dev/kvm` the router is UML, at MTU 65000
+  3-12 times slower than passt (E4). The vhost-user vsock backend of E1
+  is the lever there.

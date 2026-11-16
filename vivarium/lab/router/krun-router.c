@@ -6,7 +6,8 @@
  *
  * NET_FD is a unixgram socket that carries whole Ethernet frames. A guest
  * connection to vsock CID 2, VSOCK_PORT becomes a connection to the unix
- * socket VSOCK_PATH on the host.
+ * socket VSOCK_PATH on the host. libkrun listens on IN_PATH, and a host
+ * connection there becomes one to the guest's vsock IN_PORT.
  */
 
 #include <stdio.h>
@@ -40,8 +41,8 @@ static KrunVtableHandle stderr_writer =
 
 int main(int argc, char *argv[])
 {
-    if (argc != 7 && argc != 9) {
-        fprintf(stderr, "usage: krun-router VMLINUX INITRD CMDLINE CPUS MIB NET_FD [VSOCK_PORT VSOCK_PATH]\n");
+    if (argc != 7 && argc != 9 && argc != 11) {
+        fprintf(stderr, "usage: krun-router VMLINUX INITRD CMDLINE CPUS MIB NET_FD [VSOCK_PORT VSOCK_PATH [IN_PORT IN_PATH]]\n");
         return 2;
     }
     const char *vmlinux = argv[1], *initrd = argv[2], *cmdline = argv[3];
@@ -56,9 +57,11 @@ int main(int argc, char *argv[])
               krun_net_device_new_unixgram_fd(KRUN_STR("lan0"), net_fd, KRUN_BYTES(mac), NET_FEATURES, 0, &err));
     krun_mmio_device_manager_add(devices, net);
 
-    if (argc == 9) {
+    if (argc >= 9) {
         CHECK(KrunVsockDevice vsock = krun_vsock_device_new(3, 0, &err));
         krun_vsock_device_add_unix_port(vsock, (uint32_t)atoi(argv[7]), KRUN_STR(argv[8]), false);
+        if (argc == 11)
+            krun_vsock_device_add_unix_port(vsock, (uint32_t)atoi(argv[9]), KRUN_STR(argv[10]), true);
         krun_mmio_device_manager_add(devices, vsock);
     }
 
