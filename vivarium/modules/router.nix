@@ -119,13 +119,17 @@ in
       }";
     })
     (lib.mkIf cfg.enable {
-      vivarium.memory = lib.mkDefault "256M";
+      # 256M on krun OOM-kills the agent at boot; UML boots in it.
+      vivarium.memory = lib.mkDefault (if config.vivarium.backend == "krun" then "512M" else "256M");
+      # E2: two carry 16 Gbit/s on krun, and one is the limit. Every host
+      # core, krun's default, fills 256M with per-CPU state before boot ends.
+      vivarium.cpus = lib.mkDefault 2;
       # Not behind itself: the runner gives the router vsock to the host
       # and no vec0 (`router` in its spec).
       vivarium.uplink.proxy = "passt";
       # Its egress binds nothing for it: no ssh, and nothing to reach.
       vivarium.forward = lib.mkForce [ ];
-      vivarium.launch.config.egress = lib.mkIf (config.vivarium.backend == "uml") "${egress}/bin/egress";
+      vivarium.launch.config.egress = "${egress}/bin/egress";
 
       vivarium.interfaces = lib.mapAttrs' (
         _: node: lib.nameValuePair (port node) { segment = node.vivarium.uplink.segment; }
@@ -133,8 +137,13 @@ in
 
       assertions = [
         {
-          assertion = config.vivarium.backend == "uml";
-          message = "the router guest runs on UML for now; it is ${config.vivarium.backend}.";
+          # Both reach the egress over vsock: UML through the egress's own
+          # vhost-user device, krun through libkrun's.
+          assertion = lib.elem config.vivarium.backend [
+            "uml"
+            "krun"
+          ];
+          message = "the router guest runs on UML or krun; it is ${config.vivarium.backend}.";
         }
         {
           # 10.0.2.(15 + index) stays below the pool at .215.

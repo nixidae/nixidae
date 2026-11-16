@@ -128,8 +128,21 @@ in
           guest's uplink (`vec0`) behind it instead of a passt of its own
           (nixidae/nixidae#1404). Each guest then has an address of its
           own, `10.0.2.(15 + vivarium.index)`, and the guests reach each
-          other on `vec0`. The router itself runs on UML; the guests
+          other on `vec0`. The router runs on `router.backend`; the guests
           behind it may take any backend.
+        '';
+      };
+      backend = mkOption {
+        type = types.enum [
+          "uml"
+          "krun"
+        ];
+        default = "uml";
+        description = ''
+          What the router guest runs on. `krun` needs /dev/kvm and carries
+          more: 16 Gbit/s out of a guest at MTU 65000 against UML's 13-15
+          (docs/design/router-lab.md, E2 and E7). A run's `.krun` variant
+          sets it to `krun`.
         '';
       };
       name = mkOption {
@@ -491,9 +504,9 @@ in
     nodes = lib.mkIf config.router.enable {
       ${config.router.name} = {
         vivarium.router.enable = true;
-        # The router runs on UML only. Above `.krun`'s mkForce on
-        # `defaults`, so a run's guests may take another backend.
-        vivarium.backend = lib.mkOverride 40 "uml";
+        # Above `.qemu`'s and `.container`'s mkForce on `defaults`: the
+        # router takes `router.backend`, whatever its guests take.
+        vivarium.backend = lib.mkOverride 40 config.router.backend;
       };
     };
     defaults =

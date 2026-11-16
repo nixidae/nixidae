@@ -706,7 +706,17 @@ rec {
           imports = [ module ] ++ modules;
         };
       # Every guest on one backend, whatever its own configuration says.
-      onBackend = backend: extend { modules = [ { defaults.vivarium.backend = lib.mkForce backend; } ]; };
+      onBackend =
+        backend:
+        extend {
+          modules = [
+            {
+              defaults.vivarium.backend = lib.mkForce backend;
+              # The router runs on krun too where the guests do, and on UML elsewhere.
+              router.backend = lib.mkIf (backend == "krun") (lib.mkForce "krun");
+            }
+          ];
+        };
 
       /*
         The run inside one, which never fails.

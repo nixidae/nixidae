@@ -229,15 +229,22 @@ class KrunConfig:
     passt: Path
     gvproxy: Path | None
     """For `vivarium.uplink.proxy = "gvproxy"`."""
+    egress: Path | None = None
+    """The router's host half, on the unix sockets libkrun's vsock reaches."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
-        config = launch_config(spec, "krun", frozenset({"krun", "qemuImg", "passt"}), frozenset({"gvproxy"}))
+        config = launch_config(
+            spec, "krun", frozenset({"krun", "qemuImg", "passt"}), frozenset({"gvproxy", "egress"})
+        )
+        if spec.router and "egress" not in config:
+            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
         return cls(
             krun=_path(config, "krun"),
             qemu_img=_path(config, "qemuImg"),
             passt=_path(config, "passt"),
             gvproxy=_maybe(config, "gvproxy"),
+            egress=_maybe(config, "egress"),
         )
 
 
@@ -537,8 +544,56 @@ class Backend(Protocol):
 
 VIRTIO_ID_VSOCK = 19
 """`virtio_uml.device=SOCKET:ID`: the virtio device ID of vsock."""
-RELAY_FORWARDS = "vsock:5001"
+RELAY_PORT = 5000
+"""Where the router's relay connects for each flow: its VSOCK_PORT, in modules/router.nix."""
+RELAY_IN_PORT = 5001
 """Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
+
+
+def router_egress_args(machine: Machine, router: str) -> list[str]:
+    """The egress's options and forwards for the router *machine*: one
+    forward for each of its guests' rules, into the relay at *router*."""
+    return [
+        *forward.egress_uplink_args(machine.offline),
+        *(
+            arg
+            for guest in machine.routed
+            if guest.spec.uplink_address is not None
+            for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, router)
+        ),
+    ]
+
+
+def start_egress(
+    egress: Path | None, rundir: Path, listen: str, ready: Path, args: list[str]
+) -> subprocess.Popen[bytes]:
+    """Start the router's egress on *listen* and wait until *ready* exists.
+
+    The egress binds every forward before it binds *ready*, and maps the
+    gateway, 10.0.2.2, to the host's loopback.
+    """
+    if egress is None:
+        raise BackendError("the router needs egress in vivarium.launch.config")
+    log = rundir / "egress.log"
+    with log.open("wb") as handle:
+        proc = subprocess.Popen(
+            [str(egress), listen, forward.UPLINK_GATEWAY, *args],
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            preexec_fn=die_with_parent,
+        )
+    # A poll: the egress says nothing when it listens.
+    deadline = time.monotonic() + 10
+    while not ready.exists():
+        if proc.poll() is not None:
+            raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
+        if time.monotonic() > deadline:
+            proc.kill()
+            raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
+        time.sleep(0.02)
+    return proc
 
 
 class Uml:
@@ -609,18 +664,11 @@ class Uml:
         helpers: list[subprocess.Popen[bytes]] = []
         if spec.router:
             # No vec0: the router reaches the host over vsock, a vhost-user
-            # device the egress serves (E7).
-            args = [
-                *forward.egress_uplink_args(machine.offline),
-                *(
-                    arg
-                    for guest in machine.routed
-                    if guest.spec.uplink_address is not None
-                    for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, RELAY_FORWARDS)
-                ),
-            ]
-            device, egress = self._egress(config, rundir, uml_dir, args)
-            helpers.append(egress)
+            # device the egress serves (E7). The kernel connects at boot and
+            # fails if nothing listens yet.
+            device = uml_dir / "vsock.sock"
+            args = router_egress_args(machine, f"vsock:{RELAY_IN_PORT}")
+            helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
         elif spec.uplink is None:
@@ -663,42 +711,6 @@ class Uml:
             cleanup=cleanup,
             helpers=helpers,
         )
-
-    @staticmethod
-    def _egress(
-        config: UmlConfig, rundir: Path, directory: Path, args: list[str]
-    ) -> tuple[Path, subprocess.Popen[bytes]]:
-        """Start the egress on a vhost-user socket in *directory*.
-
-        *directory* is the one `socket_dir` found short enough for a
-        `sockaddr_un`. The egress maps the gateway, 10.0.2.2, to the host's
-        loopback. *args* are its options and forwards; it binds every forward
-        before the socket appears.
-        """
-        if config.egress is None:
-            raise BackendError("the router needs egress in vivarium.launch.config")
-        device = directory / "vsock.sock"
-        log = rundir / "egress.log"
-        with log.open("wb") as handle:
-            proc = subprocess.Popen(
-                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY, *args],
-                stdin=subprocess.DEVNULL,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                preexec_fn=die_with_parent,
-            )
-        # The kernel connects at boot and fails if nothing listens yet. A
-        # poll: the egress says nothing when it listens.
-        deadline = time.monotonic() + 10
-        while not device.exists():
-            if proc.poll() is not None:
-                raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
-            if time.monotonic() > deadline:
-                proc.kill()
-                raise BackendError(f"the egress did not listen on {device}:\n{_tail(log)}")
-            time.sleep(0.02)
-        return device, proc
 
     @staticmethod
     def memory_control(path: Path) -> mconsole.Mconsole:
@@ -1452,6 +1464,7 @@ class Krun:
         helpers: list[subprocess.Popen[bytes]] = []
         disk_ro: int | None = None
         passt_fds: tuple[int, ...] = ()
+        cleanup: list[Path] = []
         try:
             # A reboot keeps the disk the guest wrote. libkrun opens it by
             # path and takes no lock, so the runner's fd serves again.
@@ -1462,8 +1475,19 @@ class Krun:
                 opened += [disk_rw, disk_ro]
             # As Qemu._uplink: an uplink segment (a router's, nixidae/nixidae#1404)
             # replaces passt, and its fd is the run's.
-            if spec.uplink is not None:
-                uplink = f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"
+            if spec.router:
+                # No uplink: libkrun's own vsock carries each relay flow to
+                # the egress's socket, and listens for its forwards (E2).
+                sockets, cleanup = socket_dir(rundir, "relay.sock", None)
+                listen, relay = sockets / "egress.sock", sockets / "relay.sock"
+                # A reboot finds the last boot's sockets, and neither side binds over one.
+                for path in (listen, relay):
+                    path.unlink(missing_ok=True)
+                args = router_egress_args(machine, str(relay))
+                helpers.append(start_egress(config.egress, rundir, str(listen), listen, args))
+                uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
+            elif spec.uplink is not None:
+                uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
             else:
                 if spec.uplink_proxy == "gvproxy":
                     passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
@@ -1472,7 +1496,7 @@ class Krun:
                 helpers.append(passt_proc)
                 opened.append(passt_fd)
                 passt_fds = (passt_fd,)
-                uplink = f"--uplink={passt_fd},{spec.mac(0)}"
+                uplink = [f"--uplink={passt_fd},{spec.mac(0)}"]
         except BaseException:
             for helper in helpers:
                 helper.kill()
@@ -1496,7 +1520,7 @@ class Krun:
             f"--store={spec.store}",
             f"--dax-window={DAX_WINDOW}",
             f"--agent-fd={agent_fd}",
-            uplink,
+            *uplink,
             *(f"--lan={lan_fds[nic.name]},{nic.mac}" for nic in spec.interfaces),
         ]
         if machine.store_allowlist is not None:
@@ -1512,6 +1536,7 @@ class Krun:
             pass_fds=(agent_fd, *passt_fds, disk_rw, *lan_fds.values()),
             helpers=helpers,
             disk_fds=(disk_rw,),
+            cleanup=cleanup,
         )
 
 
