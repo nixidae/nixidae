@@ -249,6 +249,22 @@ guest runs `iperf3 -s`; the host's iperf3 connects. MTU 65000, host load
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives
   5.02 and 4.78 Gbit/s at MTU 65000. E4 holds.
+- The default case, back to back, MTU 65000, host load 7-8: a UML guest
+  behind the krun router against the same UML guest with its own passt.
+
+  | path | guest to host | host to guest |
+  | --- | --- | --- |
+  | UML guest, krun router | 14.0-15.4 Gbit/s | 9.0-10.2 Gbit/s |
+  | UML guest, own passt | 20.3 Gbit/s | 20.4-20.6 Gbit/s |
+
+  The router path is about 70% of passt out of the guest and half of
+  passt into it. Into the guest, libkrun's vsock muxer is the limit (E2).
+- The passt baseline's guest-to-host leg failed in 3 of 6 runs here:
+  iperf3 got "Transport endpoint is not connected" when it connected
+  right after the first leg. Cause not found.
+- `e1.py` and `e4.py` left 13 vhost-device-vsock and 3 UML processes
+  behind after stalled runs: `timeout` stops the script before its
+  `finally` kills them.
 
 ## Open
 
