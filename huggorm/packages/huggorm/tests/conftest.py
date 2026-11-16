@@ -16,6 +16,7 @@ expensive or slow to set up:
   would be minutes of sleeping for no reason.
 """
 
+import contextlib
 import fcntl
 import os
 import pathlib
@@ -43,16 +44,16 @@ def open_files() -> list[str]:
     `/proc/self/fd` on Linux. darwin has no `/proc`: its `/dev/fd`
     lists the descriptors and `F_GETPATH` names each file.
     """
-    darwin = sys.platform == "darwin"
     paths = []
-    for fd in os.listdir("/dev/fd" if darwin else "/proc/self/fd"):
-        try:
-            if darwin:
+    # `sys.platform` in the condition itself: the type checker narrows on it, and F_GETPATH is darwin's alone.
+    if sys.platform == "darwin":
+        for fd in os.listdir("/dev/fd"):
+            with contextlib.suppress(OSError):  # a descriptor listdir itself held, closed again
                 paths.append(os.fsdecode(fcntl.fcntl(int(fd), fcntl.F_GETPATH, bytes(1024))).rstrip("\0"))
-            else:
+    else:
+        for fd in os.listdir("/proc/self/fd"):
+            with contextlib.suppress(OSError):  # a descriptor listdir itself held, closed again
                 paths.append(os.readlink(f"/proc/self/fd/{fd}"))
-        except OSError:
-            continue
     return paths
 
 
