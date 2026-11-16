@@ -50,8 +50,11 @@ case "$lab" in
     [ -n "$(arg noicmp)" ] && nft flush chain ip router mangle
     # The guest's vsock receive window. Linux's 256 KiB held krun's
     # host-to-guest leg to 9.3 Gbit/s; 4 MiB gives 11.6, 16 MiB no more.
+    # The relay yields the CPU after a short read (yield=0: never): eight
+    # flows into a UML router's guest go from 1.2 to 7.6-9.1 Gbit/s (E8).
     vsockbuf=$(arg vsockbuf)
-    RELAY_VSOCK_BUFFER=${vsockbuf:-4194304} RELAY_SCHED_BATCH=$(arg batch) relay 9000 5000 9001 5001 &
+    yield=$(arg yield)
+    RELAY_VSOCK_BUFFER=${vsockbuf:-4194304} RELAY_YIELD=${yield:-1} relay 9000 5000 9001 5001 &
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.

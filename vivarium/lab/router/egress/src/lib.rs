@@ -24,6 +24,11 @@ pub const TICK: Duration = Duration::from_secs(2);
 /// Large enough that a copy is a few system calls per MiB: in a UML
 /// guest every system call traps to the host.
 pub const BUFFER: usize = 256 * 1024;
+/// The copy loop yields the CPU before each read. On a uniprocessor
+/// guest the reader's wakeup preempts the kernel thread that queues the
+/// data; yielding lets it queue the rest, so one read takes many packets.
+pub static YIELD_BEFORE_READ: AtomicBool = AtomicBool::new(false);
+const SHORT_READ: usize = 64 * 1024;
 
 /// `proto (1) | family (1) | address (16) | port (2, big-endian)`.
 pub fn encode(proto: u8, dst: SocketAddr) -> [u8; REQUEST_LEN] {
@@ -167,10 +172,18 @@ pub fn splice_both(a: Stream, b: Stream) -> io::Result<()> {
 
 fn one_way(mut from: Stream, mut to: Stream) {
     let mut buf = vec![0u8; BUFFER];
+    let yields = YIELD_BEFORE_READ.load(Ordering::Relaxed);
+    let mut short = false;
     loop {
+        // Only after a short read: a yield before every read cost one
+        // flow into a UML guest 15-30%.
+        if yields && short {
+            unsafe { libc::sched_yield() };
+        }
         match from.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
+                short = n < SHORT_READ;
                 if to.write_all(&buf[..n]).is_err() {
                     break;
                 }
