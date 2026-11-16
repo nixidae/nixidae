@@ -550,6 +550,18 @@ API server through a forward would then fail for a reason that is not the
 one being reproduced."""
 
 
+def egress_uplink_args(offline: bool = False) -> list[str]:
+    """The router's egress options that match `uplink_args`: DNS, offline."""
+    upstream = os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
+    print(f"[uplink] router: DNS on {UPLINK_DNS}, forwarded to {upstream}", flush=True)
+    if offline:
+        print(f"[uplink] router offline: outbound bound to {OFFLINE_OUTBOUND}", flush=True)
+    return [
+        f"--map={UPLINK_DNS}:53={upstream}:53",
+        *([f"--outbound={OFFLINE_OUTBOUND}"] if offline else []),
+    ]
+
+
 def uplink_args(offline: bool = False) -> list[str]:
     """passt arguments giving the guest an address of its own, and DNS.
 

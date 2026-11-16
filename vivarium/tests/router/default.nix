@@ -10,7 +10,10 @@ let
   answer =
     { pkgs, ... }:
     {
-      environment.systemPackages = [ pkgs.socat ];
+      environment.systemPackages = [
+        pkgs.socat
+        pkgs.dig
+      ];
     };
 in
 mkTest {

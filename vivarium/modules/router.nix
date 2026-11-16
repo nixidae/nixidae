@@ -47,6 +47,7 @@ let
         type nat hook prerouting priority dstnat;
         iifname "${bridge}" ip daddr != $onlink meta l4proto tcp redirect to :9000
         iifname "${bridge}" ip daddr ${gateway} meta l4proto tcp redirect to :9000
+        iifname "${bridge}" ip daddr ${dns} tcp dport 53 redirect to :9000
       }
       chain mangle {
         type filter hook prerouting priority mangle;

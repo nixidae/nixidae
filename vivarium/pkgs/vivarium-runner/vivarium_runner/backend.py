@@ -610,13 +610,16 @@ class Uml:
         if spec.router:
             # No vec0: the router reaches the host over vsock, a vhost-user
             # device the egress serves (E7).
-            forwards = [
-                arg
-                for guest in machine.routed
-                if guest.spec.uplink_address is not None
-                for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, RELAY_FORWARDS)
+            args = [
+                *forward.egress_uplink_args(machine.offline),
+                *(
+                    arg
+                    for guest in machine.routed
+                    if guest.spec.uplink_address is not None
+                    for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, RELAY_FORWARDS)
+                ),
             ]
-            device, egress = self._egress(config, rundir, uml_dir, forwards)
+            device, egress = self._egress(config, rundir, uml_dir, args)
             helpers.append(egress)
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
@@ -663,13 +666,14 @@ class Uml:
 
     @staticmethod
     def _egress(
-        config: UmlConfig, rundir: Path, directory: Path, forwards: list[str]
+        config: UmlConfig, rundir: Path, directory: Path, args: list[str]
     ) -> tuple[Path, subprocess.Popen[bytes]]:
         """Start the egress on a vhost-user socket in *directory*.
 
         *directory* is the one `socket_dir` found short enough for a
         `sockaddr_un`. The egress maps the gateway, 10.0.2.2, to the host's
-        loopback, and binds *forwards* before the socket appears.
+        loopback. *args* are its options and forwards; it binds every forward
+        before the socket appears.
         """
         if config.egress is None:
             raise BackendError("the router needs egress in vivarium.launch.config")
@@ -677,7 +681,7 @@ class Uml:
         log = rundir / "egress.log"
         with log.open("wb") as handle:
             proc = subprocess.Popen(
-                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY, *forwards],
+                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY, *args],
                 stdin=subprocess.DEVNULL,
                 stdout=handle,
                 stderr=subprocess.STDOUT,
