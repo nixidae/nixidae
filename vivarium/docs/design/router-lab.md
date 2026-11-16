@@ -514,6 +514,44 @@ two rounds a run, host load 6-7:
   above E7's 11-12, and it does not lift the krun router.
 - So the krun router buys nothing on this host.
 
+#### Where the krun router's time goes, 2026-11-17
+
+One iperf3 run of 10 s, host to `routed`, CPU time per thread of the
+router's libkrun process: vCPU 0 9.5 s, vCPU 1 9.0 s, vsock muxer 5.7 s,
+virtio-net worker 3.9 s. The vCPUs are the limit, not the muxer.
+
+In the guest, cpu0 had 8.3 s of system time, 5.8 s of it the relay's;
+cpu1 was 63% idle. Hard interrupts took 4.8 s. Most of them were
+virtio-net's TX completions on `g1`: 237k in the run, about 14 us each,
+because every one exits to libkrun. The vsock device raised 65k, about
+52 packets each.
+
+- The relay on cpu1, beside those interrupts: 9.2 Gbit/s, slower.
+- `ethtool -C g1 tx-frames 0` (napi_tx off) frees a sent frame on the
+  next send, with no interrupt. `g1`'s interrupts fell to 92k.
+
+napi_tx on against off, one run, three rounds back to back:
+
+| napi_tx | host to guest | guest to host |
+| --- | --- | --- |
+| on | 8.6-8.7 Gbit/s | 16.6-18.4 Gbit/s |
+| off | 12.2-13.7 Gbit/s | 17.5-18.5 Gbit/s |
+
+The router module sets `virtio_net.napi_tx=0` on krun. The slice lab
+again, krun and UML router alternating, two runs each, host load 6-7:
+
+| path | direction | krun router | UML router |
+| --- | --- | --- | --- |
+| forward | host to guest | 13.4-13.6 Gbit/s | 15.0-16.2 Gbit/s |
+| forward | guest to host | 17.0-19.7 Gbit/s | 15.8-18.8 Gbit/s |
+| outbound | guest to host | 16.8-18.5 Gbit/s | 16.0-18.4 Gbit/s |
+| outbound | host to guest | 13.2-14.1 Gbit/s | 13.7-15.9 Gbit/s |
+
+- Into the guest the krun router is now 10-15% below UML, not half.
+  Out of it the two are equal.
+- libkrun stays unpatched: a batched `recv` in the muxer saves host CPU
+  the muxer does not run short of.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives

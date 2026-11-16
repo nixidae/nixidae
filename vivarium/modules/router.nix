@@ -124,6 +124,10 @@ in
       # E2: two carry 16 Gbit/s on krun, and one is the limit. Every host
       # core, krun's default, fills 256M with per-CPU state before boot ends.
       vivarium.cpus = lib.mkDefault 2;
+      # A TX completion interrupt costs krun about 14 us: 237k of them filled
+      # a vCPU. Off, host to guest went from 8.6-8.7 to 12.2-13.7 Gbit/s,
+      # guest to host stayed at 16.6-18.5 (2026-11-17, router-lab.md).
+      boot.kernelParams = lib.mkIf (config.vivarium.backend == "krun") [ "virtio_net.napi_tx=0" ];
       # Not behind itself: the runner gives the router vsock to the host
       # and no vec0 (`router` in its spec).
       vivarium.uplink.proxy = "passt";
