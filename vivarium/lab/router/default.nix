@@ -102,7 +102,7 @@ rec {
         cp ${static.nftables}/bin/nft root/bin/
         cp ${static.iperf3}/bin/iperf3 root/bin/
         cp ${relay}/bin/relay root/bin/
-        for tool in sh mount cat echo dd sed sleep poweroff reboot modprobe ip ls date ping seq md5sum; do
+        for tool in sh mount cat echo dd sed sleep poweroff reboot modprobe ip ls date ping seq md5sum tail grep; do
           ln -s busybox root/bin/$tool
         done
         install -m 0755 ${./init.sh} root/init

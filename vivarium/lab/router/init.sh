@@ -90,6 +90,21 @@ case "$lab" in
     iperf3 -s -1
     echo "lab: client done"
     ;;
+  latency)
+    # E8: echo round trips through the relay, idle and beside bulk flows.
+    ip addr add 10.0.2.15/24 dev vec0
+    ip link set vec0 up
+    ip route add default via 10.0.2.1
+    sleep 1
+    ping -c 20 -i 0.2 10.0.2.2 | tail -1 | sed 's/^/lab: idle /'
+    streams=$(arg streams)
+    iperf3 -c 10.0.2.2 -t 8 -l "$block" -P "${streams:-1}" $(arg reverse | sed 's/1/-R/') > /tmp/iperf 2>&1 &
+    sleep 2
+    ping -c 20 -i 0.2 10.0.2.2 | tail -1 | sed 's/^/lab: busy /'
+    wait
+    grep receiver /tmp/iperf | tail -1 | sed 's/^/lab: /'
+    echo "lab: client done"
+    ;;
   verify)
     # E7: content, not only byte counts. seq output is not uniform, so
     # reordered or repeated data changes the sum.
