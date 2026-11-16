@@ -6,10 +6,34 @@
   pkgs ? import sources.nixpkgs { },
 }:
 let
+  inherit (pkgs) lib;
   static = pkgs.pkgsStatic;
   vivarium = import ../.. { inherit sources pkgs; };
+
+  egressPackage =
+    rustPlatform:
+    rustPlatform.buildRustPackage {
+      pname = "vivarium-egress";
+      version = "0.0.0";
+      src = lib.fileset.toSource {
+        root = ./egress;
+        fileset = lib.fileset.unions [
+          ./egress/Cargo.toml
+          ./egress/Cargo.lock
+          ./egress/src
+        ];
+      };
+      cargoLock.lockFile = ./egress/Cargo.lock;
+    };
+
+  # The router's relay and the client's iperf3, static: the initrd has
+  # no store.
+  relay = egressPackage static.rustPlatform;
 in
 {
+  inherit relay;
+  egress = egressPackage pkgs.rustPlatform;
+
   # The router options in pkgs/uml-kernel, plus ./vsock-linear-tx.patch.
   # Build it with the ccache flags in docs/howto.md.
   kernel = vivarium.internal.umlKernelCcache.overrideAttrs (old: {
@@ -35,21 +59,26 @@ in
     doCheck = false;
   });
 
-  # A whole router root: busybox, socat and /init. UML reads it with
-  # `initrd=`, so it needs no disk and no store.
+  # One root for the router and the client: busybox, socat, nft, iperf3,
+  # the relay and /init. UML reads it with `initrd=`, so it needs no disk
+  # and no store. `lab=` on the kernel line picks the role.
   initrd =
     pkgs.runCommand "router-initrd.cpio"
       {
         nativeBuildInputs = [ pkgs.cpio ];
       }
       ''
-        mkdir -p root/bin root/dev root/proc root/sys root/tmp
+        mkdir -p root/bin root/dev root/proc root/sys root/tmp root/etc
         cp ${static.busybox}/bin/busybox root/bin/
         cp ${static.socat}/bin/socat root/bin/
-        for tool in sh mount cat echo dd sed sleep poweroff ip ls date; do
+        cp ${static.nftables}/bin/nft root/bin/
+        cp ${static.iperf3}/bin/iperf3 root/bin/
+        cp ${relay}/bin/relay root/bin/
+        for tool in sh mount cat echo dd sed sleep poweroff ip ls date ping; do
           ln -s busybox root/bin/$tool
         done
         install -m 0755 ${./init.sh} root/init
+        install -m 0644 ${./router.nft} root/etc/router.nft
         (cd root && find . | cpio -o -H newc --owner 0:0) > $out
       '';
 }

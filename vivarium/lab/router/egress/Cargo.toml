@@ -1,0 +1,21 @@
+[package]
+name = "vivarium-egress"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "The router lab: a relay in the router guest and the egress on the host"
+
+[dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "relay"
+path = "src/bin/relay.rs"
+
+[[bin]]
+name = "egress"
+path = "src/bin/egress.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1

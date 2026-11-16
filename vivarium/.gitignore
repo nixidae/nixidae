@@ -29,3 +29,4 @@ result*
 # Throwaway experiments; see spike/default.nix.
 /spike/
 __pycache__/
+target/

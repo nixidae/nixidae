@@ -1,27 +1,54 @@
 #!/bin/sh
-# The router's /init. `lab=` on the kernel line picks the experiment.
+# The lab guests' /init: no Python in this root, so busybox sh.
+# `lab=` on the kernel line picks the experiment or the role.
 mount -t proc proc /proc
 mount -t sysfs sys /sys
 mount -t devtmpfs dev /dev
-arg() { sed -n "s/.*$1=\([a-z0-9-]*\).*/\1/p" /proc/cmdline; }
+arg() { sed -n "s/.*$1=\([a-z0-9.-]*\).*/\1/p" /proc/cmdline; }
 lab=$(arg lab)
 block=$(arg block)
 block=${block:-8192}
-echo "router: up, lab=$lab block=$block"
+echo "lab: up, lab=$lab block=$block"
+ip link set lo up
+mtu=$(arg mtu)
+[ -n "$mtu" ] && ip link set vec0 mtu "$mtu"
 case "$lab" in
   vsock-tx)
     # E1: stream zeros to the host's vsock port 5000.
     dd if=/dev/zero bs=1M count=4096 2>/dev/null | socat -b "$block" -u - VSOCK-CONNECT:2:5000
-    echo "router: vsock-tx done"
+    echo "lab: vsock-tx done"
     ;;
   local)
     # E1 baseline: the same pipe with no vsock.
     start=$(date +%s)
     dd if=/dev/zero bs=1M count=4096 2>/dev/null | socat -b "$block" -u - /dev/null
-    echo "router: local done in $(($(date +%s) - start)) s"
+    echo "lab: local done in $(($(date +%s) - start)) s"
+    ;;
+  router)
+    # E4: the router. vec0 faces the client; the host is over vsock.
+    ip addr add 10.0.2.1/24 dev vec0
+    # The host's address answers here too; the relay maps it to the
+    # host's loopback.
+    ip addr add 10.0.2.2/24 dev vec0
+    ip link set vec0 up
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+    nft -f /etc/router.nft
+    relay 9000 5000 &
+    echo "lab: router ready"
+    # Runs until the host kills it.
+    while true; do sleep 3600; done
+    ;;
+  client)
+    # E4: a guest behind the router. 10.0.2.2 is the host's loopback.
+    ip addr add 10.0.2.15/24 dev vec0
+    ip link set vec0 up
+    ip route add default via 10.0.2.1
+    sleep 1
+    iperf3 -c 10.0.2.2 -t 10 -l "$block" $(arg reverse | sed 's/1/-R/')
+    echo "lab: client done"
     ;;
   *)
-    echo "router: no lab"
+    echo "lab: no lab"
     ;;
 esac
 poweroff -f

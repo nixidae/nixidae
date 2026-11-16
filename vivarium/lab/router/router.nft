@@ -1,0 +1,9 @@
+# Every TCP flow a guest sends through the router goes to the relay.
+# `redirect` is NAT: conntrack keeps the original destination, and the
+# relay reads it back with SO_ORIGINAL_DST.
+table ip router {
+  chain prerouting {
+    type nat hook prerouting priority dstnat;
+    iifname "vec0" meta l4proto tcp redirect to :9000
+  }
+}
