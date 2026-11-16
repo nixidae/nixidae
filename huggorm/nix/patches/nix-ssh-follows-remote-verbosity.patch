@@ -1,0 +1,53 @@
+Let an embedder keep ssh out of debug mode.
+
+SSHMaster passes `-v` to ssh when nix::verbosity is CHATTY or more, and
+ssh writes its debug lines to the inherited descriptor 2. No logger sees
+them, so a log tap or a subscription cannot keep them off stderr.
+
+huggorm pins nix::verbosity at CHATTY, so every ssh-ng store it opened
+ran ssh with `-v`: one `solid sbom` against a remote build store wrote
+about 200 `debug1:` lines to stderr (nixidae/nixidae#1390).
+
+ssh's level is a remote connection's level, the one `remoteVerbosity`
+already holds for a daemon. Below zero, the default, it is
+nix::verbosity, so `nix -vvvvv` still gets `ssh -v`.
+
+Needs the remote-verbosity patch of the same lane.
+
+--- a/src/libstore/ssh.cc
++++ b/src/libstore/ssh.cc
+@@ -5,9 +5,16 @@
+ #include "nix/util/util.hh"
+ #include "nix/util/exec.hh"
+ #include "nix/util/base-n.hh"
++#include "nix/store/remote-store.hh"
+ 
+ namespace nix {
+ 
++static bool sshVerbose()
++{
++    auto level = remoteVerbosity.load(std::memory_order_relaxed);
++    return (level < 0 ? verbosity : (Verbosity) level) >= lvlChatty;
++}
++
+ static std::string parsePublicHostKey(std::string_view host, std::string_view sshPublicHostKey)
+ {
+     try {
+@@ -189,7 +196,7 @@
+                 addCommonSSHOpts(args);
+                 if (!socketPath.empty())
+                     args.insert(args.end(), {"-S", socketPath.string()});
+-                if (verbosity >= lvlChatty)
++                if (sshVerbose())
+                     args.push_back("-v");
+                 args.splice(args.end(), std::move(extraSshArgs));
+                 args.push_back("--");
+@@ -264,7 +271,7 @@
+                 throw SysError("duping over stdout");
+ 
+             OsStrings args = {"ssh", hostnameAndUser.c_str(), "-M", "-N", "-S", state->socketPath.string()};
+-            if (verbosity >= lvlChatty)
++            if (sshVerbose())
+                 args.push_back("-v");
+             addCommonSSHOpts(args);
+             auto env = createSSHEnv();

@@ -38,6 +38,10 @@ let
   remoteVerbosity = patch "nix-remote-verbosity";
   remoteVerbosity236 = patch "nix-2.36-remote-verbosity";
   remoteVerbosityDeterminate = patch "nix-determinate-remote-verbosity";
+  # ssh's `-v` follows `remoteVerbosity`, not the pin (nixidae/nixidae#1390).
+  # It applies after the lane's `remoteVerbosity`.
+  sshVerbosity = patch "nix-ssh-follows-remote-verbosity";
+  sshVerbosityDeterminate = patch "nix-determinate-ssh-follows-remote-verbosity";
   # `statisticsJSON`, the `count-calls` setting, and concurrent call
   # counts.
   countCalls234 = patch "nix-2.34-count-calls";
@@ -102,6 +106,7 @@ in
     ++ [
       tempRoots
       remoteVerbosity
+      sshVerbosity
       countCalls234
       exprPath
       parseFile
@@ -123,6 +128,7 @@ in
       gmtime234
       tempRoots
       remoteVerbosity
+      sshVerbosity
       countCalls235
       atRecursive
       exprPath
@@ -147,6 +153,7 @@ in
       gmtime236
       tempRoots
       remoteVerbosity236
+      sshVerbosity
       countCalls236
       atRecursive
       exprPath
@@ -190,6 +197,7 @@ in
       baseEnvSize
       gmtime234
       remoteVerbosityDeterminate
+      sshVerbosityDeterminate
       countCalls236
       atRecursive
       exprPath

@@ -1540,6 +1540,51 @@ def test_a_ceiling_that_names_no_level_refuses_the_import(value: str) -> None:
     assert f"HUGGORM_LOG_CEILING is '{value}'" in out.stderr, out.stderr
 
 
+SSH_PROBE = """
+import contextlib, sys
+from huggorm_bindings import Store, set_default_verbosity
+from huggorm_bindings.errors import NixError
+if len(sys.argv) > 1:
+    set_default_verbosity(int(sys.argv[1]))
+with contextlib.suppress(NixError):  # the fake ssh refuses every connection
+    Store("ssh-ng://user@no-such-host").is_trusted_client()
+"""
+
+FAKE_SSH = """#!/bin/sh
+printf '%s\\n' "$@" >> "$SSH_ARGV"
+exit 1
+"""
+
+
+@pytest.mark.parametrize(("raise_to", "verbose"), [(None, False), (CHATTY, True)])
+def test_ssh_runs_at_the_remote_level_not_the_pin(tmp_path: pathlib.Path, raise_to: int | None, verbose: bool) -> None:
+    """ssh writes its `-v` lines to descriptor 2, past every logger.
+
+    The CHATTY pin gave every ssh-ng store `ssh -v`, and about 200
+    `debug1:` lines on stderr (nixidae/nixidae#1390). Raising the
+    remote level asks for `-v` again, which shows the fake sees it.
+
+    Perturbation: drop `sshVerbosity` from a lane in
+    `nix/versions.nix` and the first case fails."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ssh = bin_dir / "ssh"
+    ssh.write_text(FAKE_SSH)
+    ssh.chmod(0o755)
+    argv = tmp_path / "argv"
+    out = subprocess.run(
+        [sys.executable, "-c", SSH_PROBE, *([] if raise_to is None else [str(raise_to)])],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SSH_ARGV": str(argv)},
+    )
+    assert out.returncode == 0, out.stderr
+    args = argv.read_text().splitlines()
+    assert "user@no-such-host" in args, args
+    assert ("-v" in args) == verbose, args
+
+
 def test_the_gate_goes_back_down_when_a_subscription_ends(state: Any) -> None:
     """The other half of the gate above, and it was missing.
 
