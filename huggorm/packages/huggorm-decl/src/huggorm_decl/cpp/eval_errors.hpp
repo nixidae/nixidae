@@ -8,6 +8,11 @@
 // `nix::EvalError` and a caller can catch one kind. `decl/errors.py`
 // declares each; the translator catches them before `EvalError`
 // because they derive from it.
+//
+// Default visibility: each binding module is its own shared object, built
+// with `-fvisibility=hidden`. One throws and another translates, and
+// libc++ on arm64 macOS compares a hidden `type_info` by address, so the
+// catch missed and the error crossed as a plain `EvalError`.
 
 #include "nix/expr/eval-error.hh"
 #include "nix/util/suggestions.hh"
@@ -16,7 +21,7 @@
 
 namespace huggorm {
 
-struct MissingAttribute : nix::EvalError
+struct [[gnu::visibility("default")]] MissingAttribute : nix::EvalError
 {
     using nix::EvalError::EvalError;
 
@@ -29,7 +34,7 @@ struct MissingAttribute : nix::EvalError
     }
 };
 
-struct ListIndex : nix::EvalError
+struct [[gnu::visibility("default")]] ListIndex : nix::EvalError
 {
     using nix::EvalError::EvalError;
 };
