@@ -343,8 +343,19 @@ relay under `SCHED_BATCH` does not preempt the thread that woke it
 - The cost: about 12% on one flow out of the guest.
 - One run into the guest with `SCHED_BATCH` gave 3.2 Gbit/s, against
   7.4 for its partner at host load 13. It is not explained.
-- Not measured: latency. A batch thread waits for the running thread to
-  sleep or for the tick (10 ms at HZ 100) before it runs.
+- Latency, `lab=latency`: the client pings the host through the relay,
+  idle and then beside the flows into the guest. Host load 24-40, two
+  rounds:
+
+  | eight flows into the guest | Gbit/s | busy ping avg / max |
+  | --- | --- | --- |
+  | default | 1.04, 0.91 | 11.4 / 36 ms, 13.2 / 84 ms |
+  | `SCHED_BATCH` | 6.77, 0.90 | 2.7 / 12 ms, 40.8 / 264 ms |
+
+  Idle pings average 1.1-2.5 ms in all runs. Under this load
+  `SCHED_BATCH` collapsed once anyway, with worse latency than the
+  default. So it is not a fix. A relay that serves every flow from
+  one thread, or a guest scheduler setting, are the next things to try.
 
 ## Also measured
 
@@ -388,8 +399,8 @@ relay under `SCHED_BATCH` does not preempt the thread that woke it
   is being set up is lost.
 - E5 on the UML router: only TCP and the forward are measured there.
 - Several flows into a UML router's guest collapse (E7). `SCHED_BATCH`
-  lifts them, but costs about 12% out of the guest, and its latency is
-  not measured (E8).
+  lifts them in most runs, but not reliably under host load, and costs
+  about 12% out of the guest (E8).
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
