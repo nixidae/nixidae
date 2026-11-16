@@ -28,7 +28,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | id | question | result |
 | --- | --- | --- |
 | E1 | vsock throughput, UML guest to host, through `virtio_uml` and `vhost-device-vsock` | 1.9-3.8 Gbit/s at 64-256 KiB writes, with `vsock-linear-tx.patch`. Below |
-| E2 | vsock throughput, libkrun guest to host | |
+| E2 | E4's path with a libkrun router (KVM) | works; at MTU 65000 16.2-16.7/10.0-10.3 Gbit/s, passt on krun 4.8-8.3/13.2-18.1. Below |
 | E3 | smallest UML router: kernel plus initramfs, host RSS and boot time | |
 | E4 | TCP through the whole path: guest, router NAT, relay, vsock, host | works; 3.4/5.1 Gbit/s at MTU 1500 (passt 1.7/2.7), 5.1/1.4 at MTU 65000 (passt 18.3/16.6). Below |
 | E5 | UDP and ICMP echo through the path | |
@@ -99,5 +99,50 @@ is run-to-run noise, not a property of the direction.
 - Host to guest: the router is at one full CPU, and UML is
   uniprocessor. The router guest is the limit.
 
-Next: E2. A libkrun router has KVM, where a system call does not trap
-to the host, and macOS needs a libkrun router anyway.
+## E2, 2026-11-16
+
+`lab/router/e2.py`: E4's path, with the router and the client under
+libkrun (`lab/router/krun-router.c`, 2 vCPUs, 256 MiB each). The router's
+vsock is libkrun's own device: a guest connection to CID 2, port 5000
+becomes a connection to the egress's unix socket. No vhost-user backend,
+no linear-tx patch: libkrun reads any descriptor chain. The kernel is the
+stock NixOS 6.18.55 with its modules in the initrd. Host load 4-7.
+
+The baseline is a krun guest with its own passt
+(`LAB_BACKEND=krun lab/router/passt-uml.nix`, `--cpus 2`). A krun
+guest's uplink stays at MTU 1500 whatever `vivarium.mtu` says
+(nixidae/nixidae#1179), so the lab node sets `vec0`'s MTU itself.
+
+| MTU | path | guest to host | host to guest |
+| --- | --- | --- | --- |
+| 1500 | krun router | 5.98 Gbit/s | 5.76 Gbit/s |
+| 1500 | krun passt | 8.86 Gbit/s | 6.24 Gbit/s |
+| 65000 | krun router | 16.2-16.7 Gbit/s | 10.0-10.3 Gbit/s |
+| 65000 | krun passt | 4.8-8.3 Gbit/s | 13.2-18.1 Gbit/s |
+
+- At MTU 65000 the router path is in passt's range: about twice passt
+  out of the guest, about two thirds of passt into it. On UML the router
+  path was 3-12 times slower than passt.
+- The passt baseline serves from the guest through a forward; the router
+  path connects out of the guest. Same bytes, other direction of setup.
+- The router boots to "router ready" in 1.2-1.5 s.
+
+Router vCPUs at MTU 65000 (`E2_CPUS`):
+
+| vCPUs | guest to host | host to guest |
+| --- | --- | --- |
+| 1 | 11.9 Gbit/s | 7.0 Gbit/s |
+| 2 | 16.7 Gbit/s | 10.1 Gbit/s |
+| 4 | 19.4 Gbit/s | 9.1 Gbit/s |
+
+- Every vCPU thread reads near 100% under load, also with 4. KVM's
+  `halt_poll_ns` is 200000 here, so a vCPU that waits polls, and its
+  CPU time says little. Idle, the router uses 0.02 s per 10 s.
+- Guest to host scales with vCPUs. Host to guest does not: libkrun's
+  `vsock muxer` thread (4-6 s per run) and the `virtio-net work` thread
+  are each one thread.
+
+So the shape holds on krun: some Gbit/s are reached with room to spare,
+and one vCPU already beats the UML router.
+
+Next: E5, UDP and ICMP through the same router.

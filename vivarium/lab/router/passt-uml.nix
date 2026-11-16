@@ -11,7 +11,12 @@ let
 in
 vivarium.lib.mkTest {
   name = "passt-uml";
-  backend = "uml";
+  # LAB_BACKEND=krun for E2's baseline.
+  backend =
+    let
+      env = builtins.getEnv "LAB_BACKEND";
+    in
+    if env == "" then "uml" else env;
   settings.iperf3 = pkgs.lib.getExe pkgs.iperf3;
   phases.test = {
     script = ../../tests/uplink-iperf.py;
@@ -22,5 +27,7 @@ vivarium.lib.mkTest {
     services.iperf3-server.enable = true;
     vivarium.forward = [ { ports = [ 5201 ]; } ];
     vivarium.mtu = pkgs.lib.toInt (builtins.getEnv "LAB_MTU");
+    # A krun guest's uplink stays at 1500 whatever vivarium.mtu says.
+    networking.interfaces.vec0.mtu = pkgs.lib.toInt (builtins.getEnv "LAB_MTU");
   };
 }

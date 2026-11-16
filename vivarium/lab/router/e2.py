@@ -41,6 +41,16 @@ def krun(launcher: Path, vmlinux: Path, initrd: Path, cpus: int, fd: int, cmdlin
     ]
 
 
+def thread_cpu(pid: int) -> list[str]:
+    """CPU seconds per thread: libkrun names its vCPU and device threads."""
+    lines = []
+    for task in sorted(Path(f"/proc/{pid}/task").iterdir()):
+        fields = (task / "stat").read_text().rsplit(")", 1)[1].split()
+        seconds = (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+        lines.append(f"{(task / 'comm').read_text().strip()} {seconds:.1f}")
+    return lines
+
+
 def main() -> None:
     launcher, vmlinux, initrd, egress, iperf3 = (Path(arg) for arg in sys.argv[1:6])
     client_args = sys.argv[6:]
@@ -105,6 +115,7 @@ def main() -> None:
         for name, proc in zip(("iperf3", "egress", "router"), procs, strict=True):
             print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
         print()
+        print("router threads:", ", ".join(thread_cpu(router.pid)))
     finally:
         for proc in reversed(procs):
             proc.kill()
