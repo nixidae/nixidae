@@ -13,6 +13,7 @@ wheel that lost a module fails here by name.
 from __future__ import annotations
 
 import importlib
+import importlib.machinery
 import pathlib
 import sys
 import tempfile
@@ -32,7 +33,9 @@ def check_modules(expected_file: str) -> pathlib.Path:
     for name in expected:
         importlib.import_module(f"huggorm_bindings.{name}")
     package = pathlib.Path(importlib.import_module("huggorm_bindings").__file__).parent
-    shipped = sorted(p.name.split(".")[0] for p in package.glob("*.so"))
+    # The interpreter's own suffix, not `*.so`: `libnanobind-huggorm.so` is the modules' runtime, no module.
+    suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+    shipped = sorted(p.name.removesuffix(suffix) for p in package.iterdir() if p.name.endswith(suffix))
     if shipped != expected:
         raise RuntimeError(f"the wheel ships {shipped}, the generator names {expected}")
     return package

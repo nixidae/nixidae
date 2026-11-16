@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import sysconfig
 
 import nanobind
@@ -109,10 +110,10 @@ _nix["include_dirs"] = [DECL_INCLUDE, HERE] + _nix["include_dirs"]
 # modules comes from the same place the emitter reads.
 #
 # nanobind ships its runtime as SOURCE rather than as a library.
-# `build_ext_runtime_once` compiles `nb_combined.cpp` one time and links
-# the object into every extension. `ext/robin_map` is nanobind's
-# vendored hash map, which its own headers include and its wheel does
-# not put on the include path.
+# `build_ext_shared_runtime` compiles `nb_combined.cpp` one time into
+# `libnanobind-huggorm`, beside the modules, and every extension links
+# it. `ext/robin_map` is nanobind's vendored hash map, which its own
+# headers include and its wheel does not put on the include path.
 def nb_runtime() -> str:
     """nanobind's own runtime, beside our sources.
 
@@ -161,6 +162,7 @@ def nanobind_extension(module: str) -> Extension:
             *flags["extra_compile_args"],
             "-fvisibility=hidden",
             "-Werror=switch",
+            "-DNB_SHARED",
             *(["-DNB_FREE_THREADED"] if sysconfig.get_config_var("Py_GIL_DISABLED") else []),
         ],
         include_dirs=flags["include_dirs"],
@@ -170,29 +172,53 @@ def nanobind_extension(module: str) -> Extension:
     )
 
 
-class build_ext_runtime_once(build_ext):
-    """Compile nanobind's runtime once, not once per extension.
+RUNTIME = "nanobind-huggorm"
+DARWIN = sys.platform == "darwin"
 
-    Each extension still links its own copy, as nanobind's own build
-    does: the symbols are hidden, and two extensions share nanobind's
-    internals through a capsule. Every extension has the same flags,
-    so the first one's flags compile the runtime for all of them."""
+
+class build_ext_shared_runtime(build_ext):
+    """Compile nanobind's runtime once, as one shared library every extension links.
+
+    Not a copy in each extension: a copy gives each module its own
+    `type_info` for every nanobind type with a key function, and libc++
+    on arm64 macOS compares those by address. `nb::python_error` thrown
+    in one module then missed the `catch` in another, and a Python
+    error crossed as a plain `RuntimeError` (nixidae/nixidae#1393).
+    This is nanobind's `NB_SHARED` build (`nanobind-config.cmake:228`).
+    Every extension has the same flags, so the first one's flags
+    compile the runtime for all of them."""
 
     def build_extensions(self) -> None:
         first = self.extensions[0]
-        runtime = self.compiler.compile(
+        objects = self.compiler.compile(
             [nb_runtime()],
             output_dir=self.build_temp,
             include_dirs=first.include_dirs,
             debug=self.debug,
-            extra_postargs=first.extra_compile_args,
+            extra_postargs=[*first.extra_compile_args, "-DNB_BUILD", "-fno-strict-aliasing"],
         )
+        package_dir = os.path.dirname(self.get_ext_fullpath(first.name))
+        os.makedirs(package_dir, exist_ok=True)
+        name = f"lib{RUNTIME}.{'dylib' if DARWIN else 'so'}"
+        # Not `link_shared_object`: on darwin that is Python's LDSHARED,
+        # `-bundle`, and the linker refuses to link against a bundle.
+        # Python's symbols resolve in the interpreter that loads the
+        # library, as an extension's do.
+        kind = (
+            ["-dynamiclib", "-undefined", "dynamic_lookup", f"-Wl,-install_name,@rpath/{name}"]
+            if DARWIN
+            else ["-shared"]
+        )
+        self.compiler.spawn([*self.compiler.compiler_cxx, *kind, *objects, "-o", os.path.join(package_dir, name)])
+        origin = "@loader_path" if DARWIN else "$ORIGIN"
         for ext in self.extensions:
-            ext.extra_objects = [*ext.extra_objects, *runtime]
+            ext.library_dirs = [*ext.library_dirs, package_dir]
+            ext.libraries = [*ext.libraries, RUNTIME]
+            ext.extra_link_args = [*ext.extra_link_args, f"-Wl,-rpath,{origin}"]
         super().build_extensions()
 
 
 setup(
     ext_modules=[nanobind_extension(m) for m in MODULES],
-    cmdclass={"build_ext": build_ext_runtime_once},
+    cmdclass={"build_ext": build_ext_shared_runtime},
 )
