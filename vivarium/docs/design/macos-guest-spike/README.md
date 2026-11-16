@@ -144,8 +144,13 @@ GPU and IOSurface-mapper nodes in the device tree (one letter of their
 
 With the GPU on, 15 and 26 panic: `Undefined kernel instruction
 instr=d51ef860` = `msr S3_6_C15_C8_3, x0`, an Apple implementation-defined
-register that public HVF (ISA mode 1) refuses. Headless avoids it. Panic
+register that public HVF (ISA mode 1) refuses. Headless avoids it at boot. Panic
 records are in the run directory's `aux.img` (NVRAM), readable as strings.
+
+Headless is not immune (2026-11-16). `host/installer_test.py` panics the same
+way on 14 and 15, seconds after its `dscl` and `nix-store --load-db` calls,
+every run; the panicked task is a 3-page `true` (pid 771, 777, 1095). An idle
+guest stays up, and the builder snapshots never reach it.
 
 The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
 `0xfffffc01100bc058` in its memcpy (ELR 0x700adf34) while formatting a log
