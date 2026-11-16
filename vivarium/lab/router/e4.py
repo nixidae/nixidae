@@ -7,6 +7,7 @@ client (UML) --vec0 socketpair--> router (UML): nft redirect, relay
     lab/router/e4.py KERNEL INITRD VHOST_DEVICE_VSOCK EGRESS IPERF3 [client kernel args...]
 
 VHOST_DEVICE_VSOCK `-` makes the egress serve the vsock device itself.
+E4_ROUTER adds router kernel arguments, such as `vsockbuf=4194304`.
 """
 
 from __future__ import annotations
@@ -80,7 +81,7 @@ def main() -> None:
         wait_for(device)
         router_end, client_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
         router = subprocess.Popen(
-            uml(kernel, initrd, run, "router", router_end.fileno(), "lab=router", f"virtio_uml.device={device}:19"),
+            uml(kernel, initrd, run, "router", router_end.fileno(), f"lab=router {os.environ.get('E4_ROUTER', '')}", f"virtio_uml.device={device}:19"),
             pass_fds=(router_end.fileno(),),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

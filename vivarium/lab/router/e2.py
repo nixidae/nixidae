@@ -7,7 +7,8 @@ client (krun or UML) --unixgram socketpair--> router (krun): nft redirect,
     lab/router/e2.py LAUNCHER VMLINUX KRUN_INITRD EGRESS IPERF3 [client kernel args...]
 
 E2_CLIENT=uml:KERNEL:INITRD runs the client under UML instead.
-E2_CPUS sets the router's vCPUs (default 2).
+E2_CPUS sets the router's vCPUs (default 2). E2_ROUTER adds router
+kernel arguments, such as `vsockbuf=4194304`.
 """
 
 from __future__ import annotations
@@ -44,33 +45,50 @@ def krun(launcher: Path, vmlinux: Path, initrd: Path, cpus: int, fd: int, cmdlin
 
 
 def thread_cpu(pid: int) -> list[str]:
-    """CPU seconds per thread: libkrun names its vCPU and device threads."""
+    """CPU seconds per thread: libkrun names its vCPU and device threads.
+
+    A vCPU thread's utime includes guest time; utime minus guest is libkrun
+    handling exits in userspace, and stime is KVM."""
     lines = []
+    tick = os.sysconf("SC_CLK_TCK")
     for task in sorted(Path(f"/proc/{pid}/task").iterdir()):
+        # Index N-3 is stat field N: utime 14, stime 15, guest_time 43.
         fields = (task / "stat").read_text().rsplit(")", 1)[1].split()
-        seconds = (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
-        lines.append(f"{(task / 'comm').read_text().strip()} {seconds:.1f}")
+        user, system, guest = (int(fields[i]) / tick for i in (11, 12, 40))
+        detail = f" (guest {guest:.1f}, user {user - guest:.1f}, sys {system:.1f})" if guest else ""
+        lines.append(f"{(task / 'comm').read_text().strip()} {user + system:.1f}{detail}")
     return lines
 
 
-def collect_stats(stream: IO[bytes], stats: list[list[int]]) -> None:
-    """The router's `lab: stat cpu ...` lines: /proc/stat jiffies."""
+def collect_stats(stream: IO[bytes], stats: dict[str, list[list[int]]], irqs: dict[str, list[str]]) -> None:
+    """The router's `lab: stat cpu...` lines (/proc/stat jiffies, per CPU and in all)
+    and `lab: irq` lines (its virtio rows of /proc/interrupts)."""
     for line in stream:
         text = line.decode(errors="replace")
-        if "lab: stat cpu " in text:
-            stats.append([int(field) for field in text.split("lab: stat cpu ", 1)[1].split()])
+        if "lab: stat cpu" in text:
+            name, *fields = text.split("lab: stat ", 1)[1].split()
+            stats.setdefault(name, []).append([int(field) for field in fields])
+        elif "lab: irq " in text:
+            row = text.split("lab: irq ", 1)[1].strip()
+            irqs.setdefault(row.split()[0], []).append(row)
+        elif "lab: task " in text:
+            row = text.split("lab: task ", 1)[1].strip()
+            irqs.setdefault(f"task {row.split()[0]}", []).append(row)
 
 
-def guest_busy(stats: list[list[int]]) -> str:
+def guest_busy(samples: list[list[int]]) -> str:
     """Busy CPU seconds inside the router over the run: halt polling not counted."""
-    if len(stats) < 2:
+    if len(samples) < 2:
         return "no samples"
-    first, last = stats[0], stats[-1]
+    first, last = samples[0], samples[-1]
     delta = [b - a for a, b in zip(first, last, strict=False)]
     idle = delta[3] + delta[4]
     busy = sum(delta[:8]) - idle
-    # USER_HZ is 100 in every Linux build.
-    return f"{busy / 100:.1f} s busy, {idle / 100:.1f} s idle, over {len(stats) - 1} samples 2 s apart"
+    # USER_HZ is 100 in every Linux build. Fields: user nice system idle iowait irq softirq steal.
+    return (
+        f"{busy / 100:.1f} s busy (user {delta[0] / 100:.1f}, sys {delta[2] / 100:.1f},"
+        f" irq {delta[5] / 100:.1f}, softirq {delta[6] / 100:.1f}, steal {delta[7] / 100:.1f}), {idle / 100:.1f} s idle, over {len(samples) - 1} samples 2 s apart"
+    )
 
 
 def main() -> None:
@@ -92,7 +110,7 @@ def main() -> None:
                 initrd,
                 int(os.environ.get("E2_CPUS", "2")),
                 router_end.fileno(),
-                "lab=router",
+                f"lab=router {os.environ.get('E2_ROUTER', '')}",
                 str(VSOCK_PORT),
                 str(uds),
             ),
@@ -113,8 +131,9 @@ def main() -> None:
                 break
         else:
             raise RuntimeError("router exited before it was ready")
-        stats: list[list[int]] = []
-        threading.Thread(target=collect_stats, args=(router.stdout, stats), daemon=True).start()
+        stats: dict[str, list[list[int]]] = {}
+        irqs: dict[str, list[str]] = {}
+        threading.Thread(target=collect_stats, args=(router.stdout, stats, irqs), daemon=True).start()
         client_spec = os.environ.get("E2_CLIENT", "")
         if client_spec.startswith("uml:"):
             _, kernel, uml_initrd = client_spec.split(":")
@@ -140,7 +159,11 @@ def main() -> None:
             print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
         print()
         print("router threads:", ", ".join(thread_cpu(router.pid)))
-        print(f"router guest busy: {guest_busy(stats)}")
+        for name, samples in sorted(stats.items()):
+            print(f"router guest {name}: {guest_busy(samples)}")
+        for name, rows in irqs.items():
+            print(f"router {name} first: {rows[0]}")
+            print(f"router {name} last:  {rows[-1]}")
     finally:
         for proc in reversed(procs):
             proc.kill()

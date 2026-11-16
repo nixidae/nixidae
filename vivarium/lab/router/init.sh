@@ -52,7 +52,21 @@ case "$lab" in
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.
-    while true; do read -r stat < /proc/stat; echo "lab: stat $stat"; sleep 2; done
+    while true; do
+      while read -r stat; do
+        case "$stat" in cpu*) echo "lab: stat $stat" ;; esac
+      done < /proc/stat
+      while read -r irq; do
+        case "$irq" in *virtio*) echo "lab: irq $irq" ;; esac
+      done < /proc/interrupts
+      for task in /proc/[0-9]*/task/[0-9]*; do
+        read -r line < "$task/stat" || continue
+        # shellcheck disable=SC2086 # split the stat fields
+        set -- $line
+        [ "$((${14} + ${15}))" -gt 20 ] && echo "lab: task $1 $2 cpu=${39} user=${14} sys=${15}"
+      done
+      sleep 2
+    done
     ;;
   client)
     # E4: a guest behind the router. 10.0.2.2 is the host's loopback.
