@@ -51,7 +51,7 @@ case "$lab" in
     # The guest's vsock receive window. Linux's 256 KiB held krun's
     # host-to-guest leg to 9.3 Gbit/s; 4 MiB gives 11.6, 16 MiB no more.
     vsockbuf=$(arg vsockbuf)
-    RELAY_VSOCK_BUFFER=${vsockbuf:-4194304} relay 9000 5000 9001 5001 &
+    RELAY_VSOCK_BUFFER=${vsockbuf:-4194304} RELAY_SCHED_BATCH=$(arg batch) relay 9000 5000 9001 5001 &
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.

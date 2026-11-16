@@ -450,6 +450,24 @@ fn main() -> io::Result<()> {
         .get(4)
         .map_or(Ok(5001), |a| a.parse())
         .map_err(io::Error::other)?;
+    if env::var_os("RELAY_SCHED_BATCH").is_some_and(|value| !value.is_empty()) {
+        // Threads inherit the policy. A batch thread does not preempt the
+        // thread that woke it.
+        // musl's sched_param has more fields than glibc's; all are zero.
+        // The raw call: musl's sched_setscheduler always fails with ENOSYS.
+        let param: libc::sched_param = unsafe { mem::zeroed() };
+        if unsafe {
+            libc::syscall(
+                libc::SYS_sched_setscheduler,
+                0,
+                libc::SCHED_BATCH,
+                &raw const param,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
     thread::spawn(move || {
         if let Err(err) = inbound(in_port) {
             eprintln!("relay: inbound: {err}");
