@@ -197,7 +197,8 @@ rec {
 
       `tarball` is the directory that holds `pynixd-<system>.tar.zst`, a URL
       that curl reads (`file://` too). The tarball unpacks into /nix, and
-      its installer starts pynixd under systemd with no nix-daemon. The
+      its installer starts pynixd under systemd, or launchd on macOS, with
+      no nix-daemon. The
       runner user is a trusted user, and the profile's `bin` goes on PATH
       for every later step.
 
@@ -235,17 +236,34 @@ rec {
               ;
           };
         };
-        run = lib.concatStringsSep " && " (
-          [
-            ''curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$(uname -m)-linux.tar.zst" | sudo tar --zstd -x -C /''
-            (
-              ''printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin''
-              + lib.optionalString ghaCache " --gha-cache \"$RUNNER_TEMP/pynixd-gha-cache.json\""
-            )
-            ''echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"''
-          ]
-          ++ lib.optional ghaCache ''rm "$RUNNER_TEMP/pynixd-gha-cache.json"''
-        );
+        /*
+          On macOS the root volume is read only, so /nix is an APFS volume,
+          made as Nix's `create-darwin-volume.sh` makes it: `synthetic.conf`
+          names the mount point, `apfs.util -t` creates it without a reboot
+          (and can exit non-zero when it did), and `enableOwnership` makes the
+          volume keep the owners that build users need. The installer is in
+          the tarball, so this step makes the volume before the unpack.
+          `zstd -dc`, not `tar --zstd`: macOS's bsdtar may lack it.
+        */
+        run = ''
+          if [ "$RUNNER_OS" = macOS ]; then
+            system=aarch64-darwin
+            if [ ! -d /nix ]; then
+              printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
+              sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
+              sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" APFS Nix -mountpoint /nix
+              sudo diskutil enableOwnership /nix
+            fi
+          else
+            system=$(uname -m)-linux
+          fi
+          curl --fail --silent --show-error --location "$PYNIXD_TARBALL/pynixd-$system.tar.zst" | zstd -dc | sudo tar -x -C /
+          printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin${lib.optionalString ghaCache " --gha-cache \"$RUNNER_TEMP/pynixd-gha-cache.json\""}
+          echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
+        ''
+        + lib.optionalString ghaCache ''
+          rm "$RUNNER_TEMP/pynixd-gha-cache.json"
+        '';
       };
 
     /*
