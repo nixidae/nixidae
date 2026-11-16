@@ -42,10 +42,10 @@ github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
 | fdba6923 | vivarium | vmapple's `disable-legacy` global is optional |
 | 52d6c471 | vivarium | vhost-user's start kick goes through the host notifier |
 | 887da5a9 | vivarium | vhost's shared dirty log without memfd |
-| 8de4c384 | vivarium | HVF keeps Apple's `ASPSR_EL1` and `AFPCR_EL0` (local) |
+| 8de4c384 | vivarium | HVF keeps Apple's `ASPSR_EL1` and `AFPCR_EL0` |
 
 `vivarium/pkgs/qemu-vmapple/package.nix` builds the `nixidae` branch of
-github.com/nixidae/qemu (887da5a9). For a local checkout:
+github.com/nixidae/qemu (8de4c384). For a local checkout:
 `.overrideAttrs { src = builtins.fetchGit { url = ~/Dynamist/qemu; rev = ...; }; }`.
 
 `host/find_qemu_base.py` found the base by content hashes: orchard's import

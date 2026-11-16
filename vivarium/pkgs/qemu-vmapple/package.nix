@@ -25,8 +25,8 @@ let
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "qemu";
-    rev = "887da5a976af636ee7e65f1be4da4918ee891db7";
-    hash = "sha256-YuToHNl8kRuV9kjqnKKZy3XeFhO/WoXrvP7rIFP3cAs=";
+    rev = "8de4c3847ffac3789b605753e3f8dc41ed932244";
+    hash = "sha256-rmgIKEkBR1rUvlZDqBerktLl/6+urh8udRmt3VYbayg=";
   };
   gitlab =
     name: rev: hash:
@@ -52,7 +52,7 @@ in
 }).overrideAttrs
   (old: {
     pname = "qemu-vmapple";
-    version = "11.1.50-unstable-2026-11-08";
+    version = "11.1.50-unstable-2026-11-16";
     inherit src;
 
     # meson turns vhost-user off on hosts other than Linux. QEMU's macOS
