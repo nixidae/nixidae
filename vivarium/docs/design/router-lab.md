@@ -254,7 +254,7 @@ vhost-user-backend and virtio-queue for the transport. It reads a packet
 from any descriptor chain, so the router runs `kernelStock`, without
 `vsock-linear-tx.patch`, and no vhost-device-vsock runs. Each guest
 connection is one end of a socketpair; the egress's flow thread holds
-the other end. `e4.py ... -` and `e6.py uml ...`.
+the other end. `e4.py ... -`, `e6.py uml ...` and `e7.py`.
 
 E4 again, MTU 65000, iperf3 `-l 128K`, host load 4-10, runs back to
 back:
@@ -274,14 +274,25 @@ back:
   uniprocessor.
 - E6 on this router: 12.3 Gbit/s into the guest, 15.3 out.
 - The egress in unix-socket mode on krun (E2): 16.3 and 9.76, as before.
-- Eight flows: 16.0 Gbit/s out of the guest, but 1.2-1.6 into it. 2
-  flows: 3.4; 4 flows: 5.5. vhost-device-vsock gave 3.8 here (E4). The
-  router uses a full CPU for 1.6 Gbit/s. The guest sends a credit
-  update for almost every packet it gets (330k for 415k 4 KiB
-  packets), against one per 44 with one flow. Not the cause:
-  `net.unix.max_dgram_qlen` 512 or 8192 (same result), dropped frames
-  (26 retransmits), interleaving of flows (bursts of 128 KiB per flow:
-  same result). Not explained yet.
+- Content: `e7.py` sends 169 MB of `seq` output each way through the
+  device and compares MD5s. Both match, with 2.5k multi-descriptor
+  chains. With the host's receiver stalled 5 s, the device spilled
+  219 KB and both still match.
+- Eight flows: 14.6-16.0 Gbit/s out of the guest, but 1.2-1.6 into it.
+  2 flows: 3.4; 4 flows: 5.5-5.8. vhost-device-vsock with the patched
+  kernel gave 3.8 with eight flows (E4), so the own device is worse
+  here. The router uses a full CPU for 1.6 Gbit/s. The guest sends a
+  credit update for almost every 4 KiB packet it gets (409k for 504k),
+  against one per 43 with one flow.
+- Not the cause, each tried with eight flows into the guest:
+  - `net.unix.max_dgram_qlen` 512 or 8192: same result.
+  - Dropped frames: 26 retransmits.
+  - The device's interleaving: bursts of 128 KiB per flow give the
+    same ratio and rate.
+  - The device's refill: a flow that joins the send queue only with
+    half the guest's window free gives the same ratio and rate.
+
+  So the guest's relay reads per packet. Why is not explained yet.
 
 ## Also measured
 
