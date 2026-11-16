@@ -452,6 +452,23 @@ Traps found:
 - nft tproxy finds an established socket first: a guest's UDP reply
   reaches the relay's connected socket, not the :9001 listener.
 
+Throughput, `lab/router/slice-iperf.nix`: one run, guest `passt` with
+its own passt and guest `routed` behind the slice's UML router, MTU
+65000, one flow, 5 s, two rounds interleaved per direction. Host load
+went from 65 to 12 during the run. "Forward" is the host's client to the
+guest's forward; "outbound" is the guest's client to 10.0.2.2.
+
+| path | direction | passt | router |
+| --- | --- | --- | --- |
+| forward | host to guest | 22.3, 21.1 Gbit/s | 17.9, 17.6 Gbit/s |
+| forward | guest to host | 20.8, 21.0 Gbit/s | 20.6, 20.3 Gbit/s |
+| outbound | guest to host | 20.9, 20.9 Gbit/s | 19.8, 20.1 Gbit/s |
+| outbound | host to guest | 21.3, 16.2 Gbit/s | 17.8, 17.4 Gbit/s |
+
+- Out of the guest the router is within 5% of passt; into the guest,
+  about 83%. This is above E7's one flow (13.2-15.3 and 10.9-12.7
+  Gbit/s). The cause is not known; the host load differed.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives
@@ -497,8 +514,7 @@ Traps found:
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
-- Not tried: macOS. Throughput through the slice's router (not the
-  lab's) against passt.
+- Not tried: macOS. Several flows through the slice's router.
 - The no-KVM case: without `/dev/kvm` the router is UML. With the own
   device (E7) one flow is about 70% of passt out of the guest and 60%
   into it; several flows into the guest are far below passt.
