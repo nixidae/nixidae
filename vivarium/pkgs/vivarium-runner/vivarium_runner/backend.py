@@ -537,6 +537,8 @@ class Backend(Protocol):
 
 VIRTIO_ID_VSOCK = 19
 """`virtio_uml.device=SOCKET:ID`: the virtio device ID of vsock."""
+RELAY_FORWARDS = "vsock:5001"
+"""Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
 
 
 class Uml:
@@ -608,7 +610,13 @@ class Uml:
         if spec.router:
             # No vec0: the router reaches the host over vsock, a vhost-user
             # device the egress serves (E7).
-            device, egress = self._egress(config, rundir, uml_dir)
+            forwards = [
+                arg
+                for guest in machine.routed
+                if guest.spec.uplink_address is not None
+                for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, RELAY_FORWARDS)
+            ]
+            device, egress = self._egress(config, rundir, uml_dir, forwards)
             helpers.append(egress)
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
@@ -654,12 +662,14 @@ class Uml:
         )
 
     @staticmethod
-    def _egress(config: UmlConfig, rundir: Path, directory: Path) -> tuple[Path, subprocess.Popen[bytes]]:
+    def _egress(
+        config: UmlConfig, rundir: Path, directory: Path, forwards: list[str]
+    ) -> tuple[Path, subprocess.Popen[bytes]]:
         """Start the egress on a vhost-user socket in *directory*.
 
         *directory* is the one `socket_dir` found short enough for a
         `sockaddr_un`. The egress maps the gateway, 10.0.2.2, to the host's
-        loopback.
+        loopback, and binds *forwards* before the socket appears.
         """
         if config.egress is None:
             raise BackendError("the router needs egress in vivarium.launch.config")
@@ -667,7 +677,7 @@ class Uml:
         log = rundir / "egress.log"
         with log.open("wb") as handle:
             proc = subprocess.Popen(
-                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY],
+                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY, *forwards],
                 stdin=subprocess.DEVNULL,
                 stdout=handle,
                 stderr=subprocess.STDOUT,

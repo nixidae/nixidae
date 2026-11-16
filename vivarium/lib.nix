@@ -216,6 +216,9 @@ rec {
       forward = machine.vivarium.forward;
       inherit (machine.vivarium) control;
     }
+    // lib.optionalAttrs (machine.vivarium.uplink.proxy == "router") {
+      uplinkAddress = machine.vivarium.router.address machine.vivarium.index;
+    }
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;
     }

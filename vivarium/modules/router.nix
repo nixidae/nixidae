@@ -84,6 +84,8 @@ in
     # Not behind itself: the runner gives the router vsock to the host
     # and no vec0 (`router` in its spec).
     vivarium.uplink.proxy = "passt";
+    # Its egress binds nothing for it: no ssh, and nothing to reach.
+    vivarium.forward = lib.mkForce [ ];
     vivarium.launch.config.egress = lib.mkIf (config.vivarium.backend == "uml") "${egress}/bin/egress";
 
     vivarium.interfaces = lib.mapAttrs' (

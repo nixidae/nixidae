@@ -510,6 +510,10 @@ class Session:
         taken: set[str] = set()
         for vm in self._all.values():
             vm.resolve_forward(taken)
+        routed = tuple(vm for vm in self._all.values() if vm.spec.uplink_address is not None)
+        for vm in self._all.values():
+            if vm.spec.router:
+                vm.routed = routed
         vms.access = access.write(
             {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in self._all.items()},
             self.out,

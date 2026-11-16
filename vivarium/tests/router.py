@@ -2,7 +2,8 @@
 
 Each leases its own address on `vec0` from the router by its MAC, reaches
 the host's loopback as 10.0.2.2 through the relay, and reaches the other
-guest across the router's bridge.
+guest across the router's bridge. The host reaches each guest on the
+addresses `reachable` names, through the router's egress.
 """
 
 import asyncio
@@ -46,3 +47,65 @@ async def test(vms: Machines) -> None:
     await vms.a.succeed(f"ping -c2 -W2 {GUESTS['b']}")
     await vms.b.succeed(f"ping -c2 -W2 {GUESTS['a']}")
     print("[test] a and b reach each other on vec0")
+
+    await forwards(vms)
+
+
+TCP = 7777
+UDP = 7778
+PRIVILEGED = 80
+NAME = "OPEN:/proc/sys/kernel/hostname,rdonly"
+"""The guest answers its name. A transient unit's PATH has no `hostname` or `cat`."""
+
+
+def _ask_tcp(where: str) -> str:
+    host, port = where.rsplit(":", 1)
+    with socket.create_connection((host, int(port)), timeout=5) as conn:
+        return conn.makefile().readline().strip()
+
+
+def _ask_udp(where: str) -> str:
+    host, port = where.rsplit(":", 1)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(2)
+        sock.sendto(b"who\n", (host, int(port)))
+        return sock.recv(100).decode().strip()
+
+
+async def ask(where: str, udp: bool = False, timeout: float = 30) -> str:
+    """The guest's answer on *where*, giving its server time to bind."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        try:
+            got = await asyncio.to_thread(_ask_udp if udp else _ask_tcp, where)
+        except OSError as error:
+            got, why = "", str(error)
+        else:
+            why = "an empty answer"
+        if got:
+            return got
+        if loop.time() > deadline:
+            raise AssertionError(f"nothing answered on {where}: {why}")
+        await asyncio.sleep(0.5)
+
+
+async def forwards(vms: Machines) -> None:
+    """The host reaches each guest on its own forwards, through the egress."""
+    for name in GUESTS:
+        await vms[name].succeed(f"systemd-run --collect --unit=tcp-{TCP} socat TCP-LISTEN:{TCP},fork,reuseaddr {NAME}")
+    await vms.a.succeed(f"systemd-run --collect --unit=tcp-{PRIVILEGED} socat TCP-LISTEN:{PRIVILEGED},fork,reuseaddr {NAME}")
+    await vms.a.succeed(f"systemd-run --collect --unit=udp-{UDP} socat -U UDP4-RECVFROM:{UDP},fork {NAME}")
+
+    checks = [(name, TCP, False) for name in GUESTS] + [("a", PRIVILEGED, False), ("a", UDP, True)]
+    for name, port, udp in checks:
+        where = vms[name].reachable(port)
+        if not where:
+            raise AssertionError(f"{name}: guest port {port} is not forwarded")
+        got = await ask(where[0], udp=udp)
+        # A wrong address or offset answers with the other guest's name.
+        if got != name:
+            raise AssertionError(f"{name}: {where[0]} answered {got!r}, not {name!r}")
+        print(f"[test] the host reached {name}:{port}{'/udp' if udp else ''} on {where[0]}")
+    if vms.b.reachable(PRIVILEGED):
+        raise AssertionError("b forwards only its one port, and port 80 is not it")

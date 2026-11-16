@@ -492,9 +492,18 @@ in
         vivarium.router.enable = true;
       };
     };
-    defaults = lib.mkIf config.router.enable {
-      vivarium.uplink.proxy = lib.mkDefault "router";
-    };
+    defaults =
+      let
+        router = config.router.name;
+      in
+      lib.mkIf config.router.enable (
+        { config, ... }:
+        {
+          vivarium.uplink.proxy = lib.mkDefault "router";
+          # A guest behind the router has no lease and no forwards without it.
+          vivarium.requires = lib.mkIf (config.vivarium.uplink.proxy == "router") [ router ];
+        }
+      );
 
     assertions = [
       {

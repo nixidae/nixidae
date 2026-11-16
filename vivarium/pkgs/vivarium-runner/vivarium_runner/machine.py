@@ -210,6 +210,7 @@ class MachineSpecJson(TypedDict, total=False):
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
+    uplinkAddress: str
     router: bool
     forward: list[forward.RuleJson]
     requires: list[str]
@@ -339,6 +340,9 @@ class MachineSpec:
     `None` is passt, the default."""
     uplink_proxy: str = "passt"
     """`vivarium.uplink.proxy`: `passt`, `gvproxy` or `router`."""
+    uplink_address: str | None = None
+    """A guest behind the router: its address there, which the router's
+    egress forwards to."""
     router: bool = False
     """The run's router guest (`vivarium.router.enable`): no `vec0`, and
     vsock to an egress on the host instead (nixidae/nixidae#1404)."""
@@ -378,6 +382,7 @@ class MachineSpec:
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             uplink_proxy=data.get("uplinkProxy", "passt"),
+            uplink_address=data.get("uplinkAddress"),
             router=data.get("router", False),
             forward=tuple(forward.Rule.from_json(rule) for rule in data.get("forward", [])),
         )
@@ -513,6 +518,9 @@ class Machine:
         self.forward: list[forward.Rule] = list(spec.forward)
         self.service: Service | None = None
         """What answers this guest's own calls to the host: the session's cloud API. Set before boot."""
+        self.routed: tuple[Machine, ...] = ()
+        """The router's guests, whose forwards its egress binds. The session
+        sets it once every guest's forwards are resolved."""
 
         self._rundir: Path | None = None
         self._process: subprocess.Process | None = None
