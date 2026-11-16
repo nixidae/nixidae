@@ -18,8 +18,10 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
+from typing import IO
 
 VSOCK_PORT = 5000
 
@@ -62,6 +64,45 @@ def wait_for(path: Path) -> None:
         time.sleep(0.05)
 
 
+def collect_stats(stream: IO[bytes], stats: dict[str, list[list[int]]], irqs: dict[str, list[str]]) -> None:
+    """The router's `lab: stat cpu...` lines (/proc/stat jiffies, per CPU and in all)
+    and `lab: irq` lines (its virtio rows of /proc/interrupts)."""
+    for line in stream:
+        text = line.decode(errors="replace")
+        if "lab: stat cpu" in text:
+            name, *fields = text.split("lab: stat ", 1)[1].split()
+            stats.setdefault(name, []).append([int(field) for field in fields])
+        elif "lab: irq " in text:
+            row = text.split("lab: irq ", 1)[1].strip()
+            irqs.setdefault(row.split()[0], []).append(row)
+        elif "lab: task " in text:
+            row = text.split("lab: task ", 1)[1].strip()
+            irqs.setdefault(f"task {row.split()[0]}", []).append(row)
+
+
+def guest_busy(samples: list[list[int]]) -> str:
+    """Busy CPU seconds inside the router over the run: halt polling not counted."""
+    if len(samples) < 2:
+        return "no samples"
+    first, last = samples[0], samples[-1]
+    delta = [b - a for a, b in zip(first, last, strict=False)]
+    idle = delta[3] + delta[4]
+    busy = sum(delta[:8]) - idle
+    # USER_HZ is 100 in every Linux build. Fields: user nice system idle iowait irq softirq steal.
+    return (
+        f"{busy / 100:.1f} s busy (user {delta[0] / 100:.1f}, sys {delta[2] / 100:.1f},"
+        f" irq {delta[5] / 100:.1f}, softirq {delta[6] / 100:.1f}, steal {delta[7] / 100:.1f}), {idle / 100:.1f} s idle, over {len(samples) - 1} samples 2 s apart"
+    )
+
+
+def print_stats(stats: dict[str, list[list[int]]], irqs: dict[str, list[str]]) -> None:
+    for name, samples in sorted(stats.items()):
+        print(f"router guest {name}: {guest_busy(samples)}")
+    for name, rows in irqs.items():
+        print(f"router {name} first: {rows[0]}")
+        print(f"router {name} last:  {rows[-1]}")
+
+
 def main() -> None:
     kernel, initrd, vhost, egress, iperf3 = (Path(arg) for arg in sys.argv[1:6])
     run = Path(tempfile.mkdtemp(prefix="e4-"))
@@ -96,6 +137,9 @@ def main() -> None:
                 print(f"[router] {text}")
             if "router ready" in text:
                 break
+        stats: dict[str, list[list[int]]] = {}
+        irqs: dict[str, list[str]] = {}
+        threading.Thread(target=collect_stats, args=(router.stdout, stats, irqs), daemon=True).start()
         client = subprocess.run(
             uml(kernel, initrd, run, "client", client_end.fileno(), "lab=client", *sys.argv[6:]),
             pass_fds=(client_end.fileno(),),
@@ -112,6 +156,7 @@ def main() -> None:
         for name, proc in zip(names, procs, strict=True):
             print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
         print()
+        print_stats(stats, irqs)
     finally:
         for proc in reversed(procs):
             proc.kill()

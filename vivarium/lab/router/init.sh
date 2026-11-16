@@ -62,7 +62,8 @@ case "$lab" in
       while read -r irq; do
         case "$irq" in *virtio*) echo "lab: irq $irq" ;; esac
       done < /proc/interrupts
-      for task in /proc/[0-9]*/task/[0-9]*; do
+      # Opt-in: on UML this walk costs init 1.7-3.1 s of CPU in a 10 s run.
+      [ -n "$(arg tasks)" ] && for task in /proc/[0-9]*/task/[0-9]*; do
         read -r line < "$task/stat" || continue
         # shellcheck disable=SC2086 # split the stat fields
         set -- $line
