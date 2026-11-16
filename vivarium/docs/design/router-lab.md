@@ -31,7 +31,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E2 | E4's path with a libkrun router (KVM) | works; at MTU 65000 16.2-16.7/10.0-10.3 Gbit/s, passt on krun 4.8-8.3/13.2-18.1. Below |
 | E3 | smallest UML router: kernel plus initramfs, host RSS and boot time | |
 | E4 | TCP through the whole path: guest, router NAT, relay, vsock, host | works; 3.4/5.1 Gbit/s at MTU 1500 (passt 1.7/2.7), 5.1/1.4 at MTU 65000 (passt 18.3/16.6). Below |
-| E5 | UDP and ICMP echo through the path | |
+| E5 | UDP and ICMP echo through the path | works on krun: ping, UDP echo, iperf3 `-u` both ways; negative control holds. Below |
 
 ## E1, 2026-11-16
 
@@ -164,4 +164,58 @@ than passt. A router design that replaces passt everywhere must either
 accept that, keep passt for runs without KVM, or make the UML path
 faster (our own vhost-user vsock backend, E1).
 
-Next: E5, UDP and ICMP through the same router.
+## E5, 2026-11-16
+
+`lab/router/e5.py`: the krun client and router of E2, MTU 65000. The
+host runs a UDP echo on 127.0.0.1:7777 and `iperf3 -s`; the guest
+reaches both as 10.0.2.2.
+
+How each protocol reaches the relay (`router.nft`, `relay.rs`):
+
+- UDP: nftables `tproxy` to the relay's port 9001, with mark 1. A fwmark
+  rule and a `local` route deliver the marked datagram to the router.
+  tproxy is not NAT, so no conntrack entry holds the flow. This departs
+  from "conntrack tracks the ports": the relay keeps its own flow table
+  and ends a flow after 30 s with no datagram. Per flow, the relay binds
+  a transparent socket to the original destination and connects it to
+  the guest. The guest's later datagrams arrive on that socket, and
+  replies leave from it.
+- ICMP echo: mark 1 and the same route, no NFQUEUE. A raw socket in the
+  relay reads each echo request, original destination included. The
+  router's kernel answers none (`icmp_echo_ignore_all`). The host sends
+  the echo through a ping socket, which picks its own echo id; the relay
+  puts the guest's id back and injects the reply with an `IPPROTO_RAW`
+  socket.
+- On vsock, a UDP or ICMP flow is one stream of datagrams, each with a
+  2-byte length. A datagram that meets a full stream is dropped, as on a
+  congested link.
+- The host's `ping_group_range` here is `0 2147483647`, so the egress
+  needs no privilege for ICMP. macOS allows ping sockets to every user.
+
+Results:
+
+- `ping 10.0.2.2`: 3 of 3, 0.5-0.8 ms.
+- `ping 192.0.2.1` (TEST-NET-1, nothing answers): 0 of 2. The router
+  makes up no replies.
+- `ping` to the host's own public address: 2 of 2. Negative control:
+  with the mangle chain flushed (`noicmp=1`), 0 of 2, and the UDP echo
+  gets nothing. A ping to 10.0.2.2 still answers then, because that
+  address is the router's own and its raw socket sees the echo anyway.
+- UDP echo: the reply comes back.
+
+iperf3 `-u`, 5 s, host load 6-7:
+
+| rate, datagram | guest to host: received, loss | host to guest: received, loss |
+| --- | --- | --- |
+| 600 Mbit/s, 1400 B | 594 Mbit/s, 0.12% | 600 Mbit/s, 0.8% |
+| 1 Gbit/s, 1400 B | 786 Mbit/s, 21% | 930 Mbit/s, 7.7% |
+| 2 Gbit/s, 8000 B | 1.97 Gbit/s, 0.51% | 1.99 Gbit/s, 1.1% |
+| 5 Gbit/s, 32000 B | 4.29 Gbit/s, 14% | 4.99 Gbit/s, 1.1% |
+
+- The limit is datagrams per second, about 70-80 thousand: each one is
+  a system call at every hop, and a vsock frame of its own.
+- Not measured yet: where the loss happens (the relay's drop on a full
+  stream, or a socket buffer), and E5 on the UML router.
+
+Next: decide on #1404 whether the no-KVM case (UML router) is acceptable.
+If it is not, the next step is the vhost-user vsock backend of E1.

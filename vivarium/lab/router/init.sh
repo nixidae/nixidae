@@ -41,8 +41,14 @@ case "$lab" in
     ip addr add 10.0.2.2/24 dev vec0
     ip link set vec0 up
     echo 1 > /proc/sys/net/ipv4/ip_forward
+    # The relay answers echo requests with the host's replies.
+    echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
+    ip rule add fwmark 1 lookup 100
+    ip route add local 0.0.0.0/0 dev lo table 100
     nft -f /etc/router.nft
-    relay 9000 5000 &
+    # E5's negative control: no mark, so ICMP echo is routed, not relayed.
+    [ -n "$(arg noicmp)" ] && nft flush chain ip router mangle
+    relay 9000 5000 9001 &
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.
@@ -55,6 +61,27 @@ case "$lab" in
     ip route add default via 10.0.2.1
     sleep 1
     iperf3 -c 10.0.2.2 -t 10 -l "$block" $(arg reverse | sed 's/1/-R/')
+    echo "lab: client done"
+    ;;
+  e5)
+    # E5: ICMP echo and UDP behind the router. 192.0.2.1 is TEST-NET-1:
+    # nothing answers it, so a reply there would be one the router made up.
+    ip addr add 10.0.2.15/24 dev vec0
+    ip link set vec0 up
+    ip route add default via 10.0.2.1
+    sleep 1
+    ping -c 3 -W 2 10.0.2.2 && echo "lab: e5 ping host ok" || echo "lab: e5 ping host failed"
+    ping -c 2 -W 2 192.0.2.1 && echo "lab: e5 ping test-net answered" || echo "lab: e5 ping test-net silent"
+    # The host's own address is outside the router: only the mark gets a
+    # reply for it (10.0.2.2 is the router's, so its raw socket sees that
+    # echo with or without the mark).
+    outside=$(arg outside)
+    ping -c 2 -W 2 "$outside" && echo "lab: e5 ping outside ok" || echo "lab: e5 ping outside failed"
+    reply=$(echo e5-udp | socat -t 2 - UDP:10.0.2.2:7777)
+    echo "lab: e5 udp echo: '$reply'"
+    rate=$(arg rate)
+    ulen=$(arg ulen)
+    iperf3 -u -c 10.0.2.2 -b "${rate:-1g}" -t 5 -l "${ulen:-1400}" $(arg reverse | sed 's/1/-R/')
     echo "lab: client done"
     ;;
   *)

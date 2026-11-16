@@ -1,9 +1,17 @@
-# Every TCP flow a guest sends through the router goes to the relay.
-# `redirect` is NAT: conntrack keeps the original destination, and the
-# relay reads it back with SO_ORIGINAL_DST.
+# Every flow a guest sends through the router goes to the relay.
 table ip router {
+  # TCP: `redirect` is NAT, so conntrack keeps the original destination,
+  # and the relay reads it back with SO_ORIGINAL_DST.
   chain prerouting {
     type nat hook prerouting priority dstnat;
     iifname "vec0" meta l4proto tcp redirect to :9000
+  }
+  # UDP and ICMP echo: mark 1 routes to the router itself (init.sh adds
+  # the rule and the `local` route). tproxy hands UDP to the relay's
+  # socket with its destination unchanged; ICMP reaches its raw socket.
+  chain mangle {
+    type filter hook prerouting priority mangle;
+    iifname "vec0" meta l4proto udp meta mark set 1 tproxy to :9001
+    iifname "vec0" icmp type echo-request meta mark set 1
   }
 }
