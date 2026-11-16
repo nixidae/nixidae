@@ -576,6 +576,17 @@ class Machine:
     def ip(self) -> str | None:
         return self.spec.ip
 
+    @property
+    def uplink_ip(self) -> str | None:
+        """`vec0`'s IPv4 address as vivarium gives it: the router's lease
+        for this guest, else passt's and gvproxy's fixed one. `None` on a
+        segment a peer serves, which picks its own."""
+        if self.spec.uplink_address is not None:
+            return self.spec.uplink_address
+        if self.spec.uplink is None:
+            return forward.UPLINK_ADDRESS
+        return None
+
     def __repr__(self) -> str:
         return f"<Machine {self.name}>"
 
