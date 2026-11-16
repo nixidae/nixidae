@@ -15,6 +15,7 @@
 #include "nix/store/remote-store.hh"
 #include "nix/store/remote-store-connection.hh"
 #include "nix/store/store-registration.hh"
+#include "nix/util/file-descriptor.hh"
 #include "nix/util/finally.hh"
 #include "nix/util/url.hh"
 
@@ -139,11 +140,22 @@ private:
 
         std::string lastError = "no address";
         for (auto * candidate = found; candidate; candidate = candidate->ai_next) {
-            AutoCloseFD fd = socket(candidate->ai_family, candidate->ai_socktype | SOCK_CLOEXEC, candidate->ai_protocol);
+            // darwin has no SOCK_CLOEXEC; Nix's `createUnixDomainSocket` sets the flag after.
+            AutoCloseFD fd = socket(
+                candidate->ai_family,
+                candidate->ai_socktype
+#ifdef SOCK_CLOEXEC
+                    | SOCK_CLOEXEC
+#endif
+                ,
+                candidate->ai_protocol);
             if (!fd) {
                 lastError = strerror(errno);
                 continue;
             }
+#ifndef SOCK_CLOEXEC
+            unix::closeOnExec(fd.get());
+#endif
             if (::connect(fd.get(), candidate->ai_addr, candidate->ai_addrlen) == -1) {
                 lastError = strerror(errno);
                 continue;
