@@ -259,6 +259,24 @@ let
               and a step after the job's own steps waits for the uploads.
             '';
           };
+          macosVolume = mkOption {
+            type = types.str;
+            default = "case-insensitive";
+            example = "case-sensitive";
+            description = ''
+              The APFS volume /nix is on a macOS runner, for
+              `daemon = "pynixd"`: `case-insensitive` or `case-sensitive`.
+              A string and not an enum, so a matrix can choose it
+              (`''${{ matrix.volume }}`); the step refuses any other value.
+
+              `case-insensitive` is macOS's default, and Nix's installer's.
+              Nix then renames file names that differ in case alone
+              (`use-case-hack`). `case-sensitive` holds the names a Linux
+              store holds, so a store path moves to and from a Linux
+              builder unchanged. The installer sets `use-case-hack` to
+              match the volume.
+            '';
+          };
         };
 
         cachix = {
@@ -701,6 +719,7 @@ let
                     inherit (cfg.nix.install)
                       devNet
                       experimentalFeatures
+                      macosVolume
                       settings
                       timeoutMinutes
                       uidRange

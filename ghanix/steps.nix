@@ -218,6 +218,8 @@ rec {
         uidRange ? false,
         devNet ? false,
         ghaCache ? false,
+        # `nix.install.macosVolume`.
+        macosVolume ? "case-insensitive",
       }:
       {
         name = "Install pynixd as the Nix daemon";
@@ -227,6 +229,7 @@ rec {
         shell = "bash";
         env = {
           PYNIXD_TARBALL = tarball;
+          PYNIXD_MACOS_VOLUME = macosVolume;
           PYNIXD_NIX_CONF = installedConf {
             inherit
               experimentalFeatures
@@ -244,14 +247,21 @@ rec {
           volume keep the owners that build users need. The installer is in
           the tarball, so this step makes the volume before the unpack.
           `zstd -dc`, not `tar --zstd`: macOS's bsdtar may lack it.
+          `macosVolume` names the format, `diskutil`'s personality: `APFS`
+          or `Case-sensitive APFS`. A /nix that exists stays as it is.
         */
         run = ''
           if [ "$RUNNER_OS" = macOS ]; then
             system=aarch64-darwin
+            case "$PYNIXD_MACOS_VOLUME" in
+              case-insensitive) format=APFS ;;
+              case-sensitive) format="Case-sensitive APFS" ;;
+              *) echo "nix.install.macosVolume is '$PYNIXD_MACOS_VOLUME'; it takes case-insensitive or case-sensitive" >&2; exit 1 ;;
+            esac
             if [ ! -d /nix ]; then
               printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
               sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
-              sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" APFS Nix -mountpoint /nix
+              sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" "$format" Nix -mountpoint /nix
               sudo diskutil enableOwnership /nix
             fi
           else

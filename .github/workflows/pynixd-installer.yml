@@ -32,6 +32,7 @@ jobs:
           const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));
           require('fs').writeFileSync(`${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });
     - env:
+        PYNIXD_MACOS_VOLUME: case-insensitive
         PYNIXD_NIX_CONF: |
           access-tokens = github.com=${{ github.token }}
           experimental-features = nix-command flakes
@@ -43,10 +44,15 @@ jobs:
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
           system=aarch64-darwin
+          case "$PYNIXD_MACOS_VOLUME" in
+            case-insensitive) format=APFS ;;
+            case-sensitive) format="Case-sensitive APFS" ;;
+            *) echo "nix.install.macosVolume is '$PYNIXD_MACOS_VOLUME'; it takes case-insensitive or case-sensitive" >&2; exit 1 ;;
+          esac
           if [ ! -d /nix ]; then
             printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
             sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
-            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" APFS Nix -mountpoint /nix
+            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" "$format" Nix -mountpoint /nix
             sudo diskutil enableOwnership /nix
           fi
         else
@@ -94,6 +100,7 @@ jobs:
           const env = Object.fromEntries(names.map((name) => [name, process.env[name] ?? '']));
           require('fs').writeFileSync(`${process.env.RUNNER_TEMP}/pynixd-gha-cache.json`, JSON.stringify(env), { mode: 0o600 });
     - env:
+        PYNIXD_MACOS_VOLUME: case-insensitive
         PYNIXD_NIX_CONF: |
           access-tokens = github.com=${{ github.token }}
           experimental-features = nix-command flakes
@@ -105,10 +112,15 @@ jobs:
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
           system=aarch64-darwin
+          case "$PYNIXD_MACOS_VOLUME" in
+            case-insensitive) format=APFS ;;
+            case-sensitive) format="Case-sensitive APFS" ;;
+            *) echo "nix.install.macosVolume is '$PYNIXD_MACOS_VOLUME'; it takes case-insensitive or case-sensitive" >&2; exit 1 ;;
+          esac
           if [ ! -d /nix ]; then
             printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
             sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
-            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" APFS Nix -mountpoint /nix
+            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" "$format" Nix -mountpoint /nix
             sudo diskutil enableOwnership /nix
           fi
         else
@@ -174,6 +186,7 @@ jobs:
         name: pynixd-tarball-${{ matrix.system }}
         path: ${{ runner.temp }}/pynixd-tarball
     - env:
+        PYNIXD_MACOS_VOLUME: ${{ matrix.volume }}
         PYNIXD_NIX_CONF: |
           access-tokens = github.com=${{ github.token }}
           experimental-features = nix-command flakes
@@ -185,10 +198,15 @@ jobs:
       run: |
         if [ "$RUNNER_OS" = macOS ]; then
           system=aarch64-darwin
+          case "$PYNIXD_MACOS_VOLUME" in
+            case-insensitive) format=APFS ;;
+            case-sensitive) format="Case-sensitive APFS" ;;
+            *) echo "nix.install.macosVolume is '$PYNIXD_MACOS_VOLUME'; it takes case-insensitive or case-sensitive" >&2; exit 1 ;;
+          esac
           if [ ! -d /nix ]; then
             printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
             sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
-            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" APFS Nix -mountpoint /nix
+            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" "$format" Nix -mountpoint /nix
             sudo diskutil enableOwnership /nix
           fi
         else
@@ -201,6 +219,11 @@ jobs:
       timeout-minutes: 15
     - name: pynixd is the only daemon
       run: if [ "$RUNNER_OS" = macOS ]; then sudo launchctl print system/org.nixidae.pynixd > /dev/null; else systemctl is-active pynixd.service; fi && ! pgrep -x nix-daemon && nix store info
+    - env:
+        VOLUME: ${{ matrix.volume }}
+      if: runner.os == 'macOS'
+      name: /nix is the volume asked for, and use-case-hack follows it
+      run: if [ "$VOLUME" = case-sensitive ]; then fs="Case-sensitive APFS" hack=false; else fs=APFS hack=true; fi && test "$(diskutil info -plist /nix | plutil -extract FilesystemName raw -)" = "$fs" && test "$(nix config show use-case-hack)" = "$hack"
     - name: Build the tarball through pynixd
       run: nix build --file . internal.installer --print-out-paths --no-link > rebuilt && diff "$RUNNER_TEMP/pynixd-tarball/out-path" rebuilt
     - if: ${{ !cancelled() }}
@@ -216,6 +239,10 @@ jobs:
           system: aarch64-linux
         - runner: macos-latest
           system: aarch64-darwin
+          volume: case-insensitive
+        - runner: macos-latest
+          system: aarch64-darwin
+          volume: case-sensitive
     timeout-minutes: 60
   tarball:
     runs-on: ${{ matrix.runner }}
