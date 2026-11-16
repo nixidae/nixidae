@@ -13,7 +13,7 @@ Use jj, never git, for every version control operation, in every source.
 
 ## Landing
 
-Landing from a secondary workspace: then advance the default workspace, `~/Code/nixidae`, onto the new `main` (jj skill, `references/workspaces.md`, "Landing a workspace"). croshome builds nixidae from that checkout, not from its lock, so a stale checkout builds stale packages with no error.
+Every workspace lands its own work with `pyjj wf land` (jj skill, `references/workspaces.md`, "Landing a workspace"); no workspace lands for another. The default workspace, `~/Code/nixidae`, catches up with `pyjj wf land` run inside it, by its own session if one works there. croshome builds nixidae from that checkout, not from its lock, so a stale checkout builds stale packages with no error.
 
 ## Dev shells
 

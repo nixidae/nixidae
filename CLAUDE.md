@@ -27,11 +27,13 @@ This is the only shared instruction file. Shared rules first, then one section p
 ## Landing
 
 ```sh
-jj commit -m ...                    # the work, in as many commits as it needs
+pyjj commit -m ...                  # the work, in as many commits as it needs
 nix run --file . lock-subtrees      # commits the locks if a source moved
-jj bookmark set main -r @-
-jj git push --bookmark main
+pyjj wf land                        # rebases main..@ onto main, moves main forward to @-
+pyjj git push --bookmark main
 ```
+
+`main` moves forward only. Any workspace lands its own work; there is no landing workspace. Never `bookmark set main` by hand. If `wf land` rebased onto a newer `main`, run lock-subtrees and `wf land` again before the push: the lock names the commit it was written at.
 
 lock-subtrees commits the locks with jj, so landing needs jj; `--check` also runs in a plain git checkout. The push starts the `josh export` run: `lock-subtrees --check` and `josh-export --verify --push`. Landing ends at the push; do not wait for that run. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
 
