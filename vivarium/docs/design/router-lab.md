@@ -409,6 +409,42 @@ other. Boot is to the agent's "ready"; host memory is
   failed with status 3", resolved and networkd failed to start). Not
   followed up.
 
+## Slice 1, 2026-11-16
+
+The UML router as a vivarium machine: `router.enable` in `mkTest`,
+`modules/router.nix`, the egress in the runner. `checks.router` runs
+two guests behind one router and passes sandboxed.
+
+- Each guest leases 10.0.2.(15 + index) from the router by its MAC.
+- Forwards: the egress binds each routed guest's `vivarium.forward`,
+  TCP and UDP, on the address and port `forward.reachable` names. A
+  guest with every port takes 72,555 sockets, ready in 0.26 s, 7.7 MiB.
+- As passt: a wide rule skips a port it cannot bind; the privileged
+  ports move up by 10000; the ephemeral range is left out.
+- Not as passt: the privileged run is weak too. This host holds
+  `*:10250` (a kubelet), and passt fails the guest on it.
+- DNS: 10.0.2.3:53 maps to `VIVARIUM_DNS_HOST`, else 1.1.1.1, over UDP
+  and TCP. Offline: the egress binds outward sockets to 127.0.0.1, so
+  DNS and the outside fail at once and the gateway answers.
+- ICMP echo to the outside goes through a ping socket in the egress.
+
+Traps found:
+
+- systemd-networkd deletes an `ip rule` it does not manage. The relay
+  added the fwmark rule by hand, so UDP and ICMP to the outside never
+  left the router. The sandbox has no outside and hid it. The uplink's
+  `.network` file declares it now, and `checks.router` reads it.
+- `ping_group_range` is per network namespace, and a write takes only
+  group ids the writer's user namespace maps (`0 2147483647` gives
+  EINVAL). An offline run sets it to its own group.
+- The build sandbox refuses ping sockets. `checks.router` skips the
+  echo check there and says so.
+- Another run's passt can hold a port on 127.0.0.x. The host then
+  reaches that run's guest. A wide rule avoids an address that has a
+  listener (`forward.bound_on`).
+- nft tproxy finds an established socket first: a guest's UDP reply
+  reaches the relay's connected socket, not the :9001 listener.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives
@@ -455,7 +491,8 @@ other. Boot is to the agent's "ready"; host memory is
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
-- Not tried: macOS, several guests on one router.
+- Not tried: macOS. Throughput through the slice's router (not the
+  lab's) against passt.
 - The no-KVM case: without `/dev/kvm` the router is UML. With the own
   device (E7) one flow is about 70% of passt out of the guest and 60%
   into it; several flows into the guest are far below passt.
