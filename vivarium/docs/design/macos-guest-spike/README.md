@@ -42,6 +42,7 @@ github.com/nixidae/qemu, branch `nixidae` (local clone `~/Dynamist/qemu`):
 | fdba6923 | vivarium | vmapple's `disable-legacy` global is optional |
 | 52d6c471 | vivarium | vhost-user's start kick goes through the host notifier |
 | 887da5a9 | vivarium | vhost's shared dirty log without memfd |
+| 8de4c384 | vivarium | HVF keeps Apple's `ASPSR_EL1` and `AFPCR_EL0` (local) |
 
 `vivarium/pkgs/qemu-vmapple/package.nix` builds the `nixidae` branch of
 github.com/nixidae/qemu (887da5a9). For a local checkout:
@@ -144,13 +145,22 @@ GPU and IOSurface-mapper nodes in the device tree (one letter of their
 
 With the GPU on, 15 and 26 panic: `Undefined kernel instruction
 instr=d51ef860` = `msr S3_6_C15_C8_3, x0`, an Apple implementation-defined
-register that public HVF (ISA mode 1) refuses. Headless avoids it at boot. Panic
-records are in the run directory's `aux.img` (NVRAM), readable as strings.
+register. Public HVF hands the write to QEMU, and QEMU without fork 8de4c384
+raises UNDEF (below). Headless avoids it at boot. GPU mode with 8de4c384 is not
+tried yet. Panic records are in the run directory's `aux.img` (NVRAM),
+readable as strings.
 
-Headless is not immune (2026-11-16). `host/installer_test.py` panics the same
-way on 14 and 15, seconds after its `dscl` and `nix-store --load-db` calls,
-every run; the panicked task is a 3-page `true` (pid 771, 777, 1095). An idle
-guest stays up, and the builder snapshots never reach it.
+Headless needs two Apple registers (2026-11-16). Under `host/installer_test.py`
+the kernel of 14 and 15 reads and writes `ASPSR_EL1` (`S3_6_C15_C8_3`) and
+`AFPCR_EL0` (`S3_6_C15_C2_5`; names from Asahi's m1n1 `apple_regs.json`)
+while it runs ordinary processes. Without 8de4c384 it panics in a 3-page
+`true`. The fork keeps one value of each per vCPU. In one full run the guest
+wrote each 21345 times, every time 0. With it the installer test passes on 14
+and 15, both volume kinds. The values are not in the migration stream.
+
+`installer_test.py` logs QEMU's unhandled-sysreg trace to
+`RUN_DIR/qemu-trace.log`, so the next unknown register is named there;
+`TRACE_SYSREGS=1` adds every access HVF hands to QEMU.
 
 The 27 panic: LLB takes a data abort from EL0, ESR 0x92000046, writing
 `0xfffffc01100bc058` in its memcpy (ELR 0x700adf34) while formatting a log
@@ -623,7 +633,8 @@ of starting, so it needs more work before it is useful.
    `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
    vmapple arguments from `qemu_args`, and an agent without the systemd and
    `/proc` calls. The agent already runs (above).
-4. GPU mode: handle `msr S3_6_C15_C8_3` (d51ef860). macOS 27: find what LLB's
+4. GPU mode: try it with fork 8de4c384, which handles `msr S3_6_C15_C8_3`
+   (d51ef860). macOS 27: find what LLB's
    log buffer address comes from.
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
 6. A macOS 26 `save` right after `prepare` timed out before the daemon

@@ -113,8 +113,14 @@ async def main(tarballs: Path, run: Path, volume: str, keep: bool, shell: bool) 
         '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR admin@127.0.0.1 "$@"\n'
     )
     await anyio.Path(run / "ssh").chmod(0o755)
+    # A register HVF hands to QEMU and QEMU does not know becomes an UNDEF in
+    # the guest; these name it.
+    trace = ["-trace", "hvf_unhandled_sysreg_*", "-D", str(run / "qemu-trace.log")]
+    if os.environ.get("TRACE_SYSREGS") == "1":
+        trace += ["-trace", "hvf_sysreg_*"]
     vm = await db.launch(
-        run, db.qemu_args(img, str(run), "memory-backend-ram", ssh_port=port)
+        run,
+        db.qemu_args(img, str(run), "memory-backend-ram", ssh_port=port) + trace,
     )
     qmp = None
     start = time.monotonic()
