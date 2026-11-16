@@ -427,6 +427,13 @@ two guests behind one router and passes sandboxed.
   and TCP. Offline: the egress binds outward sockets to 127.0.0.1, so
   DNS and the outside fail at once and the gateway answers.
 - ICMP echo to the outside goes through a ping socket in the egress.
+- IPv6: the router advertises `fd00:10:0:2::/64`; each guest takes
+  `::(15 + index)` by a networkd token. `fd00:10:0:2::2` is the host's
+  `::1`. Online, a guest pings 2606:4700:4700::1111 at 1.7 ms and gets
+  HTTP and DNS from it. DNS stays on 10.0.2.3.
+- Not as passt: passt gives the guest the host's own global prefix, so
+  glibc prefers IPv6. A ULA source makes glibc prefer IPv4
+  (`getent ahosts one.one.one.one` lists 1.1.1.1 first).
 
 Traps found:
 
@@ -480,7 +487,6 @@ Traps found:
 
 ## Open
 
-- IPv6: the nftables table is `ip` only.
 - ICMP errors back to the guest: UDP to a closed port, or an
   unreachable host, gives the guest nothing.
 - A datagram that reaches the UDP listener while its flow's own socket
