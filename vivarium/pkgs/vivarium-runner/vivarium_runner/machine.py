@@ -210,6 +210,7 @@ class MachineSpecJson(TypedDict, total=False):
     interfaces: list[InterfaceJson]
     uplink: str
     uplinkProxy: str
+    router: bool
     forward: list[forward.RuleJson]
     requires: list[str]
 
@@ -337,7 +338,10 @@ class MachineSpec:
     out-of-band management network a peer serves (nixidae/nixidae#958).
     `None` is passt, the default."""
     uplink_proxy: str = "passt"
-    """`vivarium.uplink.proxy`: `passt` or `gvproxy`."""
+    """`vivarium.uplink.proxy`: `passt`, `gvproxy` or `router`."""
+    router: bool = False
+    """The run's router guest (`vivarium.router.enable`): no `vec0`, and
+    vsock to an egress on the host instead (nixidae/nixidae#1404)."""
     requires: tuple[str, ...] = ()
     """`vivarium.requires`: the guests this one cannot boot without. The
     session boots them first; the runner does nothing with it."""
@@ -374,6 +378,7 @@ class MachineSpec:
             interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
             uplink=data.get("uplink"),
             uplink_proxy=data.get("uplinkProxy", "passt"),
+            router=data.get("router", False),
             forward=tuple(forward.Rule.from_json(rule) for rule in data.get("forward", [])),
         )
 

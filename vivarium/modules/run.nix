@@ -119,6 +119,25 @@ in
       '';
     };
 
+    router = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Give the run a router guest, `router.name`, and put every other
+          guest's uplink (`vec0`) behind it instead of a passt of its own
+          (nixidae/nixidae#1404). Each guest then has an address of its
+          own, `10.0.2.(15 + vivarium.index)`, and the guests reach each
+          other on `vec0`. UML only for now.
+        '';
+      };
+      name = mkOption {
+        type = types.str;
+        default = "router";
+        description = "The router guest's name in `nodes`. A guest of that name merges into it.";
+      };
+    };
+
     interactive = mkOption {
       type = types.deferredModule;
       default = { };
@@ -468,6 +487,15 @@ in
   };
 
   config = {
+    nodes = lib.mkIf config.router.enable {
+      ${config.router.name} = {
+        vivarium.router.enable = true;
+      };
+    };
+    defaults = lib.mkIf config.router.enable {
+      vivarium.uplink.proxy = lib.mkDefault "router";
+    };
+
     assertions = [
       {
         assertion = unknown == [ ];

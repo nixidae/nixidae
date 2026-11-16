@@ -1,0 +1,199 @@
+/*
+  The router guest (nixidae/nixidae#1404, docs/design/router-lab.md).
+
+  A run with `router.enable` has one: every other guest's uplink (`vec0`)
+  is a segment of its own to this guest, and the router bridges them into
+  10.0.2.0/24. Each guest leases its own address by its uplink MAC. TCP,
+  UDP and ICMP echo to anywhere off the bridge go to `relay`, which
+  carries each flow over vsock to the egress on the host.
+*/
+{
+  config,
+  lib,
+  pkgs,
+  nodes,
+  ...
+}:
+let
+  cfg = config.vivarium.router;
+  inherit (lib) mkOption types;
+
+  bridge = "uplink";
+  subnet = "10.0.2.0/24";
+  gateway = "10.0.2.2";
+  dns = "10.0.2.3";
+
+  relay = pkgs.callPackage ../pkgs/vivarium-egress/package.nix { };
+  egress = pkgs.callPackage ../pkgs/vivarium-egress/package.nix { vhostUser = true; };
+
+  # The guests behind this router, by name. Not this guest itself.
+  guests = lib.filterAttrs (
+    name: node: name != config.networking.hostName && node.vivarium.uplink.proxy == "router"
+  ) nodes;
+
+  # The router's port to a guest: at most 15 characters, so its index.
+  port = node: "g${toString node.vivarium.index}";
+
+  /*
+    Everything the guests send off the bridge goes to the relay. TCP by
+    `redirect`, so the relay reads SO_ORIGINAL_DST; UDP by tproxy, and
+    ICMP echo by mark 1 to a raw socket. The bridge's own traffic --
+    DHCP, broadcast, multicast, a guest to a guest -- stays.
+  */
+  ruleset = ''
+    define onlink = { ${subnet}, 224.0.0.0/4, 255.255.255.255 }
+    table ip router {
+      chain prerouting {
+        type nat hook prerouting priority dstnat;
+        iifname "${bridge}" ip daddr != $onlink meta l4proto tcp redirect to :9000
+        iifname "${bridge}" ip daddr ${gateway} meta l4proto tcp redirect to :9000
+      }
+      chain mangle {
+        type filter hook prerouting priority mangle;
+        iifname "${bridge}" ip daddr != $onlink meta l4proto udp meta mark set 1 tproxy to :9001
+        iifname "${bridge}" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001
+        iifname "${bridge}" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001
+        iifname "${bridge}" ip daddr != $onlink icmp type echo-request meta mark set 1
+        iifname "${bridge}" ip daddr ${gateway} icmp type echo-request meta mark set 1
+      }
+    }
+  '';
+in
+{
+  options.vivarium.router = {
+    enable = mkOption {
+      type = types.bool;
+      default = false;
+      internal = true;
+      description = ''
+        This guest is the run's router. `mkTest` sets it on the guest it
+        adds for `router.enable`.
+      '';
+    };
+    address = mkOption {
+      type = types.functionTo types.str;
+      internal = true;
+      readOnly = true;
+      default = index: "10.0.2.${toString (15 + index)}";
+      description = "A routed guest's uplink address, by its `vivarium.index`.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    vivarium.memory = lib.mkDefault "256M";
+    # Not behind itself: the runner gives the router vsock to the host
+    # and no vec0 (`router` in its spec).
+    vivarium.uplink.proxy = "passt";
+    vivarium.launch.config.egress = lib.mkIf (config.vivarium.backend == "uml") "${egress}/bin/egress";
+
+    vivarium.interfaces = lib.mapAttrs' (
+      _: node: lib.nameValuePair (port node) { segment = node.vivarium.uplink.segment; }
+    ) guests;
+
+    assertions = [
+      {
+        assertion = config.vivarium.backend == "uml";
+        message = "the router guest runs on UML for now; it is ${config.vivarium.backend}.";
+      }
+      {
+        # 10.0.2.(15 + index) stays below the pool at .215.
+        assertion = lib.all (node: node.vivarium.index < 200) (lib.attrValues guests);
+        message = "the router gives addresses to 200 guests at most.";
+      }
+    ];
+
+    # What a router does not use (E10: 6.4 s and 129 MiB on UML against
+    # 7.6 s and 155 MiB). udev stays: without it networkd configures no link.
+    vivarium.nixDatabase.enable = false;
+    nix.enable = false;
+    systemd.oomd.enable = false;
+    services.timesyncd.enable = false;
+    security.audit.enable = false;
+    security.enableWrappers = false;
+    environment.defaultPackages = [ ];
+    services.openssh.enable = lib.mkForce false;
+    services.resolved.enable = false;
+    services.nscd.enable = false;
+    system.nssModules = lib.mkForce [ ];
+    systemd.suppressedSystemUnits = [
+      "systemd-journal-catalog-update.service"
+      "systemd-update-done.service"
+      "lastlog2-import.service"
+    ];
+
+    boot.kernel.sysctl = {
+      # The relay answers echo requests with the host's replies.
+      "net.ipv4.icmp_echo_ignore_all" = 1;
+      # br_netfilter is built in: without these, a frame from one guest to
+      # another would cross the ip hooks above and reach the relay.
+      "net.bridge.bridge-nf-call-iptables" = 0;
+      "net.bridge.bridge-nf-call-ip6tables" = 0;
+      "net.bridge.bridge-nf-call-arptables" = 0;
+    };
+
+    systemd.network.netdevs."20-${bridge}".netdevConfig = {
+      Kind = "bridge";
+      Name = bridge;
+      MTUBytes = toString config.vivarium.mtu;
+    };
+    systemd.network.networks = {
+      "40-${bridge}" = {
+        matchConfig.Name = bridge;
+        address = [
+          "${gateway}/24"
+          "${dns}/24"
+        ];
+        networkConfig = {
+          DHCPServer = true;
+          ConfigureWithoutCarrier = true;
+        };
+        dhcpServerConfig = {
+          ServerAddress = "${gateway}/24";
+          EmitRouter = true;
+          Router = gateway;
+          EmitDNS = true;
+          DNS = [ dns ];
+          # Every guest has a static lease; the pool is for anything else.
+          PoolOffset = 200;
+          PoolSize = 50;
+        };
+        dhcpServerStaticLeases = lib.mapAttrsToList (_: node: {
+          MACAddress = node.vivarium.uplinkMac;
+          Address = cfg.address node.vivarium.index;
+        }) guests;
+      };
+    }
+    // lib.mapAttrs' (
+      _: node: lib.nameValuePair "40-${port node}" { networkConfig.Bridge = bridge; }
+    ) guests;
+
+    networking.nftables = {
+      enable = true;
+      # tproxy needs the kernel's module; the build sandbox's nft lacks it.
+      checkRuleset = false;
+      inherit ruleset;
+    };
+
+    systemd.services.vivarium-relay = {
+      description = "The router's relay to the host";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "nftables.service" ];
+      path = [ pkgs.iproute2 ];
+      environment = {
+        # E8: a 4 MiB vsock window; the yield after a short read.
+        RELAY_VSOCK_BUFFER = "4194304";
+        RELAY_YIELD = "1";
+      };
+      # Mark 1 is local: tproxy and the raw socket take it there.
+      preStart = ''
+        ip rule del fwmark 1 lookup 100 2>/dev/null || true
+        ip rule add fwmark 1 lookup 100
+        ip route replace local 0.0.0.0/0 dev lo table 100
+      '';
+      serviceConfig = {
+        ExecStart = "${relay}/bin/relay 9000 5000 9001 5001";
+        Restart = "always";
+      };
+    };
+  };
+}

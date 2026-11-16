@@ -162,10 +162,16 @@ class UmlConfig:
     """For a cloud image, which is qcow2 and which ubd cannot read."""
     root: UmlRoot | None = None
     """None boots the NixOS root image."""
+    egress: Path | None = None
+    """The router's host half, which serves its vsock device."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> UmlConfig:
-        config = launch_config(spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg", "root"}))
+        config = launch_config(
+            spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg", "root", "egress"})
+        )
+        if spec.router and "egress" not in config:
+            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
         root = UmlRoot.of(f"{spec.name}: vivarium.launch.config.root", config["root"]) if "root" in config else None
         if root is not None and root.seed is not None and "qemuImg" not in config:
             raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
@@ -175,6 +181,7 @@ class UmlConfig:
             passt=_path(config, "passt"),
             qemu_img=_maybe(config, "qemuImg"),
             root=root,
+            egress=_maybe(config, "egress"),
         )
 
 
@@ -528,6 +535,10 @@ class Backend(Protocol):
         ...
 
 
+VIRTIO_ID_VSOCK = 19
+"""`virtio_uml.device=SOCKET:ID`: the virtio device ID of vsock."""
+
+
 class Uml:
     """A guest as an ordinary Linux process.
 
@@ -593,7 +604,15 @@ class Uml:
         # What /init mounts as the guest's /nix; see modules/image.nix.
         kernel.append(f"{STORE_ENV}={spec.store}")
 
-        if spec.uplink is None:
+        helpers: list[subprocess.Popen[bytes]] = []
+        if spec.router:
+            # No vec0: the router reaches the host over vsock, a vhost-user
+            # device the egress serves (E7).
+            device, egress = self._egress(config, rundir, uml_dir)
+            helpers.append(egress)
+            kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
+            argv = kernel
+        elif spec.uplink is None:
             # vec0 is passt, behind the bridge: it forks passt and
             # translates its length-prefixed frames to the fd transport.
             argv = [
@@ -631,7 +650,41 @@ class Uml:
             memory=mconsole.socket_path(uml_dir),
             pid_file=uml_dir / mconsole.UMID / "pid",
             cleanup=cleanup,
+            helpers=helpers,
         )
+
+    @staticmethod
+    def _egress(config: UmlConfig, rundir: Path, directory: Path) -> tuple[Path, subprocess.Popen[bytes]]:
+        """Start the egress on a vhost-user socket in *directory*.
+
+        *directory* is the one `socket_dir` found short enough for a
+        `sockaddr_un`. The egress maps the gateway, 10.0.2.2, to the host's
+        loopback.
+        """
+        if config.egress is None:
+            raise BackendError("the router needs egress in vivarium.launch.config")
+        device = directory / "vsock.sock"
+        log = rundir / "egress.log"
+        with log.open("wb") as handle:
+            proc = subprocess.Popen(
+                [str(config.egress), f"vhost-user:{device}", forward.UPLINK_GATEWAY],
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=die_with_parent,
+            )
+        # The kernel connects at boot and fails if nothing listens yet. A
+        # poll: the egress says nothing when it listens.
+        deadline = time.monotonic() + 10
+        while not device.exists():
+            if proc.poll() is not None:
+                raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
+            if time.monotonic() > deadline:
+                proc.kill()
+                raise BackendError(f"the egress did not listen on {device}:\n{_tail(log)}")
+            time.sleep(0.02)
+        return device, proc
 
     @staticmethod
     def memory_control(path: Path) -> mconsole.Mconsole:

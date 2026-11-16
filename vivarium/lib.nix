@@ -212,6 +212,7 @@ rec {
       interfaces = machine.vivarium.nics;
       uplink = machine.vivarium.uplink.segment;
       uplinkProxy = machine.vivarium.uplink.proxy;
+      router = machine.vivarium.router.enable;
       forward = machine.vivarium.forward;
       inherit (machine.vivarium) control;
     }
@@ -453,9 +454,24 @@ rec {
         From the unchecked `cfg`: the run's assertions read its phases, and
         a recipe may derive a phase from these guests.
       */
+      # The router's index is its own, so adding it moves no guest's
+      # index, MAC or ssh port. The highest: a MAC octet is one byte.
+      guestNames = lib.filter (hostName: !(cfg.router.enable && hostName == cfg.router.name)) (
+        lib.attrNames cfg.nodes
+      );
+      indexOf =
+        hostName:
+        if cfg.router.enable && hostName == cfg.router.name then
+          254
+        else
+          lib.lists.findFirstIndex (name: name == hostName) null guestNames;
+
       evaluated = lib.listToAttrs (
-        lib.imap0 (
-          index: hostName:
+        map (
+          hostName:
+          let
+            index = indexOf hostName;
+          in
           lib.nameValuePair hostName (mkNode {
             imports = [
               cfg.defaults

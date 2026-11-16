@@ -184,6 +184,7 @@ in
     ./image.nix
     ./nftables.nix
     ./qemu.nix
+    ./router.nix
     ./store.nix
   ]
   ++
@@ -848,14 +849,20 @@ in
       type = lib.types.enum [
         "passt"
         "gvproxy"
+        "router"
       ];
       default = "passt";
       description = ''
-        The host process that serves the uplink (`vec0`). `gvproxy` is
-        gvisor-tap-vsock's, which runs on macOS too and needs no user
-        namespace (nixidae/nixidae#1163). It gives the guest passt's
-        addresses, and forwards only listed TCP ports: no `ports = "all"`
-        and no UDP. krun only.
+        What serves the uplink (`vec0`). `gvproxy` is gvisor-tap-vsock's,
+        which runs on macOS too and needs no user namespace
+        (nixidae/nixidae#1163). It gives the guest passt's addresses, and
+        forwards only listed TCP ports: no `ports = "all"` and no UDP.
+        krun only.
+
+        `router` is the run's router guest (`router.enable` in `mkTest`,
+        which sets this on every guest): `vec0` is a segment to it, and the
+        guest leases its own address, `10.0.2.(15 + vivarium.index)`. UML
+        only.
       '';
     };
 
@@ -920,6 +927,9 @@ in
       nicsOf config.vivarium.interfaces config.vivarium.index config.vivarium.mtu
         config.vivarium.segments;
     vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
+    vivarium.uplink.segment = lib.mkIf (config.vivarium.uplink.proxy == "router") (
+      lib.mkDefault "uplink-${config.networking.hostName}"
+    );
 
     # Under mkIf, so a guest on another backend never names the kernel:
     # naming it is what builds it, and that is half an hour the first time.
@@ -952,6 +962,10 @@ in
           config.vivarium.uplink.segment != null
           -> (config.vivarium.segments.${config.vivarium.uplink.segment}.mtu or null) == null;
         message = "segments.${toString config.vivarium.uplink.segment}.mtu: this guest's uplink joins the segment, and an uplink takes vivarium.mtu; leave the segment's mtu null.";
+      }
+      {
+        assertion = config.vivarium.uplink.proxy == "router" -> config.vivarium.backend == "uml";
+        message = "vivarium.uplink.proxy = \"router\" needs the UML backend for now; this guest is ${config.vivarium.backend}.";
       }
       {
         assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";
