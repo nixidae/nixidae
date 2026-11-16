@@ -159,6 +159,22 @@ in
           PoolOffset = 200;
           PoolSize = 50;
         };
+        # Mark 1 is local: tproxy and the raw socket take it there. Here and
+        # not by hand: networkd removes a rule it does not manage, and UDP
+        # and ICMP off the bridge then never reach the relay.
+        routingPolicyRules = [
+          {
+            FirewallMark = 1;
+            Table = 100;
+          }
+        ];
+        routes = [
+          {
+            Destination = "0.0.0.0/0";
+            Type = "local";
+            Table = 100;
+          }
+        ];
         dhcpServerStaticLeases = lib.mapAttrsToList (_: node: {
           MACAddress = node.vivarium.uplinkMac;
           Address = cfg.address node.vivarium.index;
@@ -180,18 +196,11 @@ in
       description = "The router's relay to the host";
       wantedBy = [ "multi-user.target" ];
       after = [ "nftables.service" ];
-      path = [ pkgs.iproute2 ];
       environment = {
         # E8: a 4 MiB vsock window; the yield after a short read.
         RELAY_VSOCK_BUFFER = "4194304";
         RELAY_YIELD = "1";
       };
-      # Mark 1 is local: tproxy and the raw socket take it there.
-      preStart = ''
-        ip rule del fwmark 1 lookup 100 2>/dev/null || true
-        ip rule add fwmark 1 lookup 100
-        ip route replace local 0.0.0.0/0 dev lo table 100
-      '';
       serviceConfig = {
         ExecStart = "${relay}/bin/relay 9000 5000 9001 5001";
         Restart = "always";

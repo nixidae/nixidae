@@ -15,6 +15,14 @@ GUESTS = {"a": "10.0.2.15", "b": "10.0.2.16"}
 """10.0.2.(15 + index); `a` and `b` are indexes 0 and 1."""
 
 
+def ping_sockets() -> bool:
+    try:
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP).close()
+    except PermissionError:
+        return False
+    return True
+
+
 async def lease(vm: Machine, address: str) -> None:
     await vm.wait_until_succeeds(f"ip -4 -br addr show vec0 | grep -q ' {address}/24'", timeout=60)
     print(f"[test] {vm.name} leased {address} on vec0")
@@ -44,6 +52,19 @@ async def test(vms: Machines) -> None:
     await asyncio.wait_for(answering, 10)
     server.close()
 
+    # UDP and ICMP off the bridge reach the relay only by this rule; the
+    # sandbox has no outside to show its loss.
+    await vms.router.succeed("ip rule | grep -q 'fwmark 0x1 lookup 100'")
+
+    # Echo through the relay and the egress's ping socket, to the host. The
+    # egress shares this process's network namespace; the build sandbox's
+    # refuses ping sockets, as it does passt's.
+    if ping_sockets():
+        await vms.a.succeed("ping -c2 -W2 10.0.2.2")
+        print("[test] a pinged the gateway through the router")
+    else:
+        print("[test] no ping sockets on this host side; echo not checked")
+
     await vms.a.succeed(f"ping -c2 -W2 {GUESTS['b']}")
     await vms.b.succeed(f"ping -c2 -W2 {GUESTS['a']}")
     print("[test] a and b reach each other on vec0")
@@ -56,6 +77,9 @@ UDP = 7778
 PRIVILEGED = 80
 NAME = "OPEN:/proc/sys/kernel/hostname,rdonly"
 """The guest answers its name. A transient unit's PATH has no `hostname` or `cat`."""
+UDP_NAME = "'EXEC:/run/current-system/sw/bin/cat /proc/sys/kernel/hostname'"
+"""For UDP the child must read the datagram, or the forking parent finds it
+again and forks without end: `-U` with `NAME` sent 300 replies a second."""
 
 
 def _ask_tcp(where: str) -> str:
@@ -95,7 +119,7 @@ async def forwards(vms: Machines) -> None:
     for name in GUESTS:
         await vms[name].succeed(f"systemd-run --collect --unit=tcp-{TCP} socat TCP-LISTEN:{TCP},fork,reuseaddr {NAME}")
     await vms.a.succeed(f"systemd-run --collect --unit=tcp-{PRIVILEGED} socat TCP-LISTEN:{PRIVILEGED},fork,reuseaddr {NAME}")
-    await vms.a.succeed(f"systemd-run --collect --unit=udp-{UDP} socat -U UDP4-RECVFROM:{UDP},fork {NAME}")
+    await vms.a.succeed(f"systemd-run --collect --unit=udp-{UDP} socat UDP4-RECVFROM:{UDP},fork {UDP_NAME}")
 
     checks = [(name, TCP, False) for name in GUESTS] + [("a", PRIVILEGED, False), ("a", UDP, True)]
     for name, port, udp in checks:
