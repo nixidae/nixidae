@@ -39,6 +39,40 @@ const SO_ORIGINAL_DST: libc::c_int = 80;
 /// `IP_ORIGDSTADDR`, the control message `IP_RECVORIGDSTADDR` asks for.
 const IP_ORIGDSTADDR: libc::c_int = 20;
 const HOST_CID: u32 = 2;
+/// `SO_VM_SOCKETS_BUFFER_SIZE` and `_MAX_SIZE`, level `AF_VSOCK`, a u64.
+const SO_VM_SOCKETS_BUFFER_SIZE: libc::c_int = 0;
+const SO_VM_SOCKETS_BUFFER_MAX_SIZE: libc::c_int = 2;
+
+/// A vsock stream socket with a receive window of `RELAY_VSOCK_BUFFER`
+/// bytes. Linux's default, 256 KiB, is the window the guest offers the
+/// host, so it caps the host-to-guest leg.
+fn vsock_socket() -> io::Result<OwnedFd> {
+    let fd = unsafe {
+        owned(libc::socket(
+            libc::AF_VSOCK,
+            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
+            0,
+        ))?
+    };
+    if let Some(size) = env::var("RELAY_VSOCK_BUFFER")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        setsockopt(
+            fd.as_raw_fd(),
+            libc::AF_VSOCK,
+            SO_VM_SOCKETS_BUFFER_MAX_SIZE,
+            &size,
+        )?;
+        setsockopt(
+            fd.as_raw_fd(),
+            libc::AF_VSOCK,
+            SO_VM_SOCKETS_BUFFER_SIZE,
+            &size,
+        )?;
+    }
+    Ok(fd)
+}
 
 fn sockaddr(addr: SocketAddrV4) -> libc::sockaddr_in {
     let mut out: libc::sockaddr_in = unsafe { mem::zeroed() };
@@ -76,13 +110,7 @@ fn original_dst(fd: i32) -> io::Result<SocketAddr> {
 }
 
 fn vsock_connect(port: u32) -> io::Result<Stream> {
-    let fd = unsafe {
-        owned(libc::socket(
-            libc::AF_VSOCK,
-            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
-            0,
-        ))?
-    };
+    let fd = vsock_socket()?;
     let mut addr: libc::sockaddr_vm = unsafe { mem::zeroed() };
     addr.svm_family = libc::AF_VSOCK as libc::sa_family_t;
     addr.svm_cid = HOST_CID;
@@ -103,13 +131,8 @@ fn vsock_connect(port: u32) -> io::Result<Stream> {
 /// A forward: the host connects in over vsock, names a guest address,
 /// and the relay connects there. The guest sees the router's address.
 fn inbound(port: u32) -> io::Result<()> {
-    let listener = unsafe {
-        owned(libc::socket(
-            libc::AF_VSOCK,
-            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
-            0,
-        ))?
-    };
+    // An accepted socket takes the listener's window.
+    let listener = vsock_socket()?;
     let mut addr: libc::sockaddr_vm = unsafe { mem::zeroed() };
     addr.svm_family = libc::AF_VSOCK as libc::sa_family_t;
     addr.svm_cid = libc::VMADDR_CID_ANY;

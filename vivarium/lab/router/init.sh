@@ -48,7 +48,10 @@ case "$lab" in
     nft -f /etc/router.nft
     # E5's negative control: no mark, so ICMP echo is routed, not relayed.
     [ -n "$(arg noicmp)" ] && nft flush chain ip router mangle
-    relay 9000 5000 9001 5001 &
+    # The guest's vsock receive window. Linux's 256 KiB held krun's
+    # host-to-guest leg to 9.3 Gbit/s; 4 MiB gives 11.6, 16 MiB no more.
+    vsockbuf=$(arg vsockbuf)
+    RELAY_VSOCK_BUFFER=${vsockbuf:-4194304} relay 9000 5000 9001 5001 &
     echo "lab: router ready"
     # Runs until the host kills it. The guest's own CPU counters: on KVM
     # the host's per-thread time includes halt polling.
