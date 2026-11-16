@@ -103,6 +103,21 @@ def loopback_up() -> None:
         fcntl.ioctl(sock, siocsifflags, struct.pack("16sH22x", b"lo", flags | iff_up))
 
 
+PING_GROUP_RANGE = Path("/proc/sys/net/ipv4/ping_group_range")
+
+
+def allow_ping() -> None:
+    """Let this process's group open a ping socket in this network namespace.
+
+    A new namespace starts at "1 0", none, whatever the host allows. The
+    router's egress answers a guest's echo request on a ping socket, so
+    without this `ping 10.0.2.2` fails offline with EACCES. The kernel
+    takes only groups this user namespace maps: "0 2147483647" is EINVAL.
+    """
+    gid = os.getgid()
+    PING_GROUP_RANGE.write_text(f"{gid} {gid}\n")
+
+
 def describe(uid_map: str) -> str:
     """One line for the log: who root is outside, and how many ids."""
     rows = [line.split() for line in uid_map.splitlines() if line.strip()]
@@ -147,6 +162,7 @@ def enter(unshare: Path | None, *, private_net: bool = False) -> None:
     if os.environ.get(ENTERED):
         if os.environ.get(PRIVATE_NET):
             loopback_up()
+            allow_ping()
         return
     if unshare is None:
         raise NamespaceError("the spec names no `unshare`; an older vivarium wrote it")
