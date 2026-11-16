@@ -8,6 +8,7 @@ The state runs against a chroot store, because reading `drvPath` and
 copying a path both write to it.
 """
 
+import errno
 import json
 import pathlib
 from collections.abc import Iterator
@@ -157,7 +158,13 @@ def test_a_position_in_no_encoding_reads_as_bytes(state: Any, tmp_path: pathlib.
     from huggorm_bindings.errors import EvalError
 
     inner = os.fsencode(str(tmp_path)) + b"/caf\xe9.nix"
-    with open(inner, "wb") as f:
+    try:
+        f = open(inner, "wb")  # noqa: SIM115 -- the refusal is the open's, and only it may skip
+    except OSError as exc:
+        if exc.errno != errno.EILSEQ:
+            raise
+        pytest.skip("this filesystem refuses a name that is not UTF-8 (APFS)")
+    with f:
         f.write(b'1 + "a"\n')
     wrapper = tmp_path / "wrapper.nix"
     wrapper.write_bytes(b'import (./. + "/caf\xe9.nix")')
