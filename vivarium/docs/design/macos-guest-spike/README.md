@@ -210,7 +210,10 @@ GDB-protocol client):
    26B123) answers SSH with DHCP on `en0`. `PCI_CAPS_ASCENDING=on
    IMG=…/goldengate-raw host/installer_test.py` passes on the package
    build (case-insensitive volume: installed in 27.5 s, checked in 58 s).
-   26 also boots with it on. It is
+   26 also boots with it on. A builder snapshot works too:
+   `PCI_CAPS_ASCENDING=on IMG=…/goldengate-raw darwin_builder.py prepare`
+   (127 s), `save` (107 s, 6.6 GB), then `build`: daemon after 0.33 s, a
+   derivation that writes `sw_vers -productVersion` built in 1.3 s (`27.2`). It is
    off by default, because a snapshot saved with the old chain does not load
    with the new one: QEMU compares the next pointers. `PCI_CAPS_ASCENDING=on`
    sets it in `host/darwin_builder.py`; `MACHINE=vmapple,pci-caps-ascending=on`
@@ -686,8 +689,8 @@ of starting, so it needs more work before it is useful.
    `-accel kvm`). A macOS guest needs slirp or vmnet networking, HVF, the
    vmapple arguments from `qemu_args`, and an agent without the systemd and
    `/proc` calls. The agent already runs (above).
-4. macOS 27: a builder snapshot (`PCI_CAPS_ASCENDING=on`). The image's
-   ASIF disk needs a raw conversion first (above).
+4. macOS 27 from tart: convert its ASIF disk to raw in `prepare`, so the
+   image works without the manual `diskutil` step (above).
 5. Find what QEMU lacks for `AppleVPKeyStore` selectors 17 and 35.
 6. A macOS 26 `save` right after `prepare` timed out before the daemon
    answered, three times in about ten runs, and passed when run again. The
