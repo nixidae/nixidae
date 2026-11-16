@@ -369,6 +369,73 @@ def to_args(rules: list[Rule], start: int | None = None) -> list[str]:
     return args
 
 
+# ── egress arguments, for a guest behind the router ────────────────
+
+
+@dataclass(frozen=True)
+class Mapping:
+    """A run of host ports and the guest ports they reach, one to one."""
+
+    protocol: str
+    address: str
+    first: int
+    last: int
+    guest: int
+    """The guest port `first` reaches; `last` reaches `guest + last - first`."""
+    weak: bool
+    """A port that will not bind is skipped, as passt's exclusion-only spec."""
+
+
+def _subtract(first: int, last: int, holes: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    spans = [(first, last)]
+    for low, high in holes:
+        spans = [
+            piece
+            for start, end in spans
+            for piece in ((start, min(end, low - 1)), (max(start, high + 1), end))
+            if piece[0] <= piece[1]
+        ]
+    return spans
+
+
+def mappings(rule: Rule, start: int) -> list[Mapping]:
+    """What *rule* binds, as passt binds it for `_specs`, in explicit runs."""
+    if rule.address is None:
+        raise ForwardError("mappings() runs after resolve()")
+    runs: list[tuple[int, int, int, bool]] = []
+    if not isinstance(rule.ports, str):
+        for port in rule.ports:
+            if port.host is None:
+                raise ForwardError("the egress gets a host port for every guest port; resolve() picks them")
+            runs.append((port.host, port.host, port.guest, False))
+    else:
+        holes = [ephemeral_range()]
+        remap = start > 1 and rule.remap_privileged
+        if remap:
+            holes.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1))
+        # Below `start` nothing binds: passt tries and skips, this skips.
+        runs += [(low, high, low, True) for low, high in _subtract(max(start, 1), 65535, holes)]
+        if remap:
+            # A base range in passt's spec, so a port that will not bind is fatal.
+            runs.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1, 1, False))
+    return [
+        Mapping(protocol, rule.address, first, last, guest, weak)
+        for protocol in rule.protocols
+        for first, last, guest, weak in runs
+    ]
+
+
+def egress_args(rules: list[Rule], guest_address: str, router: str, start: int | None = None) -> list[str]:
+    """The egress's FORWARD arguments for one guest behind the router."""
+    if start is None:
+        start = unprivileged_start()
+    return [
+        f"{'~' if m.weak else ''}{m.protocol}/{m.address}:{m.first}-{m.last}={guest_address}:{m.guest}@{router}"
+        for rule in rules
+        for m in mappings(rule, start)
+    ]
+
+
 def reachable(rules: list[Rule], guest_port: int, start: int) -> list[str]:
     """Where a guest port can be reached from the host, as ``addr:port``.
 
@@ -380,6 +447,10 @@ def reachable(rules: list[Rule], guest_port: int, start: int) -> list[str]:
     for rule in rules:
         if isinstance(rule.ports, str):
             if low <= guest_port <= high:
+                continue
+            remapped = start > 1 and rule.remap_privileged
+            if remapped and rule.privileged_offset < guest_port < rule.privileged_offset + start:
+                # These host ports carry guest ports 1 to start - 1.
                 continue
             if guest_port >= start:
                 found.append(f"{rule.address}:{guest_port}")
