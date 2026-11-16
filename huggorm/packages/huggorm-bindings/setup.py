@@ -111,7 +111,7 @@ _nix["include_dirs"] = [DECL_INCLUDE, HERE] + _nix["include_dirs"]
 #
 # nanobind ships its runtime as SOURCE rather than as a library.
 # `build_ext_shared_runtime` compiles `nb_combined.cpp` one time into
-# `libnanobind-huggorm`, beside the modules, and every extension links
+# `_nanobind/libnanobind-huggorm`, and every extension links
 # it. `ext/robin_map` is nanobind's vendored hash map, which its own
 # headers include and its wheel does not put on the include path.
 def nb_runtime() -> str:
@@ -173,6 +173,10 @@ def nanobind_extension(module: str) -> Extension:
 
 
 RUNTIME = "nanobind-huggorm"
+# A directory with no `__init__.py`, which `pkgutil.walk_packages` does not enter. In the
+# package directory itself, `libnanobind-huggorm.so` ends in `.so`, and a walk that imports
+# every module it lists fails on it: no `PyInit_libnanobind_huggorm`.
+RUNTIME_DIR = "_nanobind"
 DARWIN = sys.platform == "darwin"
 
 
@@ -197,8 +201,8 @@ class build_ext_shared_runtime(build_ext):
             debug=self.debug,
             extra_postargs=[*first.extra_compile_args, "-DNB_BUILD", "-fno-strict-aliasing"],
         )
-        package_dir = os.path.dirname(self.get_ext_fullpath(first.name))
-        os.makedirs(package_dir, exist_ok=True)
+        runtime_dir = os.path.join(os.path.dirname(self.get_ext_fullpath(first.name)), RUNTIME_DIR)
+        os.makedirs(runtime_dir, exist_ok=True)
         name = f"lib{RUNTIME}.{'dylib' if DARWIN else 'so'}"
         # Not `link_shared_object`: on darwin that is Python's LDSHARED,
         # `-bundle`, and the linker refuses to link against a bundle.
@@ -209,10 +213,10 @@ class build_ext_shared_runtime(build_ext):
             if DARWIN
             else ["-shared"]
         )
-        self.compiler.spawn([*self.compiler.compiler_cxx, *kind, *objects, "-o", os.path.join(package_dir, name)])
-        origin = "@loader_path" if DARWIN else "$ORIGIN"
+        self.compiler.spawn([*self.compiler.compiler_cxx, *kind, *objects, "-o", os.path.join(runtime_dir, name)])
+        origin = f"{'@loader_path' if DARWIN else '$ORIGIN'}/{RUNTIME_DIR}"
         for ext in self.extensions:
-            ext.library_dirs = [*ext.library_dirs, package_dir]
+            ext.library_dirs = [*ext.library_dirs, runtime_dir]
             ext.libraries = [*ext.libraries, RUNTIME]
             ext.extra_link_args = [*ext.extra_link_args, f"-Wl,-rpath,{origin}"]
         super().build_extensions()
