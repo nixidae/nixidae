@@ -131,3 +131,17 @@ def test_listed_ports_are_strict() -> None:
         "tcp/127.0.0.3:14325-14325=10.0.2.16:22@vsock:5001",
         "tcp/127.0.0.3:8080-8080=10.0.2.16:8080@vsock:5001",
     ]
+
+
+def test_a_wide_rule_skips_an_address_with_any_listener() -> None:
+    """A listener on one odd port of 127.0.0.2 is enough to move a wide rule.
+
+    Its weak range would skip that port, and the host would reach the
+    holder on it instead of the guest."""
+    port = free_port_above("127.0.0.2", 23000)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.2", port))
+        holder.listen()
+        assert forward.bound_on("127.0.0.2")
+        [rule], _ = forward.resolve([Rule()], taken=set(), start=1024)
+    assert rule.address != "127.0.0.2"

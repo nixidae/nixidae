@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Literal, TypedDict
@@ -234,14 +235,40 @@ def _probe(address: str, ports: list[int]) -> int | None:
             sock.close()
 
 
+_PROC_LISTENERS = ((Path("/proc/net/tcp"), "0A"), (Path("/proc/net/udp"), "07"))
+"""TCP sockets in LISTEN, UDP sockets bound and unconnected."""
+
+
+def bound_on(address: str) -> bool:
+    """Whether anything listens on *address* itself, not on the wildcard.
+
+    A wide rule binds weakly, so a port another process holds there is
+    skipped and reaches that process instead of the guest: another run's
+    guest, measured with a second session on one host. A sample of ports
+    cannot see that; this sees every one.
+    """
+    wanted = f"{int.from_bytes(socket.inet_aton(address), sys.byteorder):08X}"
+    for path, state in _PROC_LISTENERS:
+        try:
+            lines = path.read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if fields[1].split(":")[0] == wanted and fields[3] == state:
+                return True
+    return False
+
+
 def _assign(rules: list[Rule], taken: set[str]) -> str:
     """Find a loopback address free for every rule that wants one."""
     wanted = sorted({port for rule in rules for port in rule.host_ports()})
+    wide = any(rule.wide for rule in rules)
     for octet in range(_LOOPBACK_FIRST, _LOOPBACK_LAST + 1):
         address = f"127.0.0.{octet}"
         if address in taken:
             continue
-        if _probe(address, wanted) is None:
+        if _probe(address, wanted) is None and not (wide and bound_on(address)):
             return address
     raise ForwardError(
         f"no free address in 127.0.0.{_LOOPBACK_FIRST}-{_LOOPBACK_LAST} "
