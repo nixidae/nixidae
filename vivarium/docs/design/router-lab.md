@@ -471,6 +471,8 @@ guest's forward; "outbound" is the guest's client to 10.0.2.2.
 
 krun guests behind the UML router: `vivarium-krun --uplink-segment`
 puts vec0 on the router's segment, and `checks.router.krun` passes.
+QEMU guests use QEMU's segment uplink; a container guest's vec0 is a
+tap relayed to the segment. `checks.router` passes on all four backends.
 The same lab with `LAB_BACKEND=krun` (both guests krun, the router UML,
 host load 18-38):
 
