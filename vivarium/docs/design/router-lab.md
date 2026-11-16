@@ -488,6 +488,32 @@ host load 18-38):
 - Before nixidae/nixidae#1179 was fixed, a krun guest's vec0 stayed at
   MTU 1500, and the router path out of it gave 1.3-1.9 Gbit/s.
 
+### The router on krun, 2026-11-17
+
+`router.backend = "krun"` runs the router under libkrun, 2 vCPUs and
+512M. Its vsock is libkrun's own, on the egress's unix sockets, as in E2
+and E6. `checks.router.krun`, `lan-router.krun` and
+`forward-router.krun` pass sandboxed. With 16 vCPUs, the router ran
+out of memory at 256M during boot. With 2 vCPUs, 256M still
+OOM-killed the agent.
+
+Both guests krun, `LAB_ROUTER` alternating krun and UML, two runs each,
+two rounds a run, host load 6-7:
+
+| path | direction | krun router | UML router | passt |
+| --- | --- | --- | --- | --- |
+| forward | host to guest | 8.3-8.5 Gbit/s | 15.9-16.4 Gbit/s | 14.3-26.4 Gbit/s |
+| forward | guest to host | 16.7-19.0 Gbit/s | 18.3-19.0 Gbit/s | 5.6-10.6 Gbit/s |
+| outbound | guest to host | 16.4-18.5 Gbit/s | 18.0-18.7 Gbit/s | 5.1-11.9 Gbit/s |
+| outbound | host to guest | 8.5-8.7 Gbit/s | 15.6-16.5 Gbit/s | 11.9-27.0 Gbit/s |
+
+- Out of the guest the two routers are equal. Into it the krun router
+  gives about half of the UML router's rate.
+- E2 put the krun router's limit into the guest in libkrun: its vsock
+  muxer is one thread. The 4 MiB window (E8) lifted the UML router
+  above E7's 11-12, and it does not lift the krun router.
+- So the krun router buys nothing on this host.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives

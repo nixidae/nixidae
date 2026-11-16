@@ -18,13 +18,18 @@ let
 in
 vivarium.lib.mkTest {
   name = "slice-iperf";
-  # LAB_BACKEND=krun: both guests on krun; the router stays UML.
+  # LAB_BACKEND=krun: both guests on krun. LAB_ROUTER=krun: the router too.
   backend =
     let
       env = builtins.getEnv "LAB_BACKEND";
     in
     if env == "" then "uml" else env;
   router.enable = true;
+  router.backend =
+    let
+      env = builtins.getEnv "LAB_ROUTER";
+    in
+    if env == "" then "uml" else env;
   settings.iperf3 = pkgs.lib.getExe pkgs.iperf3;
   phases.test = {
     script = ./slice_iperf.py;
