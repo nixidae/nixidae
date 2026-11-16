@@ -85,3 +85,19 @@ The baseline is the same UML guest with its own passt
   the comparison that counts.
 - The host-to-guest drop at MTU 65000 has retransmits. Not explained
   yet.
+
+CPU seconds over the 10 s run at MTU 65000 (`e4.py` prints them; host
+load 12-15). This pair reached 6.11 and 4.18 Gbit/s, so the 1.35 above
+is run-to-run noise, not a property of the direction.
+
+| direction | client | router | vhost-device-vsock | egress | iperf3 |
+| --- | --- | --- | --- | --- | --- |
+| guest to host | 3.6 | 6.1 | 3.4 | 2.1 | 1.1 |
+| host to guest | 6.0 | 10.1 | 12.6 | 1.0 | 0.5 |
+
+- Guest to host: nothing is saturated, so round trips set the rate.
+- Host to guest: the router is at one full CPU, and UML is
+  uniprocessor. The router guest is the limit.
+
+Next: E2. A libkrun router has KVM, where a system call does not trap
+to the host, and macOS needs a libkrun router anyway.

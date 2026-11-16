@@ -10,6 +10,7 @@ client (UML) --vec0 socketpair--> router (UML): nft redirect, relay
 from __future__ import annotations
 
 import os
+import resource
 import socket
 import subprocess
 import sys
@@ -33,6 +34,21 @@ def uml(kernel: Path, initrd: Path, run: Path, name: str, fd: int, *extra: str) 
         f"umid={name}",
         *extra,
     ]
+
+
+def tree_cpu(pid: int) -> float:
+    """CPU seconds of *pid* and its live descendants: UML runs guest
+    processes as host children of the kernel process."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except FileNotFoundError:
+        return 0.0
+    total = (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+    for task in Path(f"/proc/{pid}/task").glob("*"):
+        children = task / "children"
+        if children.exists():
+            total += sum(tree_cpu(int(child)) for child in children.read_text().split())
+    return total
 
 
 def wait_for(path: Path) -> None:
@@ -82,6 +98,11 @@ def main() -> None:
         for line in client.stdout.decode(errors="replace").splitlines():
             if any(word in line for word in ("lab:", "sec", "iperf", "error", "Connecting")):
                 print(f"[client] {line}")
+        client_cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
+        print(f"CPU s: client {client_cpu.ru_utime + client_cpu.ru_stime:.1f}", end="")
+        for name, proc in zip(("iperf3", "egress", "vhost", "router"), procs, strict=True):
+            print(f", {name} {tree_cpu(proc.pid):.1f}", end="")
+        print()
     finally:
         for proc in reversed(procs):
             proc.kill()
