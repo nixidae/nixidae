@@ -129,7 +129,10 @@ fn vsock_connect(port: u32) -> io::Result<Stream> {
 }
 
 /// A forward: the host connects in over vsock, names a guest address,
-/// and the relay connects there. The guest sees the router's address.
+/// and the relay connects there, TCP or UDP. The guest sees the router's
+/// address. A guest's UDP reply to it matches the connected socket before
+/// the `tproxy` rule's listener: nft's tproxy looks up an established
+/// socket first.
 fn inbound(port: u32) -> io::Result<()> {
     // An accepted socket takes the listener's window.
     let listener = vsock_socket()?;
@@ -156,7 +159,13 @@ fn inbound(port: u32) -> io::Result<()> {
             let mut host = Stream::new(fd);
             let mut raw = [0u8; REQUEST_LEN];
             let result = host.read_exact(&mut raw).and_then(|()| {
-                let (_, dst) = decode(&raw)?;
+                let (proto, dst) = decode(&raw)?;
+                if proto == UDP {
+                    // No status byte: the first datagram follows at once.
+                    let socket = UdpSocket::bind("0.0.0.0:0")?;
+                    socket.connect(dst)?;
+                    return pump(host, socket);
+                }
                 match std::net::TcpStream::connect(dst) {
                     Ok(guest) => {
                         host.write_all(&[0])?;

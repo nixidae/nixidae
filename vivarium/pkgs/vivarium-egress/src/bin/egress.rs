@@ -8,13 +8,21 @@
 //!
 //! A flow to GATEWAY goes to the host's 127.0.0.1, as passt's
 //! `--map-host-loopback`.
+//!
+//! FORWARD is `[~][tcp/|udp/]HOST=GUEST_ADDR:PORT@ROUTER`. HOST is
+//! `ADDR:FIRST[-LAST]`, each host port reaching the guest port at the same
+//! offset from PORT, or a bare port on 127.0.0.1. `~` is weak: a port that
+//! will not bind is skipped, as passt's exclusion-only spec. ROUTER is the
+//! path libkrun listens on for the relay, or `vsock:PORT` on the device.
+//! Every listener is bound before the device's socket appears.
 
+use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-#[cfg(all(target_os = "linux", feature = "vhost-user"))]
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
@@ -87,7 +95,7 @@ impl Router {
     }
 }
 
-fn forward(client: TcpStream, guest: std::net::SocketAddr, router: &Router) -> io::Result<()> {
+fn forward(client: TcpStream, guest: SocketAddr, router: &Router) -> io::Result<()> {
     let mut relay = router.connect()?;
     relay.write_all(&encode(TCP, guest))?;
     let mut status = [0u8; 1];
@@ -112,6 +120,346 @@ fn device(gateway: Option<IpAddr>) -> io::Result<Arc<vsock::Device>> {
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
 const GUEST_CID: u64 = 3;
 
+/// One FORWARD argument.
+struct Spec {
+    proto: u8,
+    bind: IpAddr,
+    first: u16,
+    last: u16,
+    guest: SocketAddr,
+    weak: bool,
+    router: Router,
+}
+
+fn parse_port(text: &str) -> io::Result<u16> {
+    text.parse()
+        .map_err(|err| io::Error::other(format!("port {text:?}: {err}")))
+}
+
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+type DeviceRef<'a> = Option<&'a Arc<vsock::Device>>;
+#[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
+type DeviceRef<'a> = Option<&'a ()>;
+
+fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
+    let bad = |why: &str| io::Error::other(format!("forward {text:?}: {why}"));
+    let (weak, rest) = match text.strip_prefix('~') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (proto, rest) = if let Some(rest) = rest.strip_prefix("tcp/") {
+        (TCP, rest)
+    } else if let Some(rest) = rest.strip_prefix("udp/") {
+        (UDP, rest)
+    } else {
+        (TCP, rest)
+    };
+    let (host, rest) = rest.split_once('=').ok_or_else(|| bad("no ="))?;
+    let (guest, router) = rest.split_once('@').ok_or_else(|| bad("no @"))?;
+    let guest: SocketAddr = guest.parse().map_err(|_| bad("not a guest ADDR:PORT"))?;
+    let (bind, ports) = match host.rsplit_once(':') {
+        Some((addr, ports)) => (addr.parse().map_err(|_| bad("not a host address"))?, ports),
+        None => (IpAddr::V4(Ipv4Addr::LOCALHOST), host),
+    };
+    let (first, last) = match ports.split_once('-') {
+        Some((first, last)) => (parse_port(first)?, parse_port(last)?),
+        None => (parse_port(ports)?, parse_port(ports)?),
+    };
+    if first > last || u32::from(guest.port()) + u32::from(last - first) > 65535 {
+        return Err(bad("the guest range leaves 1-65535"));
+    }
+    let router = match router.strip_prefix("vsock:") {
+        #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+        Some(port) => Router::Vsock(
+            device.ok_or_else(|| bad("vsock: needs vhost-user:"))?.clone(),
+            port.parse().map_err(|_| bad("not a vsock port"))?,
+        ),
+        #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
+        Some(_) => {
+            let _ = device;
+            return Err(bad("built without vhost-user"));
+        }
+        None => Router::Path(router.to_owned()),
+    };
+    Ok(Spec {
+        proto,
+        bind,
+        first,
+        last,
+        guest,
+        weak,
+        router,
+    })
+}
+
+enum Socket {
+    Tcp(TcpListener),
+    Udp(Arc<UdpSocket>),
+}
+
+/// A bound host port and the guest port it reaches.
+struct Listener {
+    socket: Socket,
+    guest: SocketAddr,
+    router: usize,
+}
+
+impl Listener {
+    fn fd(&self) -> RawFd {
+        match &self.socket {
+            Socket::Tcp(socket) => socket.as_raw_fd(),
+            Socket::Udp(socket) => socket.as_raw_fd(),
+        }
+    }
+}
+
+/// Every port of every spec, bound and non-blocking.
+fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
+    let mut listeners = Vec::new();
+    let mut skipped = 0usize;
+    for (index, spec) in specs.iter().enumerate() {
+        for port in spec.first..=spec.last {
+            let at = SocketAddr::new(spec.bind, port);
+            // std sets SO_REUSEADDR on a TCP listener, as passt does.
+            let socket = match spec.proto {
+                UDP => UdpSocket::bind(at).map(|s| Socket::Udp(Arc::new(s))),
+                _ => TcpListener::bind(at).map(Socket::Tcp),
+            };
+            let socket = match socket {
+                Ok(socket) => socket,
+                Err(_) if spec.weak => {
+                    skipped += 1;
+                    continue;
+                }
+                Err(err) if err.raw_os_error() == Some(libc::EMFILE) => {
+                    return Err(io::Error::other(format!(
+                        "{at}: out of file descriptors after {} listeners",
+                        listeners.len()
+                    )));
+                }
+                Err(err) => return Err(io::Error::other(format!("{at}: {err}"))),
+            };
+            match &socket {
+                Socket::Tcp(s) => s.set_nonblocking(true)?,
+                Socket::Udp(s) => s.set_nonblocking(true)?,
+            }
+            let mut guest = spec.guest;
+            guest.set_port(spec.guest.port() + (port - spec.first));
+            listeners.push(Listener {
+                socket,
+                guest,
+                router: index,
+            });
+        }
+    }
+    if skipped > 0 {
+        eprintln!("egress: {skipped} ports in weak ranges did not bind, skipped");
+    }
+    Ok(listeners)
+}
+
+/// The soft limit on open files, raised to the hard one: a wide forward
+/// is some 36000 listeners per guest and protocol, all in this process.
+fn raise_nofile() -> io::Result<()> {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    limit.rlim_cur = limit.rlim_max;
+    if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Readiness of many listeners: epoll where there is one.
+struct Poller {
+    #[cfg(target_os = "linux")]
+    epoll: std::os::fd::OwnedFd,
+    #[cfg(not(target_os = "linux"))]
+    fds: Vec<libc::pollfd>,
+}
+
+impl Poller {
+    fn new(listeners: &[Listener]) -> io::Result<Self> {
+        #[cfg(target_os = "linux")]
+        {
+            let epoll = unsafe { owned(libc::epoll_create1(libc::EPOLL_CLOEXEC))? };
+            for (index, listener) in listeners.iter().enumerate() {
+                let mut event = libc::epoll_event {
+                    events: libc::EPOLLIN as u32,
+                    u64: index as u64,
+                };
+                let rc = unsafe {
+                    libc::epoll_ctl(
+                        epoll.as_raw_fd(),
+                        libc::EPOLL_CTL_ADD,
+                        listener.fd(),
+                        &mut event,
+                    )
+                };
+                if rc != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            Ok(Self { epoll })
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok(Self {
+            fds: listeners
+                .iter()
+                .map(|listener| libc::pollfd {
+                    fd: listener.fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                })
+                .collect(),
+        })
+    }
+
+    /// The indexes of the listeners that are readable.
+    fn wait(&mut self, ready: &mut Vec<usize>) -> io::Result<()> {
+        ready.clear();
+        #[cfg(target_os = "linux")]
+        {
+            let mut events = [libc::epoll_event { events: 0, u64: 0 }; 256];
+            let n = unsafe {
+                libc::epoll_wait(self.epoll.as_raw_fd(), events.as_mut_ptr(), 256, -1)
+            };
+            if n < 0 {
+                let err = io::Error::last_os_error();
+                return if err.kind() == io::ErrorKind::Interrupted {
+                    Ok(())
+                } else {
+                    Err(err)
+                };
+            }
+            ready.extend(events[..n as usize].iter().map(|e| e.u64 as usize));
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let n = unsafe { libc::poll(self.fds.as_mut_ptr(), self.fds.len() as _, -1) };
+            if n < 0 {
+                let err = io::Error::last_os_error();
+                return if err.kind() == io::ErrorKind::Interrupted {
+                    Ok(())
+                } else {
+                    Err(err)
+                };
+            }
+            ready.extend(
+                self.fds
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, fd)| fd.revents != 0)
+                    .map(|(index, _)| index),
+            );
+        }
+        Ok(())
+    }
+}
+
+/// A UDP flow: one host client on one listener.
+type FlowKey = (usize, SocketAddr);
+type Flows = Arc<Mutex<HashMap<FlowKey, (u64, Stream)>>>;
+
+/// Datagrams from the guest, back to the client, until the relay ends
+/// the flow (idle, as the relay's `pump` decides).
+fn udp_back(mut relay: Stream, socket: Arc<UdpSocket>, client: SocketAddr, key: FlowKey, id: u64, flows: Flows) {
+    let mut buf = vec![0u8; 65536];
+    while let Ok(n) = relay.read_frame(&mut buf) {
+        // A full socket drops the datagram, as a congested link would.
+        let _ = socket.send_to(&buf[..n], client);
+    }
+    let mut flows = flows.lock().unwrap();
+    if flows.get(&key).is_some_and(|(current, _)| *current == id) {
+        flows.remove(&key);
+    }
+}
+
+fn open_udp(router: &Router, guest: SocketAddr) -> io::Result<Stream> {
+    let mut relay = router.connect()?;
+    relay.write_all(&encode(UDP, guest))?;
+    Ok(Stream::from(relay))
+}
+
+fn serve(listeners: Vec<Listener>, routers: Vec<Router>) -> io::Result<()> {
+    let mut poller = Poller::new(&listeners)?;
+    let flows: Flows = Arc::default();
+    let mut next_id = 0u64;
+    let mut ready = Vec::new();
+    let mut buf = vec![0u8; 65536];
+    loop {
+        poller.wait(&mut ready)?;
+        for &index in &ready {
+            let listener = &listeners[index];
+            let router = &routers[listener.router];
+            let guest = listener.guest;
+            match &listener.socket {
+                Socket::Tcp(socket) => loop {
+                    let client = match socket.accept() {
+                        Ok((client, _)) => client,
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(err) => {
+                            eprintln!("egress: accept for {guest}: {err}");
+                            break;
+                        }
+                    };
+                    // macOS hands the listener's O_NONBLOCK to the client.
+                    if let Err(err) = client.set_nonblocking(false) {
+                        eprintln!("egress: forward {guest}: {err}");
+                        continue;
+                    }
+                    let router = router.clone();
+                    thread::spawn(move || {
+                        if let Err(err) = forward(client, guest, &router) {
+                            eprintln!("egress: forward {guest}: {err}");
+                        }
+                    });
+                },
+                Socket::Udp(socket) => loop {
+                    let (n, client) = match socket.recv_from(&mut buf) {
+                        Ok(got) => got,
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                        // An ICMP error from an earlier send: UDP goes on.
+                        Err(_) => continue,
+                    };
+                    let key = (index, client);
+                    let mut table = flows.lock().unwrap();
+                    if !table.contains_key(&key) {
+                        let relay = match open_udp(router, guest) {
+                            Ok(relay) => relay,
+                            Err(err) => {
+                                eprintln!("egress: forward udp {guest}: {err}");
+                                continue;
+                            }
+                        };
+                        let back = match relay.try_clone() {
+                            Ok(back) => back,
+                            Err(err) => {
+                                eprintln!("egress: forward udp {guest}: {err}");
+                                continue;
+                            }
+                        };
+                        next_id += 1;
+                        let (socket, flows) = (socket.clone(), flows.clone());
+                        let id = next_id;
+                        thread::spawn(move || udp_back(back, socket, client, key, id, flows));
+                        table.insert(key, (id, relay));
+                    }
+                    let (_, relay) = table.get_mut(&key).expect("inserted above");
+                    if relay.write_frame_or_drop(&buf[..n]).is_err() {
+                        table.remove(&key);
+                    }
+                },
+            }
+        }
+    }
+}
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path = args.get(1).ok_or_else(|| {
@@ -128,38 +476,22 @@ fn main() -> io::Result<()> {
         Some(socket) => Some((device(gateway)?, socket.to_owned())),
         None => None,
     };
-    // FORWARD: HOST_PORT=GUEST_ADDR:PORT@ROUTER, where ROUTER is the
-    // path libkrun listens on for the relay, or vsock:PORT on the device.
-    for spec in &args[3.min(args.len())..] {
-        let (port, rest) = spec
-            .split_once('=')
-            .ok_or_else(|| io::Error::other("forward: no ="))?;
-        let (guest, router) = rest
-            .split_once('@')
-            .ok_or_else(|| io::Error::other("forward: no @"))?;
-        let guest: std::net::SocketAddr = guest.parse().map_err(io::Error::other)?;
-        let outside =
-            TcpListener::bind(("127.0.0.1", port.parse::<u16>().map_err(io::Error::other)?))?;
-        let router = match router.strip_prefix("vsock:") {
-            #[cfg(all(target_os = "linux", feature = "vhost-user"))]
-            Some(port) => {
-                let (device, _) = device
-                    .as_ref()
-                    .ok_or_else(|| io::Error::other("forward: vsock: needs vhost-user:"))?;
-                Router::Vsock(device.clone(), port.parse().map_err(io::Error::other)?)
-            }
-            #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
-            Some(_) => return Err(io::Error::other("forward: built without vhost-user")),
-            None => Router::Path(router.to_owned()),
-        };
+    #[cfg(all(target_os = "linux", feature = "vhost-user"))]
+    let device_ref = device.as_ref().map(|(device, _)| device);
+    #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
+    let device_ref = None;
+    let specs = args[3.min(args.len())..]
+        .iter()
+        .map(|spec| parse_spec(spec, device_ref))
+        .collect::<io::Result<Vec<_>>>()?;
+    if !specs.is_empty() {
+        raise_nofile()?;
+        let listeners = bind_all(&specs)?;
+        let routers = specs.into_iter().map(|spec| spec.router).collect();
         thread::spawn(move || {
-            for client in outside.incoming().flatten() {
-                let router = router.clone();
-                thread::spawn(move || {
-                    if let Err(err) = forward(client, guest, &router) {
-                        eprintln!("egress: forward {guest}: {err}");
-                    }
-                });
+            if let Err(err) = serve(listeners, routers) {
+                eprintln!("egress: forwards: {err}");
+                std::process::exit(1);
             }
         });
     }
