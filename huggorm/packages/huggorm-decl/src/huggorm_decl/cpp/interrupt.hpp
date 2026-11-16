@@ -49,10 +49,18 @@ namespace huggorm {
  * Real-time, not Nix's SIGUSR1: Python and its libraries use the
  * classic signals, and libmain's `initNix` (which huggorm never calls)
  * takes SIGUSR1.
+ *
+ * macOS has no real-time signals. SIGINFO there: its default action is
+ * to ignore it, and nothing in Python takes it. Not SIGUSR2: nanopynix's
+ * tests register faulthandler on it, and a cancel would then dump stacks.
  */
 inline int wake_signal()
 {
+#ifdef SIGRTMIN
     return SIGRTMIN + 7;
+#else
+    return SIGINFO;
+#endif
 }
 
 inline void ignore_wake(int) {}
