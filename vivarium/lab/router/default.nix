@@ -10,26 +10,11 @@ let
   static = pkgs.pkgsStatic;
   vivarium = import ../.. { inherit sources pkgs; };
 
-  egressPackage =
-    rustPlatform: buildFeatures:
-    rustPlatform.buildRustPackage {
-      inherit buildFeatures;
-      pname = "vivarium-egress";
-      version = "0.0.0";
-      src = lib.fileset.toSource {
-        root = ./egress;
-        fileset = lib.fileset.unions [
-          ./egress/Cargo.toml
-          ./egress/Cargo.lock
-          ./egress/src
-        ];
-      };
-      cargoLock.lockFile = ./egress/Cargo.lock;
-    };
+  egressPackage = ../../pkgs/vivarium-egress/package.nix;
 
   # The router's relay and the client's iperf3, static: the initrd has
   # no store.
-  relay = egressPackage static.rustPlatform [ ];
+  relay = static.callPackage egressPackage { };
 
   libkrun = pkgs.callPackage ../../pkgs/libkrun/package.nix { };
   krunKernel = pkgs.linuxPackages.kernel;
@@ -55,9 +40,7 @@ rec {
   inherit relay;
   # On Linux it also serves a UML router's vsock device itself
   # (`vhost-user:SOCKET`), so the stock kernel works.
-  egress = egressPackage pkgs.rustPlatform (
-    lib.optional pkgs.stdenv.hostPlatform.isLinux "vhost-user"
-  );
+  egress = pkgs.callPackage egressPackage { vhostUser = pkgs.stdenv.hostPlatform.isLinux; };
 
   # The router options in pkgs/uml-kernel. Build it with the ccache flags
   # in docs/howto.md.
