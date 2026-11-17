@@ -452,7 +452,8 @@ class Driver:
         if run is None:
             return
         self.prepared = {done for done in self.prepared if done[0] != run.out}
-        run.conn.close()
+        # On its loop: closing wakes a write that waits on the fd there.
+        self.portal.call(run.conn.close, None)
         if not self.keep:
             self.portal.call(_stop, run.out)
 
