@@ -184,6 +184,25 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    router = {
+      # The run's router guest on UML: its egress on the host serves the
+      # guest's vsock as a vhost-user device (nixidae/nixidae#1404).
+      description = "guests behind a router guest reach the host and are reached";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
+    forward-router = {
+      description = "the forward contract holds behind the router";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
+    router-krun = {
+      # `.krun` puts the router on libkrun too, with libkrun's own vsock.
+      test = "router";
+      backend = "krun";
+      description = "guests behind a libkrun router guest";
+      timeoutMinutes = 30;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
