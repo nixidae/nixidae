@@ -45,6 +45,23 @@ class Phases(TypedDict):
     phases: list[Phase]
 
 
+class Step(TypedDict):
+    """One step of `<out>/report.json`."""
+
+    at: float
+    machine: str
+    kind: str
+    what: str
+    seconds: float
+
+
+class Report(TypedDict):
+    """The part of `<out>/report.json` a check reads."""
+
+    total_seconds: float
+    steps: list[Step]
+
+
 class Evidence:
     """What a finished run left in its output directory: `--out`, or a
     test's `.attempt`."""
@@ -61,6 +78,9 @@ class Evidence:
 
     def phases(self) -> Phases:
         return cast("Phases", json.loads((self.out / "phases.json").read_text()))
+
+    def report(self) -> Report:
+        return cast("Report", json.loads((self.out / "report.json").read_text()))
 
     def phase_states(self) -> dict[str, str]:
         return {phase["name"]: phase["state"] for phase in self.phases()["phases"]}

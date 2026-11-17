@@ -6,12 +6,20 @@ and a poll loop that sleeps longer than the thing it waits for all look
 the same from outside.  So every round trip to a guest and every wait is
 recorded, and the run writes one JSON file at the end.
 
-Two kinds of step, and the difference matters when reading the totals:
+The kinds of step:
 
-    rpc     one round trip to a guest's agent.
-    wait    a poll loop, which is many `rpc` steps and the sleeps between
-            them.  Its seconds therefore *contain* those of the `rpc`
-            steps inside it -- do not add the two together.
+    rpc       one round trip to a guest's agent.
+    wait      a poll loop, which is many `rpc` steps and the sleeps
+              between them.  Its seconds therefore *contain* those of the
+              `rpc` steps inside it -- do not add the two together.
+    launch    the host's work to start a guest's process.
+    boot      from the start of `launch` until the guest is up, so it
+              contains that `launch`.
+    phase     one phase, from its start until its guests settled.
+    teardown  one part of putting a guest down.
+
+A step can contain others, so no kind sums to a total; `_toplevel` counts
+each second once.
 
 Written on failure as well as on success.  The run you most want the
 timings for is the one that timed out.
@@ -22,7 +30,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
@@ -78,14 +86,18 @@ class Report:
         # counted once, so this is wall clock and not the sum.
         self.step(name, "boot", f"boot {name}", seconds)
 
-    @contextmanager
-    def waiting(self, machine: str, what: str) -> Iterator[None]:
+    def waiting(self, machine: str, what: str) -> AbstractContextManager[None]:
         """Time a poll loop as one step, whatever it does inside."""
+        return self.span(machine, "wait", what)
+
+    @contextmanager
+    def span(self, machine: str, kind: str, what: str) -> Iterator[None]:
+        """Time the block as one step of *kind*, raised out of or not."""
         started = time.monotonic()
         try:
             yield
         finally:
-            self.step(machine, "wait", what, time.monotonic() - started)
+            self.step(machine, kind, what, time.monotonic() - started)
 
     def step(self, machine: str, kind: str, what: str, seconds: float) -> None:
         self.steps.append(

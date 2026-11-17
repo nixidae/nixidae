@@ -672,6 +672,9 @@ class Machine:
             raise MachineError(f"[{self.name}] boot before start: no run directory")
         self._agent_sock, self._guest_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
+        # The boot clock starts before the launch: guests launch one after
+        # another, and a clock started at the spawn hid that.
+        started = time.monotonic()
         try:
             if boot is None:
                 launch = self.backend.launch(self, self._rundir, self._guest_sock.fileno(), self.lan_fds)
@@ -724,17 +727,17 @@ class Machine:
         for fd in self._spare_fds:
             os.close(fd)
         self._spare_fds = []
+        self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
         self._monitor = asyncio.ensure_future(self._pump_console())  # noqa: TID251 -- held until Machine owns a task group, nixidae/nixidae#949
 
         if self.control_kind not in (AGENT, NONE):
-            await self._start_console(find_dialect(self.name, self.spec.control))
+            await self._start_console(find_dialect(self.name, self.spec.control), started)
             return
 
         none = NoneConfig.of(self.name, self.spec.control) if self.control_kind == NONE else None
         if none:
             await self._read_serial()
         ready = none.ready if none else re.compile(re.escape(AGENT_READY))
-        started = time.monotonic()
         try:
             with anyio.fail_after(self.boot_timeout):
                 await self._wait_for_line(ready)
@@ -873,11 +876,12 @@ class Machine:
         reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- nixidae/nixidae#949
         self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))  # noqa: TID251 -- nixidae/nixidae#949
 
-    async def _start_console(self, dialect: Dialect) -> None:
+    async def _start_console(self, dialect: Dialect, started: float) -> None:
         """Log in on the guest's console and apply its config disk.
 
         The serial port carries the socketpair the agent would get. Every
         byte read goes to `console.raw` among the guest's artifacts.
+        *started* is when the launch began, which the boot time counts from.
         """
         if self._agent_sock is None or self._guest_sock is None:
             raise MachineError(f"[{self.name}] no console socket")
@@ -893,7 +897,6 @@ class Machine:
             transcript=self._transcript.write if self._transcript is not None else None,
         )
         self._control = console
-        started = time.monotonic()
         try:
             await console.login(timeout=self.boot_timeout)
         except (TimeoutError, ConsoleError) as error:
@@ -939,7 +942,8 @@ class Machine:
             # agent down before it answers.
             asked = True
             try:
-                await self._ask("poweroff", self._agent.poweroff(), 15)
+                with self.recorder.span(self.name, "teardown", f"poweroff {self.name}"):
+                    await self._ask("poweroff", self._agent.poweroff(), 15)
             except (MachineError, OSError, EOFError):
                 pass
             except Exception as error:  # noqa: BLE001 -- the agent refused; the guest is reaped below all the same
@@ -953,16 +957,16 @@ class Machine:
                 sock.close()
         self._agent_sock = self._guest_sock = None
 
-        await self._reap(POWEROFF_GRACE if asked else 0)
-        await self._stop_process()
-
-        self._close_kept()
-
-        if self._rundir is not None:
-            storeview.remove(self._rundir / "nix")
-            if not os.environ.get("VIVARIUM_KEEP"):
-                shutil.rmtree(self._rundir, ignore_errors=True)
-            self._rundir = None
+        with self.recorder.span(self.name, "teardown", f"reap {self.name}"):
+            await self._reap(POWEROFF_GRACE if asked else 0)
+        with self.recorder.span(self.name, "teardown", f"clean up {self.name}"):
+            await self._stop_process()
+            self._close_kept()
+            if self._rundir is not None:
+                storeview.remove(self._rundir / "nix")
+                if not os.environ.get("VIVARIUM_KEEP"):
+                    shutil.rmtree(self._rundir, ignore_errors=True)
+                self._rundir = None
 
     def _close_kept(self) -> None:
         """The disk and segment fds kept for a reboot."""

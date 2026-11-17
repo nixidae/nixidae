@@ -97,8 +97,12 @@ class FakeSession(Session):
         passed = stopped is None and all(state == "passed" for state in states.values())
         self.emit(Kind.RUN_FINISHED, "verdict", passed=passed, states=states, stopped=stopped)
 
+    def write_report(self) -> None:
+        self.said.append("report")
+
     async def teardown(self) -> None:
         self.torn_down = True
+        self.said.append("teardown")
 
     async def drain(self) -> None:
         self.said.append("drain")
@@ -173,6 +177,13 @@ class TestTheJournalFollower:
         session = FakeSession()
         await drive(session)
         assert session.said.index("drain") < session.said.index("write")
+
+    async def test_the_report_is_written_after_the_teardown(self) -> None:
+        """The verdict comes first, so a watcher does not wait for the
+        guests to go down; the report after, so it holds the teardown."""
+        session = FakeSession()
+        await drive(session)
+        assert session.said.index("write") < session.said.index("teardown") < session.said.index("report")
 
 
 async def until_paused(socket: Path) -> None:

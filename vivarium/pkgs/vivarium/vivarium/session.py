@@ -707,7 +707,7 @@ class Session:
         if self.vms is None:
             return
         tokens: set[str] = set()
-        with anyio.move_on_after(timeout):
+        with self.report.waiting("-", "the journals to settle"), anyio.move_on_after(timeout):
             for name, tail in self._journals.items():
                 if nodes is not None and name not in nodes:
                     continue
@@ -1052,8 +1052,7 @@ class Session:
             )
             + "\n"
         )
-        first = next(iter(self.errors.values()), None)
-        self.report.write(self.out / "report.json", self.passed, first)
+        self.write_report()
         verdict = "passed" if self.passed else "failed"
         if self.stopped is not None:
             verdict = f"stopped ({self.stopped.reason})"
@@ -1065,6 +1064,13 @@ class Session:
             stopped=None if self.stopped is None else self.stopped.reason,
             states={name: str(state) for name, state in self.state.items()},
         )
+
+    def write_report(self) -> None:
+        """`report.json`. Written with the verdict, and again after the
+        teardown so that it holds the teardown's steps: the verdict does
+        not wait for the guests to go down."""
+        first = next(iter(self.errors.values()), None)
+        self.report.write(self.out / "report.json", self.passed, first)
 
     def reload(self, spec: Spec) -> Reloaded:
         """Take the phases, settings and knobs of `spec`; the guests stay.

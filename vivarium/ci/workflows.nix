@@ -562,7 +562,7 @@ let
     ghanix = sandboxBootstrap;
     steps = [
       (steps.build {
-        name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, peers, switch, cleanup, interactive";
+        name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, report, peers, switch, cleanup, interactive";
         attrs = [
           "checks.phase-rules"
           "checks.knobs"
@@ -578,6 +578,7 @@ let
           "checks.guest-suites"
           "checks.kernel-override"
           "checks.parallel"
+          "checks.report"
           "checks.peers"
           "checks.switch"
           "checks.cleanup"

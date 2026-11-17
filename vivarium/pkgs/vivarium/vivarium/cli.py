@@ -654,6 +654,7 @@ async def _sequence(
             await session.drain()
             session.write_output()
             await session.teardown()
+            session.write_report()
             # A kubeconfig names guests that are gone, and in a sandboxed
             # check it would carry an admin key into the world-readable store.
             access.empty(session.out)

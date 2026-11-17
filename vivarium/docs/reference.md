@@ -621,13 +621,15 @@ A run by hand writes the same file into its `--out` directory:
 $ nix run --file . checks.lan.driver -- --out ./out && jq .total_seconds out/report.json
 ```
 
-Either way the file holds the per-machine boot time, every round trip to a
-guest with its duration, the poll loops as single steps, the twenty slowest
-steps and a per-command total. Two things to know reading it:
+Either way the file holds each guest's launch and boot time, every round
+trip to a guest with its duration, the poll loops as single steps, the
+parts of the teardown, the twenty slowest steps and a per-command total.
+Two things to know reading it:
 
-- **A `wait` step contains the `rpc` steps inside it.** A poll loop is many
-  round trips and the sleeps between them, so the two kinds are reported
-  apart and must not be added together.
+- **A step can contain other steps.** A `wait` step contains the `rpc`
+  steps inside it: a poll loop is many round trips and the sleeps between
+  them. A `boot` step contains the guest's `launch`. So do not add the
+  kinds together; `recorded_seconds` counts each second once.
 - **A failing run writes one too.** The run whose timings you most want is
   the one that timed out.
 
