@@ -42,7 +42,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
-from vivarium.control import SOCKET, Op, Reply, WatchRefused, request, watch
+from vivarium.control import PARENT, SOCKET, Op, Reply, WatchRefused, request, watch
 from vivarium.journal import Tail
 from vivarium.monitor import LIVE, channel_event, paused_now
 
@@ -282,7 +282,8 @@ class Runs:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            env={**os.environ, **env},
+            # The run goes down with this server: nobody else attaches to a pause it holds.
+            env={**os.environ, **env, PARENT: str(os.getpid())},
         )
         log.close()
         run = Run(id=out.name, out=out, process=process, source=source)
@@ -342,8 +343,10 @@ class Runs:
         return found
 
     async def stop_all(self) -> None:
-        for run in self.runs.values():
-            await _stop(run)
+        """All at once: one after another, each run's bound adds up."""
+        async with anyio.create_task_group() as group:
+            for run in self.runs.values():
+                group.start_soon(_stop, run)
 
 
 async def _bound(run: Run) -> bool:

@@ -374,6 +374,10 @@ class Use(StrEnum):
 ORIGIN: Final = "VIVARIUM_ORIGIN"
 """The environment variable the `vivarium` CLI sets for a run it starts."""
 
+PARENT: Final = "VIVARIUM_PARENT"
+"""A pid whose exit ends the run as SIGHUP does. `vivarium-mcp` sets its own
+pid for a run it starts: the run then goes down with the server."""
+
 
 @dataclass(frozen=True, slots=True)
 class Origin:

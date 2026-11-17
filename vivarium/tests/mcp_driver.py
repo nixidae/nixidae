@@ -10,7 +10,10 @@ Claude Code extension. What this reads is what Claude Code reads.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import select
 import subprocess
 import sys
 import tempfile
@@ -115,9 +118,57 @@ async def run_shell(command: str, seconds: float) -> subprocess.CompletedProcess
 async def main(server: str, spec: str) -> None:
     async with await anyio.open_process([server], stderr=None) as process, anyio.create_task_group() as group:
         await drive(Client(process), process, group, spec)
+    await killed_server(server, spec)
 
 
-async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -> None:
+def descendants(root: int) -> set[int]:
+    """*root* and every process under it, by parent pid."""
+    children: dict[int, list[int]] = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rpartition(")")[2].split()
+        except OSError:
+            continue
+        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+    found: set[int] = set()
+    todo = [root]
+    while todo:
+        pid = todo.pop()
+        found.add(pid)
+        todo.extend(children.get(pid, []))
+    return found
+
+
+async def killed_server(server: str, spec: str) -> None:
+    """SIGKILL the server while its run holds a pause: the run and every
+    process under it must exit, because nobody can reach that pause."""
+    async with await anyio.open_process([server], stderr=None) as process:
+        client = Client(process)
+        await handshake(client)
+        started = await client.tool("start", spec=spec)
+        with anyio.fail_after(600):
+            await client.until("paused")
+        run = json.loads((Path(started["out"]) / "run.json").read_text())["pid"]
+        watches: dict[int, int] = {}
+        for pid in descendants(run):
+            with contextlib.suppress(ProcessLookupError):
+                watches[pid] = os.pidfd_open(pid)
+        process.kill()
+        await process.wait()
+        try:
+            with anyio.move_on_after(180) as late:
+                for watch in watches.values():
+                    await anyio.wait_readable(watch)
+            if late.cancelled_caught:
+                left = [pid for pid, watch in watches.items() if not select.select([watch], [], [], 0)[0]]
+                fail(f"left after the server died: {sorted(left)}")
+        finally:
+            for watch in watches.values():
+                os.close(watch)
+    print(f"ok: the paused run and its {len(watches) - 1} processes exited with the server", flush=True)
+
+
+async def handshake(client: Client) -> None:
     init = await client.call(
         "initialize",
         {
@@ -128,8 +179,12 @@ async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -
     )
     if "claude/channel" not in init["capabilities"].get("experimental", {}):
         fail(f"no claude/channel capability: {init['capabilities']}")
-    print("ok: the server declares claude/channel", flush=True)
     await client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+
+async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -> None:
+    await handshake(client)
+    print("ok: the server declares claude/channel", flush=True)
 
     started = await client.tool("start", spec=spec)
     run = started["run"]

@@ -34,6 +34,7 @@ from vivarium_runner.machine import Cpus
 from . import access, monitor, namespace, registry, remote, repl, runroot
 from .control import (
     ORIGIN,
+    PARENT,
     READY,
     RUN_FILE,
     SOCKET,
@@ -455,12 +456,19 @@ async def run(args: argparse.Namespace) -> int:
     try:
         before, points = breakpoints(args.breaks, session.spec.phases)
         origin = None if ORIGIN not in os.environ else Origin.from_json(os.environ[ORIGIN])
+        # Taken out, so that a run a phase starts does not watch it too.
+        parent = os.environ.pop(PARENT, None)
+        if parent is not None and not parent.isdigit():
+            raise ValueError(f"{PARENT} is not a pid: {parent!r}")
+        parent_pid = None if parent is None else int(parent)
     except ValueError as error:
         raise SessionError(str(error)) from None
 
     try:
         async with anyio.create_task_group() as group:
             group.start_soon(_stop_on_signal, session, group.cancel_scope)
+            if parent_pid is not None:
+                group.start_soon(_stop_with_parent, session, group.cancel_scope, parent_pid)
             await drive(
                 session,
                 breaks=before,
@@ -495,6 +503,23 @@ async def _stop_on_signal(session: Session, scope: anyio.CancelScope) -> None:
             session.emit(Kind.NOTE, f"{signal.Signals(received).name}: tearing the guests down")
             scope.cancel()
             return
+
+
+async def _stop_with_parent(session: Session, scope: anyio.CancelScope, pid: int) -> None:
+    """The exit of `PARENT`'s pid ends the run as SIGHUP does.
+
+    The watch is opened before `getppid` is compared: a parent that exited
+    before the run started watching then counts as exited too.
+    """
+    try:
+        with runroot.exit_watch(pid) as watch:
+            if os.getppid() == pid:
+                await anyio.wait_readable(watch)
+    except ProcessLookupError:
+        pass
+    session.stopped = Stop(f"pid {pid} exited", 128 + signal.SIGHUP)
+    session.emit(Kind.NOTE, f"pid {pid}, which started this run, exited: tearing the guests down")
+    scope.cancel()
 
 
 async def drive(

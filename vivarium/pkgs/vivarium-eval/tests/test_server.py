@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +13,7 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import ImageContent, JSONRPCNotification, TextContent
-from vivarium.control import Op, Reply
+from vivarium.control import PARENT, Op, Reply
 from vivarium.monitor import LIVE, channel_event
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
@@ -361,6 +363,45 @@ async def test_a_run_gone_before_its_socket_is_exited(tmp_path: Path) -> None:
     [exited] = pushed.contents()
     assert exited.startswith("exited: run exited 1 without a verdict:")
     assert "boom" in exited
+
+
+@pytest.mark.anyio
+async def test_a_run_is_told_the_server_pid(tmp_path: Path) -> None:
+    argv = [sys.executable, "-c", f"import os; print(os.environ[{PARENT!r}])"]
+    pushed = Pushed()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, pushed.send)
+        with anyio.fail_after(5):
+            run = await runs.start(argv, tmp_path, {})
+            await run.process.wait()
+    assert (tmp_path / "terminal.log").read_text() == f"{os.getpid()}\n"
+
+
+@pytest.mark.anyio
+async def test_the_runs_stop_at_once(tmp_path: Path) -> None:
+    asked: list[int] = []
+    both = anyio.Event()
+
+    class Interrupted(FakeProcess):
+        """Exits once every run got its SIGINT: a stop that waits for one first never ends."""
+
+        def send_signal(self, sig: int) -> None:
+            asked.append(sig)
+            if len(asked) == 2:
+                both.set()
+
+        async def wait(self) -> int:
+            await both.wait()
+            return 0
+
+    pushed = Pushed()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, pushed.send)
+        for name in ("a", "b"):
+            runs.runs[name] = Run(id=name, out=tmp_path / name, process=Interrupted())
+        with anyio.fail_after(5):
+            await runs.stop_all()
+    assert asked == [signal.SIGINT, signal.SIGINT]
 
 
 @pytest.mark.anyio
