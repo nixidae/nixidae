@@ -565,6 +565,9 @@ class Machine:
         self._lan_kept: dict[str, int] = {}
         self._watcher: asyncio.Task[None] | None = None
         self._stopping = False
+        self._exit_code: int | None = None
+        self._exited = asyncio.Event()
+        """Set when the guest stopped by itself: a poweroff, a halt or a crash, never a host shutdown or a reboot."""
         self._reboot_error: str | None = None
         self._control: Control | None = None
         self._transcript: anyio.AsyncFile[bytes] | None = None
@@ -774,11 +777,10 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
-        if self.backend.reboots:
-            self._watcher = asyncio.ensure_future(self._watch())
+        self._watcher = asyncio.ensure_future(self._watch())
 
     async def _watch(self) -> None:
-        """Boot the guest again when it reboots itself.
+        """Boot the guest again when it reboots itself; record a stop it made by itself.
 
         A reset ends the process: QEMU runs with `-no-reboot`, and libkrun
         has no other way to stop. Rebooting in place would load the kernel
@@ -789,13 +791,39 @@ class Machine:
         await self._process.wait()
         if self._monitor is not None:
             await self._monitor
-        if self._stopping or not self.backend.rebooted(self._process.returncode, self._history):
+        if self._stopping:
             return
-        try:
-            await self._reboot()
-        except MachineError as error:
-            self._reboot_error = str(error)
-            self._log(f"did not come back from its reboot: {error}")
+        if self.backend.rebooted(self._process.returncode, self._history):
+            try:
+                await self._reboot()
+            except MachineError as error:
+                self._reboot_error = str(error)
+                self._log(f"did not come back from its reboot: {error}")
+            return
+        self._gone(self._process.returncode or 0)
+
+    def _gone(self, code: int) -> None:
+        """The guest's process ended with no host shutdown: no call may reach its agent again."""
+        self._log(f"stopped by itself, exit {code}")
+        # A later call would write to a closed fd, or one the next guest reuses.
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+        self._control = None
+        self._exit_code = code
+        self._exited.set()
+
+    async def exited(self) -> int:
+        """Wait until the guest stops by itself, and return its process's exit code.
+
+        A poweroff exits 0. A crash, a panic or a kill is another code. A
+        reboot does not count, and a host `shutdown` never sets it: the
+        caller that shuts a guest down already knows.
+        """
+        await self._exited.wait()
+        if self._exit_code is None:
+            raise MachineError(f"[{self.name}] stopped with no exit code")
+        return self._exit_code
 
     def _bootloader(self) -> BootSpec | None:
         """The spec's boot, with what the guest's bootloader chose since."""

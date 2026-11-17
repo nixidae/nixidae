@@ -58,3 +58,25 @@ async def test(vms: Machines) -> None:
     assert done["state"] == "terminated", done
     assert sorted(vms) == ["controller"]
     print(f"[test] capacity came back; {second['id']} was terminated through the API")
+
+    status, third = await call(controller, "POST", "/v1/instances", {"template": "worker"})
+    assert status == 202, third
+    worker = await cloud.wait_running(third["id"])
+    # Not `poweroff` itself: the agent goes down before it can answer.
+    await worker.succeed("systemd-run --on-active=1 systemctl poweroff")
+    await cloud.wait_ended(third["id"], timeout=120)
+    _, off = await call(controller, "GET", f"/v1/instances/{third['id']}")
+    assert (off["state"], off["error"]) == ("terminated", None), off
+    status, again = await call(controller, "DELETE", f"/v1/instances/{third['id']}")
+    assert (status, again["state"]) == (202, "terminated"), again
+    assert sorted(vms) == ["controller"]
+    print(f"[test] {third['id']} powered itself off and was terminated; a delete after it is no error")
+
+    status, fourth = await call(controller, "POST", "/v1/instances", {"template": "worker"})
+    assert status == 202, fourth
+    worker = await cloud.wait_running(fourth["id"])
+    await worker.crash()
+    await cloud.wait_ended(fourth["id"], timeout=60)
+    _, dead = await call(controller, "GET", f"/v1/instances/{fourth['id']}")
+    assert dead["state"] == "failed" and "exit" in dead["error"], dead
+    print(f"[test] {fourth['id']} was killed and failed: {dead['error']}")

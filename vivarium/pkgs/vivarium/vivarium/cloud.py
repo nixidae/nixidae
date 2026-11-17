@@ -51,7 +51,7 @@ class Instance:
     settled: asyncio.Event = field(default_factory=asyncio.Event)
     """Set once the state leaves `pending`."""
     ended: asyncio.Event = field(default_factory=asyncio.Event)
-    """Set once the instance is terminated."""
+    """Set once the instance is terminated, or failed after it ran."""
 
     def view(self) -> dict[str, Any]:
         return {
@@ -137,19 +137,34 @@ class Cloud:
         return instance
 
     async def _boot(self, instance: Instance) -> None:
+        """Boot *instance*, then hold until its guest stops by itself, which ends it.
+
+        A guest's own poweroff ends its instance, as EC2's
+        `InstanceInitiatedShutdownBehavior=terminate` does: a builder that
+        powers itself off must read as gone, not as running.
+        """
         try:
             await asyncio.sleep(self.boot_delay)
-            await self.session.launch(instance.template, instance.id, instance.user_data)
+            vm = await self.session.launch(instance.template, instance.id, instance.user_data)
         except asyncio.CancelledError:
+            self._tasks.pop(instance.id, None)
+            instance.settled.set()
             raise
         except Exception as error:  # noqa: BLE001 -- the instance carries any failure as its state
             instance.state = State.FAILED
             instance.error = str(error)
-        else:
-            instance.state = State.RUNNING
-        finally:
             self._tasks.pop(instance.id, None)
             instance.settled.set()
+            return
+        instance.state = State.RUNNING
+        instance.settled.set()
+        code = await vm.exited()
+        # Out of `_tasks` first: `_end` cancels the boot task it finds there, and this task is that one.
+        self._tasks.pop(instance.id, None)
+        if code == 0:
+            await self._end(instance.id, State.TERMINATED)
+        else:
+            await self._end(instance.id, State.FAILED, f"the guest's process ended with exit {code}")
 
     async def wait_running(self, instance_id: str, timeout: float = 300) -> Machine:
         """The guest of *instance_id* once it runs; a failed launch raises its error."""
@@ -170,6 +185,10 @@ class Cloud:
         instance, waits for the first. Two reached `Session.terminate`, and
         the second raised KeyError for a guest the first had removed.
         """
+        await self._end(instance_id, State.TERMINATED)
+
+    async def _end(self, instance_id: str, state: State, error: str | None = None) -> None:
+        """`terminate`, ending in *state*: a guest that crashed by itself ends `failed`."""
         instance = self.instances[instance_id]
         if instance_id in self._ending or instance.ended.is_set():
             await instance.ended.wait()
@@ -188,14 +207,16 @@ class Cloud:
             # A boot cancelled partway may hold ports and a `Machine` already.
             if self.session.holds(instance_id):
                 await self.session.terminate(instance_id)
-            instance.state = State.TERMINATED
+            instance.state = state
+            if error is not None:
+                instance.error = error
             instance.settled.set()
             instance.ended.set()
         finally:
             self._ending.discard(instance_id)
 
     async def wait_ended(self, instance_id: str, timeout: float = 300) -> None:
-        """Until *instance_id* is terminated: by a call, a phase, or the end of its notice."""
+        """Until *instance_id* ends: by a call, a phase, the end of its notice, or its guest's own stop."""
         try:
             async with asyncio.timeout(timeout):
                 await self.instances[instance_id].ended.wait()

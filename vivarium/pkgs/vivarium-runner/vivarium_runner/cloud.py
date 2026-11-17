@@ -14,8 +14,9 @@ http://cloud/v1/instances` reads it by hand.
 
 An instance is `{"id", "template", "state", "tags", "launched_by", "error",
 "notice"}`. `state` goes `pending`, `running`, then `terminated`, or
-`failed`. A launch the run has no room for answers 409, as a cloud out of
-capacity does.
+`failed`. A guest's own poweroff terminates its instance; a crash of its
+own makes it `failed`, with the exit in `error`. A launch the run has no
+room for answers 409, as a cloud out of capacity does.
 """
 
 from __future__ import annotations

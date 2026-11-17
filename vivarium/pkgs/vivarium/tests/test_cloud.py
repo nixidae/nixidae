@@ -10,13 +10,29 @@ import anyio
 from vivarium.cloud import Cloud, State
 
 
+class FakeVm:
+    """A guest as `Cloud` waits on it: it stops by itself when `stop` is called."""
+
+    def __init__(self) -> None:
+        self.stopped = asyncio.Event()
+        self.code = 0
+
+    def stop(self, code: int) -> None:
+        self.code = code
+        self.stopped.set()
+
+    async def exited(self) -> int:
+        await self.stopped.wait()
+        return self.code
+
+
 class FakeSession:
     """`Session` as `Cloud` uses it; a launch is up once *release* is set."""
 
     def __init__(self) -> None:
         self.templates = {"worker": object()}
         self.up: dict[str, str | None] = {}
-        self.vms_up: dict[str, object] = {}
+        self.vms_up: dict[str, FakeVm] = {}
         self.release = asyncio.Event()
         self.release.set()
         self.started = asyncio.Event()
@@ -25,12 +41,12 @@ class FakeSession:
         self.shut_down = anyio.Event()
         self.shut_down.set()
 
-    async def launch(self, template: str, name: str, user_data: str | None) -> object:
+    async def launch(self, template: str, name: str, user_data: str | None) -> FakeVm:
         self.up[name] = None
         self.started.set()
         await self.release.wait()
         self.up[name] = user_data
-        self.vms_up[name] = object()
+        self.vms_up[name] = FakeVm()
         return self.vms_up[name]
 
     def holds(self, name: str) -> bool:
@@ -139,5 +155,38 @@ def test_a_terminate_while_the_notice_ends_it_ends_it_once() -> None:
             session.shut_down.set()
         await cloud.close()
         assert (answers, session.terminations, session.up) == ([HTTPStatus.ACCEPTED], 1, {})
+
+    asyncio.run(main())
+
+
+def test_a_guest_that_powers_itself_off_ends_its_instance_terminated() -> None:
+    """EC2's `InstanceInitiatedShutdownBehavior=terminate`: a builder's own poweroff ends it (nixidae/nixidae#1420)."""
+
+    async def main() -> None:
+        cloud, session = _cloud()
+        _, body = await cloud.handle(None, "launch", {"template": "worker"})
+        await cloud.wait_running(body["id"], timeout=5)
+        session.vms_up[body["id"]].stop(0)
+        await cloud.wait_ended(body["id"], timeout=5)
+        instance = cloud.instances[body["id"]]
+        assert (instance.state, instance.error, session.up) == (State.TERMINATED, None, {})
+        assert (await cloud.handle(None, "terminate", {"id": body["id"]}))[0] == HTTPStatus.ACCEPTED
+        assert session.terminations == 1
+        await cloud.close()
+
+    asyncio.run(main())
+
+
+def test_a_guest_that_dies_by_itself_ends_its_instance_failed_with_the_exit() -> None:
+    async def main() -> None:
+        cloud, session = _cloud()
+        _, body = await cloud.handle(None, "launch", {"template": "worker"})
+        await cloud.wait_running(body["id"], timeout=5)
+        session.vms_up[body["id"]].stop(-9)
+        await cloud.wait_ended(body["id"], timeout=5)
+        instance = cloud.instances[body["id"]]
+        assert instance.state is State.FAILED
+        assert instance.error is not None and "exit -9" in instance.error, instance.error
+        await cloud.close()
 
     asyncio.run(main())
