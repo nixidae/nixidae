@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from http import HTTPStatus
 
 import anyio
@@ -13,7 +12,7 @@ class FakeVm:
     """A guest as `Cloud` waits on it: it stops by itself when `stop` is called."""
 
     def __init__(self) -> None:
-        self.stopped = asyncio.Event()
+        self.stopped = anyio.Event()
         self.code = 0
 
     def stop(self, code: int) -> None:
@@ -32,9 +31,9 @@ class FakeSession:
         self.templates = {"worker": object()}
         self.up: dict[str, str | None] = {}
         self.vms_up: dict[str, FakeVm] = {}
-        self.release = asyncio.Event()
+        self.release = anyio.Event()
         self.release.set()
-        self.started = asyncio.Event()
+        self.started = anyio.Event()
         self.terminations = 0
         self.terminating = anyio.Event()
         self.shut_down = anyio.Event()
@@ -81,7 +80,7 @@ def test_a_launch_is_pending_then_running_and_names_who_asked() -> None:
         assert (status, own["id"]) == (HTTPStatus.OK, body["id"])
         assert (await cloud.handle("ctl", "self", {}))[0] == HTTPStatus.NOT_FOUND
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_a_launch_past_capacity_is_refused_and_a_terminate_makes_room() -> None:
@@ -96,7 +95,7 @@ def test_a_launch_past_capacity_is_refused_and_a_terminate_makes_room() -> None:
         assert (await cloud.handle(None, "launch", {"template": "worker"}))[0] == HTTPStatus.ACCEPTED
         await cloud.close()
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_an_unknown_template_or_instance_is_not_found() -> None:
@@ -105,13 +104,13 @@ def test_an_unknown_template_or_instance_is_not_found() -> None:
         assert (await cloud.handle(None, "launch", {"template": "nope"}))[0] == HTTPStatus.NOT_FOUND
         assert (await cloud.handle(None, "describe", {"id": "i-9999"}))[0] == HTTPStatus.NOT_FOUND
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_terminating_a_pending_instance_unplugs_what_its_boot_held() -> None:
     async def main() -> None:
         cloud, session = _cloud()
-        session.release.clear()
+        session.release = anyio.Event()
         _, body = await cloud.handle(None, "launch", {"template": "worker"})
         await session.started.wait()
         assert session.holds(body["id"])
@@ -119,7 +118,7 @@ def test_terminating_a_pending_instance_unplugs_what_its_boot_held() -> None:
         assert not session.holds(body["id"])
         assert cloud.instances[body["id"]].state is State.TERMINATED
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_a_notice_is_visible_and_ends_the_instance() -> None:
@@ -132,7 +131,7 @@ def test_a_notice_is_visible_and_ends_the_instance() -> None:
         await cloud.wait_ended(body["id"], timeout=5)
         assert session.up == {}
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_a_terminate_while_the_notice_ends_it_ends_it_once() -> None:
@@ -157,7 +156,7 @@ def test_a_terminate_while_the_notice_ends_it_ends_it_once() -> None:
         await cloud.close()
         assert (answers, session.terminations, session.up) == ([HTTPStatus.ACCEPTED], 1, {})
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_a_guest_that_powers_itself_off_ends_its_instance_terminated() -> None:
@@ -175,7 +174,7 @@ def test_a_guest_that_powers_itself_off_ends_its_instance_terminated() -> None:
         assert session.terminations == 1
         await cloud.close()
 
-    asyncio.run(main())
+    anyio.run(main)
 
 
 def test_a_guest_that_dies_by_itself_ends_its_instance_failed_with_the_exit() -> None:
@@ -190,4 +189,4 @@ def test_a_guest_that_dies_by_itself_ends_its_instance_failed_with_the_exit() ->
         assert instance.error is not None and "exit -9" in instance.error, instance.error
         await cloud.close()
 
-    asyncio.run(main())
+    anyio.run(main)

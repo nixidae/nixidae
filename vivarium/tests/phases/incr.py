@@ -9,9 +9,9 @@ Every reading compares what the guest says the file holds against what
 the host reads at the same moment.
 """
 
-import asyncio
 from pathlib import Path
 
+import anyio
 from vivarium_runner import Machine, Machines
 
 
@@ -44,7 +44,7 @@ async def test(vms: Machines) -> None:
 
     readings = []
     for _ in range(10):
-        await asyncio.sleep(0.6)
+        await anyio.sleep(0.6)
         readings.append(await sizes(vm, here))
     print(f"[test] (guest, host) bytes: {readings}")
 

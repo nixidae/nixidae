@@ -1,8 +1,8 @@
 """A pytest phase against a booted guest. One test fails on purpose."""
 
-import asyncio
 import json
 
+import anyio
 import pytest
 from vivarium_runner import Machine, Machines
 
@@ -33,7 +33,7 @@ async def test_the_journal_names_the_test(one: Machine, vms: Machines) -> None:
                     return
             except json.JSONDecodeError:
                 continue
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
     raise AssertionError("the line never reached the host")
 
 

@@ -9,8 +9,7 @@ a sandboxed guest 169.254.2.1/16 instead. `lan-router` runs it with the
 guests behind a router, where each has its own address.
 """
 
-import asyncio
-
+import anyio
 from vivarium_runner import Machines
 
 GATEWAY = "10.0.2.2"
@@ -30,7 +29,7 @@ async def test(vms: Machines) -> None:
             rc, addr = await vm.execute("ip -4 -br addr show vec0")
             if rc == 0 and f" {uplink}" in addr:
                 break
-            await asyncio.sleep(1)
+            await anyio.sleep(1)
         else:
             raise AssertionError(f"{vm.name} vec0 is {addr.strip()!r}, not {uplink}")
         route = await vm.succeed("ip -4 route show default")

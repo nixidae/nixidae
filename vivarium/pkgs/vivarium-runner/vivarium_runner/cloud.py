@@ -136,4 +136,4 @@ async def serve(conn: AsyncConnection, path: str = SOCKET) -> asyncio.Server:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with contextlib.suppress(FileNotFoundError):
         os.unlink(path)
-    return await asyncio.start_unix_server(lambda r, w: _handle(conn, r, w), path)
+    return await asyncio.start_unix_server(lambda r, w: _handle(conn, r, w), path)  # noqa: TID251 -- nixidae/nixidae#949

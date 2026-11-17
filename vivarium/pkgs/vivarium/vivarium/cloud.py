@@ -22,6 +22,7 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
+import anyio
 from vivarium_runner.arpyc import Service
 
 if TYPE_CHECKING:
@@ -52,9 +53,9 @@ class Instance:
     error: str | None = None
     notice: float | None = None
     """When an interruption ends this instance, in seconds since the epoch, as a spot notice says."""
-    settled: asyncio.Event = field(default_factory=asyncio.Event)
+    settled: anyio.Event = field(default_factory=anyio.Event)
     """Set once the state leaves `pending`."""
-    ended: asyncio.Event = field(default_factory=asyncio.Event)
+    ended: anyio.Event = field(default_factory=anyio.Event)
     """Set once the instance is terminated, or failed after it ran."""
 
     def view(self) -> dict[str, Any]:
@@ -87,7 +88,8 @@ class Cloud:
     # Held tasks on the runner's loop, not a task group: an instance
     # outlives the request that launched it and the phase that runs, and
     # the session spans separate boot, run and teardown calls. Cancelled
-    # in `close`. The runner is bare asyncio until nixidae/nixidae#949.
+    # in `close`. A task group the session owns replaces them with the
+    # runner's, nixidae/nixidae#949.
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     _ending: set[str] = field(default_factory=set)
 
@@ -137,7 +139,7 @@ class Cloud:
             launched_by=caller,
         )
         self.instances[instance.id] = instance
-        self._tasks[instance.id] = asyncio.ensure_future(self._boot(instance))
+        self._tasks[instance.id] = asyncio.ensure_future(self._boot(instance))  # noqa: TID251 -- held, see _tasks
         return instance
 
     async def _boot(self, instance: Instance) -> None:
@@ -148,9 +150,9 @@ class Cloud:
         powers itself off must read as gone, not as running.
         """
         try:
-            await asyncio.sleep(self.boot_delay)
+            await anyio.sleep(self.boot_delay)
             vm = await self.session.launch(instance.template, instance.id, instance.user_data)
-        except asyncio.CancelledError:
+        except anyio.get_cancelled_exc_class():
             self._tasks.pop(instance.id, None)
             instance.settled.set()
             raise
@@ -174,7 +176,7 @@ class Cloud:
         """The guest of *instance_id* once it runs; a failed launch raises its error."""
         instance = self.instances[instance_id]
         try:
-            async with asyncio.timeout(timeout):
+            with anyio.fail_after(timeout):
                 await instance.settled.wait()
         except TimeoutError:
             raise RuntimeError(f"{instance_id} still {instance.state} after {timeout:g} s") from None
@@ -206,7 +208,7 @@ class Cloud:
             task = self._tasks.pop(instance_id, None)
             if task is not None:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with contextlib.suppress(anyio.get_cancelled_exc_class()):
                     await task
             # A boot cancelled partway may hold ports and a `Machine` already.
             if self.session.holds(instance_id):
@@ -222,7 +224,7 @@ class Cloud:
     async def wait_ended(self, instance_id: str, timeout: float = 300) -> None:
         """Until *instance_id* ends: by a call, a phase, the end of its notice, or its guest's own stop."""
         try:
-            async with asyncio.timeout(timeout):
+            with anyio.fail_after(timeout):
                 await self.instances[instance_id].ended.wait()
         except TimeoutError:
             raise RuntimeError(f"{instance_id} still {self.instances[instance_id].state} after {timeout:g} s") from None
@@ -233,17 +235,17 @@ class Cloud:
         instance.notice = time.time() + seconds
 
         async def end() -> None:
-            await asyncio.sleep(seconds)
+            await anyio.sleep(seconds)
             self._tasks.pop(f"{instance_id}/notice", None)
             await self.terminate(instance_id)
 
-        self._tasks[f"{instance_id}/notice"] = asyncio.ensure_future(end())
+        self._tasks[f"{instance_id}/notice"] = asyncio.ensure_future(end())  # noqa: TID251 -- held, see _tasks
 
     async def close(self) -> None:
         for task in list(self._tasks.values()):
             task.cancel()
         for task in list(self._tasks.values()):
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(anyio.get_cancelled_exc_class()):
                 await task
         self._tasks.clear()
 

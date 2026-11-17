@@ -33,7 +33,7 @@ import time
 # asyncio's subprocess, kept on purpose: its StreamReader gives the console
 # pump a readline that anyio's process stdout has no equivalent for. It runs
 # under anyio's asyncio backend unchanged.
-from asyncio import subprocess
+from asyncio import subprocess  # noqa: TID251 -- see above
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -567,7 +567,7 @@ class Machine:
         self._watcher: asyncio.Task[None] | None = None
         self._stopping = False
         self._exit_code: int | None = None
-        self._exited = asyncio.Event()
+        self._exited = anyio.Event()
         """Set when the guest stopped by itself: a poweroff, a halt or a crash, never a host shutdown or a reboot."""
         self._reboot_error: str | None = None
         self._control: Control | None = None
@@ -729,7 +729,7 @@ class Machine:
         for fd in self._spare_fds:
             os.close(fd)
         self._spare_fds = []
-        self._monitor = asyncio.ensure_future(self._pump_console())
+        self._monitor = asyncio.ensure_future(self._pump_console())  # noqa: TID251 -- held until Machine owns a task group, nixidae/nixidae#949
 
         if self.control_kind not in (AGENT, NONE):
             await self._start_console(find_dialect(self.name, self.spec.control))
@@ -778,7 +778,7 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
-        self._watcher = asyncio.ensure_future(self._watch())
+        self._watcher = asyncio.ensure_future(self._watch())  # noqa: TID251 -- held until Machine owns a task group, nixidae/nixidae#949
 
     async def _watch(self) -> None:
         """Boot the guest again when it reboots itself; record a stop it made by itself.
@@ -873,8 +873,9 @@ class Machine:
         sock, self._agent_sock = self._agent_sock, None
         self._guest_sock.close()
         self._guest_sock = None
-        reader, self._serial = await asyncio.open_unix_connection(sock=sock)
-        self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))
+        # The console pump reads asyncio's StreamReader, as for a process.
+        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251
+        self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))  # noqa: TID251 -- nixidae/nixidae#949
 
     async def _start_console(self, dialect: Dialect) -> None:
         """Log in on the guest's console and apply its config disk.
@@ -922,7 +923,7 @@ class Machine:
         self._stopping = True
         if self._watcher is not None:
             self._watcher.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(anyio.get_cancelled_exc_class()):
                 await self._watcher
             self._watcher = None
         # A console guest keeps nothing, so it is not asked: QEMU is
@@ -992,7 +993,7 @@ class Machine:
         for task in (self._monitor, self._serial_monitor):
             if task is not None:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with contextlib.suppress(anyio.get_cancelled_exc_class()):
                     await task
         self._monitor = self._serial_monitor = None
         if self._serial is not None:

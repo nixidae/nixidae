@@ -10,8 +10,7 @@ the rule's `state` and the rule drops every ping: so a reply also says the
 footer kept VyOS from migrating a config that is already current.
 """
 
-import asyncio
-
+import anyio
 from vivarium_runner import Machines
 
 
@@ -22,7 +21,7 @@ async def test(vms: Machines) -> None:
             rc, _ = await vms.peer.execute(f"ping -c 1 -W 2 {address}")
             if rc == 0:
                 break
-            await asyncio.sleep(2)
+            await anyio.sleep(2)
         else:
             raise AssertionError(f"VyOS never answered at {address}")
         print(f"[test] the peer reaches VyOS at {address}")

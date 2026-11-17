@@ -17,10 +17,10 @@ The three things worth guarding, in order of how quietly they break:
     appearing to work.
 """
 
-import asyncio
 import urllib.error
 import urllib.request
 
+import anyio
 from vivarium_runner import Machine, Machines
 
 UNLISTED = 9090
@@ -52,14 +52,14 @@ def _get(where: str) -> str:
 
 async def fetch(where: str, timeout: float = 30) -> str:
     """GET /probe from the host side, giving the guest time to bind."""
-    deadline = asyncio.get_running_loop().time() + timeout
+    deadline = anyio.current_time() + timeout
     while True:
         try:
-            return await asyncio.to_thread(_get, where)
+            return await anyio.to_thread.run_sync(_get, where)
         except (urllib.error.URLError, OSError) as error:
-            if asyncio.get_running_loop().time() > deadline:
+            if anyio.current_time() > deadline:
                 raise AssertionError(f"nothing answered on {where}: {error}") from error
-            await asyncio.sleep(0.5)
+            await anyio.sleep(0.5)
 
 
 async def test(vms: Machines) -> None:

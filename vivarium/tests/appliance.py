@@ -10,10 +10,10 @@ what an appliance can get wrong and a NixOS guest cannot:
     without either side being configured.
 """
 
-import asyncio
 import json
 import urllib.request
 
+import anyio
 from vivarium_runner import Machines
 
 
@@ -32,15 +32,15 @@ async def rest(where: str, path: str) -> object:
         f"http://{where}/rest{path}",
         headers={"Authorization": "Basic YWRtaW46"},  # admin:
     )
-    deadline = asyncio.get_running_loop().time() + 60
+    deadline = anyio.current_time() + 60
     while True:
         try:
-            body = await asyncio.to_thread(lambda: urllib.request.urlopen(request, timeout=5).read())
+            body = await anyio.to_thread.run_sync(lambda: urllib.request.urlopen(request, timeout=5).read())
             return json.loads(body)
         except OSError as error:
-            if asyncio.get_running_loop().time() > deadline:
+            if anyio.current_time() > deadline:
                 raise AssertionError(f"no REST answer on {where}: {error}") from error
-            await asyncio.sleep(1)
+            await anyio.sleep(1)
 
 
 async def test(vms: Machines) -> None:

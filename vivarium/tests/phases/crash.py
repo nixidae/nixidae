@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Log a line from a unit, see it reach the host, then kill the guest."""
 
-import asyncio
 import json
 from pathlib import Path
 
+import anyio
 from vivarium_runner import Machines
 
 MARK = "streamed-before-the-crash"
@@ -36,7 +36,7 @@ async def test(vms: Machines) -> None:
     for _ in range(40):
         if MARK in messages(stream):
             break
-        await asyncio.sleep(0.25)
+        await anyio.sleep(0.25)
     else:
         raise AssertionError(f"{MARK} never reached {stream} while the guest ran")
     print("[test] the host had the line while the guest was up")

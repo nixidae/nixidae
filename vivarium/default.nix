@@ -267,10 +267,15 @@ in
       By spec, so nothing here evaluates. Not a check, for the same reason
       `vivarium-eval` is not: CI would have to build nanopynix.
     */
-    mcp-check = pkgs.runCommand "vivarium-check-mcp" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-      export HOME="$TMPDIR"
-      python3 ${./tests/mcp_driver.py} ${vivarium-eval}/bin/vivarium-mcp ${tests.checks.pytest-phase.session.spec}
-      touch $out
-    '';
+    mcp-check =
+      pkgs.runCommand "vivarium-check-mcp"
+        {
+          nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.anyio ])) ];
+        }
+        ''
+          export HOME="$TMPDIR"
+          python3 ${./tests/mcp_driver.py} ${vivarium-eval}/bin/vivarium-mcp ${tests.checks.pytest-phase.session.spec}
+          touch $out
+        '';
   };
 }

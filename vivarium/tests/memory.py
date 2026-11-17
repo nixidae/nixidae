@@ -16,8 +16,7 @@ and `host_memory_kib()` is one number either way.
   guest and let go again.
 """
 
-import asyncio
-
+import anyio
 from vivarium_runner import Machine, Machines
 
 #: What the guest reads: every distinct file of its own system closure.
@@ -84,7 +83,7 @@ async def settle(vm: Machine, target: int) -> int:
             paying = vm.host_memory_kib()
             if paying <= target:
                 return paying
-            await asyncio.sleep(1)
+            await anyio.sleep(1)
     raise AssertionError(
         f"the host still pays {paying // 1024}M after {REPORT_TIMEOUT}s, "
         f"wanted {target // 1024}M: free page reporting is not running, or "

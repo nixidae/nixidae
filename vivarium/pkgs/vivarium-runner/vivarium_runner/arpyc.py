@@ -258,7 +258,7 @@ class AsyncConnection:
                     # Answered from its own task: awaited here, a slow call
                     # (a guest asking the host to boot another) would stop
                     # this loop reading the replies the host waits for.
-                    task = asyncio.ensure_future(self._answer(seq, result))
+                    task = asyncio.ensure_future(self._answer(seq, result))  # noqa: TID251 -- nixidae/nixidae#949
                     self._answering.add(task)
                     task.add_done_callback(self._answering.discard)
                     return
@@ -322,7 +322,7 @@ class AsyncConnection:
         reply loop that is not running yet.
         """
         if self._serving is None:
-            self._serving = asyncio.ensure_future(self.serve_forever())
+            self._serving = asyncio.ensure_future(self.serve_forever())  # noqa: TID251 -- see above, nixidae/nixidae#949
 
     # ── calling ────────────────────────────────────────────────────
 

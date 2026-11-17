@@ -7,9 +7,9 @@ other guest across the router's bridge. The host reaches each guest on the
 addresses `reachable` names, through the router's egress.
 """
 
-import asyncio
 import socket
 
+import anyio
 from vivarium_runner import Machine, Machines
 
 GUESTS = {"a": "10.0.2.15", "b": "10.0.2.16"}
@@ -26,6 +26,15 @@ def ping_sockets(family: socket.AddressFamily, proto: int) -> bool:
     return True
 
 
+async def answer(server: socket.socket, reply: bool) -> None:
+    """Accept one connection per guest. Send `host`, or with *reply* the peer's address."""
+    for _ in GUESTS:
+        await anyio.wait_readable(server)
+        conn, peer = server.accept()
+        with conn:
+            conn.sendall(f"{peer[0]}\n".encode() if reply else b"host\n")
+
+
 async def lease(vm: Machine, address: str, address6: str) -> None:
     await vm.wait_until_succeeds(f"ip -4 -br addr show vec0 | grep -q ' {address}/24'", timeout=60)
     # Not while tentative: duplicate detection holds a new address back.
@@ -36,28 +45,25 @@ async def lease(vm: Machine, address: str, address6: str) -> None:
 
 
 async def test(vms: Machines) -> None:
-    await asyncio.gather(*(lease(vms[name], GUESTS[name], GUESTS6[name]) for name in GUESTS))
+    async with anyio.create_task_group() as group:
+        for name in GUESTS:
+            group.start_soon(lease, vms[name], GUESTS[name], GUESTS6[name])
 
     # A server on the host's loopback, which a guest reaches as the gateway.
-    server = socket.create_server(("127.0.0.1", 0))
-    port = server.getsockname()[1]
-    server.setblocking(False)
-    loop = asyncio.get_running_loop()
-
-    async def answer() -> None:
-        for _ in GUESTS:
-            conn, _ = await loop.sock_accept(server)
-            await loop.sock_sendall(conn, b"host\n")
-            conn.close()
-
-    answering = asyncio.ensure_future(answer())
-    for name in GUESTS:
-        got = (await vms[name].succeed(f"timeout 10 bash -c 'exec 3<>/dev/tcp/10.0.2.2/{port}; cat <&3'")).strip()
-        if got != "host":
-            raise AssertionError(f"{name}: the host's server said {got!r}")
-        print(f"[test] {name} reached the host's loopback through the router")
-    await asyncio.wait_for(answering, 10)
-    server.close()
+    # A guest's reply comes after the server sent it, so the group ends once
+    # the guests have their answers.
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        server.setblocking(False)
+        port = server.getsockname()[1]
+        async with anyio.create_task_group() as group:
+            group.start_soon(answer, server, False)
+            for name in GUESTS:
+                got = (
+                    await vms[name].succeed(f"timeout 10 bash -c 'exec 3<>/dev/tcp/10.0.2.2/{port}; cat <&3'")
+                ).strip()
+                if got != "host":
+                    raise AssertionError(f"{name}: the host's server said {got!r}")
+                print(f"[test] {name} reached the host's loopback through the router")
 
     await ipv6(vms)
 
@@ -91,26 +97,17 @@ async def test(vms: Machines) -> None:
 
 async def ipv6(vms: Machines) -> None:
     """The host's ::1 as the IPv6 gateway, TCP and UDP, through the relay."""
-    loop = asyncio.get_running_loop()
-    server = socket.create_server(("::1", 0), family=socket.AF_INET6)
-    port = server.getsockname()[1]
-    server.setblocking(False)
-
-    async def answer() -> None:
-        for _ in GUESTS:
-            conn, peer = await loop.sock_accept(server)
-            await loop.sock_sendall(conn, f"{peer[0]}\n".encode())
-            conn.close()
-
-    answering = asyncio.ensure_future(answer())
-    for name in GUESTS:
-        got = (await vms[name].succeed(f"timeout 10 socat -u TCP6:[{GATEWAY6}]:{port} -")).strip()
-        # The egress connects from the host's own ::1.
-        if got != "::1":
-            raise AssertionError(f"{name}: the host's IPv6 server saw {got!r}")
-        print(f"[test] {name} reached the host's ::1 through the router")
-    await asyncio.wait_for(answering, 10)
-    server.close()
+    with socket.create_server(("::1", 0), family=socket.AF_INET6) as server:
+        server.setblocking(False)
+        port = server.getsockname()[1]
+        async with anyio.create_task_group() as group:
+            group.start_soon(answer, server, True)
+            for name in GUESTS:
+                got = (await vms[name].succeed(f"timeout 10 socat -u TCP6:[{GATEWAY6}]:{port} -")).strip()
+                # The egress connects from the host's own ::1.
+                if got != "::1":
+                    raise AssertionError(f"{name}: the host's IPv6 server saw {got!r}")
+                print(f"[test] {name} reached the host's ::1 through the router")
 
     with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as udp:
         udp.bind(("::1", 0))
@@ -118,12 +115,15 @@ async def ipv6(vms: Machines) -> None:
         port = udp.getsockname()[1]
 
         async def echo() -> None:
-            data, peer = await loop.sock_recvfrom(udp, 100)
-            await loop.sock_sendto(udp, b"host:" + data, peer)
+            await anyio.wait_readable(udp)
+            data, peer = udp.recvfrom(100)
+            udp.sendto(b"host:" + data, peer)
 
-        echoing = asyncio.ensure_future(echo())
-        got = (await vms.a.succeed(f"echo hi | timeout 10 socat -t1 - UDP6:[{GATEWAY6}]:{port}")).strip()
-        await asyncio.wait_for(echoing, 10)
+        async with anyio.create_task_group() as group:
+            group.start_soon(echo)
+            got = (await vms.a.succeed(f"echo hi | timeout 10 socat -t1 - UDP6:[{GATEWAY6}]:{port}")).strip()
+            # socat exits 0 with no echo, and `echo` would wait on.
+            group.cancel_scope.cancel()
         if got != "host:hi":
             raise AssertionError(f"a: the host's IPv6 UDP echo said {got!r}")
         print("[test] a reached the host's ::1 over UDP through the router")
@@ -160,20 +160,19 @@ def _ask_udp(where: str) -> str:
 
 async def ask(where: str, udp: bool = False, timeout: float = 30) -> str:
     """The guest's answer on *where*, giving its server time to bind."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
+    deadline = anyio.current_time() + timeout
     while True:
         try:
-            got = await asyncio.to_thread(_ask_udp if udp else _ask_tcp, where)
+            got = await anyio.to_thread.run_sync(_ask_udp if udp else _ask_tcp, where)
         except OSError as error:
             got, why = "", str(error)
         else:
             why = "an empty answer"
         if got:
             return got
-        if loop.time() > deadline:
+        if anyio.current_time() > deadline:
             raise AssertionError(f"nothing answered on {where}: {why}")
-        await asyncio.sleep(0.5)
+        await anyio.sleep(0.5)
 
 
 async def forwards(vms: Machines) -> None:

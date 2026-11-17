@@ -8,12 +8,16 @@ Claude Code extension. What this reads is what Claude Code reads.
     mcp_driver.py <vivarium-mcp> <spec of a run that fails a phase>
 """
 
-import asyncio
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+import anyio
+from anyio.abc import Process, TaskGroup
+from anyio.streams.buffered import BufferedByteReceiveStream
 
 CHANNEL = "notifications/claude/channel"
 
@@ -25,22 +29,27 @@ def _object(value: object) -> dict[str, Any]:
     return value
 
 
+LINE = 1 << 24
+"""The longest JSON-RPC line read: an `events` reply has no size limit."""
+
+
 class Client:
-    def __init__(self, process: asyncio.subprocess.Process) -> None:
-        self.process = process
+    def __init__(self, process: Process) -> None:
+        if process.stdin is None or process.stdout is None:
+            raise RuntimeError("vivarium-mcp started without pipes")
+        self.stdin = process.stdin
+        self.stdout = BufferedByteReceiveStream(process.stdout)
         self.next_id = 0
         self.channel: list[dict[str, Any]] = []
 
     async def send(self, message: dict[str, Any]) -> None:
-        assert self.process.stdin is not None
-        self.process.stdin.write(json.dumps(message).encode() + b"\n")
-        await self.process.stdin.drain()
+        await self.stdin.send(json.dumps(message).encode() + b"\n")
 
     async def receive(self) -> dict[str, Any]:
-        assert self.process.stdout is not None
-        line = await self.process.stdout.readline()
-        if not line:
-            raise RuntimeError("vivarium-mcp closed its stdout")
+        try:
+            line = await self.stdout.receive_until(b"\n", LINE)
+        except (anyio.EndOfStream, anyio.IncompleteRead):
+            raise RuntimeError("vivarium-mcp closed its stdout") from None
         message = _object(json.loads(line))
         if message.get("method") == CHANNEL:
             self.channel.append(message["params"])
@@ -76,11 +85,37 @@ def fail(text: str) -> None:
     raise SystemExit(1)
 
 
+class Shell:
+    """A shell command, as Claude Code's Monitor runs it, read to its end in the background."""
+
+    def __init__(self, group: TaskGroup, command: str) -> None:
+        self.done = anyio.Event()
+        self.result: subprocess.CompletedProcess[bytes] | None = None
+        group.start_soon(self._run, command)
+
+    async def _run(self, command: str) -> None:
+        self.result = await anyio.run_process(command, check=False, stderr=None)
+        self.done.set()
+
+    async def wait(self, seconds: float) -> subprocess.CompletedProcess[bytes]:
+        with anyio.fail_after(seconds):
+            await self.done.wait()
+        if self.result is None:
+            raise RuntimeError("the command ended with no result")
+        return self.result
+
+
+async def run_shell(command: str, seconds: float) -> subprocess.CompletedProcess[bytes]:
+    with anyio.fail_after(seconds):
+        return await anyio.run_process(command, check=False, stderr=None)
+
+
 async def main(server: str, spec: str) -> None:
-    process = await asyncio.create_subprocess_exec(
-        server, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
-    )
-    client = Client(process)
+    async with await anyio.open_process([server], stderr=None) as process, anyio.create_task_group() as group:
+        await drive(Client(process), process, group, spec)
+
+
+async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -> None:
     init = await client.call(
         "initialize",
         {
@@ -99,10 +134,11 @@ async def main(server: str, spec: str) -> None:
     print(f"ok: started {run}", flush=True)
     # The channel's events without channels: the command `start` gave,
     # in a shell, as Claude Code's Monitor runs it.
-    watcher = await asyncio.create_subprocess_shell(started["monitor_all"] + " --json", stdout=asyncio.subprocess.PIPE)
-    armed = await asyncio.create_subprocess_shell(started["monitor"], stdout=asyncio.subprocess.PIPE)
+    watcher = Shell(group, started["monitor_all"] + " --json")
+    armed = Shell(group, started["monitor"])
 
-    paused = await asyncio.wait_for(client.until("paused"), 600)
+    with anyio.fail_after(600):
+        paused = await client.until("paused")
     if paused["meta"].get("run") != run:
         fail(f"the pause names another run: {paused}")
     print(f"ok: a channel event said it paused: {paused['meta']}", flush=True)
@@ -111,12 +147,12 @@ async def main(server: str, spec: str) -> None:
     print("ok: and one said which phase failed", flush=True)
 
     # For a harness that wakes an agent only when a command exits.
-    output, _ = await asyncio.wait_for(armed.communicate(), 60)
-    if armed.returncode != 4 or "paused" not in output.decode().splitlines()[-1]:
-        fail(f"monitor exited {armed.returncode} at the pause with {output.decode()!r}")
+    at_pause = await armed.wait(60)
+    output = at_pause.stdout
+    if at_pause.returncode != 4 or "paused" not in output.decode().splitlines()[-1]:
+        fail(f"monitor exited {at_pause.returncode} at the pause with {output.decode()!r}")
     print(f"ok: monitor exited 4 at the pause: {output.decode().splitlines()[-1]}", flush=True)
-    late = await asyncio.create_subprocess_shell(started["monitor"], stdout=asyncio.subprocess.PIPE)
-    await asyncio.wait_for(late.communicate(), 60)
+    late = await run_shell(started["monitor"], 60)
     if late.returncode != 4:
         fail(f"monitor armed while paused exited {late.returncode}, not 4")
     print("ok: monitor armed while paused exited 4 at once", flush=True)
@@ -150,47 +186,46 @@ async def main(server: str, spec: str) -> None:
     await client.tool("resume", run=run)
     # Armed on the reply, as an agent does: the pause it replays is closed,
     # so it runs on to the verdict.
-    rearmed = await asyncio.create_subprocess_shell(started["monitor"], stdout=asyncio.subprocess.PIPE)
-    finished = await asyncio.wait_for(client.until("finished"), 300)
+    rearmed = Shell(group, started["monitor"])
+    with anyio.fail_after(300):
+        finished = await client.until("finished")
     if finished["meta"].get("passed") != "false":
         fail(f"the verdict is wrong: {finished}")
     print(f"ok: a channel event gave the verdict: {finished['content']}", flush=True)
 
-    output, _ = await asyncio.wait_for(watcher.communicate(), 60)
-    watched = [json.loads(line) for line in output.decode().splitlines()]
+    watched_run = await watcher.wait(60)
+    watched = [json.loads(line) for line in watched_run.stdout.decode().splitlines()]
     heard = [{**p["meta"], "text": p["content"]} for p in client.channel if p["meta"].get("run") == run]
     if watched != heard:
         fail(f"the monitor and the channel disagree:\n{watched}\n{heard}")
-    if watcher.returncode != 1:
-        fail(f"the monitor exited {watcher.returncode} for a failed run, not 1")
+    if watched_run.returncode != 1:
+        fail(f"the monitor exited {watched_run.returncode} for a failed run, not 1")
     print(f"ok: the monitor printed the channel's {len(watched)} events and exited 1", flush=True)
 
-    late = await asyncio.create_subprocess_shell(started["monitor_all"], stdout=asyncio.subprocess.PIPE)
-    output, _ = await asyncio.wait_for(late.communicate(), 60)
-    lines = output.decode().splitlines()
+    late = await run_shell(started["monitor_all"], 60)
+    lines = late.stdout.decode().splitlines()
     if late.returncode != 1 or len(lines) != len(heard):
         fail(f"a monitor after the verdict exited {late.returncode} with {lines}")
     print(f"ok: a monitor after the verdict replayed it: {lines[-1]}", flush=True)
 
-    await asyncio.wait_for(rearmed.communicate(), 60)
-    if rearmed.returncode != 1:
-        fail(f"monitor armed after resume exited {rearmed.returncode}, not 1 for the verdict")
+    after_resume = await rearmed.wait(60)
+    if after_resume.returncode != 1:
+        fail(f"monitor armed after resume exited {after_resume.returncode}, not 1 for the verdict")
     print("ok: monitor armed after resume ran on to the verdict", flush=True)
 
     # The one an agent runs: no progress, so it wakes only when it must.
-    quiet = await asyncio.create_subprocess_shell(started["monitor"] + " --json", stdout=asyncio.subprocess.PIPE)
-    output, _ = await asyncio.wait_for(quiet.communicate(), 60)
-    kept = [json.loads(line) for line in output.decode().splitlines()]
+    quiet = await run_shell(started["monitor"] + " --json", 60)
+    kept = [json.loads(line) for line in quiet.stdout.decode().splitlines()]
     wanted = [event for event in heard if event.get("event") not in {"progress", "resumed"}]
     if quiet.returncode != 1 or kept != wanted or len(wanted) == len(heard):
         fail(f"the quiet monitor exited {quiet.returncode} with {kept}, not {wanted}")
     print(f"ok: the quiet monitor printed {len(kept)} of {len(heard)} events: no progress", flush=True)
 
-    assert process.stdin is not None
-    process.stdin.close()
-    await asyncio.wait_for(process.wait(), 120)
+    await client.stdin.aclose()
+    with anyio.fail_after(120):
+        await process.wait()
     print("ok: the server exited when its client went away", flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1], sys.argv[2]))
+    anyio.run(main, sys.argv[1], sys.argv[2])

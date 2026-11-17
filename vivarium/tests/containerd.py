@@ -20,10 +20,10 @@ with a dangling symlink rather than with a control plane that never
 becomes healthy.
 """
 
-import asyncio
 import json
 import re
 
+import anyio
 from vivarium_runner import Machine, MachineError, Machines
 
 # Host network, so a sandbox needs no CNI: NamespaceMode.NODE is 2 in the
@@ -208,7 +208,7 @@ async def probe(node: Machine, handler: str, version: str, userns: bool = False)
         _, logs = await node.execute(f"crictl logs {container_id}", timeout=120)
         if f"v{version}" in logs:
             break
-        await asyncio.sleep(2)
+        await anyio.sleep(2)
 
     if f"v{version}" not in logs:
         status = json.loads(await node.succeed(f"crictl inspect {container_id}"))
