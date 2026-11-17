@@ -642,7 +642,7 @@ class Machine:
         if self._process is not None:
             return
 
-        self._rundir = Path(tempfile.mkdtemp(prefix=f"uml-{self.name}-"))
+        self._rundir = Path(tempfile.mkdtemp(prefix=f"guest-{self.name}-"))
         if self.spec.store_paths is not None:
             # The two closures share most of their paths, and a view takes each once.
             paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._late_paths()]))

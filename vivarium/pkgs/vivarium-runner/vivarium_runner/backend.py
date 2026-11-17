@@ -1758,7 +1758,7 @@ class Container:
                 "--bundle",
                 str(bundle),
                 "--name",
-                f"uml-{spec.name}-{os.getpid()}",
+                f"guest-{spec.name}-{os.getpid()}",
                 *lan,
                 # The uplink: pasta joins the guest's namespaces once crun
                 # has an init, with passt's arguments and forwards.
