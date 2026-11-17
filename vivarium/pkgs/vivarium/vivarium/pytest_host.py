@@ -17,20 +17,29 @@ The guests are a `mkTest` in a Nix file, named from Python:
 
 **The run is its own process, not this one.** vivarium needs a user and
 mount namespace; entered here, every test in the run would be root of
-it. So the plugin is a client: `vivarium up` starts the run, its
-`machines.sock` serves each guest's methods, and a test gets proxies.
-`vivarium down` ends the run when the last test of its scope is done.
-`--vivarium-keep` leaves the runs up, and the next `pytest` takes them
-as they are: no evaluation, no boot.
+it. So the plugin is a client: it starts a run, the run's
+`machines.sock` serves each guest's methods (`vivarium.remote`), and a
+test gets proxies. The run stops when the last test of its scope is
+done. `--vivarium-keep` leaves the runs up, and the next `pytest` takes
+them as they are: no evaluation, no boot.
 
-A test that uses `vms` or `vm` is `async def` and runs on the plugin's
-loop, where the connections live.
+A run starts one of two ways. In a dev shell, `vivarium up` evaluates
+`vivarium_file` through huggorm. Under `VIVARIUM_RUNS`, a JSON file of
+`{attr: program}` that `pytestCheck` builds, each program is a built
+`.up`, and nothing evaluates: that is how the same suite runs in a Nix
+sandbox.
+
+This module imports nothing of huggorm, so the sandbox's Python needs
+none. A test that uses `vms` or `vm` is `async def` and runs on the
+plugin's loop, where the connections live.
 """
 
 from __future__ import annotations
 
+import argparse
 import functools
 import inspect
+import json
 import os
 import re
 import shutil
@@ -44,9 +53,11 @@ import anyio
 import pytest
 from anyio.abc import SocketAttribute
 from anyio.from_thread import start_blocking_portal
-from vivarium.control import reachable
-from vivarium.remote import SOCKET
 from vivarium_runner.arpyc import AsyncConnection, connect
+
+from . import cli as runner_cli, control, monitor
+from .control import reachable
+from .remote import SOCKET
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Generator
@@ -57,7 +68,13 @@ type Scope = Literal["function", "class", "module", "session"]
 
 SCOPES: Final[tuple[Scope, ...]] = ("function", "class", "module", "session")
 FIXTURES: Final = frozenset({"vms", "vm"})
-DRIVER: Final = "vivarium-driver"
+PREBUILT: Final = "VIVARIUM_RUNS"
+"""A JSON file of `{attr: program}`, each a built `.up`: runs that need no evaluation."""
+LOG: Final = "run.log"
+
+
+class RunFailed(RuntimeError):
+    """A run that did not come up."""
 
 
 class RemoteMachine:
@@ -152,6 +169,15 @@ async def _connect(out: Path) -> AsyncConnection:
     return connect(fd)
 
 
+async def _stop(out: Path) -> None:
+    """`vivarium down`: `stop`, then wait for the run to exit."""
+    reply = await control.request(out / control.SOCKET, control.Op.STOP)
+    if not reply.ok:
+        raise RunFailed(f"the run at {out} refused stop: {reply.error}")
+    if not await runner_cli.wait_for_exit(out):
+        raise RunFailed(f"the run at {out} did not exit within {runner_cli.STOP_WAIT:g}s of stop")
+
+
 class Driver:
     """The runs of one pytest session, and the loop their connections live on."""
 
@@ -160,6 +186,8 @@ class Driver:
         self.file: Path | None = config.rootpath / file if file else None
         self.base = Path(config.getoption("vivarium_out") or config.rootpath / ".vivarium" / "pytest")
         self.keep: bool = config.getoption("vivarium_keep")
+        prebuilt = os.environ.get(PREBUILT)
+        self.prebuilt: dict[str, str] | None = json.loads(Path(prebuilt).read_text()) if prebuilt else None
         self.runs: dict[tuple[str, str], Run] = {}
         self._portal: BlockingPortal | None = None
         self._portal_cm: Any = None  # anyio's portal context manager, entered by hand
@@ -171,12 +199,6 @@ class Driver:
             self._portal = self._portal_cm.__enter__()
         return self._portal
 
-    def _vivarium(self, *args: str | os.PathLike[str]) -> None:
-        program = shutil.which("vivarium")
-        if program is None:
-            raise pytest.UsageError("the vivarium plugin needs the `vivarium` CLI on PATH")
-        subprocess.run([program, *args], check=True)
-
     def acquire(self, item: pytest.Item) -> Run:
         want = Want.of(item)
         if want is None:
@@ -184,15 +206,43 @@ class Driver:
         key = (want.attr, scope_key(item, want.scope))
         if key in self.runs:
             return self.runs[key]
-        if self.file is None:
-            raise pytest.UsageError("set vivarium_file in the pytest configuration")
-        out = self.base / out_name(want.attr) if self.keep else self.base / f"{out_name(want.attr)}-{time.time_ns()}"
-        if not (self.keep and (out / SOCKET).exists() and self._try_connect(out, key)):
-            self._vivarium("up", want.attr, "--file", self.file, "--out", out)
+        name = out_name(want.attr)
+        out = self.base / name if self.keep else self.base / f"{name}-{time.time_ns()}"
+        if not (self.keep and (out / SOCKET).exists() and self._try_open(out, key)):
+            self._start(want.attr, out)
             self._open(out, key)
         return self.runs[key]
 
-    def _try_connect(self, out: Path, key: tuple[str, str]) -> bool:
+    def _start(self, attr: str, out: Path) -> None:
+        if self.prebuilt is None:
+            self._evaluate_and_start(attr, out)
+            return
+        program = self.prebuilt.get(attr)
+        if program is None:
+            raise pytest.UsageError(f"{attr} is not among the runs {PREBUILT} names: {', '.join(sorted(self.prebuilt))}")
+        out.mkdir(parents=True, exist_ok=True)
+        with (out / LOG).open("wb") as log:
+            subprocess.Popen(  # noqa: S603 -- a built `.up` the check names
+                [program, "--out", str(out)],
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        args = argparse.Namespace(target=str(out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT)
+        code = runner_cli.watch(args)
+        if code != monitor.READY:
+            raise RunFailed(f"{attr} did not come up (exit {code}); its output is in {out / LOG}")
+
+    def _evaluate_and_start(self, attr: str, out: Path) -> None:
+        if self.file is None:
+            raise pytest.UsageError("set vivarium_file in the pytest configuration")
+        program = shutil.which("vivarium")
+        if program is None:
+            raise pytest.UsageError("starting a run from vivarium_file needs the `vivarium` CLI on PATH")
+        subprocess.run([program, "up", attr, "--file", str(self.file), "--out", str(out)], check=True)  # noqa: S603 -- the vivarium CLI
+
+    def _try_open(self, out: Path, key: tuple[str, str]) -> bool:
         try:
             self._open(out, key)
         except OSError:
@@ -210,7 +260,7 @@ class Driver:
             return
         run.conn.close()
         if not self.keep:
-            self._vivarium("down", "--out", run.out)
+            self.portal.call(_stop, run.out)
 
     def close(self) -> None:
         for key in list(self.runs):
@@ -220,14 +270,14 @@ class Driver:
             self._portal = self._portal_cm = None
 
 
+_DRIVER = pytest.StashKey[Driver]()
+
+
 def _driver(config: pytest.Config) -> Driver:
     driver = config.stash.get(_DRIVER, None)
     if driver is None:
         raise pytest.UsageError("the vivarium plugin is not configured")
     return driver
-
-
-_DRIVER = pytest.StashKey[Driver]()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

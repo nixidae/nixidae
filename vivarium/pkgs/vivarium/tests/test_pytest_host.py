@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from vivarium_eval.pytest_plugin import Want, ends_after, out_name, run_key, scope_key
+from vivarium.pytest_host import Want, ends_after, out_name, run_key, scope_key
 
 if TYPE_CHECKING:
     from pytest import Pytester

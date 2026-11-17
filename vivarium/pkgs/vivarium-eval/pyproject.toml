@@ -8,14 +8,11 @@ license = "Apache-2.0"
 version = "0.1.0"
 description = "Name a run; it is evaluated, built and run, with no nix build first"
 requires-python = ">=3.12"
-dependencies = ["anyio", "huggorm", "mcp", "pytest", "vivarium"]
+dependencies = ["anyio", "huggorm", "mcp", "vivarium"]
 
 [project.scripts]
 vivarium = "vivarium_eval.cli:main"
 vivarium-mcp = "vivarium_eval.server:main"
-
-[project.entry-points.pytest11]
-vivarium = "vivarium_eval.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vivarium_eval"]

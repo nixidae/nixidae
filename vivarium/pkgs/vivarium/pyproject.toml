@@ -16,6 +16,10 @@ dependencies = ["anyio", "pydantic", "pytest", "vivarium-runner"]
 [project.scripts]
 vivarium-runner = "vivarium.cli:main"
 
+# `pytest` drives guests from outside a run: vivarium/pytest_host.py.
+[project.entry-points.pytest11]
+vivarium = "vivarium.pytest_host"
+
 [tool.hatch.build.targets.wheel]
 packages = ["vivarium"]
 

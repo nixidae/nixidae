@@ -287,11 +287,15 @@ def arguments(tests: str, extra: list[str]) -> list[str]:
     - `no:cacheprovider`: the tests are in the store, which is read-only.
     - `--import-mode=importlib`: nothing is put on `sys.path`, so two
       pytest phases with a `test_basic.py` each do not collide.
+    - `no:vivarium`: `vivarium.pytest_host` drives runs from outside one,
+      and its `vms` would stand in for this run's guests.
     """
     return [
         tests,
         "-p",
         "no:terminal",
+        "-p",
+        "no:vivarium",
         "-p",
         "no:cacheprovider",
         "--capture=sys",

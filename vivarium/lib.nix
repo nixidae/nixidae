@@ -348,6 +348,82 @@ rec {
   # nixos-test's shape, mapped onto mkTest; see nixos-test.nix.
   fromNixosTest = import ./nixos-test.nix { inherit pkgs lib mkTest; };
 
+  /**
+    A pytest suite that drives guests through `vivarium.pytest_host`, as
+    a sandboxed check (nixidae/nixidae#1413). `runs` maps each name the
+    suite's `@pytest.mark.vivarium` uses to a `mkTest`. Their `.up` is
+    built ahead and handed to the plugin in `VIVARIUM_RUNS`, so nothing
+    evaluates in the sandbox. `src` is the directory pytest runs in.
+
+        vivarium.lib.pytestCheck {
+          name = "guests";
+          src = ./tests;
+          runs = import ./tests/machines.nix { };
+        }
+
+    As a `mkTest`: `.attempt` never fails and writes `status`, `log`,
+    `junit.xml` and each run's `--out` under `runs/`; the check reads
+    `status`.
+  */
+  pytestCheck =
+    {
+      name,
+      src,
+      runs,
+      # More distributions in the Python pytest runs on.
+      pythonPackages ? [ ],
+      # More pytest arguments.
+      args ? [ ],
+    }:
+    let
+      python = nixvenv {
+        python = pkgs.python3;
+        packages = _: [ session ] ++ pythonPackages;
+      };
+      programs = pkgs.writeText "vivarium-runs-${name}.json" (
+        builtins.toJSON (lib.mapAttrs (_: run: lib.getExe run.up) runs)
+      );
+      attempt =
+        pkgs.runCommand "vivarium-pytest-${name}-attempt"
+          {
+            requiredSystemFeatures = lib.unique (
+              lib.concatMap (run: run.attempt.requiredSystemFeatures or [ ]) (lib.attrValues runs)
+            );
+            passthru = { inherit programs; };
+          }
+          ''
+            export HOME="$TMPDIR"
+            mkdir -p "$out"
+            cp -r ${src} "$TMPDIR/src"
+            chmod -R u+w "$TMPDIR/src"
+            cd "$TMPDIR/src"
+            status=0
+            VIVARIUM_RUNS=${programs} ${python}/bin/python -m pytest -p no:cacheprovider \
+              --junitxml="$out/junit.xml" --vivarium-out="$TMPDIR/runs" ${lib.escapeShellArgs args} \
+              > "$out/log" 2>&1 || status=$?
+            echo "$status" > "$out/status"
+            # The runs live outside $out: Nix refuses a socket in an output,
+            # and a run that was killed leaves its own.
+            if [ -d "$TMPDIR/runs" ]; then
+              find "$TMPDIR/runs" -type s -delete
+              cp -r "$TMPDIR/runs" "$out/runs" || true
+            fi
+          '';
+    in
+    pkgs.runCommand "vivarium-pytest-${name}" { passthru = { inherit attempt; }; } ''
+      echo "the run is at ${attempt}: log, junit.xml, runs/"
+      status=$(cat ${attempt}/status)
+      if [ "$status" != 0 ]; then
+        echo "--- the last 50 lines of ${attempt}/log ---"
+        tail -n 50 ${attempt}/log
+        echo "--- end ---"
+        echo "pytest failed (exit $status)" >&2
+        exit 1
+      fi
+      mkdir -p $out
+      ln -s ${attempt} $out/attempt
+    '';
+
   # The address and key of `vivarium.recipes.cache`, for what a run renders
   # outside its own evaluation.
   cacheFacts = import ./modules/recipes/cache-facts.nix;
