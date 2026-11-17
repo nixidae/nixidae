@@ -185,8 +185,3 @@ def _toplevel(steps: list[Step]) -> float:
             total += s.seconds
             end = s.at + s.seconds
     return total
-
-
-RUN = Report()
-"""What a `Machine` made without a recorder records into, as
-`vivarium-run`'s single guest is. A session passes its own."""

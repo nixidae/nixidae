@@ -250,8 +250,8 @@ class Session:
         self._captures = 0
         self._stdout: Any = None
         self.vms: Machines | None = None
-        # Its own, not `report.RUN`. A process may hold several sessions
-        # and their timings are not one run's.
+        # Per session: a process may hold several, and their timings are
+        # not one run's.
         self.report = Report()
         self._lans: list[Any] = []
         # Every guest's `Machine`, up or not; `vms` holds the ones up.

@@ -523,11 +523,9 @@ class Machine:
         self.lan_fds = lan_fds or {}
         """Each interface's segment fd, by interface name."""
         self.artifacts = artifacts
-        # `report.RUN` is the process-wide one, which is right while a
-        # process holds a single run. A session passes its own, because
-        # an MCP server holds several at once and their timings are not
-        # one run's. See vivarium/session.py.
-        self.recorder = recorder if recorder is not None else report.RUN
+        # A session passes its run's, so every guest's timings are in one
+        # report. Without one, the guest keeps its own.
+        self.recorder = recorder if recorder is not None else report.Report()
         self.boot_timeout = boot_timeout
         self.command_timeout = command_timeout
         # A run-time choice, not a property of the built guest: the same
