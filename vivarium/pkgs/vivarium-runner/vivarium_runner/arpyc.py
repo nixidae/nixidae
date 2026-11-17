@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import os
 import struct
 import termios
 import tty
 import zlib
+from collections.abc import Awaitable
 from typing import Any, cast
 
 import anyio
@@ -215,6 +217,8 @@ class AsyncConnection:
         self._pending: dict[int, _Pending] = {}
         self._closed = False
         self._serving: asyncio.Task[None] | None = None
+        # Held, or the loop may collect an answer before it is sent.
+        self._answering: set[asyncio.Task[None]] = set()
         self.root = _RemoteRoot(self)
         service.on_connect(self)
 
@@ -250,6 +254,14 @@ class AsyncConnection:
                 method, call_args, kwargs = self._unbox(boxed_args)
                 func = getattr(self._service, "exposed_" + method)
                 result = func(*call_args, **dict(kwargs))
+                if inspect.isawaitable(result):
+                    # Answered from its own task: awaited here, a slow call
+                    # (a guest asking the host to boot another) would stop
+                    # this loop reading the replies the host waits for.
+                    task = asyncio.ensure_future(self._answer(seq, result))
+                    self._answering.add(task)
+                    task.add_done_callback(self._answering.discard)
+                    return
             elif handler_id == consts.HANDLE_PING:
                 result = self._unbox(boxed_args)
             elif handler_id == consts.HANDLE_CLOSE:
@@ -261,6 +273,14 @@ class AsyncConnection:
             await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
         else:
             await self._send(consts.MSG_REPLY, seq, self._box(result))
+
+    async def _answer(self, seq: int, pending: Awaitable[object]) -> None:
+        try:
+            result = await pending
+            # Inside the try: a result brine cannot dump is the caller's error, not a reply that never comes.
+            await self._send(consts.MSG_REPLY, seq, self._box(result))
+        except Exception as exc:
+            await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
 
     async def _serve_one(self) -> None:
         """Read one frame and dispatch it."""
@@ -343,9 +363,9 @@ def _connection(service: Service, fd: int, *, raw_tty: bool) -> AsyncConnection:
     return AsyncConnection(service, Channel(FdStream(fd, loop, raw_tty=raw_tty)))
 
 
-def connect(fd: int) -> AsyncConnection:
-    """Client side: talk to a guest agent over *fd* (a socketpair end)."""
-    conn = _connection(Service(), fd, raw_tty=False)
+def connect(fd: int, service: Service | None = None) -> AsyncConnection:
+    """Client side: talk to a guest agent over *fd* (a socketpair end), and answer it with *service*."""
+    conn = _connection(service or Service(), fd, raw_tty=False)
     conn.start_serving()
     return conn
 
