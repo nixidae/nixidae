@@ -162,6 +162,7 @@ in
       cacheFacts
       kinds
       pathsIn
+      pytestCheck
       settingsClosure
       ;
     # The pyproject project of `runner`, for a caller that resolves it in a
