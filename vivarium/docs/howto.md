@@ -23,7 +23,12 @@ phase and again at each pause:
 [vivarium] run a file's `async def test(vms)`: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out inject ./check.py
 [vivarium] each phase's state: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out state
 [vivarium] resume a paused run: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out continue
+[vivarium] end the run; at ready, with its verdict: /nix/store/…/bin/vivarium-runner ctl --out /home/me/out stop
 ```
+
+A run the `vivarium` CLI started also prints a `reload` line and a
+`switch` line for its first guest, and names `vivarium` in place of
+`vivarium-runner`.
 
 Copy a line as it is. The paths are absolute, so the command works from
 any directory and needs nothing on `PATH`. `<out>/run.json` holds the same

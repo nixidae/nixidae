@@ -18,7 +18,7 @@ A test is `mkTest`: guests (`nodes.<name>`, NixOS modules) plus phases (`async d
 
 - A test that pulls from the internet must run as a driver. In the sandbox it fails on DNS, which reads like a broken test.
 - `--offline` makes a by-hand run match the sandbox. A sandbox failure reproduces this way; there is no way into a sandboxed run.
-- Driver flags: `--break PHASE|start|failure|end`, `--only PHASE` (runs its `after` phases too, nothing after it), `-v` (every command sent), `--keep`, `--cpus [GUEST=]N` / `--cpu-scale [GUEST=]S` (processors of one guest, or of every guest not named; QEMU and krun default to all host cores; MCP `start` takes `cpus`/`cpu_scale` as a number or `{guest: n}`).
+- Driver flags: `--break PHASE|start|failure|end`, `--only PHASE` (runs its `after` phases too, nothing after it), `-v` (every command sent), `-q` (failures and the verdict only), `--keep`, `--serial` (one phase at a time), `--hold` (an environment: guests up after the last phase), `--interactive` (a REPL before the first phase), `--kernel PATH` (your own kernel), `--cpus [GUEST=]N` / `--cpu-scale [GUEST=]S` (processors of one guest, or of every guest not named; QEMU and krun default to all host cores; MCP `start` takes `cpus`/`cpu_scale` as a number or `{guest: n}`).
 - `--out` may be relative; use a new directory per run, in the scratchpad. Files a container guest wrote there can be owned by a sub-uid and resist `rm` (nixidae/nixidae#1064): pick a new name instead.
 - Never edit a phase and start a new run to test the edit. Pause and send it, or `vivarium reload` (below).
 

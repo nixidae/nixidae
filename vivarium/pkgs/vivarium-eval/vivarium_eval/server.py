@@ -450,8 +450,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         or give `spec`, a spec path. `breaks` pauses before those phases,
         or at `start`, `failure` or `end`;
         `break_on_failure` pauses on a failed phase. `env` is added to the
-        run's environment, which the evaluation reads: a knob's variable,
-        or `UMBRELLA_DEV` to build against a working copy.
+        run's environment, which the evaluation reads: a knob's variable.
         `kernel` boots a kernel from a working tree instead of Nix's:
         `linux` from a UML build, or a bzImage with virtio built in.
         `cpus` is a processor count, `cpu_scale` a share of the host's
