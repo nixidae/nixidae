@@ -162,13 +162,16 @@ class DependencyType(IntEnum):
     PREPARED_BY = 6
 
 
+# dinit/src/includes/service-constants.h `shutdown_type_t`, which starts at
+# NONE. Without it every value is one low, and a power-off halts.
 class ShutdownType(IntEnum):
-    REMAIN = 0
-    HALT = 1
-    POWEROFF = 2
-    REBOOT = 3
-    SOFTREBOOT = 4
-    KEXEC = 5
+    NONE = 0
+    REMAIN = 1
+    HALT = 2
+    POWEROFF = 3
+    REBOOT = 4
+    SOFTREBOOT = 5
+    KEXEC = 6
 
 
 # Status flag bits (control.cc fill_status_buffer).

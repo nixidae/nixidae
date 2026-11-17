@@ -27,7 +27,10 @@ def test_find_or_load_rejects_empty_and_overlong_names():
 
 
 def test_shutdown_carries_its_type():
-    assert p.shutdown(p.ShutdownType.POWEROFF) == bytes([p.Command.SHUTDOWN, 2])
+    # shutdown_type_t's numbers, from dinit's service-constants.h.
+    assert p.shutdown(p.ShutdownType.HALT) == bytes([p.Command.SHUTDOWN, 2])
+    assert p.shutdown(p.ShutdownType.POWEROFF) == bytes([p.Command.SHUTDOWN, 3])
+    assert p.shutdown(p.ShutdownType.REBOOT) == bytes([p.Command.SHUTDOWN, 4])
 
 
 def test_start_stop_sets_flag_bits():
