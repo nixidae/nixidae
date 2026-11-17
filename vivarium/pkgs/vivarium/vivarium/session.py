@@ -16,7 +16,7 @@ So the session is the program and the CLI is one drive of it:
 
 **Teardown is never automatic.** That is the whole point, and it is also
 the risk: a caller that forgets leaves a UML kernel spinning on a core.
-`vivarium_runner.backend.die_with_parent` covers the parent dying, which
+`vivarium_runner.lifetime.die_with_parent` covers the parent dying, which
 covers the CLI. It does not cover an MCP server that stays up, so
 whatever owns sessions has to reap them.
 

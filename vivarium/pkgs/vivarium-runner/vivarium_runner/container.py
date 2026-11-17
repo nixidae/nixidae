@@ -22,12 +22,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ctypes
+import fcntl
 import json
 import os
 import pwd
 import selectors
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -38,6 +40,7 @@ from types import FrameType
 from typing import TypedDict, cast
 
 from . import storeview
+from .lifetime import die_with_parent
 
 AGENT_DIR = "/run/host/agent"
 """Where the guest sees the host's agent directory."""
@@ -614,8 +617,8 @@ def _try_map(helper: str, host: int, extra: Range) -> str | None:
             text=True,
         )
     finally:
-        assert child.stdin is not None
-        child.stdin.close()
+        if child.stdin is not None:
+            child.stdin.close()
         child.wait()
     if done.returncode != 0:
         return f"{path} failed: {(done.stderr or done.stdout).strip()}"
@@ -631,13 +634,6 @@ def _which(name: str) -> str | None:
 
 
 # ── the launcher ─────────────────────────────────────────────────────
-
-
-def _die_with_parent() -> None:
-    # Imported here: backend imports this module.
-    from .backend import die_with_parent
-
-    die_with_parent()
 
 
 def _relay(master: int, crun: subprocess.Popen[bytes]) -> None:
@@ -755,7 +751,7 @@ def _uplink(pid: int, log: Path, pasta: list[str]) -> subprocess.Popen[bytes]:
             stdout=handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            preexec_fn=_die_with_parent,
+            preexec_fn=die_with_parent,
         )
     time.sleep(0.05)
     if proc.poll() is not None:
@@ -773,9 +769,6 @@ ARPHRD_ETHER = 1
 
 
 def _open_tap(name: str, mtu: int, mac: str) -> int:
-    import fcntl
-    import struct
-
     tap = os.open("/dev/net/tun", os.O_RDWR)
     fcntl.ioctl(tap, TUNSETIFF, struct.pack("16sH22x", name.encode(), IFF_TAP | IFF_NO_PI))
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
@@ -847,7 +840,7 @@ def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen[b
         ],
         pass_fds=(fd,),
         start_new_session=True,
-        preexec_fn=_die_with_parent,
+        preexec_fn=die_with_parent,
     )
 
 
@@ -874,8 +867,6 @@ def _ensure_cgroup2() -> None:
     """
     if _cgroup2_mounted() or os.getuid() != 0:
         return
-    import ctypes
-
     os.unshare(os.CLONE_NEWNS | os.CLONE_NEWCGROUP)
     libc = ctypes.CDLL(None, use_errno=True)
     for args in (
@@ -999,7 +990,7 @@ def main(argv: list[str] | None = None) -> int:
         # process and not crun: crun would pass SIGTERM to systemd, which
         # reads it as "re-execute".
         start_new_session=True,
-        preexec_fn=_die_with_parent,
+        preexec_fn=die_with_parent,
     )
 
     def stop(signum: int, _frame: FrameType | None) -> None:

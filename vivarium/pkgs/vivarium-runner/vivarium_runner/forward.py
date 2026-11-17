@@ -314,7 +314,8 @@ def probe(rules: list[Rule]) -> None:
     already in use``, naming neither the guest nor the rule.
     """
     for rule in rules:
-        assert rule.address is not None, "probe() runs after resolve()"
+        if rule.address is None:
+            raise ForwardError(f"forward of {rule.ports} has no address: probe() runs after resolve()")
         clash = _probe(rule.address, rule.host_ports())
         if clash is not None:
             raise ForwardError(

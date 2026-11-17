@@ -10,14 +10,16 @@ extend-exclude = ["tests/fixtures/routeros/probe.py"]
 # A library module speaks through `Session.emit`, `Machine.say` or a
 # callback: a print there misses `events.jsonl` and the guest's name.
 # Phase scripts, programs and tests print.
-extend-select = ["T201"]
+# S101: `python -O` drops an assert, so a check in a library raises.
+# PLC0415: imports at the top; a cycle moves the shared piece out.
+extend-select = ["T201", "S101", "PLC0415"]
 
 [lint.isort]
 required-imports = ["from __future__ import annotations"]
 
 [lint.extend-per-file-ignores]
-"{docs,examples,lab,recipes,tests}/**" = ["T201"]
-"pkgs/*/tests/**" = ["T201"]
+"{docs,examples,lab,recipes,tests}/**" = ["T201", "S101", "PLC0415"]
+"pkgs/*/tests/**" = ["T201", "S101", "PLC0415"]
 "pkgs/vyos-footer.py" = ["T201"]
 "pkgs/vivarium/vivarium/{cli,monitor,repl,sinks}.py" = ["T201"]
 "pkgs/vivarium-eval/vivarium_eval/cli.py" = ["T201"]

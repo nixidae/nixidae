@@ -60,6 +60,7 @@ from .control import (
     dialect as find_dialect,
     validate as validate_control,
 )
+from .lifetime import die_with_parent
 from .net import Lan
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
@@ -678,7 +679,8 @@ class Machine:
 
     async def _boot(self, boot: BootSpec | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
-        assert self._rundir is not None
+        if self._rundir is None:
+            raise MachineError(f"[{self.name}] boot before start: no run directory")
         self._agent_sock, self._guest_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
         try:
@@ -727,7 +729,7 @@ class Machine:
             # it dies together when we signal it.
             start_new_session=True,
             # And the kernel kills it if we never get to signal anything.
-            preexec_fn=backends.die_with_parent,
+            preexec_fn=die_with_parent,
             pass_fds=launch.pass_fds,
         )
         for fd in self._spare_fds:
@@ -792,7 +794,8 @@ class Machine:
         and `init=` it started with, not the system the guest switched its
         bootloader to. The backend says whether the exit was a reboot.
         """
-        assert self._process is not None
+        if self._process is None:
+            raise MachineError(f"[{self.name}] no guest process to wait for")
         await self._process.wait()
         if self._monitor is not None:
             await self._monitor
@@ -1124,7 +1127,8 @@ class Machine:
     async def _pump_console(self, reader: asyncio.StreamReader | None = None) -> None:
         """Console lines from *reader*, by default the guest process's stdout."""
         if reader is None:
-            assert self._process is not None and self._process.stdout is not None
+            if self._process is None or self._process.stdout is None:
+                raise MachineError(f"[{self.name}] no guest process console to read")
             reader = self._process.stdout
         while True:
             try:
