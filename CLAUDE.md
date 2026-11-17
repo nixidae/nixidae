@@ -1,6 +1,6 @@
 # nixidae
 
-One repository, thirteen sources (`nix/members.nix`): twelve projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
+One repository, fourteen sources (`nix/members.nix`): thirteen projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
 
 This is the only shared instruction file. Shared rules first, then one section per source under **Sources**. A source with no section has no rules of its own.
 

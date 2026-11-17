@@ -7,6 +7,10 @@
 #            requires the two to be one derivation. null for a source with
 #            no flake.
 {
+  dinix = {
+    repo = "nixidae/dinix";
+    package = null;
+  };
   # The organisation's profile and community files. The monorepo's own
   # `.github/` holds its workflows, so the directory is `dotgithub`.
   dotgithub = {

@@ -134,6 +134,7 @@ rec {
     inherit (pkgs) lib;
     inherit pkgs;
     sources = [
+      "dinix"
       "easykubenix"
       "havsorm"
       "huggorm"
@@ -147,6 +148,7 @@ rec {
       "vivarium"
     ];
     wired = [
+      "dinix"
       "easykubenix"
       "havsorm"
       "huggorm"

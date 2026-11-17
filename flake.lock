@@ -65,22 +65,6 @@
         "type": "github"
       }
     },
-    "dinix": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1790846030,
-        "narHash": "sha256-B4BvhZFJagrD1t9Oeb+EZOv0PS+4hQKD3lqiFiuWMM0=",
-        "owner": "lillecarl",
-        "repo": "dinix",
-        "rev": "22b6d94ca7298bf53fb76b139f4447fce14257ff",
-        "type": "github"
-      },
-      "original": {
-        "owner": "lillecarl",
-        "repo": "dinix",
-        "type": "github"
-      }
-    },
     "flake-compatish": {
       "flake": false,
       "locked": {
@@ -219,7 +203,6 @@
         "bdwgc-determinate": "bdwgc-determinate",
         "containerd": "containerd",
         "deferimport": "deferimport",
-        "dinix": "dinix",
         "flake-compatish": "flake-compatish",
         "kr8s": "kr8s",
         "nix-determinate": "nix-determinate",

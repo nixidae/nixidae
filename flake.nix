@@ -37,10 +37,6 @@
       url = "github:Lillecarl/deferimport";
       flake = false;
     };
-    dinix = {
-      url = "github:lillecarl/dinix";
-      flake = false;
-    };
     pyproject-nix = {
       url = "github:pyproject-nix/pyproject.nix";
       flake = false;

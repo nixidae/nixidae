@@ -20,6 +20,7 @@
 !/pkgs/
 
 # The sources. josh exports each one to its own repository.
+!/dinix/
 !/dotgithub/
 !/easykubenix/
 !/ghanix/
