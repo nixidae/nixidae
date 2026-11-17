@@ -39,51 +39,12 @@ let
 
   hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
 
-  kernel = config.boot.kernelPackages.kernel;
-
-  # libkrun loads an ELF kernel and no bzImage on x86_64. The dev output's
-  # vmlinux is 433 MB of debug info; stripped, the run's closure holds only
-  # this. On aarch64 it loads the raw Image only (`load_external_kernel`).
-  vmlinux =
-    if pkgs.stdenv.hostPlatform.isAarch64 then
-      "${kernel}/${config.system.boot.loader.kernelFile}"
-    else
-      pkgs.runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ pkgs.binutils ]; } ''
-        objcopy --strip-all ${kernel.dev}/vmlinux $out
-      '';
-
-  # A krun guest ends with a reset whatever it meant, so it tells libkrun
-  # which: libkrun's process exits with the code the guest last set through
-  # virtio-fs ioctl 0x7602 on any file of a share, as libkrun's own init
-  # does. `KrunExit` in vivarium_runner/backend.py reads these.
-  krunExit = {
-    poweroff = 0;
-    crash = 70;
-    reboot = 71;
+  vmlinux = pkgs.callPackage ../pkgs/vmlinux/package.nix {
+    inherit (config.boot.kernelPackages) kernel;
   };
-  setKrunExit = pkgs.writeCBin "vivarium-krun-exit" ''
-    #include <fcntl.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <sys/ioctl.h>
 
-    int main(int argc, char **argv) {
-      if (argc != 3) {
-        fprintf(stderr, "usage: %s PATH CODE\n", argv[0]);
-        return 2;
-      }
-      int fd = open(argv[1], O_RDONLY);
-      if (fd < 0) {
-        perror(argv[1]);
-        return 1;
-      }
-      if (ioctl(fd, 0x7602, atoi(argv[2])) < 0) {
-        perror("ioctl 0x7602");
-        return 1;
-      }
-      return 0;
-    }
-  '';
+  setKrunExit = pkgs.callPackage ../pkgs/krun-exit/package.nix { };
+  krunExit = setKrunExit.codes;
   # Runs while /host/nix is still mounted: the unit starts after the mount,
   # so it stops before it.
   krunExitOnStop = pkgs.writeShellScript "vivarium-krun-exit-stop" ''
@@ -184,7 +145,10 @@ lib.mkIf
       };
     };
 
-    boot.kernelParams =
+    boot.kernelParams = config.system.build.vivariumKernelParams;
+    # vivarium's own, apart from what NixOS adds: a guest kind's kernel takes
+    # these and none of NixOS's (`root=fstab`).
+    system.build.vivariumKernelParams =
       lib.optionals krun [
         "reboot=k"
         "panic=-1"
