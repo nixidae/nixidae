@@ -138,11 +138,21 @@ in
           "qemu"
           "krun"
         ];
-        default = "uml";
+        default =
+          if
+            lib.elem config.backend [
+              "qemu"
+              "krun"
+            ]
+          then
+            config.backend
+          else
+            "uml";
+        defaultText = lib.literalExpression ''if lib.elem backend [ "qemu" "krun" ] then backend else "uml"'';
         description = ''
-          What the router guest runs on. `qemu` and `krun` need /dev/kvm
-          (docs/design/router-lab.md). A run's `.qemu` and `.krun` variants
-          set it to their own backend.
+          What the router guest runs on. `qemu` and `krun` need /dev/kvm,
+          or HVF for krun on macOS (docs/design/router-lab.md). A run's
+          `.qemu` and `.krun` variants set it to their own backend.
         '';
       };
       name = mkOption {
