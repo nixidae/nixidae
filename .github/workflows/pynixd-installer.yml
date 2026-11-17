@@ -154,13 +154,40 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-    - name: Download both tarballs
+    - name: Download the tarballs
       timeout-minutes: 10
       uses: actions/download-artifact@main
       with:
         merge-multiple: true
         path: ${{ runner.temp }}/release
-        pattern: pynixd-tarball-*
+        pattern: pynixd-tarball-*-linux
+    - env:
+        GH_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ github.token }}
+        TAG: pynixd-installer
+      name: Replace the release
+      run: 'cd "$RUNNER_TEMP/release" && echo "publish: release" >&2 && (gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "pynixd installer" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365") && echo "publish: move the tag" >&2 && gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null && echo "publish: upload" >&2 && gh release upload "$TAG" pynixd-*.tar.* --clobber && echo "publish: notes" >&2 && gh release edit "$TAG" --notes "pynixd as the only Nix daemon of a machine: nixidae/nixidae#1365. Built from $GITHUB_SHA."'
+      shell: bash
+      timeout-minutes: 10
+      working-directory: /
+    timeout-minutes: 15
+  publish-darwin:
+    concurrency:
+      cancel-in-progress: false
+      group: pynixd-installer-publish
+    if: github.ref == 'refs/heads/main'
+    needs: runner-darwin
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download the tarballs
+      timeout-minutes: 10
+      uses: actions/download-artifact@main
+      with:
+        merge-multiple: true
+        path: ${{ runner.temp }}/release
+        pattern: pynixd-tarball-*-darwin
     - env:
         GH_REPO: ${{ github.repository }}
         GH_TOKEN: ${{ github.token }}
@@ -240,6 +267,72 @@ jobs:
           system: x86_64-linux
         - runner: ubuntu-24.04-arm
           system: aarch64-linux
+    timeout-minutes: 60
+  runner-darwin:
+    needs: tarball-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 10
+      uses: actions/download-artifact@main
+      with:
+        name: pynixd-tarball-${{ matrix.system }}
+        path: ${{ runner.temp }}/pynixd-tarball
+    - env:
+        PYNIXD_MACOS_VOLUME: ${{ matrix.volume }}
+        PYNIXD_NIX_CONF: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+        PYNIXD_TARBALL: file://${{ runner.temp }}/pynixd-tarball
+      name: Install pynixd as the Nix daemon
+      run: |
+        if [ "$RUNNER_OS" = macOS ]; then
+          tarball=pynixd-aarch64-darwin.tar.xz unpack="tar -x"
+          case "$PYNIXD_MACOS_VOLUME" in
+            case-insensitive) format=APFS ;;
+            case-sensitive) format="Case-sensitive APFS" ;;
+            *) echo "nix.install.macosVolume is '$PYNIXD_MACOS_VOLUME'; it takes case-insensitive or case-sensitive" >&2; exit 1 ;;
+          esac
+          if [ ! -d /nix ]; then
+            printf 'nix\n' | sudo tee -a /etc/synthetic.conf > /dev/null
+            sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || test -d /nix
+            sudo diskutil apfs addVolume "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -)" "$format" Nix -mountpoint /nix
+            sudo diskutil enableOwnership /nix
+          fi
+        else
+          tarball=pynixd-$(uname -m)-linux.tar.zst unpack="tar --zstd -x"
+        fi
+        # bsdtar finds the compression in a pipe; GNU tar finds it only in a regular file.
+        curl --fail --silent --show-error --location "$PYNIXD_TARBALL/$tarball" | sudo $unpack -C /
+        printf '%s' "$PYNIXD_NIX_CONF" | sudo /nix/.pynixd/install --trusted-user "$USER" --extra-conf /dev/stdin
+        echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
+      shell: bash
+      timeout-minutes: 15
+    - name: pynixd is the only daemon
+      run: if [ "$RUNNER_OS" = macOS ]; then sudo launchctl print system/org.nixidae.pynixd > /dev/null; else systemctl is-active pynixd.service; fi && ! pgrep -x nix-daemon && nix store info
+    - env:
+        VOLUME: ${{ matrix.volume }}
+      if: runner.os == 'macOS'
+      name: /nix is the volume asked for, and use-case-hack follows it
+      run: if [ "$VOLUME" = case-sensitive ]; then fs="Case-sensitive APFS" hack=false; else fs=APFS hack=true; fi && test "$(diskutil info -plist /nix | plutil -extract FilesystemName raw -)" = "$fs" && test "$(nix config show use-case-hack)" = "$hack"
+    - name: Build the tarball through pynixd
+      run: nix build --file . internal.installer --print-out-paths --no-link > rebuilt && diff "$RUNNER_TEMP/pynixd-tarball/out-path" rebuilt
+    - if: ${{ !cancelled() }}
+      name: pynixd's journal
+      run: if [ "$RUNNER_OS" = macOS ]; then sudo cat /var/log/pynixd.log; else sudo journalctl -u pynixd.service --no-pager; fi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
         - runner: macos-latest
           system: aarch64-darwin
           volume: case-insensitive
@@ -304,6 +397,60 @@ jobs:
           system: x86_64-linux
         - runner: ubuntu-24.04-arm
           system: aarch64-linux
+    timeout-minutes: 60
+  tarball-darwin:
+    runs-on: ${{ matrix.runner }}
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          experimental-features = nix-command flakes read-only-local-store ca-derivations dynamic-derivations recursive-nix
+          substituters = https://cache.nixos.org?priority=1 https://nixkube.cachix.org?priority=2 https://lillecarl.cachix.org?priority=3
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nixkube.cachix.org-1:H8UE0jlI9pxHexK/NhDmEoLDarJXp1WTymQrsajlh7M= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+          trusted-users = root runner
+        install_url: https://releases.nixos.org/nix/nix-2.35.2/install
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - name: Build the tarball
+      run: nix build --file . internal.installer --print-out-paths --out-link tarball > out-path
+    - name: Collect the tarball
+      run: mkdir -p upload && cp -L tarball/pynixd-*.tar.* out-path upload/
+    - timeout-minutes: 15
+      uses: actions/upload-artifact@main
+      with:
+        name: pynixd-tarball-${{ matrix.system }}
+        path: pynixd/upload
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
         - runner: macos-latest
           system: aarch64-darwin
     timeout-minutes: 60
