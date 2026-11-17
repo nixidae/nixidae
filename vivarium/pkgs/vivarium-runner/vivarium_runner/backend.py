@@ -1640,6 +1640,10 @@ class Container:
     name = "container"
     reboots = False
 
+    def __init__(self) -> None:
+        # One per process, as `available` makes it: the probes run once a run.
+        self.host = container.Host()
+
     @staticmethod
     def validate(spec: MachineSpec) -> None:
         ContainerConfig.of(spec)
@@ -1671,7 +1675,7 @@ class Container:
     ) -> Launch:
         spec = machine.spec
         config = ContainerConfig.of(spec)
-        missing = container.probe(tun=bool(lan_fds))
+        missing = self.host.missing(tun=bool(lan_fds))
         if missing:
             raise BackendError("this host cannot run a container guest:\n" + "\n".join(f"  {item}" for item in missing))
         if spec.image is None:
@@ -1698,7 +1702,7 @@ class Container:
         # cannot; the LAN is required, and probe() checked it above. An
         # uplink segment (a router's, nixidae/nixidae#1404) is a tap like
         # vec1, and replaces pasta.
-        pasta = spec.uplink is None and (bool(lan_fds) or container.tap_fails() is None)
+        pasta = spec.uplink is None and (bool(lan_fds) or self.host.tap_failure is None)
 
         uid, gid = os.getuid(), os.getgid()
         subuid: container.Range | None = None
@@ -1743,7 +1747,7 @@ class Container:
         # a cgroup the guest's systemd writes in, its memory counted apart
         # from every other guest's, and `vivarium.memory` as its limit.
         # Otherwise the cgroup this runs in, which is every uid-range build.
-        prefix = container.scope(memory_bytes(spec.memory)) or []
+        prefix = self.host.scope(memory_bytes(spec.memory)) or []
         return Launch(
             argv=[
                 *prefix,

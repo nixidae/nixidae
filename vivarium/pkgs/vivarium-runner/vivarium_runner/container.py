@@ -23,6 +23,7 @@ import argparse
 import contextlib
 import ctypes
 import fcntl
+import functools
 import json
 import os
 import pwd
@@ -330,21 +331,56 @@ def _unshare_user() -> None:
     os.unshare(os.CLONE_NEWUSER)
 
 
-def probe(user: str | None = None, uid: int | None = None, *, tun: bool = False) -> list[Missing]:
+class Host:
+    """The probes of this host, each run once and then remembered.
+
+    A probe is a process or two, and a run asked them again for every
+    guest: 140-175 ms of each container launch (measured). What the host
+    can do does not change while a run goes on.
+    """
+
+    def __init__(self) -> None:
+        self._missing: dict[bool, list[Missing]] = {}
+        self._scopes: dict[int | None, tuple[str, ...] | None] = {}
+
+    def missing(self, *, tun: bool) -> list[Missing]:
+        """`probe` of this host."""
+        if tun not in self._missing:
+            self._missing[tun] = probe(tun=tun, host=self)
+        return list(self._missing[tun])
+
+    @functools.cached_property
+    def tap_failure(self) -> str | None:
+        """`tap_fails` of this host."""
+        return tap_fails()
+
+    def scope(self, memory_max: int | None = None) -> list[str] | None:
+        """`scope` of this host, by *memory_max*."""
+        if memory_max not in self._scopes:
+            found = scope(memory_max)
+            self._scopes[memory_max] = None if found is None else tuple(found)
+        prefix = self._scopes[memory_max]
+        return None if prefix is None else list(prefix)
+
+
+def probe(
+    user: str | None = None, uid: int | None = None, *, tun: bool = False, host: Host | None = None
+) -> list[Missing]:
     """What this host lacks for a container guest; empty when nothing.
 
     Each check does the thing once. Reading configuration is not enough:
     an AppArmor profile or a seccomp filter shows only as a failed attempt.
 
     ``tun`` adds what a LAN needs: a tap device made in a network namespace
-    of its own.
+    of its own. ``host`` answers the probes a launch asks again.
     """
     uid = os.getuid() if uid is None else uid
     user = user or pwd.getpwuid(uid).pw_name
+    host = Host() if host is None else host
     missing: list[Missing] = []
 
     if tun:
-        why = tap_fails()
+        why = host.tap_failure
         if why:
             missing.append(
                 Missing(
@@ -374,7 +410,7 @@ def probe(user: str | None = None, uid: int | None = None, *, tun: bool = False)
     if not owns_ids():
         _probe_ranges(user, uid, userns, missing)
 
-    if not cgroup_works() and scope() is None:
+    if not cgroup_works() and host.scope() is None:
         missing.append(
             Missing(
                 "a cgroup systemd can write in",
