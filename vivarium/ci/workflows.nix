@@ -587,6 +587,29 @@ let
       })
     ];
   };
+  /*
+    The `vivarium` CLI and its MCP server, both built on huggorm.
+
+    Its own job: they build nanopynix, which no other job needs. The MCP
+    check drives a run that fails a phase on purpose, so it boots a UML guest.
+  */
+  evalJob = job {
+    id = "eval";
+    needs = [ "kernel" ];
+    timeoutMinutes = 60;
+    cond = selectable "eval";
+    ghanix = sandboxBootstrap;
+    steps = [
+      (steps.build {
+        name = "The vivarium CLI's tests, and the MCP server driven as Claude Code drives it";
+        attrs = [
+          "packages.vivarium-eval.tests"
+          "internal.mcp-check"
+        ];
+        timeoutMinutes = 50;
+      })
+    ];
+  };
 in
 {
   # Through ghanix's schema rather than straight to YAML. That is what
@@ -607,6 +630,7 @@ in
     jobs = {
       checks = checksJob;
       sessions = sessionJob;
+      eval = evalJob;
       kernel = kernelJob;
       direct-kernel = directKernelJob;
       test-k8s-pull = pullJob;

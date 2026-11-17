@@ -264,8 +264,8 @@ in
       paused, failed, finished -- are the claim; `exec` and `events` are
       checked against the paused guests.
 
-      By spec, so nothing here evaluates. Not a check, for the same reason
-      `vivarium-eval` is not: CI would have to build nanopynix.
+      By spec, so nothing here evaluates. Not in `checks`, which builds no
+      nanopynix; CI's `eval` job runs it with `vivarium-eval`'s tests.
     */
     mcp-check =
       pkgs.runCommand "vivarium-check-mcp"
