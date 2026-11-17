@@ -126,6 +126,10 @@ def parser() -> argparse.ArgumentParser:
     down.add_argument("--out", type=Path, required=True, help="the environment's --out")
     listing = sub.add_parser("ls", help="the runs up on this host: their state, test and --out")
     listing.add_argument("--json", action="store_true", help="one JSON object per run")
+    closing = sub.add_parser(
+        "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
+    )
+    closing.add_argument("paths", nargs="+", help="store paths")
     add_switch(sub)
     add_reload(sub)
     runner_cli.add_ctl(sub)
@@ -425,6 +429,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(down, args.out.absolute()))
         if args.command == "ls":
             raise SystemExit(anyio.run(listing, args.json))
+        if args.command == "closure":
+            raise SystemExit(anyio.run(closure, args.paths))
         raise SystemExit(switch(args))
     request = parse(argv)
     if request.until_pause:
@@ -513,6 +519,17 @@ def child_args(argv: list[str]) -> list[str]:
     if head and head[0] == "up":
         head = ["run", *head[1:], "--hold"]
     return [*head, *tail]
+
+
+async def closure(paths: list[str]) -> int:
+    """`closure`: what `nix-store --query --requisites` prints, from the store."""
+    huggorm.load_config()
+    async with huggorm.AsyncSession() as session:
+        store = session.store()
+        roots = [await store.parse_store_path(path) for path in paths]
+        for path in await store.compute_fs_closure(roots):
+            print(await store.print_store_path(path))
+    return 0
 
 
 async def down(out: Path) -> int:
