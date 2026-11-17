@@ -413,7 +413,8 @@ async def run(args: argparse.Namespace) -> int:
         cpus=cpus_of(args),
     )
     session.emit(Kind.RUN_STARTED, f"output in {args.out}")
-    session.emit(Kind.NOTE, namespace.describe(Path("/proc/self/uid_map").read_text()))
+    if sys.platform == "linux":
+        session.emit(Kind.NOTE, namespace.describe(Path("/proc/self/uid_map").read_text()))
     announce(session)
 
     if args.only:

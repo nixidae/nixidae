@@ -19,9 +19,12 @@ the views with the mount namespace.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import os
 import select
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -47,8 +50,27 @@ def base() -> Path:
     return Path(tempfile.gettempdir())
 
 
+_PROC_PIDTBSDINFO = 3
+_BSDINFO_SIZE = 136
+_BSDINFO_START = 120
+"""`struct proc_bsdinfo` (<sys/proc_info.h>): its size, and the offset of
+`pbi_start_tvsec`."""
+
+
+def _darwin_start_time(pid: int) -> int | None:
+    """The process's start in seconds since the epoch, from libproc."""
+    libc = ctypes.CDLL(ctypes.util.find_library("c"))
+    info = ctypes.create_string_buffer(_BSDINFO_SIZE)
+    if libc.proc_pidinfo(pid, _PROC_PIDTBSDINFO, ctypes.c_uint64(0), info, _BSDINFO_SIZE) != _BSDINFO_SIZE:
+        return None
+    return int.from_bytes(info.raw[_BSDINFO_START : _BSDINFO_START + 8], sys.byteorder)
+
+
 def start_time(pid: int) -> int | None:
-    """The process's start in clock ticks since boot, or None if it is gone."""
+    """The process's start in clock ticks since boot (seconds since the
+    epoch on macOS), or None if it is gone."""
+    if sys.platform == "darwin":
+        return _darwin_start_time(pid)
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
     except OSError:
@@ -105,7 +127,13 @@ def spawn_cleaner(root: Path, remove_argv: list[str]) -> int:
         return child
     try:
         os.setsid()
-        watch = os.pidfd_open(runner)
+        # A pidfd on Linux; macOS has none, and a kqueue tells a process's exit.
+        if sys.platform == "linux":
+            watch = os.pidfd_open(runner)
+        else:
+            queue = select.kqueue()
+            queue.control([select.kevent(runner, select.KQ_FILTER_PROC, select.KQ_EV_ADD, select.KQ_NOTE_EXIT)], 0)
+            watch = queue.fileno()
         # Nothing the runner holds stays open here: a pipe from its
         # stdout would give its reader no EOF until the cleaner exits.
         null = os.open(os.devnull, os.O_RDWR)
@@ -113,10 +141,13 @@ def spawn_cleaner(root: Path, remove_argv: list[str]) -> int:
             os.dup2(null, fd)
         os.closerange(3, watch)
         os.closerange(watch + 1, os.sysconf("SC_OPEN_MAX"))
-        # The pidfd proves the runner was alive when it was taken only if
+        # The watch proves the runner was alive when it was taken only if
         # the parent is still the runner afterwards.
         if os.getppid() == runner:
-            select.select([watch], [], [])
+            if sys.platform == "linux":
+                select.select([watch], [], [])
+            else:
+                queue.control(None, 1)
         if not os.environ.get(KEEP) and root.exists():
             os.execv(remove_argv[0], [*remove_argv, str(root)])
     finally:

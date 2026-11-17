@@ -35,6 +35,7 @@ import math
 import os
 import shlex
 import sys
+import tempfile
 import threading
 import traceback
 from dataclasses import asdict, dataclass, fields, replace
@@ -307,14 +308,22 @@ async def _run(code: Any, namespace: dict[str, Any]) -> Any:
 
 @contextlib.contextmanager
 def reachable(path: Path) -> Iterator[str]:
-    """A name for the socket at `path` that fits in `sun_path`, 108 bytes.
+    """A name for the socket at `path` that fits in `sun_path`, 108 bytes
+    (104 on macOS).
 
     `--out` can be deeper than that. `/proc/self/fd/<directory>/<name>` is
     the same file under a short name, and is needed only to bind and to
-    connect: unlink and chmod take any length.
+    connect: unlink and chmod take any length. macOS has no `/proc`, so
+    there the short name goes through a symlink to the directory in /tmp.
     """
     if len(os.fsencode(path)) < 100:
         yield str(path)
+        return
+    if sys.platform != "linux":
+        with tempfile.TemporaryDirectory(prefix="vivarium-", dir="/tmp") as short:
+            link = Path(short) / "d"
+            link.symlink_to(path.parent)
+            yield f"{link}/{path.name}"
         return
     directory = os.open(path.parent, os.O_PATH | os.O_DIRECTORY)
     try:

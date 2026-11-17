@@ -11,7 +11,7 @@ from typing import Any
 
 import anyio
 import pytest
-from vivarium.control import RUN_FILE, SOCKET
+from vivarium.control import RUN_FILE, SOCKET, reachable
 from vivarium.monitor import (
     BUILD,
     BUILD_LOG,
@@ -194,7 +194,9 @@ async def test_quiet_leaves_out_the_builds(tmp_path: Path, capsys: pytest.Captur
 
 async def _serve(path: Path, events: list[dict[str, Any]]) -> None:
     """One client, these events, then close."""
-    async with await anyio.create_unix_listener(str(path)) as listener, await listener.accept() as stream:
+    with reachable(path) as name:
+        listener = await anyio.create_unix_listener(name)
+    async with listener, await listener.accept() as stream:
         # A client that exits at a pause leaves before the rest.
         with contextlib.suppress(anyio.BrokenResourceError):
             for event in events:

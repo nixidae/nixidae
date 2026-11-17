@@ -36,6 +36,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from vivarium_runner import sysctl
+
 from . import runroot
 
 ENTERED = "VIVARIUM_NAMESPACE"
@@ -148,8 +150,27 @@ def raise_fd_limit() -> None:
     """Soft to hard. UML fails at 1024 (EMFILE in start_userspace), which
     many shells and every `systemd-run --user` unit give."""
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    # macOS's hard limit is infinity, and refuses more than this.
+    if sys.platform == "darwin":
+        hard = min(hard if hard != resource.RLIM_INFINITY else sys.maxsize, sysctl.read("kern.maxfilesperproc"))
     if soft < hard:
         resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+
+
+def _enter_root_only() -> None:
+    """macOS: the run root and its cleaner, and no namespace. A krun guest
+    there needs none: libkrun serves the store through an allowlist, and an
+    offline run's egress binds its outbound sockets to loopback."""
+    raise_fd_limit()
+    remove = [sys.executable, "-c", runroot.REMOVE]
+    where = runroot.base()
+    runroot.reap(where, remove)
+    root = Path(tempfile.mkdtemp(prefix=runroot.PREFIX, dir=where))
+    cleaner = runroot.spawn_cleaner(root, remove)
+    (root / runroot.OWNERS).write_text(runroot.owners(os.getpid(), cleaner))
+    os.environ[ENTERED] = "1"
+    os.environ[runroot.ENV] = str(root)
+    os.environ["TMPDIR"] = str(root)
 
 
 def enter(unshare: Path | None, *, private_net: bool = False) -> None:
@@ -163,6 +184,9 @@ def enter(unshare: Path | None, *, private_net: bool = False) -> None:
         if os.environ.get(PRIVATE_NET):
             loopback_up()
             allow_ping()
+        return
+    if sys.platform != "linux":
+        _enter_root_only()
         return
     if unshare is None:
         raise NamespaceError("the spec names no `unshare`; an older vivarium wrote it")
