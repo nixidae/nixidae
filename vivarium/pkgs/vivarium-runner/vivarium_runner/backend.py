@@ -170,8 +170,8 @@ class UmlConfig:
         config = launch_config(
             spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg", "root", "egress"})
         )
-        if spec.router and "egress" not in config:
-            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
+        if spec.vsock and "egress" not in config:
+            raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         root = UmlRoot.of(f"{spec.name}: vivarium.launch.config.root", config["root"]) if "root" in config else None
         if root is not None and root.seed is not None and "qemuImg" not in config:
             raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
@@ -208,8 +208,8 @@ class QemuConfig:
             frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
             frozenset({"tesseract", "magick", "disk", "egress"}),
         )
-        if spec.router and "egress" not in config:
-            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
+        if spec.vsock and "egress" not in config:
+            raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
         if (tesseract is None) != (magick is None):
             raise BackendError(f"{spec.name}: vivarium.launch.config names one of tesseract and magick; OCR needs both")
@@ -242,8 +242,8 @@ class KrunConfig:
         config = launch_config(
             spec, "krun", frozenset({"krun", "qemuImg", "passt"}), frozenset({"gvproxy", "egress"})
         )
-        if spec.router and "egress" not in config:
-            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
+        if spec.vsock and "egress" not in config:
+            raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
             krun=_path(config, "krun"),
             qemu_img=_path(config, "qemuImg"),
@@ -555,16 +555,18 @@ RELAY_IN_PORT = 5001
 """Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
 
 
-def router_egress_args(machine: Machine, router: str) -> list[str]:
-    """The egress's options and forwards for the router *machine*: one
-    forward for each of its guests' rules, into the relay at *router*."""
+def egress_args(machine: Machine, relay: str) -> list[str]:
+    """The egress's options and forwards for *machine*, whose relay is at
+    *relay*: a router's for each of its guests' rules, a `vsock` guest's
+    for its own."""
+    guests = machine.routed if machine.spec.router else (machine,)
     return [
         *forward.egress_uplink_args(machine.offline),
         *(
             arg
-            for guest in machine.routed
-            if guest.spec.uplink_address is not None
-            for arg in forward.egress_args(guest.forward, guest.spec.uplink_address, router)
+            for guest in guests
+            if (address := guest.uplink_ip) is not None
+            for arg in forward.egress_args(guest.forward, address, relay)
         ),
     ]
 
@@ -667,12 +669,12 @@ class Uml:
         kernel.append(f"{STORE_ENV}={spec.store}")
 
         helpers: list[subprocess.Popen[bytes]] = []
-        if spec.router:
-            # No vec0: the router reaches the host over vsock, a vhost-user
-            # device the egress serves (E7). The kernel connects at boot and
-            # fails if nothing listens yet.
+        if spec.vsock:
+            # No vec0 from the host: the guest reaches it over vsock, a
+            # vhost-user device the egress serves (E7). The kernel connects
+            # at boot and fails if nothing listens yet.
             device = uml_dir / "vsock.sock"
-            args = router_egress_args(machine, f"vsock:{RELAY_IN_PORT}")
+            args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
             helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
@@ -916,12 +918,13 @@ class Qemu:
                 disk_fds += esp_fds
 
         passt_fd: int | None = None
-        if spec.router:
-            # No vec0: the router reaches the host over vsock, a vhost-user
-            # device the egress serves, as on UML. A reboot leaves the socket.
+        if spec.vsock:
+            # No vec0 from the host: the guest reaches it over vsock, a
+            # vhost-user device the egress serves, as on UML. A reboot
+            # leaves the socket.
             device = sockets / "vsock"
             device.unlink(missing_ok=True)
-            args = router_egress_args(machine, f"vsock:{RELAY_IN_PORT}")
+            args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
             helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
         else:
@@ -1488,7 +1491,7 @@ class Krun:
                 opened += [disk_rw, disk_ro]
             # As Qemu._uplink: an uplink segment (a router's, nixidae/nixidae#1404)
             # replaces passt, and its fd is the run's.
-            if spec.router:
+            if spec.vsock:
                 # No uplink: libkrun's own vsock carries each relay flow to
                 # the egress's socket, and listens for its forwards (E2).
                 sockets, cleanup = socket_dir(rundir, "relay.sock", None)
@@ -1496,7 +1499,7 @@ class Krun:
                 # A reboot finds the last boot's sockets, and neither side binds over one.
                 for path in (listen, relay):
                     path.unlink(missing_ok=True)
-                args = router_egress_args(machine, str(relay))
+                args = egress_args(machine, str(relay))
                 helpers.append(start_egress(config.egress, rundir, str(listen), listen, args))
                 uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
             elif spec.uplink is not None:

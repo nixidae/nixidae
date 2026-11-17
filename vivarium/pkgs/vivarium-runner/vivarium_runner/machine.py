@@ -339,7 +339,7 @@ class MachineSpec:
     out-of-band management network a peer serves (nixidae/nixidae#958).
     `None` is passt, the default."""
     uplink_proxy: str = "passt"
-    """`vivarium.uplink.proxy`: `passt`, `gvproxy` or `router`."""
+    """`vivarium.uplink.proxy`: `passt`, `gvproxy`, `router` or `vsock`."""
     uplink_address: str | None = None
     """A guest behind the router: its address there, which the router's
     egress forwards to."""
@@ -353,6 +353,12 @@ class MachineSpec:
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
     run at once, which `vivarium run` does before it boots any."""
+
+    @property
+    def vsock(self) -> bool:
+        """No `vec0` from the host: the guest's relay reaches an egress over
+        vsock. The router does it for its guests; a `vsock` guest for itself."""
+        return self.router or self.uplink_proxy == "vsock"
 
     @classmethod
     def from_json(cls, data: MachineSpecJson) -> MachineSpec:

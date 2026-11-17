@@ -6,6 +6,11 @@
   10.0.2.0/24. Each guest leases its own address by its uplink MAC. TCP,
   UDP and ICMP echo to anywhere off the bridge go to `relay`, which
   carries each flow over vsock to the egress on the host.
+
+  A guest with `vivarium.uplink.proxy = "vsock"` is its own router: the
+  same ruleset and relay in a network namespace, behind a veth pair whose
+  guest end is `vec0`. AF_VSOCK works from that namespace: the kernel's
+  `net.vsock.ns_mode` is `global`.
 */
 {
   config,
@@ -79,6 +84,23 @@ let
       }
     }
   '';
+
+  relayService = {
+    wantedBy = [ "multi-user.target" ];
+    environment = {
+      # E8: a 4 MiB vsock window; the yield after a short read.
+      RELAY_VSOCK_BUFFER = "4194304";
+      RELAY_YIELD = "1";
+    };
+    serviceConfig = {
+      ExecStart = "${relay}/bin/relay 9000 5000 9001 5001";
+      Restart = "always";
+    };
+  };
+
+  # A `vsock` guest's own router: the relay and the ruleset in this
+  # namespace, the far end of `vec0` named as the router's bridge.
+  netns = "uplink";
 in
 {
   options.vivarium.router = {
@@ -272,19 +294,95 @@ in
         inherit ruleset;
       };
 
-      systemd.services.vivarium-relay = {
+      systemd.services.vivarium-relay = lib.recursiveUpdate relayService {
         description = "The router's relay to the host";
-        wantedBy = [ "multi-user.target" ];
         after = [ "nftables.service" ];
-        environment = {
-          # E8: a 4 MiB vsock window; the yield after a short read.
-          RELAY_VSOCK_BUFFER = "4194304";
-          RELAY_YIELD = "1";
-        };
+      };
+    })
+    (lib.mkIf (config.vivarium.uplink.proxy == "vsock") {
+      vivarium.launch.config.egress = "${egress}/bin/egress";
+      assertions = [
+        {
+          assertion = lib.elem config.vivarium.backend [
+            "uml"
+            "qemu"
+            "krun"
+          ];
+          message = "a vsock uplink needs UML, QEMU or krun; this guest is ${config.vivarium.backend}.";
+        }
+      ];
+
+      # passt's addresses, fixed: nothing in the namespace serves DHCP.
+      networking.interfaces.vec0 = {
+        useDHCP = lib.mkForce false;
+        ipv4.addresses = [
+          {
+            address = "10.0.2.15";
+            prefixLength = 24;
+          }
+        ];
+        ipv6.addresses = [
+          {
+            address = "${prefix6}15";
+            prefixLength = 64;
+          }
+        ];
+      };
+      networking.defaultGateway = {
+        address = gateway;
+        interface = "vec0";
+      };
+      networking.defaultGateway6 = {
+        address = gateway6;
+        interface = "vec0";
+      };
+      systemd.network.networks."40-vec0".networkConfig.IPv6DuplicateAddressDetection = 0;
+
+      systemd.services.vivarium-uplink = {
+        description = "The uplink's namespace and veth pair";
+        wantedBy = [ "multi-user.target" ];
+        before = [
+          "network-pre.target"
+          "systemd-networkd.service"
+        ];
+        wants = [ "network-pre.target" ];
+        path = [
+          pkgs.iproute2
+          pkgs.nftables
+          pkgs.procps
+        ];
         serviceConfig = {
-          ExecStart = "${relay}/bin/relay 9000 5000 9001 5001";
-          Restart = "always";
+          Type = "oneshot";
+          RemainAfterExit = true;
         };
+        # Mark 1 is local here as on the router, and the relay answers
+        # echo requests with the host's replies. Not networkd's: it does
+        # not reach into another namespace.
+        script = ''
+          ip netns delete ${netns} 2>/dev/null || true
+          ip netns add ${netns}
+          ip link add vec0 mtu ${toString config.vivarium.mtu} type veth \
+            peer name ${bridge} mtu ${toString config.vivarium.mtu} netns ${netns}
+          ip -n ${netns} link set lo up
+          ip -n ${netns} link set ${bridge} up
+          ip -n ${netns} address add ${gateway}/24 dev ${bridge}
+          ip -n ${netns} address add ${dns}/24 dev ${bridge}
+          ip -n ${netns} address add ${gateway6}/64 dev ${bridge} nodad
+          ip -n ${netns} rule add fwmark 1 table 100
+          ip -n ${netns} -6 rule add fwmark 1 table 100
+          ip -n ${netns} route add local 0.0.0.0/0 dev lo table 100
+          ip -n ${netns} -6 route add local ::/0 dev lo table 100
+          ip netns exec ${netns} sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
+          ip netns exec ${netns} nft -f ${pkgs.writeText "uplink.nft" ruleset}
+        '';
+        preStop = "ip netns delete ${netns}";
+      };
+
+      systemd.services.vivarium-relay = lib.recursiveUpdate relayService {
+        description = "The guest's relay to the host";
+        after = [ "vivarium-uplink.service" ];
+        requires = [ "vivarium-uplink.service" ];
+        serviceConfig.NetworkNamespacePath = "/run/netns/${netns}";
       };
     })
   ];

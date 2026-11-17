@@ -850,6 +850,7 @@ in
         "passt"
         "gvproxy"
         "router"
+        "vsock"
       ];
       default = "passt";
       description = ''
@@ -861,8 +862,12 @@ in
 
         `router` is the run's router guest (`router.enable` in `mkTest`,
         which sets this on every guest): `vec0` is a segment to it, and the
-        guest leases its own address, `10.0.2.(15 + vivarium.index)`. UML
-        only.
+        guest leases its own address, `10.0.2.(15 + vivarium.index)`.
+
+        `vsock` is the router's data path inside the guest, with no router
+        guest: the relay runs in a network namespace of its own, behind a
+        veth pair whose guest end is `vec0`, and reaches an egress on the
+        host over vsock. The guest has passt's addresses. UML, QEMU or krun.
       '';
     };
 
