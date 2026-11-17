@@ -48,16 +48,17 @@ let
     inherit pythonSet;
   };
 
+  # A Python with `vivarium`, the pytest plugin and pytest: what a dev
+  # shell puts on PATH to run `pytest` against guests (nixidae/nixidae#1413).
+  env = pythonSet.mkVirtualEnv "vivarium-env" { vivarium-eval = [ ]; };
+
   # pyproject-nix builds a wheel and runs nothing, so the tests and the
   # type check are run here, in the same environment the app gets.
   tests =
-    let
-      python = pythonSet.mkVirtualEnv "vivarium-eval-test-env" { vivarium-eval = [ ]; };
-    in
     pkgs.runCommand "vivarium-eval-tests"
       {
         nativeBuildInputs = [
-          python
+          env
           pkgs.zuban
         ];
       }
@@ -66,7 +67,7 @@ let
         cp -r ${./vivarium_eval} vivarium_eval
         cp ${./mypy.ini} mypy.ini
         export HOME=$TMPDIR
-        zuban mypy --python-executable ${python}/bin/python
+        zuban mypy --python-executable ${env}/bin/python
         python -m pytest -p no:cacheprovider tests
         touch $out
       '';
@@ -76,6 +77,6 @@ app.overrideAttrs (old: {
     mainProgram = "vivarium";
   };
   passthru = (old.passthru or { }) // {
-    inherit tests pythonSet;
+    inherit env tests pythonSet;
   };
 })
