@@ -41,7 +41,7 @@ python3Packages.buildPythonPackage {
   __darwinAllowLocalNetworking = true;
 
   meta = {
-    description = "Run NixOS systems under User-Mode Linux and drive them from Python";
+    description = "Run NixOS systems as UML, QEMU, libkrun or crun guests and drive them from Python";
     license = lib.licenses.asl20;
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
     mainProgram = "vivarium-run";

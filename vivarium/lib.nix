@@ -1,9 +1,8 @@
 # mkNode and mkTest, as a library.
 #
-# These used to live in `flake.nix`'s `let`, where nothing outside this
-# repository could reach them. A caller with its own guests and its own script
-# is the point of the exercise -- easykubenix drives `ekn kubeapply` against a
-# cluster this builds -- so they are a file that takes a package set.
+# A file that takes a package set, so a caller with its own guests and its own
+# script reaches them: easykubenix drives `ekn kubeapply` against a cluster
+# this builds.
 #
 #     let vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
 #     in vivarium.mkTest { name = "..."; nodes = { ... }; phases.check.script = ./mine.py; }
@@ -44,8 +43,8 @@ rec {
   /**
     The session, and the `vivarium` CLI that drives one.
 
-    The redesign lives here; `runner` above is the mechanism it uses and
-    is not going away. See `docs/design/history/running-anywhere.md`.
+    The session owns the sequence; `runner` above is the mechanism it
+    drives. See `docs/design/runner.md`.
   */
   session = pkgs.callPackage ./pkgs/vivarium { vivarium-runner = runner; };
 

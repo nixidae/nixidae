@@ -599,13 +599,11 @@ in
       no network.  So this builds a database for the closure below, which
       turns a directory the guest can see into a store it can use.
 
-      On by default, because it stopped being worth deciding about.  It
-      was off while it cost a oneshot at every boot; now it is built with
-      the image, and measured at 612ms and 256K for a minimal guest and
-      561ms and 268K for a kubeadm control plane, cached after the first
-      build.  Against that, a guest without one looks identical to a guest
-      with one until something runs Nix, and fails then as a network
-      timeout that names nothing.
+      On by default.  It is built with the image, and measured at 612ms
+      and 256K for a minimal guest and 561ms and 268K for a kubeadm control
+      plane, cached after the first build.  Against that, a guest without
+      one looks identical to a guest with one until something runs Nix,
+      and fails then as a network timeout that names nothing.
     */
     nixDatabase = {
       enable = lib.mkOption {

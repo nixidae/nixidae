@@ -1013,8 +1013,9 @@ class Session:
         """Everything a reader needs, in the directory the caller named.
 
         The same four things whether or not this ran in a sandbox, which
-        is the point: `.run` and the check used to be written separately,
-        and every asymmetry between them was a bug somebody met later.
+        is the point: one writer for a run by hand and for the check,
+        because two writers drift, and each difference is a bug somebody
+        meets later.
 
             status       0 or 1, as text
             report.json  where the time went

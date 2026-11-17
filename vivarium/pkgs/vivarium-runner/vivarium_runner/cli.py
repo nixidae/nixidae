@@ -20,10 +20,8 @@ from .forward import ForwardError, Rule
 from .machine import LaunchSpec, Machine, MachineError, MachineSpec
 
 _WATCH_INTERVAL = 1.0
-"""How often to ask the guest what it is listening on.  The same rate
-pasta polls ``/proc/net/tcp`` at for its own forwarding, and the agent
-serves one request at a time, so this is only done when nothing else is
-using the channel."""
+"""How often to ask the guest what it is listening on: the rate pasta
+polls ``/proc/net/tcp`` at for its own forwarding."""
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:

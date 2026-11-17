@@ -1,4 +1,4 @@
-# zuban, strict, over `runner` and `session` and their unit tests. Each
+# zuban, strict, over `runner`, `session` and `k8s` and their unit tests. Each
 # package's `mypy.ini` sets its own floor.
 {
   hostPkgs,

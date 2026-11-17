@@ -5,7 +5,7 @@ does above this file is the same whichever backend it has.  A backend's
 whole job is to answer one question: what do I exec, with which fds, and
 what else has to be running alongside it.
 
-The host-side plumbing is shared, not reimplemented.  Both backends take:
+The host-side plumbing is shared, not reimplemented.  Every backend takes:
 
     the agent socketpair    a fd carrying arpyc, raw
     the segment fd          a fd from :mod:`vivarium_runner.net`, raw frames
@@ -1332,11 +1332,11 @@ class Qemu:
         )
         listener.close()
 
-        # There is no socket file to wait for any more, so the readiness
-        # check is that virtiofsd is still alive a moment later. Without
-        # it, a bad argument or an unreadable shared directory would show
-        # up as a guest whose initrd cannot mount /nix, which names the
-        # wrong thing.
+        # virtiofsd serves the runner's listener, so no socket file appears
+        # to wait for: the readiness check is that it is still alive a
+        # moment later. Without it, a bad argument or an unreadable shared
+        # directory would show up as a guest whose initrd cannot mount /nix,
+        # which names the wrong thing.
         time.sleep(0.05)
         if proc.poll() is not None:
             client.close()

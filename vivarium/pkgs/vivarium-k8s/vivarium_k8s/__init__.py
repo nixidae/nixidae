@@ -60,10 +60,10 @@ def nodes(vms: Machines) -> dict[str, NodeFacts]:
 # compile, nothing to pull and nothing to fetch.  A control plane that is
 # working is serving inside a couple of minutes.
 #
-# They used to be 30, 20 and 15 minutes, on the theory that a failure here is
-# "nearly always slowness rather than breakage".  That theory is what makes a
-# bug look like a delay: a stuck kubeadm and a slow one are indistinguishable
-# for half an hour, and the half hour is spent either way.  Short deadlines
+# Not 30, 20 and 15 minutes, on the theory that a failure here is "nearly
+# always slowness rather than breakage".  That theory makes a bug look like a
+# delay: a stuck kubeadm and a slow one are indistinguishable for half an
+# hour, and the half hour is spent either way.  Short deadlines
 # turn the same bug into a report with the pod list, the events, kubelet,
 # containerd and the pod logs attached.
 #
@@ -260,9 +260,9 @@ async def diagnose(vm: Machine) -> str:
     """
     # A test's own pods, and only then the control plane.
     #
-    # This used to tail every pod log under one 400-line budget, which the
-    # control plane wins every time: etcd narrates each slow read and
-    # kube-apiserver each synced cache, so on a UML guest the two of them
+    # Not every pod log under one 400-line budget, which the control plane
+    # wins every time: etcd narrates each slow read and kube-apiserver each
+    # synced cache, so on a UML guest the two of them
     # produce more than the budget by themselves.  Measured -- a failing
     # nixkube DaemonSet whose init container was the whole question, and
     # whose log did not appear in the report at all.

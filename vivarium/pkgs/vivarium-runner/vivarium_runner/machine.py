@@ -1,14 +1,14 @@
 """A single NixOS guest, whatever kind of machine it turns out to be.
 
-Three fds make a guest, and they are the same three for every backend:
+The runner gives every backend the same fds:
 
-    vec0  passt         -- outbound NAT plus the host's way in
-    vec1  an fd from :mod:`vivarium_runner.net` -- L2 between guests
-    a socketpair        -- arpyc to the guest's agent, on a serial line
+    the uplink    passt, or a segment -- outbound NAT plus the host's way in
+    one per NIC   from :mod:`vivarium_runner.net` -- L2 between guests
+    a socketpair  arpyc to the guest's agent, on a serial line
 
 Commands go over the socketpair, so nothing here depends on guest
 networking having come up, and everything works inside a Nix build
-sandbox.  :mod:`vivarium_runner.backend` turns those three into an argv; this
+sandbox.  :mod:`vivarium_runner.backend` turns those fds into an argv; this
 file does not know which kind of machine it started.
 """
 
@@ -195,7 +195,7 @@ def resolve_memory(memory: Memory, available_mib: Callable[[], int] = host_avail
 
 
 class MachineSpecJson(TypedDict, total=False):
-    """`MachineSpec` as Nix wrote it. See ``mkTest`` in flake.nix."""
+    """`MachineSpec` as Nix wrote it. See ``mkTest`` in lib.nix."""
 
     name: str
     backend: str
@@ -302,7 +302,7 @@ class Interface:
 
 @dataclass(frozen=True)
 class MachineSpec:
-    """What Nix knows about a guest; see ``mkTest`` in flake.nix."""
+    """What Nix knows about a guest; see ``mkTest`` in lib.nix."""
 
     name: str
     backend: str = "uml"

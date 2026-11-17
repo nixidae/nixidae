@@ -39,8 +39,7 @@ class Terminal:
 
     Nothing is lost by that -- the console is always written to its own
     file, and `Session` replays the tail of it when a phase fails. So
-    the quiet case is quiet and the interesting case is louder than it
-    used to be.
+    the quiet case is quiet and the interesting case is loud.
     """
 
     def __init__(self, level: Level = Level.INFO, stream: TextIO | None = None) -> None:

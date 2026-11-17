@@ -277,14 +277,13 @@ in
     takes the guest down, which the host sees as a command that never
     returns.  Measured on pynixd's suite, which forces uvloop.
 
-    The sysctl, and not the `UV_USE_IO_URING=0` that stood here until it
-    was measured to do nothing.  libuv reads that variable only on the
-    SQPOLL path, and there as an opt-in.  The ring that panics is the one
-    `uv__platform_loop_init` maps with flags 0 on every event loop, and
-    libuv maps that one unconditionally since 1.50.0 -- "always use
-    io_uring for epoll batching".  The old note was true when it was
-    written and went stale with no error, because nothing checks that an
-    environment variable changed anything.
+    The sysctl, and not `UV_USE_IO_URING=0`, which was measured to do
+    nothing.  libuv reads that variable only on the SQPOLL path, and there
+    as an opt-in.  The ring that panics is the one `uv__platform_loop_init`
+    maps with flags 0 on every event loop, and libuv maps that one
+    unconditionally since 1.50.0 -- "always use io_uring for epoll
+    batching".  Nothing checks that an environment variable changed
+    anything, so a variable that does nothing fails with no error.
 
     2 is "off for everyone": `io_uring_setup` returns -EPERM, and libuv
     gives up before it maps anything.  2 and not 1, because 1 still
@@ -414,8 +413,8 @@ in
     that it is there belongs to the image derivation, where a missing file
     stops a build rather than a boot.
 
-    Nothing should order against "the store is usable" any more.  It is
-    usable as soon as `/nix/var` is mounted, which is `local-fs.target`,
+    Nothing orders against "the store is usable".  It is usable as soon
+    as `/nix/var` is mounted, which is `local-fs.target`,
     which every ordinary service is already after.
   */
 
