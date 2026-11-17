@@ -21,7 +21,6 @@
 !/pkgs/
 !/recipes/
 !/ruff.toml
-!/run.sh
 !/skill/
 !/tests/
 
