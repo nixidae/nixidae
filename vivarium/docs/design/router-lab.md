@@ -658,7 +658,17 @@ guest `passt`, two rounds, host load 8-9:
   address.
 - macOS (2026-11-17, an M-series Mac, krun on HVF): lan-vsock, forward-vsock,
   router, lan-router and forward-router pass. A krun guest boots in about
-  7 s. Not measured there: throughput.
+  7 s. One flow at MTU 65000, iperf3 on the host through a forward
+  (`checks.uplink-iperf`, `checks.uplink-iperf-router`):
+
+  | uplink | host to guest | guest to host |
+  | --- | --- | --- |
+  | gvproxy | 5.00 Gbit/s | 24.17 Gbit/s |
+  | vsock | 7.91 Gbit/s | 8.51 Gbit/s |
+  | vsock and router | 6.83 Gbit/s | 8.00 Gbit/s |
+
+  Before four libkrun fixes, guest to host through vsock killed or hung
+  the VM at the end of each test (`pkgs/libkrun`).
 - Not tried: several flows through the slice's router.
 - The no-KVM case: without `/dev/kvm` the router is UML. With the own
   device (E7) one flow is about 70% of passt out of the guest and 60%

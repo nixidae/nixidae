@@ -234,6 +234,17 @@ let
       description = "coverage from tests in a guest reaches the host's pytest-cov";
       timeoutMinutes = 30;
     };
+    # What each krun uplink carries, both ways; the numbers are in the log.
+    uplink-iperf = {
+      backend = "krun";
+      description = "what passt, gvproxy and vsock carry for a libkrun guest";
+      timeoutMinutes = 30;
+    };
+    uplink-iperf-router = {
+      backend = "krun";
+      description = "what a libkrun guest behind a libkrun router carries";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).
