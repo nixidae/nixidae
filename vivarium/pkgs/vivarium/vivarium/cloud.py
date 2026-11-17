@@ -4,6 +4,10 @@
 `pending` at once, and booted in the background, as a cloud does. A phase
 plays the provider's side through `vms.cloud`: `capacity`, `boot_delay`,
 `interrupt`.
+
+The API has no limits of its own. A template with no `capacity` entry
+launches without bound, and every guest of the run may list, describe and
+terminate every instance, not only the ones it launched.
 """
 
 from __future__ import annotations
