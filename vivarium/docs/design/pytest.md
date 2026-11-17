@@ -247,8 +247,55 @@ the store and the project share replace its code shipping.
    `.up` and waits for `ready` with the runner's own `watch`; it stops a
    run with the control socket's `stop` in every mode.
    `checks.pytest-host`: 4 passed in 22.4 s in the sandbox.
-3. Run a test in a guest: the marker, the worker over the agent, report
-   relay, the project share, coverage. NixOS guests first.
+3. Mostly done: a test runs in a guest with `vivarium(attr,
+   guest="vm")`. `pytest_runtest_protocol` sends every test of the scope
+   to one pytest in that guest (`vivarium.pytest_worker`) and relays the
+   reports it wrote. The guest gets this Python through
+   `Machine.add_paths` (dev: `vivarium closure`; sandbox: `pytestCheck`'s
+   closureInfo) and the project as a tarball through `/artifacts`,
+   unpacked at its own path. Sync and async tests both run there.
+   Coverage is not done yet.
 4. The Python-init guest. Measure boot to a ready worker.
 5. The pool, the `clean`/`dirty` marker keyword, function-scoped boxes.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
+
+Remembered for later (User, 2026-11-17):
+
+- **Grouping across modules.** `scope` groups by class, module or
+  session today. A `group="name"` keyword, as xdist's `xdist_group`,
+  would put tests from several modules in one guest.
+- **Parametrize over machines.** One test against several variants, such
+  as guests with different Nix daemons or clients: the marker takes a
+  list of attributes, and `pytest_generate_tests` makes one test each.
+- **Sync host tests.** A host test that drives guests is `async def`
+  today. Sync proxies, each call through the plugin's portal, serve
+  people who do not write async.
+
+## Shortcuts to circle back to
+
+What was taken to get a slice working, and where it should go:
+
+- **The project is copied, not shared.** A tarball of the whole rootdir
+  (minus `.vivarium`, `.git`, caches, `result*`) per guest, every time a
+  run is prepared. Fine for a small project; a large one wants a
+  read-only virtiofs or hostfs share at the same path, or an
+  incremental copy. The copy does keep the guest from writing into the
+  working tree.
+- **One guest pytest per batch, reports at the end.** Nothing streams:
+  a long batch prints nothing until it ends, and `-x` stops the host's
+  reporting but not the guest, which runs the whole batch. A persistent
+  worker serving arpyc (as the agent does) fixes both.
+- **The guest's output reaches the host only inside a failure's report.**
+  Captured output of passing tests is dropped.
+- **A test the guest did not report** gets a generic failure. A
+  collection error in the guest is in the reports file, but its text is
+  not shown.
+- **The worker's Python has no Nix registration** in the guest
+  (`add_paths`, not `add_closure`): fine for running Python, wrong for a
+  test that asks the guest's Nix about those paths.
+- **Dev mode asks the `vivarium` CLI for the closure**, a subprocess per
+  prepared guest.
+- **One timeout for a whole batch**, 3600 s, as one agent command.
+- **Host-side proxies carry plain data only**, and an async fixture of
+  the user's own cannot use `vms` yet.
+- **`--vivarium-keep` does not notice** that the machines changed.

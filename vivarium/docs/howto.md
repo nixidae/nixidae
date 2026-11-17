@@ -279,6 +279,23 @@ async def test_fresh(vm):                  # the run's only guest
   one round trip to the run's `<out>/machines.sock`. `await vm.get(name)`
   reads an attribute or property. Arguments and results are plain data.
 - A test that uses `vms` or `vm` is `async def`.
+- `guest=` runs the test itself in that guest, fixtures and all, as
+  root on the guest's kernel; sync or async, as any test:
+
+  ```python
+  pytestmark = pytest.mark.vivarium("one", guest="vm", scope="module")
+
+  def test_as_root():
+      assert os.getuid() == 0
+  ```
+
+  Every such test of one scope runs in one pytest in the guest, so a
+  class or module fixture is made once. The guest gets this Python in
+  its store view and a copy of the project at the same path, so imports
+  and `__file__` match the host's. The host reports each test as its
+  own. `vivarium closure` gives the dev shell's Python closure, so the
+  `vivarium` CLI must be on PATH. Shortcuts taken are listed in
+  `docs/design/pytest.md`.
 - The runs are in `.vivarium/pytest/`, one `--out` each: `vivarium ctl`
   and the MCP server reach them as any run.
 - `--vivarium-keep` leaves each run up, at `.vivarium/pytest/<attr>`, and
