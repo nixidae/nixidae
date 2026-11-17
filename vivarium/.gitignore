@@ -30,3 +30,5 @@ result*
 /spike/
 __pycache__/
 target/
+# The pytest plugin's runs: `--out` of each `vivarium up` it starts.
+.vivarium/
