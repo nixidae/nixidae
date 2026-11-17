@@ -20,7 +20,6 @@ import subprocess
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import TypedDict
 
 import anyio
 import anyio.to_thread
@@ -29,25 +28,7 @@ from dinit_client.protocol import ServiceState, ShutdownType, StoppedReason
 
 from . import cloud
 from .arpyc import AsyncConnection, Service, listen
-
-
-class UnitInfo(TypedDict):
-    """One line of ``systemctl list-units``."""
-
-    name: str
-    load: str
-    active: str
-    sub: str
-    description: str
-
-
-class SystemState(TypedDict):
-    """How a guest's boot ended: ``systemctl is-system-running``'s word
-    (``running``, ``degraded``, ...) and the units or services that failed."""
-
-    state: str
-    failed: tuple[str, ...]
-    """A tuple: arpyc carries a list as one."""
+from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 
 
 class Init(StrEnum):
@@ -55,22 +36,6 @@ class Init(StrEnum):
 
     SYSTEMD = "systemd"
     DINIT = "dinit"
-
-
-class ProcessInfo(TypedDict):
-    """One entry of ``/proc``: see :meth:`Agent.exposed_processes`."""
-
-    pid: int
-    ppid: int
-    name: str
-    cmdline: str
-
-
-AGENT_READY = "vivarium-agent: ready"
-"""Printed on the guest console once the agent is reading :data:`TTY`;
-the host waits for this line to know a guest has finished booting, and
-connects the moment it sees it.  Nothing may be printed before the line
-is set up, or the first request races the setup and is lost."""
 
 TTY = os.environ.get("VIVARIUM_AGENT_DEVICE", "/dev/ttyS0")
 """Where the host is listening.  ttyS0 under UML.  Under QEMU the console

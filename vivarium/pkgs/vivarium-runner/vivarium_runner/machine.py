@@ -44,7 +44,7 @@ import anyio
 from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
-from .agent import AGENT_READY, ProcessInfo, SystemState, UnitInfo
+from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 from .arpyc import AsyncConnection, Service, connect
 from .control import (
     AGENT,
