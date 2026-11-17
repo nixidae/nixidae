@@ -409,18 +409,31 @@ class Session:
             raise SessionError("run before boot")
         return self.vms
 
+    def specs(self) -> tuple[list[MachineSpec], list[MachineSpec]]:
+        """The guests and the templates, with the run's `--cpus` and `--kernel`.
+
+        Raise `SessionError` for an override the run refuses. The CLI calls
+        this before the run starts, so a refusal is one line, not a traceback.
+        """
+        # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
+        machines = cast("list[MachineSpecJson]", self.spec.machines)
+        templates = cast("list[MachineSpecJson]", self.spec.templates)
+        # One list, so `--cpus NAME=N` finds a guest or a template.
+        both = machines + templates
+        if self.cpus is not None:
+            both = with_cpus(both, self.cpus)
+        specs = [MachineSpec.from_json(one) for one in both]
+        if self.kernel is not None:
+            specs = with_kernel(specs, self.kernel)
+        return specs[: len(machines)], specs[len(machines) :]
+
     async def prepare(self) -> None:
         """What the whole run needs before any guest starts: the segments,
         each guest's forwards, the `Machine` of each guest. No guest boots."""
         if self._all is not None:
             raise SessionError("already prepared")
-        # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
-        machines = cast("list[MachineSpecJson]", self.spec.machines)
-        if self.cpus is not None:
-            machines = with_cpus(machines, self.cpus)
-        specs = [MachineSpec.from_json(m) for m in machines]
+        specs, templates = self.specs()
         if self.kernel is not None:
-            specs = with_kernel(specs, self.kernel)
             self.emit(
                 Kind.NOTE,
                 f"booting {self.kernel}, not the kernel Nix built; this is not the check",
@@ -468,13 +481,7 @@ class Session:
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._journals = {}
         self._all = Machines((one.name, self._machine(one, lan_fds.get(one.name))) for one in specs)
-        templates = cast("list[MachineSpecJson]", self.spec.templates)
-        if self.cpus is not None:
-            templates = with_cpus(templates, self.cpus)
-        parsed = [MachineSpec.from_json(one) for one in templates]
-        if self.kernel is not None:
-            parsed = with_kernel(parsed, self.kernel)
-        self._templates = {one.name: one for one in parsed}
+        self._templates = {one.name: one for one in templates}
         self._instance_base = len(specs) + len(self._templates)
         # Only the guests that are up. `exec` and a phase's `vms` never
         # see a guest that has not booted, which would hang them.

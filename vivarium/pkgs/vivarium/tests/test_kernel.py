@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from vivarium.session import CpuOverride, SessionError, with_cpus, with_kernel
+from vivarium.session import CpuOverride, Session, SessionError, with_cpus, with_kernel
+from vivarium.spec import PhaseSpec, Spec
 from vivarium_runner import MachineSpec
 
 if TYPE_CHECKING:
@@ -67,3 +68,12 @@ class TestWithCpus:
     def test_an_unknown_guest_is_refused(self) -> None:
         with pytest.raises(SessionError, match="no guest x"):
             with_cpus([{"name": "a"}], CpuOverride(guests={"x": 2}))
+
+
+class TestSessionSpecs:
+    def test_a_guest_and_a_template_take_their_own_cpus(self, tmp_path: Path) -> None:
+        spec = Spec(machines=[{"name": "a"}], templates=[{"name": "t"}], phases=[PhaseSpec(name="x", script=Path("x"))])
+        session = Session(spec, tmp_path / "out", cpus=CpuOverride(guests={"a": 2, "t": 3}))
+        guests, templates = session.specs()
+        assert [(one.name, one.cpus) for one in guests] == [("a", 2)]
+        assert [(one.name, one.cpus) for one in templates] == [("t", 3)]

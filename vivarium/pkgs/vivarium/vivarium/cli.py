@@ -439,6 +439,10 @@ async def run(args: argparse.Namespace) -> int:
                     state=str(PhaseState.DESELECTED),
                 )
 
+    # Refuses a `--cpus` or `--kernel` the guests do not take, before the
+    # task group: an error raised inside it prints as a traceback.
+    session.specs()
+
     if args.hold and not args.control:
         # A sandboxed check would wait for a stop nobody can send.
         raise SessionError("--hold needs the control socket; it cannot go with --no-control")
