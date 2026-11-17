@@ -863,8 +863,12 @@ rec {
         `$out` by a killed run would fail the output.
       */
       probe = probeFor machines;
+      # In the name, so a build log tells `checks.lan.qemu` from `checks.lan`.
+      backends = lib.concatStringsSep "-" (
+        lib.unique (lib.sort lib.lessThan (map (machine: machine.vivarium.backend) machines))
+      );
       attempt =
-        pkgs.runCommand "vivarium-session-${name}-attempt"
+        pkgs.runCommand "vivarium-session-${name}-${backends}-attempt"
           {
             requiredSystemFeatures = featuresFor machines;
             passthru = { inherit spec probe; };
