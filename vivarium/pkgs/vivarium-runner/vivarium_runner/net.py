@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import struct
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -216,9 +217,18 @@ class Lan:
 
     @staticmethod
     def _pair() -> tuple[socket.socket, socket.socket]:
-        pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        if sys.platform == "linux":
+            pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            for sock in pair:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _WANTED_SNDBUF)
+            return pair
+        # macOS has no AF_UNIX SOCK_SEQPACKET. Its datagram SO_SNDBUF is the
+        # largest datagram (2048 by default), and SO_RCVBUF the queue: 8 MiB
+        # each holds 129 frames of 65000 bytes. A full queue is ENOBUFS.
+        pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
         for sock in pair:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _WANTED_SNDBUF)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _WANTED_SNDBUF)
         return pair
 
     def start(self) -> None:

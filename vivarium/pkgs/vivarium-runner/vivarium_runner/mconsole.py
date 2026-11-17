@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import socket
 import struct
+import sys
 from pathlib import Path
 
 import anyio
@@ -46,8 +47,8 @@ class MconsoleError(RuntimeError):
     """The guest refused a command, or did not answer one."""
 
 
-UNIX_PATH_MAX = 108
-"""``sizeof(struct sockaddr_un.sun_path)``, including the NUL.  UML does
+UNIX_PATH_MAX = 108 if sys.platform == "linux" else 104
+"""``sizeof(struct sockaddr_un.sun_path)``, including the NUL; 104 on macOS.  UML does
 not check: ``bind`` fails, the console does not come up, and the guest
 carries on booting with one line about it in a very long log."""
 

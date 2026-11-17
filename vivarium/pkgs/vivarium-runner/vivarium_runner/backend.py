@@ -231,7 +231,9 @@ class KrunConfig:
     krun: Path
     """`vivarium-krun`, the process a krun guest runs as."""
     qemu_img: Path
-    passt: Path
+    passt: Path | None
+    """For `vivarium.uplink.proxy = "passt"`. passt is Linux's, so a macOS
+    host has none."""
     gvproxy: Path | None
     """For `vivarium.uplink.proxy = "gvproxy"`."""
     egress: Path | None = None
@@ -240,14 +242,14 @@ class KrunConfig:
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
         config = launch_config(
-            spec, "krun", frozenset({"krun", "qemuImg", "passt"}), frozenset({"gvproxy", "egress"})
+            spec, "krun", frozenset({"krun", "qemuImg"}), frozenset({"passt", "gvproxy", "egress"})
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
             krun=_path(config, "krun"),
             qemu_img=_path(config, "qemuImg"),
-            passt=_path(config, "passt"),
+            passt=_maybe(config, "passt"),
             gvproxy=_maybe(config, "gvproxy"),
             egress=_maybe(config, "egress"),
         )
@@ -312,9 +314,13 @@ def die_with_parent() -> None:
     check closes the race where the runner dies between the fork and this
     call, which would otherwise leave the child holding a death signal
     that can no longer arrive.
+
+    macOS has no such signal: there a killed runner leaves its guests up.
     """
     import ctypes
 
+    if sys.platform != "linux":
+        return
     parent = os.getppid()
     ctypes.CDLL("libc.so.6", use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
     if os.getppid() != parent:
@@ -1457,8 +1463,9 @@ class Krun:
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         # libkrun's virtio-fs serves a file as the guest user that made it,
-        # the same as virtiofsd: see Qemu.launch.
-        if not container.owns_ids():
+        # the same as virtiofsd: see Qemu.launch. macOS has no user
+        # namespaces, and its libkrun keeps a file's owner in an xattr.
+        if sys.platform == "linux" and not container.owns_ids():
             raise BackendError(
                 f"{machine.spec.name}: a krun guest needs {container.SUBORDINATE_IDS} ids "
                 "in the run's namespace, and it maps fewer\n"
@@ -1508,6 +1515,8 @@ class Krun:
                 if spec.uplink_proxy == "gvproxy":
                     passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
                 else:
+                    if config.passt is None:
+                        raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
                     passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
                 helpers.append(passt_proc)
                 opened.append(passt_fd)
@@ -1532,7 +1541,7 @@ class Krun:
             f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
             f"--cpus={spec.cpus}",
             f"--memory={memory_bytes(spec.memory) >> 20}",
-            f"--disk=/proc/self/fd/{disk_rw}",
+            f"--disk={'/proc/self' if sys.platform == 'linux' else '/dev'}/fd/{disk_rw}",
             f"--store={spec.store}",
             f"--dax-window={DAX_WINDOW}",
             f"--agent-fd={agent_fd}",

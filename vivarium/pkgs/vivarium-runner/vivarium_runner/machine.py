@@ -43,7 +43,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import anyio
 from anyio.abc import UNIXSocketStream
 
-from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview
+from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
 from .agent import AGENT_READY, ProcessInfo, UnitInfo
 from .arpyc import AsyncConnection, Service, connect
 from .control import (
@@ -142,7 +142,8 @@ def host_cpus(environ: Mapping[str, str] = os.environ) -> int:
     granted = environ.get("NIX_BUILD_CORES", "")
     if granted.isdigit() and int(granted) > 0:
         return int(granted)
-    return len(os.sched_getaffinity(0))
+    # The affinity mask on Linux; macOS has none, and counts every core.
+    return os.process_cpu_count() or 1
 
 
 def resolve_cpus(cpus: Cpus, host: int) -> int:
@@ -165,8 +166,13 @@ MEMORY_SCALE_FLOOR_MIB = 512
 """The least a scaled guest gets: the krun and QEMU default size, which boots."""
 
 
-def host_available_mib(meminfo: Path = Path("/proc/meminfo")) -> int:
-    """`MemAvailable` of the host, in MiB."""
+def host_available_mib(meminfo: Path | None = None) -> int:
+    """`MemAvailable` of the host, in MiB. On macOS, the share of memory
+    the kernel counts as free (`kern.memorystatus_level`, the figure
+    `memory_pressure` prints) of `hw.memsize`."""
+    if meminfo is None and sys.platform == "darwin":
+        return sysctl.read("hw.memsize") * sysctl.read("kern.memorystatus_level") // 100 >> 20
+    meminfo = meminfo or Path("/proc/meminfo")
     for line in meminfo.read_text().splitlines():
         if line.startswith("MemAvailable:"):
             return int(line.split()[1]) // 1024

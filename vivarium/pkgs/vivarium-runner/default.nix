@@ -31,11 +31,13 @@ python3Packages.buildPythonPackage {
 
   # What needs no guest: the console dialects, against recorded screens.
   nativeCheckInputs = [ python3Packages.pytestCheckHook ];
+  # The forward tests bind 127.0.0.1, which the darwin sandbox refuses.
+  __darwinAllowLocalNetworking = true;
 
   meta = {
     description = "Run NixOS systems under User-Mode Linux and drive them from Python";
     license = lib.licenses.asl20;
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.linux ++ lib.platforms.darwin;
     mainProgram = "vivarium-run";
   };
 }

@@ -29,7 +29,7 @@ class TestHostCpus:
 
     @pytest.mark.parametrize("granted", ["0", "", "x"])
     def test_otherwise_the_affinity_mask(self, granted: str) -> None:
-        assert host_cpus({"NIX_BUILD_CORES": granted}) == len(os.sched_getaffinity(0))
+        assert host_cpus({"NIX_BUILD_CORES": granted}) == os.process_cpu_count()
 
 
 def test_the_spec_holds_the_resolved_count() -> None:
