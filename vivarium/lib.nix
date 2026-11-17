@@ -30,7 +30,7 @@ in
 rec {
   inherit guestPkgs;
 
-  /*
+  /**
     The library a test script imports, reachable without evaluating a
     guest: a caller puts it in the Python it type checks with.  It carries
     `py.typed`, so a type checker reads `vms.node` as a `Machine`.
@@ -49,8 +49,10 @@ rec {
   */
   session = pkgs.callPackage ./pkgs/vivarium { vivarium-runner = runner; };
 
-  # `vivarium_k8s`, the cluster library. `vivarium.recipes.kubernetes` puts
-  # it in the run's venv.
+  /**
+    `vivarium_k8s`, the cluster library. `vivarium.recipes.kubernetes` puts
+    it in the run's venv.
+  */
   k8s = pkgs.callPackage ./pkgs/vivarium-k8s { vivarium-runner = runner; };
 
   /**
@@ -128,7 +130,7 @@ rec {
       vivarium.lateClosure = pathsIn settings;
     };
 
-  /*
+  /**
     zuban over a caller's test scripts, against this library.
 
         typeCheck { scripts = [ ./tests/vivarium/run.py ]; }
@@ -342,13 +344,17 @@ rec {
       );
     };
 
-  # A guest: an ordinary NixOS configuration plus ./modules.
-  #
-  # `eval-config.nix` and not `lib.nixosSystem`. That name only exists on the
-  # lib a flake gets from nixpkgs' own `flake.nix`; `pkgs.lib` is the library
-  # itself and has never carried it. This is what the flake wrapper calls, and
-  # `system = null` is how it says that `nixpkgs.pkgs` below decides the
-  # platform.
+  /**
+    A guest: an ordinary NixOS configuration plus ./modules.
+
+        mkNode { vivarium.backend = "qemu"; }
+
+    `eval-config.nix` and not `lib.nixosSystem`. That name only exists on the
+    lib a flake gets from nixpkgs' own `flake.nix`; `pkgs.lib` is the library
+    itself and has never carried it. This is what the flake wrapper calls, and
+    `system = null` is how it says that `nixpkgs.pkgs` below decides the
+    platform.
+  */
   mkNode =
     module:
     import (guestPkgs.path + "/nixos/lib/eval-config.nix") {
@@ -363,7 +369,9 @@ rec {
       ];
     };
 
-  # nixos-test's shape, mapped onto mkTest; see nixos-test.nix.
+  /**
+    nixos-test's shape, mapped onto `mkTest`; see nixos-test.nix.
+  */
   fromNixosTest = import ./nixos-test.nix { inherit pkgs lib mkTest; };
 
   /**
@@ -444,8 +452,10 @@ rec {
       ln -s ${attempt} $out/attempt
     '';
 
-  # The address and key of `vivarium.recipes.cache`, for what a run renders
-  # outside its own evaluation.
+  /**
+    The address and key of `vivarium.recipes.cache`, for what a run renders
+    outside its own evaluation.
+  */
   cacheFacts = import ./modules/recipes/cache-facts.nix;
 
   /**
