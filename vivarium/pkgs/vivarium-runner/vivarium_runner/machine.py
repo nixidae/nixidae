@@ -1227,11 +1227,14 @@ class Machine:
                 # call is reported without touching this.
                 self.on_command(self.name, what, took, data)
 
+    def console_tail(self, lines: int = 15) -> list[str]:
+        """The guest's last *lines* console lines, oldest first."""
+        return list(self._history)[-lines:]
+
     def _console_tail(self, lines: int = 15) -> str:
         """The last thing the guest said, for an error that has no other
         evidence to offer -- a wedged guest cannot be asked anything."""
-        tail = list(self._history)[-lines:]
-        return "\n".join(f"    | {line}" for line in tail) or "    | (silent)"
+        return "\n".join(f"    | {line}" for line in self.console_tail(lines)) or "    | (silent)"
 
     async def execute(
         self,

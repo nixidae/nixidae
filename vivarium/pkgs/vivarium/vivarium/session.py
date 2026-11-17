@@ -384,7 +384,7 @@ class Session:
         for name, vm in self._attempted().items():
             if nodes is not None and name not in nodes:
                 continue
-            tail = [line for line in list(vm._history)[-lines:] if line]
+            tail = [line for line in vm.console_tail(lines) if line]
             if not tail:
                 continue
             self.emit(

@@ -41,7 +41,7 @@ class FakeMachine(Machine):
         self._fake_name = name
         self.loop = asyncio.get_running_loop()
         self.said: list[str] = []
-        # What a failed phase replays; a real Machine keeps its console here.
+        # What `console_tail` reads; a real Machine keeps its console here.
         self._history: collections.deque[str] = collections.deque()
 
     @property
