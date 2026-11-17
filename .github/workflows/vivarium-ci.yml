@@ -262,6 +262,17 @@ jobs:
     - name: 'Run artifacts on qemu: what a guest writes reaches the host, per guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.artifacts.qemu
       timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.artifacts.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-artifacts
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 15
   test-boot-counting:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-boot-counting,'))
@@ -320,6 +331,17 @@ jobs:
     - name: 'Run boot-counting on qemu: systemd-boot falls back from an entry that never completes a boot'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.boot-counting.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.boot-counting.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-boot-counting
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-container:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-container,''))'
@@ -439,6 +461,17 @@ jobs:
     - name: 'Run containerd on qemu: a container runs, out of the host''s store'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.containerd.qemu
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.containerd.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-containerd
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-containerd-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-containerd-krun,'))
@@ -497,6 +530,17 @@ jobs:
     - name: 'Run containerd on krun: a container runs in a libkrun guest, out of the host''s store'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.containerd.krun
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.containerd.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-containerd-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-dinix:
     if: '!cancelled() && (needs.direct-kernel.result == ''success'' || needs.direct-kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-dinix,''))'
@@ -557,6 +601,17 @@ jobs:
     - name: 'Run dinix on krun: a dinix guest boots its own kernel under libkrun, with dinit as PID 1'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.dinix.krun
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.dinix.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-dinix
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-forward:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-forward,'))
@@ -615,6 +670,17 @@ jobs:
     - name: 'Run forward on qemu: the host reaches a service inside a guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.forward.qemu
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-forward-router:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-forward-router,''))'
@@ -669,6 +735,17 @@ jobs:
     - name: 'Run forward-router on uml: the forward contract holds behind the router'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.forward-router
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward-router.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward-router
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-forward-vsock:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-forward-vsock,'))
@@ -727,6 +804,17 @@ jobs:
     - name: 'Run forward-vsock on qemu: the forward contract holds on a QEMU guest''s vsock uplink'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.forward-vsock.qemu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward-vsock.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward-vsock
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-frr-clos:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-frr-clos,''))'
@@ -781,6 +869,17 @@ jobs:
     - name: 'Run frr-clos on uml: BGP unnumbered and EVPN on a CLOS of FRR switches'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.frr-clos
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.frr-clos.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-frr-clos
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-fuse:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-fuse,'))
@@ -839,6 +938,17 @@ jobs:
     - name: 'Run fuse on qemu: a userspace filesystem, as root and as a user'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.fuse.qemu
       timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.fuse.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-fuse
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 15
   test-iperf:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-iperf,'))
@@ -897,6 +1007,17 @@ jobs:
     - name: 'Run iperf on qemu: what a segment between two guests carries'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.iperf.qemu
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.iperf.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-iperf
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-ipsec:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-ipsec,''))'
@@ -951,6 +1072,17 @@ jobs:
     - name: 'Run ipsec on uml: strongSwan site-to-site with certificates, BGP over the tunnels'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.ipsec
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.ipsec.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-ipsec
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-k8s:
     if: '!cancelled() && (needs.test-containerd.result == ''success'' || needs.test-containerd.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-k8s,''))'
@@ -1011,6 +1143,17 @@ jobs:
     - name: 'Run k8s on qemu: a three-node kubeadm cluster'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.k8s.qemu
       timeout-minutes: 110
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.k8s.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-k8s
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 120
   test-k8s-host:
     if: '!cancelled() && (needs.test-containerd.result == ''success'' || needs.test-containerd.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-k8s-host,''))'
@@ -1071,6 +1214,17 @@ jobs:
     - name: 'Run k8s-host on qemu: the host''s kubectl reaches a one-node cluster'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.k8s-host.qemu
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.k8s-host.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-k8s-host
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-k8s-krun:
     if: '!cancelled() && (needs.test-containerd-krun.result == ''success'' || needs.test-containerd-krun.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-k8s-krun,''))'
@@ -1131,6 +1285,17 @@ jobs:
     - name: 'Run k8s on krun: a three-node kubeadm cluster on libkrun guests'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.k8s.krun
       timeout-minutes: 110
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.k8s.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-k8s-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 120
   test-k8s-pull:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-k8s-pull,''))'
@@ -1245,6 +1410,17 @@ jobs:
     - name: 'Run lan on uml: two guests on a segment see each other'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.lan
       timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.lan.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-lan
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 45
   test-lan-vsock:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-lan-vsock,''))'
@@ -1299,6 +1475,17 @@ jobs:
     - name: 'Run lan-vsock on uml: two guests on vsock uplinks hold lan''s contract'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.lan-vsock
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.lan-vsock.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-lan-vsock
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-lan-vsock-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-lan-vsock-krun,'))
@@ -1357,6 +1544,17 @@ jobs:
     - name: 'Run lan-vsock on krun: two libkrun guests on vsock uplinks hold lan''s contract'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.lan-vsock.krun
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.lan-vsock.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-lan-vsock-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-memory:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-memory,''))'
@@ -1411,6 +1609,17 @@ jobs:
     - name: 'Run memory on uml: a guest gives its memory back'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.memory
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.memory.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-memory
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-nix-db:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-nix-db,'))
@@ -1469,6 +1678,17 @@ jobs:
     - name: 'Run nix-db on qemu: an unprivileged read-only reader opens the guest''s Nix database'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.nix-db.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.nix-db.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-nix-db
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-oob:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-oob,'))
@@ -1527,6 +1747,17 @@ jobs:
     - name: 'Run oob on qemu: a services guest hands out a management lease with Kea'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.oob.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.oob.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-oob
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-oob-gateway:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-oob-gateway,'))
@@ -1585,6 +1816,17 @@ jobs:
     - name: 'Run oob-gateway on qemu: the services guest is the single forwarding point to an out-of-band guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-gateway.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.oob-gateway.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-oob-gateway
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-oob-routeros:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-oob-routeros,'))
@@ -1643,6 +1885,17 @@ jobs:
     - name: 'Run oob-routeros on qemu: RouterOS keeps its management in a VRF, isolated from the dataplane'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-routeros.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.oob-routeros.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-oob-routeros
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-oob-sonic:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-oob-sonic,'))
@@ -1701,6 +1954,17 @@ jobs:
     - name: 'Run oob-sonic on qemu: the services guest provisions SONiC over SSH, by command and by config_db.json'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-sonic.qemu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.oob-sonic.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-oob-sonic
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-oob-uml:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-oob-uml,''))'
@@ -1755,6 +2019,17 @@ jobs:
     - name: 'Run oob-uml on uml: a UML guest''s uplink joins a management segment'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.oob-uml
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.oob-uml.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-oob-uml
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-pytest-coverage:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-pytest-coverage,'))
@@ -1813,6 +2088,17 @@ jobs:
     - name: 'Run pytest-coverage on qemu: coverage from tests in a guest reaches the host''s pytest-cov'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.pytest-coverage
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.pytest-coverage.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-pytest-coverage
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-pytest-host:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-pytest-host,'))
@@ -1871,6 +2157,17 @@ jobs:
     - name: 'Run pytest-host on qemu: a pytest suite drives guests through the vivarium plugin'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.pytest-host
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.pytest-host.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-pytest-host
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-reboot:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-reboot,'))
@@ -1929,6 +2226,17 @@ jobs:
     - name: 'Run reboot on qemu: a guest reboots into the system its bootloader names'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.reboot.qemu
       timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.reboot.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-reboot
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 15
   test-reboot-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-reboot-krun,'))
@@ -1987,6 +2295,17 @@ jobs:
     - name: 'Run reboot on krun: a libkrun guest reboots into the system its bootloader names'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.reboot.krun
       timeout-minutes: 15
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.reboot.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-reboot-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 25
   test-reclaim-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-reclaim-krun,'))
@@ -2045,6 +2364,17 @@ jobs:
     - name: 'Run reclaim on krun: a libkrun guest gives cold page cache back by itself'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.reclaim.krun
       timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.reclaim.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-reclaim-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 15
   test-router:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-router,''))'
@@ -2099,6 +2429,17 @@ jobs:
     - name: 'Run router on uml: guests behind a router guest reach the host and are reached'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.router
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.router.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-router
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-router-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-router-krun,'))
@@ -2157,6 +2498,17 @@ jobs:
     - name: 'Run router on krun: guests behind a libkrun router guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.router.krun
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.router.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-router-krun
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-router-qemu:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-router-qemu,'))
@@ -2215,6 +2567,17 @@ jobs:
     - name: 'Run router on qemu: guests behind a QEMU router guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.router.qemu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.router.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-router-qemu
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-routeros:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-routeros,'))
@@ -2273,6 +2636,17 @@ jobs:
     - name: 'Run routeros on qemu: RouterOS boots, applies its config disk and answers on its console'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.routeros.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.routeros.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-routeros
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-routeros-bgp:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-routeros-bgp,'))
@@ -2331,6 +2705,17 @@ jobs:
     - name: 'Run routeros-bgp on qemu: RouterOS and FRR exchange routes over eBGP'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.routeros-bgp.qemu
       timeout-minutes: 10
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.routeros-bgp.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-routeros-bgp
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 20
   test-screen:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-screen,'))
@@ -2389,6 +2774,17 @@ jobs:
     - name: 'Run screen on qemu: the host reads a guest''s screen, types on it and points at it'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.screen.qemu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.screen.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-screen
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-segment-cut:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-segment-cut,''))'
@@ -2443,6 +2839,17 @@ jobs:
     - name: 'Run segment-cut on uml: the runner''s hub cuts, restores and captures a segment'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.segment-cut
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.segment-cut.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-segment-cut
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-segment-mtu:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-segment-mtu,''))'
@@ -2497,6 +2904,17 @@ jobs:
     - name: 'Run segment-mtu on uml: a segment''s MTU and hub reach each interface on it'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.segment-mtu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.segment-mtu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-segment-mtu
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-sonic:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-sonic,'))
@@ -2555,6 +2973,17 @@ jobs:
     - name: 'Run sonic on qemu: SONiC VS boots and answers a shell on its serial console'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.sonic.qemu
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.sonic.qemu.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-sonic
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-suse-ansible:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-suse-ansible,''))'
@@ -2609,6 +3038,17 @@ jobs:
     - name: 'Run suse-ansible on uml: Ansible configures openSUSE Leap over a segment'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.suse-ansible
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.suse-ansible.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-suse-ansible
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-suse-nix:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-suse-nix,''))'
@@ -2663,6 +3103,17 @@ jobs:
     - name: 'Run suse-nix on uml: Nix on openSUSE Leap, with a writable store'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.suse-nix
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.suse-nix.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-suse-nix
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-uplink-iperf:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-uplink-iperf,'))
@@ -2721,6 +3172,17 @@ jobs:
     - name: 'Run uplink-iperf on krun: what passt, gvproxy and vsock carry for a libkrun guest'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.uplink-iperf.krun
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.uplink-iperf.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-uplink-iperf
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-uplink-iperf-router:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-uplink-iperf-router,'))
@@ -2779,6 +3241,17 @@ jobs:
     - name: 'Run uplink-iperf-router on krun: what a libkrun guest behind a libkrun router carries'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.uplink-iperf-router.krun
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.uplink-iperf-router.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-uplink-iperf-router
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-vyos-bgp:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-vyos-bgp,''))'
@@ -2833,6 +3306,17 @@ jobs:
     - name: 'Run vyos-bgp on uml: VyOS and FRR exchange routes over eBGP'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-bgp
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.vyos-bgp.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-vyos-bgp
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-vyos-oob:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-vyos-oob,''))'
@@ -2887,6 +3371,17 @@ jobs:
     - name: 'Run vyos-oob on uml: VyOS leases its management address from the fabric'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-oob
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.vyos-oob.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-vyos-oob
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-vyos-oob-vrf:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-vyos-oob-vrf,''))'
@@ -2941,6 +3436,17 @@ jobs:
     - name: 'Run vyos-oob-vrf on uml: VyOS keeps its management in a VRF, isolated from the dataplane'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-oob-vrf
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.vyos-oob-vrf.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-vyos-oob-vrf
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
   test-vyos-uml:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-vyos-uml,''))'
@@ -2995,6 +3501,17 @@ jobs:
     - name: 'Run vyos-uml on uml: VyOS boots from its ISO''s squashfs and applies config.boot'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-uml
       timeout-minutes: 20
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.vyos-uml.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-vyos-uml
+        path: vivarium/attempt
+        retention-days: 7
     timeout-minutes: 30
 name: 'vivarium: CI'
 'on':

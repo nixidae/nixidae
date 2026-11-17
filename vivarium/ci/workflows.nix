@@ -427,6 +427,24 @@ let
           attrs = [ attr ];
           timeoutMinutes = timeoutMinutes - 10;
         })
+        # The step log holds the last 50 lines of the run. The attempt
+        # holds the rest: each console, events.jsonl, the artifacts.
+        {
+          name = "Copy the run's evidence";
+          "if" = "failure()";
+          run = "cp -r --dereference \"$(nix eval --raw --file . ${attr}.attempt.outPath)\" attempt && chmod -R u+w attempt";
+        }
+        {
+          name = "Keep the evidence of a red run";
+          "if" = "failure()";
+          uses = "actions/upload-artifact@v4";
+          "with" = {
+            name = "attempt-${name}";
+            path = "attempt";
+            retention-days = 7;
+            if-no-files-found = "warn";
+          };
+        }
       ];
     };
 
