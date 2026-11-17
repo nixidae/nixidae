@@ -37,13 +37,17 @@ plugin's loop, where the connections live.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import functools
 import inspect
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
+import tarfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,7 +74,12 @@ SCOPES: Final[tuple[Scope, ...]] = ("function", "class", "module", "session")
 FIXTURES: Final = frozenset({"vms", "vm"})
 PREBUILT: Final = "VIVARIUM_RUNS"
 """A JSON file of `{attr: program}`, each a built `.up`: runs that need no evaluation."""
+CLOSURE: Final = "VIVARIUM_PYTHON_CLOSURE"
+"""A closureInfo of this Python, which `pytestCheck` builds: a test in a guest runs on it."""
 LOG: Final = "run.log"
+GUEST_ARTIFACTS: Final = "/artifacts"
+GUEST_TIMEOUT: Final = 3600.0
+"""What one guest's batch of tests may take, as one agent command."""
 
 
 class RunFailed(RuntimeError):
@@ -105,10 +114,12 @@ class RemoteMachine:
 
 @dataclass(frozen=True)
 class Want:
-    """What one test asks for: a run of `attr`, shared over `scope`."""
+    """What one test asks for: a run of `attr`, shared over `scope`, and
+    with `guest` the guest the test itself runs in."""
 
     attr: str
     scope: Scope
+    guest: str | None = None
 
     @classmethod
     def of(cls, item: pytest.Item) -> Want | None:
@@ -120,7 +131,10 @@ class Want:
         scope = mark.kwargs.get("scope", "class")
         if scope not in SCOPES:
             raise pytest.UsageError(f"{item.nodeid}: vivarium scope is one of {', '.join(SCOPES)}, not {scope!r}")
-        return cls(mark.args[0], scope)
+        guest = mark.kwargs.get("guest")
+        if guest is not None and not isinstance(guest, str):
+            raise pytest.UsageError(f"{item.nodeid}: vivarium guest is a guest's name, not {guest!r}")
+        return cls(mark.args[0], scope, guest)
 
 
 def scope_key(item: pytest.Item, scope: Scope) -> str:
@@ -150,6 +164,46 @@ def ends_after(item: pytest.Item, nextitem: pytest.Item | None) -> bool:
 def out_name(attr: str) -> str:
     """A directory name for a run of `attr`."""
     return re.sub(r"[^A-Za-z0-9_.-]", "-", attr)
+
+
+type BatchKey = tuple[str, str, str]
+"""A run's key and the guest: the tests that run in one guest pytest."""
+
+
+def batch_key(item: pytest.Item) -> BatchKey | None:
+    want = Want.of(item)
+    if want is None or want.guest is None:
+        return None
+    return (want.attr, scope_key(item, want.scope), want.guest)
+
+
+def batches(items: list[pytest.Item]) -> dict[BatchKey, list[str]]:
+    """The tests that run in a guest, grouped by run and guest, in
+    pytest's order: each group is one pytest in that guest."""
+    grouped: dict[BatchKey, list[str]] = {}
+    for item in items:
+        if (key := batch_key(item)) is not None:
+            grouped.setdefault(key, []).append(item.nodeid)
+    return grouped
+
+
+def store_root(path: str) -> str:
+    """The store path a file belongs to: `/nix/store/<hash>-<name>`."""
+    parts = Path(path).parts
+    if parts[:3] != ("/", "nix", "store") or len(parts) < 4:
+        raise pytest.UsageError(f"a test in a guest needs a Python from the Nix store; this one is {path}")
+    return str(Path(*parts[:4]))
+
+
+SKIP: Final = frozenset({".vivarium", ".git", ".jj", "__pycache__", ".pytest_cache", ".pytest-agent"})
+"""What the project's tarball leaves out: runs, history and caches."""
+
+
+def project_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    name = Path(info.name).name
+    if name in SKIP or name.startswith("result") or not (info.isfile() or info.isdir() or info.issym()):
+        return None
+    return info
 
 
 @dataclass
@@ -189,6 +243,11 @@ class Driver:
         prebuilt = os.environ.get(PREBUILT)
         self.prebuilt: dict[str, str] | None = json.loads(Path(prebuilt).read_text()) if prebuilt else None
         self.runs: dict[tuple[str, str], Run] = {}
+        self.rootdir = config.rootpath
+        self.inifile = config.inipath
+        self.batches: dict[BatchKey, list[str]] = {}
+        self.results: dict[BatchKey, dict[str, list[dict[str, Any]]]] = {}
+        self.prepared: set[tuple[Path, str]] = set()
         self._portal: BlockingPortal | None = None
         self._portal_cm: Any = None  # anyio's portal context manager, entered by hand
 
@@ -219,7 +278,9 @@ class Driver:
             return
         program = self.prebuilt.get(attr)
         if program is None:
-            raise pytest.UsageError(f"{attr} is not among the runs {PREBUILT} names: {', '.join(sorted(self.prebuilt))}")
+            raise pytest.UsageError(
+                f"{attr} is not among the runs {PREBUILT} names: {', '.join(sorted(self.prebuilt))}"
+            )
         out.mkdir(parents=True, exist_ok=True)
         with (out / LOG).open("wb") as log:
             subprocess.Popen(  # noqa: S603 -- a built `.up` the check names
@@ -230,7 +291,9 @@ class Driver:
                 start_new_session=True,
             )
         args = argparse.Namespace(target=str(out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT)
-        code = runner_cli.watch(args)
+        # The monitor prints the pause; it is progress, not a test's output.
+        with contextlib.redirect_stdout(sys.stderr):
+            code = runner_cli.watch(args)
         if code != monitor.READY:
             raise RunFailed(f"{attr} did not come up (exit {code}); its output is in {out / LOG}")
 
@@ -240,7 +303,10 @@ class Driver:
         program = shutil.which("vivarium")
         if program is None:
             raise pytest.UsageError("starting a run from vivarium_file needs the `vivarium` CLI on PATH")
-        subprocess.run([program, "up", attr, "--file", str(self.file), "--out", str(out)], check=True)  # noqa: S603 -- the vivarium CLI
+        # Its stdout is access.json, which `--out` holds; the progress is on stderr.
+        subprocess.run(  # noqa: S603 -- the vivarium CLI
+            [program, "up", attr, "--file", str(self.file), "--out", str(out)], check=True, stdout=subprocess.DEVNULL
+        )
 
     def _try_open(self, out: Path, key: tuple[str, str]) -> bool:
         try:
@@ -254,10 +320,86 @@ class Driver:
         names: tuple[str, ...] = self.portal.call(conn.call, "machines", (), {})
         self.runs[key] = Run(key[0], out, conn, {name: RemoteMachine(conn, name) for name in names})
 
+    # ── tests that run in a guest ───────────────────────────────────
+
+    def _remote(self, run: Run, method: str, *args: object) -> Any:  # noqa: ANN401 -- what the run's method returns
+        return self.portal.call(run.conn.call, method, args, {})
+
+    def _python_closure(self) -> list[str]:
+        """This Python's store closure: from `pytestCheck`'s closureInfo, or
+        from the `vivarium` CLI, which asks the store."""
+        if info := os.environ.get(CLOSURE):
+            return [line for line in (Path(info) / "store-paths").read_text().splitlines() if line]
+        program = shutil.which("vivarium")
+        if program is None:
+            raise pytest.UsageError("a test in a guest needs the `vivarium` CLI on PATH, or " + CLOSURE)
+        done = subprocess.run(  # noqa: S603 -- the vivarium CLI
+            [program, "closure", store_root(sys.prefix)], check=True, capture_output=True, text=True
+        )
+        return done.stdout.split()
+
+    def _prepare(self, run: Run, guest: str) -> Path:
+        """This Python in the guest's store view, and the project unpacked
+        at its own path: once a guest. Returns the host's side of the
+        guest's `/artifacts`."""
+        artifacts = self._remote(run, "artifacts", guest)
+        if artifacts is None:
+            raise RunFailed(f"{guest} has no /artifacts to hand it the project through")
+        host = Path(artifacts) / "pytest"
+        if (run.out, guest) in self.prepared:
+            return host
+        self._remote(run, "call", guest, "add_paths", (self._python_closure(),), {})
+        host.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(host / "project.tar", "w") as tar:
+            tar.add(self.rootdir, arcname=".", filter=project_filter)
+        unpack = "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter='tar')"
+        command = shlex.join([sys.executable, "-c", unpack, f"{GUEST_ARTIFACTS}/pytest/project.tar", str(self.rootdir)])
+        self._remote(run, "call", guest, "succeed", (f"mkdir -p {shlex.quote(str(self.rootdir))} && {command}",), {})
+        self.prepared.add((run.out, guest))
+        return host
+
+    def _run_batch(self, run: Run, guest: str, nodeids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        host = self._prepare(run, guest)
+        name = f"reports-{time.time_ns()}.jsonl"
+        args = ["--rootdir", str(self.rootdir), "-q"]
+        if self.inifile is not None:
+            args += ["-c", str(self.inifile)]
+        command = shlex.join(
+            [sys.executable, "-m", "vivarium.pytest_worker", f"{GUEST_ARTIFACTS}/pytest/{name}", "--", *args, *nodeids]
+        )
+        code, output = self._remote(
+            run,
+            "call",
+            guest,
+            "execute",
+            (f"cd {shlex.quote(str(self.rootdir))} && PYTHONDONTWRITEBYTECODE=1 {command}",),
+            {"timeout": GUEST_TIMEOUT},
+        )
+        reports: dict[str, list[dict[str, Any]]] = {}
+        path = host / name
+        for line in path.read_text().splitlines() if path.exists() else []:
+            data = json.loads(line)
+            reports.setdefault(data["nodeid"], []).append(data)
+        if not reports:
+            raise RunFailed(f"pytest in {guest} reported nothing (exit {code}):\n{output}")
+        return reports
+
+    def guest_reports(self, item: pytest.Item) -> list[dict[str, Any]]:
+        """The reports of `item`, which ran in a guest with the rest of its
+        batch the first time any of them was asked for."""
+        key = batch_key(item)
+        if key is None:
+            raise RuntimeError(f"{item.nodeid} does not run in a guest")
+        if key not in self.results:
+            run = self.acquire(item)
+            self.results[key] = self._run_batch(run, key[2], self.batches.get(key, [item.nodeid]))
+        return self.results[key].get(item.nodeid, [])
+
     def release(self, key: tuple[str, str]) -> None:
         run = self.runs.pop(key, None)
         if run is None:
             return
+        self.prepared = {done for done in self.prepared if done[0] != run.out}
         run.conn.close()
         if not self.keep:
             self.portal.call(_stop, run.out)
@@ -331,3 +473,38 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
     yield
     if ends_after(item, nextitem) and (key := run_key(item)) is not None:
         _driver(item.config).release(key)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    # After `-k` and `--lf` chose: a guest runs only what was selected.
+    _driver(session.config).batches = batches(session.items)
+
+
+def _failed(item: pytest.Item, text: str) -> pytest.TestReport:
+    return pytest.TestReport(item.nodeid, item.location, {}, "failed", text, "call")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> bool | None:
+    """A test with `guest=` runs its whole protocol in that guest; here,
+    only its reports are told, so every reporter sees an ordinary test."""
+    if batch_key(item) is None:
+        return None
+    driver = _driver(item.config)
+    item.ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)
+    try:
+        found = driver.guest_reports(item)
+    except (RunFailed, OSError, subprocess.CalledProcessError) as error:
+        reports = [_failed(item, f"vivarium could not run it in its guest: {error}")]
+    else:
+        reports = [
+            item.config.hook.pytest_report_from_serializable(config=item.config, data=data)
+            for data in found
+            if data.get("$report_type") == "TestReport"
+        ] or [_failed(item, "its guest's pytest did not run it: was it collected there?")]
+    for report in reports:
+        item.ihook.pytest_runtest_logreport(report=report)
+    item.ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)
+    if ends_after(item, nextitem) and (key := run_key(item)) is not None:
+        driver.release(key)
+    return True

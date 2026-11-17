@@ -398,6 +398,8 @@ rec {
             chmod -R u+w "$TMPDIR/src"
             cd "$TMPDIR/src"
             status=0
+            # A test that runs in a guest runs on this Python, put in the guest's store view.
+            export VIVARIUM_PYTHON_CLOSURE=${pkgs.closureInfo { rootPaths = [ python ]; }}
             VIVARIUM_RUNS=${programs} ${python}/bin/python -m pytest -p no:cacheprovider \
               --junitxml="$out/junit.xml" --vivarium-out="$TMPDIR/runs" ${lib.escapeShellArgs args} \
               > "$out/log" 2>&1 || status=$?

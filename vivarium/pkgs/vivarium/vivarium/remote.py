@@ -49,6 +49,12 @@ class Machines(Service):
     def exposed_get(self, machine: str, name: str) -> Any:  # noqa: ANN401 -- any attribute of a Machine
         return self._attribute(machine, name)
 
+    def exposed_artifacts(self, machine: str) -> str | None:
+        """The host directory that is the guest's `/artifacts`. A `Path`
+        does not cross the wire, so `get` cannot carry it."""
+        path = self.session.vms_up[machine].artifacts
+        return None if path is None else str(path)
+
     async def exposed_call(
         self,
         machine: str,

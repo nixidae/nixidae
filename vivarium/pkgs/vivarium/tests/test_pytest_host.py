@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import tarfile
 from typing import TYPE_CHECKING
 
 import pytest
-from vivarium.pytest_host import Want, ends_after, out_name, run_key, scope_key
+from vivarium.pytest_host import (
+    Want,
+    batch_key,
+    batches,
+    ends_after,
+    out_name,
+    project_filter,
+    run_key,
+    scope_key,
+    store_root,
+)
 
 if TYPE_CHECKING:
     from pytest import Pytester
@@ -77,3 +88,55 @@ def test_a_bad_scope_is_a_usage_error(pytester: Pytester) -> None:
 def test_an_attribute_path_is_a_directory_name() -> None:
     assert out_name("k8s.qemu") == "k8s.qemu"
     assert out_name("a/b c") == "a-b-c"
+
+
+GUESTS = """
+import pytest
+
+pytestmark = pytest.mark.vivarium("one", guest="vm", scope="module")
+
+def test_a(): pass
+def test_b(): pass
+
+@pytest.mark.vivarium("one", guest="vm", scope="class")
+class TestOwn:
+    def test_c(self): pass
+    def test_d(self): pass
+
+@pytest.mark.vivarium("one")
+def test_drives(): pass
+"""
+
+
+def test_a_scope_in_a_guest_is_one_batch(pytester: Pytester) -> None:
+    items = pytester.getitems(GUESTS)
+    grouped = batches(items)
+    names = sorted([nodeid.split("::")[-1] for nodeid in group] for group in grouped.values())
+    assert names == [["test_a", "test_b"], ["test_c", "test_d"]]
+    assert batch_key(next(item for item in items if item.name == "test_drives")) is None
+
+
+def test_a_guest_name_must_be_a_string(pytester: Pytester) -> None:
+    [item] = pytester.getitems('import pytest\n@pytest.mark.vivarium("x", guest=3)\ndef test_x(): pass\n')
+    with pytest.raises(pytest.UsageError, match="guest's name"):
+        Want.of(item)
+
+
+def test_the_python_must_come_from_the_store() -> None:
+    assert store_root("/nix/store/abc-env/bin/python3") == "/nix/store/abc-env"
+    with pytest.raises(pytest.UsageError, match="Nix store"):
+        store_root("/usr/bin/python3")
+
+
+@pytest.mark.parametrize(
+    ("name", "kept"),
+    [
+        ("./tests/test_x.py", True),
+        ("./.vivarium", False),
+        ("./.git", False),
+        ("./pkg/__pycache__", False),
+        ("./result-bin", False),
+    ],
+)
+def test_the_project_tarball_leaves_out_runs_and_caches(name: str, kept: bool) -> None:
+    assert (project_filter(tarfile.TarInfo(name)) is not None) is kept
