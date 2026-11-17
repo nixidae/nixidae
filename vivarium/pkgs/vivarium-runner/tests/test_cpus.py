@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,8 @@ class TestHostCpus:
 
     @pytest.mark.parametrize("granted", ["0", "", "x"])
     def test_otherwise_the_affinity_mask(self, granted: str) -> None:
-        assert host_cpus({"NIX_BUILD_CORES": granted}) == os.process_cpu_count()
+        expected = len(os.sched_getaffinity(0)) if sys.platform == "linux" else os.cpu_count()
+        assert host_cpus({"NIX_BUILD_CORES": granted}) == expected
 
 
 def test_the_spec_holds_the_resolved_count() -> None:

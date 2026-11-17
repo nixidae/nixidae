@@ -121,7 +121,8 @@ def test_an_unprivileged_host_keeps_no_privileged_port_without_remap() -> None:
 @pytest.fixture
 def one_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     """`resolve` as on macOS, on any host."""
-    monkeypatch.setattr(forward.sys, "platform", "darwin")
+    # The sys module forward reads; it exports no name `sys`.
+    monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(forward, "ephemeral_range", lambda: (49152, 65535))
 
 

@@ -143,7 +143,10 @@ def host_cpus(environ: Mapping[str, str] = os.environ) -> int:
     if granted.isdigit() and int(granted) > 0:
         return int(granted)
     # The affinity mask on Linux; macOS has none, and counts every core.
-    return os.process_cpu_count() or 1
+    # Not os.process_cpu_count: it needs Python 3.13, and this package runs on 3.12.
+    if sys.platform == "linux":
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count() or 1
 
 
 def resolve_cpus(cpus: Cpus, host: int) -> int:
