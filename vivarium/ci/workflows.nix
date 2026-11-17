@@ -324,7 +324,10 @@ let
       test = "reboot";
       backend = "krun";
       description = "a libkrun guest reboots into the system its bootloader names";
-      timeoutMinutes = 15;
+      # The step gets 10 minutes less. Warm, the test takes 30 s; with
+      # libkrun or the guests changed, copying the closure alone ran past
+      # a 5-minute step after the test had passed.
+      timeoutMinutes = 25;
     };
     # A krun guest has no balloon to inflate, so DAMON_RECLAIM is how it
     # gives memory back unasked.

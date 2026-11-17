@@ -1910,8 +1910,8 @@ jobs:
       timeout-minutes: 5
     - name: 'Run reboot on krun: a libkrun guest reboots into the system its bootloader names'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.reboot.krun
-      timeout-minutes: 5
-    timeout-minutes: 15
+      timeout-minutes: 15
+    timeout-minutes: 25
   test-reclaim-krun:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-reclaim-krun,'))
     runs-on: ubuntu-24.04
