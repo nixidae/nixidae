@@ -100,6 +100,33 @@ Default to none. A comment carries what the code cannot: why this way when an ob
 
 # Sources
 
+## dinix
+
+dinit service trees from Nix modules: a container's entrypoint, a user session, a VM's init. `default.nix` is the library (`import sources.dinix { inherit pkgs; modules = [ ... ]; }`); `dev.nix` holds the tests, tools and docs, and is the root's `dinix`.
+
+### Gates and commands
+
+Run from the nixidae root.
+
+- `nix build --file . dinix.checks`: every collection in every mode, both container tests (vivarium UML guests running podman), the Python packages, the docs. What CI builds (`dinix-tests.yml`).
+- One collection: `nix build --file . dinix.collections.<name>.{root,user,vm-root,vm-user}`; a port passes all four. By hand: `nix run --file . dinix.collections.<name>.root.driver -- --out DIR`.
+- Python (`dinit-client/`, `tui/`): `nix run --file . dinix.test`, `dinix.lint`, `dinix.format`; they act on the working tree.
+
+### Porting a service
+
+Read `dinix/PORTING.md` first. `services/redis.nix` with `tests/collections/redis.nix` is the worked pair; `services/postgres.nix` is the hard one (sub-service, run-once init, `run-as`). Source libraries worth reading for the same service: services-flake `nix/services/<name>.nix` (MIT) and devenv `src/modules/services/<name>.nix` (Apache-2.0).
+
+- Every service dinix authors is a NixOS Modular Service in `services/`. No `pkgs` argument: dependencies arrive through `lib.modules.importApply`.
+- `config = lib.mkMerge [ ... ]`, not `//`, when both halves set the service's own option; `//` drops one silently.
+- Render before running a test: the rendered service description shows a quoting or merge bug that the image build does not.
+- State paths go on the command line, never inside a file the program reads: that makes one store path run rootful, rootless and uncontained. No flag for it: `env` in `process.argv` carries a variable or a `PATH` and still execs; a working directory is `dinit.service.working-dir`.
+- A service's own configuration cannot decide which attributes it defines: `lib.optionalAttrs cfg.foo { dinit = ...; }` recurses, `lib.mkIf` does not.
+- Check the package first: `meta.license.free`, and whether it is marked insecure.
+
+### dinit service settings
+
+The setting table is dinit's source, not mirrored here (`nix build --file /etc/nixpkgs dinit.src --no-link --print-out-paths`): `src/settings.cc` `all_settings[]` (names and assignment forms `:`, `=`, `+=`), `src/includes/dinit-settings.h`, `src/includes/load-service.h` (word splitting, quoting, `$` substitution, `options:` values), `doc/manpages/dinit-service.5.m4`. dinix renders `services.<name>` attribute names straight through, so an unknown setting fails dinit-check at build time. `options.nix` declares only settings that need list handling or a dinix sub-option (`depends-on`, `dinix.*`); the rest is the freeform type.
+
 ## easykubenix
 
 ### Gates and commands
