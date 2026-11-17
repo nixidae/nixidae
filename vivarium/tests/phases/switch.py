@@ -1,6 +1,8 @@
 """Switch a running guest between its configurations; see `switch` in
 default.nix."""
 
+from __future__ import annotations
+
 from vivarium_runner import MachineError, Machines
 
 

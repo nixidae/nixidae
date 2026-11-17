@@ -7,6 +7,8 @@ other guest across the router's bridge. The host reaches each guest on the
 addresses `reachable` names, through the router's egress.
 """
 
+from __future__ import annotations
+
 import socket
 
 import anyio

@@ -5,6 +5,8 @@ first leaf learns the far server's MAC from BGP, not from flooding. With
 the far leaf's VXLAN device down, the stretch is gone.
 """
 
+from __future__ import annotations
+
 from fabric import CONVERGE, ping, vtysh
 from vivarium_runner import Machines
 

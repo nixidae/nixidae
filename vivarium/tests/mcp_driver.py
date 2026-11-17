@@ -8,6 +8,8 @@ Claude Code extension. What this reads is what Claude Code reads.
     mcp_driver.py <vivarium-mcp> <spec of a run that fails a phase>
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys

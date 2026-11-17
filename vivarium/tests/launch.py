@@ -3,6 +3,8 @@
 nixidae/nixidae#1408.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

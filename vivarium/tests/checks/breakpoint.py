@@ -17,6 +17,8 @@ of `inject` and `ctl pytest`.
     breakpoint VIVARIUM DRIVER WORKDIR
 """
 
+from __future__ import annotations
+
 import os
 import subprocess
 import sys

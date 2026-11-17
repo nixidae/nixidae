@@ -1,5 +1,7 @@
 """Each interface has its segment's MTU, and a frame one byte over it does not leave."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 NARROW = 1400

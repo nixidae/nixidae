@@ -5,6 +5,8 @@ is the same test against the unfixed code, and must fail: otherwise the
 test does not tell the two apart.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import MachineError, Machines
 
 # -test.root, or containerd's testutil skips every test that needs root,

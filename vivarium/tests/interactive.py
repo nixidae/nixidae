@@ -7,6 +7,8 @@ declared phase when asked, and tear down when the input ends.
     interactive DRIVER WORKDIR
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
 from pathlib import Path

@@ -8,6 +8,8 @@ is the override and not the spec's kernel behind it.
     kernel_override SPEC DRIVER WORKDIR
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shutil

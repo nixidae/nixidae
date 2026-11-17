@@ -9,6 +9,8 @@ Every reading compares what the guest says the file holds against what
 the host reads at the same moment.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import anyio

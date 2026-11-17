@@ -17,6 +17,8 @@ The three things worth guarding, in order of how quietly they break:
     appearing to work.
 """
 
+from __future__ import annotations
+
 import urllib.error
 import urllib.request
 

@@ -10,6 +10,8 @@ exits 0 and says "no route" in its output, so these poll the output
 rather than an exit status, which is why they are not `wait_until_succeeds`.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

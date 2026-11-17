@@ -10,6 +10,8 @@ proves nothing about a crash.
     stream ATTEMPT
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path

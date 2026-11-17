@@ -8,6 +8,8 @@ on the same value with no special case -- and CI cannot accidentally run
 something other than the check because a variable was exported.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 DEFAULT = "every-case"

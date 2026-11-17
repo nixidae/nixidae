@@ -1,5 +1,7 @@
 """E10: what a NixOS guest costs as the router: host memory, boot, closure."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 PEERS = {"plain": "10.9.0.2", "slimmer": "10.9.0.1"}

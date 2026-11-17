@@ -6,6 +6,8 @@ has to fetch it, and a path nobody holds has to fail at once rather than
 wait on a network.
 """
 
+from __future__ import annotations
+
 import time
 
 from vivarium_runner import MachineError, Machines

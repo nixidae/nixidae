@@ -6,6 +6,8 @@ derivation fails when a phase fails, so the check reads the attempt.
     phase_rules ATTEMPT
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path

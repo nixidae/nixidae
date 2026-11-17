@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """A phase on `a` sees `a` alone, and `a` is up."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

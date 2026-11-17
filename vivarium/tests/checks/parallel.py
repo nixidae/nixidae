@@ -12,6 +12,8 @@ Reads the sandboxed run's `.attempt`. `left` holds `a`, `right` holds
     parallel ATTEMPT
 """
 
+from __future__ import annotations
+
 import sys
 from dataclasses import dataclass
 from pathlib import Path

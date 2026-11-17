@@ -7,6 +7,8 @@ route is in the tenant's VRF only: the underlay's own table never
 carries a tenant prefix.
 """
 
+from __future__ import annotations
+
 from fabric import CONVERGE, ping
 from vivarium_runner import Machines
 

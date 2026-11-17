@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """The guest is up and answers. Everything after this depends on it."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

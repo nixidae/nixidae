@@ -4,6 +4,8 @@ The agent answers from VyOS's userspace, and VyOS applies the
 `config.boot` the node gave it: the host name and a dummy interface.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

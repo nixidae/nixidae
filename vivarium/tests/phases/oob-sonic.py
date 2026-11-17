@@ -6,6 +6,8 @@ over SSH, and applies configuration (nixidae/nixidae#958). No console
 beyond the boot login.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 SSH = "sshpass -p YourPaSsWoRd ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"

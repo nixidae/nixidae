@@ -7,6 +7,8 @@ reach each other -- the isolation sonic-vs could not instantiate, here
 with VyOS's real VRFs.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machine, MachineError, Machines
 
 MGMT_HOST = "10.42.0.1"

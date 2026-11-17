@@ -1,5 +1,7 @@
 """Apply a template instance's seed: its name, addresses and user data. nixidae/nixidae#1408."""
 
+from __future__ import annotations
+
 import json
 import os
 import sys

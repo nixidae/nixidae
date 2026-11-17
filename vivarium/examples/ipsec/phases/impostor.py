@@ -15,6 +15,8 @@ None of it disturbs the real IKE_SA: west's SPIs are the same at the
 end, and alice still reaches bob.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machines
 from vivarium_runner.machine import MachineError

@@ -4,6 +4,8 @@ Milestone 1: the guest boots, the host logs in on the console, a shell
 command's output comes back, and the SONiC CLI answers.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import MachineError, Machines
 
 

@@ -4,6 +4,8 @@ Its own module, because the package imports :mod:`vivarium_runner.container`
 first, and runpy warns when the module it runs is already loaded.
 """
 
+from __future__ import annotations
+
 from .container import main
 
 raise SystemExit(main())

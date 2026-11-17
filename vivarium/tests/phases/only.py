@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Runs only when asked for by name, and records that it did."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

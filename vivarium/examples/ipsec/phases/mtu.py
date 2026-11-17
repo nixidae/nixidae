@@ -8,6 +8,8 @@ Policy-based: there is no tunnel device, so the limit is what is left of
 the internet's 1500 once ESP is added: 1446 (`esp_inner_mtu`).
 """
 
+from __future__ import annotations
+
 import re
 
 from vivarium_runner import Machine, Machines

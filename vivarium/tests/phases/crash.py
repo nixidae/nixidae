@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Log a line from a unit, see it reach the host, then kill the guest."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 

@@ -14,6 +14,8 @@ smallest real one to hand.  What is being asked is whether the kernel
 answers at all.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

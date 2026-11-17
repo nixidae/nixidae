@@ -1,5 +1,7 @@
 """Two NixOS guests reach each other through RouterOS, one hop apart."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

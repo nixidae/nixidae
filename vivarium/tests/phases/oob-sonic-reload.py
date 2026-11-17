@@ -9,6 +9,8 @@ eth0 -- the management interface is outside config_db -- so SSH survives.
 The pulled config is a scratch base, not a record of config management.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machines
 

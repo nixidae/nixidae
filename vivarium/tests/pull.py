@@ -18,6 +18,8 @@ has no network, so there is nothing to pull from:
     nix run --file . internal.k8s-pull.driver     # and k8s-pull.uml.driver
 """
 
+from __future__ import annotations
+
 from vivarium_k8s import KUBE_DNS, KUBE_PROXY, bring_up, kubectl, until
 from vivarium_runner import Machines
 

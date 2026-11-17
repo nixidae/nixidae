@@ -13,6 +13,8 @@ gateway: an `--offline` run once let IPv6 out, carried the host's IPv6
 prefix and answered pings, where a build did none of it (nixidae#1094).
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 TARGET = "1.1.1.1"

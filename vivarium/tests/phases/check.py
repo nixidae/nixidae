@@ -6,6 +6,8 @@ and what pytest would do -- producing a second failure about a cluster
 that was never built, which tells a reader nothing.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

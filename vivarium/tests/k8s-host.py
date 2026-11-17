@@ -5,6 +5,8 @@ crosses the forward of 6443 and the certificate check against
 `tls-server-name` as a person's `kubectl` would.
 """
 
+from __future__ import annotations
+
 import json
 
 import anyio

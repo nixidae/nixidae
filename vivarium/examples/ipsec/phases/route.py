@@ -11,6 +11,8 @@ Then isolation: the policy LANs and the routed LANs do not reach each
 other in either direction, and nothing leaves a gateway in the clear.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

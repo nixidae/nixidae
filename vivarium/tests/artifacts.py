@@ -11,6 +11,8 @@ than root writes too: a test suite in a guest seldom runs as root, and
 the host side must accept a file from an id it may not map.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 BLOB = 1 << 20

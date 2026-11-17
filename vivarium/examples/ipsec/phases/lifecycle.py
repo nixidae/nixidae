@@ -19,6 +19,8 @@ Measured: 3 reauthentications of 22 lost one ping each, with no XFRM
 error counter moving; a rekey lost none in any try.
 """
 
+from __future__ import annotations
+
 import re
 from typing import Any
 

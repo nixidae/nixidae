@@ -13,6 +13,8 @@
   is its own ESP packet. AWS recommends the second.
 """
 
+from __future__ import annotations
+
 import re
 
 import anyio

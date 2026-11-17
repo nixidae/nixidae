@@ -6,6 +6,8 @@ not come up. What matters is not this failure but what happens to the
 phases around it.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

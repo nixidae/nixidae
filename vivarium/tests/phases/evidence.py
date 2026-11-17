@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Collect something from the guest, whatever failed before this ran."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

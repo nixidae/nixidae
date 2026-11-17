@@ -11,6 +11,8 @@ The fill is from the guest's own disk, because a krun guest maps its store
 from the host's page cache and reading it caches nothing in the guest.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

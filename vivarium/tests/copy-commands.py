@@ -13,6 +13,8 @@ command comes from the line the run printed, split and run unchanged.
     copy-commands VIVARIUM SPEC WORKDIR
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shlex

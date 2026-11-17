@@ -7,6 +7,8 @@ host does after `switch-to-configuration boot`. The runner must boot the
 new kernel parameters and initrd, on the disk the guest wrote.
 """
 
+from __future__ import annotations
+
 import json
 
 import anyio

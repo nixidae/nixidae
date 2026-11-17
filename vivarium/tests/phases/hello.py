@@ -1,5 +1,7 @@
 """A phase that does one small thing; see `interactive`."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

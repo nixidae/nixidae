@@ -20,6 +20,8 @@ with a dangling symlink rather than with a control plane that never
 becomes healthy.
 """
 
+from __future__ import annotations
+
 import json
 import re
 

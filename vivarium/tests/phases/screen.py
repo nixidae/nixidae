@@ -11,6 +11,8 @@ wait for text that never comes fails with what OCR read, and `blind`,
 with no display, refuses.
 """
 
+from __future__ import annotations
+
 import re
 import struct
 

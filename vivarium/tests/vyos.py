@@ -10,6 +10,8 @@ the rule's `state` and the rule drops every ping: so a reply also says the
 footer kept VyOS from migrating a config that is already current.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machines
 

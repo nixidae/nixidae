@@ -1,5 +1,7 @@
 """A guest drives vivarium's cloud API: launch, capacity, list, notice, terminate. nixidae/nixidae#1408."""
 
+from __future__ import annotations
+
 import json
 import shlex
 from typing import Any

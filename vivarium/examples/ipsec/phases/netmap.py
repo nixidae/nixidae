@@ -12,6 +12,8 @@ side.
   route-based tunnels. 10.50.0.0/24 is never announced.
 """
 
+from __future__ import annotations
+
 import re
 
 import anyio

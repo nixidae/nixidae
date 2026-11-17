@@ -1,5 +1,7 @@
 """Ansible on a NixOS guest configures openSUSE over a segment."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 ANSIBLE = (

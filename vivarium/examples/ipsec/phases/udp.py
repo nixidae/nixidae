@@ -10,6 +10,8 @@
   EMSGSIZE ("Message too long"). Retrying smaller is the application's job.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

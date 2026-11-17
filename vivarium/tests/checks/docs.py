@@ -11,6 +11,8 @@ Three claims, read from the source tree:
     docs SOURCE LIB_NAMES_JSON
 """
 
+from __future__ import annotations
+
 import json
 import re
 import shlex

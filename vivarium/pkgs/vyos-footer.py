@@ -6,6 +6,8 @@ CACHE_PY is the image's vyos/xml_ref/cache.py. It is read with
 ast.literal_eval, never run: it comes from a downloaded image.
 """
 
+from __future__ import annotations
+
 import ast
 import sys
 

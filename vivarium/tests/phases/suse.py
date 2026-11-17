@@ -6,6 +6,8 @@ store view: a cloud image guest takes host tools at run time with no
 package manager. `switch_to` refuses, naming why.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import MachineError, Machines
 
 

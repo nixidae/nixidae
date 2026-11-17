@@ -6,6 +6,8 @@ run there, so a real bug here stays invisible until the unrelated
 failure upstream is fixed.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

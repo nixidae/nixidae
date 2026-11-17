@@ -11,6 +11,8 @@ not know: their path MTU is the XFRM interface's 1400, so TCP sends
 - Clamping to 1300 does: a 1340-byte inner packet is 1396 bytes as ESP.
 """
 
+from __future__ import annotations
+
 import re
 
 import anyio

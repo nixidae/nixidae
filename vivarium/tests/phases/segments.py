@@ -7,6 +7,8 @@ addresses, and every link against the segment it claims: a ping out of
 the wrong interface must fail, and nothing crosses from `a` to `b`.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

@@ -6,6 +6,8 @@ client reaches it there each way (`--reverse` is guest to host), in
 `ROUNDS` rounds that take the guests in turn, and the median counts.
 """
 
+from __future__ import annotations
+
 import json
 import statistics
 from collections import defaultdict

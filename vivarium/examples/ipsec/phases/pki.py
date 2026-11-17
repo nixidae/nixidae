@@ -5,6 +5,8 @@ fails a chain with no revocation information at all, so a gateway
 without it would refuse west and east as surely as mallory.
 """
 
+from __future__ import annotations
+
 import re
 
 from vivarium_runner import Machines

@@ -7,6 +7,8 @@ ending in "/" is a directory and anything else an empty file. No DIR at all
 is an image with zero layers, as `FROM scratch` with nothing added gives.
 """
 
+from __future__ import annotations
+
 import hashlib
 import io
 import json

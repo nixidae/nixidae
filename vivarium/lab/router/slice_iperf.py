@@ -11,6 +11,8 @@ ROUNDS rounds; each round measures both guests on one path and direction
 before the next, so host load hits both alike.
 """
 
+from __future__ import annotations
+
 import json
 import socket
 

@@ -16,6 +16,8 @@ and `host_memory_kib()` is one number either way.
   guest and let go again.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

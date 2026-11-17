@@ -2,6 +2,8 @@
 built. VyOS runs the vivarium agent, so its FRR answers vtysh as FRR's
 does."""
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict
 

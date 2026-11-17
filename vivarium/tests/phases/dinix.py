@@ -1,6 +1,8 @@
 """A dinix guest under krun: dinit is PID 1, the root is the disk, the store
 is the host's overlay, and the agent answers for dinit."""
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

@@ -10,6 +10,8 @@ again: the vector driver closes the segment fd on down (measured:
 "Network is unreachable" on up).
 """
 
+from __future__ import annotations
+
 from fabric import CONVERGE, established, loopbacks, nexthops, ping
 from vivarium_runner import Machines
 

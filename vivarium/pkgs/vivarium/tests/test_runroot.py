@@ -1,5 +1,7 @@
 """Which run roots the reaper may take."""
 
+from __future__ import annotations
+
 from vivarium.runroot import stale
 
 

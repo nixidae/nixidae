@@ -11,6 +11,8 @@ so the guest's store is read-only there. Each part says when it is
 skipped, so a sandboxed pass never reads as a full one.
 """
 
+from __future__ import annotations
+
 import socket
 from pathlib import Path
 

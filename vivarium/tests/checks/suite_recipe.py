@@ -8,6 +8,8 @@ in the guest.
     suite_recipe ATTEMPT DRIVER WORKDIR
 """
 
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path

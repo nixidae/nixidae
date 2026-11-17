@@ -19,6 +19,8 @@ and a phase outside this repository can build its own:
 writes the nodes to the run's settings, where `bring_up` reads them.
 """
 
+from __future__ import annotations
+
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence

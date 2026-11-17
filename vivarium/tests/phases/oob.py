@@ -6,6 +6,8 @@ and leases there, and the two reach each other. This is how a foreign
 guest's management interface reaches the fabric.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 LEASE = r"ip -4 -brief addr show vec0 | grep -m1 -oE '10\.42\.0\.(1[0-4][0-9]|150)'"

@@ -6,6 +6,8 @@ are typed, so the type check resolves these imports from the same venv
 that runs the phase.
 """
 
+from __future__ import annotations
+
 import humanize
 import tomli_w
 from vivarium_runner import Machines

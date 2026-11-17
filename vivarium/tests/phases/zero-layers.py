@@ -12,6 +12,8 @@ fix and must run all of them; the others must fail exactly the
 zero-layer user-namespace cases. crictl only: no kubelet, no NRI.
 """
 
+from __future__ import annotations
+
 import json
 
 import anyio

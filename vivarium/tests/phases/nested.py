@@ -6,6 +6,8 @@ guest's CPU really does virtualization. KVM_GET_API_VERSION alone would
 pass on a module that loaded and can do nothing.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 PROBE = (

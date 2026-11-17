@@ -7,6 +7,8 @@ leaf reaches the other leaf over both spines at once. No switch takes a
 default route from a fabric peer's router advertisements.
 """
 
+from __future__ import annotations
+
 from fabric import CONVERGE, bgp_down, bgp_up, loopbacks, nexthops, ping, switches
 from vivarium_runner import Machines
 

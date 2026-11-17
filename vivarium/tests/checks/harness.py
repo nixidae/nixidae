@@ -5,6 +5,8 @@ imports by name. Standard library only: a check runs on a bare
 interpreter, as a person would run the driver and the CLI.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys

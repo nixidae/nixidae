@@ -9,6 +9,8 @@ a sandboxed guest 169.254.2.1/16 instead. `lan-router` runs it with the
 guests behind a router, where each has its own address.
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machines
 

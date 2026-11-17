@@ -5,6 +5,8 @@ Runs iperf3 in both directions against the server unit each guest is
 already running, and prints the summary lines.
 """
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict
 

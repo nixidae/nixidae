@@ -15,6 +15,8 @@ else, so there is no host database to be the lower layer:
     nix run --file . internal.store.run        # and store.qemu.run
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess

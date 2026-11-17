@@ -5,6 +5,8 @@ The control removes the WAL files the boot unit kept, and the same
 reader fails. The unit puts them back.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 READ = (

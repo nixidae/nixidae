@@ -7,6 +7,8 @@ bob with her own address, and on the internet there is ESP between the
 gateways and no ICMP at all.
 """
 
+from __future__ import annotations
+
 import re
 
 import anyio

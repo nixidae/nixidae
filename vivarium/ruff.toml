@@ -12,6 +12,9 @@ extend-exclude = ["tests/fixtures/routeros/probe.py"]
 # Phase scripts, programs and tests print.
 extend-select = ["T201"]
 
+[lint.isort]
+required-imports = ["from __future__ import annotations"]
+
 [lint.extend-per-file-ignores]
 "{docs,examples,lab,recipes,tests}/**" = ["T201"]
 "pkgs/*/tests/**" = ["T201"]

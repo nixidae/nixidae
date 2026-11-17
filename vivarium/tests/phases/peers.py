@@ -5,6 +5,8 @@ resolve the other by hostname to its `vec1` address, from /etc/hosts
 alone, and reach it by that name.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 ADDRESSES = {"server": "192.168.99.2", "client": "192.168.99.3"}

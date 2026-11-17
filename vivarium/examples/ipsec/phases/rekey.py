@@ -8,6 +8,8 @@ where the first CHILD_SA rode on IKE_AUTH's keys. On the routed tunnel
 the BGP session over it never drops.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 import anyio

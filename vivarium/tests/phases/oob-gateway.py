@@ -14,6 +14,8 @@ this host, `.driver`: paused at this phase, sw opens a TCP connection to
 masquerades the segment out through its passt uplink.
 """
 
+from __future__ import annotations
+
 import urllib.error
 import urllib.request
 

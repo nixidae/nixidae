@@ -19,6 +19,8 @@ Then storage, which is the other thing a chart assumes a cluster has: a
 claim with no class named, bound to a node's own directory.
 """
 
+from __future__ import annotations
+
 from vivarium_k8s import (
     READY_TIMEOUT,
     bring_up,

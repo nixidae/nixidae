@@ -5,6 +5,8 @@ Linux, QEMU, libkrun and crun), their networks and forwards, and the agent a tes
 talks to. A phase script is a coroutine over :class:`Machines`.
 """
 
+from __future__ import annotations
+
 from .display import Button
 from .forward import ForwardError
 from .machine import Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Systems

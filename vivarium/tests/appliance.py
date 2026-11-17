@@ -10,6 +10,8 @@ what an appliance can get wrong and a NixOS guest cannot:
     without either side being configured.
 """
 
+from __future__ import annotations
+
 import json
 import urllib.request
 

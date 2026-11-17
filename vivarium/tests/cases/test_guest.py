@@ -1,5 +1,7 @@
 """A pytest phase against a booted guest. One test fails on purpose."""
 
+from __future__ import annotations
+
 import json
 
 import anyio

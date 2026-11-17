@@ -7,6 +7,8 @@ address. The agent is on ttyS0, so it answers while eth0 is still coming
 up.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machine, MachineError, Machines
 
 LEASE = r"ip -4 -brief addr show eth0 | grep -m1 -oE '10\.42\.0\.(1[0-4][0-9]|150)'"

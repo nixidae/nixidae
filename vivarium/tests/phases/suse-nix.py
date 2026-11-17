@@ -6,6 +6,8 @@ its own. A collection deletes that unrooted path and keeps the agent:
 the agent answers after it.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 

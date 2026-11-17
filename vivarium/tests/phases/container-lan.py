@@ -7,6 +7,8 @@ take, so the three kinds share one wire. `systemd-detect-virt` proves the
 run holds both kinds, and not three of one.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 ADDRESSES = {"a": "10.56.0.1", "b": "10.56.0.2", "u": "10.56.0.3"}

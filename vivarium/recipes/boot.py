@@ -7,6 +7,8 @@ what -- so the agent's answer carries the failed units or services, and
 they go in the error. systemd and dinit guests answer alike.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 from vivarium_runner.control import AGENT, NONE
 

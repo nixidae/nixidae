@@ -1,6 +1,8 @@
 """eBGP between RouterOS and FRR, and a path between two LANs that only
 BGP built."""
 
+from __future__ import annotations
+
 import json
 
 import anyio

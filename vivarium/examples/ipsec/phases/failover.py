@@ -12,6 +12,8 @@ Not `ip link set down`: under UML a link once down never comes back
 (the vector driver closes the segment fd).
 """
 
+from __future__ import annotations
+
 import anyio
 from vivarium_runner import Machine, Machines
 

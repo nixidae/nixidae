@@ -6,6 +6,8 @@ for it. `good` is booted through the firmware and blessed. `bad` never
 reaches `boot-complete.target`: two tries, then systemd-boot picks `good`.
 """
 
+from __future__ import annotations
+
 import re
 
 import anyio

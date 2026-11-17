@@ -9,6 +9,8 @@ the phase runs: the run exits 5 and says stopped.
     cleanup VIVARIUM SPEC WORKDIR BACKEND
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shutil

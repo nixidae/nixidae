@@ -5,6 +5,8 @@ others over IP by hostname.
 come from the /etc/hosts every guest builds from its peers.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import Machines
 
 KINDS = {"u": "uml", "q": "kvm", "c": "container-other"}

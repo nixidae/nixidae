@@ -9,6 +9,8 @@ nothing is paused.
     live-exec VIVARIUM SPEC WORKDIR
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess

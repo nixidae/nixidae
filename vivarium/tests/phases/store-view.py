@@ -10,6 +10,8 @@ to a configuration built after boot does: the files arrive, not empty
 mount points, and Nix in the guest holds the paths valid.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from vivarium_runner import Machines

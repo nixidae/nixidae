@@ -8,6 +8,8 @@ The mechanism underneath is `vivarium_runner`. This package owns the
 sequence.
 """
 
+from __future__ import annotations
+
 from .phases import PhaseState, dependents, passed, runnable, skipped_by, summarise
 from .session import Session, SessionError, load_phase
 from .spec import Knob, PhaseSpec, Spec

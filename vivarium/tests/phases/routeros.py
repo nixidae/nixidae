@@ -4,6 +4,8 @@ The config disk applied at boot, a command's output, a failing command's
 message, and an output too large for a terminal line.
 """
 
+from __future__ import annotations
+
 from vivarium_runner import MachineError, Machines
 
 

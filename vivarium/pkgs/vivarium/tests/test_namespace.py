@@ -1,5 +1,7 @@
 """The run's namespace: what `unshare` is asked for, and when."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from vivarium.namespace import SUBORDINATE_IDS, _subordinate, describe, unshare_argv, user_argv

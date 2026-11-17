@@ -1,5 +1,7 @@
 """A cut drops a member's frames with its carrier up; a capture is a pcap of bare Ethernet."""
 
+from __future__ import annotations
+
 import ipaddress
 import struct
 from pathlib import Path

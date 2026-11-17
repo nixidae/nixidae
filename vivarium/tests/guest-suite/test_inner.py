@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def test_ok() -> None:
     assert sum([1]) == 1
 
