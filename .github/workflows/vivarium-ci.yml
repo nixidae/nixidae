@@ -50,8 +50,8 @@ jobs:
         name: lillecarl
         pushFilter: (-vivarium-test-)
         useDaemon: false
-    - name: Check the generated files, the scripts, the Python types, the images and the kubeadm config
-      run: nix build --no-link --print-build-logs --keep-going --file . checks.check-scripts checks.check-python checks.check-k8s-images checks.check-k8s-config
+    - name: Check the generated files, the scripts, the Python types, the docs, the images and the kubeadm config
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.check-scripts checks.docs checks.check-python checks.check-k8s-images checks.check-k8s-config
       timeout-minutes: 20
     timeout-minutes: 30
   direct-kernel:
