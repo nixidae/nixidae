@@ -94,6 +94,9 @@ in
     ];
     # The probe ran CHR in 256 MiB, as vrnetlab does.
     vivarium.memory = lib.mkDefault "256M";
+    # CHR never needs more. With every core of a 16-core host, QEMU exits
+    # at boot without a word: the console closes before login.
+    vivarium.cpus = lib.mkDefault 2;
     vivarium.kind = "routeros";
     vivarium.rootImage = cfg.disk;
     vivarium.closure = null;
