@@ -83,6 +83,7 @@ rec {
   */
   kinds = {
     appliance = ./modules/appliance.nix;
+    dinix = lib.modules.importApply ./modules/dinix-guest.nix { inherit sources; };
     image = ./modules/image-guest.nix;
     routeros = ./modules/routeros-guest.nix;
     sonic = ./modules/sonic-guest.nix;

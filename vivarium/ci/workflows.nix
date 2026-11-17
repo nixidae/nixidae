@@ -343,6 +343,12 @@ let
       description = "a container runs in a libkrun guest, out of the host's store";
       timeoutMinutes = 45;
     };
+    # docs/design/dinix-guests.md. A krun guest only, so far.
+    dinix = {
+      backend = "krun";
+      description = "a dinix guest boots its own kernel under libkrun, with dinit as PID 1";
+      timeoutMinutes = 20;
+    };
     k8s-krun = {
       test = "k8s";
       backend = "krun";

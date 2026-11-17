@@ -29,5 +29,6 @@ design/rewrite
 design/console-guests
 design/router-lab
 design/pytest
+design/dinix-guests
 design/macos-guest-spike/README
 ```
