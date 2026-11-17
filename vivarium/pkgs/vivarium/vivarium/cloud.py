@@ -85,6 +85,7 @@ class Cloud:
     # the session spans separate boot, run and teardown calls. Cancelled
     # in `close`. The runner is bare asyncio until nixidae/nixidae#949.
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    _ending: set[str] = field(default_factory=set)
 
     async def handle(self, caller: str | None, op: str, args: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         """Answer one API call from guest *caller*: an HTTP status and a body."""
@@ -163,19 +164,35 @@ class Cloud:
         return self.session.vms_up[instance_id]
 
     async def terminate(self, instance_id: str) -> None:
-        """End an instance whatever its state; a pending one never boots."""
+        """End an instance whatever its state; a pending one never boots.
+
+        Once: a second call, such as an API delete while the notice ends the
+        instance, waits for the first. Two reached `Session.terminate`, and
+        the second raised KeyError for a guest the first had removed.
+        """
         instance = self.instances[instance_id]
-        task = self._tasks.pop(instance_id, None)
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        # A boot cancelled partway may hold ports and a `Machine` already.
-        if self.session.holds(instance_id):
-            await self.session.terminate(instance_id)
-        instance.state = State.TERMINATED
-        instance.settled.set()
-        instance.ended.set()
+        if instance_id in self._ending or instance.ended.is_set():
+            await instance.ended.wait()
+            return
+        self._ending.add(instance_id)
+        try:
+            # The notice's own task takes itself out first, so this never cancels the caller.
+            notice = self._tasks.pop(f"{instance_id}/notice", None)
+            if notice is not None:
+                notice.cancel()
+            task = self._tasks.pop(instance_id, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            # A boot cancelled partway may hold ports and a `Machine` already.
+            if self.session.holds(instance_id):
+                await self.session.terminate(instance_id)
+            instance.state = State.TERMINATED
+            instance.settled.set()
+            instance.ended.set()
+        finally:
+            self._ending.discard(instance_id)
 
     async def wait_ended(self, instance_id: str, timeout: float = 300) -> None:
         """Until *instance_id* is terminated: by a call, a phase, or the end of its notice."""
@@ -192,6 +209,7 @@ class Cloud:
 
         async def end() -> None:
             await asyncio.sleep(seconds)
+            self._tasks.pop(f"{instance_id}/notice", None)
             await self.terminate(instance_id)
 
         self._tasks[f"{instance_id}/notice"] = asyncio.ensure_future(end())

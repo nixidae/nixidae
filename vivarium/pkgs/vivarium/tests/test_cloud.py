@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from http import HTTPStatus
 
+import anyio
+
 from vivarium.cloud import Cloud, State
 
 
@@ -18,6 +20,10 @@ class FakeSession:
         self.release = asyncio.Event()
         self.release.set()
         self.started = asyncio.Event()
+        self.terminations = 0
+        self.terminating = anyio.Event()
+        self.shut_down = anyio.Event()
+        self.shut_down.set()
 
     async def launch(self, template: str, name: str, user_data: str | None) -> object:
         self.up[name] = None
@@ -31,7 +37,11 @@ class FakeSession:
         return name in self.up
 
     async def terminate(self, name: str) -> None:
+        self.terminating.set()
+        # The real one waits on the guest's shutdown before it lets go of the name.
+        await self.shut_down.wait()
         del self.up[name]
+        self.terminations += 1
 
 
 def _cloud() -> tuple[Cloud, FakeSession]:
@@ -104,5 +114,30 @@ def test_a_notice_is_visible_and_ends_the_instance() -> None:
         assert (await cloud.handle(body["id"], "self", {}))[1]["notice"] is not None
         await cloud.wait_ended(body["id"], timeout=5)
         assert session.up == {}
+
+    asyncio.run(main())
+
+
+def test_a_terminate_while_the_notice_ends_it_ends_it_once() -> None:
+    """The provisioner deletes a noticed instance as its notice ends: two terminations raced, and the second raised KeyError."""
+
+    async def main() -> None:
+        cloud, session = _cloud()
+        _, body = await cloud.handle(None, "launch", {"template": "worker"})
+        await cloud.wait_running(body["id"], timeout=5)
+        session.shut_down = anyio.Event()
+        await cloud.interrupt(body["id"], 0)
+        await session.terminating.wait()
+        answers: list[int] = []
+
+        async def delete() -> None:
+            answers.append((await cloud.handle(None, "terminate", {"id": body["id"]}))[0])
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(delete)
+            await anyio.wait_all_tasks_blocked()
+            session.shut_down.set()
+        await cloud.close()
+        assert (answers, session.terminations, session.up) == ([HTTPStatus.ACCEPTED], 1, {})
 
     asyncio.run(main())
