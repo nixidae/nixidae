@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from .display import Button
 from .forward import ForwardError
-from .machine import Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Systems
+from .machine import GuestTimeout, Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Systems
 from .net import Lan, SegmentError
 
 __all__ = [
     "Button",
     "ForwardError",
+    "GuestTimeout",
     "Interface",
     "Lan",
     "LaunchSpec",

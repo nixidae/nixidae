@@ -12,7 +12,7 @@ guests behind a router, where each has its own address.
 from __future__ import annotations
 
 import anyio
-from vivarium_runner import Machines
+from vivarium_runner import GuestTimeout, Machines
 
 GATEWAY = "10.0.2.2"
 
@@ -41,6 +41,16 @@ async def test(vms: Machines) -> None:
     await server.succeed(f"ping -c2 {client.ip}")
     await client.succeed(f"ping -c2 {server.ip}")
     print("[test] both directions ping")
+
+    try:
+        await server.execute("sleep 60 >/dev/null 2>&1 & echo $!; exec sleep 60 >/dev/null", timeout=1)
+    except GuestTimeout as error:
+        child = int(str(error).rpartition("\n")[2])
+    else:
+        raise AssertionError("a command past its timeout returned")
+    if child in {p["pid"] for p in await server.processes()}:
+        raise AssertionError(f"pid {child} outlived the command that timed out")
+    print("[test] a command past its timeout raises GuestTimeout, and its child is gone")
 
     await server.wait_for_unit("sshd.service")
     failed = await server.execute("systemctl --failed --no-legend")

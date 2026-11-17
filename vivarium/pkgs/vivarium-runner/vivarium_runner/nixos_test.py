@@ -29,7 +29,7 @@ import anyio.from_thread
 import anyio.to_thread
 
 from . import display
-from .machine import Machine as Guest
+from .machine import GuestTimeout, Machine as Guest
 
 type Duration = float | timedelta | None
 """A wait or key delay as nixos-test takes it: seconds, a timedelta, or None."""
@@ -111,7 +111,11 @@ class Machine:
             "export USER=root HOME=/root; source /etc/profile >/dev/null 2>&1; "
             f"exec 2>/dev/console; set -euo pipefail; {command}"
         )
-        return self._call(self._guest.execute, wrapped, timeout=_seconds(timeout))
+        try:
+            return self._call(self._guest.execute, wrapped, timeout=_seconds(timeout))
+        except GuestTimeout as error:
+            # nixos-test runs the command under `timeout`, which exits 124.
+            return 124, str(error)
 
     def succeed(self, *commands: str, timeout: Duration = None) -> str:
         output = ""

@@ -277,6 +277,11 @@ class MachineError(Exception):
     """A guest failed to boot, or a command in it did not do as told."""
 
 
+class GuestTimeout(MachineError):
+    """A command or agent call ran past its own timeout in the guest. The
+    guest killed it, and still answers."""
+
+
 @dataclass(frozen=True)
 class Interface:
     """One of `vivarium.interfaces`: a link to a segment, named in the guest."""
@@ -1183,16 +1188,26 @@ class Machine:
         *outcome* turns the reply into what the command's event carries,
         so a reader of `events.jsonl` sees how a command ended, not only
         that it ran.
+
+        A `TimeoutError` that *call* raises is the guest's own timeout,
+        not silence: it becomes `GuestTimeout`.
         """
         started = time.monotonic()
         data: dict[str, object] = {}
+        deadline: anyio.CancelScope | None = None
         try:
-            with anyio.fail_after(timeout):
+            with anyio.fail_after(timeout) as deadline:
                 result = await call
             if outcome is not None:
                 data = outcome(result)
             return result
-        except TimeoutError:
+        except TimeoutError as error:
+            if deadline is None or not deadline.cancelled_caught:
+                # `args`, not `str`: rpyc rebuilds an OSError as
+                # "[Errno None] None: None -> None" plus the remote traceback.
+                said = str(error.args[0]) if error.args else "timed out"
+                data = {"error": f"timed out in the guest: {said}"[:OUTPUT_LIMIT]}
+                raise GuestTimeout(f"[{self.name}] {what}: {said}") from None
             data = {"error": "the guest stopped answering"}
             raise MachineError(
                 f"[{self.name}] guest stopped answering during: {what}\n{self._console_tail()}"
@@ -1831,7 +1846,12 @@ class Machine:
 
         async def succeeded() -> str | None:
             nonlocal out
-            rc, out = await self.execute(command)
+            try:
+                rc, out = await self.execute(command)
+            except GuestTimeout as error:
+                # One slow attempt: the wait goes on, as after an exit 1.
+                out = str(error)
+                return None
             return out if rc == 0 else None
 
         async def last() -> str:
@@ -1842,7 +1862,8 @@ class Machine:
     async def wait_until_fails(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
         """Run *command* in the guest until it exits non-zero; return its output.
 
-        A withdrawal: a route that goes, a peer that stops answering.
+        A withdrawal: a route that goes, a peer that stops answering. An
+        attempt that times out raises `GuestTimeout`: it did not exit.
         """
 
         async def failed() -> str | None:

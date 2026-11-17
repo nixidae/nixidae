@@ -228,7 +228,7 @@ class ConsoleControl:
                     return result
             except TimeoutError:
                 await self._recover()
-                raise
+                raise TimeoutError(f"ran past its {timeout:g}s timeout; the console got an interrupt") from None
 
     async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
         if env:

@@ -410,6 +410,10 @@ await vms.until("BGP up", lambda vm: up_on(vm), 90)  # every guest at once
 - At the timeout, `until` raises `MachineError`. Pass `evidence=` (an
   async function that returns text), and the error holds what it says.
 - `never` always takes its whole timeout when it passes.
+- A command past its own timeout raises `GuestTimeout`, a `MachineError`.
+  The guest kills the command's process group, children included.
+  `wait_until_succeeds` counts the attempt as failed and goes on.
+  `wait_until_fails` raises it: a command that timed out did not exit.
 - `vms.until` takes a check that gets the guest. `machines=` limits it to
   some guests. Its error names each guest that did not come good.
 - Each wait is one step in `report.json`.

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping
 import anyio
 import pytest
 from vivarium_runner import Machine, Machines, report
-from vivarium_runner.machine import MachineError
+from vivarium_runner.machine import GuestTimeout, MachineError
 
 FAST = 0.01
 
@@ -39,6 +39,8 @@ class Polled(Machine):
         env: Mapping[str, str] | None = None,
     ) -> tuple[int, str]:
         rc = await self.state()
+        if isinstance(rc, GuestTimeout):
+            raise rc
         if not isinstance(rc, int):
             raise TypeError(rc)
         return rc, f"rc {rc}"
@@ -144,6 +146,36 @@ def test_wait_until_succeeds_returns_the_succeeding_output() -> None:
 
     assert run(main) == "rc 0"
     assert vm.asked == 3
+
+
+def test_wait_until_succeeds_goes_on_past_an_attempt_that_timed_out() -> None:
+    vm = Polled("one", [GuestTimeout("[one] curl: ran past its 1s timeout"), 0])
+
+    async def main() -> str:
+        return await vm.wait_until_succeeds("curl http://up", timeout=5, poll=FAST)
+
+    assert run(main) == "rc 0"
+    assert vm.asked == 2
+
+
+def test_wait_until_succeeds_gives_the_timed_out_attempt_at_the_deadline() -> None:
+    vm = Polled("one", [GuestTimeout("[one] curl: ran past its 1s timeout")])
+
+    async def main() -> str:
+        return await vm.wait_until_succeeds("curl http://up", timeout=0.05, poll=FAST)
+
+    with pytest.raises(MachineError, match=r"not reached within 0s:\n\[one\] curl: ran past its 1s timeout$"):
+        run(main)
+
+
+def test_wait_until_fails_takes_no_timeout_for_a_failure() -> None:
+    vm = Polled("one", [GuestTimeout("[one] ping: ran past its 1s timeout")])
+
+    async def main() -> str:
+        return await vm.wait_until_fails("ping -c 1 10.0.0.1", timeout=5, poll=FAST)
+
+    with pytest.raises(GuestTimeout):
+        run(main)
 
 
 def test_wait_until_succeeds_gives_the_last_output_at_the_deadline() -> None:
