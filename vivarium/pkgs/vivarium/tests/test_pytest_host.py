@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from vivarium.pytest_host import (
+    Measure,
     Want,
+    absolute,
     batch_key,
     batches,
     ends_after,
@@ -120,6 +123,28 @@ def test_a_guest_name_must_be_a_string(pytester: Pytester) -> None:
     [item] = pytester.getitems('import pytest\n@pytest.mark.vivarium("x", guest=3)\ndef test_x(): pass\n')
     with pytest.raises(pytest.UsageError, match="guest's name"):
         Want.of(item)
+
+
+def test_a_node_id_names_its_test_from_any_directory(tmp_path: Path) -> None:
+    assert absolute(tmp_path, "tests/test_x.py::TestA::test_b[1]") == f"{tmp_path}/tests/test_x.py::TestA::test_b[1]"
+    assert absolute(tmp_path, "test_x.py") == f"{tmp_path}/test_x.py"
+
+
+def test_the_guest_measures_what_the_host_measures(tmp_path: Path) -> None:
+    measure = Measure(tmp_path / ".coverage", ("pkg", "other"), True, ".coveragerc")
+    assert measure.worker_args("/artifacts/pytest/b.coverage") == [
+        "--coverage",
+        "/artifacts/pytest/b.coverage",
+        "--cov-config",
+        ".coveragerc",
+        "--cov-branch",
+        "--cov-source",
+        "pkg",
+        "--cov-source",
+        "other",
+    ]
+    # A bare --cov measures everything: no source at all.
+    assert "--cov-source" not in Measure(tmp_path / ".coverage", None, False, ".coveragerc").worker_args("f")
 
 
 def test_the_python_must_come_from_the_store() -> None:

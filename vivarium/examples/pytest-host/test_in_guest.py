@@ -14,6 +14,7 @@ from pathlib import Path
 
 import anyio
 import pytest
+from sample import where
 
 pytestmark = pytest.mark.vivarium("one", guest="vm", scope="module")
 
@@ -26,6 +27,12 @@ def flag() -> Path:
 def test_runs_in_the_guest_as_root() -> None:
     assert socket.gethostname() == "vm"
     assert os.getuid() == 0
+
+
+def test_runs_project_code() -> None:
+    # Only here: with --cov, its lines count only if the guest's data
+    # reached the host.
+    assert where() == "in a guest"
 
 
 def test_sees_the_project_at_its_own_path() -> None:

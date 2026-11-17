@@ -30,6 +30,9 @@ python3Packages.buildPythonPackage {
     python3Packages.pydantic
     # A phase may be a pytest run. See vivarium/pytest_plugin.py.
     python3Packages.pytest
+    # A test in a guest measures itself for the host's pytest-cov. See
+    # vivarium/pytest_worker.py.
+    python3Packages.coverage
   ];
 
   pythonImportsCheck = [ "vivarium" ];

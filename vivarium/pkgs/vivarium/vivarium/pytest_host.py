@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 import anyio
+import coverage
 import pytest
 from anyio.abc import SocketAttribute
 from anyio.from_thread import start_blocking_portal
@@ -187,6 +188,14 @@ def batches(items: list[pytest.Item]) -> dict[BatchKey, list[str]]:
     return grouped
 
 
+def absolute(rootdir: Path, nodeid: str) -> str:
+    """A node id that names the same test from any directory: pytest
+    reads a node id's path from where it starts, and the id is the
+    rootdir's."""
+    path, sep, rest = nodeid.partition("::")
+    return f"{rootdir / path}{sep}{rest}"
+
+
 def store_root(path: str) -> str:
     """The store path a file belongs to: `/nix/store/<hash>-<name>`."""
     parts = Path(path).parts
@@ -204,6 +213,39 @@ def project_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
     if name in SKIP or name.startswith("result") or not (info.isfile() or info.isdir() or info.issym()):
         return None
     return info
+
+
+@dataclass(frozen=True)
+class Measure:
+    """pytest-cov's measurement, which a test in a guest repeats there.
+
+    Read from pytest-cov's options, not its objects. The guest's data
+    file goes beside `data_file` as a parallel file, and pytest-cov's
+    own combine at the end merges it with the host's."""
+
+    data_file: Path
+    sources: tuple[str, ...] | None
+    branch: bool
+    config: str
+
+    @classmethod
+    def of(cls, config: pytest.Config) -> Measure | None:
+        if not config.pluginmanager.hasplugin("_cov") or config.getoption("no_cov", default=False):
+            return None
+        raw: list[str | bool] = config.getoption("cov_source", default=[]) or []
+        # As pytest-cov reads it: a bare --cov measures everything.
+        sources = None if True in raw else tuple(source for source in raw if isinstance(source, str))
+        file = str(config.getoption("cov_config", default=".coveragerc"))
+        data_file = Path(coverage.Coverage(config_file=file).config.data_file).absolute()
+        return cls(data_file, sources, bool(config.getoption("cov_branch", default=False)), file)
+
+    def worker_args(self, data_file: str) -> list[str]:
+        args = ["--coverage", data_file, "--cov-config", self.config]
+        if self.branch:
+            args.append("--cov-branch")
+        for source in self.sources or ():
+            args += ["--cov-source", source]
+        return args
 
 
 @dataclass
@@ -245,6 +287,11 @@ class Driver:
         self.runs: dict[tuple[str, str], Run] = {}
         self.rootdir = config.rootpath
         self.inifile = config.inipath
+        # The guest's pytest starts where this one did, so a relative --cov
+        # or --cov-config means the same there; the project holds only the rootdir.
+        here = Path.cwd()
+        self.cwd = here if here.is_relative_to(self.rootdir) else self.rootdir
+        self.coverage = Measure.of(config)
         self.batches: dict[BatchKey, list[str]] = {}
         self.results: dict[BatchKey, dict[str, list[dict[str, Any]]]] = {}
         self.prepared: set[tuple[Path, str]] = set()
@@ -360,21 +407,26 @@ class Driver:
 
     def _run_batch(self, run: Run, guest: str, nodeids: list[str]) -> dict[str, list[dict[str, Any]]]:
         host = self._prepare(run, guest)
-        name = f"reports-{time.time_ns()}.jsonl"
+        stem = f"batch-{time.time_ns()}"
+        name = f"{stem}.jsonl"
+        worker = [sys.executable, "-m", "vivarium.pytest_worker", f"{GUEST_ARTIFACTS}/pytest/{name}"]
+        if self.coverage is not None:
+            worker += self.coverage.worker_args(f"{GUEST_ARTIFACTS}/pytest/{stem}.coverage")
         args = ["--rootdir", str(self.rootdir), "-q"]
         if self.inifile is not None:
             args += ["-c", str(self.inifile)]
-        command = shlex.join(
-            [sys.executable, "-m", "vivarium.pytest_worker", f"{GUEST_ARTIFACTS}/pytest/{name}", "--", *args, *nodeids]
-        )
+        command = shlex.join([*worker, "--", *args, *(absolute(self.rootdir, nodeid) for nodeid in nodeids)])
         code, output = self._remote(
             run,
             "call",
             guest,
             "execute",
-            (f"cd {shlex.quote(str(self.rootdir))} && PYTHONDONTWRITEBYTECODE=1 {command}",),
+            (f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command}",),
             {"timeout": GUEST_TIMEOUT},
         )
+        if self.coverage is not None and (measured := host / f"{stem}.coverage").exists():
+            # Beside pytest-cov's own data file, as a parallel file: its combine merges it.
+            shutil.copyfile(measured, f"{self.coverage.data_file}.vivarium-{guest}-{stem}")
         reports: dict[str, list[dict[str, Any]]] = {}
         path = host / name
         for line in path.read_text().splitlines() if path.exists() else []:
