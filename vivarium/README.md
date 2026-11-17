@@ -31,7 +31,8 @@ vivarium is where the nixidae keep their guests.
 
 ## Requirements
 
-- Linux on x86_64, with Nix.
+- Linux on x86_64, with Nix. On macOS, krun guests run behind a router
+  guest ([docs/howto.md](docs/howto.md#run-a-test-on-macos)).
 - User namespaces. vivarium checks for them first and stops with a clear
   message if they are missing.
 - `/dev/kvm` only for QEMU guests.
@@ -57,10 +58,13 @@ to `result/`.
 A test is a set of guests and a set of phases. A phase is a Python file
 with one coroutine. Nix orders the phases.
 
+`vivarium` here is this repository's `lib`. Inside nixidae it is
+`(import sources.vivarium { inherit pkgs sources; }).lib`;
+[docs/getting-started.md](docs/getting-started.md) imports it from
+outside.
+
 ```nix
-let
-  vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
-in
+{ pkgs, vivarium }:
 vivarium.mkTest {
   name = "hello";
 
@@ -217,6 +221,8 @@ ci/                  the GitHub Actions workflows, written in Nix
 
 ## Read more
 
+- [docs/getting-started.md](docs/getting-started.md): a first test of
+  your own, outside this repository.
 - [docs/howto.md](docs/howto.md): what to type to run a test, wait for
   it, reach into a paused run, and fix a test against live guests.
 - [docs/reference.md](docs/reference.md): how a run behaves, the

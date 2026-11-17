@@ -34,8 +34,9 @@ Copy a line as it is. The paths are absolute, so the command works from
 any directory and needs nothing on `PATH`. `<out>/run.json` holds the same
 lines. In the rest of this file, `vivarium` is the CLI in
 `packages.vivarium`, on `PATH` in the dev shell of each project that runs
-vivarium tests. It is built on huggorm and takes `ctl` and `monitor` as
-the runner does. The package also holds `vivarium-mcp` and an agent
+vivarium tests. Without such a shell, `nix run --file . packages.vivarium --`
+in a checkout of vivarium runs it. It is built on huggorm and takes `ctl`
+and `monitor` as the runner does. The package also holds `vivarium-mcp` and an agent
 skill, `share/skills/vivarium/vivarium`.
 
 ## Run a test on macOS
