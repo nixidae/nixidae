@@ -366,7 +366,9 @@ let
       # project's leftovers becomes its own warning.
       basetemp="$(mktemp -d)"
       trap 'rm --recursive --force "$basetemp"' EXIT
-      python -m pytest --basetemp="$basetemp" -o pythonpath="dinit-client/src tui/src" \
+      # Absolute: pytest resolves `pythonpath` against its rootdir, which
+      # dinit-client/pyproject.toml makes dinit-client/.
+      python -m pytest --basetemp="$basetemp" -o pythonpath="$PWD/dinit-client/src $PWD/tui/src" \
         dinit-client/tests tui/tests "$@"
     '';
   };
