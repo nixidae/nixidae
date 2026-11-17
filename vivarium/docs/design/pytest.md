@@ -182,7 +182,73 @@ each `pytest`.
 
    The cold run is about 19 s a scenario: `vivarium up` (evaluate,
    build check, boot) and `vivarium down`.
-2. `pytestCheck`: the same suite sandboxed with prebuilt specs.
-3. The warm pool.
-4. Tests in a guest, through execnet. Try it on pynixd's root suite.
-5. QEMU forked guests: a prototype that measures clone start.
+
+## Direction after slice 1 (User, 2026-11-17)
+
+User sees the plugin as pytest-xdist with isolation: vivarium supplies a
+deterministic userspace and a box per test, and pytest stays as
+expressive per test as it is. Exploratory; take ideas from pytest and
+its plugins.
+
+**Two ways a test meets a guest.**
+
+- *It drives guests* (slice 1): the test runs on the host, and the
+  guests are fixtures.
+- *It runs in a guest*: pytest-forked's pattern, with a guest where
+  pytest-forked has a forked process. A marker sends the item to a
+  worker in a guest. The worker runs the item's whole protocol there
+  (fixtures, the test, teardown) and sends pytest's own serialised
+  reports back (`pytest_report_to_serializable`, as xdist does). The
+  host relays them from `pytest_runtest_protocol`, so `-k`, `--lf`,
+  `-x` and every reporter see an ordinary test. The guest reads the
+  host's store, and the project directory is shared at the same
+  absolute path: the worker is the dev shell's own Python, imports
+  match, and so do source paths.
+
+**A marker says what box a test needs**, per test, class or module:
+which machine, and whether a guest another test used will do (`dirty`)
+or it needs one no test touched (`clean`). Marker names are
+identifiers, so it is `vivarium(...)` with keywords, not
+`vivarium.clean`.
+
+**A pool in the run.** The run keeps spare booted guests from its
+templates (the cloud API's `launch` and `terminate`, #1408).
+`machines.sock` gains `acquire(template, clean)` and `release(name,
+dirty)`. A function-scoped fixture is then an `acquire` and a
+`release`, with no boot in the test's time while the pool has a spare.
+
+**A Python-init guest.** For a test that needs a kernel and a clean
+userspace but no services: a kernel, the host's store, and Python as
+PID 1. It mounts `/proc`, `/sys`, `/dev` and the project share, reaps
+children, and serves the worker over the agent channel. No NixOS
+system, no systemd. A busybox guest of the same shape booted in 1.0 s on
+UML and 1.2-1.5 s on krun (router lab E1-E3), against 7.6-8.2 s for
+NixOS. With a pool, a clean box per test is then the cheap default.
+Tests that need services (pynixd's daemon, a cluster) keep NixOS
+guests.
+
+**Coverage.** coverage.py in the worker, in parallel mode, writes
+`.coverage.<suffix>` into the shared project directory. The paths are
+the host's, so pytest-cov's combine merges guest and host data with no
+path remapping.
+
+**Transport: arpyc throughout.** It already carries the agent channel
+and `machines.sock`; one protocol, one round trip a call. In a NixOS
+guest the agent starts the worker; in a Python-init guest the worker is
+PID 1 and speaks on the channel the agent would. execnet is not needed:
+the store and the project share replace its code shipping.
+
+## Order of work
+
+1. Done: drive guests from host tests (above).
+2. Done: `lib.pytestCheck`. The plugin moved to the runner's package
+   (`vivarium.pytest_host`, no huggorm), so the sandbox's Python needs
+   no nanopynix. Under `VIVARIUM_RUNS` it starts each run from a built
+   `.up` and waits for `ready` with the runner's own `watch`; it stops a
+   run with the control socket's `stop` in every mode.
+   `checks.pytest-host`: 4 passed in 22.4 s in the sandbox.
+3. Run a test in a guest: the marker, the worker over the agent, report
+   relay, the project share, coverage. NixOS guests first.
+4. The Python-init guest. Measure boot to a ready worker.
+5. The pool, the `clean`/`dirty` marker keyword, function-scoped boxes.
+6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.

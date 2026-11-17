@@ -286,6 +286,23 @@ async def test_fresh(vm):                  # the run's only guest
   per attribute then serves every scope. `vivarium down --out
   .vivarium/pytest/<attr>` ends it; do that after the machines change.
 - pytest itself runs as you. Only the run is in vivarium's namespace.
+- The plugin is `vivarium.pytest_host`, in the runner's own package. The
+  `env` above adds the `vivarium` CLI, which evaluates `vivarium_file`.
+
+The same suite as a sandboxed check, with every run built ahead:
+
+```nix
+checks.guests = vivarium.lib.pytestCheck {
+  name = "guests";
+  src = ./tests;                                  # where pytest runs
+  runs = import ./tests/machines.nix { };         # each attribute a mkTest
+};
+```
+
+In the sandbox nothing evaluates: the plugin starts each run from its
+built `.up`, which `pytestCheck` names in `VIVARIUM_RUNS`. As with a
+`mkTest`, `.attempt` keeps `log`, `junit.xml` and each run's `--out`
+under `runs/`. `checks.pytest-host` is `examples/pytest-host` this way.
 
 ## Look at a guest's screen and use it
 
