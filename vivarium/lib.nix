@@ -25,6 +25,11 @@
 }:
 let
   inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
+  # A check's builder: fails on its attempt's `status`, or links each
+  # `name=what` entry of the attempt into `$out`.
+  readVerdict =
+    attempt: entries:
+    "${pkgs.python3.interpreter} ${./nix/verdict.py} ${attempt} $out ${lib.escapeShellArgs entries}";
 in
 rec {
   inherit guestPkgs;
@@ -428,19 +433,13 @@ rec {
             fi
           '';
     in
-    pkgs.runCommand "vivarium-pytest-${name}" { passthru = { inherit attempt; }; } ''
-      echo "the run is at ${attempt}: log, junit.xml, runs/"
-      status=$(cat ${attempt}/status)
-      if [ "$status" != 0 ]; then
-        echo "--- the last 50 lines of ${attempt}/log ---"
-        tail -n 50 ${attempt}/log
-        echo "--- end ---"
-        echo "pytest failed (exit $status)" >&2
-        exit 1
-      fi
-      mkdir -p $out
-      ln -s ${attempt} $out/attempt
-    '';
+    pkgs.runCommand "vivarium-pytest-${name}" { passthru = { inherit attempt; }; } (
+      readVerdict attempt [
+        "log=pytest's output"
+        "junit.xml=one case per test"
+        "runs=each run's --out"
+      ]
+    );
 
   /**
     The address and key of `vivarium.recipes.cache`, for what a run renders
@@ -902,34 +901,15 @@ rec {
           config = checkedConfig;
         };
       }
-      ''
-        echo "the run is at ${attempt}"
-        echo "  log:       ${attempt}/log            everything, readable"
-        echo "  events:    ${attempt}/events.jsonl   everything, for a machine"
-        echo "  console:   ${attempt}/console/       one file per guest"
-        echo "  phases:    ${attempt}/phases.json    what each phase did"
-        echo "  junit:     ${attempt}/junit.xml"
-        echo "  timings:   ${attempt}/report.json"
-        echo "  artifacts: ${attempt}/artifacts"
-
-        status=$(cat ${attempt}/status)
-        if [ "$status" != 0 ]; then
-          echo
-          echo "--- the last 50 lines of ${attempt}/log ---"
-          tail -n 50 ${attempt}/log
-          echo "--- end ---"
-          echo
-          echo "the run failed (exit $status); the paths above hold what it left" >&2
-          exit 1
-        fi
-
-        mkdir -p $out
-        ln -s ${attempt} $out/attempt
-        # Named in a loop rather than one line each: a sink added to the
-        # runner should not need an edit here to be reachable from
-        # `result/`, and one that was forgotten is invisible.
-        for each in log events.jsonl console phases.json junit.xml report.json artifacts; do
-          ln -s ${attempt}/"$each" "$out/$each"
-        done
-      '';
+      (
+        readVerdict attempt [
+          "log=everything, readable"
+          "events.jsonl=everything, for a machine"
+          "console=one file per guest"
+          "phases.json=what each phase did"
+          "junit.xml=one case per test"
+          "report.json=timings"
+          "artifacts=what each guest wrote to /artifacts"
+        ]
+      );
 }
