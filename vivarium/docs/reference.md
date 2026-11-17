@@ -38,7 +38,7 @@ rather than a regex over a log:
 
 ```console
 $ jq -r 'select(.kind=="rpc") | "\(.phase)\t\(.seconds)\t\(.text)"' out/events.jsonl
-boot      0.147  systemctl is-system-running --wait
+boot      0.147  system_state
 cluster   0.009  exit 1
 ```
 
@@ -538,9 +538,11 @@ nodes.suse = {
 };
 ```
 
-Each guest kind is a module in `vivarium.kinds` (`appliance`, `image`,
-`routeros`, `sonic`, `vyos`). A guest imports the one it is. Two kinds on
-one guest conflict on `vivarium.kind`.
+Each guest kind is a module in `vivarium.kinds` (`appliance`, `dinix`,
+`image`, `routeros`, `sonic`, `vyos`). A guest imports the one it is. Two
+kinds on one guest conflict on `vivarium.kind`. `dinix` boots its own
+kernel under krun with dinit as PID 1 and no NixOS
+(`design/dinix-guests.md`).
 
 It is the distribution's userspace on our kernel: good for building and
 configuring on SUSE quickly, not for certifying anything.
