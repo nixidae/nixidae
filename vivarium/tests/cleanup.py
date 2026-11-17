@@ -23,10 +23,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Final, Literal
 
+PASST: Final = ("passt", "passt.avx2")
+"""passt execs `passt.avx2` on a CPU that has AVX2."""
+
 LEFT_BEHIND = {
-    "uml": ("linux", "uml-passt-bridge", "passt"),
-    "qemu": ("qemu-system-x86", "virtiofsd", "passt"),
-    "krun": ("vivarium-krun", "passt"),
+    "uml": ("linux", "uml-passt-bridg", *PASST),
+    "qemu": ("qemu-system-x86", "virtiofsd", *PASST),
+    "krun": ("vivarium-krun", *PASST),
 }
 """The runner's own children per backend, by the name the kernel keeps:
 `comm`, cut at 15 bytes."""
