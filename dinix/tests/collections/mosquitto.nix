@@ -25,11 +25,9 @@ let
   # Retained, so one check publishes and a later one reads it back without a
   # subscriber waiting in the background.
   publish =
-    instance: value:
-    "${pub} -h 127.0.0.1 -p ${toString instance.port} -t dinix/marker -m ${value} -r";
+    instance: value: "${pub} -h 127.0.0.1 -p ${toString instance.port} -t dinix/marker -m ${value} -r";
 
-  read =
-    instance: "${sub} -h 127.0.0.1 -p ${toString instance.port} -t dinix/marker -C 1 -W 5";
+  read = instance: "${sub} -h 127.0.0.1 -p ${toString instance.port} -t dinix/marker -C 1 -W 5";
 in
 {
   system.services.mosquitto-main = {

@@ -9,11 +9,13 @@
 #            the volume has to.
 #
 #   nix run --file ./dev.nix examples.features.logs
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 let
   # dinit expands this when it loads the service, so the same store
   # configuration writes wherever DINIX_STATE_DIR points. See service-lib.nix.
-  stateDir = (import ../../service-lib.nix).stateDir;
+  inherit ((import ../../service-lib.nix)) stateDir;
 
   chatty =
     name:

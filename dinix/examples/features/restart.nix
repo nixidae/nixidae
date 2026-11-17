@@ -8,7 +8,9 @@
 #                        service stays stopped.
 #
 #   nix run --file ./dev.nix examples.features.restart
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 import ../.. {
   inherit pkgs;
   modules = [

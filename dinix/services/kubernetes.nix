@@ -17,7 +17,14 @@
 # template dinit expands, and a kubeconfig names paths under it. So
 # kubernetes-init writes both once, with openssl. That makes this one of the
 # rare ports whose closure carries a shell; see PORTING.md.
-{ kubernetes, etcd, kwok, openssl, bash, coreutils }:
+{
+  kubernetes,
+  etcd,
+  kwok,
+  openssl,
+  bash,
+  coreutils,
+}:
 
 {
   config,

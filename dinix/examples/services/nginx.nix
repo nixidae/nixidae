@@ -8,7 +8,9 @@
 #   nix run --file ./dev.nix examples.services.nginx
 #
 # Then browse http://127.0.0.1:8080/.
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 let
   # Content to serve. A store path like any other, so nginx reads it without
   # anything being made.

@@ -100,7 +100,10 @@ let
   tui = pkgs.callPackage ./tui/package.nix { inherit dinitClient; };
 
   # The option reference, rendered from the doc comments in options.nix.
-  docs = import ./docs { inherit pkgs; modules = [ ./demo.nix ]; };
+  docs = import ./docs {
+    inherit pkgs;
+    modules = [ ./demo.nix ];
+  };
 
   # A runnable example. The file evaluates to a dinix configuration; this wraps
   # it in a shell script that starts dinit from its tuiWrapper on a fresh
@@ -244,53 +247,55 @@ let
   # this proves the wire format, the native struct sizes, the events and the
   # reload path against dinit itself. dinit runs from an unbaked package so the
   # check, not a wrapper, chooses the service directory.
-  dinitClientIntegration = pkgs.runCommand "dinit-client-integration"
-    {
-      nativeBuildInputs = [
-        (pkgs.python3.withPackages (ps: [
-          ps.anyio
-          ps.pytest
-          dinitClient
-        ]))
-      ];
-      DINIT_CLIENT_TEST_DINIT = lib.getExe' clientInstanceA.config.package "dinit";
-      DINIT_CLIENT_TEST_INSTANCE_A = "${clientInstanceA.config.configDir}";
-      DINIT_CLIENT_TEST_INSTANCE_B = "${clientInstanceB.config.configDir}";
-    }
-    ''
-      export HOME="$TMPDIR"
-      python -m pytest ${./dinit-client/tests}/test_real_dinit.py \
-        -o anyio_mode=auto -p no:cacheprovider
-      touch $out
-    '';
+  dinitClientIntegration =
+    pkgs.runCommand "dinit-client-integration"
+      {
+        nativeBuildInputs = [
+          (pkgs.python3.withPackages (ps: [
+            ps.anyio
+            ps.pytest
+            dinitClient
+          ]))
+        ];
+        DINIT_CLIENT_TEST_DINIT = lib.getExe' clientInstanceA.config.package "dinit";
+        DINIT_CLIENT_TEST_INSTANCE_A = "${clientInstanceA.config.configDir}";
+        DINIT_CLIENT_TEST_INSTANCE_B = "${clientInstanceB.config.configDir}";
+      }
+      ''
+        export HOME="$TMPDIR"
+        python -m pytest ${./dinit-client/tests}/test_real_dinit.py \
+          -o anyio_mode=auto -p no:cacheprovider
+        touch $out
+      '';
 
   # Drives the whole stack against a real dinit: the Textual pilot, the app,
   # the control client. Same two instances as the client's check, differing in
   # the line hello prints; a nix reload points the runtime pointer at B and a
   # restart proves the app adopted it.
-  tuiIntegration = pkgs.runCommand "tui-integration"
-    {
-      nativeBuildInputs = [
-        (pkgs.python3.withPackages (ps: [
-          ps.anyio
-          ps.pytest
-          ps.textual
-          dinitClient
-        ]))
-      ];
-      DINIX_TUI_TEST_DINIT = lib.getExe' clientInstanceA.config.package "dinit";
-      DINIX_TUI_TEST_INSTANCE_A = "${clientInstanceA.config.configDir}";
-      DINIX_TUI_TEST_INSTANCE_B = "${clientInstanceB.config.configDir}";
-      # withPackages drops a buildPythonApplication from PYTHONPATH (its
-      # pythonModule is false), so the app under test is named directly.
-      PYTHONPATH = lib.makeSearchPath pkgs.python3.sitePackages [ tui ];
-    }
-    ''
-      export HOME="$TMPDIR"
-      python -m pytest ${./tui/tests}/test_integration.py \
-        -o anyio_mode=auto -p no:cacheprovider
-      touch $out
-    '';
+  tuiIntegration =
+    pkgs.runCommand "tui-integration"
+      {
+        nativeBuildInputs = [
+          (pkgs.python3.withPackages (ps: [
+            ps.anyio
+            ps.pytest
+            ps.textual
+            dinitClient
+          ]))
+        ];
+        DINIX_TUI_TEST_DINIT = lib.getExe' clientInstanceA.config.package "dinit";
+        DINIX_TUI_TEST_INSTANCE_A = "${clientInstanceA.config.configDir}";
+        DINIX_TUI_TEST_INSTANCE_B = "${clientInstanceB.config.configDir}";
+        # withPackages drops a buildPythonApplication from PYTHONPATH (its
+        # pythonModule is false), so the app under test is named directly.
+        PYTHONPATH = lib.makeSearchPath pkgs.python3.sitePackages [ tui ];
+      }
+      ''
+        export HOME="$TMPDIR"
+        python -m pytest ${./tui/tests}/test_integration.py \
+          -o anyio_mode=auto -p no:cacheprovider
+        touch $out
+      '';
 
   # The Python tools below act on the working tree, not a store copy, so each
   # finds the repository root and works from any subdirectory. `jj root` first
@@ -604,12 +609,10 @@ let
     ]
     # Every example, evaluated, so a broken one fails CI rather than a user's
     # first run.
-    ++ map (
-      example: {
-        name = "example-${example.name}";
-        path = (import example.file { inherit pkgs; }).config.configDir;
-      }
-    ) flatExamples
+    ++ map (example: {
+      name = "example-${example.name}";
+      path = (import example.file { inherit pkgs; }).config.configDir;
+    }) flatExamples
     ++ lib.concatLists (
       lib.mapAttrsToList (
         name: modes:

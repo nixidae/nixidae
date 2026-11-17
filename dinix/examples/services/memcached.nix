@@ -8,7 +8,9 @@
 # `setuid` it cannot perform would only fail.
 #
 #   nix run --file ./dev.nix examples.services.memcached
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 import ../.. {
   inherit pkgs;
   modules = [

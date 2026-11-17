@@ -12,7 +12,11 @@
 # live in `configData` files rather than on the command line, because a dinit
 # service description is line-based and a multi-line `-c` argument would break
 # it.
-{ garage, bash, coreutils }:
+{
+  garage,
+  bash,
+  coreutils,
+}:
 
 {
   config,

@@ -4,7 +4,12 @@
 # mailhog is authored as a NixOS Modular Service. It keeps nothing on disk, so
 # there is no writable path beyond /run. See services/mailhog.nix and
 # PORTING.md.
-{ pkgs, config, lib, ... }:
+{
+  pkgs,
+  config,
+  lib,
+  ...
+}:
 let
   mailhogService = lib.modules.importApply ../../services/mailhog.nix {
     inherit (pkgs) mailhog;

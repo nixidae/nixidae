@@ -4,7 +4,12 @@
 # garage is authored as a NixOS Modular Service. It needs a shell, so this is
 # one of the rare ports whose image carries one. See services/garage.nix and
 # PORTING.md.
-{ pkgs, config, lib, ... }:
+{
+  pkgs,
+  config,
+  lib,
+  ...
+}:
 let
   garageService = lib.modules.importApply ../../services/garage.nix {
     garage = pkgs.garage_2;

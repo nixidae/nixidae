@@ -3,7 +3,12 @@
 #
 # meilisearch is authored as a NixOS Modular Service. See
 # services/meilisearch.nix and PORTING.md.
-{ pkgs, config, lib, ... }:
+{
+  pkgs,
+  config,
+  lib,
+  ...
+}:
 let
   meilisearchService = lib.modules.importApply ../../services/meilisearch.nix {
     inherit (pkgs) meilisearch coreutils;
@@ -15,9 +20,7 @@ let
 
   # The JSON body, not the status code: meilisearch answers both questions
   # with 200 and the answer is in the text.
-  get =
-    path:
-    "${curl} -s http://127.0.0.1:${toString main.listenPort}${path}";
+  get = path: "${curl} -s http://127.0.0.1:${toString main.listenPort}${path}";
 in
 {
   system.services.meilisearch-main = {

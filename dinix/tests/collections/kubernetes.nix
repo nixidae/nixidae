@@ -5,10 +5,22 @@
 # unprivileged ones: `user` runs the API server, etcd, the controllers, the
 # scheduler and kwok all as nobody, with no root and no privilege anywhere.
 # See services/kubernetes.nix and PORTING.md.
-{ pkgs, config, lib, ... }:
+{
+  pkgs,
+  config,
+  lib,
+  ...
+}:
 let
   kubernetesService = lib.modules.importApply ../../services/kubernetes.nix {
-    inherit (pkgs) kubernetes etcd kwok openssl bash coreutils;
+    inherit (pkgs)
+      kubernetes
+      etcd
+      kwok
+      openssl
+      bash
+      coreutils
+      ;
   };
 
   main = config.system.services.kubernetes.kubernetes;

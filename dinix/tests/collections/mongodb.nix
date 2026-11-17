@@ -24,8 +24,7 @@ let
   # --quiet drops the shell banner, and an eval prints just the value, so a
   # substring match means something.
   eval =
-    statement:
-    "${mongosh} --quiet --host 127.0.0.1 --port ${toString main.port} --eval '${statement}'";
+    statement: "${mongosh} --quiet --host 127.0.0.1 --port ${toString main.port} --eval '${statement}'";
 in
 {
   system.services.mongodb-main = {

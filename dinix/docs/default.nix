@@ -80,9 +80,9 @@ let
   };
 
   json = builtins.fromJSON (builtins.readFile "${doc.optionsJSON}/share/doc/nixos/options.json");
-  needsConfig = builtins.filter (
-    name: (json.${name}.default._type or "") == "literalMD"
-  ) (builtins.attrNames json);
+  needsConfig = builtins.filter (name: (json.${name}.default._type or "") == "literalMD") (
+    builtins.attrNames json
+  );
 in
 {
   inherit (doc) optionsCommonMark optionsJSON;

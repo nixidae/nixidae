@@ -17,7 +17,9 @@
 #   nix eval  --file ./examples/api/usage.nix config.configDir
 #   nix build --file ./examples/api/usage.nix config.configDir
 #   nix build --file ./examples/api/usage.nix config.containerWrapper
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 import ../.. {
   inherit pkgs;
   modules = [

@@ -8,7 +8,9 @@
 # through an environment variable holding the fd number.
 #
 #   nix run --file ./dev.nix examples.features.ready
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 import ../.. {
   inherit pkgs;
   modules = [

@@ -46,7 +46,9 @@ let
     }'";
 
   initSql =
-    lib.concatMapStrings (database: "CREATE DATABASE IF NOT EXISTS `${database.name}`;\n") cfg.initialDatabases
+    lib.concatMapStrings (
+      database: "CREATE DATABASE IF NOT EXISTS `${database.name}`;\n"
+    ) cfg.initialDatabases
     + lib.concatMapStrings (
       user:
       "CREATE USER IF NOT EXISTS ${quote user.name}@${quote user.host}"
@@ -316,7 +318,12 @@ in
         (lib.getExe dinix-unless)
         "${cfg.mysqlData}/mysql"
         (lib.getExe' coreutils "env")
-        "PATH=${lib.makeBinPath [ coreutils gnused ]}"
+        "PATH=${
+          lib.makeBinPath [
+            coreutils
+            gnused
+          ]
+        }"
         (lib.getExe' cfg.package "mariadb-install-db")
         "--defaults-file=${config.configData."my.cnf".path}"
         "--datadir=${cfg.mysqlData}"

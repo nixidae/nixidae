@@ -5,7 +5,9 @@
 #
 #   nix run --file ./dev.nix containers.nginx.copyToPodman
 #   podman run --rm -it -p 8080:8080 dinix-example-nginx:latest
-{ pkgs ? import <nixpkgs> { config.allowUnfree = true; } }:
+{
+  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+}:
 let
   site = pkgs.runCommand "dinix-nginx-container-site" { } ''
     mkdir $out
