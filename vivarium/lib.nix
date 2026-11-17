@@ -527,6 +527,19 @@ rec {
       ) (lib.attrValues nodes ++ lib.attrValues templates);
       unjoined = lib.filter (segment: !lib.elem segment joined) (lib.attrNames cfg.segments);
 
+      # A NixOS guest's toplevel checks its own assertions and warnings.
+      # A guest of another kind never builds one, so the run checks them.
+      unbuilt = lib.filter (node: node.vivarium.kind != "nixos") (
+        lib.attrValues nodes ++ lib.attrValues templates
+      );
+      guestAssertions = lib.concatMap (
+        node:
+        map (each: each // { message = "${node.networking.hostName}: ${each.message}"; }) node.assertions
+      ) unbuilt;
+      guestWarnings = lib.concatMap (
+        node: map (warning: "${node.networking.hostName}: ${warning}") node.warnings
+      ) unbuilt;
+
       failed = lib.filter (each: !each.assertion) (
         cfg.assertions
         ++ [
@@ -535,9 +548,13 @@ rec {
             message = "segments: no guest joins ${lib.concatStringsSep ", " unjoined}; an interface names its segment in vivarium.interfaces.<name>.segment.";
           }
         ]
+        ++ guestAssertions
       );
       checkedConfig =
-        if failed == [ ] then cfg else throw (lib.concatMapStringsSep "\n" (each: each.message) failed);
+        if failed == [ ] then
+          lib.showWarnings guestWarnings cfg
+        else
+          throw (lib.concatMapStringsSep "\n" (each: each.message) failed);
 
       inherit (checkedConfig) name;
 
