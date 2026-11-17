@@ -27,6 +27,6 @@ rustPlatform.buildRustPackage {
   meta = {
     description = "Creates the directories a dinit service tree needs, and nothing else";
     mainProgram = "dinix-init";
-    license = lib.licenses.mit;
+    license = lib.licenses.asl20;
   };
 }

@@ -7,7 +7,7 @@ name = "dinix-tui"
 version = "0.1.0"
 description = "A Textual TUI for dinit services managed by dinix"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "Apache-2.0"
 dependencies = [
   "anyio>=4.4",
   "textual>=8",

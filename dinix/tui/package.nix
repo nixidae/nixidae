@@ -33,7 +33,7 @@ python3Packages.buildPythonApplication {
 
   meta = {
     description = "A Textual TUI for dinit services managed by dinix";
-    license = lib.licenses.mit;
+    license = lib.licenses.asl20;
     mainProgram = "dinix-tui";
   };
 }

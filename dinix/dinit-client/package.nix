@@ -29,6 +29,6 @@ python3Packages.buildPythonPackage {
 
   meta = {
     description = "AnyIO client for the dinit control socket protocol";
-    license = lib.licenses.mit;
+    license = lib.licenses.asl20;
   };
 }

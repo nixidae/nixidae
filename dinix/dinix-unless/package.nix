@@ -25,6 +25,6 @@ rustPlatform.buildRustPackage {
   meta = {
     description = "Runs a program only when a marker path is absent, so a service initialises once without a shell";
     mainProgram = "dinix-unless";
-    license = lib.licenses.mit;
+    license = lib.licenses.asl20;
   };
 }
