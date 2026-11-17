@@ -348,6 +348,7 @@ let
       backend = "krun";
       description = "a dinix guest boots its own kernel under libkrun, with dinit as PID 1";
       timeoutMinutes = 20;
+      after = [ "direct-kernel" ];
     };
     k8s-krun = {
       test = "k8s";
@@ -369,6 +370,21 @@ let
         name = "Build the UML kernel";
         attrs = [ "packages.umlKernel" ];
         timeoutMinutes = 45;
+      })
+    ];
+  };
+
+  # A dinix guest's kernel, as `kernelJob` does the UML one. nixpkgs' whole
+  # config, so it gets its own job and a larger cap; the cache hands it on.
+  directKernelJob = job {
+    id = "direct-kernel";
+    timeoutMinutes = 180;
+    cond = selectable "direct-kernel";
+    steps = [
+      (steps.build {
+        name = "Build the dinix guest kernel";
+        attrs = [ "packages.directKernel" ];
+        timeoutMinutes = 170;
       })
     ];
   };
@@ -581,6 +597,7 @@ in
       checks = checksJob;
       sessions = sessionJob;
       kernel = kernelJob;
+      direct-kernel = directKernelJob;
       test-k8s-pull = pullJob;
       test-container = containerJob;
     }

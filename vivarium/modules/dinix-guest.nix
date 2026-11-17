@@ -211,6 +211,8 @@ in
     # The store is virtiofs, which serves a file as the guest user that
     # made it: see modules/qemu.nix.
     vivarium.requiredSystemFeatures = [ "uid-range" ];
+    # For CI's kernel job (`packages.directKernel`).
+    system.build.dinixKernel = kernel;
     vivarium.launch.config.boot = lib.mkIf krun {
       inherit vmlinux cmdline;
       acpi = pkgs.stdenv.hostPlatform.isx86_64;

@@ -205,6 +205,8 @@ in
     # CI builds it once on its own and lets the cache hand it to the test
     # jobs.
     umlKernel = k8sConfig.system.build.umlKernel;
+    # The same for a dinix guest's kernel: nixpkgs' whole config, so longer.
+    directKernel = tests.checks.dinix.nodes.box.system.build.dinixKernel;
     default = cli;
   };
   # A kubeadm node, for a guest of `lib.mkTest`, and the guest kinds.

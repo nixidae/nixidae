@@ -54,6 +54,56 @@ jobs:
       run: nix build --no-link --print-build-logs --keep-going --file . checks.check-scripts checks.check-python checks.check-k8s-images checks.check-k8s-config
       timeout-minutes: 20
     timeout-minutes: 30
+  direct-kernel:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',direct-kernel,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          cores = 4
+          experimental-features = nix-command flakes
+          max-jobs = 1
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        pushFilter: (-vivarium-test-)
+        useDaemon: false
+    - name: Build the dinix guest kernel
+      run: nix build --no-link --print-build-logs --keep-going --file . packages.directKernel
+      timeout-minutes: 170
+    timeout-minutes: 180
   kernel:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',kernel,'))
     runs-on: ubuntu-24.04
@@ -458,7 +508,9 @@ jobs:
       timeout-minutes: 35
     timeout-minutes: 45
   test-dinix:
-    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-dinix,'))
+    if: '!cancelled() && (needs.direct-kernel.result == ''success'' || needs.direct-kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-dinix,''))'
+    needs:
+    - direct-kernel
     runs-on: ubuntu-24.04
     steps:
     - timeout-minutes: 10
