@@ -196,6 +196,14 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    router-qemu = {
+      # `.qemu` puts the router on QEMU, with a vhost-user-vsock-pci device
+      # on the egress's socket.
+      test = "router";
+      backend = "qemu";
+      description = "guests behind a QEMU router guest";
+      timeoutMinutes = 30;
+    };
     router-krun = {
       # `.krun` puts the router on libkrun too, with libkrun's own vsock.
       test = "router";
