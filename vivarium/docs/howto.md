@@ -248,6 +248,45 @@ A sandboxed `nix build` of the same attribute never holds: it runs the
 phases and gives the verdict, so the check proves the environment comes
 up.
 
+## Drive guests from plain pytest
+
+`pytest` in a shell with `packages.vivarium-eval.env` on PATH loads
+vivarium's pytest plugin. A test names a `mkTest` attribute of the file
+in `vivarium_file`, and gets its guests as fixtures
+(`examples/pytest-host`):
+
+```ini
+# pytest.ini
+[pytest]
+vivarium_file = machines.nix
+```
+
+```python
+@pytest.mark.vivarium("pair")              # scope="class" by default
+class TestPair:
+    async def test_reach(self, vms):
+        await vms["a"].succeed("ping -c1 192.168.99.3")
+
+@pytest.mark.vivarium("one", scope="function")
+async def test_fresh(vm):                  # the run's only guest
+    assert await vm.get("uplink_ip") == "10.0.2.15"
+```
+
+- The scope is pytest's: `function`, `class`, `module` or `session`. The
+  plugin runs `vivarium up <attr> --file <vivarium_file>` for the first
+  test of a scope, and `vivarium down` after its last.
+- Each guest is a proxy of its `Machine`: every method is a coroutine,
+  one round trip to the run's `<out>/machines.sock`. `await vm.get(name)`
+  reads an attribute or property. Arguments and results are plain data.
+- A test that uses `vms` or `vm` is `async def`.
+- The runs are in `.vivarium/pytest/`, one `--out` each: `vivarium ctl`
+  and the MCP server reach them as any run.
+- `--vivarium-keep` leaves each run up, at `.vivarium/pytest/<attr>`, and
+  the next `pytest` takes it as it is: no evaluation, no boot. One run
+  per attribute then serves every scope. `vivarium down --out
+  .vivarium/pytest/<attr>` ends it; do that after the machines change.
+- pytest itself runs as you. Only the run is in vivarium's namespace.
+
 ## Look at a guest's screen and use it
 
 Give the guest a screen. It must be a QEMU guest:

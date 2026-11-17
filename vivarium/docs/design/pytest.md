@@ -160,10 +160,28 @@ is not tried.
 - A shared guest hides order dependencies between tests. A function
   scope (pooled or forked) is the honest default once it is fast.
 
-## Order of work, if wanted
+## Order of work
 
-1. The plugin with host-run tests, function and class scopes, machines
-   from a Nix file, evaluated through huggorm. Measure the cold run.
+User chose (2026-11-17): both front doors, host-run tests first, and
+the plugin as a *client* of a run in its own process, not a `Session`
+inside pytest. Inside, every test would be root of vivarium's user
+namespace, xdist workers would need care, and guests would die with
+each `pytest`.
+
+1. Done: `vivarium_eval.pytest_plugin`, a pytest11 entry point.
+   `vivarium up` starts a run per scenario and scope; the run serves
+   each guest's methods on `machines.sock` (`vivarium.remote`, arpyc);
+   tests get proxies. `--vivarium-keep` reuses runs across invocations.
+   `examples/pytest-host`, QEMU, two scenarios and four tests:
+
+   | run | time |
+   | --- | --- |
+   | cold, machines built | 37.8 s |
+   | `--vivarium-keep`, first | 36.8 s |
+   | `--vivarium-keep`, second | 0.46 s (tests 0.07 s) |
+
+   The cold run is about 19 s a scenario: `vivarium up` (evaluate,
+   build check, boot) and `vivarium down`.
 2. `pytestCheck`: the same suite sandboxed with prebuilt specs.
 3. The warm pool.
 4. Tests in a guest, through execnet. Try it on pynixd's root suite.
