@@ -29,6 +29,7 @@ pub const BUFFER: usize = 256 * 1024;
 /// data; yielding lets it queue the rest, so one read takes many packets.
 pub static YIELD_BEFORE_READ: AtomicBool = AtomicBool::new(false);
 const SHORT_READ: usize = 64 * 1024;
+const UNIX_BUFFER: libc::c_int = 1024 * 1024;
 
 /// `proto (1) | family (1) | address (16) | port (2, big-endian)`.
 pub fn encode(proto: u8, dst: SocketAddr) -> [u8; REQUEST_LEN] {
@@ -191,6 +192,20 @@ fn one_way(mut from: Stream, mut to: Stream) {
         }
     }
     to.shutdown(Shutdown::Write);
+}
+
+/// macOS gives an AF_UNIX stream 8 KiB each way
+/// (`net.local.stream.sendspace`), and the sender's buffer bounds the
+/// flow: a socketpair moves 14.5 Gbit/s, and 208.6 with 1 MiB on the
+/// sender. libkrun widens its end the same way. Linux starts at about
+/// 208 KiB and keeps its default.
+pub fn widen_unix(socket: &impl AsRawFd) -> io::Result<()> {
+    if cfg!(target_os = "macos") {
+        for name in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+            setsockopt(socket.as_raw_fd(), libc::SOL_SOCKET, name, &UNIX_BUFFER)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn setsockopt<T>(fd: i32, level: i32, name: i32, value: &T) -> io::Result<()> {

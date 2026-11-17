@@ -34,7 +34,7 @@ use vivarium_egress::vsock;
 
 use vivarium_egress::{
     ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, echo_reply, encode, family, owned,
-    pump, pump_map, socket, splice_both,
+    pump, pump_map, socket, splice_both, widen_unix,
 };
 
 /// Where a flow from the router goes on the host's side.
@@ -76,6 +76,7 @@ impl Outside {
 }
 
 fn flow(mut relay: UnixStream, outside: &Outside) -> io::Result<()> {
+    widen_unix(&relay)?;
     let mut raw = [0u8; REQUEST_LEN];
     relay.read_exact(&mut raw)?;
     let (proto, dst) = decode(&raw)?;
@@ -137,6 +138,7 @@ impl Router {
 
 fn forward(client: TcpStream, guest: SocketAddr, router: &Router) -> io::Result<()> {
     let mut relay = router.connect()?;
+    widen_unix(&relay)?;
     relay.write_all(&encode(TCP, guest))?;
     let mut status = [0u8; 1];
     relay.read_exact(&mut status)?;
