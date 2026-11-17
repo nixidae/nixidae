@@ -19,6 +19,7 @@ the views with the mount namespace.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import ctypes.util
 import os
@@ -26,6 +27,7 @@ import select
 import shutil
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 ENV = "VIVARIUM_RUN_ROOT"
@@ -116,6 +118,22 @@ def remove_own() -> None:
     root = os.environ.get(ENV)
     if root and not os.environ.get(KEEP):
         shutil.rmtree(root, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def exit_watch(pid: int) -> Iterator[int]:
+    """A descriptor that turns readable when *pid* exits: a pidfd on
+    Linux, a kqueue on macOS. ProcessLookupError when it is gone."""
+    if sys.platform == "linux":
+        pidfd = os.pidfd_open(pid)
+        try:
+            yield pidfd
+        finally:
+            os.close(pidfd)
+    else:
+        with contextlib.closing(select.kqueue()) as queue:
+            queue.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD, select.KQ_NOTE_EXIT)], 0)
+            yield queue.fileno()
 
 
 def spawn_cleaner(root: Path, remove_argv: list[str]) -> int:

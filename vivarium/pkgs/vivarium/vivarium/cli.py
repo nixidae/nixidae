@@ -811,19 +811,17 @@ async def _resumed(socket: Path) -> None:
 
 async def wait_for_exit(out: Path) -> bool:
     """Whether the run in `out` exited within `STOP_WAIT`: its pid from
-    `run.json`, through a pidfd, so the exit wakes this and nothing polls."""
+    `run.json`, through `runroot.exit_watch`, so the exit wakes this and
+    nothing polls."""
     about = RunFile.from_json(await anyio.Path(out / RUN_FILE).read_text())
     try:
-        pidfd = os.pidfd_open(about.pid)
+        with runroot.exit_watch(about.pid) as watch:
+            with anyio.move_on_after(STOP_WAIT):
+                await anyio.wait_readable(watch)
+                return True
+            return False
     except ProcessLookupError:
         return True
-    try:
-        with anyio.move_on_after(STOP_WAIT):
-            await anyio.wait_readable(pidfd)
-            return True
-        return False
-    finally:
-        os.close(pidfd)
 
 
 async def phases(args: argparse.Namespace) -> int:
