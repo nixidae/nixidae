@@ -581,6 +581,36 @@ each, two rounds a run, host load 7-13. The QEMU router's runs were at
 - Out of a guest the QEMU router is the fastest of the three.
 - `.qemu` puts the router on QEMU, as `.krun` puts it on krun.
 
+### A guest on vsock, with no router guest, 2026-11-17
+
+`vivarium.uplink.proxy = "vsock"`: the router's ruleset and relay in a
+network namespace in the guest, behind a veth pair whose guest end is
+`vec0`. The guest has passt's addresses; its egress binds its forwards.
+Kernel 7.2 has `net.vsock.ns_mode` and `child_ns_mode`, both `global`, so
+connect and listen work from the namespace.
+
+`LAB_ROUTED=vsock`, one run per backend, guest `routed` on vsock against
+guest `passt`, two rounds, host load 8-9:
+
+| backend | path | direction | vsock | passt |
+| --- | --- | --- | --- | --- |
+| UML | forward | host to guest | 15.0-15.2 Gbit/s | 20.3 Gbit/s |
+| UML | forward | guest to host | 20.3-21.5 Gbit/s | 19.3-20.6 Gbit/s |
+| UML | outbound | guest to host | 19.7-22.7 Gbit/s | 15.0-19.9 Gbit/s |
+| UML | outbound | host to guest | 13.8-15.1 Gbit/s | 17.6-19.9 Gbit/s |
+| QEMU | forward | host to guest | 15.9-17.2 Gbit/s | 10.7-15.3 Gbit/s |
+| QEMU | forward | guest to host | 35.2-39.4 Gbit/s | 3.8-14.6 Gbit/s |
+| QEMU | outbound | guest to host | 37.0-38.7 Gbit/s | 15.6-20.0 Gbit/s |
+| QEMU | outbound | host to guest | 17.8-18.3 Gbit/s | 16.7-17.6 Gbit/s |
+| krun | forward | host to guest | 19.0-19.1 Gbit/s | 5.6-13.0 Gbit/s |
+| krun | forward | guest to host | 37.2-37.9 Gbit/s | 8.0-8.3 Gbit/s |
+| krun | outbound | guest to host | 35.7-36.8 Gbit/s | 8.1-8.7 Gbit/s |
+| krun | outbound | host to guest | 19.0-19.3 Gbit/s | 19.3-19.5 Gbit/s |
+
+- On QEMU and krun the vsock uplink is the fastest measured: out of a
+  guest about twice passt on QEMU and four times on krun.
+- On UML it is faster out of the guest and slower into it.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives
