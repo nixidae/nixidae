@@ -101,7 +101,10 @@ rec {
     else if builtins.isList value then
       lib.concatMap pathsIn value
     else if builtins.isString value && builtins.hasContext value then
-      [ value ]
+      # closureInfo keeps only the leading store path of a root, so a command
+      # that names two (`…/bin/env …/bin/cgi-fcgi`) lost the second. A file
+      # holding the string references every path it names.
+      [ (if lib.isStorePath value then value else "${pkgs.writeText "vivarium-setting" value}") ]
     else
       [ ];
 
