@@ -32,8 +32,10 @@ use std::thread;
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
 use vivarium_egress::vsock;
 
+#[cfg(target_os = "linux")]
+use vivarium_egress::owned;
 use vivarium_egress::{
-    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, owned, pump,
+    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, pump, socket,
     splice_both,
 };
 
@@ -62,7 +64,7 @@ impl Outside {
     /// A socket of `kind` and `proto` connected to `dst`, bound first to
     /// the `--outbound` address of `dst`'s family if there is one.
     fn connect(&self, dst: SocketAddr, kind: i32, proto: i32) -> io::Result<OwnedFd> {
-        let fd = unsafe { owned(libc::socket(family(dst), kind | libc::SOCK_CLOEXEC, proto))? };
+        let fd = socket(family(dst), kind, proto)?;
         if let Some(ip) = self
             .outbound
             .iter()

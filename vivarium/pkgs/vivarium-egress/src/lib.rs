@@ -376,6 +376,22 @@ pub fn connect(fd: &OwnedFd, addr: SocketAddr) -> io::Result<()> {
     Ok(())
 }
 
+/// A socket closed on exec. macOS has no `SOCK_CLOEXEC`, so there the
+/// flag comes after: the egress starts no program.
+pub fn socket(domain: i32, kind: i32, proto: i32) -> io::Result<OwnedFd> {
+    #[cfg(target_os = "linux")]
+    let fd = unsafe { owned(libc::socket(domain, kind | libc::SOCK_CLOEXEC, proto))? };
+    #[cfg(not(target_os = "linux"))]
+    let fd = {
+        let fd = unsafe { owned(libc::socket(domain, kind, proto))? };
+        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        fd
+    };
+    Ok(fd)
+}
+
 /// # Safety
 /// `fd` must be a socket this process owns and nothing else closes.
 pub unsafe fn owned(fd: i32) -> io::Result<OwnedFd> {
