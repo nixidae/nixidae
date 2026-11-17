@@ -43,7 +43,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from . import container, forward, mconsole, qmp
+from . import container, forward, mconsole, qmp, unixpath
 from .lifetime import die_with_parent
 
 if TYPE_CHECKING:
@@ -486,7 +486,7 @@ def socket_dir(rundir: Path, name: str, fallback: str | None) -> tuple[Path, lis
 
     Returns the directory and whatever has to be removed afterwards.
     """
-    if len(str(rundir / name).encode()) < mconsole.UNIX_PATH_MAX:
+    if unixpath.fits(rundir / name):
         return rundir, []
     made = Path(tempfile.mkdtemp(prefix="vivarium-", dir=fallback or short_tmp()))
     return made, [made]
@@ -1460,8 +1460,7 @@ class Krun:
         if gvproxy is None:
             raise BackendError(f"{spec.name}: vivarium.launch.config has no gvproxy")
         sock = rundir / "gvproxy.sock"
-        # sun_path holds 108 bytes with the NUL.
-        if len(os.fsencode(sock)) > 107:
+        if not unixpath.fits(sock):
             raise BackendError(f"{spec.name}: gvproxy's socket path is too long for AF_UNIX: {sock}")
         forwards: dict[str, str] = {}
         for rule in rules:

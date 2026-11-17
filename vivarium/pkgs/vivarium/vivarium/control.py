@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 import anyio
 from pydantic import ValidationError
-from vivarium_runner import MachineError
+from vivarium_runner import MachineError, unixpath
 
 from .events import Kind, Level
 from .phases import PhaseState, ReloadRefused, Stop
@@ -308,15 +308,14 @@ async def _run(code: Any, namespace: dict[str, Any]) -> Any:
 
 @contextlib.contextmanager
 def reachable(path: Path) -> Iterator[str]:
-    """A name for the socket at `path` that fits in `sun_path`, 108 bytes
-    (104 on macOS).
+    """A name for the socket at `path` that fits in `sun_path`.
 
     `--out` can be deeper than that. `/proc/self/fd/<directory>/<name>` is
     the same file under a short name, and is needed only to bind and to
     connect: unlink and chmod take any length. macOS has no `/proc`, so
     there the short name goes through a symlink to the directory in /tmp.
     """
-    if len(os.fsencode(path)) < 100:
+    if unixpath.fits(path):
         yield str(path)
         return
     if sys.platform != "linux":

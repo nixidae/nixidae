@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import socket
 import struct
-import sys
 from pathlib import Path
 
 import anyio
@@ -45,12 +44,6 @@ _REPLY = struct.Struct("=III")
 
 class MconsoleError(RuntimeError):
     """The guest refused a command, or did not answer one."""
-
-
-UNIX_PATH_MAX = 108 if sys.platform == "linux" else 104
-"""``sizeof(struct sockaddr_un.sun_path)``, including the NUL; 104 on macOS.  UML does
-not check: ``bind`` fails, the console does not come up, and the guest
-carries on booting with one line about it in a very long log."""
 
 
 def socket_path(uml_dir: Path) -> Path:
@@ -143,4 +136,4 @@ class Mconsole:
         await self.request(f"config mem={sign}{abs(delta) // 1024}K")
 
 
-__all__ = ["UMID", "UNIX_PATH_MAX", "Mconsole", "MconsoleError", "socket_path"]
+__all__ = ["UMID", "Mconsole", "MconsoleError", "socket_path"]
