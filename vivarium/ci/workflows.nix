@@ -228,6 +228,12 @@ let
       description = "two libkrun guests on vsock uplinks hold lan's contract";
       timeoutMinutes = 30;
     };
+    pytest-coverage = {
+      # 100% of `sample` only if a guest's coverage data reached the host.
+      attr = "checks.pytest-coverage";
+      description = "coverage from tests in a guest reaches the host's pytest-cov";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).
