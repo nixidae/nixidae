@@ -193,18 +193,9 @@ rec {
         ];
       }
       ''
-        # One run per script: two scripts may share a basename --
-        # `recipes/boot.py` and `tests/phases/boot.py` do -- and one run
-        # refuses two modules of the same name.
-        ${lib.concatMapStrings (script: ''
-          zuban mypy --config-file ${config} --python-executable ${python}/lib/venv/bin/python3 ${script} \
-            || failed=1
-        '') scripts}
-        if [ -n "''${failed:-}" ]; then
-          echo "the scripts above do not type check against vivarium_runner" >&2
-          exit 1
-        fi
-        touch $out
+        ${python}/bin/python ${./nix/typecheck.py} $out ${config} ${python}/lib/venv/bin/python3 ${
+          lib.concatMapStringsSep " " (script: lib.escapeShellArg "${script}") scripts
+        }
       '';
 
   /**

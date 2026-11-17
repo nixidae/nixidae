@@ -24,7 +24,7 @@ required-imports = ["from __future__ import annotations"]
 "{docs,examples,lab,recipes,tests}/**" = ["T201", "S101", "PLC0415", "PTH"]
 "pkgs/*/tests/**" = ["T201", "S101", "PLC0415", "PTH"]
 "pkgs/vyos-footer.py" = ["T201"]
-"modules/k8s-{cni,join}.py" = ["T201"]
+"{modules/k8s-cni,modules/k8s-join,nix/typecheck}.py" = ["T201"]
 "pkgs/vivarium/vivarium/{cli,monitor,repl,sinks}.py" = ["T201"]
 "pkgs/vivarium-eval/vivarium_eval/cli.py" = ["T201"]
 # The agent's ready line is its protocol; nixos_test is the
