@@ -13,7 +13,7 @@ A test is `mkTest`: guests (`nodes.<name>`, NixOS modules) plus phases (`async d
 | --- | --- |
 | `nix build --file . <test>` | the verdict, as CI runs it. No network, no way in. A failure keeps its output: `nix eval --raw --file . <test>.attempt` |
 | `nix run --file . <test>.driverDebug -- --out DIR` | anything that may fail: pauses at the first failure, guests stay up |
-| `nix run --file . <test>.driver -- --out DIR` | by hand, exits at the first failure. Add `--break-on-failure` for the same pause as `driverDebug` |
+| `nix run --file . <test>.driver -- --out DIR` | by hand: runs every phase that does not depend on a failed one, then exits 1. Add `--break-on-failure` for the same pause as `driverDebug` |
 | `<test>.uml` `.qemu` `.krun` `.container` | the same test on one backend |
 
 - A test that pulls from the internet must run as a driver. In the sandbox it fails on DNS, which reads like a broken test.

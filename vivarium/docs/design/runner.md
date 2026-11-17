@@ -37,7 +37,8 @@ The long record up to 2026-09-30 is `history/running-anywhere.md`.
 
 ## How a test runs
 
-- **Sandboxed** (`nix build`): the run exits on the first failure.
+- **Sandboxed** (`nix build`): a failed phase skips what depends on it;
+  the other phases still run.
   Nothing can talk to it.
 - **Unsandboxed**: two wrappers among the outputs, one that pauses on
   failure and one that exits. The choice is made at run time, never in
@@ -93,8 +94,8 @@ Outputs:
 
 | output | nixos-test | here |
 | --- | --- | --- |
-| the derivation | the sandboxed run | same; exits on the first failure |
-| `.driver` | the run by hand | same; exits on the first failure. Replaces `.run` |
+| the derivation | the sandboxed run | same; skips what depends on a failed phase |
+| `.driver` | the run by hand | same; skips what depends on a failed phase |
 | `.driverInteractive` | by hand, into a ptpython REPL with the test's symbols; nothing runs until asked | the same: the run pauses before the first phase and a REPL attaches to it, with `vms`, each guest and a way to run a phase or the rest |
 | `.driverDebug` | none | by hand, and pauses on the first failure with the guests up; the MCP server starts this one |
 | `.nodes`, `.config` | the evaluated guests and test | same (`.nodes` built) |

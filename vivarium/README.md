@@ -45,7 +45,7 @@ From a checkout of this repository:
 ```console
 $ nix build --file . checks.lan                      # two guests on a LAN, in the sandbox
 $ nix run --file . checks.lan.driver -- --out ./out  # the same run, by hand
-$ nix run --file . checks.lan.driverInteractive      # a Python prompt, paused before the first phase
+$ nix run --file . checks.lan.driverInteractive -- --out ./out  # a Python prompt, paused before the first phase
 $ nix build --file . checks.lan.qemu                 # the same test, as QEMU machines
 ```
 
@@ -107,7 +107,7 @@ attribute is one way to run the same test.
 | Attribute | What it does |
 | --- | --- |
 | the derivation | Runs in the Nix sandbox. Fails the build if the test fails. This is what CI builds. |
-| `.driver` | Runs by hand, with no sandbox. Stops at the first failure. |
+| `.driver` | Runs by hand, with no sandbox. Runs every phase that does not depend on a failed one, then exits 1. |
 | `.driverDebug` | Runs by hand, and pauses at the first failure with the guests still up. |
 | `.driverInteractive` | Runs by hand, and gives you a Python prompt before the first phase. |
 | `.phases` | Lists the phases in order, and boots nothing. |

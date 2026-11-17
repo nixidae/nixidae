@@ -802,7 +802,7 @@ rec {
               --set VIVARIUM_TYPECHECKED ${lib.escapeShellArg checked}
           '';
 
-      # A run by hand that exits on the first failure, as the check does.
+      # A run by hand: a failed phase skips what depends on it, as in the check.
       driver = wrap "vivarium-driver-${name}" "run" "";
       # The same, paused on the first failure with the guests up. The MCP
       # server starts this one.
