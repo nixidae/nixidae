@@ -13,7 +13,6 @@ while it runs.
 
 from __future__ import annotations
 
-import contextlib
 import os
 import socket
 import subprocess
@@ -198,8 +197,7 @@ class Agent(Service):
         ports: set[int] = set()
         for family in ("tcp", "tcp6"):
             try:
-                with open(f"/proc/net/{family}") as table:
-                    lines = table.read().splitlines()[1:]
+                lines = Path(f"/proc/net/{family}").read_text().splitlines()[1:]
             except OSError:
                 continue
             for line in lines:
@@ -225,10 +223,8 @@ class Agent(Service):
             if not entry.name.isdigit():
                 continue
             try:
-                with open(f"/proc/{entry.name}/stat") as stat_file:
-                    stat = stat_file.read()
-                with open(f"/proc/{entry.name}/cmdline", "rb") as cmdline_file:
-                    raw = cmdline_file.read()
+                stat = Path(f"/proc/{entry.name}/stat").read_text()
+                raw = Path(f"/proc/{entry.name}/cmdline").read_bytes()
             except OSError:
                 # It exited between the listing and the read, which is
                 # the answer: it is not running.
@@ -279,8 +275,7 @@ def virtio_port(name: str, ports: Path = VIRTIO_PORTS) -> Path:
 
 
 def _accept_one(path: str) -> int:
-    with contextlib.suppress(FileNotFoundError):
-        os.unlink(path)
+    Path(path).unlink(missing_ok=True)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(path)
     server.listen(1)

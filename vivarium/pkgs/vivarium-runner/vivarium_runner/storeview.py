@@ -95,7 +95,7 @@ def _mount_point(store: Path, path: str) -> bool:
     source = Path(path)
     target = store / source.name
     if source.is_symlink():
-        target.symlink_to(os.readlink(source))
+        target.symlink_to(source.readlink())
         return False
     if source.is_dir():
         target.mkdir()

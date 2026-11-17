@@ -1381,7 +1381,7 @@ class Machine:
                 allowlist.writelines(f"{path}\n" for path in added)
         elif self.spec.store_paths is not None and self._rundir is not None:
             added = storeview.add(self._rundir / "nix", paths, writable=is_container)
-            mounts = [path for path in added if not os.path.islink(path)]
+            mounts = [path for path in added if not Path(path).is_symlink()]
             if is_container and mounts:
                 await self._attach(self._rundir, mounts)
         return added
@@ -1547,10 +1547,10 @@ class Machine:
         found: int | None = None
         for entry in (Path("/proc") / pid / "fd").iterdir():
             try:
-                target = os.readlink(entry)
+                target = str(entry.readlink())
                 if not target.endswith("(deleted)"):
                     continue
-                stat = os.stat(entry)
+                stat = entry.stat()
             except OSError:
                 continue
             if stat.st_size != want:

@@ -14,14 +14,15 @@ extend-exclude = ["tests/fixtures/routeros/probe.py"]
 # PLC0415: imports at the top; a cycle moves the shared piece out.
 # BLE001: a blind `except Exception` says why in its `noqa`.
 # N815: a camelCase field mirrors a Nix option, and says so in its `noqa`.
-extend-select = ["T201", "S101", "PLC0415", "BLE001", "N815"]
+# PTH: pathlib for paths; `os` for fds and process state.
+extend-select = ["T201", "S101", "PLC0415", "BLE001", "N815", "PTH"]
 
 [lint.isort]
 required-imports = ["from __future__ import annotations"]
 
 [lint.extend-per-file-ignores]
-"{docs,examples,lab,recipes,tests}/**" = ["T201", "S101", "PLC0415"]
-"pkgs/*/tests/**" = ["T201", "S101", "PLC0415"]
+"{docs,examples,lab,recipes,tests}/**" = ["T201", "S101", "PLC0415", "PTH"]
+"pkgs/*/tests/**" = ["T201", "S101", "PLC0415", "PTH"]
 "pkgs/vyos-footer.py" = ["T201"]
 "pkgs/vivarium/vivarium/{cli,monitor,repl,sinks}.py" = ["T201"]
 "pkgs/vivarium-eval/vivarium_eval/cli.py" = ["T201"]

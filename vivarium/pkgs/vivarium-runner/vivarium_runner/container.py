@@ -27,6 +27,7 @@ import json
 import os
 import pwd
 import selectors
+import shutil
 import signal
 import socket
 import struct
@@ -412,8 +413,8 @@ def setuid_allowed(directory: Path) -> bool:
     probe_file = directory / "setuid-probe"
     probe_file.write_bytes(b"")
     try:
-        os.chmod(probe_file, 0o4755)
-        return bool(os.stat(probe_file).st_mode & 0o4000)
+        probe_file.chmod(0o4755)
+        return bool(probe_file.stat().st_mode & 0o4000)
     except PermissionError:
         return False
     finally:
@@ -588,7 +589,7 @@ def scope(memory_max: int | None = None) -> list[str] | None:
     The host's systemd-run, not one from the store: it talks to the host's
     user manager, and the two must agree.
     """
-    path = _which("systemd-run")
+    path = shutil.which("systemd-run")
     if path is None:
         return None
     prefix = [path, *SCOPE, *(["-p", f"MemoryMax={memory_max}"] if memory_max else [])]
@@ -601,7 +602,7 @@ def _try_map(helper: str, host: int, extra: Range) -> str | None:
     Tried, not read: NixOS' wrappers carry file capabilities and no setuid
     bit, so a mode check refuses a helper that works (measured).
     """
-    path = _which(helper)
+    path = shutil.which(helper)
     if path is None:
         return "not on PATH"
     # A child in a user namespace of its own, alive until its stdin closes.
@@ -622,14 +623,6 @@ def _try_map(helper: str, host: int, extra: Range) -> str | None:
         child.wait()
     if done.returncode != 0:
         return f"{path} failed: {(done.stderr or done.stdout).strip()}"
-    return None
-
-
-def _which(name: str) -> str | None:
-    for directory in os.environ.get("PATH", "").split(":"):
-        candidate = os.path.join(directory, name)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
     return None
 
 
@@ -667,7 +660,7 @@ def _relay(master: int, crun: subprocess.Popen[bytes]) -> None:
 def _shares_userns(pid: int) -> bool:
     """Whether *pid* is in this process's user namespace. Joining the one
     you are in is EINVAL."""
-    return os.readlink(f"/proc/{pid}/ns/user") == os.readlink("/proc/self/ns/user")
+    return Path(f"/proc/{pid}/ns/user").readlink() == Path("/proc/self/ns/user").readlink()
 
 
 _SYS_OPEN_TREE = 428

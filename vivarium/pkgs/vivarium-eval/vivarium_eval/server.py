@@ -471,19 +471,19 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             out=out,
             attr=attr,
             spec=spec,
-            file=os.path.abspath(file),
+            file=str(Path(file).absolute()),
             breaks=breaks or [],
             break_on_failure=break_on_failure,
             only=only or [],
             offline=offline,
             pytest_args=pytest_args or [],
             runner=Path(written["vivarium"]) if written.get("vivarium") else None,
-            kernel=os.path.abspath(kernel) if kernel else None,
+            kernel=str(Path(kernel).absolute()) if kernel else None,
             cpus=cpus,
             cpu_scale=cpu_scale,
             hold=hold,
         )
-        source = Source(attr=attr, file=os.path.abspath(file), env=env or {}) if attr is not None else None
+        source = Source(attr=attr, file=str(Path(file).absolute()), env=env or {}) if attr is not None else None
         run = await runs().start(argv, out, env or {}, source)
         every = [sys.executable, "-m", "vivarium.cli", "monitor", str(out)]
         return {
@@ -517,7 +517,9 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         injecting it again. `reload` names working-tree directories of
         helper modules: imported from first, their modules dropped, so an
         edited helper is read again too."""
-        return _reply(await request(runs().get(run).socket, Op.INJECT, os.path.abspath(path), _directories(reload)))
+        return _reply(
+            await request(runs().get(run).socket, Op.INJECT, str(Path(path).absolute()), _directories(reload))
+        )
 
     @server.tool()
     async def run_pytest(
@@ -528,7 +530,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         rebuilding the setup. `args` go to pytest (`["-k", "etcd"]`). The
         cases are events marked by_hand and do not count toward the run's
         verdict. `reload` is as for `inject`."""
-        arg = shlex.join([os.path.abspath(path), *(args or [])])
+        arg = shlex.join([str(Path(path).absolute()), *(args or [])])
         return _reply(await request(runs().get(run).socket, Op.PYTEST, arg, _directories(reload)))
 
     @server.tool()
@@ -582,7 +584,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             "--node",
             node,
             "--module",
-            os.path.abspath(module),
+            str(Path(module).absolute()),
             "--action",
             action,
         ]

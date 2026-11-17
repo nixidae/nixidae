@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import ast
 import sys
+from pathlib import Path
 
-with open(sys.argv[1]) as cache:
-    tree = ast.parse(cache.read())
+tree = ast.parse(Path(sys.argv[1]).read_text())
 reference = next(
     node.value
     for node in tree.body

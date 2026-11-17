@@ -24,9 +24,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import os
 from dataclasses import dataclass
 from http import HTTPStatus
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -133,7 +133,6 @@ async def _handle(conn: AsyncConnection, reader: asyncio.StreamReader, writer: a
 
 async def serve(conn: AsyncConnection, path: str = SOCKET) -> asyncio.Server:
     """Answer the cloud API on *path*, through the host behind *conn*."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with contextlib.suppress(FileNotFoundError):
-        os.unlink(path)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).unlink(missing_ok=True)
     return await asyncio.start_unix_server(lambda r, w: _handle(conn, r, w), path)  # noqa: TID251 -- nixidae/nixidae#949

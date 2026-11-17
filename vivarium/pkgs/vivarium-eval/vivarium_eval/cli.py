@@ -109,7 +109,7 @@ def parser() -> argparse.ArgumentParser:
             "--file",
             "-f",
             type=Path,
-            default=Path("."),
+            default=Path(),
             help="the file or directory to evaluate, as `nix build --file` takes it",
         )
         if command == "run":
@@ -345,7 +345,7 @@ def origin_of(attr: str | None, file: Path | None, out: Path) -> control.Origin:
     """What to evaluate again: the attribute given, or the origin the run
     in `out` wrote to `run.json`. Raises ValueError when neither names one."""
     if attr is not None:
-        return control.Origin(this_cli(), attr, (file or Path(".")).absolute())
+        return control.Origin(this_cli(), attr, (file or Path()).absolute())
     if file is not None:
         raise ValueError("--file needs an attribute")
     try:

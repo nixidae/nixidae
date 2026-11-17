@@ -633,7 +633,7 @@ class Controller:
         self.path.unlink(missing_ok=True)
         with reachable(self.path) as name:
             listener = await anyio.create_unix_listener(name)
-        os.chmod(self.path, 0o600)
+        self.path.chmod(0o600)
         task_status.started()
         try:
             await listener.serve(self._client)

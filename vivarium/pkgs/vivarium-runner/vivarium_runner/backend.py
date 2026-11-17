@@ -1675,10 +1675,10 @@ class Container:
         rootfs = rundir / "root"
         shutil.copytree(spec.image, rootfs, symlinks=True)
         # The template is in the store, so every copy is read-only.
-        for directory, _, _ in os.walk(rootfs):
-            os.chmod(directory, 0o755)
+        for directory, _, _ in rootfs.walk():
+            directory.chmod(0o755)
         (rootfs / "tmp").mkdir(exist_ok=True)
-        os.chmod(rootfs / "tmp", 0o1777)
+        (rootfs / "tmp").chmod(0o1777)
 
         sockets, cleanup = socket_dir(rundir, "agent/sock", None)
         agent_dir = sockets / "agent"

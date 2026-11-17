@@ -82,7 +82,7 @@ async def serve(session: Session, *, task_status: TaskStatus[None] = anyio.TASK_
     path.unlink(missing_ok=True)
     with reachable(path) as name:
         listener = await anyio.create_unix_listener(name)
-    os.chmod(path, 0o600)
+    path.chmod(0o600)
     service = Machines(session)
     task_status.started()
     try:
