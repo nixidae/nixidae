@@ -116,6 +116,7 @@ class Lan:
         self._guest_ends: dict[str, socket.socket] = {}
         self._ports: list[_Port] = []
         self._capture: _Pcap | None = None
+        self._started = False
 
         if len(members) == 1:
             # A guest alone on a segment: it still wants vec1 to exist and
@@ -220,13 +221,52 @@ class Lan:
 
     def start(self) -> None:
         """Start flooding frames between ports, if this segment needs a hub."""
-        loop = asyncio.get_running_loop()
+        self._started = True
         for port in self._ports:
-            port.sock.setblocking(False)
-            others = [other for other in self._ports if other is not port]
-            loop.add_reader(port.sock, self._flood, port, others)
+            self._listen(port)
 
-    def _flood(self, src: _Port, others: list[_Port]) -> None:
+    def _listen(self, port: _Port) -> None:
+        port.sock.setblocking(False)
+        asyncio.get_running_loop().add_reader(port.sock, self._flood, port)
+
+    def add_member(self, member: str) -> int:
+        """Plug *member* (`guest/nic`) into this hub while it runs; the fd to hand that guest.
+
+        A guest created at run time joins this way (nixidae/nixidae#1408).
+        A direct pair has no port to add, so only a hub takes one.
+        """
+        self._hub_or_raise(f"add {member}")
+        if member in self.members:
+            raise SegmentError(f"segment {self.name} already has a member {member!r}")
+        host_end, guest_end = self._pair()
+        port = _Port(member, host_end)
+        self.members.append(member)
+        self._ports.append(port)
+        self._guest_ends[member] = guest_end
+        self.fds[member] = guest_end.fileno()
+        if self._started:
+            self._listen(port)
+        self._say(f"added {member}")
+        return self.fds[member]
+
+    def remove_member(self, member: str) -> None:
+        """Unplug *member*, a guest that is gone for good, and close its port."""
+        self._hub_or_raise(f"remove {member}")
+        ports = [port for port in self._ports if port.member == member]
+        if not ports:
+            raise SegmentError(f"segment {self.name} has no member {member!r}; it has {', '.join(self.members)}")
+        for port in ports:
+            if self._started:
+                asyncio.get_running_loop().remove_reader(port.sock)
+            port.sock.close()
+            self._ports.remove(port)
+        self.members.remove(member)
+        self.fds.pop(member, None)
+        if (guest_end := self._guest_ends.pop(member, None)) is not None:
+            guest_end.close()
+        self._say(f"removed {member}")
+
+    def _flood(self, src: _Port) -> None:
         """Copy everything readable on *src* to every other port.
 
         A callback rather than a task per frame: two awaits and the
@@ -255,8 +295,9 @@ class Lan:
                     capture.write(frame)
                 if src.cut:
                     continue
-                for dst in others:
-                    if dst.cut:
+                # Read at each frame, not fixed at `start`: a member can join or leave while the hub runs.
+                for dst in self._ports:
+                    if dst is src or dst.cut:
                         continue
                     try:
                         dst.sock.send(frame)

@@ -101,6 +101,50 @@ def test_a_cut_of_the_whole_segment_carries_nothing() -> None:
     anyio.run(main)
 
 
+def test_a_member_joins_a_running_hub_and_leaves_it() -> None:
+    """A guest created at run time plugs in after `start`. nixidae/nixidae#1408."""
+    said: list[str] = []
+
+    async def main() -> None:
+        lan = Lan("core", ["a/eth1", "b/eth1"], hub=True, on_change=said.append)
+        lan.start()
+        a, b = (lan._guest_ends[f"{guest}/eth1"] for guest in "ab")
+        try:
+            fd = lan.add_member("c/eth1")
+            c = lan._guest_ends["c/eth1"]
+            assert c.fileno() == fd
+            assert lan.members == ["a/eth1", "b/eth1", "c/eth1"]
+            a.send(b"to all")
+            assert await _receive(b) == b"to all"
+            assert await _receive(c) == b"to all"
+            c.send(b"from c")
+            assert await _receive(a) == b"from c"
+            assert await _receive(b) == b"from c"
+
+            lan.remove_member("c/eth1")
+            assert lan.members == ["a/eth1", "b/eth1"]
+            assert c.fileno() == -1
+            a.send(b"after")
+            assert await _receive(b) == b"after"
+            assert lan.dropped == 0
+            with pytest.raises(SegmentError, match="no member 'c/eth1'"):
+                lan.remove_member("c/eth1")
+        finally:
+            lan.close()
+
+    anyio.run(main)
+    assert said == ["segment core: added c/eth1", "segment core: removed c/eth1"]
+
+
+def test_a_direct_pair_takes_no_new_member() -> None:
+    lan = Lan("core", ["a/eth1", "b/eth1"])
+    try:
+        with pytest.raises(SegmentError, match=r"cannot add c/eth1.*segments\.core\.hub = true"):
+            lan.add_member("c/eth1")
+    finally:
+        lan.detach()
+
+
 def test_a_direct_pair_refuses_a_cut_and_names_the_option() -> None:
     async def main() -> None:
         lan = Lan("core", ["a/eth1", "b/eth1"])
