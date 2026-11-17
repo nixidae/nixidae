@@ -26,6 +26,20 @@ lib.types.submodule {
       '';
     };
 
+    instanceAddresses = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "10.9.0.100/24"
+        "fd00:9::100/64"
+      ];
+      description = ''
+        The addresses of the first instance a template launches onto this
+        segment, with their prefix length. Instance slot n gets each one
+        plus n. Empty gives an instance no static address here.
+      '';
+    };
+
     capture = lib.mkOption {
       type = lib.types.bool;
       default = false;

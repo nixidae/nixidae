@@ -236,6 +236,19 @@ in
       '';
     };
 
+    template = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      internal = true;
+      description = ''
+        Set by `mkTest` for a guest of `templates`: the runner boots it
+        as many times as a phase asks, each with its own index. The guest
+        then matches its interfaces on any index, and takes its name and
+        addresses from `/artifacts/instance.json` at boot.
+        nixidae/nixidae#1408.
+      '';
+    };
+
     index = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 0;

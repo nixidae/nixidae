@@ -422,7 +422,7 @@ rec {
         node:
         map (nic: nic.segment) node.vivarium.nics
         ++ lib.optional (node.vivarium.uplink.segment != null) node.vivarium.uplink.segment
-      ) (lib.attrValues nodes);
+      ) (lib.attrValues nodes ++ lib.attrValues templates);
       unjoined = lib.filter (segment: !lib.elem segment joined) (lib.attrNames cfg.segments);
 
       failed = lib.filter (each: !each.assertion) (
@@ -476,6 +476,35 @@ rec {
 
       nodes = lib.mapAttrs (_: node: node.config) evaluated;
 
+      # Each template evaluated once, as a node is. Its index here only
+      # keeps it apart from the nodes at evaluation; an instance gets its
+      # own from the runner.
+      templates = lib.listToAttrs (
+        lib.imap0 (
+          ordinal: name:
+          lib.nameValuePair name
+            (mkNode {
+              imports = [
+                cfg.defaults
+                cfg.templates.${name}
+                peersModule
+              ];
+              _module.args.nodes = nodes;
+              _module.args.settings = cfg.settings;
+              networking.hostName = lib.mkDefault name;
+              vivarium.sshPort = lib.mkDefault (4325 + lib.length (lib.attrNames cfg.nodes) + ordinal);
+              vivarium.backend = lib.mkDefault cfg.backend;
+              vivarium.index = lib.length (lib.attrNames cfg.nodes) + ordinal;
+              vivarium.template = true;
+              vivarium.segments = cfg.segments;
+            }).config
+        ) (lib.attrNames cfg.templates)
+      );
+
+      templateSegments = lib.unique (
+        lib.concatMap (template: map (nic: nic.segment) template.vivarium.nics) (lib.attrValues templates)
+      );
+
       machines = map (hostName: nodes.${hostName}) (lib.attrNames checkedConfig.nodes);
 
       pythonPackages = lib.unique (
@@ -516,10 +545,25 @@ rec {
           inherit (checkedConfig) name settings;
           # The runner's half of a segment; its MTU is on each interface.
           # A capture needs the frames, so it forces the hub.
-          segments = lib.mapAttrs (_: segment: {
-            inherit (segment) capture;
-            hub = segment.hub || segment.capture;
-          }) checkedConfig.segments;
+          # An instance joins a template's segment while frames flow, and
+          # only a hub takes a port then.
+          segments =
+            lib.mapAttrs (name: segment: {
+              inherit (segment) capture instanceAddresses;
+              hub = segment.hub || segment.capture || lib.elem name templateSegments;
+            }) checkedConfig.segments
+            // lib.genAttrs (lib.subtractLists (lib.attrNames checkedConfig.segments) templateSegments) (_: {
+              capture = false;
+              instanceAddresses = [ ];
+              hub = true;
+            });
+          templates = map (
+            template:
+            machineSpec template
+            // lib.optionalAttrs (!template.vivarium.hostStore.enable && template.vivarium.closure != null) {
+              storePaths = "${template.vivarium.closure}/store-paths";
+            }
+          ) (lib.attrValues templates);
           unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
           # The runner that knows every field below. No cycle: the
           # package does not depend on any spec.

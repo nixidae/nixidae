@@ -80,6 +80,19 @@ in
       '';
     };
 
+    templates = mkOption {
+      type = types.attrsOf types.deferredModule;
+      default = { };
+      description = ''
+        Guests that do not boot with the run. A phase boots one as often
+        as it likes, `await vms.launch("<template>", "<name>")`, and each
+        instance gets its own index, MAC addresses and `instanceAddresses`
+        slot. Each is a NixOS module, as a node is. A segment a template
+        joins is a hub, so an instance can join it while frames flow.
+        nixidae/nixidae#1408.
+      '';
+    };
+
     segments = mkOption {
       type = types.attrsOf (import ./segment.nix lib);
       default = { };

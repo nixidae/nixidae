@@ -105,8 +105,10 @@ class Lan:
         it sees them; otherwise two are one socketpair. *pcap* is where
         :meth:`capture` writes; *on_change* hears each cut, restore and
         capture."""
-        if not members:
+        # A hub may start empty: a segment only template instances join.
+        if not members and not hub:
             raise ValueError(f"lan {name!r} has no machines on it")
+        self._hub = hub or len(members) != 2
         self.name = name
         self.members = list(members)
         self.pcap = pcap
@@ -139,7 +141,7 @@ class Lan:
     @property
     def is_hub(self) -> bool:
         """The runner sees this segment's frames: it can cut and capture."""
-        return bool(self._ports)
+        return self._hub
 
     @property
     def cut_members(self) -> list[str]:

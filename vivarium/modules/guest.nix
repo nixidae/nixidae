@@ -10,6 +10,8 @@
 let
   cfg = config.vivarium;
 
+  hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
+
   # "192.168.99.2/24" -> { address = "192.168.99.2"; prefixLength = 24; }
   parseCidr =
     cidr:
@@ -217,7 +219,12 @@ in
     map (
       nic:
       lib.nameValuePair "10-${nic.name}" {
-        matchConfig.MACAddress = nic.mac;
+        # A template's instance gets its index at run time: any of them.
+        matchConfig.MACAddress =
+          if cfg.template then
+            lib.concatMapStringsSep " " (index: "52:54:00:12:${hex nic.nic}:${hex index}") (lib.range 0 255)
+          else
+            nic.mac;
         linkConfig.Name = nic.name;
       }
     ) cfg.nics
@@ -340,6 +347,29 @@ in
         StandardError = "journal+console";
       };
     };
+
+  /*
+    A template's instance learns who it is from the file the runner wrote
+    before it booted: its name, each interface's addresses, and the user
+    data the launch carried. Drop-ins under /run, not `ip addr add`:
+    networkd removes an address it did not configure.
+  */
+  systemd.services.vivarium-instance = lib.mkIf cfg.template {
+    description = "Take this instance's name and addresses";
+    wantedBy = [ "systemd-networkd.service" ];
+    before = [ "systemd-networkd.service" ];
+    unitConfig = {
+      DefaultDependencies = false;
+      RequiresMountsFor = "/artifacts";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${
+        pkgs.writers.writePython3 "vivarium-instance" { flakeIgnore = [ "E501" ]; } ./instance.py
+      } /artifacts/instance.json";
+    };
+  };
 
   /*
     Before the agent, so the stream is running by the time the host sees

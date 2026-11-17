@@ -50,6 +50,7 @@ from vivarium_runner.report import Report
 
 from . import access, journal, junit_in
 from .events import Event, Kind, Level
+from .instances import InstanceError, free_index, instance_spec, seed
 from .phases import (
     PhaseState,
     PhaseTimeout,
@@ -254,6 +255,9 @@ class Session:
         # Every guest's `Machine`, up or not; `vms` holds the ones up.
         self._all: Machines | None = None
         self._requires: dict[str, list[str]] = {}
+        self._templates: dict[str, MachineSpec] = {}
+        # The first index an instance may take: the nodes' and the templates' own come before it.
+        self._instance_base = 0
         # Set when a guest's boot has ended, either way.
         self._starting: dict[str, anyio.Event] = {}
         # Every guest whose boot began, so a failed one is torn down too.
@@ -468,27 +472,14 @@ class Session:
 
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._journals = {}
-        for one in specs:
-            path = self._guest_artifacts(one.name) / journal.FILE
-            # A second run into the same `--out` would otherwise follow the
-            # last run's journal as if this guest had written it.
-            path.unlink(missing_ok=True)
-            self._journals[one.name] = journal.Tail(path)
-        self._all = Machines(
-            (
-                one.name,
-                Machine(
-                    one,
-                    lan_fds=lan_fds.get(one.name),
-                    artifacts=self._guest_artifacts(one.name),
-                    recorder=self.report,
-                    offline=self.offline,
-                    on_console=self._console,
-                    on_command=self._command,
-                ),
-            )
-            for one in specs
-        )
+        self._all = Machines((one.name, self._machine(one, lan_fds.get(one.name))) for one in specs)
+        templates = cast("list[MachineSpecJson]", self.spec.templates)
+        if self.kernel is not None:
+            templates = with_kernel(templates, self.kernel)
+        if self.cpus is not None:
+            templates = with_cpus(templates, self.cpus)
+        self._templates = {one["name"]: MachineSpec.from_json(one) for one in templates}
+        self._instance_base = len(specs) + len(self._templates)
         # Only the guests that are up. `exec` and a phase's `vms` never
         # see a guest that has not booted, which would hang them.
         vms = Machines()
@@ -502,6 +493,7 @@ class Session:
         # before the suites, read by the phase that looks for leaks.
         vms.shared = {}
         vms.segments = {lan.name: lan for lan in self._lans}
+        vms.launcher = self
         vms.phase = None
         vms.pytest_args = self.pytest_args
 
@@ -524,6 +516,71 @@ class Session:
             if lan.name in self.spec.segments and self.spec.segments[lan.name].capture:
                 await lan.capture()
         self.vms = vms
+
+    def _machine(self, one: MachineSpec, lan_fds: dict[str, int] | None) -> Machine:
+        """The `Machine` of one guest, with its journal tail: a node at `prepare`, an instance at `launch`."""
+        path = self._guest_artifacts(one.name) / journal.FILE
+        # A second run into the same `--out` would otherwise follow the
+        # last run's journal as if this guest had written it.
+        path.unlink(missing_ok=True)
+        self._journals[one.name] = journal.Tail(path)
+        return Machine(
+            one,
+            lan_fds=lan_fds,
+            artifacts=self._guest_artifacts(one.name),
+            recorder=self.report,
+            offline=self.offline,
+            on_console=self._console,
+            on_command=self._command,
+        )
+
+    async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
+        """Boot a new guest *name* from *template* while the run goes, and return it once up.
+
+        It gets the lowest free index, so a terminated instance's MACs and
+        addresses come back. nixidae/nixidae#1408.
+        """
+        if self._all is None or self.vms is None:
+            raise SessionError("launch before prepare")
+        if template not in self._templates:
+            raise InstanceError(f"no template {template!r}; the templates are {', '.join(self._templates) or 'none'}")
+        if name in self._all or name in self._templates:
+            raise InstanceError(f"a guest or template is already called {name!r}")
+        index = free_index({vm.spec.index for vm in self._all.values()}, self._instance_base)
+        addresses = {lan: segment.instanceAddresses for lan, segment in self.spec.segments.items()}
+        one = instance_spec(self._templates[template], name, index, addresses, index - self._instance_base)
+        lans = {lan.name: lan for lan in self._lans}
+        members = [(nic.name, nic.segment) for nic in one.interfaces]
+        if one.uplink is not None:
+            members.append(("vec0", one.uplink))
+        lan_fds = {nic: lans[segment].add_member(f"{name}/{nic}") for nic, segment in members}
+        artifacts = self._guest_artifacts(name)
+        (artifacts / "instance.json").write_text(json.dumps(seed(one, template, user_data)))
+        self._all[name] = self._machine(one, lan_fds)
+        self._requires[name] = []
+        self.emit(Kind.BOOT, f"launching {name} from {template}, index {index}", machine=name, template=template)
+        await self.ensure([name])
+        return self.vms[name]
+
+    async def terminate(self, name: str) -> None:
+        """Power off an instance `launch` started and unplug it; its index is free again."""
+        if self._all is None or self.vms is None:
+            raise SessionError("terminate before prepare")
+        vm = self._all.get(name)
+        if vm is None or vm.spec.index < self._instance_base:
+            raise InstanceError(f"{name!r} is no instance; only a launched guest is terminated")
+        self.emit(Kind.BOOT, f"terminating {name}", machine=name)
+        await self.drain()
+        await _shutdown(vm)
+        for lan in self._lans:
+            for member in [m for m in lan.members if m.startswith(f"{name}/")]:
+                lan.remove_member(member)
+        self.vms.pop(name, None)
+        del self._all[name]
+        self._attempts.discard(name)
+        self._starting.pop(name, None)
+        self._journals.pop(name, None)
+        self._requires.pop(name, None)
 
     async def ensure(self, names: Collection[str]) -> None:
         """Boot *names* and the guests they `require`, unless they are up.
@@ -802,6 +859,7 @@ class Session:
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
         vms.segments = self.vms.segments
+        vms.launcher = self.vms.launcher
         vms.pytest_args = self.pytest_args
         # One script may serve several phases, told apart by this.
         vms.phase = phase.name

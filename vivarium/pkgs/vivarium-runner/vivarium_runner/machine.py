@@ -1812,6 +1812,13 @@ class Machine:
                 await anyio.sleep(poll)
 
 
+class Launcher(Protocol):
+    """Boots and powers off guests made from templates; the session is one."""
+
+    async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine: ...
+    async def terminate(self, name: str) -> None: ...
+
+
 class Machines(dict[str, Machine]):
     """The run's machines by name, also reachable as attributes.
 
@@ -1863,6 +1870,24 @@ class Machines(dict[str, Machine]):
     segments: Mapping[str, Lan] = MappingProxyType({})
     """The run's Ethernet segments by name. A class default, because
     an unset attribute falls through to ``__getattr__`` as a guest."""
+
+    launcher: Launcher | None = None
+    """What boots a guest from a template while the run goes: the session. A class default, as `segments`."""
+
+    async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
+        """Boot a new guest *name* from `templates.<template>`; it is in this mapping once up. nixidae/nixidae#1408."""
+        if self.launcher is None:
+            raise MachineError("this run launches no guests: nothing drives it that can")
+        # A phase holds a copy of the run's mapping; the session adds to its own.
+        vm = self[name] = await self.launcher.launch(template, name, user_data)
+        return vm
+
+    async def terminate(self, name: str) -> None:
+        """Power off a guest `launch` started and unplug it from its segments."""
+        if self.launcher is None:
+            raise MachineError("this run launches no guests: nothing drives it that can")
+        await self.launcher.terminate(name)
+        self.pop(name, None)
 
     def segment(self, name: str) -> Lan:
         """One segment, to ``cut``, ``restore`` or ``capture``."""

@@ -122,6 +122,9 @@ class SegmentSpec(Strict):
     """The hub writes the segment's frames to `<out>/pcap/<name>.pcap`
     from boot. `mkTest` sets `hub` with it."""
 
+    instanceAddresses: list[str] = Field(default_factory=list)  # noqa: N815 -- Nix writes it, so Nix spells it
+    """The first template instance's addresses here; slot n gets each plus n."""
+
 
 class Spec(Strict):
     """A whole run, as evaluating the module system produced it."""
@@ -141,6 +144,9 @@ class Spec(Strict):
     """Passed to `vivarium_runner.MachineSpec.from_json` untouched.  Modelling
     it twice would be two places to change when a backend gains a flag. The
     runner's `MachineSpecJson` is the shape; pydantic does not check it here."""
+
+    templates: list[JsonObject] = Field(default_factory=list)
+    """`templates.<name>`: guests a phase boots with `vms.launch`, in `machines`' shape."""
 
     segments: dict[str, SegmentSpec] = Field(default_factory=dict)
     phases: list[PhaseSpec] = Field(default_factory=list)

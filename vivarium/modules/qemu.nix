@@ -403,7 +403,12 @@ lib.mkIf
     */
     systemd.network.links = {
       "10-vec0" = {
-        matchConfig.MACAddress = "52:54:00:12:00:${hex cfg.index}";
+        # A template's instance gets its index at run time: any of them.
+        matchConfig.MACAddress =
+          if cfg.template then
+            lib.concatMapStringsSep " " (index: "52:54:00:12:00:${hex index}") (lib.range 0 255)
+          else
+            "52:54:00:12:00:${hex cfg.index}";
         linkConfig.Name = "vec0";
       };
     }
