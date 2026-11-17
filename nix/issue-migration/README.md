@@ -22,6 +22,11 @@ What the transfer did, measured:
 - Sub-issue links held where both ends moved.
 - Labels were dropped. Each issue has `source: <repo>` and an issue type.
 
+dinix joined on 2026-11-17. Its repository was Lillecarl's, and GitHub
+transfers an issue only between repositories of one owner, so the repository
+moved to nixidae first (`Lillecarl/dinix` redirects to `nixidae/dinix`), then
+its ten open issues moved here. They are at the end of `map.jsonl`.
+
 What still names old numbers: a bare `#N` in a commit message, which means
 `<source>#N`, and `<source>#N` in code comments and docs. `map.jsonl` turns
 either into the new number.
