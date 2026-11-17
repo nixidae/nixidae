@@ -1,0 +1,4 @@
+# The spike runs by hand on agent-python, which is Python 3.14.
+extend = "../../../ruff.toml"
+
+target-version = "py314"

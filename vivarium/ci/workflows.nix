@@ -529,8 +529,9 @@ let
     cond = selectable "checks";
     steps = [
       (steps.build {
-        name = "Check the generated files, the scripts, the Python types, the docs, the images and the kubeadm config";
+        name = "Check the generated files, ruff, the scripts, the Python types, the docs, the images and the kubeadm config";
         attrs = [
+          "checks.ruff"
           "checks.check-scripts"
           "checks.docs"
           "checks.check-python"
