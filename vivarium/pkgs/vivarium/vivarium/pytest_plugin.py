@@ -156,8 +156,11 @@ class Plugin:
             return await step()
         # Only this scope's own deadline gets here: a cancel from outside
         # propagates out of the `with`.
-        self.timed_out = PhaseTimeout(f"phase {self.phase} ran past its timeout of {self.timeout:g}s")
+        self.timed_out = self._timeout()
         raise self.timed_out
+
+    def _timeout(self) -> PhaseTimeout:
+        return PhaseTimeout(f"phase {self.phase} ran past its timeout of {self.timeout:g}s")
 
     def _emit(self, kind: Kind, text: str, **fields: Any) -> None:
         # On the loop, never from this thread: the sinks write files and
@@ -177,6 +180,10 @@ class Plugin:
         return True
 
     def pytest_runtest_teardown(self, item: pytest.Item) -> None:
+        # A sync test, or a blocking call, can run past the deadline with
+        # no await to see it: the clock fails the phase after it ends.
+        if self.timed_out is None and self.portal.call(anyio.current_time) >= self.deadline:
+            self.timed_out = self._timeout()
         # Past the deadline every test would fail at its first await, so
         # pytest starts no other.
         if self.timed_out is not None:

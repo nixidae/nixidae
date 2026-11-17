@@ -340,7 +340,9 @@ in
                 description = ''
                   Seconds the phase may run before it fails. Null has no
                   limit. A pytest phase fails its running test at the
-                  limit and runs no more tests.
+                  limit and runs no more tests. The limit stops a test at
+                  an `await`: a sync test or a blocking call runs on until
+                  it returns, and the phase then fails.
                 '';
               };
 

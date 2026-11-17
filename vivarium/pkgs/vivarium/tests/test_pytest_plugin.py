@@ -336,6 +336,20 @@ class TestTimeout:
         assert "ran past its timeout of 0.5s" in session.errors["cases"]
         assert [e.data["outcome"] for e in sink.of(Kind.CASE)] == ["failed"]
 
+    async def test_a_sync_test_past_the_timeout_stops_the_phase(self, tmp_path: Path) -> None:
+        """No await sees the deadline, so the test ends; then the phase fails, and no later test starts."""
+        tests = write_tests(
+            tmp_path,
+            "import time\n\ndef test_slow():\n    time.sleep(0.5)\n\ndef test_later():\n    assert True\n",
+        )
+        sink = Collect()
+        session = session_for(tmp_path, sink)
+        session.state = {"cases": PhaseState.PENDING}
+        spec = PhaseSpec(name="cases", pytest=PytestSpec(tests=tests), timeout=0.2)
+        assert await session.run(spec) is PhaseState.FAILED
+        assert "ran past its timeout of 0.2s" in session.errors["cases"]
+        assert [e.data["outcome"] for e in sink.of(Kind.CASE)] == ["passed"]
+
 
 @pytest.mark.anyio
 class TestRunningAgain:
