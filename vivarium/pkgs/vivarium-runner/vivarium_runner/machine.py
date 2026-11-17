@@ -357,8 +357,9 @@ class MachineSpec:
     @property
     def vsock(self) -> bool:
         """No `vec0` from the host: the guest's relay reaches an egress over
-        vsock. The router does it for its guests; a `vsock` guest for itself."""
-        return self.router or self.uplink_proxy == "vsock"
+        vsock. The router does it for its guests; a `vsock` guest for itself,
+        unless its uplink joins a segment."""
+        return self.router or (self.uplink_proxy == "vsock" and self.uplink is None)
 
     @classmethod
     def from_json(cls, data: MachineSpecJson) -> MachineSpec:

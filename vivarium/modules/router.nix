@@ -299,7 +299,8 @@ in
         after = [ "nftables.service" ];
       };
     })
-    (lib.mkIf (config.vivarium.uplink.proxy == "vsock") {
+    # An uplink segment takes precedence: `MachineSpec.vsock` reads the same.
+    (lib.mkIf (config.vivarium.uplink.proxy == "vsock" && config.vivarium.uplink.segment == null) {
       vivarium.launch.config.egress = "${egress}/bin/egress";
       assertions = [
         {

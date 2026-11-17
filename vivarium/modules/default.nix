@@ -852,9 +852,25 @@ in
         "router"
         "vsock"
       ];
-      default = "passt";
+      # passt goes once vsock is verified on macOS (nixidae/nixidae#1404).
+      # Not by `uplink.segment`: a routed guest's segment default reads this.
+      default =
+        if
+          config.vivarium.kind == "nixos"
+          && lib.elem config.vivarium.backend [
+            "qemu"
+            "krun"
+          ]
+        then
+          "vsock"
+        else
+          "passt";
+      defaultText = lib.literalMD "`vsock` for a NixOS guest on QEMU or krun, else `passt`";
       description = ''
-        What serves the uplink (`vec0`). `gvproxy` is gvisor-tap-vsock's,
+        What serves the uplink (`vec0`). `passt` is the default where
+        `vsock` is not: UML, a container (pasta) and a guest that is not
+        NixOS. An `uplink.segment` takes precedence over `vsock`.
+        `gvproxy` is gvisor-tap-vsock's,
         which runs on macOS too and needs no user namespace
         (nixidae/nixidae#1163). It gives the guest passt's addresses, and
         forwards only listed TCP ports: no `ports = "all"` and no UDP.
