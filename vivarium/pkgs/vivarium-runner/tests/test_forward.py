@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import socket
+import sys
 
 import pytest
 from vivarium_runner import Machine, MachineError, forward
 from vivarium_runner.forward import ForwardError, PortMap, Rule
+
+FIRST = "127.0.0.2" if sys.platform == "linux" else forward.SHARED_LOOPBACK
+"""The address `resolve` gives a run's first guest."""
+
+linux_loopback = pytest.mark.skipif(
+    sys.platform != "linux", reason="macOS: one loopback address, and a port free on it beside a wildcard holder"
+)
 
 
 def free_port_above(address: str, start: int) -> int:
@@ -24,16 +32,17 @@ def test_a_port_map_with_no_host_port_comes_from_json() -> None:
 
 
 def test_the_guests_own_port_when_it_is_free() -> None:
-    guest = free_port_above("127.0.0.2", 20000)
+    guest = free_port_above(FIRST, 20000)
     [rule], notes = forward.resolve([Rule(ports=(PortMap(None, guest),))], taken=set(), start=1024)
     assert rule.ports == (PortMap(guest, guest),)
     assert notes == []
 
 
+@linux_loopback
 def test_the_next_free_port_when_the_guests_is_taken() -> None:
     """A host that runs its own cluster holds *:6443, and every loopback
     address with it. Measured on dynhetz."""
-    guest = free_port_above("127.0.0.2", 21000)
+    guest = free_port_above(FIRST, 21000)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind(("0.0.0.0", guest))  # noqa: S104 -- the wildcard is the case under test
         holder.listen()
@@ -78,12 +87,13 @@ class Forwarding(Machine):
 def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
     """`Session.prepare` reports a `MachineError` as a failed boot; a bare
     `ForwardError` ended the run as a traceback (nixidae/nixidae#1335)."""
-    port = free_port_above("127.0.0.2", 22000)
+    port = free_port_above(FIRST, 22000)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
-        holder.bind(("127.0.0.2", port))
+        holder.bind((FIRST, port))
         holder.listen()
-        vm = Forwarding([Rule(address="127.0.0.2", ports=(PortMap(port, port),))])
-        with pytest.raises(MachineError, match=rf"^\[web\] forward: cannot forward .*127\.0\.0\.2:{port} is already bound"):
+        vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))])
+        escaped = FIRST.replace(".", r"\.")
+        with pytest.raises(MachineError, match=rf"^\[web\] forward: cannot forward .*{escaped}:{port} is already bound"):
             vm.resolve_forward(set())
 
 
@@ -133,6 +143,7 @@ def test_listed_ports_are_strict() -> None:
     ]
 
 
+@linux_loopback
 def test_a_wide_rule_skips_an_address_with_any_listener() -> None:
     """A listener on one odd port of 127.0.0.2 is enough to move a wide rule.
 
@@ -145,3 +156,36 @@ def test_a_wide_rule_skips_an_address_with_any_listener() -> None:
         assert forward.bound_on("127.0.0.2")
         [rule], _ = forward.resolve([Rule()], taken=set(), start=1024)
     assert rule.address != "127.0.0.2"
+
+
+@pytest.fixture
+def one_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`resolve` as on macOS, on any host."""
+    monkeypatch.setattr(forward.sys, "platform", "darwin")
+    monkeypatch.setattr(forward, "ephemeral_range", lambda: (49152, 65535))
+
+
+@pytest.mark.usefixtures("one_loopback")
+def test_two_guests_on_one_loopback_get_two_ports() -> None:
+    """The second guest asking for the first one's port gets the next free one."""
+    port = free_port_above(forward.SHARED_LOOPBACK, 24000)
+    taken: set[str] = set()
+    [first], _ = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
+    [second], notes = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
+    assert first.address == second.address == forward.SHARED_LOOPBACK
+    assert first.ports == (PortMap(port, port),)
+    assert not isinstance(second.ports, str)
+    [moved] = second.ports
+    assert moved.guest == port
+    assert moved.host is not None
+    assert moved.host > port
+    assert notes == [f"{forward.SHARED_LOOPBACK}: guest port {port} on host port {moved.host}: {port} is taken"]
+
+
+@pytest.mark.usefixtures("one_loopback")
+def test_one_guest_on_one_loopback_forwards_every_port() -> None:
+    taken: set[str] = set()
+    [rule], _ = forward.resolve([Rule()], taken=taken, start=1024)
+    assert rule.address == forward.SHARED_LOOPBACK
+    with pytest.raises(ForwardError, match="another guest forwards every port"):
+        forward.resolve([Rule()], taken=taken, start=1024)

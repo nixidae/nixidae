@@ -29,12 +29,15 @@ wide range rather than simply added alongside it.
 
 from __future__ import annotations
 
+import itertools
 import os
 import socket
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Literal, TypedDict
+
+from . import sysctl
 
 ALL: Final = "all"
 """``ports`` value meaning every port passt is willing to bind."""
@@ -159,6 +162,8 @@ def unprivileged_start() -> int:
 
 def ephemeral_range() -> tuple[int, int]:
     """The host's ephemeral port range, as passt probes it."""
+    if sys.platform == "darwin":
+        return sysctl.read("net.inet.ip.portrange.first"), sysctl.read("net.inet.ip.portrange.last")
     values = _read_ints(_LOCAL_PORT_RANGE, _DEFAULT_EPHEMERAL)
     return (values[0], values[1]) if len(values) == 2 else _DEFAULT_EPHEMERAL
 
@@ -292,31 +297,70 @@ def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> 
     rules = [rule for rule, _ in remapped]
 
     unaddressed = [rule for rule in rules if rule.address is None]
-    if unaddressed:
+    if unaddressed and sys.platform == "darwin":
+        rules = [_share(rule, taken) if rule.address is None else rule for rule in rules]
+    elif unaddressed:
         address = _assign(unaddressed, taken)
         taken.add(address)
         rules = [replace(rule, address=address) if rule.address is None else rule for rule in rules]
 
+    shared = f"{SHARED_LOOPBACK}:"
+    reserved = {int(entry.removeprefix(shared)) for entry in taken if entry.removeprefix(shared).isdigit()}
     resolved: list[Rule] = []
     notes: list[str] = []
     for rule, (_, said) in zip(rules, remapped, strict=False):
         notes.extend(f"{rule.address}: {note}" for note in said)
-        rule, picked = _pick_ports(rule, start)  # noqa: PLW2901 -- the same rule, with its ports settled
+        rule, picked = _pick_ports(rule, start, reserved if rule.address == SHARED_LOOPBACK else set())  # noqa: PLW2901 -- the same rule, with its ports settled
         notes.extend(f"{rule.address}: {note}" for note in picked)
+        if rule.address == SHARED_LOOPBACK and not isinstance(rule.ports, str):
+            for port in rule.host_ports():
+                taken.add(f"{shared}{port}")
+                reserved.add(port)
         if rule.wide or rule.ports:
             resolved.append(rule)
     return resolved, notes
 
 
-def _pick_ports(rule: Rule, start: int) -> tuple[Rule, list[str]]:
+SHARED_LOOPBACK = "127.0.0.1"
+"""Every guest's forwards on macOS, where lo0 has 127.0.0.1 alone and an
+alias needs root. The guests then share one port space: `resolve` moves a
+port another guest or the host holds, and one guest at most forwards every
+port."""
+
+
+def _share(rule: Rule, taken: set[str]) -> Rule:
+    """*rule* on :data:`SHARED_LOOPBACK`, a host port that is not free there
+    left for `_pick_ports` to move. *taken* holds `127.0.0.1:<port>` for each
+    port another guest of the run has, and `127.0.0.1:all` for a wide rule."""
+    wide = f"{SHARED_LOOPBACK}:all"
+    if isinstance(rule.ports, str):
+        if wide in taken:
+            raise ForwardError(
+                f"another guest forwards every port on {SHARED_LOOPBACK}, the only loopback address macOS has; "
+                "list this guest's ports instead"
+            )
+        taken.add(wide)
+        return replace(rule, address=SHARED_LOOPBACK)
+    ports = tuple(
+        replace(port, host=None)
+        if port.host is not None
+        and (f"{SHARED_LOOPBACK}:{port.host}" in taken or _probe(SHARED_LOOPBACK, [port.host]) is not None)
+        else port
+        for port in rule.ports
+    )
+    return replace(rule, address=SHARED_LOOPBACK, ports=ports)
+
+
+def _pick_ports(rule: Rule, start: int, reserved: set[int] | None = None) -> tuple[Rule, list[str]]:
     """A free host port for each port map that names none: the guest's port,
-    else the first free one above it, never in the ephemeral range."""
+    else the first free one above it, never in the ephemeral range nor in
+    *reserved*, the ports other guests on the same address have."""
     if isinstance(rule.ports, str) or all(port.host is not None for port in rule.ports):
         return rule, []
     if rule.address is None:
         raise ForwardError("ports are picked after the address")
     low, high = ephemeral_range()
-    used = set(rule.host_ports())
+    used = set(rule.host_ports()) | (reserved or set())
     ports: list[PortMap] = []
     notes: list[str] = []
     for port in rule.ports:
@@ -324,10 +368,11 @@ def _pick_ports(rule: Rule, start: int) -> tuple[Rule, list[str]]:
             ports.append(port)
             continue
         first = port.guest if port.guest >= start else port.guest + rule.privileged_offset
+        # Then below it: macOS's ephemeral range runs to 65535.
         host = next(
             (
                 candidate
-                for candidate in range(first, 65536)
+                for candidate in itertools.chain(range(first, 65536), range(first - 1, start - 1, -1))
                 if not low <= candidate <= high and candidate not in used and _probe(rule.address, [candidate]) is None
             ),
             None,
