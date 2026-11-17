@@ -1838,16 +1838,16 @@ class Machine:
         comes good. Raises after *timeout* seconds, with the last output.
         """
         out = ""
-        with self.waiting(f"`{command}` to succeed"):
-            try:
-                with anyio.fail_after(timeout):
-                    while True:
-                        rc, out = await self.execute(command)
-                        if rc == 0:
-                            return out
-                        await anyio.sleep(poll)
-            except TimeoutError:
-                raise MachineError(f"[{self.name}] `{command}` did not succeed within {timeout:.0f}s:\n{out}") from None
+
+        async def succeeded() -> str | None:
+            nonlocal out
+            rc, out = await self.execute(command)
+            return out if rc == 0 else None
+
+        async def last() -> str:
+            return out
+
+        return await self.until(f"`{command}` to succeed", succeeded, timeout, poll, evidence=last)
 
     async def wait_until_fails(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
         """Run *command* in the guest until it exits non-zero; return its output.
@@ -1879,7 +1879,9 @@ class Machine:
         with self.waiting(what):
             try:
                 # Bounds *check* itself: a deadline tested between calls lets
-                # a slow check overshoot it by its own timeouts.
+                # a slow check overshoot it by its own timeouts. Measured on
+                # the k8s recipe: a 300s wait still ran at 291s, last checked
+                # at 258s, and two kubectl timeouts could take it to 540s.
                 with anyio.fail_after(timeout):
                     while True:
                         value = await check()

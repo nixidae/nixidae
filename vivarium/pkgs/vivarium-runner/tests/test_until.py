@@ -1,4 +1,4 @@
-"""`Machine.until`, `never`, `wait_until_fails` and `Machines.until`, on machines with no guest."""
+"""`Machine.until`, `never`, the `wait_until_*` pair and `Machines.until`, on machines with no guest."""
 
 from __future__ import annotations
 
@@ -134,6 +134,26 @@ def test_wait_until_fails_returns_the_failing_output() -> None:
         return await vm.wait_until_fails("ping -c 1 10.0.0.1", timeout=5, poll=FAST)
 
     assert run(main) == "rc 1"
+
+
+def test_wait_until_succeeds_returns_the_succeeding_output() -> None:
+    vm = Polled("one", [1, 1, 0])
+
+    async def main() -> str:
+        return await vm.wait_until_succeeds("ping -c 1 10.0.0.1", timeout=5, poll=FAST)
+
+    assert run(main) == "rc 0"
+    assert vm.asked == 3
+
+
+def test_wait_until_succeeds_gives_the_last_output_at_the_deadline() -> None:
+    vm = Polled("one", [1, 2])
+
+    async def main() -> str:
+        return await vm.wait_until_succeeds("false", timeout=0.05, poll=FAST)
+
+    with pytest.raises(MachineError, match=r"\[one\] `false` to succeed: not reached within 0s:\nrc 2$"):
+        run(main)
 
 
 def test_machines_until_names_every_guest_that_failed() -> None:

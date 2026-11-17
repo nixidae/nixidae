@@ -152,66 +152,46 @@ async def until[T](
     and "still moving, just slow" are different bugs and want different
     fixes.
 
-    Timed as one step, because this is the only poll loop a cluster test
-    has and it is most of the run: measured on nixkube's nine scenarios,
-    632 of 786 seconds were in here and invisible until this line.
+    Timed as one step by `Machine.until`, because this is the only poll
+    loop a cluster test has and it is most of the run: measured on
+    nixkube's nine scenarios, 632 of 786 seconds were in here.
     """
-    with machine.waiting(what):
-        return await _until(what, check, timeout, machine)
-
-
-async def _until[T](
-    what: str,
-    check: Callable[[], Awaitable[tuple[bool, T]]],
-    timeout: float,
-    machine: Machine,
-) -> T:
     started = time.monotonic()
-    deadline = started + timeout
     said: float | None = None
     seen: object = None
     changed = started
 
-    # `anyio.fail_after`, and not a deadline tested between polls.
-    #
-    # A poll is two kubectl calls with timeouts of their own, so testing the
-    # clock only after one completes lets a slow guest overshoot by minutes:
-    # a 300s deadline was still running at 291s having last checked at 258s,
-    # and could have run to 540s had both calls hit their own limits. This
-    # bounds `check` itself, so the deadline means what it says.
-    try:
-        with anyio.fail_after(timeout):
-            while True:
-                done, evidence = await check()
-                if done:
-                    return evidence
-
-                now = time.monotonic()
-                if evidence != seen:
-                    seen = evidence
-                    changed = now
-
-                if said is None or now - said >= _SAY_EVERY:
-                    said = now
-                    first = str(evidence).strip().splitlines()[:1]
-                    machine.say(
-                        f"[{machine.name}] {what}: {int(now - started)}s elapsed, "
-                        f"{int(now - changed)}s unchanged, {int(deadline - now)}s left"
-                        + (f" -- {first[0]}" if first else "")
-                    )
-                await anyio.sleep(POLL)
-    except TimeoutError:
-        # Outside the block above, so gathering the evidence is not itself
-        # cancelled by the deadline that just fired.
+    async def step() -> tuple[T] | None:
+        nonlocal said, seen, changed
+        done, evidence = await check()
+        # A 1-tuple, so a check that is done with `None` as its evidence
+        # still ends the wait.
+        if done:
+            return (evidence,)
         now = time.monotonic()
-        raise MachineError(
-            f"[{machine.name}] gave up waiting for {what} after "
-            f"{int(now - started)}s, the last {int(now - changed)}s of it "
-            f"with nothing changing.\n"
+        if evidence != seen:
+            seen = evidence
+            changed = now
+        if said is None or now - said >= _SAY_EVERY:
+            said = now
+            first = str(evidence).strip().splitlines()[:1]
+            machine.say(
+                f"[{machine.name}] {what}: {int(now - started)}s elapsed, "
+                f"{int(now - changed)}s unchanged, {int(started + timeout - now)}s left"
+                + (f" -- {first[0]}" if first else "")
+            )
+        return None
+
+    async def stuck() -> str:
+        return (
+            f"the last {int(time.monotonic() - changed)}s with nothing changing.\n"
             f"Nothing here is slow enough for this to be patience: the images "
             f"are on the node and the store is the host's. Something is "
             f"stuck.\n{seen}\n" + await diagnose(machine)
-        ) from None
+        )
+
+    (result,) = await machine.until(what, step, timeout, POLL, evidence=stuck)
+    return result
 
 
 async def unscheduled(vm: Machine) -> str:
