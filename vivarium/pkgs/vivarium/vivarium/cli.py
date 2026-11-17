@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine import Cpus
 
-from . import access, monitor, namespace, registry, repl, runroot
+from . import access, monitor, namespace, registry, remote, repl, runroot
 from .control import (
     ORIGIN,
     READY,
@@ -532,6 +532,7 @@ async def drive(
         group.start_soon(session.follow)  # type: ignore[call-arg]  # zuban-bug: start_soon counts defaulted parameters
         if controller is not None:
             await group.start(controller.serve)
+            await group.start(remote.serve, session)
             if interactive:
                 group.start_soon(repl.serve, controller)
         # Before any guest boots, after the socket it names exists, and
