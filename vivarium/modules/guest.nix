@@ -376,8 +376,9 @@ in
 
   /*
     Before the agent, so the stream is running by the time the host sees
-    "ready" and sends its first command. `--boot` carries everything
-    logged before this unit started.
+    "ready" and sends its first command. `--follow` alone starts at the
+    last 10 entries; `--no-tail` with `--boot` carries everything this
+    boot logged before the unit started.
 
     `--output-fields` keeps an entry to what a reader filters on; the
     cursor and timestamps journalctl always adds come along anyway.
@@ -394,6 +395,7 @@ in
       ExecStart = lib.escapeShellArgs [
         "${config.systemd.package}/bin/journalctl"
         "--follow"
+        "--no-tail"
         "--boot"
         "--output=json"
         "--output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,SYSLOG_IDENTIFIER,_PID,_TRANSPORT"
