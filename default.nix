@@ -104,6 +104,10 @@ rec {
 
   nixvenv = import sources.nixvenv { inherit pkgs; };
 
+  # dinit services from Nix modules. `default.nix` is the library a consumer
+  # calls with its own modules; this is `dev.nix`, the tests, tools and docs.
+  dinix = import "${sources.dinix}/dev.nix" { inherit pkgs sources; };
+
   # The test workflows of every source, rendered for this repository.
   # nix/ci.nix says how.
   ci = import ./nix/ci.nix {
@@ -113,6 +117,7 @@ rec {
     remoteBuilder = ghanix.lib.steps.remoteBuilder (import ./nix/remote-builder.nix);
     sets = {
       inherit
+        dinix
         easykubenix
         havsorm
         huggorm

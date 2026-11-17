@@ -54,8 +54,9 @@ Two things to check before you spend time on a service:
 - **Is the package free, and is it in the cache?** `nix eval --file /etc/nixpkgs
   <pkg>.meta.license` and `nix path-info --store https://cache.nixos.org
   --closure-size --human-readable "$(nix eval --raw --file /etc/nixpkgs <pkg>)"`.
-  `dev.nix` takes a plain `import <nixpkgs> { }`, so an unfree or insecure
-  package needs a caller to relax its configuration and CI cannot run it.
+  `dev.nix` imports nixidae's nixpkgs pin with `allowUnfree` and nothing
+  more, so an insecure package needs a caller to relax its configuration and
+  CI cannot run it.
   Measured: `mongodb` is unfree (SSPL) and `minio` is marked insecure.
 - **How big is the closure?** Every mode boots a guest that unpacks it. A
   JVM service is gigabytes, and `checks` already builds thirty of these.

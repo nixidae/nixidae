@@ -8,39 +8,25 @@
 #   nix run --file ./dev.nix report
 #
 # And does a dinix container work when something other than this machine runs
-# it? user-mode-nixos boots a guest, podman runs the image in it, and the test
+# it? vivarium boots a guest, podman runs the image in it, and the test
 # asserts against the running container.
 #
 #   nix build --file ./dev.nix containerTest rootlessTest   # in a build sandbox
-#   nix run   --file ./dev.nix containerTest.run            # outside it
+#   nix run   --file ./dev.nix containerTest.driver         # outside it
 #
 # Two of them, because sshd separates privileges or not according to its own
 # uid, and dinix renders a different configuration for each.
 #
 {
-  pkgs ? import <nixpkgs> { config.allowUnfree = true; },
+  sources ? import ./nix/sources.nix,
+  pkgs ? import sources.nixpkgs { config.allowUnfree = true; },
   modules ? [ ./demo.nix ],
-  # Same revision nixidae pins, so the two agree.
-  nix2container-src ? builtins.fetchGit {
-    url = "https://github.com/nlewo/nix2container.git";
-    rev = "b6ac40ef110c12ab1651fce5ea563f7837236439";
-    allRefs = true;
-  },
-  # lib.nix is the door for a caller with its own guests and its own script,
-  # and takes a package set. Going through default.nix instead would pull in
-  # the nixidae umbrella, which resolves every source of that repository and
-  # has nothing to say about this one.
-  user-mode-nixos-src ? builtins.fetchGit {
-    url = "https://github.com/Lillecarl/user-mode-nixos.git";
-    rev = "136e93112f40e20c07aa6a334158543b63112971";
-    allRefs = true;
-  },
 }:
 
 let
   inherit (pkgs) lib;
 
-  inherit (import nix2container-src { inherit pkgs; }) nix2container;
+  inherit (import sources.nix2container { inherit pkgs; }) nix2container;
 
   # maxLayers turns on nix2container's automatic layering, which gives the
   # biggest store paths a layer each. That is the setting where a store path
@@ -63,14 +49,14 @@ let
   consolidated = imageFor true;
   split = imageFor false;
 
-  uml = import (user-mode-nixos-src + "/lib.nix") { inherit pkgs; };
+  vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
 
   # The guest every test runs in. It is a NixOS configuration and nothing more
   # than podman plus an ssh client.
   testGuest = {
     virtualisation.podman.enable = true;
     environment.systemPackages = [ pkgs.openssh ];
-    boot.uml = {
+    vivarium = {
       memory = "2048M";
       # The image unpacks into the guest's own filesystem rather than being
       # read out of the store, so the disk holds a copy of the closure. A
@@ -78,6 +64,28 @@ let
       diskSize = 8192;
     };
   };
+
+  /**
+    One guest, one script phase: what both kinds of container test share.
+    `settings` reaches the script as `vms.settings`, and every store path in
+    it is valid in the guest's Nix database.
+  */
+  guestTest =
+    {
+      name,
+      script,
+      settings,
+    }:
+    vivarium.mkTest {
+      inherit name settings;
+      pythonPath = [ ./tests/lib ];
+      nodes.node = testGuest;
+      defaults = vivarium.settingsClosure;
+      phases.test = {
+        inherit script;
+        after = [ "boot" ];
+      };
+    };
 
   # Made at build time and not reproducible, which is right here: the test
   # wants a key nothing else has, and Nix caches the derivation anyway.
@@ -281,14 +289,14 @@ let
             ps.pytest
             ps.textual
             dinitClient
+            # withPackages drops a buildPythonApplication (its pythonModule
+            # is false), so the app under test is made a module.
+            (ps.toPythonModule tui)
           ]))
         ];
         DINIX_TUI_TEST_DINIT = lib.getExe' clientInstanceA.config.package "dinit";
         DINIX_TUI_TEST_INSTANCE_A = "${clientInstanceA.config.configDir}";
         DINIX_TUI_TEST_INSTANCE_B = "${clientInstanceB.config.configDir}";
-        # withPackages drops a buildPythonApplication from PYTHONPATH (its
-        # pythonModule is false), so the app under test is named directly.
-        PYTHONPATH = lib.makeSearchPath pkgs.python3.sitePackages [ tui ];
       }
       ''
         export HOME="$TMPDIR"
@@ -298,10 +306,14 @@ let
       '';
 
   # The Python tools below act on the working tree, not a store copy, so each
-  # finds the repository root and works from any subdirectory. `jj root` first
-  # because this is a jj repo; git and pwd cover the other cases.
+  # finds dinix's directory and works from any subdirectory. `jj root` first
+  # because this is a jj repo; git and pwd cover the other cases. In nixidae
+  # the root is the monorepo, and dinix is its `dinix/`.
   repoRoot = ''
     root=$(jj root 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null || pwd)
+    if [ -f "$root/dinix/dev.nix" ]; then
+      root="$root/dinix"
+    fi
     cd "$root"
   '';
 
@@ -347,13 +359,13 @@ let
     ];
     text = ''
       ${repoRoot}
-      export PYTHONPATH="$root/dinit-client/src:$root/tui/src"
       # A private basetemp. Otherwise pytest prunes the shared
       # /tmp/pytest-of-$USER, and every read-only store file in another
       # project's leftovers becomes its own warning.
       basetemp="$(mktemp -d)"
       trap 'rm --recursive --force "$basetemp"' EXIT
-      python -m pytest --basetemp="$basetemp" dinit-client/tests tui/tests "$@"
+      python -m pytest --basetemp="$basetemp" -o pythonpath="dinit-client/src tui/src" \
+        dinit-client/tests tui/tests "$@"
     '';
   };
 
@@ -404,10 +416,9 @@ let
           (throw "no account in the test configuration has uid ${toString uid}")
           (lib.attrValues dinix.config.users.users);
     in
-    uml.mkTest {
+    guestTest {
       inherit name;
       script = ./tests/openssh.py;
-      nodes.node = testGuest;
       settings = {
         inherit uid podmanUser;
         loginUser = loginUser.name;
@@ -503,10 +514,9 @@ let
         }
       );
     in
-    uml.mkTest {
+    guestTest {
       name = "dinix-collection-${name}-${testMode}";
       script = ./tests/collection.py;
-      nodes.node = testGuest;
       settings = {
         collection = name;
         mode = testMode;
@@ -624,6 +634,9 @@ let
     )
   );
 
+  # The test workflow; nixidae renders it to .github/workflows/dinix-tests.yml.
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+
   # buildImage's output is a JSON manifest naming every layer and the store
   # paths in it, so the count and the sizes come from the image itself rather
   # than from counting the closure by hand.
@@ -661,7 +674,7 @@ in
     split
     report
     nix2container
-    uml
+    ciTestWorkflows
     clientKey
     containerTest
     rootlessTest

@@ -35,12 +35,17 @@ directory, and the user database a file at a time. A check runs through
 shell.
 """
 
-from uml_runner import Machine, MachineError, Machines, run_test
-from uml_runner.cluster import until
-
 from types import SimpleNamespace
+from typing import Any
+
+from dinix_settle import until
+from vivarium_runner import Machine, MachineError, Machines
 
 NAME = "dinix-collection"
+
+# The test's `settings`, as JSON: dev.nix declares its shape, and each mode
+# carries different keys.
+Settings = dict[str, Any]
 
 # The account the vm-user mode runs dinit as: the same nobody every
 # unprivileged mode runs as, so services keep one identity across modes
@@ -71,7 +76,7 @@ STOP_BUDGET_MS = 10_000
 CHECK_BUDGET_S = 60
 
 
-def run_args(settings: dict, state_mount: str) -> str:
+def run_args(settings: Settings, state_mount: str) -> str:
     mounts = [
         f"--volume {settings['configDir']}/etc/{etc}:/etc/{etc}:ro" for etc in ETC
     ] + [
@@ -131,7 +136,7 @@ async def test(vms: Machines) -> None:
     print(f"[test] {settings['collection']} passed in {mode} mode", flush=True)
 
 
-async def start_container(node: Machine, settings: dict) -> SimpleNamespace:
+async def start_container(node: Machine, settings: Settings) -> SimpleNamespace:
     dinitctl = settings["dinitctl"]
 
     # One state mount, which dinix-init populates: a tmpfs either way. It
@@ -172,7 +177,7 @@ async def start_container(node: Machine, settings: dict) -> SimpleNamespace:
         cleanup=cleanup,
     )
 
-async def wait_for_socket(node: Machine, settings: dict, target: SimpleNamespace) -> None:
+async def wait_for_socket(node: Machine, settings: Settings, target: SimpleNamespace) -> None:
     async def answering() -> tuple[bool, str]:
         code, out = await node.execute(f"{target.ctl} list 2>&1", timeout=60)
         return code == 0, out.strip() or "(no control socket yet)"
@@ -186,7 +191,7 @@ async def wait_for_socket(node: Machine, settings: dict, target: SimpleNamespace
         ) from None
 
 
-async def wait_for_services(node: Machine, settings: dict, target: SimpleNamespace) -> None:
+async def wait_for_services(node: Machine, settings: Settings, target: SimpleNamespace) -> None:
     # Every service the collection declared, by name. is-started rather than
     # parsing `dinitctl list`: it answers with an exit code, which is what a
     # poll wants.
@@ -212,7 +217,7 @@ async def wait_for_services(node: Machine, settings: dict, target: SimpleNamespa
 
 
 async def service_states(
-    node: Machine, settings: dict, target: SimpleNamespace
+    node: Machine, settings: Settings, target: SimpleNamespace
 ) -> str:
     """What dinit thinks of each service, for a failure message.
 
@@ -232,7 +237,7 @@ async def service_states(
 
 
 async def run_checks(
-    node: Machine, settings: dict, target: SimpleNamespace, logs: str
+    node: Machine, settings: Settings, target: SimpleNamespace, logs: str
 ) -> None:
     for check in settings["checks"]:
         # Retried, not asked once. dinit marks a process service started the
@@ -241,7 +246,7 @@ async def run_checks(
         # about whether the program has bound its port yet. Without this the
         # result depends on which won the race, which is how the same
         # collection passed as an ordinary user and failed as root.
-        async def attempt(check: dict = check) -> tuple[bool, str]:
+        async def attempt(check: dict[str, str] = check) -> tuple[bool, str]:
             code, out = await node.execute(
                 f"{target.run(check['command'])} 2>&1", timeout=120
             )
@@ -266,7 +271,7 @@ async def run_checks(
 
 
 async def quiet_check(
-    node: Machine, settings: dict, target: SimpleNamespace, logs: str
+    node: Machine, settings: Settings, target: SimpleNamespace, logs: str
 ) -> None:
     # dinit reports a service that died at console-level warn, which dinix
     # leaves on for exactly this. Nothing above would notice a service that
@@ -278,7 +283,7 @@ async def quiet_check(
             )
 
 
-async def stop_cleanly(node: Machine, settings: dict, target: SimpleNamespace) -> None:
+async def stop_cleanly(node: Machine, settings: Settings, target: SimpleNamespace) -> None:
     milliseconds = await target.stop_ms()
     if milliseconds > STOP_BUDGET_MS:
         raise MachineError(
@@ -289,7 +294,7 @@ async def stop_cleanly(node: Machine, settings: dict, target: SimpleNamespace) -
     print(f"[test] SIGTERM stopped {target.stop_what} in {milliseconds}ms", flush=True)
 
 
-async def start_vm(node: Machine, settings: dict) -> SimpleNamespace:
+async def start_vm(node: Machine, settings: Settings) -> SimpleNamespace:
     as_user = settings["mode"] == "vm-user"
     dinit = settings["dinit"]
     dinitctl = settings["dinitctl"]
@@ -386,5 +391,3 @@ async def start_vm(node: Machine, settings: dict) -> SimpleNamespace:
         cleanup=cleanup,
     )
 
-
-run_test(test)

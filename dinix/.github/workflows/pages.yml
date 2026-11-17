@@ -36,9 +36,10 @@ jobs:
       - uses: cachix/install-nix-action@master
         timeout-minutes: 15
         with:
-          # The same unpinned nixpkgs ci.yml uses, so a docs failure and a
-          # checks failure mean the same thing about the same evaluation.
-          nix_path: nixpkgs=channel:nixpkgs-unstable
+          # dev.nix reads nix/sources.nix, which fetches the nixidae commit
+          # flake.lock names.
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
 
       # --out-link then a copy: upload-pages-artifact takes a directory, and a
       # store symlink is a directory only after the action chooses to follow

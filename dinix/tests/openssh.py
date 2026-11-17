@@ -36,11 +36,16 @@ difference: as root, and as an ordinary user with `--user`.
 """
 
 import re
+from typing import Any
 
-from uml_runner import Machine, MachineError, Machines, run_test
-from uml_runner.cluster import until
+from dinix_settle import until
+from vivarium_runner import Machine, MachineError, Machines
 
 NAME = "dinix"
+
+# The test's `settings`, as JSON: dev.nix declares its shape, and each mode
+# carries different keys.
+Settings = dict[str, Any]
 
 # What the buffered service writes.  It must not appear in `podman logs`.
 MARKER = "dinix-buffer-marker"
@@ -56,7 +61,7 @@ ETC = ["passwd", "group", "shadow", "nsswitch.conf"]
 
 
 def run_args(
-    settings: dict,
+    settings: Settings,
     name: str = NAME,
     tmpfs: list[str] | None = None,
     volumes: tuple[str, ...] = (),
@@ -83,7 +88,7 @@ def run_args(
     ).strip()
 
 
-async def ssh(vm: Machine, settings: dict, command: str) -> str:
+async def ssh(vm: Machine, settings: Settings, command: str) -> str:
     # -F none, because the guest's /etc/ssh/ssh_config includes a drop-in from
     # the store, and the store reaches the guest over hostfs with the uid of
     # whoever ran the kernel. ssh then calls it "Bad owner or permissions" and
@@ -118,11 +123,11 @@ def last_line(output: str) -> str:
     return lines[-1].strip() if lines else ""
 
 
-async def answer(vm: Machine, settings: dict, command: str) -> str:
+async def answer(vm: Machine, settings: Settings, command: str) -> str:
     # Double quotes only: ssh() passes the command through repr(), which
     # chooses single quotes unless the string holds one.
     output = await ssh(vm, settings, f'printf "dinix-answer[%s]\\n" "$({command})"')
-    found = ANSWER.findall(output)
+    found: list[str] = ANSWER.findall(output)
     if not found:
         raise MachineError(
             f"[{vm.name}] {command!r} answered nothing over ssh:\n{output}"
@@ -302,15 +307,15 @@ async def test(vms: Machines) -> None:
     # path instead. In the foreground, because dinit always exits 0 and so the
     # exit code says nothing -- what is being checked is what it said.
     without = [path for path in settings["tmpfs"] if path != settings["mustExist"]]
-    _, refused = await node.execute(
+    _, stopped_with = await node.execute(
         f"podman run --rm {run_args(settings, 'dinix-nomount', without)}"
         f" {settings['imageRef']} 2>&1",
         timeout=300,
     )
-    if f"{settings['mustExist']} must exist and does not" not in refused:
+    if f"{settings['mustExist']} must exist and does not" not in stopped_with:
         raise MachineError(
             f"[{node.name}] a container missing {settings['mustExist']} did not say "
-            f"so and stop:\n{refused}"
+            f"so and stop:\n{stopped_with}"
         )
     print(f"[test] a container without {settings['mustExist']} stopped and named it", flush=True)
 
@@ -367,5 +372,3 @@ async def test(vms: Machines) -> None:
     print(f"[test] SIGTERM stopped the container in {milliseconds}ms", flush=True)
     await node.succeed("podman rm --force dinix-term")
 
-
-run_test(test)
