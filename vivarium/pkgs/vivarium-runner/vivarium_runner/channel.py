@@ -29,7 +29,8 @@ class UnitInfo(TypedDict):
 
 class SystemState(TypedDict):
     """How a guest's boot ended: ``systemctl is-system-running``'s word
-    (``running``, ``degraded``, ...) and the units or services that failed."""
+    (``running``, ``degraded``, ...) and the units or services that failed.
+    ``starting`` is a boot that did not end within the timeout."""
 
     state: str
     failed: tuple[str, ...]

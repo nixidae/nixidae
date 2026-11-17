@@ -12,6 +12,8 @@ from __future__ import annotations
 from vivarium_runner import Machines
 from vivarium_runner.control import AGENT, NONE
 
+BOOT_TIMEOUT = 180
+
 
 async def test(vms: Machines) -> None:
     for name, vm in vms.items():
@@ -23,9 +25,11 @@ async def test(vms: Machines) -> None:
             # No systemd to ask. Its start logged in and applied its config.
             print(f"[boot] {name} is up on its {vm.control_kind} console")
             continue
-        report = await vm.system_state(timeout=180)
-        if report["state"] in ("running", "starting"):
-            print(f"[boot] {name} is {report['state']}")
+        report = await vm.system_state(timeout=BOOT_TIMEOUT)
+        if report["state"] == "running":
+            print(f"[boot] {name} is running")
             continue
         failed = "\n".join(f"  {unit}" for unit in report["failed"]) or "  (none)"
+        if report["state"] == "starting":
+            raise AssertionError(f"{name} did not finish booting within {BOOT_TIMEOUT}s, with these failed:\n{failed}")
         raise AssertionError(f"{name} came up {report['state']!r}, with these failed:\n{failed}")

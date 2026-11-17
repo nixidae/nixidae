@@ -121,21 +121,21 @@ def _dinit_failed(status: ServiceStatus) -> bool:
 
 
 async def _dinit_state(timeout: float) -> SystemState:
-    """dinit's answer to `exposed_system_state`: the boot service started, or
-    gave up, and every service that stopped for a failure."""
+    """dinit's answer to `exposed_system_state`: the boot service started,
+    gave up or is still starting, and every service that stopped for a failure."""
     async with DinitClient.connect(DINIT_SOCKET) as client:
         # Before the status: the handle it opens is what makes dinit send
         # boot's events, so no change falls between the read and the wait.
         events = client.subscribe()
-        with anyio.fail_after(timeout):
-            boot = await client.status(DINIT_BOOT)
+        boot = await client.status(DINIT_BOOT)
+        with anyio.move_on_after(timeout):
             while boot.state is not ServiceState.STARTED and boot.target_state is ServiceState.STARTED:
                 await events.receive()
                 boot = await client.status(DINIT_BOOT)
         services = await client.list_services()
     failed = tuple(sorted(name for name, status in services.items() if _dinit_failed(status)))
     if boot.state is not ServiceState.STARTED:
-        return {"state": "failed", "failed": failed}
+        return {"state": "starting" if boot.target_state is ServiceState.STARTED else "failed", "failed": failed}
     return {"state": "degraded" if failed else "running", "failed": failed}
 
 
@@ -167,12 +167,16 @@ class Agent(Service):
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
 
     async def exposed_system_state(self, timeout: float = 180) -> SystemState:
-        """Wait for the boot to end, then say how it went."""
+        """Wait up to *timeout* for the boot to end, then say how it went."""
         if INIT is Init.DINIT:
             return await _dinit_state(timeout)
-        done = await _sh_thread("systemctl is-system-running --wait", timeout)
-        state = done.stdout.strip()
-        if state in ("running", "starting"):
+        try:
+            state = (await _sh_thread("systemctl is-system-running --wait", timeout)).stdout.strip()
+        except TimeoutError:
+            # `--wait` returns once the boot ends, so only a boot that did
+            # not end is still `starting`.
+            state = "starting"
+        if state == "running":
             return {"state": state, "failed": ()}
         units = await _sh_thread("systemctl list-units --state=failed --no-legend --plain", 30)
         return {"state": state, "failed": tuple(line.split()[0] for line in units.stdout.splitlines() if line.strip())}
