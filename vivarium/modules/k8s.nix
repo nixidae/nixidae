@@ -336,83 +336,19 @@ let
     done > $out
   '';
 
-  /*
-    Write the CNI configuration for this node.
+  # The node's CNI, written once its podCIDR is known: see k8s-cni.py.
+  cniSetup = pkgs.writers.writePython3Bin "vivarium-k8s-cni" {
+    flakeIgnore = [ "E501" ];
+  } ./k8s-cni.py;
 
-    Not baked into the image because the subnet is not known until the
-    cluster exists: kube-controller-manager carves a /24 out of the pod
-    subnet per node and publishes it as the Node's spec.podCIDR, so the
-    test reads it back and calls this.  Until then the node stays
-    NotReady with "cni plugin not initialized", which is correct -- it
-    is not.
-  */
-  /*
-    The node's CNI, written once its podCIDR is known.
+  # A JoinConfiguration with no discovery: `vivarium-k8s-join` adds it.
+  joinBase = {
+    apiVersion = "kubeadm.k8s.io/v1beta4";
+    kind = "JoinConfiguration";
+    inherit nodeRegistration timeouts;
+  }
+  // withPatches;
 
-    isDefaultGateway implies isGateway, and makes the bridge plugin add
-    the container's default route itself via the gateway it derives from
-    the range.  Naming 0.0.0.0/0 in ipam.routes as well -- which most
-    published conflists do, alongside the plain isGateway -- adds it
-    twice here: the plugin treats an existing default route as its own
-    only if that route names a gateway, and an ipam route does not, so it
-    appends a second one and the netlink add comes back EEXIST.  kubelet
-    reports that as `failed to add route ...: file exists`, and nothing
-    that needs CNI ever gets a sandbox -- which in a cluster this size
-    means CoreDNS and nothing else, long after the nodes all went Ready.
-  */
-  /*
-    `ipMasq` always. Pods live on `cni0` in the node's podCIDR, and without
-    SNAT nothing they send past the node is ever answered: not the
-    registry under `images = "pull"`, and not the cache guest of
-    `vivarium.recipes.cache` under either mode. Measured: with it off,
-    nixkube's init container spends its life on "Resolving timed out after
-    15000 milliseconds" and the DaemonSet never rolls out -- with no error
-    anywhere naming a route.
-  */
-  cniSetup = pkgs.writeShellApplication {
-    name = "vivarium-k8s-cni";
-    text = ''
-      if [ $# -ne 1 ]; then
-        echo "usage: vivarium-k8s-cni <pod-cidr>" >&2
-        exit 1
-      fi
-      mkdir -p /etc/cni/net.d
-      cat > /etc/cni/net.d/10-vivarium.conflist <<EOF
-      {
-        "cniVersion": "1.0.0",
-        "name": "uml",
-        "plugins": [
-          {
-            "type": "bridge",
-            "bridge": "cni0",
-            "isDefaultGateway": true,
-            "hairpinMode": true,
-            "ipMasq": true,
-            "ipam": {
-              "type": "host-local",
-              "ranges": [ [ { "subnet": "$1" } ] ]
-            }
-          },
-          {
-            "type": "portmap",
-            "capabilities": { "portMappings": true }
-          }
-        ]
-      }
-      EOF
-      echo "vivarium-k8s-cni: $1 on cni0"
-    '';
-  };
-
-  /*
-    Join this node to an existing cluster.
-
-    Takes what `kubeadm token create --print-join-command` prints, but as
-    three arguments rather than a command line, so that the timeouts and
-    the node's own registration above apply here too -- a join run from
-    the printed command line gets kubeadm's defaults and gives up on the
-    TLS bootstrap after five minutes.
-  */
   joinConfig =
     {
       endpoint,
@@ -420,40 +356,22 @@ let
       hash,
     }:
     yaml.generate "kubeadm-join.yaml" (
-      {
-        apiVersion = "kubeadm.k8s.io/v1beta4";
-        kind = "JoinConfiguration";
-        inherit nodeRegistration timeouts;
+      joinBase
+      // {
         discovery.bootstrapToken = {
           apiServerEndpoint = endpoint;
           inherit token;
           caCertHashes = [ hash ];
         };
       }
-      // withPatches
     );
 
-  joinNode = pkgs.writeShellApplication {
-    name = "vivarium-k8s-join";
-    runtimeInputs = [ kubernetes ];
-    text = ''
-      if [ $# -ne 3 ]; then
-        echo "usage: vivarium-k8s-join <endpoint> <token> <ca-cert-hash>" >&2
-        exit 1
-      fi
-      config=$(mktemp)
-      trap 'rm -f "$config"' EXIT
-      sed -e "s|@ENDPOINT@|$1|" -e "s|@TOKEN@|$2|" -e "s|@HASH@|$3|" \
-        ${
-          joinConfig {
-            endpoint = "@ENDPOINT@";
-            token = "@TOKEN@";
-            hash = "@HASH@";
-          }
-        } > "$config"
-      exec kubeadm join --config "$config" --v=2
-    '';
-  };
+  joinNode = pkgs.writers.writePython3Bin "vivarium-k8s-join" { flakeIgnore = [ "E501" ]; } (
+    pkgs.replaceVars ./k8s-join.py {
+      template = pkgs.writeText "kubeadm-join.json" (builtins.toJSON joinBase);
+      kubeadm = lib.getExe' kubernetes "kubeadm";
+    }
+  );
 
   storageRoot = "/var/lib/vivarium-storage";
 
@@ -1296,9 +1214,9 @@ in
       Worth its own derivation: kubeadm rejects unknown fields, and the
       config API is versioned, so a nixpkgs bump that retires v1beta4
       shows up here in seconds rather than as an `unknown API version`
-      thirty minutes into the cluster test.  The join config carries
-      placeholders, so the check substitutes something well-formed --
-      only the shape is under test.
+      thirty minutes into the cluster test.  The join config takes a
+      cluster's values, so the check gives it well-formed ones -- only
+      the shape is under test.
     */
     system.build.kubeadmConfigs = {
       init = kubeadmConfig;
