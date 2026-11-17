@@ -33,6 +33,20 @@ vivarium tests. It is built on huggorm and takes `ctl` and `monitor` as
 the runner does. The package also holds `vivarium-mcp` and an agent
 skill, `share/skills/vivarium/vivarium`.
 
+## Run a test on macOS
+
+A Mac runs krun guests with a vsock uplink, or behind a router guest.
+The guests are Linux on the Mac's processor, so a Linux builder for
+that system must be in `/etc/nix/machines`.
+
+```console
+$ nix run --file . mine.krun.driver -- --out ./out
+```
+
+Every guest's forwards are on 127.0.0.1, which they share: a port that
+is taken moves to the next free one, and the run says where. A run
+killed with SIGKILL leaves its guests up (nixidae/nixidae#1415).
+
 ## Wait for the run without watching it
 
 ```console

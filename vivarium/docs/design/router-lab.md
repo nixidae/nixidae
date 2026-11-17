@@ -656,7 +656,10 @@ guest `passt`, two rounds, host load 8-9:
 - A guest's ping to its gateway 10.0.2.1 gets no reply: the router
   ignores every echo (`icmp_echo_ignore_all`), and the host has no such
   address.
-- Not tried: macOS. Several flows through the slice's router.
+- macOS (2026-11-17, an M-series Mac, krun on HVF): lan-vsock, forward-vsock,
+  router, lan-router and forward-router pass. A krun guest boots in about
+  7 s. Not measured there: throughput.
+- Not tried: several flows through the slice's router.
 - The no-KVM case: without `/dev/kvm` the router is UML. With the own
   device (E7) one flow is about 70% of passt out of the guest and 60%
   into it; several flows into the guest are far below passt.
