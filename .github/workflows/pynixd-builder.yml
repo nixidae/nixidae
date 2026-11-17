@@ -1,0 +1,52 @@
+# GENERATED FILE -- do not edit by hand.
+# Edit the source's ciTestWorkflows, then run: nix run --file . ci-workflow-update
+defaults:
+  run:
+    working-directory: pynixd
+jobs:
+  builder:
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    permissions: {}
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    steps:
+    - env:
+        INSTALLER: ${{ inputs.installer }}
+        PYNIXD_TICKET: ${{ inputs.ticket }}
+        PYNIXD_TICKET_CONTEXT: ${{ inputs.tags }}
+        PYNIXD_TICKET_KEY: ${{ secrets.PYNIXD_TICKET_KEY }}
+      name: Install pynixd and register as a builder
+      run: |
+        curl --fail --silent --show-error --location "$INSTALLER" | zstd -dc | sudo tar -x -C /
+        sudo --preserve-env=PYNIXD_TICKET,PYNIXD_TICKET_CONTEXT,PYNIXD_TICKET_KEY /nix/.pynixd/install --sealed-join-ticket
+      timeout-minutes: ${{ fromJSON(inputs.bootstrap_minutes) }}
+    - env:
+        IDLE_SECONDS: ${{ inputs.idle_seconds }}
+      name: Build until idle
+      run: sudo /nix/.pynixd/idle-guard --wait "$IDLE_SECONDS"
+    timeout-minutes: 360
+name: 'pynixd: builder'
+'on':
+  workflow_dispatch:
+    inputs:
+      bootstrap_minutes:
+        description: The install step's timeout
+        required: true
+      idle_seconds:
+        description: The job ends after this many seconds with no build
+        required: true
+      installer:
+        description: The URL of the installer tarball
+        required: true
+      runs_on:
+        description: The runner's labels, as a JSON list
+        required: true
+      tags:
+        description: The launch's tags, as JSON
+        required: true
+      ticket:
+        description: The join ticket, sealed under PYNIXD_TICKET_KEY to the tags
+        required: true
+run-name: pynixd-builder ${{ inputs.tags }}
