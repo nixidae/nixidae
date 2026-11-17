@@ -1033,9 +1033,20 @@ class Machine:
         self._log("process would not die")
 
     def _signal(self, sig: int) -> None:
-        if self._process is None or self._process.returncode is not None:
+        """Signal the process group, and the guest's own pid as well.
+
+        The pid too because under UML the spawned process is the bridge,
+        and killing its group alone left the kernel answering RPC in one
+        run of two.
+        """
+        if self._process is None:
             return
-        _killpg(self._process.pid, sig)
+        pid = self._guest_pid()
+        if self._process.returncode is None:
+            _killpg(self._process.pid, sig)
+        if pid is not None and pid != self._process.pid and _running(pid):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, sig)
 
     def _guest_pid(self) -> int | None:
         """The guest's own process: the kernel under UML, QEMU itself."""
@@ -1060,18 +1071,11 @@ class Machine:
         SIGKILL: no shutdown, nothing flushed, no chance to say goodbye.
         For a test of what survives a dead node. `shutdown` afterwards is
         still safe and still needed.
-
-        The kernel's pid as well as the group, because under UML the
-        spawned process is the bridge, and killing its group alone left
-        the kernel answering RPC in one run of two.
         """
         if self._process is None:
             raise MachineError(f"[{self.name}] not started")
         pid = self._guest_pid()
         self._signal(signal.SIGKILL)
-        if pid is not None:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
         await self._process.wait()
         self._close_kept()
         # Polled: under UML the kernel is not our child, so there is
