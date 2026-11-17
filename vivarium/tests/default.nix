@@ -9,6 +9,8 @@
   nixvenv,
   vivarium,
   k8sImages,
+  # The names `lib` exports, for `checks.docs`.
+  libNames,
 }:
 let
   inherit (vivarium)
@@ -418,6 +420,7 @@ let
       k8sNodes
       k8sConfig
       k8sImages
+      libNames
       demo
       store
       k8s-pull

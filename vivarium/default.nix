@@ -43,11 +43,16 @@ let
     images
     ;
 
-  # The tests write guests, so their `pkgs` is the guests'.
+  /**
+    The container images a kubeadm cluster needs, built from the guests'
+    nixpkgs, so a guest needs no registry; see modules/k8s-images.nix.
+  */
   k8sImages = vivarium.guestPkgs.callPackage ./modules/k8s-images.nix { };
+  # The tests write guests, so their `pkgs` is the guests'.
   tests = import ./tests {
     pkgs = vivarium.guestPkgs;
     hostPkgs = pkgs;
+    libNames = lib.attrNames exported;
     inherit
       lib
       sources
@@ -55,6 +60,34 @@ let
       vivarium
       k8sImages
       ;
+  };
+
+  # The library, for a caller that writes its own test.
+  exported = {
+    inherit
+      mkNode
+      mkTest
+      fromNixosTest
+      runner
+      session
+      k8s
+      cli
+      typeCheck
+      images
+      k8sImages
+      ;
+    inherit (vivarium)
+      cacheFacts
+      kinds
+      pathsIn
+      pytestCheck
+      settingsClosure
+      ;
+    /**
+      The pyproject project of `runner`, for a caller that resolves it in a
+      Python set of its own.
+    */
+    runnerSource = ./pkgs/vivarium-runner;
   };
   inherit (tests) k8sConfig;
 
@@ -144,31 +177,7 @@ let
 in
 # The schema of nixidae/nixidae#1103. Every other name is under `internal`.
 {
-  # The library, for a caller that writes its own test.
-  lib = {
-    inherit
-      mkNode
-      mkTest
-      fromNixosTest
-      runner
-      session
-      k8s
-      cli
-      typeCheck
-      images
-      k8sImages
-      ;
-    inherit (vivarium)
-      cacheFacts
-      kinds
-      pathsIn
-      pytestCheck
-      settingsClosure
-      ;
-    # The pyproject project of `runner`, for a caller that resolves it in a
-    # Python set of its own.
-    runnerSource = ./pkgs/vivarium-runner;
-  };
+  lib = exported;
 
   /*
     What CI builds. Every test also answers to `.uml` and `.qemu`.
