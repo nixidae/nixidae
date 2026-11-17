@@ -69,6 +69,11 @@ def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> s
     )
 
 
+async def _sh_thread(command: str, timeout: float) -> subprocess.CompletedProcess[str]:
+    """`_sh` in a thread, so the channel goes on answering while it runs."""
+    return await anyio.to_thread.run_sync(_sh, command, timeout, None)
+
+
 def _systemd(call: str) -> None:
     if INIT is not Init.SYSTEMD:
         raise RuntimeError(f"{call} asks systemd, and this guest's init is {INIT}")
@@ -135,11 +140,11 @@ class Agent(Service):
         """Wait for the boot to end, then say how it went."""
         if INIT is Init.DINIT:
             return await _dinit_state(timeout)
-        done = await anyio.to_thread.run_sync(_sh, "systemctl is-system-running --wait", timeout, None)
+        done = await _sh_thread("systemctl is-system-running --wait", timeout)
         state = done.stdout.strip()
         if state in ("running", "starting"):
             return {"state": state, "failed": ()}
-        units = await anyio.to_thread.run_sync(_sh, "systemctl list-units --state=failed --no-legend --plain", 30, None)
+        units = await _sh_thread("systemctl list-units --state=failed --no-legend --plain", 30)
         return {"state": state, "failed": tuple(line.split()[0] for line in units.stdout.splitlines() if line.strip())}
 
     async def exposed_poweroff(self) -> None:
@@ -148,26 +153,26 @@ class Agent(Service):
             async with DinitClient.connect(DINIT_SOCKET) as client:
                 await client.shutdown(ShutdownType.POWEROFF)
             return
-        await anyio.to_thread.run_sync(_sh, "systemctl poweroff", 30, None)
+        await _sh_thread("systemctl poweroff", 30)
 
-    def exposed_unit_state(self, unit: str) -> str:
+    async def exposed_unit_state(self, unit: str) -> str:
         """ActiveState of *unit*, or ``unknown`` if systemd won't say."""
         _systemd("unit_state")
-        out = _sh(f"systemctl show --property=ActiveState -- {unit!r}", 30).stdout
+        out = (await _sh_thread(f"systemctl show --property=ActiveState -- {unit!r}", 30)).stdout
         _, sep, state = out.strip().partition("ActiveState=")
         return state if sep else "unknown"
 
-    def exposed_unit_info(self, unit: str) -> dict[str, str]:
+    async def exposed_unit_info(self, unit: str) -> dict[str, str]:
         """Every property ``systemctl show`` reports for *unit*."""
         _systemd("unit_info")
-        out = _sh(f"systemctl show --no-pager -- {unit!r}", 30).stdout
+        out = (await _sh_thread(f"systemctl show --no-pager -- {unit!r}", 30)).stdout
         pairs = (line.partition("=") for line in out.strip().splitlines())
         return {key: value for key, sep, value in pairs if sep}
 
-    def exposed_list_units(self, pattern: str = "*") -> list[UnitInfo]:
+    async def exposed_list_units(self, pattern: str = "*") -> list[UnitInfo]:
         """Units matching *pattern*, one dict per systemctl column."""
         _systemd("list_units")
-        out = _sh(f"systemctl list-units --all --no-legend -- {pattern!r}", 30).stdout
+        out = (await _sh_thread(f"systemctl list-units --all --no-legend -- {pattern!r}", 30)).stdout
         units: list[UnitInfo] = []
         for line in out.splitlines():
             fields = line.split(maxsplit=4)
@@ -244,11 +249,11 @@ class Agent(Service):
             )
         return sorted(found, key=lambda p: p["pid"])
 
-    def exposed_journal(self, unit: str | None = None, lines: int = 50) -> str:
+    async def exposed_journal(self, unit: str | None = None, lines: int = 50) -> str:
         """Tail of the journal, optionally restricted to one unit."""
         _systemd("journal")
         scope = f"-u {unit!r}" if unit else ""
-        return _sh(f"journalctl --no-pager -n {lines:d} {scope}", 30).stdout.rstrip()
+        return (await _sh_thread(f"journalctl --no-pager -n {lines:d} {scope}", 30)).stdout.rstrip()
 
 
 UNIX_PREFIX = "unix:"

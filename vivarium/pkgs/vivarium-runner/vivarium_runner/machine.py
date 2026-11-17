@@ -45,7 +45,7 @@ from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
 from .arpyc import AsyncConnection, ProtocolError, Service, connect
-from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
+from .channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 from .control import (
     AGENT,
     NONE,
@@ -449,20 +449,6 @@ error usually is. The whole output still reaches the caller."""
 
 type MemoryControl = mconsole.Mconsole | qmp.Qmp
 """A guest's channel for resizing its memory: UML's console or QEMU's monitor."""
-
-
-class AgentRpc(Protocol):
-    """The agent's methods as the host calls them. See `agent.Agent`."""
-
-    async def run(self, command: str, timeout: float, env: dict[str, str] | None) -> tuple[int, str]: ...
-    async def system_state(self, timeout: float) -> SystemState: ...
-    async def poweroff(self) -> None: ...
-    async def unit_state(self, unit: str) -> str: ...
-    async def unit_info(self, unit: str) -> dict[str, str]: ...
-    async def list_units(self, pattern: str) -> list[UnitInfo]: ...
-    async def listening(self) -> list[int]: ...
-    async def processes(self) -> list[ProcessInfo]: ...
-    async def journal(self, unit: str | None, lines: int) -> str: ...
 
 
 def _agent_rpc(conn: AsyncConnection) -> AgentRpc:
