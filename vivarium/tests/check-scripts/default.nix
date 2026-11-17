@@ -1,7 +1,7 @@
 # The scripts in tests/, against the library they drive. Also the
 # check that `typeCheck` itself works.
 {
-  pkgs,
+  hostPkgs,
   lib,
   vivarium,
   k8s,
@@ -20,8 +20,8 @@ vivarium.typeCheck {
   # What `python-packages` gives its phase, and what the cluster tests
   # import.
   extraPackages = [
-    pkgs.python3Packages.humanize
-    pkgs.python3Packages.tomli-w
+    hostPkgs.python3Packages.humanize
+    hostPkgs.python3Packages.tomli-w
     k8s
   ];
   # The check scripts import their shared `harness` by name.
