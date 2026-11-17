@@ -29,6 +29,11 @@ mkTest {
           command = "${pkgs.coreutils}/bin/false";
           dinix.critical = null;
         };
+        services.dies = {
+          type = "process";
+          command = "${pkgs.coreutils}/bin/false";
+          dinix.critical = null;
+        };
       }
     ];
   };

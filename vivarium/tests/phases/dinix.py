@@ -30,6 +30,19 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"with broken failed, the guest reports {report}")
     print(f"[test] a failed service shows: {report}")
 
+    # A daemon that exits 1 after it started: dinit calls it terminated.
+    await box.succeed("dinitctl start dies")
+
+    async def stopped() -> str | None:
+        status = await box.succeed("dinitctl status dies")
+        return status if "STOPPED" in status else None
+
+    await box.until("dies to exit", stopped, timeout=10, poll=0.1)
+    report = await box.system_state(timeout=10)
+    if report != {"state": "degraded", "failed": ("broken", "dies")}:
+        raise AssertionError(f"with dies exited 1, the guest reports {report}")
+    print(f"[test] a daemon that exits 1 shows: {report}")
+
     try:
         await box.unit_state("vivarium-agent")
     except RuntimeError as error:

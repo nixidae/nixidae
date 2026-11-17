@@ -24,7 +24,7 @@ from pathlib import Path
 import anyio
 import anyio.to_thread
 from dinit_client import DinitClient
-from dinit_client.protocol import ServiceState, ShutdownType, StoppedReason
+from dinit_client.protocol import ServiceState, ServiceStatus, ShutdownType, StoppedReason
 
 from . import cloud
 from .arpyc import AsyncConnection, Service, listen
@@ -74,6 +74,19 @@ def _systemd(call: str) -> None:
         raise RuntimeError(f"{call} asks systemd, and this guest's init is {INIT}")
 
 
+def _dinit_failed(status: ServiceStatus) -> bool:
+    if status.state is not ServiceState.STOPPED:
+        return False
+    # A process that ended by itself: dinit says TERMINATED whatever its
+    # status, so only an exit 0 is clean (dinitctl: "terminated; exited -
+    # status 1").
+    if status.stop_reason is StoppedReason.TERMINATED:
+        # si_code and si_status from protocol 5, exit_status before it.
+        clean = (status.si_code, status.si_status) == (os.CLD_EXITED, 0) or status.exit_status == 0
+        return not clean
+    return status.stop_reason in _DINIT_FAILED
+
+
 async def _dinit_state(timeout: float) -> SystemState:
     """dinit's answer to `exposed_system_state`: the boot service started, or
     gave up, and every service that stopped for a failure."""
@@ -87,13 +100,7 @@ async def _dinit_state(timeout: float) -> SystemState:
                 await events.receive()
                 boot = await client.status(DINIT_BOOT)
         services = await client.list_services()
-    failed = tuple(
-        sorted(
-            name
-            for name, status in services.items()
-            if status.state is ServiceState.STOPPED and status.stop_reason in _DINIT_FAILED
-        )
-    )
+    failed = tuple(sorted(name for name, status in services.items() if _dinit_failed(status)))
     if boot.state is not ServiceState.STARTED:
         return {"state": "failed", "failed": failed}
     return {"state": "degraded" if failed else "running", "failed": failed}
