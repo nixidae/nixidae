@@ -33,7 +33,7 @@ class Stuck(Machine):
     def name(self) -> str:
         return "cp"
 
-    async def shutdown(self) -> None:
+    async def shutdown(self, *, kill: bool = False) -> None:
         raise RuntimeError("the agent hung up")
 
 
@@ -43,7 +43,7 @@ def session(tmp_path: Path, sink: Collect) -> Session:
 
 def test_a_guest_that_does_not_shut_down_cleanly_is_an_error_by_name(tmp_path: Path) -> None:
     sink = Collect()
-    anyio.run(session(tmp_path, sink)._shutdown, Stuck())
+    anyio.run(session(tmp_path, sink)._shutdown, Stuck(), False)
     [event] = sink.events
     assert (event.kind, event.level, event.machine) == (Kind.ERROR, Level.ERROR, "cp")
     assert event.text == "cp did not shut down cleanly: the agent hung up"

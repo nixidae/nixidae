@@ -3,8 +3,9 @@
 Each case starts `vivarium run` on one guest, signals the runner once a
 phase has started, and looks for what is left: a run root, or a process
 by its exact name. SIGKILL: the cleaner removes the root. SIGTERM: the
-run exits 143 after the guest has powered itself off. `ctl stop` while
-the phase runs: the run exits 5 and says stopped.
+run exits 143 after the guest has powered itself off, or with
+`--no-control` after it was killed. `ctl stop` while the phase runs: the
+run exits 5 and says stopped.
 
     cleanup VIVARIUM SPEC WORKDIR BACKEND
 """
@@ -125,16 +126,18 @@ def case(
     *,
     keep: bool = False,
     first: Callable[[int], None] | None = None,
+    flags: tuple[str, ...] = (),
 ) -> int:
-    """*first*, given the runner's pid, runs once the phase started and before *end*."""
+    """*first*, given the runner's pid, runs once the phase started and before *end*.
+    *flags* go to `vivarium run`."""
     how = end if isinstance(end, str) else end.name
-    name = f"{how}{'-keep' if keep else ''}{'-' + first.__name__ if first else ''}"
+    name = f"{how}{'-keep' if keep else ''}{'-' + first.__name__ if first else ''}{''.join(flags)}"
     out = work / f"run-{name}"
     log = work / f"run-{name}.log"
     env = {**os.environ, **({"VIVARIUM_KEEP": "1"} if keep else {})}
     with log.open("w") as sink:
         runner = subprocess.Popen(
-            [vivarium, "run", "--spec", spec, "--out", str(out)],
+            [vivarium, "run", "--spec", spec, "--out", str(out), *flags],
             stdout=sink,
             stderr=subprocess.STDOUT,
             env=env,
@@ -194,6 +197,15 @@ def main() -> None:
     if POWERED_OFF[backend] not in console:
         sys.exit("SIGTERM: the guest did not power itself off")
     print("ok: SIGTERM powered the guest off before the run ended")
+
+    # A check's run: nobody can reach the guest, so it is killed, not powered off.
+    status = case(vivarium, spec, work, signal.SIGTERM, left_behind, flags=("--no-control",))
+    if status != 128 + signal.SIGTERM:
+        sys.exit(f"SIGTERM --no-control: exit {status}, not 143")
+    console = (work / "run-SIGTERM--no-control" / "console" / "one.log").read_text()
+    if POWERED_OFF[backend] in console:
+        sys.exit("SIGTERM --no-control: the guest powered itself off, it was not killed")
+    print("ok: SIGTERM with no control socket killed the guest")
 
     status = case(vivarium, spec, work, STOP, left_behind)
     if status != STOPPED:

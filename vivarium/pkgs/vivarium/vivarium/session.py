@@ -1098,11 +1098,11 @@ class Session:
         """A stopped run has no verdict, so it never passes."""
         return self.stopped is None and passed(self.state)
 
-    async def _shutdown(self, machine: Machine) -> None:
+    async def _shutdown(self, machine: Machine, kill: bool = False) -> None:
         """Teardown must not fail: a guest that will not stop cleanly is not
         a reason to leave the others running."""
         try:
-            await machine.shutdown()
+            await machine.shutdown(kill=kill)
         except Exception as error:  # noqa: BLE001 -- reported, and the other guests still go down
             self.emit(
                 Kind.ERROR,
@@ -1111,12 +1111,16 @@ class Session:
                 machine=machine.name,
             )
 
-    async def teardown(self) -> None:
-        """Guests down. Safe to call twice; never called for you."""
+    async def teardown(self, *, kill: bool = False) -> None:
+        """Guests down. Safe to call twice; never called for you.
+
+        *kill*: SIGKILL each guest, not ask it to power off; see
+        `Machine.shutdown`.
+        """
         await self.cloud.close()
         async with anyio.create_task_group() as group:
             for machine in self._attempted().values():
-                group.start_soon(self._shutdown, machine)
+                group.start_soon(self._shutdown, machine, kill)
         self.vms = None
         self._all = None
         self._attempts = set()

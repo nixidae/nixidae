@@ -50,6 +50,7 @@ class FakeSession(Session):
         self.boot_error = boot_error
         self.booted = False
         self.torn_down = False
+        self.killed: bool | None = None
         self.wrote = False
         self.said: list[str] = []
         self.following: bool | None = None
@@ -100,8 +101,9 @@ class FakeSession(Session):
     def write_report(self) -> None:
         self.said.append("report")
 
-    async def teardown(self) -> None:
+    async def teardown(self, *, kill: bool = False) -> None:
         self.torn_down = True
+        self.killed = kill
         self.said.append("teardown")
 
     async def drain(self) -> None:
@@ -184,6 +186,16 @@ class TestTheJournalFollower:
         session = FakeSession()
         await drive(session)
         assert session.said.index("write") < session.said.index("teardown") < session.said.index("report")
+
+    async def test_a_run_nobody_can_reach_kills_its_guests(self) -> None:
+        session = FakeSession()
+        await drive(session, control=False)
+        assert session.killed is True
+
+    async def test_a_run_with_a_socket_powers_its_guests_off(self) -> None:
+        session = FakeSession()
+        await drive(session)
+        assert session.killed is False
 
 
 async def until_paused(socket: Path) -> None:

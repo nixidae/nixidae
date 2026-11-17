@@ -917,8 +917,15 @@ class Machine:
             {"backend": self.spec.backend, "cpus": self.spec.cpus, "memory": self.spec.memory},
         )
 
-    async def shutdown(self) -> None:
-        """Ask the guest to power off, then make sure nothing is left."""
+    async def shutdown(self, *, kill: bool = False) -> None:
+        """Ask the guest to power off, then make sure nothing is left.
+
+        *kill* SIGKILLs the guest and does not ask. For a guest whose disk
+        is thrown away and whose evidence is read already: an orderly
+        poweroff costs seconds, and a guest that does not finish it in
+        `POWEROFF_GRACE` costs all of them (measured, 20 s of the 81 s of
+        `checks.k8s`).
+        """
         self._stopping = True
         if self._watcher is not None:
             self._watcher.cancel()
@@ -937,7 +944,7 @@ class Machine:
         # `alive` first: a dead guest's agent does not refuse, it hangs,
         # and the request below waited out its full timeout after `crash`.
         asked = False
-        if self._conn is not None and not self._conn.closed and self.alive():
+        if not kill and self._conn is not None and not self._conn.closed and self.alive():
             # Asked even when the reply is lost: poweroff can take the
             # agent down before it answers.
             asked = True
@@ -958,7 +965,7 @@ class Machine:
         self._agent_sock = self._guest_sock = None
 
         with self.recorder.span(self.name, "teardown", f"reap {self.name}"):
-            await self._reap(POWEROFF_GRACE if asked else 0)
+            await self._reap(POWEROFF_GRACE if asked else 0, kill=kill)
         with self.recorder.span(self.name, "teardown", f"clean up {self.name}"):
             await self._stop_process()
             self._close_kept()
@@ -1011,9 +1018,9 @@ class Machine:
             shutil.rmtree(directory, ignore_errors=True)
         self._cleanup = []
 
-    async def _reap(self, grace: float) -> None:
+    async def _reap(self, grace: float, *, kill: bool = False) -> None:
         """Wait *grace* seconds for the guest to exit, then SIGTERM its
-        process group, then SIGKILL it."""
+        process group, then SIGKILL it. *kill* goes to SIGKILL at once."""
         if self._process is None or self._process.returncode is not None:
             return
         # The agent's poweroff returns once the shutdown is queued, so a
@@ -1026,7 +1033,8 @@ class Machine:
                 return
             except TimeoutError:
                 pass
-        for sig, wait in ((signal.SIGTERM, 30), (signal.SIGKILL, 5)):
+        steps = ((signal.SIGKILL, 5),) if kill else ((signal.SIGTERM, 30), (signal.SIGKILL, 5))
+        for sig, wait in steps:
             self._signal(sig)
             try:
                 with anyio.fail_after(wait):

@@ -653,7 +653,9 @@ async def _sequence(
         with anyio.CancelScope(shield=True):
             await session.drain()
             session.write_output()
-            await session.teardown()
+            # With no control socket nobody reaches the guests any more,
+            # and their evidence is drained: a poweroff only costs time.
+            await session.teardown(kill=control is None)
             session.write_report()
             # A kubeconfig names guests that are gone, and in a sandboxed
             # check it would carry an admin key into the world-readable store.
