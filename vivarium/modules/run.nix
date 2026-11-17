@@ -516,7 +516,8 @@ in
       lib.mkIf config.router.enable (
         { config, ... }:
         {
-          vivarium.uplink.proxy = lib.mkDefault "router";
+          # A template's instance is never behind it: router.nix says why.
+          vivarium.uplink.proxy = lib.mkDefault (if config.vivarium.template then "passt" else "router");
           # A guest behind the router has no lease and no forwards without it.
           vivarium.requires = lib.mkIf (config.vivarium.uplink.proxy == "router") [ router ];
         }

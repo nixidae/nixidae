@@ -117,6 +117,14 @@ in
       systemd.network.networks."40-vec0".ipv6AcceptRAConfig.Token = "static:::${
         toString (15 + config.vivarium.index)
       }";
+      # The router's port, lease and forwards for a guest are fixed at
+      # evaluation; an instance arrives later and would get none.
+      assertions = [
+        {
+          assertion = !config.vivarium.template;
+          message = "a template's instances cannot sit behind the router (nixidae/nixidae#1404); set its vivarium.uplink.proxy.";
+        }
+      ];
     })
     (lib.mkIf cfg.enable {
       # 256M on krun OOM-kills the agent at boot; UML boots in it.
