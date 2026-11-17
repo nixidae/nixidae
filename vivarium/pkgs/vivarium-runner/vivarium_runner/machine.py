@@ -44,7 +44,7 @@ import anyio
 from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
-from .arpyc import AsyncConnection, Service, connect
+from .arpyc import AsyncConnection, ProtocolError, Service, connect
 from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 from .control import (
     AGENT,
@@ -1214,6 +1214,9 @@ class Machine:
         except EOFError:
             data = {"error": "the guest went away"}
             raise MachineError(f"[{self.name}] guest went away during: {what}\n{self._console_tail()}") from None
+        except ProtocolError as error:
+            data = {"error": f"the agent channel broke: {error}"}
+            raise MachineError(f"[{self.name}] the agent channel broke during: {what}: {error}") from None
         except Exception as error:
             data = {"error": f"{type(error).__name__}: {error}"[:OUTPUT_LIMIT]}
             raise

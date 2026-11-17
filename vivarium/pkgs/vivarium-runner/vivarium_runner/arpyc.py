@@ -46,6 +46,14 @@ _FRAME_HEADER = struct.Struct("!LB")
 _FLUSHER = b"\n"
 _READ_CHUNK = 65536
 
+MAX_FRAME = 256 * 1024 * 1024
+"""The longest frame a peer may announce. A length past it is a stream out
+of step, and reading it would buffer up to 4 GiB first."""
+
+
+class ProtocolError(Exception):
+    """The peer sent a frame that cannot be read. The channel is closed."""
+
 
 def _dump_exc(exc: BaseException) -> tuple[object, ...]:
     """Serialise an exception; vinegar takes every flag positionally."""
@@ -83,8 +91,9 @@ class FdStream:
     unchanged.
 
     Reads are fed into a ``StreamReader`` from the event loop's reader
-    callback; writes go straight to ``os.write`` (rpyc frames are small
-    enough that the kernel buffer absorbs them).
+    callback. The fd is non-blocking, and a write waits for room with
+    ``anyio.wait_writable``: a peer that stops reading stalls its own
+    calls, not the loop.
 
     A ``/dev/ttyS0`` fd must be put in raw mode first, otherwise the line
     discipline mangles the binary frames -- pass ``raw_tty=True``.
@@ -101,17 +110,23 @@ class FdStream:
         self._loop = loop
         self._closed = False
         self._reader = asyncio.StreamReader()
+        # One frame at a time: two writers that both wait for room would
+        # interleave their bytes.
+        self._writing = anyio.Lock()
         self._saved_tty: list[Any] | None = termios.tcgetattr(fd) if raw_tty else None
         if raw_tty:
             # TCSANOW, not tty.setraw's default TCSAFLUSH: this is a data
             # channel, and discarding whatever the peer has already sent
             # loses a request with no way to notice.
             tty.setraw(fd, termios.TCSANOW)
+        os.set_blocking(fd, False)
         loop.add_reader(fd, self._on_readable)
 
     def _on_readable(self) -> None:
         try:
             data = os.read(self._fd, _READ_CHUNK)
+        except BlockingIOError:
+            return
         except OSError:
             data = b""
         if data:
@@ -123,11 +138,23 @@ class FdStream:
         return await self._reader.readexactly(count)
 
     async def write(self, data: bytes) -> None:
-        while data:
-            n = os.write(self._fd, data)
-            if n <= 0:
-                raise EOFError("fd write failed")
-            data = data[n:]
+        """Write all of *data*, or close the stream: half a frame puts the peer out of step."""
+        async with self._writing:
+            view = memoryview(data)
+            try:
+                while view:
+                    if self._closed:
+                        raise EOFError("arpyc stream closed")
+                    try:
+                        view = view[os.write(self._fd, view) :]
+                    except BlockingIOError:
+                        try:
+                            await anyio.wait_writable(self._fd)
+                        except anyio.ClosedResourceError:
+                            raise EOFError("arpyc stream closed") from None
+            finally:
+                if 0 < len(view) < len(data):
+                    self.close()
 
     @property
     def closed(self) -> bool:
@@ -138,6 +165,8 @@ class FdStream:
             return
         self._closed = True
         self._loop.remove_reader(self._fd)
+        # Wakes a write waiting for room, which then raises EOFError.
+        anyio.notify_closing(self._fd)
         self._reader.feed_eof()
         if self._saved_tty is not None:
             with contextlib.suppress(termios.error):
@@ -154,7 +183,12 @@ class Channel:
     async def recv(self) -> bytes:
         header = await self._stream.read(_FRAME_HEADER.size)
         length, compressed = _FRAME_HEADER.unpack(header)
-        data = (await self._stream.read(length + len(_FLUSHER)))[: -len(_FLUSHER)]
+        if length > MAX_FRAME:
+            raise ProtocolError(f"a frame of {length} bytes is over the {MAX_FRAME}-byte limit")
+        data = await self._stream.read(length + len(_FLUSHER))
+        if not data.endswith(_FLUSHER):
+            raise ProtocolError("a frame does not end in rpyc's flusher byte")
+        data = data[: -len(_FLUSHER)]
         return zlib.decompress(data) if compressed else data
 
     async def send(self, data: bytes) -> None:
@@ -242,8 +276,17 @@ class AsyncConnection:
             return {k: self._unbox(v) for k, v in value}
         return value
 
-    async def _send(self, msg_type: int, seq: int, data: Any) -> None:
-        await self._channel.send(brine.I1.pack(msg_type) + brine.dump((seq, data)))
+    @staticmethod
+    def _frame(msg_type: int, seq: int, data: Any) -> bytes:
+        # rpyc is untyped, so both halves arrive as Any.
+        header: bytes = brine.I1.pack(msg_type)
+        body: bytes = brine.dump((seq, data))
+        return header + body
+
+    async def _send(self, frame: bytes) -> None:
+        if self._closed:
+            raise EOFError("arpyc connection closed")
+        await self._channel.send(frame)
 
     # ── serving ────────────────────────────────────────────────────
 
@@ -270,17 +313,20 @@ class AsyncConnection:
             else:
                 raise ValueError(f"unknown handler {handler_id}")
         except Exception as exc:  # noqa: BLE001 -- the caller's error goes back to the caller
-            await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
+            await self._send(self._frame(consts.MSG_EXCEPTION, seq, _dump_exc(exc)))
         else:
-            await self._send(consts.MSG_REPLY, seq, self._box(result))
+            await self._send(self._frame(consts.MSG_REPLY, seq, self._box(result)))
 
     async def _answer(self, seq: int, pending: Awaitable[object]) -> None:
         try:
             result = await pending
             # Inside the try: a result brine cannot dump is the caller's error, not a reply that never comes.
-            await self._send(consts.MSG_REPLY, seq, self._box(result))
+            frame = self._frame(consts.MSG_REPLY, seq, self._box(result))
         except Exception as exc:  # noqa: BLE001 -- the caller's error goes back to the caller
-            await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
+            frame = self._frame(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
+        # A peer that went away mid-call has nowhere to take the answer.
+        with contextlib.suppress(EOFError, OSError):
+            await self._send(frame)
 
     async def _serve_one(self) -> None:
         """Read one frame and dispatch it."""
@@ -302,14 +348,23 @@ class AsyncConnection:
         pending.event.set()
 
     async def serve_forever(self) -> None:
-        """Serve until the peer goes away."""
+        """Serve until the peer goes away, or sends what cannot be read.
+
+        Never raises for the peer's sake: a listener that serves several
+        peers keeps serving the rest.
+        """
+        broken: ProtocolError | None = None
         try:
             while not self._closed:
                 await self._serve_one()
         except (EOFError, asyncio.IncompleteReadError, OSError):
             pass
+        except ProtocolError as error:
+            broken = error
+        except Exception as error:  # noqa: BLE001 -- brine and zlib raise what they raise; each pending call gets it
+            broken = ProtocolError(f"an unreadable frame: {type(error).__name__}: {error}")
         finally:
-            self.close()
+            self.close(broken)
 
     def start_serving(self) -> None:
         """Serve in the background, for a side that mostly calls out.
@@ -328,29 +383,39 @@ class AsyncConnection:
 
     async def call(self, method: str, args: tuple[object, ...], kwargs: dict[str, object]) -> Any:
         """Invoke ``exposed_<method>`` on the peer and await its result."""
+        if self._closed:
+            raise EOFError("arpyc connection closed")
         seq = self._seq
         self._seq += 1
         pending = _Pending()
         self._pending[seq] = pending
-        boxed = self._box((method, args, tuple(kwargs.items())))
-        await self._send(consts.MSG_REQUEST, seq, (HANDLE_METHOD, boxed))
-        await pending.event.wait()
+        try:
+            boxed = self._box((method, args, tuple(kwargs.items())))
+            await self._send(self._frame(consts.MSG_REQUEST, seq, (HANDLE_METHOD, boxed)))
+            await pending.event.wait()
+        finally:
+            # A cancelled call leaves no entry behind.
+            self._pending.pop(seq, None)
         if pending.exc is not None:
             raise pending.exc
         return pending.result
 
     # ── lifecycle ──────────────────────────────────────────────────
 
-    def close(self) -> None:
+    def close(self, broken: ProtocolError | None = None) -> None:
+        """Close the channel. Each pending call raises *broken*, or EOFError."""
         if self._closed:
             return
         self._closed = True
         self._service.on_disconnect(self)
         for pending in self._pending.values():
             if not pending.event.is_set():
-                pending.exc = EOFError("arpyc connection closed")
+                pending.exc = ProtocolError(str(broken)) if broken else EOFError("arpyc connection closed")
                 pending.event.set()
         self._pending.clear()
+        # Their replies have nowhere to go.
+        for task in self._answering:
+            task.cancel()
         self._channel.close()
 
     @property
