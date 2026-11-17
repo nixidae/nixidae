@@ -267,6 +267,12 @@ class DinitClient:
         handle = await self.handle_for(name)
         await self._request(p.unpin(handle), self._ack_handler)
 
+    async def shutdown(self, kind: p.ShutdownType) -> None:
+        """Stop every service, then let dinit end as *kind* says: as system
+        manager, power off, reboot or halt. dinit acknowledges before the
+        services stop."""
+        await self._request(p.shutdown(kind), self._ack_handler)
+
     async def status(self, name: str) -> p.ServiceStatus:
         handle = await self.handle_for(name)
         size = self._status_size

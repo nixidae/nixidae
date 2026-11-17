@@ -333,6 +333,10 @@ def close_handle(handle: int) -> bytes:
     return service_handle_command(Command.CLOSEHANDLE, handle)
 
 
+def shutdown(kind: ShutdownType) -> bytes:
+    return bytes([Command.SHUTDOWN, kind])
+
+
 def decode_version(buf: bytes) -> Version:
     min_compat, protocol = struct.unpack_from("=HH", buf, 0)
     return Version(min_compat=min_compat, protocol=protocol)

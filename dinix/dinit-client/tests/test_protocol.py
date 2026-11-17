@@ -26,6 +26,10 @@ def test_find_or_load_rejects_empty_and_overlong_names():
         p.find_or_load("x" * 1022, load=True)
 
 
+def test_shutdown_carries_its_type():
+    assert p.shutdown(p.ShutdownType.POWEROFF) == bytes([p.Command.SHUTDOWN, 2])
+
+
 def test_start_stop_sets_flag_bits():
     packed = p.start_stop(p.Command.STOPSERVICE, 7, pin=True, gentle=True, restart=True)
     assert packed[0] == p.Command.STOPSERVICE

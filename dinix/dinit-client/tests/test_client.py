@@ -89,6 +89,10 @@ async def _handle_connection(stream: SocketStream) -> None:
             ):
                 await _recv_exactly(stream, 4)
                 await stream.send(bytes([p.Reply.ACK]))
+            elif command == p.Command.SHUTDOWN:
+                kind = (await _recv_exactly(stream, 1))[0]
+                known = kind in set(p.ShutdownType)
+                await stream.send(bytes([p.Reply.ACK if known else p.Reply.BADREQ]))
             elif command == p.Command.SETENV:
                 await _recv_length_prefixed(stream)
                 await stream.send(bytes([p.Reply.ACK]))
@@ -202,3 +206,8 @@ async def test_query_load_mech(tmp_path: Path) -> None:
 async def test_setenv(tmp_path: Path) -> None:
     async with connected_client(tmp_path) as client:
         await client.setenv({"A": "1", "B": None})
+
+
+async def test_shutdown_is_acknowledged(tmp_path: Path) -> None:
+    async with connected_client(tmp_path) as client:
+        await client.shutdown(p.ShutdownType.POWEROFF)
