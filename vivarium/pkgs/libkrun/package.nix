@@ -10,8 +10,10 @@
   align the initrd, show the guest only an allowlist of the store (on a
   writable share too, for pynixd's build VM), cache a lookup that finds
   nothing for a host-set time, skip open, flush and readlink round trips on
-  an unchanging read-only share, and on macOS add TSO, Rosetta
-  and a read-only DAX window.
+  an unchanging read-only share, and on macOS add TSO, Rosetta, a
+  read-only DAX window and 16-bit MMIO writes (Linux's PL011 driver makes
+  them). Upstream's 925c003e is picked too: without "arm,primecell" an
+  aarch64 guest gets no ttyAMA0.
 
   The branch carries `include/libkrun.h` regenerated after each API change,
   so a bump needs no generator here.
@@ -38,8 +40,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "nixidae";
     repo = "libkrun";
-    rev = "28fc6bc83edf93706593cbdf8b46efcddce6f3ca";
-    hash = "sha256-irxRkNhpNMxOJ/iv7KAGcrzvQEWMygFnmuWIC2a7ifs=";
+    rev = "fb452acd8821e97b63ceae8240392c50f65be30a";
+    hash = "sha256-l8KYUeQ+T86Br0YMK+1ZRoTetHcgTuT8JxGBQYnjfhs=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
