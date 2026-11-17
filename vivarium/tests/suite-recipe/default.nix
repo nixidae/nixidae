@@ -7,6 +7,7 @@
   the pytest in the guest.
 */
 {
+  checkScript,
   pkgs,
   lib,
   mkTest,
@@ -26,6 +27,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-suite-recipe" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/suite_recipe.py ${run.attempt} ${lib.getExe run.driver} "$TMPDIR"
+  ${pkgs.python3.interpreter} ${checkScript "suite_recipe.py"} ${run.attempt} ${lib.getExe run.driver} "$TMPDIR"
   touch $out
 ''

@@ -11,7 +11,12 @@
   on the guest, and a journal entry and a command both name the test
   that caused them.
 */
-{ pkgs, mkTest, ... }:
+{
+  pkgs,
+  mkTest,
+  checkScript,
+  ...
+}:
 let
   run = mkTest {
     name = "pytest";
@@ -23,6 +28,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-pytest-phase" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/pytest_phase.py ${run.attempt}
+  ${pkgs.python3.interpreter} ${checkScript "pytest_phase.py"} ${run.attempt}
   touch $out
 ''

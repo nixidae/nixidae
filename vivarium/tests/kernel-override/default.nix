@@ -9,6 +9,7 @@
   spec's kernel behind it.
 */
 {
+  checkScript,
   pkgs,
   lib,
   mkTest,
@@ -21,6 +22,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-kernel-override" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/kernel_override.py ${run.spec} ${lib.getExe run.driver} "$TMPDIR"
+  ${pkgs.python3.interpreter} ${checkScript "kernel_override.py"} ${run.spec} ${lib.getExe run.driver} "$TMPDIR"
   touch $out
 ''

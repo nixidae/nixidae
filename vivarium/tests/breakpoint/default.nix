@@ -7,6 +7,7 @@
   `ctl stop` end the run? tests/checks/breakpoint.py.
 */
 {
+  checkScript,
   pkgs,
   lib,
   mkTest,
@@ -24,6 +25,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-breakpoint" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/breakpoint.py ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+  ${pkgs.python3.interpreter} ${checkScript "breakpoint.py"} ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
   touch $out
 ''

@@ -7,6 +7,7 @@
   tests/checks/on_demand.py.
 */
 {
+  checkScript,
   pkgs,
   lib,
   mkTest,
@@ -36,6 +37,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-on-demand" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/on_demand.py ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
+  ${pkgs.python3.interpreter} ${checkScript "on_demand.py"} ${lib.getExe cli} ${lib.getExe run.driver} "$TMPDIR"
   touch $out
 ''

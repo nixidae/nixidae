@@ -10,7 +10,12 @@
   Also checks the failure does not pass *through* `evidence`: `later`
   needs only `evidence`, so it still runs.
 */
-{ pkgs, mkTest, ... }:
+{
+  pkgs,
+  mkTest,
+  checkScript,
+  ...
+}:
 let
   run = mkTest {
     name = "recipes";
@@ -33,6 +38,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-recipes" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/recipes.py ${run.attempt}
+  ${pkgs.python3.interpreter} ${checkScript "recipes.py"} ${run.attempt}
   touch $out
 ''

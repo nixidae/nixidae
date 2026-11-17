@@ -394,8 +394,23 @@ let
     };
   };
 
+  # One script of `checks/` with the `harness.py` it imports. Not the whole
+  # directory: an edit to one script would rebuild every check that runs one.
+  checkScript =
+    name:
+    "${
+      lib.fileset.toSource {
+        root = ./checks;
+        fileset = lib.fileset.unions [
+          ./checks/harness.py
+          (./checks + "/${name}")
+        ];
+      }
+    }/${name}";
+
   scope = {
     inherit
+      checkScript
       pkgs
       hostPkgs
       lib

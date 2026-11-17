@@ -12,7 +12,12 @@
   - Every journal marker and every print carries the phase that held
     its guest, although two phases were writing at once.
 */
-{ pkgs, mkTest, ... }:
+{
+  pkgs,
+  mkTest,
+  checkScript,
+  ...
+}:
 let
   run = mkTest {
     name = "parallel";
@@ -40,6 +45,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-parallel" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/parallel.py ${run.attempt}
+  ${pkgs.python3.interpreter} ${checkScript "parallel.py"} ${run.attempt}
   touch $out
 ''

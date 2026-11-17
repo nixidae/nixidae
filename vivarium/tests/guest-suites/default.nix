@@ -12,7 +12,12 @@
   script serving two phases through `vms.phase`, and a value crossing
   from one phase to the next through `vms.shared`.
 */
-{ pkgs, mkTest, ... }:
+{
+  pkgs,
+  mkTest,
+  checkScript,
+  ...
+}:
 let
   run = mkTest {
     name = "guest-suites";
@@ -30,6 +35,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-guest-suites" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/guest_suites.py ${run.attempt}
+  ${pkgs.python3.interpreter} ${checkScript "guest_suites.py"} ${run.attempt}
   touch $out
 ''

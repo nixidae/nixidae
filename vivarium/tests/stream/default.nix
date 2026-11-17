@@ -8,7 +8,12 @@
   unit and the phase. That is the question an agent asks with `jq`,
   and the failure it has to answer for is the spectacular kind.
 */
-{ pkgs, mkTest, ... }:
+{
+  pkgs,
+  mkTest,
+  checkScript,
+  ...
+}:
 let
   run = mkTest {
     name = "stream";
@@ -20,6 +25,6 @@ let
   };
 in
 pkgs.runCommand "vivarium-check-stream" { passthru.session = run; } ''
-  ${pkgs.python3.interpreter} ${../checks}/stream.py ${run.attempt}
+  ${pkgs.python3.interpreter} ${checkScript "stream.py"} ${run.attempt}
   touch $out
 ''

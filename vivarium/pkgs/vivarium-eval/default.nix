@@ -63,9 +63,16 @@ let
         ];
       }
       ''
-        cp -r ${./tests} tests
-        cp -r ${./vivarium_eval} vivarium_eval
-        cp ${./mypy.ini} mypy.ini
+        cp -r --no-preserve=mode ${
+          lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              (lib.fileset.fileFilter (file: file.hasExt "py") ./tests)
+              (lib.fileset.fileFilter (file: file.hasExt "py") ./vivarium_eval)
+              ./mypy.ini
+            ];
+          }
+        }/. .
         export HOME=$TMPDIR
         zuban mypy --python-executable ${env}/bin/python
         python -m pytest -p no:cacheprovider tests
