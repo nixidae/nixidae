@@ -7,6 +7,10 @@
 #   default.nix  the vivarium options and the packages a guest needs
 #   guest.nix    what the guest system itself looks like
 #   image.nix    the root image, /init, and the vivarium-run wrapper
+#
+# lib.nix applies it to the sources, for the packages a guest takes from
+# another source (dinix's dinit-client).
+{ sources }:
 {
   config,
   lib,
@@ -1033,7 +1037,9 @@ in
     # The UML kernel is built from the same source as the guest's own
     # kernel package, so the two always agree on module versions.
     system.build = {
-      vivariumRunnerPackage = pkgs.callPackage ../pkgs/vivarium-runner { };
+      vivariumRunnerPackage = pkgs.callPackage ../pkgs/vivarium-runner {
+        dinit-client = pkgs.callPackage "${sources.dinix}/dinit-client/package.nix" { };
+      };
 
       vivariumConfigurations = lib.mapAttrs (
         _: module: (extendModules { modules = [ module ]; }).config.system.build.toplevel

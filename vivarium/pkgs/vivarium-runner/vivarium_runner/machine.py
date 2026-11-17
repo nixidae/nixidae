@@ -44,7 +44,7 @@ import anyio
 from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
-from .agent import AGENT_READY, ProcessInfo, UnitInfo
+from .agent import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 from .arpyc import AsyncConnection, Service, connect
 from .control import (
     AGENT,
@@ -453,6 +453,8 @@ class AgentRpc(Protocol):
     """The agent's methods as the host calls them. See `agent.Agent`."""
 
     async def run(self, command: str, timeout: float, env: dict[str, str] | None) -> tuple[int, str]: ...
+    async def system_state(self, timeout: float) -> SystemState: ...
+    async def poweroff(self) -> None: ...
     async def unit_state(self, unit: str) -> str: ...
     async def unit_info(self, unit: str) -> dict[str, str]: ...
     async def list_units(self, pattern: str) -> list[UnitInfo]: ...
@@ -911,10 +913,12 @@ class Machine:
             # agent down before it answers.
             asked = True
             try:
-                with anyio.fail_after(15):
-                    await self.execute("systemctl poweroff")
-            except (MachineError, OSError, EOFError, TimeoutError):
+                await self._ask("poweroff", self._agent.poweroff(), 15)
+            except (MachineError, OSError, EOFError):
                 pass
+            except Exception as error:
+                # The agent refused: the guest is reaped below all the same.
+                self._log(f"the poweroff request failed: {type(error).__name__}: {error}")
             self._conn.close()
             self._conn = None
         self._control = None
@@ -983,7 +987,7 @@ class Machine:
         process group, then SIGKILL it."""
         if self._process is None or self._process.returncode is not None:
             return
-        # `systemctl poweroff` returns once the shutdown is queued, so a
+        # The agent's poweroff returns once the shutdown is queued, so a
         # guest that was asked gets the time to finish it: measured, a
         # QEMU guest was SIGTERMed right after the request.
         if grace:
@@ -1358,6 +1362,14 @@ class Machine:
         out, _ = await proc.communicate()
         if proc.returncode != 0:
             raise MachineError(f"[{self.name}] attaching store paths failed:\n{out.decode(errors='replace')}")
+
+    # ── init ───────────────────────────────────────────────────────
+
+    async def system_state(self, timeout: float = 180) -> SystemState:
+        """Wait for the guest's boot to end, then how it went: the init's
+        word for it (``running``, ``degraded``, ...) and what failed. systemd
+        and dinit both answer."""
+        return await self._ask("system_state", self._agent.system_state(timeout), timeout + _SYSTEMD_TIMEOUT)
 
     # ── systemd ────────────────────────────────────────────────────
 

@@ -1,4 +1,8 @@
-{ lib, python3Packages }:
+{
+  lib,
+  python3Packages,
+  dinit-client,
+}:
 
 python3Packages.buildPythonPackage {
   pname = "vivarium-runner";
@@ -25,6 +29,8 @@ python3Packages.buildPythonPackage {
     # the greeting, the capabilities handshake and the difference between
     # an event and a reply. Only the QEMU backend imports it.
     python3Packages.qemu-qmp
+    # The agent's init on a dinix guest. Only the agent's dinit calls use it.
+    dinit-client
   ];
 
   pythonImportsCheck = [ "vivarium_runner" ];

@@ -37,7 +37,9 @@ rec {
 
         nixvenv { python = pkgs.python3; packages = _: [ vivarium.runner ]; }
   */
-  runner = pkgs.callPackage ./pkgs/vivarium-runner { };
+  runner = pkgs.callPackage ./pkgs/vivarium-runner {
+    dinit-client = pkgs.callPackage "${sources.dinix}/dinit-client/package.nix" { };
+  };
 
   /**
     The session, and the `vivarium` CLI that drives one.
@@ -354,7 +356,7 @@ rec {
       # What the host runs for a guest: its launcher, passt, the egress.
       specialArgs.hostPkgs = pkgs;
       modules = [
-        ./modules
+        (lib.modules.importApply ./modules { inherit sources; })
         { nixpkgs.pkgs = guestPkgs; }
         module
       ];

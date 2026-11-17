@@ -18,11 +18,14 @@ import os
 import socket
 import subprocess
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
 import anyio
 import anyio.to_thread
+from dinit_client import DinitClient
+from dinit_client.protocol import ServiceState, ShutdownType, StoppedReason
 
 from . import cloud
 from .arpyc import AsyncConnection, Service, listen
@@ -36,6 +39,22 @@ class UnitInfo(TypedDict):
     active: str
     sub: str
     description: str
+
+
+class SystemState(TypedDict):
+    """How a guest's boot ended: ``systemctl is-system-running``'s word
+    (``running``, ``degraded``, ...) and the units or services that failed."""
+
+    state: str
+    failed: tuple[str, ...]
+    """A tuple: arpyc carries a list as one."""
+
+
+class Init(StrEnum):
+    """PID 1, as the unit or service that starts the agent names it."""
+
+    SYSTEMD = "systemd"
+    DINIT = "dinit"
 
 
 class ProcessInfo(TypedDict):
@@ -57,6 +76,14 @@ TTY = os.environ.get("VIVARIUM_AGENT_DEVICE", "/dev/ttyS0")
 """Where the host is listening.  ttyS0 under UML.  Under QEMU the console
 takes ttyS0 -- a stock kernel prints there from its first line, before any
 virtio driver exists -- and the agent gets hvc0 instead."""
+INIT = Init(os.environ.get("VIVARIUM_INIT", Init.SYSTEMD))
+DINIT_SOCKET = os.environ.get("VIVARIUM_DINIT_SOCKET", "/run/dinitctl")
+DINIT_BOOT = "boot"
+"""The service dinix makes depend on, or wait for, every other one."""
+_DINIT_FAILED = frozenset(
+    {StoppedReason.DEPFAILED, StoppedReason.FAILED, StoppedReason.EXECFAILED, StoppedReason.TIMEDOUT}
+)
+
 GUEST_PATH = os.environ.get("VIVARIUM_GUEST_PATH", "/run/current-system/sw/bin:/run/current-system/sw/sbin")
 """Another distribution's guest has no /run/current-system, and sets its
 own; see modules/image-guest.nix."""
@@ -75,6 +102,36 @@ def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> s
         # do this -- a `PATH` in *env* would collide with the keyword.
         env={**os.environ, **(env or {}), "PATH": GUEST_PATH},
     )
+
+
+def _systemd(call: str) -> None:
+    if INIT is not Init.SYSTEMD:
+        raise RuntimeError(f"{call} asks systemd, and this guest's init is {INIT}")
+
+
+async def _dinit_state(timeout: float) -> SystemState:
+    """dinit's answer to `exposed_system_state`: the boot service started, or
+    gave up, and every service that stopped for a failure."""
+    async with DinitClient.connect(DINIT_SOCKET) as client:
+        # Before the status: the handle it opens is what makes dinit send
+        # boot's events, so no change falls between the read and the wait.
+        events = client.subscribe()
+        with anyio.fail_after(timeout):
+            boot = await client.status(DINIT_BOOT)
+            while boot.state is not ServiceState.STARTED and boot.target_state is ServiceState.STARTED:
+                await events.receive()
+                boot = await client.status(DINIT_BOOT)
+        services = await client.list_services()
+    failed = tuple(
+        sorted(
+            name
+            for name, status in services.items()
+            if status.state is ServiceState.STOPPED and status.stop_reason in _DINIT_FAILED
+        )
+    )
+    if boot.state is not ServiceState.STARTED:
+        return {"state": "failed", "failed": failed}
+    return {"state": "degraded" if failed else "running", "failed": failed}
 
 
 class Agent(Service):
@@ -102,20 +159,42 @@ class Agent(Service):
         done = await anyio.to_thread.run_sync(_sh, command, timeout, env)
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
 
+    async def exposed_system_state(self, timeout: float = 180) -> SystemState:
+        """Wait for the boot to end, then say how it went."""
+        if INIT is Init.DINIT:
+            return await _dinit_state(timeout)
+        done = await anyio.to_thread.run_sync(_sh, "systemctl is-system-running --wait", timeout, None)
+        state = done.stdout.strip()
+        if state in ("running", "starting"):
+            return {"state": state, "failed": ()}
+        units = await anyio.to_thread.run_sync(_sh, "systemctl list-units --state=failed --no-legend --plain", 30, None)
+        return {"state": state, "failed": tuple(line.split()[0] for line in units.stdout.splitlines() if line.strip())}
+
+    async def exposed_poweroff(self) -> None:
+        """Begin an orderly power-off. It returns before the guest is down."""
+        if INIT is Init.DINIT:
+            async with DinitClient.connect(DINIT_SOCKET) as client:
+                await client.shutdown(ShutdownType.POWEROFF)
+            return
+        await anyio.to_thread.run_sync(_sh, "systemctl poweroff", 30, None)
+
     def exposed_unit_state(self, unit: str) -> str:
         """ActiveState of *unit*, or ``unknown`` if systemd won't say."""
+        _systemd("unit_state")
         out = _sh(f"systemctl show --property=ActiveState -- {unit!r}", 30).stdout
         _, sep, state = out.strip().partition("ActiveState=")
         return state if sep else "unknown"
 
     def exposed_unit_info(self, unit: str) -> dict[str, str]:
         """Every property ``systemctl show`` reports for *unit*."""
+        _systemd("unit_info")
         out = _sh(f"systemctl show --no-pager -- {unit!r}", 30).stdout
         pairs = (line.partition("=") for line in out.strip().splitlines())
         return {key: value for key, sep, value in pairs if sep}
 
     def exposed_list_units(self, pattern: str = "*") -> list[UnitInfo]:
         """Units matching *pattern*, one dict per systemctl column."""
+        _systemd("list_units")
         out = _sh(f"systemctl list-units --all --no-legend -- {pattern!r}", 30).stdout
         units: list[UnitInfo] = []
         for line in out.splitlines():
@@ -198,6 +277,7 @@ class Agent(Service):
 
     def exposed_journal(self, unit: str | None = None, lines: int = 50) -> str:
         """Tail of the journal, optionally restricted to one unit."""
+        _systemd("journal")
         scope = f"-u {unit!r}" if unit else ""
         return _sh(f"journalctl --no-pager -n {lines:d} {scope}", 30).stdout.rstrip()
 
