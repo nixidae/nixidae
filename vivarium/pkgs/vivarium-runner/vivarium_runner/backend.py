@@ -492,6 +492,51 @@ def socket_dir(rundir: Path, name: str, fallback: str | None) -> tuple[Path, lis
     return made, [made]
 
 
+def _require_ids(name: str, kind: str) -> None:
+    """Refuse a guest whose file server needs the namespace's subordinate ids.
+
+    virtiofsd and libkrun's virtio-fs serve a file as the guest user that
+    made it, so a guest user outside the namespace's ids gets EINVAL on its
+    first write to /artifacts, minutes in.
+    """
+    if not container.owns_ids():
+        raise BackendError(
+            f"{name}: a {kind} guest needs {container.SUBORDINATE_IDS} ids "
+            "in the run's namespace, and it maps fewer\n"
+            "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
+            "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
+        )
+
+
+def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) -> None:
+    """Kill the helpers and close the fds of a launch that failed part way.
+
+    Nothing owns these until a Launch carries them back, so a failure
+    between the first one and the last would leave a daemon running, or an
+    unlinked disk image alive with no name and no way to find it. A test
+    that fails while booting is exactly when that happens.
+    """
+    for helper in helpers:
+        if helper.poll() is None:
+            helper.kill()
+            helper.wait()
+    for fd in opened:
+        os.close(fd)
+
+
+def _lan_args(spec: MachineSpec, lan_fds: Mapping[str, int]) -> list[str]:
+    """QEMU's netdev and device for each LAN interface, on its socket fd."""
+    argv: list[str] = []
+    for nic in spec.interfaces:
+        argv += [
+            "-netdev",
+            f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
+            "-device",
+            f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
+        ]
+    return argv
+
+
 @dataclass
 class Launch:
     """One guest's process, and whatever has to outlive its start."""
@@ -850,16 +895,9 @@ class Qemu:
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         disk_boot = QemuConfig.of(machine.spec).disk is not None
-        # virtiofsd serves a file as the guest user that made it, so a
-        # guest user outside the namespace's ids gets EINVAL on its first
-        # write to /artifacts, minutes in. Fail here instead.
-        if not disk_boot and not container.owns_ids():
-            raise BackendError(
-                f"{machine.spec.name}: a QEMU guest needs {container.SUBORDINATE_IDS} ids "
-                "in the run's namespace, and it maps fewer\n"
-                "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
-                "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
-            )
+        # A disk boot has no virtiofsd.
+        if not disk_boot:
+            _require_ids(machine.spec.name, "QEMU")
         helpers: list[subprocess.Popen[bytes]] = []
         opened: list[int] = []
         try:
@@ -867,17 +905,7 @@ class Qemu:
                 return self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened)
             return self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
         except BaseException:
-            # Nothing owns these until a Launch carries them back, so a
-            # failure between the first one and the last would leave a
-            # daemon running, or an unlinked disk image alive with no name
-            # and no way to find it. A test that fails while booting is
-            # exactly when that happens.
-            for helper in helpers:
-                if helper.poll() is None:
-                    helper.kill()
-                    helper.wait()
-            for fd in opened:
-                os.close(fd)
+            _abandon(helpers, opened)
             raise
 
     def _uplink_netdev(
@@ -1082,13 +1110,7 @@ class Qemu:
                 "-device",
                 f"vhost-user-fs-pci,chardev=artifacts,tag={ARTIFACTS_TAG}",
             ]
-        for nic in spec.interfaces:
-            argv += [
-                "-netdev",
-                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
-                "-device",
-                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
-            ]
+        argv += _lan_args(spec, lan_fds)
 
         pass_fds = tuple(
             fd for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, *disk_fds) if fd is not None
@@ -1172,13 +1194,7 @@ class Qemu:
             shutil.copyfile(config_disk, copy)
             copy.chmod(0o600)
             argv += ["-drive", f"file={copy},if=virtio,format=raw"]
-        for nic in spec.interfaces:
-            argv += [
-                "-netdev",
-                f"dgram,id=nic{nic.nic},local.type=fd,local.str={lan_fds[nic.name]}",
-                "-device",
-                f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
-            ]
+        argv += _lan_args(spec, lan_fds)
         pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None)
         return Launch(
             argv=argv,
@@ -1504,16 +1520,10 @@ class Krun:
         boot: BootSpec | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        # libkrun's virtio-fs serves a file as the guest user that made it,
-        # the same as virtiofsd: see Qemu.launch. macOS has no user
-        # namespaces, and its libkrun keeps a file's owner in an xattr.
-        if sys.platform == "linux" and not container.owns_ids():
-            raise BackendError(
-                f"{machine.spec.name}: a krun guest needs {container.SUBORDINATE_IDS} ids "
-                "in the run's namespace, and it maps fewer\n"
-                "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
-                "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
-            )
+        # macOS has no user namespaces, and its libkrun keeps a file's
+        # owner in an xattr.
+        if sys.platform == "linux":
+            _require_ids(machine.spec.name, "krun")
         spec = machine.spec
         config = KrunConfig.of(spec)
         boot = boot or spec.boot
@@ -1568,11 +1578,7 @@ class Krun:
                 passt_fds = (passt_fd,)
                 uplink = [f"--uplink={passt_fd},{spec.mac(0)}"]
         except BaseException:
-            for helper in helpers:
-                helper.kill()
-                helper.wait()
-            for fd in opened:
-                os.close(fd)
+            _abandon(helpers, opened)
             raise
         # libkrun opens the disk by path, and only the fd keeps the unlinked
         # file alive. It opens it read-write and needs no read-only twin.
