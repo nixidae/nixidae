@@ -20,6 +20,9 @@ class Echo(Service):
     def exposed_echo(self, value: object) -> object:
         return value
 
+    def exposed_late(self) -> None:
+        raise TimeoutError("ran past its 1s timeout")
+
     async def exposed_hang(self) -> None:
         self.started.set()
         try:
@@ -50,6 +53,20 @@ def test_a_call_returns_the_peers_answer() -> None:
     async def main() -> None:
         conn, peer = pair(Echo())
         assert await conn.call("echo", ({"a": [1, 2]},), {}) == {"a": (1, 2)}
+        conn.close()
+        peer.close()
+
+    run(main)
+
+
+def test_a_timeout_in_the_peer_arrives_as_a_timeout() -> None:
+    """`Machine._ask` tells the guest's own timeout from silence by its type."""
+
+    async def main() -> None:
+        conn, peer = pair(Echo())
+        with pytest.raises(TimeoutError) as raised:
+            await conn.call("late", (), {})
+        assert raised.value.args == ("ran past its 1s timeout",)
         conn.close()
         peer.close()
 

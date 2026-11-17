@@ -13,7 +13,9 @@ while it runs.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import socket
 import subprocess
 from collections.abc import Mapping
@@ -54,19 +56,45 @@ GUEST_PATH = os.environ.get("VIVARIUM_GUEST_PATH", "/run/current-system/sw/bin:/
 own; see modules/image-guest.nix."""
 
 
+KILL_WAIT = 5.0
+"""Seconds to read what a killed command left in its pipes. Well inside the
+10 s the host adds over a command's timeout, so the host hears the timeout."""
+
+
 def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    """Run *command* in a process group of its own.
+
+    At *timeout* the whole group gets SIGKILL, so a pipeline or a child in
+    the background stops too, and a builtin `TimeoutError` carries the
+    output so far to the host.
+    """
+    with subprocess.Popen(
         command,
         shell=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=timeout,
+        process_group=0,
         # PATH last: the guest's own is what makes `environment.systemPackages`
         # callable, and a caller that sets PATH here would break every later
         # command in ways that read as a missing package. `dict(a, **b)` cannot
         # do this -- a `PATH` in *env* would collide with the keyword.
         env={**os.environ, **(env or {}), "PATH": GUEST_PATH},
-    )
+    ) as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Empty when only a descendant that left the group holds the pipes.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                out, err = proc.communicate(timeout=KILL_WAIT)
+            except subprocess.TimeoutExpired:
+                # A descendant that left the group still holds the pipes.
+                out, err = "", f"(no output: a process outside the group held it open past {KILL_WAIT:g}s)"
+            said = (out + err).rstrip("\n")
+            raise TimeoutError(f"ran past its {timeout:g}s timeout; its process group got SIGKILL\n{said}") from None
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
 
 async def _sh_thread(command: str, timeout: float) -> subprocess.CompletedProcess[str]:
@@ -132,6 +160,8 @@ class Agent(Service):
         In a thread, so the channel goes on reading while it runs: a
         command that calls the host's cloud API waits on a reply this
         channel carries (nixidae/nixidae#1408).
+
+        Past *timeout* it raises `TimeoutError`; see `_sh`.
         """
         done = await anyio.to_thread.run_sync(_sh, command, timeout, env)
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
