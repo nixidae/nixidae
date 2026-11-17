@@ -663,12 +663,17 @@ guest `passt`, two rounds, host load 8-9:
 
   | uplink | host to guest | guest to host |
   | --- | --- | --- |
-  | gvproxy | 5.00 Gbit/s | 24.17 Gbit/s |
-  | vsock | 7.91 Gbit/s | 8.51 Gbit/s |
-  | vsock and router | 6.83 Gbit/s | 8.00 Gbit/s |
+  | gvproxy | 5.22 Gbit/s | 25.71 Gbit/s |
+  | vsock | 33.34 Gbit/s | 56.16 Gbit/s |
+  | vsock and router | 26.25 Gbit/s | 31.39 Gbit/s |
 
   Before four libkrun fixes, guest to host through vsock killed or hung
   the VM at the end of each test (`pkgs/libkrun`).
+
+  macOS gives an AF_UNIX stream 8 KiB of buffer each way, and the
+  sender's buffer bounds the flow. With that default, vsock carried
+  7.91 and 8.51 Gbit/s, and the router 6.83 and 8.00. libkrun and the
+  egress now set 1 MiB on their AF_UNIX sockets.
 - Not tried: several flows through the slice's router.
 - The no-KVM case: without `/dev/kvm` the router is UML. With the own
   device (E7) one flow is about 70% of passt out of the guest and 60%
