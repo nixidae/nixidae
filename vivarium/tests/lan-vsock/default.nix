@@ -4,6 +4,7 @@
 { mkTest, pair, ... }:
 mkTest {
   name = "lan-vsock";
+  router.enable = false;
   defaults.vivarium.uplink.proxy = "vsock";
   phases.test = {
     script = ../lan.py;

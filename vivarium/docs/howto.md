@@ -35,9 +35,11 @@ skill, `share/skills/vivarium/vivarium`.
 
 ## Run a test on macOS
 
-A Mac runs krun guests with a vsock uplink, or behind a router guest.
-The guests are Linux on the Mac's processor, so a Linux builder for
-that system must be in `/etc/nix/machines`.
+A Mac runs krun guests behind a router guest: on macOS, `router.enable`
+is on by default. A run that sets `router.enable = false` gives each
+guest a vsock uplink of its own instead. The guests are Linux on the
+Mac's processor, so a Linux builder for that system must be in
+`/etc/nix/machines`.
 
 ```console
 $ nix run --file . mine.krun.driver -- --out ./out

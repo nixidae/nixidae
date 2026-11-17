@@ -3,6 +3,7 @@
 { pkgs, mkTest, ... }:
 mkTest {
   name = "forward-vsock";
+  router.enable = false;
   phases.test = {
     script = ../forward.py;
     after = [ "boot" ];

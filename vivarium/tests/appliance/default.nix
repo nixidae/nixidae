@@ -5,6 +5,8 @@
 { vivarium, mkTest, ... }:
 mkTest {
   name = "appliance";
+  # `router` here is the appliance, not the run's router guest.
+  router.enable = false;
   phases.test = {
     script = ../appliance.py;
     after = [ "boot" ];

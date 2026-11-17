@@ -14,6 +14,7 @@
 {
   config,
   lib,
+  hostPkgs,
   ...
 }:
 let
@@ -122,7 +123,10 @@ in
     router = {
       enable = mkOption {
         type = types.bool;
-        default = false;
+        # `router.backend`, not `backend`: a `.krun` variant forces the
+        # guests' backend and the router's, and leaves `backend` alone.
+        default = hostPkgs.stdenv.hostPlatform.isDarwin && config.router.backend != "uml";
+        defaultText = lib.literalMD "`true` on macOS when the router can run there (krun or QEMU), else `false`";
         description = ''
           Give the run a router guest, `router.name`, and put every other
           guest's uplink (`vec0`) behind it instead of a passt of its own
@@ -130,6 +134,10 @@ in
           own, `10.0.2.(15 + vivarium.index)`, and the guests reach each
           other on `vec0`. The router runs on `router.backend`; the guests
           behind it may take any backend.
+
+          On by default on macOS for a krun run or a `.krun` variant: there
+          the router's uplink is faster than gvproxy both ways
+          (docs/design/router-lab.md), and macOS has no passt.
         '';
       };
       backend = mkOption {
@@ -526,8 +534,9 @@ in
       lib.mkIf config.router.enable (
         { config, ... }:
         {
-          # A template's instance is never behind it: router.nix says why.
-          vivarium.uplink.proxy = lib.mkDefault (if config.vivarium.template then "passt" else "router");
+          # A template's instance is never behind it (router.nix says why),
+          # and keeps the uplink a guest has without a router.
+          vivarium.uplink.proxy = lib.mkIf (!config.vivarium.template) (lib.mkDefault "router");
           # A guest behind the router has no lease and no forwards without it.
           vivarium.requires = lib.mkIf (config.vivarium.uplink.proxy == "router") [ router ];
         }

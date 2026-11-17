@@ -165,8 +165,9 @@ in
       # guest to host stayed at 16.6-18.5 (2026-11-17, router-lab.md).
       boot.kernelParams = lib.mkIf (config.vivarium.backend == "krun") [ "virtio_net.napi_tx=0" ];
       # Not behind itself: the runner gives the router vsock to the host
-      # and no vec0 (`router` in its spec).
-      vivarium.uplink.proxy = "passt";
+      # and no vec0 (`router` in its spec). Forced over a run's `defaults`
+      # that name the other guests' uplink.
+      vivarium.uplink.proxy = lib.mkForce "passt";
       # Its egress binds nothing for it: no ssh, and nothing to reach.
       vivarium.forward = lib.mkForce [ ];
       vivarium.launch.config.egress = "${egress}/bin/egress";

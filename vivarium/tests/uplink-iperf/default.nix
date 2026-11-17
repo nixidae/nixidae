@@ -14,6 +14,8 @@
 mkTest {
   name = "uplink-iperf";
   backend = "krun";
+  # Each guest names its own uplink; a router guest would carry nothing.
+  router.enable = false;
   settings.iperf3 = lib.getExe hostPkgs.iperf3;
   phases.test = {
     script = ../uplink-iperf.py;

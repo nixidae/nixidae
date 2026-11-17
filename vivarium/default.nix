@@ -73,7 +73,10 @@ let
             ./modules/run.nix
             ./modules/recipes
           ];
-          specialArgs = { inherit pkgs; };
+          specialArgs = {
+            inherit pkgs;
+            hostPkgs = pkgs;
+          };
         })
         options
         ;
