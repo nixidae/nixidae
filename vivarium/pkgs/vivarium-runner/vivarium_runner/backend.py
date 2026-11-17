@@ -556,6 +556,9 @@ class Launch:
     """The root disk, for a backend that boots the guest again after a
     reboot. The runner keeps these open and hands them back, so the disk
     outlives the process that wrote it."""
+    notes: list[str] = field(default_factory=list)
+    """Console lines that say how the guest reaches out: the uplink's DNS
+    and whether it is offline. The machine says them under its name."""
 
 
 class Backend(Protocol):
@@ -726,18 +729,21 @@ class Uml:
         kernel.append(f"{STORE_ENV}={spec.store}")
 
         helpers: list[subprocess.Popen[bytes]] = []
+        notes: list[str] = []
         if spec.vsock:
             # No vec0 from the host: the guest reaches it over vsock, a
             # vhost-user device the egress serves (E7). The kernel connects
             # at boot and fails if nothing listens yet.
             device = uml_dir / "vsock.sock"
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
+            notes = forward.egress_notes(machine.offline)
             helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
         elif spec.uplink is None:
             # vec0 is passt, behind the bridge: it forks passt and
             # translates its length-prefixed frames to the fd transport.
+            notes = forward.uplink_notes(machine.offline)
             argv = [
                 str(config.bridge),
                 "--vec",
@@ -774,6 +780,7 @@ class Uml:
             pid_file=uml_dir / mconsole.UMID / "pid",
             cleanup=cleanup,
             helpers=helpers,
+            notes=notes,
         )
 
     @staticmethod
@@ -992,8 +999,10 @@ class Qemu:
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
             helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
+            notes = forward.egress_notes(machine.offline)
         else:
             netdev, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            notes = forward.uplink_notes(machine.offline) if passt_fd is not None else []
             uplink = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}"]
 
         argv = [
@@ -1125,6 +1134,7 @@ class Qemu:
             memory=sockets / "qmp",
             cleanup=cleanup,
             disk_fds=disk_fds,
+            notes=notes,
         )
 
     def _launch_disk(
@@ -1210,6 +1220,7 @@ class Qemu:
             helpers=helpers,
             memory=sockets / "qmp",
             cleanup=cleanup,
+            notes=forward.uplink_notes(machine.offline) if passt_fd is not None else [],
         )
 
     @staticmethod
@@ -1553,6 +1564,7 @@ class Krun:
         disk_ro: int | None = None
         passt_fds: tuple[int, ...] = ()
         cleanup: list[Path] = []
+        notes: list[str] = []
         try:
             # A reboot keeps the disk the guest wrote. libkrun opens it by
             # path and takes no lock, so the runner's fd serves again.
@@ -1574,6 +1586,7 @@ class Krun:
                 args = egress_args(machine, str(relay))
                 helpers.append(start_egress(config.egress, rundir, str(listen), listen, args))
                 uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
+                notes = forward.egress_notes(machine.offline)
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
             else:
@@ -1583,6 +1596,7 @@ class Krun:
                     if config.passt is None:
                         raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
                     passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
+                    notes = forward.uplink_notes(machine.offline)
                 helpers.append(passt_proc)
                 opened.append(passt_fd)
                 passt_fds = (passt_fd,)
@@ -1637,6 +1651,7 @@ class Krun:
             helpers=helpers,
             disk_fds=(disk_rw,),
             cleanup=cleanup,
+            notes=notes,
         )
 
 
@@ -1794,6 +1809,7 @@ class Container:
             pass_fds=tuple(lan_fds.values()),
             agent_path=agent_dir / "sock",
             cleanup=cleanup,
+            notes=forward.uplink_notes(machine.offline) if pasta else [],
         )
 
     @staticmethod

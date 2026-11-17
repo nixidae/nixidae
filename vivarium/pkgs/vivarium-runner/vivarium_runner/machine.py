@@ -510,6 +510,7 @@ class Machine:
         offline: bool = False,
         on_console: Callable[[str, str], None] | None = None,
         on_command: Callable[[str, str, float, dict[str, object]], None] | None = None,
+        on_say: Callable[[str, str], None] | None = None,
     ) -> None:
         self.spec = spec
         self.backend = backends.get(spec.backend)
@@ -534,6 +535,7 @@ class Machine:
         self.offline = offline
         self.on_console = on_console
         self.on_command = on_command
+        self.on_say = on_say
         self.forward: list[forward.Rule] = list(spec.forward)
         self.service: Service | None = None
         """What answers this guest's own calls to the host: the session's cloud API. Set before boot."""
@@ -709,6 +711,8 @@ class Machine:
             for fd in launch.pass_fds
             if fd != self._guest_sock.fileno() and fd not in self.lan_fds.values() and fd not in self._disk_fds
         ]
+        for note in launch.notes:
+            self.say(note)
         self._log(f"exec: {' '.join(launch.argv)}")
 
         self._process = await subprocess.create_subprocess_exec(
@@ -1102,16 +1106,20 @@ class Machine:
     # ── console ────────────────────────────────────────────────────
 
     def _log(self, message: str) -> None:
-        """One console line, to whatever is listening.
-
-        `on_console` is how a caller takes this stream somewhere other
-        than stdout -- a file per guest, a filter, an event queue. Left
-        unset it prints, which is what `mkTest` has always done.
-        """
+        """One console line, to `on_console`: a file per guest, a filter, an event queue."""
         if self.on_console is not None:
             self.on_console(self.name, message)
-            return
-        print(f"[{self.name}] {message}", flush=True)
+
+    def say(self, text: str) -> None:
+        """Progress about this guest that a reader wants at the default
+        verbosity, written as a phase would print it: a recipe's steps.
+
+        `on_say` takes it; unset, it joins the console stream.
+        """
+        if self.on_say is not None:
+            self.on_say(self.name, text)
+        else:
+            self._log(text)
 
     async def _pump_console(self, reader: asyncio.StreamReader | None = None) -> None:
         """Console lines from *reader*, by default the guest process's stdout."""

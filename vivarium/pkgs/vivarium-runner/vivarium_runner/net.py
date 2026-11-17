@@ -105,7 +105,7 @@ class Lan:
         """*hub* passes two members' frames through the runner too, where
         it sees them; otherwise two are one socketpair. *pcap* is where
         :meth:`capture` writes; *on_change* hears each cut, restore and
-        capture."""
+        capture, and at :meth:`close` the frames a congested port dropped."""
         # A hub may start empty: a segment only template instances join.
         if not members and not hub:
             raise ValueError(f"lan {name!r} has no machines on it")
@@ -339,10 +339,7 @@ class Lan:
 
     def close(self) -> None:
         if self.dropped:
-            print(
-                f"[test] lan {self.name}: dropped {self.dropped} frames on congested ports",
-                flush=True,
-            )
+            self._say(f"dropped {self.dropped} frames on congested ports")
         self._stop_capture()
         loop = asyncio.get_running_loop()
         for port in self._ports:

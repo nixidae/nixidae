@@ -96,6 +96,17 @@ class _CaseFields(TypedDict, total=False):
     case: str
 
 
+def _output(emit: Callable[..., None], text: str, machine: str | None = None) -> None:
+    """*text* as `OUTPUT` events of the phase that prints it, one per line,
+    and into the `exec` or `inject` reply that runs it."""
+    phase = _PRINTING.get()
+    if (copy := _COPY.get()) is not None:
+        copy.write(text)
+    for line in text.splitlines():
+        if line.strip():
+            emit(Kind.OUTPUT, line, phase=phase, machine=machine)
+
+
 class _Lines:
     """`sys.stdout` while phases run: each line an event of its phase."""
 
@@ -103,12 +114,7 @@ class _Lines:
         self.emit = emit
 
     def write(self, text: str) -> int:
-        phase = _PRINTING.get()
-        if (copy := _COPY.get()) is not None:
-            copy.write(text)
-        for line in text.splitlines():
-            if line.strip():
-                self.emit(Kind.OUTPUT, line, phase=phase)
+        _output(self.emit, text)
         return len(text)
 
     def flush(self) -> None:
@@ -307,6 +313,9 @@ class Session:
     def _console(self, machine: str, line: str) -> None:
         self.emit(Kind.CONSOLE, line, level=Level.CONSOLE, machine=machine)
 
+    def _say(self, machine: str, text: str) -> None:
+        _output(self.emit, f"{text}\n", machine)
+
     def _command(self, machine: str, what: str, seconds: float, outcome: dict[str, Any]) -> None:
         self.emit(
             Kind.RPC,
@@ -329,9 +338,9 @@ class Session:
         terminal and nothing else, so the log file and `events.jsonl`
         would be missing the one thing a reader most wants.
 
-        Captured here instead, so each line becomes a NOTE carrying the
-        phase it came from. That is more than the old `tee` managed: the
-        line is attributed, not just kept.
+        Captured here instead, so each line becomes an OUTPUT event that
+        carries the phase it came from. `Machine.say` takes the same path
+        and adds the guest.
 
         **`sys.stdout` is process-wide**, and phases on disjoint guests
         run at once. So the first capture installs one writer and the
@@ -542,6 +551,7 @@ class Session:
             offline=self.offline,
             on_console=self._console,
             on_command=self._command,
+            on_say=self._say,
         )
         vm.service = CloudService(self.cloud, one.name)
         return vm
@@ -595,7 +605,7 @@ class Session:
         await self.drain()
         # Shielded: a terminate that a cancel cuts short leaves a guest running and its ports plugged.
         with anyio.CancelScope(shield=True):
-            await _shutdown(vm)
+            await self._shutdown(vm)
         for lan in self._lans:
             for member in [m for m in lan.members if m.startswith(f"{name}/")]:
                 lan.remove_member(member)
@@ -1082,12 +1092,25 @@ class Session:
         """A stopped run has no verdict, so it never passes."""
         return self.stopped is None and passed(self.state)
 
+    async def _shutdown(self, machine: Machine) -> None:
+        """Teardown must not fail: a guest that will not stop cleanly is not
+        a reason to leave the others running."""
+        try:
+            await machine.shutdown()
+        except Exception as error:  # noqa: BLE001 -- reported, and the other guests still go down
+            self.emit(
+                Kind.ERROR,
+                f"{machine.name} did not shut down cleanly: {error}",
+                level=Level.ERROR,
+                machine=machine.name,
+            )
+
     async def teardown(self) -> None:
         """Guests down. Safe to call twice; never called for you."""
         await self.cloud.close()
         async with anyio.create_task_group() as group:
             for machine in self._attempted().values():
-                group.start_soon(_shutdown, machine)
+                group.start_soon(self._shutdown, machine)
         self.vms = None
         self._all = None
         self._attempts = set()
@@ -1139,12 +1162,3 @@ async def _start_all(vms: Machines) -> dict[str, BaseException]:
         for machine in vms.values():
             group.start_soon(start, machine)
     return failures
-
-
-async def _shutdown(machine: Machine) -> None:
-    """Teardown must not fail: a guest that will not stop cleanly is not
-    a reason to leave the others running."""
-    try:
-        await machine.shutdown()
-    except Exception as error:  # noqa: BLE001
-        print(f"[vivarium] {machine.name} did not shut down cleanly: {error}", flush=True)

@@ -204,3 +204,16 @@ def test_a_capture_is_a_pcap_of_every_frame_sent(tmp_path: Path) -> None:
         frames.append(data[offset + 16 : offset + 16 + included])
         offset += 16 + included
     assert frames == [b"one", b"unheard"]
+
+
+def test_close_says_what_a_congested_port_dropped() -> None:
+    said: list[str] = []
+
+    async def main() -> None:
+        lan = Lan("core", ["a/eth1", "b/eth1"], hub=True, on_change=said.append)
+        lan.start()
+        lan.dropped = 3
+        lan.close()
+
+    anyio.run(main)
+    assert said == ["segment core: dropped 3 frames on congested ports"]

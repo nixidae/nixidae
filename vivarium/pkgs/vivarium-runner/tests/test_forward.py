@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import sys
+from collections.abc import Callable
 
 import pytest
 from vivarium_runner import Machine, MachineError, forward
@@ -142,3 +143,42 @@ def test_two_guests_on_one_loopback_get_two_ports() -> None:
     assert moved.host is not None
     assert moved.host > port
     assert notes == [f"{forward.SHARED_LOOPBACK}: guest port {port} on host port {moved.host}: {port} is taken"]
+
+
+def test_the_uplink_args_say_nothing(capsys: pytest.CaptureFixture[str]) -> None:
+    """The DNS and offline lines are `uplink_notes`, which the guest says under its name."""
+    forward.uplink_args(offline=True)
+    forward.egress_uplink_args(offline=True)
+    assert capsys.readouterr().out == ""
+
+
+def test_the_notes_name_the_upstream_and_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(forward.ENV_DNS, "192.0.2.53")
+    assert forward.uplink_notes() == [f"[uplink] DNS on {forward.UPLINK_DNS}, forwarded to 192.0.2.53"]
+    [_, offline] = forward.uplink_notes(offline=True)
+    assert offline.startswith(f"[uplink] offline: outbound bound to {forward.OFFLINE_OUTBOUND}")
+    [router, _] = forward.egress_notes(offline=True)
+    assert router == f"[uplink] router: DNS on {forward.UPLINK_DNS}, forwarded to 192.0.2.53"
+
+
+class Speaking(Machine):
+    """A machine that says things and has nothing else."""
+
+    def __init__(self) -> None:
+        self.on_console: Callable[[str, str], None] | None = None
+        self.on_say: Callable[[str, str], None] | None = None
+
+    @property
+    def name(self) -> str:
+        return "cp"
+
+
+def test_say_goes_to_on_say_and_else_to_the_console() -> None:
+    vm = Speaking()
+    heard: list[tuple[str, str]] = []
+    vm.on_console = lambda name, line: heard.append(("console", f"{name}: {line}"))
+    vm.say("[k8s] joined")
+    assert heard == [("console", "cp: [k8s] joined")]
+    vm.on_say = lambda name, text: heard.append(("say", f"{name}: {text}"))
+    vm.say("[k8s] Ready")
+    assert heard[1:] == [("say", "cp: [k8s] Ready")]

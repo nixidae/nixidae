@@ -192,11 +192,10 @@ async def _until[T](
                 if said is None or now - said >= _SAY_EVERY:
                     said = now
                     first = str(evidence).strip().splitlines()[:1]
-                    print(
+                    machine.say(
                         f"[{machine.name}] {what}: {int(now - started)}s elapsed, "
                         f"{int(now - changed)}s unchanged, {int(deadline - now)}s left"
-                        + (f" -- {first[0]}" if first else ""),
-                        flush=True,
+                        + (f" -- {first[0]}" if first else "")
                     )
                 await anyio.sleep(POLL)
     except TimeoutError:
@@ -324,7 +323,7 @@ async def init_control_plane(cp: Machine, *, patch_proxy: bool = True) -> None:
     *patch_proxy* gives kube-proxy the store, which a node needs when its
     images are symlinks into `/nix/store` and kubeadm installs kube-proxy.
     """
-    print("[k8s] cp: kubeadm init ...", flush=True)
+    cp.say("[k8s] cp: kubeadm init ...")
     # Redirected and then printed, rather than piped through `tee`: a pipe
     # would report tee's exit status, and /bin/sh here has no `pipefail`.
     command = (
@@ -345,7 +344,7 @@ async def init_control_plane(cp: Machine, *, patch_proxy: bool = True) -> None:
     # A skipped kube-proxy has no DaemonSet to patch: kubectl answers "not found".
     if patch_proxy:
         await patch_kube_proxy(cp)
-    print("[k8s] cp: control plane is up", flush=True)
+    cp.say("[k8s] cp: control plane is up")
 
 
 # kube-proxy's store mount, as a strategic-merge patch.
@@ -399,7 +398,7 @@ async def patch_kube_proxy(cp: Machine) -> None:
     )
     if rc != 0:
         raise MachineError(f"[cp] could not give kube-proxy the store (exit {rc}):\n{out}")
-    print("[k8s] cp: kube-proxy has the store", flush=True)
+    cp.say("[k8s] cp: kube-proxy has the store")
 
 
 async def join(cp: Machine, workers: Sequence[Machine]) -> None:
@@ -440,7 +439,7 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
     endpoint = f"[{cp.ip}]:6443" if ":" in cp.ip else f"{cp.ip}:6443"
 
     async def one(worker: Machine) -> None:
-        print(f"[k8s] {worker.name}: kubeadm join ...", flush=True)
+        worker.say(f"[k8s] {worker.name}: kubeadm join ...")
         # Kept on the node for the same reason as `INIT_LOG`.
         log = "/tmp/kubeadm-join.log"
         try:
@@ -459,7 +458,7 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
             ) from err
         if rc != 0:
             raise MachineError(f"[{worker.name}] kubeadm join failed (exit {rc}):\n{out}\n" + await diagnose(worker))
-        print(f"[k8s] {worker.name}: joined", flush=True)
+        worker.say(f"[k8s] {worker.name}: joined")
 
     async with anyio.create_task_group() as group:
         for worker in workers:
@@ -492,7 +491,7 @@ async def wire_pod_network(cp: Machine, vms: Mapping[str, Machine]) -> None:
         )
 
     await until("every node to be given a podCIDR", assigned, JOIN_TIMEOUT, cp)
-    print(f"[k8s] pod subnets: {cidrs}", flush=True)
+    cp.say(f"[k8s] pod subnets: {cidrs}")
 
     if set(cidrs) != set(vms):
         raise MachineError(f"[cp] the cluster has {sorted(cidrs)}, the test booted {sorted(vms)}")
@@ -515,7 +514,7 @@ async def wait_for_ready_nodes(cp: Machine, expected: int) -> None:
         return len(ready) == expected, out
 
     await until(f"{expected} Ready nodes", check, READY_TIMEOUT, cp)
-    print(f"[k8s] all {expected} nodes Ready", flush=True)
+    cp.say(f"[k8s] all {expected} nodes Ready")
 
 
 async def wait_for_pods(cp: Machine, selector: str, namespace: str = "kube-system") -> None:
@@ -580,7 +579,7 @@ async def untaint(cp: Machine) -> None:
     such as a worker, kubectl fails with "not found".
     """
     await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}-")
-    print("[k8s] control plane will schedule workloads", flush=True)
+    cp.say("[k8s] control plane will schedule workloads")
 
 
 async def provision_storage(cp: Machine, vms: Mapping[str, Machine]) -> None:
@@ -597,7 +596,7 @@ async def provision_storage(cp: Machine, vms: Mapping[str, Machine]) -> None:
     deliberate and costs nothing: `kubectl apply` is idempotent.
     """
     for name in await _apply_node_manifests(cp, vms, STORAGE_MANIFEST):
-        print(f"[k8s] {name} offers storage", flush=True)
+        vms[name].say(f"[k8s] {name} offers storage")
 
 
 async def provision_runtimes(cp: Machine, vms: Mapping[str, Machine]) -> None:
@@ -607,7 +606,7 @@ async def provision_runtimes(cp: Machine, vms: Mapping[str, Machine]) -> None:
     terms as ``provision_storage``.
     """
     for name in await _apply_node_manifests(cp, vms, RUNTIME_MANIFEST):
-        print(f"[k8s] {name} offers runtime classes", flush=True)
+        vms[name].say(f"[k8s] {name} offers runtime classes")
 
 
 async def _apply_node_manifests(cp: Machine, vms: Mapping[str, Machine], path: str) -> list[str]:
@@ -725,7 +724,7 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     the test sets its own `vivarium.forward`."""
     reachable = cp.reachable(APISERVER_PORT)
     if not reachable:
-        print(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host", flush=True)
+        cp.say(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host")
         return None
     config = json.loads(await cp.succeed("kubectl config view --raw --flatten --output json"))
     for cluster in config["clusters"]:
@@ -735,7 +734,7 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     # Owner only: it holds the cluster admin's key.
     await anyio.Path(path).touch(mode=0o600)
     await anyio.Path(path).write_text(json.dumps(config, indent=2) + "\n")
-    print(f"[k8s] host kubeconfig: {path} (server https://{reachable[0]})", flush=True)
+    cp.say(f"[k8s] host kubeconfig: {path} (server https://{reachable[0]})")
     return path
 
 

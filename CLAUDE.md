@@ -424,7 +424,7 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 - Each guest's journal streams as `journal` events (`data.unit`, `data.identifier`, `data.priority`) through `/artifacts/journal.jsonl`; hostfs and virtiofs are write-through, so a SIGKILLed guest keeps what it logged (`stream`).
 - `/artifacts` in the guest is a host directory (`vms.artifacts / "<node>"`); put junit, logs and `ps` snapshots there, not through `succeed`.
 - `await vm.processes()`, `await vm.count_processes("nix-daemon")` read `/proc` through the agent.
-- Never `print` in the runner: `Session.emit` is the one way in. A phase script may print. `-vv` shows consoles; a failed phase replays the last 20 lines of each guest.
+- Never `print` in the runner (ruff T201): `Session.emit` is the one way in, and a recipe says progress about a guest with `vm.say(...)`, which carries the guest's name. A phase script may print. `-vv` shows consoles; a failed phase replays the last 20 lines of each guest.
 - `report.json`: `total_seconds`, `boot_seconds`, `waiting_seconds`, `.slowest`, `.by_command`. A `wait` step contains its `rpc` steps; never sum them. `Machine._ask` is the one choke point. Never guess at slowness or add timing prints.
 
 ### Phases

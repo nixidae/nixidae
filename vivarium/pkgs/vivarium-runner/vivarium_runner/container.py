@@ -917,14 +917,14 @@ def _report(tun: bool) -> int:
     """The probe as a program: what a derivation runs to fail early."""
     missing = probe(tun=tun)
     for item in missing:
-        print(f"missing {item}", flush=True)
+        print(f"missing {item}", flush=True)  # noqa: T201 -- the probe's program output
     if missing:
-        print(f"this host cannot run a container guest: {len(missing)} missing", flush=True)
+        print(f"this host cannot run a container guest: {len(missing)} missing", flush=True)  # noqa: T201 -- the probe's program output
         return 1
     ids = "the build's own (uid-range)" if owns_ids() else "subordinate ids"
     store = "overlay" if store_is_one_mount("/nix") else "read-only bind"
     uplink = "yes" if tap_fails() is None else "no (no tap device)"
-    print(f"ok: user namespace, cgroup, ids: {ids}, store: {store}, uplink: {uplink}")
+    print(f"ok: user namespace, cgroup, ids: {ids}, store: {store}, uplink: {uplink}")  # noqa: T201 -- the probe's program output
     return 0
 
 
@@ -1036,7 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
             except (RuntimeError, subprocess.CalledProcessError) as error:
                 # On the console, which is where Machine looks for why a
                 # guest did not come up.
-                print(f"vivarium-crun: {error}", flush=True)
+                print(f"vivarium-crun: {error}", flush=True)  # noqa: T201 -- the launcher's stdout is the guest console
                 return 1
         if master is not None:
             _relay(master, proc)

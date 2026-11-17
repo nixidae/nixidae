@@ -434,16 +434,43 @@ ROUTER_GATEWAY6 = "fd00:10:0:2::2"
 OFFLINE_OUTBOUND6 = "::1"
 
 
+def upstream_dns() -> str:
+    """Where the uplink's resolver forwards: `VIVARIUM_DNS_HOST`, else 1.1.1.1."""
+    return os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
+
+
+def uplink_notes(offline: bool = False) -> list[str]:
+    """The console lines for a guest behind passt or pasta.
+
+    passt's own banner is not in a QEMU run's output, and a guest that
+    cannot resolve gives no clue which of the two addresses is wrong.
+    """
+    return [
+        f"[uplink] DNS on {UPLINK_DNS}, forwarded to {upstream_dns()}",
+        *(
+            [f"[uplink] offline: outbound bound to {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host"]
+            if offline
+            else []
+        ),
+    ]
+
+
+def egress_notes(offline: bool = False) -> list[str]:
+    """The console lines for a guest behind the egress: `uplink_notes` for a router."""
+    return [
+        f"[uplink] router: DNS on {UPLINK_DNS}, forwarded to {upstream_dns()}",
+        *(
+            [f"[uplink] router offline: outbound bound to {OFFLINE_OUTBOUND} and {OFFLINE_OUTBOUND6}"]
+            if offline
+            else []
+        ),
+    ]
+
+
 def egress_uplink_args(offline: bool = False) -> list[str]:
     """The router's egress options that match `uplink_args`: DNS, the IPv6
     gateway, offline."""
-    upstream = os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
-    print(f"[uplink] router: DNS on {UPLINK_DNS}, forwarded to {upstream}", flush=True)
-    if offline:
-        print(
-            f"[uplink] router offline: outbound bound to {OFFLINE_OUTBOUND} and {OFFLINE_OUTBOUND6}",
-            flush=True,
-        )
+    upstream = upstream_dns()
     return [
         f"--map={UPLINK_DNS}:53={upstream}:53",
         f"--loopback={ROUTER_GATEWAY6}",
@@ -465,16 +492,7 @@ def uplink_args(offline: bool = False) -> list[str]:
     every guest CI job came to fail on a runner with `lookup
     registry.k8s.io: no such host`.
     """
-    upstream = os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
-    # Said out loud, because passt's own banner is not in a QEMU run's
-    # output and a guest that cannot resolve gives no clue which of the
-    # two addresses is the wrong one.
-    print(f"[uplink] DNS on {UPLINK_DNS}, forwarded to {upstream}", flush=True)
-    if offline:
-        print(
-            f"[uplink] offline: outbound bound to {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host",
-            flush=True,
-        )
+    upstream = upstream_dns()
     return [
         "--address",
         UPLINK_ADDRESS,

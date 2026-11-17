@@ -944,7 +944,7 @@ class Controller:
         runs while the drive is paused."""
         reply = await self._run(name)
         if reply.error:
-            print(reply.error)
+            print(reply.error)  # noqa: T201 -- the REPL's own output
         return reply.result or ""
 
     def resume(self) -> None:

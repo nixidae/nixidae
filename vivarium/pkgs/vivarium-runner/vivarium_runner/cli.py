@@ -96,6 +96,7 @@ async def _run(args: argparse.Namespace) -> int:
                 "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
             ),
         ),
+        on_console=lambda name, line: print(f"[{name}] {line}", flush=True),
     )
     machine.resolve_forward(set())
     await machine.start()
