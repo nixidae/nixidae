@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E6: a forward. The host's iperf3 reaches a guest's server through
 the router: host port, egress, vsock (libkrun listens on a unix socket),
 relay, guest.

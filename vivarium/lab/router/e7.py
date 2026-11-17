@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E7: content through the egress's own vsock device, both ways.
 
 The client guest sends `seq 1 COUNT` to the host's port 7000, then

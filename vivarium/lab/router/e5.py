@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E5: ICMP echo and UDP from a krun guest through the krun router.
 
     lab/router/e5.py LAUNCHER VMLINUX KRUN_INITRD EGRESS IPERF3 [client kernel args...]

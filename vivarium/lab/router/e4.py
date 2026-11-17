@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E4: TCP from a client guest through the router to the host.
 
 client (UML) --vec0 socketpair--> router (UML): nft redirect, relay

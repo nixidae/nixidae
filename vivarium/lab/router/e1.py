@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E1: vsock throughput from a UML guest to the host.
 
 vhost-device-vsock serves the guest's virtio-vsock over vhost-user.

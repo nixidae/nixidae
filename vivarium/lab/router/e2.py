@@ -1,4 +1,4 @@
-#!/usr/bin/env agent-python
+#!/usr/bin/env python3
 """E2: E4's path with a libkrun router.
 
 client (krun or UML) --unixgram socketpair--> router (krun): nft redirect,
