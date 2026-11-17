@@ -881,7 +881,7 @@ class Machine:
         self._guest_sock.close()
         self._guest_sock = None
         # The console pump reads asyncio's StreamReader, as for a process.
-        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251
+        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- nixidae/nixidae#949
         self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))  # noqa: TID251 -- nixidae/nixidae#949
 
     async def _start_console(self, dialect: Dialect) -> None:
@@ -953,8 +953,7 @@ class Machine:
                 await self._ask("poweroff", self._agent.poweroff(), 15)
             except (MachineError, OSError, EOFError):
                 pass
-            except Exception as error:
-                # The agent refused: the guest is reaped below all the same.
+            except Exception as error:  # noqa: BLE001 -- the agent refused; the guest is reaped below all the same
                 self._log(f"the poweroff request failed: {type(error).__name__}: {error}")
             self._conn.close()
             self._conn = None

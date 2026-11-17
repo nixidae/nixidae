@@ -174,7 +174,7 @@ class Broadcast:
         for sink in self._sinks:
             try:
                 sink.close()
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:  # noqa: BLE001 -- one sink that fails to close leaves the others to close
                 print(
                     f"[vivarium] {type(sink).__name__} did not close cleanly: {error}",
                     file=sys.stderr,

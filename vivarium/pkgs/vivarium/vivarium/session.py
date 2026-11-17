@@ -932,7 +932,7 @@ class Session:
                     await test(vms)
                 if limit.cancelled_caught:
                     raise PhaseTimeout(f"phase {phase.name} ran past its timeout of {phase.timeout:g}s")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 -- any error fails the phase, and the run goes on
             took = time.monotonic() - started
             await self.settle(nodes=nodes)
             self._cases_from_guests(phase.name, nodes)

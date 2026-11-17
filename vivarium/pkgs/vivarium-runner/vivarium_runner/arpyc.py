@@ -269,7 +269,7 @@ class AsyncConnection:
                 return
             else:
                 raise ValueError(f"unknown handler {handler_id}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- the caller's error goes back to the caller
             await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
         else:
             await self._send(consts.MSG_REPLY, seq, self._box(result))
@@ -279,7 +279,7 @@ class AsyncConnection:
             result = await pending
             # Inside the try: a result brine cannot dump is the caller's error, not a reply that never comes.
             await self._send(consts.MSG_REPLY, seq, self._box(result))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- the caller's error goes back to the caller
             await self._send(consts.MSG_EXCEPTION, seq, _dump_exc(exc))
 
     async def _serve_one(self) -> None:

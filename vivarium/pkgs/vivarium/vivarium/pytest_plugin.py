@@ -192,13 +192,12 @@ class Plugin:
             return
         # Restored afterwards, as anyio's own plugin does: the definition
         # is shared by every test that asks for it.
-        # pytest declares `func` Final. anyio's plugin swaps it the same way.
-        fixturedef.func = _in_loop(self.portal, func, self._bounded)  # type: ignore[misc]
+        fixturedef.func = _in_loop(self.portal, func, self._bounded)  # type: ignore[misc]  # pytest declares it Final; anyio's plugin swaps it too
         try:
             yield
         finally:
             # The definition is shared by every test that asks for it, so it goes back.
-            fixturedef.func = func  # type: ignore[misc]
+            fixturedef.func = func  # type: ignore[misc]  # Final in pytest, as above
 
     # ── which test is running, for everything else that happens ────
 

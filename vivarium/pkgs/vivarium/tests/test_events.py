@@ -8,11 +8,13 @@ filter is one function, and a renderer is pure.
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import pytest
 from vivarium.events import Event, Kind, Level, junit, render, wanted
 from vivarium.sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 
@@ -108,11 +110,8 @@ class TestAnEventIsNotALogLine:
 
     def test_an_event_cannot_be_changed_by_a_sink(self) -> None:
         one = event(Kind.NOTE)
-        try:
+        with pytest.raises(dataclasses.FrozenInstanceError):
             one.text = "tampered"  # type: ignore[misc]  # frozen on purpose: this test checks the freeze
-        except Exception:
-            return
-        raise AssertionError("an event was mutable, so one sink can lie to the next")
 
 
 class TestJunit:

@@ -12,7 +12,9 @@ extend-exclude = ["tests/fixtures/routeros/probe.py"]
 # Phase scripts, programs and tests print.
 # S101: `python -O` drops an assert, so a check in a library raises.
 # PLC0415: imports at the top; a cycle moves the shared piece out.
-extend-select = ["T201", "S101", "PLC0415"]
+# BLE001: a blind `except Exception` says why in its `noqa`.
+# N815: a camelCase field mirrors a Nix option, and says so in its `noqa`.
+extend-select = ["T201", "S101", "PLC0415", "BLE001", "N815"]
 
 [lint.isort]
 required-imports = ["from __future__ import annotations"]
