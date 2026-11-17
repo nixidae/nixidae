@@ -225,6 +225,28 @@ class QemuConfig:
 
 
 @dataclass(frozen=True)
+class KrunBoot:
+    """`launch.config.boot` under krun: a guest kind that boots its own init,
+    not the NixOS system. The kernel mounts the root disk itself when there is
+    no `initrd`."""
+
+    vmlinux: Path
+    cmdline: str
+    initrd: Path | None = None
+    acpi: bool = False
+
+    @classmethod
+    def of(cls, owner: str, value: object) -> KrunBoot:
+        boot = _section(owner, value, frozenset({"vmlinux", "cmdline"}), frozenset({"initrd", "acpi"}))
+        return cls(
+            vmlinux=Path(boot["vmlinux"]),
+            cmdline=str(boot["cmdline"]),
+            initrd=Path(boot["initrd"]) if "initrd" in boot else None,
+            acpi=bool(boot.get("acpi", False)),
+        )
+
+
+@dataclass(frozen=True)
 class KrunConfig:
     """`vivarium.launch.config` under krun."""
 
@@ -238,11 +260,13 @@ class KrunConfig:
     """For `vivarium.uplink.proxy = "gvproxy"`."""
     egress: Path | None = None
     """The router's host half, on the unix sockets libkrun's vsock reaches."""
+    boot: KrunBoot | None = None
+    """None boots the NixOS system from `spec.boot`."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
         config = launch_config(
-            spec, "krun", frozenset({"krun", "qemuImg"}), frozenset({"passt", "gvproxy", "egress"})
+            spec, "krun", frozenset({"krun", "qemuImg"}), frozenset({"passt", "gvproxy", "egress", "boot"})
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
@@ -252,6 +276,7 @@ class KrunConfig:
             passt=_maybe(config, "passt"),
             gvproxy=_maybe(config, "gvproxy"),
             egress=_maybe(config, "egress"),
+            boot=KrunBoot.of(f"{spec.name}: vivarium.launch.config.boot", config["boot"]) if "boot" in config else None,
         )
 
 
@@ -1534,11 +1559,21 @@ class Krun:
         if disk_ro is not None:
             os.close(disk_ro)
 
+        if config.boot is not None:
+            kernel = [f"--vmlinux={config.boot.vmlinux}", f"--cmdline={config.boot.cmdline}"]
+            if config.boot.initrd is not None:
+                kernel.append(f"--initrd={config.boot.initrd}")
+            acpi = config.boot.acpi
+        else:
+            kernel = [
+                f"--vmlinux={boot['vmlinux']}",
+                f"--initrd={boot['initrd']}",
+                f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
+            ]
+            acpi = bool(boot.get("acpi"))
         argv = [
             str(config.krun),
-            f"--vmlinux={boot['vmlinux']}",
-            f"--initrd={boot['initrd']}",
-            f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
+            *kernel,
             f"--cpus={spec.cpus}",
             f"--memory={memory_bytes(spec.memory) >> 20}",
             f"--disk={'/proc/self' if sys.platform == 'linux' else '/dev'}/fd/{disk_rw}",
@@ -1554,7 +1589,7 @@ class Krun:
             argv.append(f"--artifacts={machine.artifacts}")
         if boot.get("nested"):
             argv.append("--nested")
-        if boot.get("acpi"):
+        if acpi:
             argv.append("--acpi")
         return Launch(
             argv=argv,

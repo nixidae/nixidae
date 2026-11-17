@@ -18,6 +18,7 @@ import os
 import socket
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TypedDict
 
 import anyio
@@ -208,6 +209,22 @@ directory the host binds in, and the host connects once it sees
 :data:`AGENT_READY`."""
 
 
+PORT_PREFIX = "virtio-port:"
+"""A :data:`TTY` that starts with this names a virtio-serial port. A guest
+with no udev has no ``/dev/virtio-ports/<name>`` link, so the agent finds the
+port by the name sysfs gives it, as udev's rule does."""
+
+VIRTIO_PORTS = Path("/sys/class/virtio-ports")
+
+
+def virtio_port(name: str, ports: Path = VIRTIO_PORTS) -> Path:
+    """The device node of the virtio-serial port called *name*."""
+    for port in sorted(ports.iterdir()):
+        if (port / "name").read_text().strip() == name:
+            return Path("/dev") / port.name
+    raise FileNotFoundError(f"no virtio-serial port is named {name!r} in {ports}")
+
+
 def _accept_one(path: str) -> int:
     with contextlib.suppress(FileNotFoundError):
         os.unlink(path)
@@ -227,7 +244,8 @@ async def _serve() -> None:
         fd = await anyio.to_thread.run_sync(_accept_one, TTY[len(UNIX_PREFIX) :])
         conn = listen(fd, Agent(), raw_tty=False)
     else:
-        fd = os.open(TTY, os.O_RDWR)
+        device = virtio_port(TTY[len(PORT_PREFIX) :]) if TTY.startswith(PORT_PREFIX) else Path(TTY)
+        fd = os.open(device, os.O_RDWR)
         # A krun guest's channel is a virtio-console port that is not a
         # console, so it has no line discipline to make raw.
         conn = listen(fd, Agent(), raw_tty=os.isatty(fd))

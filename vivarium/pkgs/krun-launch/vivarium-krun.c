@@ -1,11 +1,14 @@
 /*
  * vivarium-krun: one libkrun guest, in this process.
  *
- *   vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB
+ *   vivarium-krun --vmlinux PATH [--initrd PATH] --cmdline TEXT --cpus N --memory MIB
  *                 --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD
  *                 [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...
  *                 [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...
  *                 [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]
+ *
+ * With no --initrd the kernel mounts its root itself: a guest kind that boots
+ * straight into its own init (docs/design/dinix-guests.md).
  *
  * --uplink is passt's stream; --uplink-segment is a segment's datagram
  * socket, as --lan is, for an uplink a router guest serves. The router
@@ -135,7 +138,7 @@ static bool parse_nic(char *arg, struct nic *nic)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: vivarium-krun --vmlinux PATH --initrd PATH --cmdline TEXT --cpus N --memory MIB\n"
+            "usage: vivarium-krun --vmlinux PATH [--initrd PATH] --cmdline TEXT --cpus N --memory MIB\n"
             "                     --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD\n"
             "                     [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...\n"
             "                     [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...\n"
@@ -203,7 +206,7 @@ int main(int argc, char *argv[])
             return 2;
         }
     }
-    if (optind != argc || !vmlinux || !initrd || !cmdline || !disk || !store || !cpus || !memory || dax_window < 0 ||
+    if (optind != argc || !vmlinux || !cmdline || !disk || !store || !cpus || !memory || dax_window < 0 ||
         agent_fd < 0) {
         usage();
         return 2;
@@ -284,6 +287,7 @@ int main(int argc, char *argv[])
     CHECK(KrunBalloonDevice balloon = krun_balloon_device_new(&err));
     krun_mmio_device_manager_add(devices, balloon);
 
+    /* KRUN_STR(NULL) is no initrd: ffier maps a NULL string to None. */
     /* libkrun loads an ELF only on x86_64, and the raw Image on aarch64. */
 #if defined(__aarch64__)
     const uint32_t format = KRUN_KERNEL_FORMAT_RAW;
