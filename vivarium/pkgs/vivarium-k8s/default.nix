@@ -29,6 +29,6 @@ python3Packages.buildPythonPackage {
   meta = {
     description = "Bring a kubeadm cluster up on vivarium guests";
     license = lib.licenses.asl20;
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 }

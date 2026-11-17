@@ -284,7 +284,13 @@ int main(int argc, char *argv[])
     CHECK(KrunBalloonDevice balloon = krun_balloon_device_new(&err));
     krun_mmio_device_manager_add(devices, balloon);
 
-    CHECK(KrunPayload payload = krun_payload_load_external(KRUN_STR(vmlinux), KRUN_KERNEL_FORMAT_ELF, KRUN_STR(initrd),
+    /* libkrun loads an ELF only on x86_64, and the raw Image on aarch64. */
+#if defined(__aarch64__)
+    const uint32_t format = KRUN_KERNEL_FORMAT_RAW;
+#else
+    const uint32_t format = KRUN_KERNEL_FORMAT_ELF;
+#endif
+    CHECK(KrunPayload payload = krun_payload_load_external(KRUN_STR(vmlinux), format, KRUN_STR(initrd),
                                                            KRUN_STR(cmdline), &err));
 
     KrunVmmBuilder builder = krun_vmm_builder_new();

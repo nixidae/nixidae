@@ -11,11 +11,15 @@
   config,
   lib,
   pkgs,
+  hostPkgs,
   extendModules,
   ...
 }:
 let
-  tools = import ./tools.nix { inherit pkgs lib; };
+  tools = import ./tools.nix {
+    pkgs = hostPkgs;
+    inherit lib;
+  };
 
   portPair = lib.types.submodule {
     options = {
@@ -940,6 +944,10 @@ in
   };
 
   config = {
+    # `mkNode` passes the host's; an evaluation without it runs on the
+    # system it builds for.
+    _module.args.hostPkgs = lib.mkDefault pkgs;
+
     vivarium.interfaces.vec1 = lib.mkIf (config.vivarium.lan.network != null) {
       segment = config.vivarium.lan.network;
       addresses = lib.optional (config.vivarium.lan.address != null) config.vivarium.lan.address;

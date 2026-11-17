@@ -13,13 +13,23 @@
 {
   # A caller passes its own, so nixvenv comes from the same nixidae as it.
   sources ? import ./nix/sources.nix,
+  # The host's: the runner and every program it starts.
   pkgs,
   lib ? pkgs.lib,
+  # The guests'. A guest is Linux, so a macOS host builds it for Linux on
+  # the same processor (nixidae/nixidae#1163).
+  guestPkgs ?
+    if pkgs.stdenv.hostPlatform.isDarwin then
+      import pkgs.path { system = "${pkgs.stdenv.hostPlatform.parsed.cpu.name}-linux"; }
+    else
+      pkgs,
 }:
 let
   inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
 in
 rec {
+  inherit guestPkgs;
+
   /*
     The library a test script imports, reachable without evaluating a
     guest: a caller puts it in the Python it type checks with.  It carries
@@ -335,12 +345,14 @@ rec {
   # platform.
   mkNode =
     module:
-    import (pkgs.path + "/nixos/lib/eval-config.nix") {
+    import (guestPkgs.path + "/nixos/lib/eval-config.nix") {
       inherit lib;
       system = null;
+      # What the host runs for a guest: its launcher, passt, the egress.
+      specialArgs.hostPkgs = pkgs;
       modules = [
         ./modules
-        { nixpkgs.pkgs = pkgs; }
+        { nixpkgs.pkgs = guestPkgs; }
         module
       ];
     };
@@ -490,7 +502,9 @@ rec {
           { _module.args.systems = evaluated; }
         ];
         specialArgs = {
-          inherit pkgs;
+          # A run's modules mostly write guests.
+          pkgs = guestPkgs;
+          hostPkgs = pkgs;
           # The Python packages vivarium builds, for a recipe's
           # `python.packages`.
           vivariumPackages = { inherit runner session k8s; };

@@ -8,11 +8,15 @@
   config,
   lib,
   pkgs,
+  hostPkgs,
   ...
 }:
 let
   cfg = config.vivarium;
-  tools = import ./tools.nix { inherit pkgs lib; };
+  tools = import ./tools.nix {
+    pkgs = hostPkgs;
+    inherit lib;
+  };
 in
 lib.mkIf (cfg.backend == "container") {
   vivarium.launch = {

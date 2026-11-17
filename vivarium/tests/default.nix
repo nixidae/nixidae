@@ -1,7 +1,9 @@
 # The tests. Each directory here with a `default.nix` is one check,
 # `checks.<directory>`; its file is a function of the names below.
 {
+  # The guests'; `hostPkgs` is the host's (lib.nix).
   pkgs,
+  hostPkgs ? pkgs,
   lib,
   sources,
   nixvenv,
@@ -399,6 +401,7 @@ let
   scope = {
     inherit
       pkgs
+      hostPkgs
       lib
       sources
       nixvenv

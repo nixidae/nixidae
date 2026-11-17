@@ -16,6 +16,7 @@
   config,
   lib,
   pkgs,
+  hostPkgs,
   nodes,
   ...
 }:
@@ -33,7 +34,11 @@ let
   gateway6 = "${prefix6}2";
 
   relay = pkgs.callPackage ../pkgs/vivarium-egress/package.nix { };
-  egress = pkgs.callPackage ../pkgs/vivarium-egress/package.nix { vhostUser = true; };
+  # vhost-user is Linux's (epoll, eventfd). A macOS host runs krun only,
+  # whose vsock is libkrun's unix sockets.
+  egress = hostPkgs.callPackage ../pkgs/vivarium-egress/package.nix {
+    vhostUser = hostPkgs.stdenv.hostPlatform.isLinux;
+  };
 
   # The guests behind this router, by name. Not this guest itself.
   guests = lib.filterAttrs (

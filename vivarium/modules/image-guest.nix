@@ -14,12 +14,16 @@
   config,
   lib,
   pkgs,
+  hostPkgs,
   ...
 }:
 let
   cfg = config.vivarium.image;
   inherit (lib) mkOption types;
-  tools = import ./tools.nix { inherit pkgs lib; };
+  tools = import ./tools.nix {
+    pkgs = hostPkgs;
+    inherit lib;
+  };
 
   runner = config.system.build.vivariumRunnerPackage;
 

@@ -23,11 +23,15 @@
   config,
   lib,
   pkgs,
+  hostPkgs,
   ...
 }:
 let
   cfg = config.vivarium;
-  tools = import ./tools.nix { inherit pkgs lib; };
+  tools = import ./tools.nix {
+    pkgs = hostPkgs;
+    inherit lib;
+  };
   krun = cfg.backend == "krun";
   # libkrun 2.0 describes an x86 guest's devices in ACPI on request, and
   # ends on the guest's S5. Its ACPI tables are x86 only.
@@ -37,11 +41,16 @@ let
 
   kernel = config.boot.kernelPackages.kernel;
 
-  # libkrun loads an ELF kernel and no bzImage. The dev output's vmlinux
-  # is 433 MB of debug info; stripped, the run's closure holds only this.
-  vmlinux = pkgs.runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ pkgs.binutils ]; } ''
-    objcopy --strip-all ${kernel.dev}/vmlinux $out
-  '';
+  # libkrun loads an ELF kernel and no bzImage on x86_64. The dev output's
+  # vmlinux is 433 MB of debug info; stripped, the run's closure holds only
+  # this. On aarch64 it loads the raw Image only (`load_external_kernel`).
+  vmlinux =
+    if pkgs.stdenv.hostPlatform.isAarch64 then
+      "${kernel}/${config.system.boot.loader.kernelFile}"
+    else
+      pkgs.runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ pkgs.binutils ]; } ''
+        objcopy --strip-all ${kernel.dev}/vmlinux $out
+      '';
 
   # A krun guest ends with a reset whatever it meant, so it tells libkrun
   # which: libkrun's process exits with the code the guest last set through
@@ -107,8 +116,13 @@ lib.mkIf
         {
           backend = "krun";
           config = {
-            inherit (tools) krun qemuImg passt;
+            inherit (tools) krun qemuImg;
           }
+          # Only where it serves vec0 (`MachineSpec.vsock`): a macOS host
+          # has no passt.
+          // lib.optionalAttrs (
+            cfg.uplink.proxy == "passt" && cfg.uplink.segment == null && !cfg.router.enable
+          ) { inherit (tools) passt; }
           // lib.optionalAttrs (cfg.uplink.proxy == "gvproxy") { inherit (tools) gvproxy; };
         }
       else
@@ -176,7 +190,8 @@ lib.mkIf
         "panic=-1"
       ]
       ++ [
-        "console=ttyS0,115200"
+        # A PL011 on aarch64: libkrun's serial port, and QEMU virt's.
+        (if pkgs.stdenv.hostPlatform.isAarch64 then "console=ttyAMA0,115200" else "console=ttyS0,115200")
         # What the balloon reports as free, in pages: 2^5 is 128 KiB.
         #
         # The default is `pageblock_order`, 2 MiB here, and a guest that has

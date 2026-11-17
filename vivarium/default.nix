@@ -43,10 +43,12 @@ let
     images
     ;
 
-  k8sImages = pkgs.callPackage ./modules/k8s-images.nix { };
+  # The tests write guests, so their `pkgs` is the guests'.
+  k8sImages = vivarium.guestPkgs.callPackage ./modules/k8s-images.nix { };
   tests = import ./tests {
+    pkgs = vivarium.guestPkgs;
+    hostPkgs = pkgs;
     inherit
-      pkgs
       lib
       sources
       nixvenv
