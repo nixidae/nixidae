@@ -882,6 +882,9 @@ rec {
     in
     pkgs.runCommand "vivarium-session-${name}"
       {
+        # It reads one file. A remote builder takes the attempt's closure
+        # first, root images and all, at their whole disk size.
+        preferLocalBuild = true;
         passthru = {
           inherit
             attempt
