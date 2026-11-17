@@ -211,6 +211,23 @@ let
       description = "guests behind a libkrun router guest";
       timeoutMinutes = 30;
     };
+    # A guest that is its own router: relay and ruleset in a namespace,
+    # its egress on the host. One job per vsock transport.
+    lan-vsock = {
+      description = "two guests on vsock uplinks hold lan's contract";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
+    forward-vsock = {
+      description = "the forward contract holds on a QEMU guest's vsock uplink";
+      timeoutMinutes = 30;
+    };
+    lan-vsock-krun = {
+      test = "lan-vsock";
+      backend = "krun";
+      description = "two libkrun guests on vsock uplinks hold lan's contract";
+      timeoutMinutes = 30;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
