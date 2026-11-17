@@ -20,6 +20,9 @@ let
 
   inherit (import ./steps.nix { inherit lib; }) steps;
 
+  # A whole value GitHub evaluates at run time, where a key takes one in place of a literal.
+  expression = types.strMatching "^\\$\\{\\{.*}}$";
+
   /*
     Where each generated step lands in a job's `steps`.
 
@@ -520,10 +523,11 @@ let
         description = "Environment variables scoped to this step.";
       };
       timeout-minutes = mkOption {
-        type = types.nullOr types.int;
+        type = types.nullOr (types.either types.int expression);
         default = null;
         description = ''
-          Minutes GitHub waits before killing this step.
+          Minutes GitHub waits before killing this step: a number, or an
+          expression such as `\''${{ fromJSON(inputs.minutes) }}`.
 
           A job-level cap answers "the job stopped". A step-level cap answers
           "which part of the job stopped", and it lets a long step sit beside
@@ -649,8 +653,14 @@ let
             total: step:
             total
             + (
-              if step.timeout-minutes != null then
+              if builtins.isInt step.timeout-minutes then
                 step.timeout-minutes
+              else if step.timeout-minutes != null then
+                throw ''
+                  ghanix: a step's timeout-minutes is an expression, ${step.timeout-minutes},
+                  so `ghanix.deriveTimeout` cannot sum the job's cap. Set the
+                  job's timeout-minutes itself.
+                ''
               else
                 throw ''
                   ghanix: a step of this job declares no timeout-minutes, so
@@ -787,6 +797,16 @@ let
           by its path instead. Adding one to a workflow that had none is not
           a cosmetic change -- `''${{ github.workflow }}` is that name, and a
           `concurrency` group built from it becomes a different group.
+        '';
+      };
+      run-name = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "Deploy \${{ inputs.environment }}";
+        description = ''
+          The name of each run, shown in the Actions UI and answered by the
+          API as `display_title`. It may read `github` and `inputs`, so a
+          dispatched run can carry what its caller needs to find it again.
         '';
       };
       on = mkOption {
@@ -927,6 +947,7 @@ in
       on,
       jobs,
       name ? null,
+      run-name ? null,
       env ? null,
       permissions ? null,
       concurrency ? null,
@@ -937,6 +958,7 @@ in
           {
             inherit
               name
+              run-name
               on
               jobs
               env
@@ -953,6 +975,7 @@ in
         inherit (cfg) on;
       }
       // lib.optionalAttrs (cfg.name != null) { inherit (cfg) name; }
+      // lib.optionalAttrs (cfg.run-name != null) { inherit (cfg) run-name; }
       // lib.optionalAttrs (cfg.env != null) { inherit (cfg) env; }
       // lib.optionalAttrs (cfg.permissions != null) { inherit (cfg) permissions; }
       // lib.optionalAttrs (cfg.concurrency != null) { inherit (cfg) concurrency; }
