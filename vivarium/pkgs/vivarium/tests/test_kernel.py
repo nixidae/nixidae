@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from vivarium.session import CpuOverride, SessionError, with_cpus, with_kernel
+from vivarium_runner import MachineSpec
 
 if TYPE_CHECKING:
     from vivarium_runner.machine import MachineSpecJson
@@ -13,37 +14,40 @@ MINE = Path("/home/me/linux/linux")
 
 
 class TestWithKernel:
-    def test_uml_takes_it_from_launch(self) -> None:
-        machines = with_kernel(
-            [{"name": "one", "launch": {"backend": "uml", "config": {"kernel": "/nix/store/k-linux", "bridge": "/b"}}}],
-            MINE,
-        )
-        assert machines[0]["launch"] == {"backend": "uml", "config": {"kernel": str(MINE), "bridge": "/b"}}
-
-    def test_qemu_takes_it_from_each_machine(self) -> None:
-        machines = with_kernel(
-            [
-                {"name": "a", "boot": {"kernel": "/nix/store/b", "initrd": "/i"}},
-                {"name": "b", "boot": {"kernel": "/x"}},
-            ],
-            MINE,
-        )
-        assert [m["boot"]["kernel"] for m in machines] == [str(MINE), str(MINE)]
-        assert machines[0]["boot"]["initrd"] == "/i"
-        assert "launch" not in machines[0], "a guest without launch gets none"
-
-    def test_a_launch_without_a_kernel_is_left_alone(self) -> None:
-        machines = with_kernel([{"name": "c", "launch": {"backend": "container", "config": {}}}], MINE)
-        assert machines[0]["launch"] == {"backend": "container", "config": {}}
-
-    def test_the_spec_is_not_changed(self) -> None:
-        machines: list[MachineSpecJson] = [
-            {"name": "a", "boot": {"kernel": "/nix/store/b"}},
-            {"name": "u", "launch": {"backend": "uml", "config": {"kernel": "/nix/store/k"}}},
+    def test_each_guest_s_backend_names_it(self) -> None:
+        machines = [
+            MachineSpec.from_json(
+                {
+                    "name": "u",
+                    "backend": "uml",
+                    "launch": {"backend": "uml", "config": {"kernel": "/nix/store/k", "bridge": "/b", "passt": "/p"}},
+                }
+            ),
+            MachineSpec.from_json(
+                {
+                    "name": "k",
+                    "backend": "krun",
+                    "boot": {"kernel": "/nix/store/bzImage", "vmlinux": "/nix/store/vmlinux"},
+                    "launch": {"backend": "krun", "config": {"krun": "/k", "qemuImg": "/i"}},
+                }
+            ),
         ]
-        with_kernel(machines, MINE)
-        assert machines[0]["boot"]["kernel"] == "/nix/store/b"
-        assert machines[1]["launch"]["config"]["kernel"] == "/nix/store/k"
+        uml, krun = with_kernel(machines, MINE)
+        assert uml.launch is not None
+        assert uml.launch.config["kernel"] == str(MINE)
+        assert krun.boot["vmlinux"] == str(MINE)
+        assert krun.boot["kernel"] == "/nix/store/bzImage"
+
+    def test_a_guest_with_no_kernel_of_its_own_refuses_the_run(self) -> None:
+        container = MachineSpec.from_json(
+            {
+                "name": "c",
+                "backend": "container",
+                "launch": {"backend": "container", "config": {"crun": "/c", "setpriv": "/s", "passt": "/p"}},
+            }
+        )
+        with pytest.raises(SessionError, match="--kernel: c: a container guest runs on the host's kernel"):
+            with_kernel([container], MINE)
 
 
 class TestWithCpus:

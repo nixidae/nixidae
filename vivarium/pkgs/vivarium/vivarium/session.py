@@ -45,7 +45,8 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 import anyio
 import pytest
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backend
+from vivarium_runner.backend import BackendError
 from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
@@ -165,26 +166,17 @@ def load_phase(script: Path) -> Callable[[Machines], Awaitable[None]]:
     return cast("Callable[[Machines], Awaitable[None]]", test)
 
 
-def _with_kernel(machine: MachineSpecJson, kernel: Path) -> MachineSpecJson:
-    swapped: MachineSpecJson = {**machine}
-    launch = machine.get("launch")
-    if launch is not None and "kernel" in launch.get("config", {}):
-        swapped["launch"] = {**launch, "config": {**launch["config"], "kernel": str(kernel)}}
-    boot = machine.get("boot")
-    if isinstance(boot, dict) and "kernel" in boot:
-        swapped["boot"] = {**boot, "kernel": str(kernel)}
-    return swapped
-
-
-def with_kernel(machines: list[MachineSpecJson], kernel: Path) -> list[MachineSpecJson]:
+def with_kernel(machines: list[MachineSpec], kernel: Path) -> list[MachineSpec]:
     """The machines, booting `kernel` instead of Nix's.
 
-    UML reads its kernel from `launch.config`; QEMU and krun from `boot`.
-    Both are swapped, so the caller need not know which backend a guest
-    has. Pure, and only ever reached from `--kernel`, by hand: the check
-    keeps the kernel Nix built.
+    Each guest's backend knows where its kernel is named, and refuses a
+    guest that boots none of its own. Only ever reached from `--kernel`,
+    by hand: the check keeps the kernel Nix built.
     """
-    return [_with_kernel(machine, kernel) for machine in machines]
+    try:
+        return [backend.get(machine.backend).with_kernel(machine, kernel) for machine in machines]
+    except BackendError as error:
+        raise SessionError(f"--kernel: {error}") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,17 +416,17 @@ class Session:
             raise SessionError("already prepared")
         # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
         machines = cast("list[MachineSpecJson]", self.spec.machines)
+        if self.cpus is not None:
+            machines = with_cpus(machines, self.cpus)
+        specs = [MachineSpec.from_json(m) for m in machines]
         if self.kernel is not None:
-            machines = with_kernel(machines, self.kernel)
+            specs = with_kernel(specs, self.kernel)
             self.emit(
                 Kind.NOTE,
                 f"booting {self.kernel}, not the kernel Nix built; this is not the check",
                 level=Level.ERROR,
                 kernel=str(self.kernel),
             )
-        if self.cpus is not None:
-            machines = with_cpus(machines, self.cpus)
-        specs = [MachineSpec.from_json(m) for m in machines]
         self._requires = {one.name: list(one.requires) for one in specs}
 
         # A segment's members are `<machine>/<interface>`: neither name
@@ -477,11 +469,12 @@ class Session:
         self._journals = {}
         self._all = Machines((one.name, self._machine(one, lan_fds.get(one.name))) for one in specs)
         templates = cast("list[MachineSpecJson]", self.spec.templates)
-        if self.kernel is not None:
-            templates = with_kernel(templates, self.kernel)
         if self.cpus is not None:
             templates = with_cpus(templates, self.cpus)
-        self._templates = {one["name"]: MachineSpec.from_json(one) for one in templates}
+        parsed = [MachineSpec.from_json(one) for one in templates]
+        if self.kernel is not None:
+            parsed = with_kernel(parsed, self.kernel)
+        self._templates = {one.name: one for one in parsed}
         self._instance_base = len(specs) + len(self._templates)
         # Only the guests that are up. `exec` and a phase's `vms` never
         # see a guest that has not booted, which would hang them.

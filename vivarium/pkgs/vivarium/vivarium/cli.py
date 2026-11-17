@@ -161,8 +161,9 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="PATH",
         help=(
             "boot this kernel instead of the one Nix built: `linux` from a UML"
-            " tree, a bzImage for QEMU (virtio built in). For iterating on a"
-            " kernel without a Nix build per change; never the check's kernel"
+            " tree, a bzImage for QEMU, `vmlinux` for krun (virtio built in)."
+            " A container guest refuses it. For iterating on a kernel without"
+            " a Nix build per change; never the check's kernel"
         ),
     )
     run.add_argument(

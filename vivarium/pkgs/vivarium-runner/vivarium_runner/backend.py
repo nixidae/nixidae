@@ -39,7 +39,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -293,6 +293,19 @@ class ContainerConfig:
     def of(cls, spec: MachineSpec) -> ContainerConfig:
         config = launch_config(spec, "container", frozenset({"crun", "setpriv", "passt"}))
         return cls(crun=_path(config, "crun"), setpriv=_path(config, "setpriv"), passt=_path(config, "passt"))
+
+
+def _with_config(spec: MachineSpec, key: str, value: str, section: str | None = None) -> MachineSpec:
+    """*spec* with *value* at `vivarium.launch.config.<key>`, or at
+    `vivarium.launch.config.<section>.<key>`."""
+    if spec.launch is None:
+        raise BackendError(f"{spec.name}: no vivarium.launch")
+    config = dict(spec.launch.config)
+    if section is None:
+        config[key] = value
+    else:
+        config[section] = {**config[section], key: value}
+    return replace(spec, launch=replace(spec.launch, config=config))
 
 
 def _path(config: Mapping[str, object], key: str) -> Path:
@@ -561,6 +574,13 @@ class Backend(Protocol):
         """Raise `BackendError` when `spec.launch` is wrong for this backend."""
         ...
 
+    def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:
+        """*spec*, booting *kernel* instead of the kernel Nix built.
+
+        Raise `BackendError` when the runner names no kernel for this guest.
+        """
+        ...
+
     def launch(
         self,
         machine: Machine,
@@ -651,6 +671,10 @@ class Uml:
     @staticmethod
     def validate(spec: MachineSpec) -> None:
         UmlConfig.of(spec)
+
+    @staticmethod
+    def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
+        return _with_config(spec, "kernel", str(kernel))
 
     @staticmethod
     def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
@@ -829,6 +853,14 @@ class Qemu:
 
     def validate(self, spec: MachineSpec) -> None:
         QemuConfig.of(spec)
+
+    def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:
+        disk = QemuConfig.of(spec).disk
+        if disk is None and spec.boot.get("kernel"):
+            return replace(spec, boot={**spec.boot, "kernel": str(kernel)})
+        if disk is not None and disk.kernel is not None:
+            return _with_config(spec, "kernel", str(kernel), section="disk")
+        raise BackendError(f"{spec.name}: the guest's firmware picks its kernel, so there is none to replace")
 
     def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
         return QemuConfig.of(spec).ocr
@@ -1401,6 +1433,14 @@ class Krun:
         KrunConfig.of(spec)
 
     @staticmethod
+    def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
+        # libkrun loads the ELF vmlinux. `boot.kernel`, the bzImage, stays:
+        # a reboot compares the bootloader's choice with it.
+        if KrunConfig.of(spec).boot is not None:
+            return _with_config(spec, "vmlinux", str(kernel), section="boot")
+        return replace(spec, boot={**spec.boot, "vmlinux": str(kernel)})
+
+    @staticmethod
     def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
         return None
 
@@ -1617,6 +1657,10 @@ class Container:
     @staticmethod
     def validate(spec: MachineSpec) -> None:
         ContainerConfig.of(spec)
+
+    @staticmethod
+    def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
+        raise BackendError(f"{spec.name}: a container guest runs on the host's kernel, so there is none to replace")
 
     @staticmethod
     def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
